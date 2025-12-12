@@ -1,0 +1,91 @@
+name:                trader
+version:             0.1.0.0
+synopsis:            LSTM-based price predictor and simple trading simulator (Haskell port)
+category:            Finance
+build-type:          Simple
+cabal-version:       >=1.10
+
+executable trader-hs
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  other-modules:       Trader.Binance
+                     , Trader.Duration
+                     , Trader.KalmanFusion
+                     , Trader.Kalman3
+                     , Trader.LSTM
+                     , Trader.Metrics
+                     , Trader.Normalization
+                     , Trader.OnlineStats
+                     , Trader.Predictors
+                     , Trader.Predictors.Types
+                     , Trader.Predictors.Features
+                     , Trader.Predictors.GBDT
+                     , Trader.Predictors.TCN
+                     , Trader.Predictors.Transformer
+                     , Trader.Predictors.Quantile
+                     , Trader.Predictors.Conformal
+                     , Trader.Predictors.HMM
+                     , Trader.SensorVariance
+                     , Trader.Symbol
+                     , Trader.Trading
+  default-language:    Haskell2010
+  build-depends:       base >=4.14 && <4.20
+                     , aeson >=1.5
+                     , bytestring >=0.10
+                     , base16-bytestring
+                     , cassava >=0.5
+                     , cryptonite
+                     , memory
+                     , http-client
+                     , http-client-tls
+                     , http-types
+                     , unordered-containers
+                     , optparse-applicative >=0.17
+                     , random >=1.2
+                     , ad >=4.4
+                     , text
+                     , time
+                     , vector >=0.12
+
+test-suite trader-tests
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test, app
+  main-is:             TestMain.hs
+  other-modules:       Trader.Binance
+                     , Trader.Duration
+                     , Trader.KalmanFusion
+                     , Trader.Kalman3
+                     , Trader.LSTM
+                     , Trader.Metrics
+                     , Trader.Normalization
+                     , Trader.OnlineStats
+                     , Trader.Predictors
+                     , Trader.Predictors.Types
+                     , Trader.Predictors.Features
+                     , Trader.Predictors.GBDT
+                     , Trader.Predictors.TCN
+                     , Trader.Predictors.Transformer
+                     , Trader.Predictors.Quantile
+                     , Trader.Predictors.Conformal
+                     , Trader.Predictors.HMM
+                     , Trader.SensorVariance
+                     , Trader.Symbol
+                     , Trader.Trading
+  default-language:    Haskell2010
+  build-depends:       base >=4.14 && <4.20
+                     , aeson >=1.5
+                     , bytestring >=0.10
+                     , base16-bytestring
+                     , cassava >=0.5
+                     , cryptonite
+                     , memory
+                     , http-client
+                     , http-client-tls
+                     , http-types
+                     , unordered-containers
+                     , optparse-applicative >=0.17
+                     , random >=1.2
+                     , ad >=4.4
+                     , text
+                     , time
+                     , vector >=0.12

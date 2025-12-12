@@ -1,0 +1,19 @@
+.DS_Store
+
+# Python
+.venv/
+
+# Haskell / Cabal
+dist/
+dist-newstyle/
+haskell/dist-newstyle/
+.cabal-sandbox/
+cabal.sandbox.config
+.ghc.environment.*
+*.hi
+*.o
+*.dyn_hi
+*.dyn_o
+*.prof
+*.hp
+*.eventlog
