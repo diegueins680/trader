@@ -121,7 +121,8 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--kalman-measurement-var 1e-3` fallback measurement variance (and initial variance)
 
 - Strategy / costs
-  - `--threshold 0.001` trade threshold (fractional edge)
+  - `--threshold 0.001` direction threshold (fractional deadband)
+  - `--sweep-threshold` sweep thresholds on the backtest split and pick the best by final equity
   - `--fee 0.0005` fee applied when switching position
 
 - Metrics

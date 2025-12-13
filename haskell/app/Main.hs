@@ -108,6 +108,7 @@ data Args = Args
   , argKalmanProcessVar :: Double
   , argKalmanMeasurementVar :: Double
   , argTradeThreshold :: Double
+  , argSweepThreshold :: Bool
   , argFee :: Double
   , argPeriodsPerYear :: Maybe Double
   } deriving (Eq, Show)
@@ -141,7 +142,8 @@ opts =
     <*> option auto (long "kalman-dt" <> value 1.0 <> help "Kalman dt")
     <*> option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
     <*> option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
-    <*> option auto (long "threshold" <> value 0.001 <> help "Trade threshold (fractional edge)")
+    <*> option auto (long "threshold" <> value 0.001 <> help "Direction threshold (fractional deadband)")
+    <*> switch (long "sweep-threshold" <> help "Sweep trade thresholds on the backtest split and print the best final equity")
     <*> option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
     <*> optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
 
@@ -235,22 +237,34 @@ main = do
       kalPredPrice = reverse kalPredRev
       lstmPredPrice = reverse lstmPredRev
 
-      cfg =
-        EnsembleConfig
-          { ecTradeThreshold = argTradeThreshold args
-          , ecFee = argFee args
-          }
-      backtest = simulateEnsembleLongFlat cfg 1 backtestPrices kalPredPrice lstmPredPrice
+      (bestThreshold, backtest) =
+        if argSweepThreshold args
+          then sweepThreshold args backtestPrices kalPredPrice lstmPredPrice
+          else
+            let cfg =
+                  EnsembleConfig
+                    { ecTradeThreshold = argTradeThreshold args
+                    , ecFee = argFee args
+                    }
+             in (argTradeThreshold args, simulateEnsembleLongFlat cfg 1 backtestPrices kalPredPrice lstmPredPrice)
 
       ppy = periodsPerYear args
       metrics = computeMetrics ppy backtest
 
+      argsForSignal =
+        if argSweepThreshold args
+          then args { argTradeThreshold = bestThreshold }
+          else args
+
   putStrLn (printf "\nSplit: train=%d backtest=%d (backtest-ratio=%.3f)" (length trainPrices) (length backtestPrices) backtestRatio)
+  if argSweepThreshold args
+    then putStrLn (printf "Best threshold (by final equity): %.6f (%.3f%%)" bestThreshold (bestThreshold * 100))
+    else pure ()
   putStrLn "Backtest (Kalman fusion + LSTM direction-agreement gated) complete."
   printLstmSummary history
   printMetrics metrics
 
-  printLatestSignal args lookback normState obsAll pricesV lstmModel predictors kalFinal hmmFinal svFinal mBinanceEnv
+  printLatestSignal argsForSignal lookback normState obsAll pricesV lstmModel predictors kalFinal hmmFinal svFinal mBinanceEnv
 
 loadPrices :: Args -> IO ([Double], Maybe BinanceEnv)
 loadPrices args =
@@ -365,6 +379,51 @@ backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEn
           sensorOuts
       hmm' = updateHMM predictors predState realizedR
    in (kal', hmm', sv', kalNext : kalAcc, lstmNext : lstmAcc)
+
+bestFinalEquity :: BacktestResult -> Double
+bestFinalEquity br =
+  case reverse (brEquityCurve br) of
+    (x:_) -> x
+    [] -> 1.0
+
+sweepThreshold :: Args -> [Double] -> [Double] -> [Double] -> (Double, BacktestResult)
+sweepThreshold args prices kalPred lstmPred =
+  let n = length prices
+      stepCount = n - 1
+      eps = 1e-12
+
+      mags =
+        [ v
+        | t <- [0 .. stepCount - 1]
+        , let prev = prices !! t
+        , prev /= 0
+        , pred <- [kalPred !! t, lstmPred !! t]
+        , let v = abs (pred / prev - 1)
+        , not (isNaN v)
+        , not (isInfinite v)
+        ]
+
+      candidates = 0 : map (\v -> max 0 (v - eps)) mags
+
+      eval thr =
+        let cfg =
+              EnsembleConfig
+                { ecTradeThreshold = thr
+                , ecFee = argFee args
+                }
+            bt = simulateEnsembleLongFlat cfg 1 prices kalPred lstmPred
+         in (bestFinalEquity bt, thr, bt)
+
+      (baseEq, baseThr, baseBt) = eval (max 0 (argTradeThreshold args))
+      eqEps = 1e-12
+      pick (bestEq, bestThr, bestBt) thr =
+        let (eq, thr', bt) = eval thr
+         in if eq > bestEq + eqEps || (abs (eq - bestEq) <= eqEps && thr' > bestThr)
+              then (eq, thr', bt)
+              else (bestEq, bestThr, bestBt)
+
+      (_, bestThr, bestBt) = foldl' pick (baseEq, baseThr, baseBt) candidates
+   in (bestThr, bestBt)
 
 printLstmSummary :: [EpochStats] -> IO ()
 printLstmSummary history =
