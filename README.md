@@ -145,6 +145,50 @@ cd haskell
 cabal test
 ```
 
+REST API
+--------
+Run the bot as a stateless REST API (each request loads data and computes/trains as needed):
+```
+cd haskell
+cabal run trader-hs -- --serve --port 8080
+```
+
+Endpoints:
+- `GET /health`
+- `POST /signal` → returns the latest signal (no orders)
+- `POST /trade` → returns the latest signal + attempts an order
+- `POST /backtest` → runs a backtest and returns summary metrics
+
+Examples:
+```
+curl -s http://127.0.0.1:8080/health
+```
+
+```
+curl -s -X POST http://127.0.0.1:8080/signal \
+  -H 'Content-Type: application/json' \
+  -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":200,"method":"10","threshold":0.003838}'
+```
+
+Optimize `method` and `threshold` on the backtest split (no orders):
+```
+curl -s -X POST http://127.0.0.1:8080/backtest \
+  -H 'Content-Type: application/json' \
+  -d '{"binanceSymbol":"BTCUSDT","interval":"5m","bars":1000,"optimizeOperations":true}'
+```
+
+```
+export BINANCE_API_KEY=...
+export BINANCE_API_SECRET=...
+curl -s -X POST http://127.0.0.1:8080/trade \
+  -H 'Content-Type: application/json' \
+  -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":200,"method":"10","threshold":0.003838,"orderQuote":20,"binanceLive":false}'
+```
+
+Assumptions:
+- Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
+- `method` is `"11"` (both; direction-agreement gated), `"10"` (Kalman only), or `"01"` (LSTM only).
+
 Assumptions and limitations
 ---------------------------
 - The strategy is intentionally simple (long or flat only) and does not include sizing, risk limits, or robust transaction cost modeling.

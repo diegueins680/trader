@@ -1,19 +1,31 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, evaluate, try)
 import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.List (isInfixOf)
 import qualified Data.Vector as V
 import System.Exit (exitFailure, exitSuccess)
 
-import Trader.Binance (Kline(..), signQuery)
+import Trader.Binance
+  ( BinanceMarket(..)
+  , BinanceOrderMode(..)
+  , OrderSide(..)
+  , Kline(..)
+  , binanceBaseUrl
+  , newBinanceEnv
+  , placeMarketOrder
+  , signQuery
+  )
 import Trader.Duration (lookbackBarsFrom)
 import Trader.KalmanFusion (Kalman1(..), initKalman1, updateMulti)
 import Trader.Kalman3 (forecastNextConstantAcceleration1D, runConstantAcceleration1D, KalmanRun(..))
 import Trader.LSTM (LSTMConfig(..), LSTMModel(..), trainLSTM, buildSequences, evaluateLoss)
+import Trader.Method (Method(..), parseMethod, selectPredictions)
 import Trader.Metrics (computeMetrics, bmMaxDrawdown, bmTotalReturn)
+import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
 import Trader.Predictors
   ( SensorId(..)
   , SensorOutput(..)
@@ -25,6 +37,7 @@ import Trader.Predictors
   , predictSensors
   )
 import Trader.Trading (BacktestResult(..), EnsembleConfig(..), simulateEnsembleLongFlat)
+import Trader.Split (Split(..), splitTrainBacktest)
 
 main :: IO ()
 main = do
@@ -39,6 +52,12 @@ main = do
     , run "metrics max drawdown" testMetricsMaxDrawdown
     , run "binance signature length" testBinanceSignatureLength
     , run "binance kline json parsing" testBinanceKlineParsing
+    , run "method parsing" testMethodParsing
+    , run "method selects predictions" testMethodSelection
+    , run "train/backtest split" testTrainBacktestSplit
+    , run "threshold sweep" testSweepThreshold
+    , run "operations optimization" testOptimizeOperations
+    , run "binance order validation" testBinanceOrderValidation
     ]
   if and results then exitSuccess else exitFailure
 
@@ -194,6 +213,86 @@ testBinanceKlineParsing = do
     Right ks -> do
       assert "kline count" (length ks == 2)
       assertApprox "close parse" 1e-12 (kClose (head ks)) 123.45
+
+testMethodParsing :: IO ()
+testMethodParsing = do
+  assert "parse 11" (parseMethod "11" == Right MethodBoth)
+  assert "parse 10" (parseMethod "10" == Right MethodKalmanOnly)
+  assert "parse 01" (parseMethod "01" == Right MethodLstmOnly)
+  case parseMethod "00" of
+    Left _ -> pure ()
+    Right _ -> error "expected parse failure"
+
+testMethodSelection :: IO ()
+testMethodSelection = do
+  let kal = [1.0, 2.0]
+      lstm = [10.0, 20.0]
+  assert "both keeps both" (selectPredictions MethodBoth kal lstm == (kal, lstm))
+  assert "kalman-only duplicates kalman" (selectPredictions MethodKalmanOnly kal lstm == (kal, kal))
+  assert "lstm-only duplicates lstm" (selectPredictions MethodLstmOnly kal lstm == (lstm, lstm))
+
+testTrainBacktestSplit :: IO ()
+testTrainBacktestSplit = do
+  let xs = [1 .. 100 :: Int]
+  case splitTrainBacktest 5 0.2 xs of
+    Left e -> error e
+    Right s -> do
+      assert "trainEndRaw" (splitTrainEndRaw s == 80)
+      assert "trainEnd" (splitTrainEnd s == 80)
+      assert "train size" (length (splitTrain s) == 80)
+      assert "backtest size" (length (splitBacktest s) == 20)
+      assert "no overlap" (splitTrain s ++ splitBacktest s == xs)
+
+  let xs2 = [1 .. 60 :: Int]
+  case splitTrainBacktest 50 0.9 xs2 of
+    Left e -> error e
+    Right s -> do
+      assert "adjusted for lookback" (splitTrainEndRaw s == 6 && splitTrainEnd s == 51)
+      assert "train size2" (length (splitTrain s) == 51)
+      assert "backtest size2" (length (splitBacktest s) == 9)
+
+testSweepThreshold :: IO ()
+testSweepThreshold = do
+  let prices = [100, 110]
+      kalPred = [110]
+      lstmPred = [110]
+      (thr, bt) = sweepThreshold MethodKalmanOnly 0.0 0.0 prices kalPred lstmPred
+  assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)
+  assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
+
+testOptimizeOperations :: IO ()
+testOptimizeOperations = do
+  let prices = [100, 110]
+      kalPred = [110]
+      lstmPred = [90]
+      (m, thr, bt) = optimizeOperations 0.0 0.0 prices kalPred lstmPred
+  assert "picked kalman-only" (m == MethodKalmanOnly)
+  assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)
+  assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
+
+assertThrowsContains :: String -> (() -> IO a) -> IO ()
+assertThrowsContains needle mkAction = do
+  r <- (try (mkAction () >> pure ()) :: IO (Either SomeException ()))
+  case r of
+    Left e -> assert ("missing exception substring: " ++ needle) (needle `isInfixOf` show e)
+    Right _ -> error ("expected exception containing: " ++ needle)
+
+testBinanceOrderValidation :: IO ()
+testBinanceOrderValidation = do
+  envSpot <- newBinanceEnv MarketSpot binanceBaseUrl (Just "k") (Just "s")
+  assertThrowsContains
+    "Provide quantity or quoteOrderQty"
+    (\() -> placeMarketOrder envSpot OrderTest "BTCUSDT" Buy Nothing Nothing Nothing)
+
+  envMargin <- newBinanceEnv MarketMargin binanceBaseUrl (Just "k") (Just "s")
+  assertThrowsContains
+    "Margin does not support order test"
+    (\() -> placeMarketOrder envMargin OrderTest "BTCUSDT" Buy (Just 0.1) Nothing Nothing)
+
+  envFutures <- newBinanceEnv MarketFutures binanceBaseUrl (Just "k") (Just "s")
+  assertThrowsContains
+    "Futures MARKET orders require --order-quantity"
+    (\() -> placeMarketOrder envFutures OrderTest "BTCUSDT" Buy Nothing (Just 50) Nothing)
 
 forwardReturns :: [Double] -> [Double]
 forwardReturns ps =

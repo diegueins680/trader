@@ -202,36 +202,38 @@ placeMarketOrder env mode symbol side quantity quoteOrderQty reduceOnly = do
           Just True -> [("reduceOnly", "true")]
           _ -> []
 
-      (path, label, params) =
-        case beMarket env of
-          MarketSpot ->
-            let p =
-                  case (quantity, quoteOrderQty) of
-                    (Nothing, Nothing) -> error "Provide quantity or quoteOrderQty for MARKET orders"
-                    _ -> baseParams ++ qtyParamsSpotOrMargin
-             in ( if mode == OrderTest then "/api/v3/order/test" else "/api/v3/order"
-                , if mode == OrderTest then "order/test" else "order"
-                , p
-                )
-          MarketMargin ->
-            let p =
-                  case (quantity, quoteOrderQty) of
-                    (Nothing, Nothing) -> error "Provide quantity or quoteOrderQty for MARKET orders"
-                    _ -> baseParams ++ qtyParamsSpotOrMargin
-             in case mode of
-                  OrderTest -> error "Margin does not support order test; rerun with --binance-live"
-                  OrderLive -> ("/sapi/v1/margin/order", "margin/order", p)
-          MarketFutures ->
-            let p =
-                  case quantity of
-                    Nothing -> error "Futures MARKET orders require --order-quantity (or compute it from --order-quote in the caller)"
-                    Just _ -> baseParams ++ qtyParamsFutures ++ reduceOnlyParams
-             in ( if mode == OrderTest then "/fapi/v1/order/test" else "/fapi/v1/order"
-                , if mode == OrderTest then "futures/order/test" else "futures/order"
-                , p
-                )
+  (path, label, params) <-
+    case beMarket env of
+      MarketSpot -> do
+        p <-
+          case (quantity, quoteOrderQty) of
+            (Nothing, Nothing) -> throwIO (userError "Provide quantity or quoteOrderQty for MARKET orders")
+            _ -> pure (baseParams ++ qtyParamsSpotOrMargin)
+        pure
+          ( if mode == OrderTest then "/api/v3/order/test" else "/api/v3/order"
+          , if mode == OrderTest then "order/test" else "order"
+          , p
+          )
+      MarketMargin -> do
+        p <-
+          case (quantity, quoteOrderQty) of
+            (Nothing, Nothing) -> throwIO (userError "Provide quantity or quoteOrderQty for MARKET orders")
+            _ -> pure (baseParams ++ qtyParamsSpotOrMargin)
+        case mode of
+          OrderTest -> throwIO (userError "Margin does not support order test; rerun with --binance-live")
+          OrderLive -> pure ("/sapi/v1/margin/order", "margin/order", p)
+      MarketFutures -> do
+        p <-
+          case quantity of
+            Nothing -> throwIO (userError "Futures MARKET orders require --order-quantity (or compute it from --order-quote in the caller)")
+            Just _ -> pure (baseParams ++ qtyParamsFutures ++ reduceOnlyParams)
+        pure
+          ( if mode == OrderTest then "/fapi/v1/order/test" else "/fapi/v1/order"
+          , if mode == OrderTest then "futures/order/test" else "futures/order"
+          , p
+          )
 
-      queryToSign = renderSimpleQuery False params
+  let queryToSign = renderSimpleQuery False params
       sig = signQuery secret queryToSign
       paramsSigned = params ++ [("signature", sig)]
       qs = renderSimpleQuery True paramsSigned

@@ -1,16 +1,29 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Data.Char (isSpace)
+import Control.Exception (SomeException, fromException, try)
+import Control.Applicative ((<|>))
+import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
+import qualified Data.Aeson as Aeson
+import Data.Char (isSpace, toLower)
 import Data.List (foldl')
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isJust, mapMaybe)
+import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
+import GHC.Exception (ErrorCall(..))
+import GHC.Generics (Generic)
+import Network.HTTP.Types (Status, status200, status400, status404, status405, status500)
+import qualified Network.Wai as Wai
+import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
 import System.Environment (lookupEnv)
+import System.IO.Error (ioeGetErrorString, isUserError)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
 
@@ -53,6 +66,9 @@ import Trader.Predictors
   )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.Symbol (splitSymbol)
+import Trader.Method (Method(..), methodCode, parseMethod, selectPredictions)
+import Trader.Optimization (optimizeOperations, sweepThreshold)
+import Trader.Split (Split(..), splitTrainBacktest)
 import Trader.Trading (BacktestResult(..), EnsembleConfig(..), simulateEnsembleLongFlat)
 
 -- CSV loading
@@ -82,42 +98,34 @@ trim = dropWhileEnd isSpace . dropWhile isSpace
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p = reverse . dropWhile p . reverse
 
-data Method
-  = MethodBoth
-  | MethodKalmanOnly
-  | MethodLstmOnly
-  deriving (Eq, Show)
-
-methodCode :: Method -> String
-methodCode m =
-  case m of
-    MethodBoth -> "11"
-    MethodKalmanOnly -> "10"
-    MethodLstmOnly -> "01"
-
-parseMethod :: String -> Either String Method
-parseMethod raw =
-  case trim raw of
-    "11" -> Right MethodBoth
-    "10" -> Right MethodKalmanOnly
-    "01" -> Right MethodLstmOnly
-    other ->
-      Left
-        ( "Invalid --method: "
-            ++ show other
-            ++ " (expected 11 for both, 10 for Kalman only, 01 for LSTM only)"
-        )
-
-selectPredictions :: Method -> [Double] -> [Double] -> ([Double], [Double])
-selectPredictions m kalPred lstmPred =
-  case m of
-    MethodBoth -> (kalPred, lstmPred)
-    MethodKalmanOnly -> (kalPred, kalPred)
-    MethodLstmOnly -> (lstmPred, lstmPred)
-
 type LstmCtx = (NormState, [Double], LSTMModel)
 
 type KalmanCtx = (PredictorBundle, Kalman1, HMMFilter, SensorVar)
+
+data LatestSignal = LatestSignal
+  { lsMethod :: !Method
+  , lsCurrentPrice :: !Double
+  , lsThreshold :: !Double
+  , lsKalmanNext :: !(Maybe Double)
+  , lsKalmanDir :: !(Maybe Int)
+  , lsLstmNext :: !(Maybe Double)
+  , lsLstmDir :: !(Maybe Int)
+  , lsChosenDir :: !(Maybe Int)
+  , lsAction :: !String
+  } deriving (Eq, Show)
+
+data BacktestSummary = BacktestSummary
+  { bsTrainEndRaw :: !Int
+  , bsTrainEnd :: !Int
+  , bsTrainSize :: !Int
+  , bsBacktestSize :: !Int
+  , bsBacktestRatio :: !Double
+  , bsMethodUsed :: !Method
+  , bsBestThreshold :: !Double
+  , bsMetrics :: !BacktestMetrics
+  , bsLstmHistory :: !(Maybe [EpochStats])
+  , bsLatestSignal :: !LatestSignal
+  } deriving (Eq, Show)
 
 -- CLI
 
@@ -157,6 +165,8 @@ data Args = Args
   , argTradeOnly :: Bool
   , argFee :: Double
   , argPeriodsPerYear :: Maybe Double
+  , argServe :: Bool
+  , argPort :: Int
   } deriving (Eq, Show)
 
 opts :: Parser Args
@@ -203,6 +213,8 @@ opts =
     <*> switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     <*> option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
     <*> optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
+    <*> switch (long "serve" <> help "Run REST API server on localhost instead of running the CLI workflow")
+    <*> option auto (long "port" <> value 8080 <> help "REST API port (when --serve)")
 
 argBinanceMarket :: Args -> BinanceMarket
 argBinanceMarket args =
@@ -229,16 +241,549 @@ main :: IO ()
 main = do
   args <- execParser (info (opts <**> helper) fullDesc)
 
+  if argServe args
+    then runRestApi args
+    else do
+      (prices, mBinanceEnv) <- loadPrices args
+      if length prices < 2 then error "Need at least 2 price rows" else pure ()
+
+      let lookback = argLookback args
+      if argTradeOnly args
+        then runTradeOnly args lookback prices mBinanceEnv
+        else runBacktestPipeline args lookback prices mBinanceEnv
+
+-- REST API (stateless; computes per request)
+
+data ApiParams = ApiParams
+  { apData :: Maybe FilePath
+  , apPriceColumn :: Maybe String
+  , apBinanceSymbol :: Maybe String
+  , apMarket :: Maybe String -- "spot" | "margin" | "futures"
+  , apInterval :: Maybe String
+  , apBars :: Maybe Int
+  , apLookbackWindow :: Maybe String
+  , apLookbackBars :: Maybe Int
+  , apBinanceTestnet :: Maybe Bool
+  , apNormalization :: Maybe String
+  , apHiddenSize :: Maybe Int
+  , apEpochs :: Maybe Int
+  , apLr :: Maybe Double
+  , apValRatio :: Maybe Double
+  , apBacktestRatio :: Maybe Double
+  , apPatience :: Maybe Int
+  , apGradClip :: Maybe Double
+  , apSeed :: Maybe Int
+  , apKalmanDt :: Maybe Double
+  , apKalmanProcessVar :: Maybe Double
+  , apKalmanMeasurementVar :: Maybe Double
+  , apThreshold :: Maybe Double
+  , apMethod :: Maybe String -- "11" | "10" | "01"
+  , apOptimizeOperations :: Maybe Bool
+  , apSweepThreshold :: Maybe Bool
+  , apFee :: Maybe Double
+  , apPeriodsPerYear :: Maybe Double
+  , apBinanceLive :: Maybe Bool
+  , apOrderQuote :: Maybe Double
+  , apOrderQuantity :: Maybe Double
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON ApiParams where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 2)
+
+data ApiError = ApiError
+  { aeError :: String
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiError where
+  toJSON = Aeson.genericToJSON (jsonOptions 2)
+
+instance ToJSON LatestSignal where
+  toJSON s =
+    object
+      [ "method" .= methodCode (lsMethod s)
+      , "currentPrice" .= lsCurrentPrice s
+      , "threshold" .= lsThreshold s
+      , "kalmanNext" .= lsKalmanNext s
+      , "kalmanDirection" .= (if isJust (lsKalmanNext s) then dirLabel (lsKalmanDir s) else Nothing)
+      , "lstmNext" .= lsLstmNext s
+      , "lstmDirection" .= (if isJust (lsLstmNext s) then dirLabel (lsLstmDir s) else Nothing)
+      , "chosenDirection" .= dirLabel (lsChosenDir s)
+      , "action" .= lsAction s
+      ]
+
+data ApiOrderResult = ApiOrderResult
+  { aorSent :: Bool
+  , aorMode :: Maybe String
+  , aorSide :: Maybe String
+  , aorSymbol :: Maybe String
+  , aorQuantity :: Maybe Double
+  , aorQuoteQuantity :: Maybe Double
+  , aorResponse :: Maybe String
+  , aorMessage :: String
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiOrderResult where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+data ApiTradeResponse = ApiTradeResponse
+  { atrSignal :: LatestSignal
+  , atrOrder :: ApiOrderResult
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiTradeResponse where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+jsonOptions :: Int -> Aeson.Options
+jsonOptions prefixLen =
+  Aeson.defaultOptions
+    { Aeson.fieldLabelModifier = lowerFirst . drop prefixLen
+    , Aeson.omitNothingFields = True
+    }
+  where
+    lowerFirst :: String -> String
+    lowerFirst s =
+      case s of
+        [] -> []
+        (c:cs) -> toLower c : cs
+
+runRestApi :: Args -> IO ()
+runRestApi baseArgs = do
+  let port = max 1 (argPort baseArgs)
+      settings =
+        Warp.setHost "127.0.0.1" $
+          Warp.setPort port Warp.defaultSettings
+  putStrLn (printf "REST API listening on http://127.0.0.1:%d" port)
+  Warp.runSettings settings (apiApp baseArgs)
+
+apiApp :: Args -> Wai.Application
+apiApp baseArgs req respond =
+  case Wai.pathInfo req of
+    ["health"] ->
+      case Wai.requestMethod req of
+        "GET" -> respond (jsonValue status200 (object ["status" .= ("ok" :: String)]))
+        _ -> respond (jsonError status405 "Method not allowed")
+    ["signal"] ->
+      case Wai.requestMethod req of
+        "POST" -> handleSignal baseArgs req respond
+        _ -> respond (jsonError status405 "Method not allowed")
+    ["trade"] ->
+      case Wai.requestMethod req of
+        "POST" -> handleTrade baseArgs req respond
+        _ -> respond (jsonError status405 "Method not allowed")
+    ["backtest"] ->
+      case Wai.requestMethod req of
+        "POST" -> handleBacktest baseArgs req respond
+        _ -> respond (jsonError status405 "Method not allowed")
+    _ -> respond (jsonError status404 "Not found")
+
+jsonValue :: ToJSON a => Status -> a -> Wai.Response
+jsonValue st v =
+  Wai.responseLBS
+    st
+    [("Content-Type", "application/json")]
+    (encode v)
+
+jsonError :: Status -> String -> Wai.Response
+jsonError st msg = jsonValue st (ApiError msg)
+
+exceptionToHttp :: SomeException -> (Status, String)
+exceptionToHttp ex =
+  case fromException ex of
+    Just (ErrorCall msg) -> (status400, msg)
+    Nothing ->
+      case fromException ex of
+        Just io
+          | isUserError io -> (status400, ioeGetErrorString io)
+        _ -> (status500, show ex)
+
+handleSignal :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleSignal baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          let args =
+                args0
+                  { argTradeOnly = True
+                  , argBinanceTrade = False
+                  , argSweepThreshold = False
+                  , argOptimizeOperations = False
+                  }
+          r <- try (computeLatestSignalFromArgs args) :: IO (Either SomeException LatestSignal)
+          case r of
+            Left ex ->
+              let (st, msg) = exceptionToHttp ex
+               in respond (jsonError st msg)
+            Right sig -> respond (jsonValue status200 sig)
+
+handleTrade :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleTrade baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          let args =
+                args0
+                  { argTradeOnly = True
+                  , argBinanceTrade = True
+                  , argBinanceLive = maybe (argBinanceLive args0) id (apBinanceLive params)
+                  , argOrderQuote = apOrderQuote params <|> argOrderQuote args0
+                  , argOrderQuantity = apOrderQuantity params <|> argOrderQuantity args0
+                  , argSweepThreshold = False
+                  , argOptimizeOperations = False
+                  }
+          r <- try (computeTradeFromArgs args) :: IO (Either SomeException ApiTradeResponse)
+          case r of
+            Left ex ->
+              let (st, msg) = exceptionToHttp ex
+               in respond (jsonError st msg)
+            Right out -> respond (jsonValue status200 out)
+
+handleBacktest :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBacktest baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          let args =
+                args0
+                  { argTradeOnly = False
+                  , argBinanceTrade = False
+                  , argOptimizeOperations = maybe (argOptimizeOperations args0) id (apOptimizeOperations params)
+                  , argSweepThreshold = maybe (argSweepThreshold args0) id (apSweepThreshold params)
+                  , argBacktestRatio = maybe (argBacktestRatio args0) id (apBacktestRatio params)
+                  }
+          r <- try (computeBacktestFromArgs args) :: IO (Either SomeException Aeson.Value)
+          case r of
+            Left ex ->
+              let (st, msg) = exceptionToHttp ex
+               in respond (jsonError st msg)
+            Right out -> respond (jsonValue status200 out)
+
+argsFromApi :: Args -> ApiParams -> Either String Args
+argsFromApi baseArgs p = do
+  method <-
+    case apMethod p of
+      Nothing -> Right (argMethod baseArgs)
+      Just raw -> parseMethod raw
+
+  norm <-
+    case apNormalization p of
+      Nothing -> Right (argNormalization baseArgs)
+      Just raw ->
+        case parseNormType raw of
+          Just n -> Right n
+          Nothing -> Left ("Invalid normalization: " ++ show raw ++ " (expected none|minmax|standard|log)")
+
+  (futuresFlag, marginFlag) <-
+    case apMarket p of
+      Nothing -> Right (argBinanceFutures baseArgs, argBinanceMargin baseArgs)
+      Just raw ->
+        case map toLower (trim raw) of
+          "spot" -> Right (False, False)
+          "margin" -> Right (False, True)
+          "futures" -> Right (True, False)
+          other -> Left ("Invalid market: " ++ show other ++ " (expected spot|margin|futures)")
+
+  let pick :: Maybe a -> a -> a
+      pick v def = maybe def id v
+
+      pickMaybe :: Maybe a -> Maybe a -> Maybe a
+      pickMaybe v def =
+        case v of
+          Just _ -> v
+          Nothing -> def
+
+      args =
+        baseArgs
+          { argData = pickMaybe (apData p) (argData baseArgs)
+          , argPriceCol = pick (apPriceColumn p) (argPriceCol baseArgs)
+          , argBinanceSymbol = pickMaybe (apBinanceSymbol p) (argBinanceSymbol baseArgs)
+          , argBinanceFutures = futuresFlag
+          , argBinanceMargin = marginFlag
+          , argInterval = pick (apInterval p) (argInterval baseArgs)
+          , argBars = pick (apBars p) (argBars baseArgs)
+          , argLookbackWindow = pick (apLookbackWindow p) (argLookbackWindow baseArgs)
+          , argLookbackBars = pickMaybe (apLookbackBars p) (argLookbackBars baseArgs)
+          , argBinanceTestnet = pick (apBinanceTestnet p) (argBinanceTestnet baseArgs)
+          , argNormalization = norm
+          , argHiddenSize = pick (apHiddenSize p) (argHiddenSize baseArgs)
+          , argEpochs = pick (apEpochs p) (argEpochs baseArgs)
+          , argLr = pick (apLr p) (argLr baseArgs)
+          , argValRatio = pick (apValRatio p) (argValRatio baseArgs)
+          , argBacktestRatio = pick (apBacktestRatio p) (argBacktestRatio baseArgs)
+          , argPatience = pick (apPatience p) (argPatience baseArgs)
+          , argGradClip =
+              case apGradClip p of
+                Nothing -> argGradClip baseArgs
+                Just g -> Just g
+          , argSeed = pick (apSeed p) (argSeed baseArgs)
+          , argKalmanDt = pick (apKalmanDt p) (argKalmanDt baseArgs)
+          , argKalmanProcessVar = pick (apKalmanProcessVar p) (argKalmanProcessVar baseArgs)
+          , argKalmanMeasurementVar = pick (apKalmanMeasurementVar p) (argKalmanMeasurementVar baseArgs)
+          , argTradeThreshold = pick (apThreshold p) (argTradeThreshold baseArgs)
+          , argMethod = method
+          , argOptimizeOperations = pick (apOptimizeOperations p) (argOptimizeOperations baseArgs)
+          , argSweepThreshold = pick (apSweepThreshold p) (argSweepThreshold baseArgs)
+          , argFee = pick (apFee p) (argFee baseArgs)
+          , argPeriodsPerYear =
+              case apPeriodsPerYear p of
+                Nothing -> argPeriodsPerYear baseArgs
+                Just v -> Just v
+          , argBinanceLive = pick (apBinanceLive p) (argBinanceLive baseArgs)
+          , argOrderQuote = pickMaybe (apOrderQuote p) (argOrderQuote baseArgs)
+          , argOrderQuantity = pickMaybe (apOrderQuantity p) (argOrderQuantity baseArgs)
+          }
+
+  pure args
+
+dirLabel :: Maybe Int -> Maybe String
+dirLabel d =
+  case d of
+    Just 1 -> Just "UP"
+    Just (-1) -> Just "DOWN"
+    _ -> Nothing
+
+computeLatestSignalFromArgs :: Args -> IO LatestSignal
+computeLatestSignalFromArgs args = do
+  (prices, _) <- loadPrices args
+  if length prices < 2 then error "Need at least 2 price rows" else pure ()
+  let lookback = argLookback args
+  computeTradeOnlySignal args lookback prices
+
+computeTradeFromArgs :: Args -> IO ApiTradeResponse
+computeTradeFromArgs args = do
   (prices, mBinanceEnv) <- loadPrices args
   if length prices < 2 then error "Need at least 2 price rows" else pure ()
-
   let lookback = argLookback args
-  if argTradeOnly args
-    then runTradeOnly args lookback prices mBinanceEnv
-    else runBacktestPipeline args lookback prices mBinanceEnv
+  sig <- computeTradeOnlySignal args lookback prices
+  order <-
+    case (argBinanceSymbol args, mBinanceEnv) of
+      (Nothing, _) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing binanceSymbol.")
+      (_, Nothing) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing Binance environment (use binanceSymbol data source).")
+      (Just sym, Just env) -> placeOrderForSignal args sym sig env
+  pure ApiTradeResponse { atrSignal = sig, atrOrder = order }
+
+placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
+placeOrderForSignal args sym sig env = do
+  let mode = if argBinanceLive args then OrderLive else OrderTest
+      modeLabelStr = case mode of { OrderLive -> "live"; OrderTest -> "test" }
+      base = ApiOrderResult False (Just modeLabelStr) Nothing (Just sym) Nothing Nothing Nothing
+
+  let noOrder msg = pure (base msg)
+
+  case (beApiKey env, beApiSecret env) of
+    (Nothing, _) -> noOrder "No order: missing Binance API key."
+    (_, Nothing) -> noOrder "No order: missing Binance API secret."
+    (Just _, Just _) -> do
+      let (baseAsset, _) = splitSymbol sym
+      r <- try (place baseAsset) :: IO (Either SomeException ApiOrderResult)
+      case r of
+        Left ex -> noOrder ("Order failed: " ++ show ex)
+        Right out -> pure out
+  where
+    method = lsMethod sig
+    chosenDir = lsChosenDir sig
+    currentPrice = lsCurrentPrice sig
+
+    place baseAsset =
+      case beMarket env of
+        MarketSpot -> placeSpotOrMargin baseAsset
+        MarketMargin ->
+          if mode == OrderTest
+            then pure (ApiOrderResult False (Just "test") Nothing (Just sym) Nothing Nothing Nothing "No order: margin trading requires binanceLive (no test endpoint).")
+            else placeSpotOrMargin baseAsset
+        MarketFutures -> placeFutures
+
+    mode = if argBinanceLive args then OrderLive else OrderTest
+
+    placeSpotOrMargin baseAsset = do
+      baseBal <- fetchFreeBalance env baseAsset
+      case chosenDir of
+        Just 1 ->
+          if baseBal <= 0
+            then do
+              let qty = argOrderQuantity args
+                  qq = argOrderQuote args
+              case (qty, qq) of
+                (Nothing, Nothing) ->
+                  pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: provide orderQuantity or orderQuote.")
+                _ -> do
+                  resp <- placeMarketOrder env mode sym Buy qty qq Nothing
+                  pure (ApiOrderResult True (Just (modeLabel mode)) (Just "BUY") (Just sym) qty qq (Just (shortResp resp)) "Order sent.")
+            else pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: already long.")
+        Just (-1) ->
+          if baseBal > 0
+            then do
+              let qty = Just (maybe baseBal id (argOrderQuantity args))
+              resp <- placeMarketOrder env mode sym Sell qty Nothing Nothing
+              pure (ApiOrderResult True (Just (modeLabel mode)) (Just "SELL") (Just sym) qty Nothing (Just (shortResp resp)) "Order sent.")
+            else pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: already flat.")
+        _ ->
+          let msg =
+                case method of
+                  MethodBoth -> "No order: directions disagree or neutral (direction gate)."
+                  MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
+                  MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
+           in pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing msg)
+
+    placeFutures = do
+      posAmt <- fetchFuturesPositionAmt env sym
+      let mDesiredQty =
+            case argOrderQuantity args of
+              Just q | q > 0 -> Just q
+              Just _ -> Nothing
+              Nothing ->
+                case argOrderQuote args of
+                  Just qq | qq > 0 && currentPrice > 0 -> Just (qq / currentPrice)
+                  _ -> Nothing
+          closeOrder side qty = do
+            resp <- placeMarketOrder env mode sym side (Just qty) Nothing (Just True)
+            pure (ApiOrderResult True (Just (modeLabel mode)) (Just (show side)) (Just sym) (Just qty) Nothing (Just (shortResp resp)) "Order sent.")
+      case chosenDir of
+        Just 1 ->
+          if posAmt > 0
+            then pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: already long.")
+            else
+              case mDesiredQty of
+                Nothing -> pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: futures requires orderQuantity or orderQuote.")
+                Just q -> do
+                  let qtyToBuy = if posAmt < 0 then abs posAmt + q else q
+                  resp <- placeMarketOrder env mode sym Buy (Just qtyToBuy) Nothing Nothing
+                  pure (ApiOrderResult True (Just (modeLabel mode)) (Just "BUY") (Just sym) (Just qtyToBuy) Nothing (Just (shortResp resp)) "Order sent.")
+        Just (-1) ->
+          if posAmt == 0
+            then pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: already flat.")
+            else if posAmt > 0
+              then closeOrder Sell (abs posAmt)
+              else closeOrder Buy (abs posAmt)
+        _ ->
+          let msg =
+                case method of
+                  MethodBoth -> "No order: directions disagree or neutral (direction gate)."
+                  MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
+                  MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
+           in pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing msg)
+
+    modeLabel m =
+      case m of
+        OrderLive -> "live"
+        OrderTest -> "test"
+
+computeBacktestFromArgs :: Args -> IO Aeson.Value
+computeBacktestFromArgs args = do
+  (prices, _) <- loadPrices args
+  if length prices < 2 then error "Need at least 2 price rows" else pure ()
+  let lookback = argLookback args
+  summary <- computeBacktestSummary args lookback prices
+  pure $
+    object
+      [ "split" .= object ["train" .= bsTrainSize summary, "backtest" .= bsBacktestSize summary, "backtestRatio" .= bsBacktestRatio summary]
+      , "method" .= methodCode (bsMethodUsed summary)
+      , "threshold" .= bsBestThreshold summary
+      , "metrics" .= metricsToJson (bsMetrics summary)
+      , "latestSignal" .= bsLatestSignal summary
+      ]
+
+metricsToJson :: BacktestMetrics -> Aeson.Value
+metricsToJson m =
+  object
+    [ "finalEquity" .= bmFinalEquity m
+    , "totalReturn" .= bmTotalReturn m
+    , "annualizedReturn" .= bmAnnualizedReturn m
+    , "annualizedVolatility" .= bmAnnualizedVolatility m
+    , "sharpe" .= bmSharpe m
+    , "maxDrawdown" .= bmMaxDrawdown m
+    , "tradeCount" .= bmTradeCount m
+    , "roundTrips" .= bmRoundTrips m
+    , "winRate" .= bmWinRate m
+    , "profitFactor" .= bmProfitFactor m
+    , "avgTradeReturn" .= bmAvgTradeReturn m
+    , "avgHoldingPeriods" .= bmAvgHoldingPeriods m
+    , "exposure" .= bmExposure m
+    , "agreementRate" .= bmAgreementRate m
+    , "turnover" .= bmTurnover m
+    ]
 
 runTradeOnly :: Args -> Int -> [Double] -> Maybe BinanceEnv -> IO ()
 runTradeOnly args lookback prices mBinanceEnv = do
+  signal <- computeTradeOnlySignal args lookback prices
+  printLatestSignalSummary signal
+  maybeSendBinanceOrder args mBinanceEnv signal
+
+runBacktestPipeline :: Args -> Int -> [Double] -> Maybe BinanceEnv -> IO ()
+runBacktestPipeline args lookback prices mBinanceEnv = do
+  summary <- computeBacktestSummary args lookback prices
+  let n = length prices
+      trainEndRaw = bsTrainEndRaw summary
+      trainEnd = bsTrainEnd summary
+      backtestRatio = bsBacktestRatio summary
+
+  if trainEndRaw /= trainEnd
+    then
+      putStrLn
+        ( printf
+            "Split adjusted for lookback: requested train=%d backtest=%d -> using train=%d backtest=%d"
+            trainEndRaw
+            (n - trainEndRaw)
+            trainEnd
+            (n - trainEnd)
+        )
+    else pure ()
+
+  putStrLn
+    ( printf
+        "\nSplit: train=%d backtest=%d (backtest-ratio=%.3f)"
+        (bsTrainSize summary)
+        (bsBacktestSize summary)
+        backtestRatio
+    )
+
+  if argOptimizeOperations args
+    then
+      putStrLn
+        ( printf
+            "Optimized operations: method=%s threshold=%.6f (%.3f%%)"
+            (methodCode (bsMethodUsed summary))
+            (bsBestThreshold summary)
+            (bsBestThreshold summary * 100)
+        )
+    else if argSweepThreshold args
+      then
+        putStrLn
+          ( printf
+              "Best threshold (by final equity): %.6f (%.3f%%)"
+              (bsBestThreshold summary)
+              (bsBestThreshold summary * 100)
+          )
+      else pure ()
+
+  putStrLn $
+    case bsMethodUsed summary of
+      MethodBoth -> "Backtest (Kalman fusion + LSTM direction-agreement gated) complete."
+      MethodKalmanOnly -> "Backtest (Kalman fusion only) complete."
+      MethodLstmOnly -> "Backtest (LSTM only) complete."
+
+  case bsLstmHistory summary of
+    Nothing -> pure ()
+    Just history -> printLstmSummary history
+
+  printMetrics (bsMethodUsed summary) (bsMetrics summary)
+
+  printLatestSignalSummary (bsLatestSignal summary)
+  maybeSendBinanceOrder args mBinanceEnv (bsLatestSignal summary)
+
+computeTradeOnlySignal :: Args -> Int -> [Double] -> IO LatestSignal
+computeTradeOnlySignal args lookback prices = do
   if argSweepThreshold args
     then error "Cannot use --sweep-threshold with --trade-only (sweep requires a backtest split)."
     else pure ()
@@ -306,37 +851,20 @@ runTradeOnly args lookback prices mBinanceEnv = do
             (kalPrev, hmmPrev, svPrev) = foldl' step (kal0, hmm0, sv0) [0 .. n - 2]
         pure (Just (predictors, kalPrev, hmmPrev, svPrev))
 
-  printLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mBinanceEnv
+  pure (computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx)
 
-runBacktestPipeline :: Args -> Int -> [Double] -> Maybe BinanceEnv -> IO ()
-runBacktestPipeline args lookback prices mBinanceEnv = do
-  let n = length prices
-      backtestRatio = argBacktestRatio args
-      trainEndRaw = floor (fromIntegral n * (1 - backtestRatio))
-      minTrainEnd = lookback + 1
-      maxTrainEnd = n - 2
-      trainEnd = min maxTrainEnd (max minTrainEnd trainEndRaw)
+computeBacktestSummary :: Args -> Int -> [Double] -> IO BacktestSummary
+computeBacktestSummary args lookback prices = do
+  let backtestRatio = argBacktestRatio args
+      split =
+        case splitTrainBacktest lookback backtestRatio prices of
+          Left err -> error err
+          Right s -> s
 
-  if backtestRatio <= 0 || backtestRatio >= 1
-    then error "--backtest-ratio must be between 0 and 1"
-    else pure ()
-  if n < lookback + 3
-    then error (printf "Not enough data for train/backtest split with lookback=%d (need >= %d prices, got %d). Reduce --lookback-bars/--lookback-window or increase --bars." lookback (lookback + 3) n)
-    else pure ()
-  if trainEndRaw /= trainEnd
-    then
-      putStrLn
-        ( printf
-            "Split adjusted for lookback: requested train=%d backtest=%d -> using train=%d backtest=%d"
-            trainEndRaw
-            (n - trainEndRaw)
-            trainEnd
-            (n - trainEnd)
-        )
-    else pure ()
-
-  let trainPrices = take trainEnd prices
-      backtestPrices = drop trainEnd prices
+      trainEndRaw = splitTrainEndRaw split
+      trainEnd = splitTrainEnd split
+      trainPrices = splitTrain split
+      backtestPrices = splitBacktest split
       methodRequested = argMethod args
       methodForComputation =
         if argOptimizeOperations args
@@ -422,10 +950,10 @@ runBacktestPipeline args lookback prices mBinanceEnv = do
 
       (methodUsed, bestThreshold, backtest) =
         if argOptimizeOperations args
-          then optimizeOperations args backtestPrices kalPredPrice lstmPredPrice
+          then optimizeOperations (argTradeThreshold args) (argFee args) backtestPrices kalPredPrice lstmPredPrice
           else if argSweepThreshold args
             then
-              let (thr, bt) = sweepThreshold args backtestPrices kalPredPrice lstmPredPrice
+              let (thr, bt) = sweepThreshold methodRequested (argTradeThreshold args) (argFee args) backtestPrices kalPredPrice lstmPredPrice
                in (methodRequested, thr, bt)
             else
               let (kalPredUsed, lstmPredUsed) = selectPredictions methodRequested kalPredPrice lstmPredPrice
@@ -446,30 +974,154 @@ runBacktestPipeline args lookback prices mBinanceEnv = do
             then args { argTradeThreshold = bestThreshold }
             else args
 
-  putStrLn (printf "\nSplit: train=%d backtest=%d (backtest-ratio=%.3f)" (length trainPrices) (length backtestPrices) backtestRatio)
-  if argOptimizeOperations args
-    then
-      putStrLn
-        ( printf
-            "Optimized operations: method=%s threshold=%.6f (%.3f%%)"
-            (methodCode methodUsed)
-            bestThreshold
-            (bestThreshold * 100)
-        )
-    else if argSweepThreshold args
-      then putStrLn (printf "Best threshold (by final equity): %.6f (%.3f%%)" bestThreshold (bestThreshold * 100))
-      else pure ()
-  putStrLn $
-    case methodUsed of
-      MethodBoth -> "Backtest (Kalman fusion + LSTM direction-agreement gated) complete."
-      MethodKalmanOnly -> "Backtest (Kalman fusion only) complete."
-      MethodLstmOnly -> "Backtest (LSTM only) complete."
-  case mHistory of
-    Nothing -> pure ()
-    Just history -> printLstmSummary history
-  printMetrics methodUsed metrics
+      latestSignal = computeLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx
 
-  printLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx mBinanceEnv
+  pure
+    BacktestSummary
+      { bsTrainEndRaw = trainEndRaw
+      , bsTrainEnd = trainEnd
+      , bsTrainSize = length trainPrices
+      , bsBacktestSize = length backtestPrices
+      , bsBacktestRatio = backtestRatio
+      , bsMethodUsed = methodUsed
+      , bsBestThreshold = bestThreshold
+      , bsMetrics = metrics
+      , bsLstmHistory = mHistory
+      , bsLatestSignal = latestSignal
+      }
+
+computeLatestSignal
+  :: Args
+  -> Int
+  -> V.Vector Double
+  -> Maybe LstmCtx
+  -> Maybe KalmanCtx
+  -> LatestSignal
+computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
+  case method of
+    MethodBoth ->
+      case (mKalmanCtx, mLstmCtx) of
+        (Just _, Just _) -> compute
+        _ -> error "Internal: --method 11 requires both Kalman and LSTM contexts."
+    MethodKalmanOnly ->
+      case mKalmanCtx of
+        Just _ -> compute
+        Nothing -> error "Internal: --method 10 requires Kalman context."
+    MethodLstmOnly ->
+      case mLstmCtx of
+        Just _ -> compute
+        Nothing -> error "Internal: --method 01 requires LSTM context."
+  where
+    method = argMethod args
+    compute =
+      let n = V.length pricesV
+       in if n < 1
+            then error "Need at least 1 price to compute latest signal"
+            else
+              let t = n - 1
+                  currentPrice = pricesV V.! t
+                  thr = max 0 (argTradeThreshold args)
+                  direction pred =
+                    let upEdge = currentPrice * (1 + thr)
+                        downEdge = currentPrice * (1 - thr)
+                     in if pred > upEdge
+                          then Just (1 :: Int)
+                          else if pred < downEdge then Just (-1) else Nothing
+
+                  (mKalNext, kalDir) =
+                    case mKalmanCtx of
+                      Nothing -> (Nothing, Nothing)
+                      Just (predictors, kalPrev, hmmPrev, svPrev) ->
+                        let (sensorOuts, _) = predictSensors predictors pricesV hmmPrev t
+                            meas = mapMaybe (toMeasurement args svPrev) sensorOuts
+                            kalNow = stepMulti meas kalPrev
+                            kalReturn = kMean kalNow
+                            kalNext = currentPrice * (1 + kalReturn)
+                         in (Just kalNext, direction kalNext)
+
+                  (mLstmNext, lstmDir) =
+                    case mLstmCtx of
+                      Nothing -> (Nothing, Nothing)
+                      Just (normState, obsAll, lstmModel) ->
+                        let start = t - lookback + 1
+                         in if start < 0
+                              then error "Not enough data to compute LSTM window for latest signal"
+                              else
+                                let window = take lookback (drop start obsAll)
+                                    lstmNextObs = predictNext lstmModel window
+                                    lstmNext = inverseNorm normState lstmNextObs
+                                 in (Just lstmNext, direction lstmNext)
+
+                  agreeDir =
+                    if kalDir == lstmDir
+                      then kalDir
+                      else Nothing
+                  chosenDir =
+                    case method of
+                      MethodBoth -> agreeDir
+                      MethodKalmanOnly -> kalDir
+                      MethodLstmOnly -> lstmDir
+
+                  action =
+                    case method of
+                      MethodBoth ->
+                        case (kalDir, lstmDir) of
+                          (Just 1, Just 1) -> "LONG"
+                          (Just (-1), Just (-1)) -> "FLAT"
+                          (Nothing, Nothing) -> "HOLD (both neutral)"
+                          _ -> "HOLD (directions disagree)"
+                      MethodKalmanOnly ->
+                        case kalDir of
+                          Just 1 -> "LONG"
+                          Just (-1) -> "FLAT"
+                          _ -> "HOLD (Kalman neutral)"
+                      MethodLstmOnly ->
+                        case lstmDir of
+                          Just 1 -> "LONG"
+                          Just (-1) -> "FLAT"
+                          _ -> "HOLD (LSTM neutral)"
+               in LatestSignal
+                    { lsMethod = method
+                    , lsCurrentPrice = currentPrice
+                    , lsThreshold = thr
+                    , lsKalmanNext = mKalNext
+                    , lsKalmanDir = kalDir
+                    , lsLstmNext = mLstmNext
+                    , lsLstmDir = lstmDir
+                    , lsChosenDir = chosenDir
+                    , lsAction = action
+                    }
+
+printLatestSignalSummary :: LatestSignal -> IO ()
+printLatestSignalSummary sig = do
+  let showDir :: Maybe Int -> String
+      showDir d =
+        case d of
+          Just 1 -> "UP"
+          Just (-1) -> "DOWN"
+          _ -> "NEUTRAL"
+
+  putStrLn ""
+  putStrLn "**Latest Signal**"
+  putStrLn (printf "Method: %s" (methodCode (lsMethod sig)))
+  case lsKalmanNext sig of
+    Nothing -> putStrLn "Kalman next: (disabled)"
+    Just kalNext -> putStrLn (printf "Kalman next: %.4f (%s)" kalNext (showDir (lsKalmanDir sig)))
+  case lsLstmNext sig of
+    Nothing -> putStrLn "LSTM next:   (disabled)"
+    Just lstmNext -> putStrLn (printf "LSTM next:   %.4f (%s)" lstmNext (showDir (lsLstmDir sig)))
+  putStrLn (printf "Direction threshold: %.3f%%" (lsThreshold sig * 100))
+  putStrLn (printf "Action: %s" (lsAction sig))
+
+maybeSendBinanceOrder :: Args -> Maybe BinanceEnv -> LatestSignal -> IO ()
+maybeSendBinanceOrder args mEnv sig =
+  case (argBinanceSymbol args, mEnv) of
+    (Just sym, Just env)
+      | argBinanceTrade args -> do
+          res <- placeOrderForSignal args sym sig env
+          putStrLn (aorMessage res)
+      | otherwise -> pure ()
+    _ -> pure ()
 
 loadPrices :: Args -> IO ([Double], Maybe BinanceEnv)
 loadPrices args =
@@ -620,89 +1272,6 @@ backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEn
       hmm' = updateHMM predictors predState realizedR
    in (kal', hmm', sv', kalNext : kalAcc, lstmNext : lstmAcc)
 
-bestFinalEquity :: BacktestResult -> Double
-bestFinalEquity br =
-  case reverse (brEquityCurve br) of
-    (x:_) -> x
-    [] -> 1.0
-
-optimizeOperations :: Args -> [Double] -> [Double] -> [Double] -> (Method, Double, BacktestResult)
-optimizeOperations args prices kalPred lstmPred =
-  let eps = 1e-12
-      methodRank m =
-        case m of
-          MethodBoth -> 2 :: Int
-          MethodKalmanOnly -> 1
-          MethodLstmOnly -> 0
-      eval m =
-        let (thr, bt) = sweepThreshold (args { argMethod = m }) prices kalPred lstmPred
-            eq = bestFinalEquity bt
-         in (eq, m, thr, bt)
-      candidates = map eval [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
-      pick (bestEq, bestM, bestThr, bestBt) (eq, m, thr, bt) =
-        if eq > bestEq + eps
-          then (eq, m, thr, bt)
-          else if abs (eq - bestEq) <= eps
-            then
-              let r = methodRank m
-                  bestR = methodRank bestM
-               in if r > bestR || (r == bestR && thr > bestThr)
-                    then (eq, m, thr, bt)
-                    else (bestEq, bestM, bestThr, bestBt)
-            else (bestEq, bestM, bestThr, bestBt)
-   in case candidates of
-        [] -> (argMethod args, argTradeThreshold args, simulateEnsembleLongFlat (EnsembleConfig (argTradeThreshold args) (argFee args)) 1 prices kalPred lstmPred)
-        (c:cs) ->
-          let (_, bestM, bestThr, bestBt) = foldl' pick c cs
-           in (bestM, bestThr, bestBt)
-
-sweepThreshold :: Args -> [Double] -> [Double] -> [Double] -> (Double, BacktestResult)
-sweepThreshold args prices kalPred lstmPred =
-  let n = length prices
-      stepCount = n - 1
-      eps = 1e-12
-      method = argMethod args
-      (kalUsed, lstmUsed) = selectPredictions method kalPred lstmPred
-      predSources =
-        case method of
-          MethodBoth -> [kalPred, lstmPred]
-          MethodKalmanOnly -> [kalPred]
-          MethodLstmOnly -> [lstmPred]
-
-      mags =
-        [ v
-        | t <- [0 .. stepCount - 1]
-        , let prev = prices !! t
-        , prev /= 0
-        , preds <- predSources
-        , let pred = preds !! t
-        , let v = abs (pred / prev - 1)
-        , not (isNaN v)
-        , not (isInfinite v)
-        ]
-
-      candidates = 0 : map (\v -> max 0 (v - eps)) mags
-
-      eval thr =
-        let cfg =
-              EnsembleConfig
-                { ecTradeThreshold = thr
-                , ecFee = argFee args
-                }
-            bt = simulateEnsembleLongFlat cfg 1 prices kalUsed lstmUsed
-         in (bestFinalEquity bt, thr, bt)
-
-      (baseEq, baseThr, baseBt) = eval (max 0 (argTradeThreshold args))
-      eqEps = 1e-12
-      pick (bestEq, bestThr, bestBt) thr =
-        let (eq, thr', bt) = eval thr
-         in if eq > bestEq + eqEps || (abs (eq - bestEq) <= eqEps && thr' > bestThr)
-              then (eq, thr', bt)
-              else (bestEq, bestThr, bestBt)
-
-      (_, bestThr, bestBt) = foldl' pick (baseEq, baseThr, baseBt) candidates
-   in (bestThr, bestBt)
-
 printLstmSummary :: [EpochStats] -> IO ()
 printLstmSummary history =
   case history of
@@ -745,213 +1314,6 @@ printMetrics method m = do
           MethodLstmOnly -> "Signal rate (LSTM)"
   putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
   putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
-
-printLatestSignal
-  :: Args
-  -> Int
-  -> V.Vector Double
-  -> Maybe LstmCtx
-  -> Maybe KalmanCtx
-  -> Maybe BinanceEnv
-  -> IO ()
-printLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mEnv = do
-  let method = argMethod args
-  case method of
-    MethodBoth ->
-      case (mKalmanCtx, mLstmCtx) of
-        (Just _, Just _) -> pure ()
-        _ -> error "Internal: --method 11 requires both Kalman and LSTM contexts."
-    MethodKalmanOnly ->
-      case mKalmanCtx of
-        Just _ -> pure ()
-        Nothing -> error "Internal: --method 10 requires Kalman context."
-    MethodLstmOnly ->
-      case mLstmCtx of
-        Just _ -> pure ()
-        Nothing -> error "Internal: --method 01 requires LSTM context."
-
-  let n = V.length pricesV
-      t = n - 1
-      currentPrice = pricesV V.! t
-
-      thr = max 0 (argTradeThreshold args)
-      direction pred =
-        let upEdge = currentPrice * (1 + thr)
-            downEdge = currentPrice * (1 - thr)
-         in if pred > upEdge
-              then Just (1 :: Int)
-              else if pred < downEdge then Just (-1) else Nothing
-
-      (mKalNext, kalDir) =
-        case mKalmanCtx of
-          Nothing -> (Nothing, Nothing)
-          Just (predictors, kalPrev, hmmPrev, svPrev) ->
-            let (sensorOuts, _) = predictSensors predictors pricesV hmmPrev t
-                meas = mapMaybe (toMeasurement args svPrev) sensorOuts
-                kalNow = stepMulti meas kalPrev
-                kalReturn = kMean kalNow
-                kalNext = currentPrice * (1 + kalReturn)
-             in (Just kalNext, direction kalNext)
-
-      (mLstmNext, lstmDir) =
-        case mLstmCtx of
-          Nothing -> (Nothing, Nothing)
-          Just (normState, obsAll, lstmModel) ->
-            let window = take lookback (drop (t - lookback + 1) obsAll)
-                lstmNextObs = predictNext lstmModel window
-                lstmNext = inverseNorm normState lstmNextObs
-             in (Just lstmNext, direction lstmNext)
-
-      agreeDir =
-        if kalDir == lstmDir
-          then kalDir
-          else Nothing
-      chosenDir =
-        case method of
-          MethodBoth -> agreeDir
-          MethodKalmanOnly -> kalDir
-          MethodLstmOnly -> lstmDir
-      action :: String
-      action =
-        case method of
-          MethodBoth ->
-            case (kalDir, lstmDir) of
-              (Just 1, Just 1) -> "LONG"
-              (Just (-1), Just (-1)) -> "FLAT"
-              (Nothing, Nothing) -> "HOLD (both neutral)"
-              _ -> "HOLD (directions disagree)"
-          MethodKalmanOnly ->
-            case kalDir of
-              Just 1 -> "LONG"
-              Just (-1) -> "FLAT"
-              _ -> "HOLD (Kalman neutral)"
-          MethodLstmOnly ->
-            case lstmDir of
-              Just 1 -> "LONG"
-              Just (-1) -> "FLAT"
-              _ -> "HOLD (LSTM neutral)"
-
-      showDir :: Maybe Int -> String
-      showDir d =
-        case d of
-          Just 1 -> "UP"
-          Just (-1) -> "DOWN"
-          _ -> "NEUTRAL"
-
-  putStrLn ""
-  putStrLn "**Latest Signal**"
-  putStrLn (printf "Method: %s" (methodCode method))
-  case mKalNext of
-    Nothing -> putStrLn "Kalman next: (disabled)"
-    Just kalNext -> putStrLn (printf "Kalman next: %.4f (%s)" kalNext (showDir kalDir))
-  case mLstmNext of
-    Nothing -> putStrLn "LSTM next:   (disabled)"
-    Just lstmNext -> putStrLn (printf "LSTM next:   %.4f (%s)" lstmNext (showDir lstmDir))
-  putStrLn (printf "Direction threshold: %.3f%%" (thr * 100))
-  putStrLn (printf "Action: %s" action)
-
-  case (argBinanceSymbol args, mEnv) of
-    (Just sym, Just env)
-      | argBinanceTrade args -> do
-          case (beApiKey env, beApiSecret env) of
-            (Nothing, _) -> putStrLn "No order: missing Binance API key."
-            (_, Nothing) -> putStrLn "No order: missing Binance API secret."
-            (Just _, Just _) -> do
-              let (baseAsset, _) = splitSymbol sym
-              let mode = if argBinanceLive args then OrderLive else OrderTest
-              case beMarket env of
-                MarketSpot -> do
-                  baseBal <- fetchFreeBalance env baseAsset
-                  case chosenDir of
-                    Just 1 ->
-                      if baseBal <= 0
-                        then do
-                          let qty = argOrderQuantity args
-                              qq = argOrderQuote args
-                          case (qty, qq) of
-                            (Nothing, Nothing) -> putStrLn "No order: provide --order-quantity or --order-quote."
-                            _ -> do
-                              resp <- placeMarketOrder env mode sym Buy qty qq Nothing
-                              putStrLn ("Order sent (" ++ show mode ++ "): BUY " ++ sym ++ " response=" ++ shortResp resp)
-                        else putStrLn "No order: already long."
-                    Just (-1) ->
-                      if baseBal > 0
-                        then do
-                          let qty = Just (maybe baseBal id (argOrderQuantity args))
-                          resp <- placeMarketOrder env mode sym Sell qty Nothing Nothing
-                          putStrLn ("Order sent (" ++ show mode ++ "): SELL " ++ sym ++ " response=" ++ shortResp resp)
-                        else putStrLn "No order: already flat."
-                    _ ->
-                      case method of
-                        MethodBoth -> putStrLn "No order: directions disagree or neutral (direction gate)."
-                        MethodKalmanOnly -> putStrLn "No order: Kalman neutral (within threshold)."
-                        MethodLstmOnly -> putStrLn "No order: LSTM neutral (within threshold)."
-                MarketMargin -> do
-                  if mode == OrderTest
-                    then putStrLn "No order: margin trading requires --binance-live (no test endpoint)."
-                    else do
-                      baseBal <- fetchFreeBalance env baseAsset
-                      case chosenDir of
-                        Just 1 ->
-                          if baseBal <= 0
-                            then do
-                              let qty = argOrderQuantity args
-                                  qq = argOrderQuote args
-                              case (qty, qq) of
-                                (Nothing, Nothing) -> putStrLn "No order: provide --order-quantity or --order-quote."
-                                _ -> do
-                                  resp <- placeMarketOrder env mode sym Buy qty qq Nothing
-                                  putStrLn ("Order sent (" ++ show mode ++ "): BUY " ++ sym ++ " response=" ++ shortResp resp)
-                            else putStrLn "No order: already long."
-                        Just (-1) ->
-                          if baseBal > 0
-                            then do
-                              let qty = Just (maybe baseBal id (argOrderQuantity args))
-                              resp <- placeMarketOrder env mode sym Sell qty Nothing Nothing
-                              putStrLn ("Order sent (" ++ show mode ++ "): SELL " ++ sym ++ " response=" ++ shortResp resp)
-                            else putStrLn "No order: already flat."
-                        _ ->
-                          case method of
-                            MethodBoth -> putStrLn "No order: directions disagree or neutral (direction gate)."
-                            MethodKalmanOnly -> putStrLn "No order: Kalman neutral (within threshold)."
-                            MethodLstmOnly -> putStrLn "No order: LSTM neutral (within threshold)."
-                MarketFutures -> do
-                  posAmt <- fetchFuturesPositionAmt env sym
-                  let mDesiredQty =
-                        case argOrderQuantity args of
-                          Just q | q > 0 -> Just q
-                          Just _ -> Nothing
-                          Nothing ->
-                            case argOrderQuote args of
-                              Just qq | qq > 0 && currentPrice > 0 -> Just (qq / currentPrice)
-                              _ -> Nothing
-                      closeOrder side qty = do
-                        resp <- placeMarketOrder env mode sym side (Just qty) Nothing (Just True)
-                        putStrLn ("Order sent (" ++ show mode ++ "): " ++ show side ++ " " ++ sym ++ " qty=" ++ show qty ++ " response=" ++ shortResp resp)
-                  case chosenDir of
-                    Just 1 ->
-                      if posAmt > 0
-                        then putStrLn "No order: already long."
-                        else
-                          case mDesiredQty of
-                            Nothing -> putStrLn "No order: futures requires --order-quantity or --order-quote."
-                            Just q -> do
-                              let qtyToBuy = if posAmt < 0 then abs posAmt + q else q
-                              resp <- placeMarketOrder env mode sym Buy (Just qtyToBuy) Nothing Nothing
-                              putStrLn ("Order sent (" ++ show mode ++ "): BUY " ++ sym ++ " qty=" ++ show qtyToBuy ++ " response=" ++ shortResp resp)
-                    Just (-1) ->
-                      if posAmt == 0
-                        then putStrLn "No order: already flat."
-                        else if posAmt > 0
-                          then closeOrder Sell (abs posAmt)
-                          else closeOrder Buy (abs posAmt)
-                    _ ->
-                      case method of
-                        MethodBoth -> putStrLn "No order: directions disagree or neutral (direction gate)."
-                        MethodKalmanOnly -> putStrLn "No order: Kalman neutral (within threshold)."
-                        MethodLstmOnly -> putStrLn "No order: LSTM neutral (within threshold)."
-      | otherwise -> pure ()
-    _ -> pure ()
 
 shortResp :: BL.ByteString -> String
 shortResp bs =
