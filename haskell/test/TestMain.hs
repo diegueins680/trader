@@ -159,7 +159,7 @@ testAgreementGate = do
       lookback = 2
       kalPred = [101, 110, 120]  -- length 3
       lstmPred = [110, 100]      -- length 2, for t=1..2
-      cfg = EnsembleConfig { ecTradeThreshold = 0.0, ecAgreementThreshold = 0.0, ecFee = 0.0 }
+      cfg = EnsembleConfig { ecTradeThreshold = 0.0, ecFee = 0.0 }
       res = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred
   assert "expected one position change" (brPositionChanges res == 1)
 

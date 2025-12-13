@@ -108,7 +108,6 @@ data Args = Args
   , argKalmanProcessVar :: Double
   , argKalmanMeasurementVar :: Double
   , argTradeThreshold :: Double
-  , argAgreementThreshold :: Double
   , argFee :: Double
   , argPeriodsPerYear :: Maybe Double
   } deriving (Eq, Show)
@@ -143,7 +142,6 @@ opts =
     <*> option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
     <*> option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
     <*> option auto (long "threshold" <> value 0.001 <> help "Trade threshold (fractional edge)")
-    <*> option auto (long "agreement-threshold" <> value 0.01 <> help "Require |kalman-lstm|/price <= this to trade")
     <*> option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
     <*> optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
 
@@ -237,19 +235,18 @@ main = do
       kalPredPrice = reverse kalPredRev
       lstmPredPrice = reverse lstmPredRev
 
-      ensembleCfg =
+      cfg =
         EnsembleConfig
           { ecTradeThreshold = argTradeThreshold args
-          , ecAgreementThreshold = argAgreementThreshold args
           , ecFee = argFee args
           }
+      backtest = simulateEnsembleLongFlat cfg 1 backtestPrices kalPredPrice lstmPredPrice
 
-      backtest = simulateEnsembleLongFlat ensembleCfg 1 backtestPrices kalPredPrice lstmPredPrice
       ppy = periodsPerYear args
       metrics = computeMetrics ppy backtest
 
   putStrLn (printf "\nSplit: train=%d backtest=%d (backtest-ratio=%.3f)" (length trainPrices) (length backtestPrices) backtestRatio)
-  putStrLn "Backtest (Kalman fusion + LSTM agreement-gated) complete."
+  putStrLn "Backtest (Kalman fusion + LSTM direction-agreement gated) complete."
   printLstmSummary history
   printMetrics metrics
 
@@ -403,7 +400,7 @@ printMetrics m = do
   putStrLn ""
   putStrLn "**Efficiency**"
   putStrLn (printf "Exposure (time in market): %.1f%%" (bmExposure m * 100))
-  putStrLn (printf "Agreement rate: %.1f%%" (bmAgreementRate m * 100))
+  putStrLn (printf "Direction agreement rate: %.1f%%" (bmAgreementRate m * 100))
   putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
 
 printLatestSignal
@@ -434,30 +431,43 @@ printLatestSignal args lookback normState obsAll pricesV lstmModel predictors ka
       kalReturn = kMean kalNow
       kalNext = currentPrice * (1 + kalReturn)
 
-      diffFrac = if currentPrice == 0 then 0 else abs (kalNext - lstmNext) / currentPrice
-      agreeOk = diffFrac <= argAgreementThreshold args
-      ensembleNext = 0.5 * (kalNext + lstmNext)
-      desired =
-        if agreeOk && ensembleNext > currentPrice * (1 + argTradeThreshold args)
-          then 1
-          else 0
+      thr = max 0 (argTradeThreshold args)
+      direction pred =
+        let upEdge = currentPrice * (1 + thr)
+            downEdge = currentPrice * (1 - thr)
+         in if pred > upEdge
+              then Just (1 :: Int)
+              else if pred < downEdge then Just (-1) else Nothing
+      kalDir = direction kalNext
+      lstmDir = direction lstmNext
+      agreeDir =
+        if kalDir == lstmDir
+          then kalDir
+          else Nothing
       action :: String
       action =
-        if not agreeOk
-          then "HOLD (predictions disagree)"
-          else if desired == 1 then "LONG" else "FLAT"
+        case agreeDir of
+          Just 1 -> "LONG"
+          Just (-1) -> "FLAT"
+          _ -> "HOLD (no directional agreement)"
+
+      showDir :: Maybe Int -> String
+      showDir d =
+        case d of
+          Just 1 -> "UP"
+          Just (-1) -> "DOWN"
+          _ -> "NEUTRAL"
 
   putStrLn ""
   putStrLn "**Latest Signal**"
-  putStrLn (printf "Kalman next: %.4f" kalNext)
-  putStrLn (printf "LSTM next:   %.4f" lstmNext)
-  putStrLn (printf "|diff|/price: %.3f%% (threshold %.3f%%)" (diffFrac * 100) (argAgreementThreshold args * 100))
-  putStrLn (printf "Ensemble next: %.4f" ensembleNext)
+  putStrLn (printf "Kalman next: %.4f (%s)" kalNext (showDir kalDir))
+  putStrLn (printf "LSTM next:   %.4f (%s)" lstmNext (showDir lstmDir))
+  putStrLn (printf "Direction threshold: %.3f%%" (thr * 100))
   putStrLn (printf "Action: %s" action)
 
   case (argBinanceSymbol args, mEnv) of
     (Just sym, Just env)
-      | argBinanceTrade args && agreeOk -> do
+      | argBinanceTrade args -> do
           case (beApiKey env, beApiSecret env) of
             (Nothing, _) -> putStrLn "No order: missing Binance API key."
             (_, Nothing) -> putStrLn "No order: missing Binance API secret."
@@ -465,21 +475,24 @@ printLatestSignal args lookback normState obsAll pricesV lstmModel predictors ka
               let (baseAsset, _) = splitSymbol sym
               baseBal <- fetchFreeBalance env baseAsset
               let mode = if argBinanceLive args then OrderLive else OrderTest
-              if desired == 1 && baseBal <= 0
-                then do
-                  let qty = argOrderQuantity args
-                      qq = argOrderQuote args
-                  resp <- placeMarketOrder env mode sym Buy qty qq
-                  putStrLn ("Order sent (" ++ show mode ++ "): BUY " ++ sym ++ " response=" ++ shortResp resp)
-                else if desired == 0 && baseBal > 0
-                  then do
-                    let qty = Just (maybe baseBal id (argOrderQuantity args))
-                    resp <- placeMarketOrder env mode sym Sell qty Nothing
-                    putStrLn ("Order sent (" ++ show mode ++ "): SELL " ++ sym ++ " response=" ++ shortResp resp)
-                  else
-                    putStrLn "No order: already in desired state."
-      | argBinanceTrade args && not agreeOk ->
-          putStrLn "No order: predictions disagree (agreement gate)."
+              case agreeDir of
+                Just 1 ->
+                  if baseBal <= 0
+                    then do
+                      let qty = argOrderQuantity args
+                          qq = argOrderQuote args
+                      resp <- placeMarketOrder env mode sym Buy qty qq
+                      putStrLn ("Order sent (" ++ show mode ++ "): BUY " ++ sym ++ " response=" ++ shortResp resp)
+                    else putStrLn "No order: already long."
+                Just (-1) ->
+                  if baseBal > 0
+                    then do
+                      let qty = Just (maybe baseBal id (argOrderQuantity args))
+                      resp <- placeMarketOrder env mode sym Sell qty Nothing
+                      putStrLn ("Order sent (" ++ show mode ++ "): SELL " ++ sym ++ " response=" ++ shortResp resp)
+                    else putStrLn "No order: already flat."
+                _ ->
+                  putStrLn "No order: no directional agreement (direction gate)."
       | otherwise -> pure ()
     _ -> pure ()
 

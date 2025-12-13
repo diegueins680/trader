@@ -9,7 +9,6 @@ import Data.List (foldl')
 
 data EnsembleConfig = EnsembleConfig
   { ecTradeThreshold :: !Double
-  , ecAgreementThreshold :: !Double -- fraction of prev price
   , ecFee :: !Double
   } deriving (Eq, Show)
 
@@ -43,6 +42,13 @@ simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext =
         then error "Need at least 2 prices to simulate"
         else
           let startT = max 0 (lookback - 1)
+              thr = max 0 (ecTradeThreshold cfg)
+              direction prev pred =
+                let upEdge = prev * (1 + thr)
+                    downEdge = prev * (1 - thr)
+                 in if pred > upEdge
+                      then Just (1 :: Int)
+                      else if pred < downEdge then Just (-1) else Nothing
               stepCount = n - 1
               stepFn (t, pos, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc) =
                 if t >= stepCount
@@ -50,17 +56,22 @@ simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext =
                   else
                     let prev = prices !! t
                         nextP = prices !! (t + 1)
-                        (agreeOk, desiredPos, ensemblePred) =
+                        (agreeOk, desiredPos) =
                           if t < startT
-                            then (False, pos, 0.0)
+                            then (False, pos)
                             else
                               let kp = kalPredNext !! t
                                   lp = lstmPredNext !! (t - startT)
-                                  ok = abs (kp - lp) <= ecAgreementThreshold cfg * prev
-                                  ens = 0.5 * (kp + lp)
-                                  desired = if ok && ens > prev * (1 + ecTradeThreshold cfg) then 1 else 0
-                                  desired' = if ok then desired else pos
-                               in (ok, desired', ens)
+                                  kalDir = direction prev kp
+                                  lstmDir = direction prev lp
+                                  agreeDir =
+                                    if kalDir == lstmDir
+                                      then kalDir
+                                      else Nothing
+                               in case agreeDir of
+                                    Just 1 -> (True, 1)
+                                    Just (-1) -> (True, 0)
+                                    _ -> (False, pos)
 
                         (posAfterSwitch, equityAfterSwitch, changes', openTrade', tradesAcc') =
                           if desiredPos /= pos

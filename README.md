@@ -3,7 +3,7 @@ Haskell Trading Bot (Kalman + LSTM + Binance)
 
 This repository contains a small Haskell trading demo that:
 - Predicts the next price using a small **LSTM**, and a **multi-sensor Kalman fusion** layer that combines multiple model outputs into a single latent expected return signal.
-- Only trades when the two predictions **agree** within a user-defined threshold.
+- Only trades when Kalman and LSTM **agree on direction** (both predict up, or both predict down).
 - Can backtest on CSV data or pull klines from **Binance** (and optionally place test/live market orders).
 
 Features
@@ -41,7 +41,6 @@ cabal run trader-hs -- \
   --hidden-size 8 \
   --epochs 10 \
   --threshold 0.001 \
-  --agreement-threshold 0.01 \
   --fee 0.0005
 ```
 
@@ -123,7 +122,6 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 
 - Strategy / costs
   - `--threshold 0.001` trade threshold (fractional edge)
-  - `--agreement-threshold 0.01` require `|kalman-lstm|/price <= this` to trade
   - `--fee 0.0005` fee applied when switching position
 
 - Metrics
