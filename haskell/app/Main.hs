@@ -78,6 +78,39 @@ trim = dropWhileEnd isSpace . dropWhile isSpace
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p = reverse . dropWhile p . reverse
 
+data Method
+  = MethodBoth
+  | MethodKalmanOnly
+  | MethodLstmOnly
+  deriving (Eq, Show)
+
+methodCode :: Method -> String
+methodCode m =
+  case m of
+    MethodBoth -> "11"
+    MethodKalmanOnly -> "10"
+    MethodLstmOnly -> "01"
+
+parseMethod :: String -> Either String Method
+parseMethod raw =
+  case trim raw of
+    "11" -> Right MethodBoth
+    "10" -> Right MethodKalmanOnly
+    "01" -> Right MethodLstmOnly
+    other ->
+      Left
+        ( "Invalid --method: "
+            ++ show other
+            ++ " (expected 11 for both, 10 for Kalman only, 01 for LSTM only)"
+        )
+
+selectPredictions :: Method -> [Double] -> [Double] -> ([Double], [Double])
+selectPredictions m kalPred lstmPred =
+  case m of
+    MethodBoth -> (kalPred, lstmPred)
+    MethodKalmanOnly -> (kalPred, kalPred)
+    MethodLstmOnly -> (lstmPred, lstmPred)
+
 -- CLI
 
 data Args = Args
@@ -108,6 +141,7 @@ data Args = Args
   , argKalmanProcessVar :: Double
   , argKalmanMeasurementVar :: Double
   , argTradeThreshold :: Double
+  , argMethod :: Method
   , argSweepThreshold :: Bool
   , argFee :: Double
   , argPeriodsPerYear :: Maybe Double
@@ -143,6 +177,13 @@ opts =
     <*> option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
     <*> option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
     <*> option auto (long "threshold" <> value 0.001 <> help "Direction threshold (fractional deadband)")
+    <*> option
+          (eitherReader parseMethod)
+          ( long "method"
+              <> value MethodBoth
+              <> showDefaultWith methodCode
+              <> help "Method: 11=Kalman+LSTM (direction-agreement gated), 10=Kalman only, 01=LSTM only"
+          )
     <*> switch (long "sweep-threshold" <> help "Sweep trade thresholds on the backtest split and print the best final equity")
     <*> option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
     <*> optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
@@ -199,6 +240,7 @@ main = do
 
       obsAll = forwardSeries normState prices
       obsTrain = take trainEnd obsAll
+      method = argMethod args
 
       lstmCfg =
         LSTMConfig
@@ -236,6 +278,7 @@ main = do
           [0 .. stepCount - 1]
       kalPredPrice = reverse kalPredRev
       lstmPredPrice = reverse lstmPredRev
+      (kalPredUsed, lstmPredUsed) = selectPredictions method kalPredPrice lstmPredPrice
 
       (bestThreshold, backtest) =
         if argSweepThreshold args
@@ -246,7 +289,7 @@ main = do
                     { ecTradeThreshold = argTradeThreshold args
                     , ecFee = argFee args
                     }
-             in (argTradeThreshold args, simulateEnsembleLongFlat cfg 1 backtestPrices kalPredPrice lstmPredPrice)
+             in (argTradeThreshold args, simulateEnsembleLongFlat cfg 1 backtestPrices kalPredUsed lstmPredUsed)
 
       ppy = periodsPerYear args
       metrics = computeMetrics ppy backtest
@@ -260,9 +303,13 @@ main = do
   if argSweepThreshold args
     then putStrLn (printf "Best threshold (by final equity): %.6f (%.3f%%)" bestThreshold (bestThreshold * 100))
     else pure ()
-  putStrLn "Backtest (Kalman fusion + LSTM direction-agreement gated) complete."
+  putStrLn $
+    case method of
+      MethodBoth -> "Backtest (Kalman fusion + LSTM direction-agreement gated) complete."
+      MethodKalmanOnly -> "Backtest (Kalman fusion only) complete."
+      MethodLstmOnly -> "Backtest (LSTM only) complete."
   printLstmSummary history
-  printMetrics metrics
+  printMetrics method metrics
 
   printLatestSignal argsForSignal lookback normState obsAll pricesV lstmModel predictors kalFinal hmmFinal svFinal mBinanceEnv
 
@@ -391,13 +438,21 @@ sweepThreshold args prices kalPred lstmPred =
   let n = length prices
       stepCount = n - 1
       eps = 1e-12
+      method = argMethod args
+      (kalUsed, lstmUsed) = selectPredictions method kalPred lstmPred
+      predSources =
+        case method of
+          MethodBoth -> [kalPred, lstmPred]
+          MethodKalmanOnly -> [kalPred]
+          MethodLstmOnly -> [lstmPred]
 
       mags =
         [ v
         | t <- [0 .. stepCount - 1]
         , let prev = prices !! t
         , prev /= 0
-        , pred <- [kalPred !! t, lstmPred !! t]
+        , preds <- predSources
+        , let pred = preds !! t
         , let v = abs (pred / prev - 1)
         , not (isNaN v)
         , not (isInfinite v)
@@ -411,7 +466,7 @@ sweepThreshold args prices kalPred lstmPred =
                 { ecTradeThreshold = thr
                 , ecFee = argFee args
                 }
-            bt = simulateEnsembleLongFlat cfg 1 prices kalPred lstmPred
+            bt = simulateEnsembleLongFlat cfg 1 prices kalUsed lstmUsed
          in (bestFinalEquity bt, thr, bt)
 
       (baseEq, baseThr, baseBt) = eval (max 0 (argTradeThreshold args))
@@ -433,8 +488,8 @@ printLstmSummary history =
       let bestVal = minimum (map esValLoss history)
        in putStrLn (printf "LSTM: epochs=%d best_val_loss=%.6f" (length history) bestVal)
 
-printMetrics :: BacktestMetrics -> IO ()
-printMetrics m = do
+printMetrics :: Method -> BacktestMetrics -> IO ()
+printMetrics method m = do
   putStrLn ""
   putStrLn "**Profitability**"
   putStrLn (printf "Final equity: %.4fx" (bmFinalEquity m))
@@ -459,7 +514,13 @@ printMetrics m = do
   putStrLn ""
   putStrLn "**Efficiency**"
   putStrLn (printf "Exposure (time in market): %.1f%%" (bmExposure m * 100))
-  putStrLn (printf "Direction agreement rate: %.1f%%" (bmAgreementRate m * 100))
+  let agreeLabel :: String
+      agreeLabel =
+        case method of
+          MethodBoth -> "Direction agreement rate"
+          MethodKalmanOnly -> "Signal rate (Kalman)"
+          MethodLstmOnly -> "Signal rate (LSTM)"
+  putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
   putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
 
 printLatestSignal
@@ -503,12 +564,31 @@ printLatestSignal args lookback normState obsAll pricesV lstmModel predictors ka
         if kalDir == lstmDir
           then kalDir
           else Nothing
+      method = argMethod args
+      chosenDir =
+        case method of
+          MethodBoth -> agreeDir
+          MethodKalmanOnly -> kalDir
+          MethodLstmOnly -> lstmDir
       action :: String
       action =
-        case agreeDir of
-          Just 1 -> "LONG"
-          Just (-1) -> "FLAT"
-          _ -> "HOLD (no directional agreement)"
+        case method of
+          MethodBoth ->
+            case (kalDir, lstmDir) of
+              (Just 1, Just 1) -> "LONG"
+              (Just (-1), Just (-1)) -> "FLAT"
+              (Nothing, Nothing) -> "HOLD (both neutral)"
+              _ -> "HOLD (directions disagree)"
+          MethodKalmanOnly ->
+            case kalDir of
+              Just 1 -> "LONG"
+              Just (-1) -> "FLAT"
+              _ -> "HOLD (Kalman neutral)"
+          MethodLstmOnly ->
+            case lstmDir of
+              Just 1 -> "LONG"
+              Just (-1) -> "FLAT"
+              _ -> "HOLD (LSTM neutral)"
 
       showDir :: Maybe Int -> String
       showDir d =
@@ -519,6 +599,7 @@ printLatestSignal args lookback normState obsAll pricesV lstmModel predictors ka
 
   putStrLn ""
   putStrLn "**Latest Signal**"
+  putStrLn (printf "Method: %s" (methodCode method))
   putStrLn (printf "Kalman next: %.4f (%s)" kalNext (showDir kalDir))
   putStrLn (printf "LSTM next:   %.4f (%s)" lstmNext (showDir lstmDir))
   putStrLn (printf "Direction threshold: %.3f%%" (thr * 100))
@@ -534,7 +615,7 @@ printLatestSignal args lookback normState obsAll pricesV lstmModel predictors ka
               let (baseAsset, _) = splitSymbol sym
               baseBal <- fetchFreeBalance env baseAsset
               let mode = if argBinanceLive args then OrderLive else OrderTest
-              case agreeDir of
+              case chosenDir of
                 Just 1 ->
                   if baseBal <= 0
                     then do
@@ -551,7 +632,10 @@ printLatestSignal args lookback normState obsAll pricesV lstmModel predictors ka
                       putStrLn ("Order sent (" ++ show mode ++ "): SELL " ++ sym ++ " response=" ++ shortResp resp)
                     else putStrLn "No order: already flat."
                 _ ->
-                  putStrLn "No order: no directional agreement (direction gate)."
+                  case method of
+                    MethodBoth -> putStrLn "No order: directions disagree or neutral (direction gate)."
+                    MethodKalmanOnly -> putStrLn "No order: Kalman neutral (within threshold)."
+                    MethodLstmOnly -> putStrLn "No order: LSTM neutral (within threshold)."
       | otherwise -> pure ()
     _ -> pure ()
 

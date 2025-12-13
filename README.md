@@ -122,6 +122,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 
 - Strategy / costs
   - `--threshold 0.001` direction threshold (fractional deadband)
+  - `--method 11` choose `11` (Kalman+LSTM direction-agreement), `10` (Kalman only), `01` (LSTM only)
   - `--sweep-threshold` sweep thresholds on the backtest split and pick the best by final equity
   - `--fee 0.0005` fee applied when switching position
 
