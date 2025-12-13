@@ -153,6 +153,10 @@ cd haskell
 cabal run trader-hs -- --serve --port 8080
 ```
 
+Optional auth (recommended for any deployment):
+- Set `TRADER_API_TOKEN` to require a token on all endpoints except `/health`
+- Send either `Authorization: Bearer <token>` or `X-API-Key: <token>`
+
 Endpoints:
 - `GET /health`
 - `POST /signal` → returns the latest signal (no orders)
@@ -188,6 +192,34 @@ curl -s -X POST http://127.0.0.1:8080/trade \
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
 - `method` is `"11"` (both; direction-agreement gated), `"10"` (Kalman only), or `"01"` (LSTM only).
+
+Deploy to AWS
+-------------
+See `deploy/aws/README.md`.
+
+Web UI
+------
+A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST API and visualizes signals/backtests (including the equity curve).
+
+Run it:
+```
+# Terminal A (backend)
+cd haskell
+cabal run -v0 trader-hs -- --serve --port 8080
+
+# Terminal B (frontend)
+cd haskell/web
+npm install
+npm run dev
+```
+
+If your API uses a different port:
+```
+cd haskell/web
+TRADER_API_TARGET=http://127.0.0.1:9090 npm run dev
+```
+
+Open `http://127.0.0.1:5173`.
 
 Assumptions and limitations
 ---------------------------

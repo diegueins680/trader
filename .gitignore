@@ -3,6 +3,16 @@
 # Python
 .venv/
 
+# Node / Web
+node_modules/
+haskell/web/node_modules/
+haskell/web/dist/
+haskell/web/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
 # Haskell / Cabal
 dist/
 dist-newstyle/

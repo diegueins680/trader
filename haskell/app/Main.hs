@@ -18,7 +18,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
-import Network.HTTP.Types (Status, status200, status400, status404, status405, status500)
+import Network.HTTP.Types (Status, status200, status400, status401, status404, status405, status500)
+import Network.HTTP.Types.Header (hAuthorization)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
@@ -69,7 +70,7 @@ import Trader.Symbol (splitSymbol)
 import Trader.Method (Method(..), methodCode, parseMethod, selectPredictions)
 import Trader.Optimization (optimizeOperations, sweepThreshold)
 import Trader.Split (Split(..), splitTrainBacktest)
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), simulateEnsembleLongFlat)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), Trade(..), simulateEnsembleLongFlat)
 
 -- CSV loading
 
@@ -125,6 +126,11 @@ data BacktestSummary = BacktestSummary
   , bsMetrics :: !BacktestMetrics
   , bsLstmHistory :: !(Maybe [EpochStats])
   , bsLatestSignal :: !LatestSignal
+  , bsEquityCurve :: ![Double]
+  , bsBacktestPrices :: ![Double]
+  , bsPositions :: ![Int]
+  , bsAgreementOk :: ![Bool]
+  , bsTrades :: ![Trade]
   } deriving (Eq, Show)
 
 -- CLI
@@ -348,33 +354,47 @@ jsonOptions prefixLen =
 
 runRestApi :: Args -> IO ()
 runRestApi baseArgs = do
+  apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
   let port = max 1 (argPort baseArgs)
       settings =
-        Warp.setHost "127.0.0.1" $
+        Warp.setHost "0.0.0.0" $
           Warp.setPort port Warp.defaultSettings
-  putStrLn (printf "REST API listening on http://127.0.0.1:%d" port)
-  Warp.runSettings settings (apiApp baseArgs)
+  putStrLn (printf "REST API listening on http://0.0.0.0:%d" port)
+  Warp.runSettings settings (apiApp baseArgs apiToken)
 
-apiApp :: Args -> Wai.Application
-apiApp baseArgs req respond =
-  case Wai.pathInfo req of
-    ["health"] ->
-      case Wai.requestMethod req of
-        "GET" -> respond (jsonValue status200 (object ["status" .= ("ok" :: String)]))
-        _ -> respond (jsonError status405 "Method not allowed")
-    ["signal"] ->
-      case Wai.requestMethod req of
-        "POST" -> handleSignal baseArgs req respond
-        _ -> respond (jsonError status405 "Method not allowed")
-    ["trade"] ->
-      case Wai.requestMethod req of
-        "POST" -> handleTrade baseArgs req respond
-        _ -> respond (jsonError status405 "Method not allowed")
-    ["backtest"] ->
-      case Wai.requestMethod req of
-        "POST" -> handleBacktest baseArgs req respond
-        _ -> respond (jsonError status405 "Method not allowed")
-    _ -> respond (jsonError status404 "Not found")
+apiApp :: Args -> Maybe BS.ByteString -> Wai.Application
+apiApp baseArgs apiToken req respond =
+  let path = Wai.pathInfo req
+   in if path /= ["health"] && not (authorized apiToken req)
+        then respond (jsonError status401 "Unauthorized")
+        else
+          case path of
+            ["health"] ->
+              case Wai.requestMethod req of
+                "GET" -> respond (jsonValue status200 (object ["status" .= ("ok" :: String)]))
+                _ -> respond (jsonError status405 "Method not allowed")
+            ["signal"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleSignal baseArgs req respond
+                _ -> respond (jsonError status405 "Method not allowed")
+            ["trade"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleTrade baseArgs req respond
+                _ -> respond (jsonError status405 "Method not allowed")
+            ["backtest"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBacktest baseArgs req respond
+                _ -> respond (jsonError status405 "Method not allowed")
+            _ -> respond (jsonError status404 "Not found")
+
+authorized :: Maybe BS.ByteString -> Wai.Request -> Bool
+authorized mToken req =
+  case mToken of
+    Nothing -> True
+    Just tok ->
+      let hs = Wai.requestHeaders req
+          bearer = "Bearer " <> tok
+       in lookup hAuthorization hs == Just bearer || lookup "X-API-Key" hs == Just tok
 
 jsonValue :: ToJSON a => Status -> a -> Wai.Response
 jsonValue st v =
@@ -687,12 +707,34 @@ computeBacktestFromArgs args = do
   summary <- computeBacktestSummary args lookback prices
   pure $
     object
-      [ "split" .= object ["train" .= bsTrainSize summary, "backtest" .= bsBacktestSize summary, "backtestRatio" .= bsBacktestRatio summary]
+      [ "split"
+          .= object
+            [ "train" .= bsTrainSize summary
+            , "backtest" .= bsBacktestSize summary
+            , "backtestRatio" .= bsBacktestRatio summary
+            , "backtestStartIndex" .= bsTrainEnd summary
+            ]
       , "method" .= methodCode (bsMethodUsed summary)
       , "threshold" .= bsBestThreshold summary
       , "metrics" .= metricsToJson (bsMetrics summary)
       , "latestSignal" .= bsLatestSignal summary
+      , "equityCurve" .= bsEquityCurve summary
+      , "prices" .= bsBacktestPrices summary
+      , "positions" .= bsPositions summary
+      , "agreementOk" .= bsAgreementOk summary
+      , "trades" .= map tradeToJson (bsTrades summary)
       ]
+
+tradeToJson :: Trade -> Aeson.Value
+tradeToJson tr =
+  object
+    [ "entryIndex" .= trEntryIndex tr
+    , "exitIndex" .= trExitIndex tr
+    , "entryEquity" .= trEntryEquity tr
+    , "exitEquity" .= trExitEquity tr
+    , "return" .= trReturn tr
+    , "holdingPeriods" .= trHoldingPeriods tr
+    ]
 
 metricsToJson :: BacktestMetrics -> Aeson.Value
 metricsToJson m =
@@ -988,6 +1030,11 @@ computeBacktestSummary args lookback prices = do
       , bsMetrics = metrics
       , bsLstmHistory = mHistory
       , bsLatestSignal = latestSignal
+      , bsEquityCurve = brEquityCurve backtest
+      , bsBacktestPrices = backtestPrices
+      , bsPositions = brPositions backtest
+      , bsAgreementOk = brAgreementOk backtest
+      , bsTrades = brTrades backtest
       }
 
 computeLatestSignal
