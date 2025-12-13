@@ -1,12 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Trader.Binance
   ( BinanceEnv(..)
+  , BinanceMarket(..)
   , BinanceOrderMode(..)
   , OrderSide(..)
   , Kline(..)
   , fetchTickerPrice
   , binanceBaseUrl
   , binanceTestnetBaseUrl
+  , binanceFuturesBaseUrl
+  , binanceFuturesTestnetBaseUrl
   , newBinanceEnv
   , fetchKlines
   , fetchCloses
@@ -14,6 +17,7 @@ module Trader.Binance
   , signQuery
   , placeMarketOrder
   , fetchFreeBalance
+  , fetchFuturesPositionAmt
   ) where
 
 import Control.Exception (throwIO)
@@ -41,9 +45,13 @@ import Text.Read (readMaybe)
 data BinanceEnv = BinanceEnv
   { beManager :: Manager
   , beBaseUrl :: String
+  , beMarket :: BinanceMarket
   , beApiKey :: Maybe BS.ByteString
   , beApiSecret :: Maybe BS.ByteString
   }
+
+data BinanceMarket = MarketSpot | MarketMargin | MarketFutures
+  deriving (Eq, Show)
 
 data BinanceOrderMode = OrderTest | OrderLive deriving (Eq, Show)
 
@@ -60,10 +68,16 @@ binanceBaseUrl = "https://api.binance.com"
 binanceTestnetBaseUrl :: String
 binanceTestnetBaseUrl = "https://testnet.binance.vision"
 
-newBinanceEnv :: String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
-newBinanceEnv baseUrl apiKey apiSecret = do
+binanceFuturesBaseUrl :: String
+binanceFuturesBaseUrl = "https://fapi.binance.com"
+
+binanceFuturesTestnetBaseUrl :: String
+binanceFuturesTestnetBaseUrl = "https://testnet.binancefuture.com"
+
+newBinanceEnv :: BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
+newBinanceEnv market baseUrl apiKey apiSecret = do
   mgr <- newManager tlsManagerSettings
-  pure BinanceEnv { beManager = mgr, beBaseUrl = baseUrl, beApiKey = apiKey, beApiSecret = apiSecret }
+  pure BinanceEnv { beManager = mgr, beBaseUrl = baseUrl, beMarket = market, beApiKey = apiKey, beApiSecret = apiSecret }
 
 instance FromJSON Kline where
   parseJSON = withArray "Kline" $ \arr -> do
@@ -92,7 +106,12 @@ parseDoubleText t =
 
 fetchKlines :: BinanceEnv -> String -> String -> Int -> IO [Kline]
 fetchKlines env symbol interval limit = do
-  req0 <- parseRequest (beBaseUrl env ++ "/api/v3/klines")
+  let path =
+        case beMarket env of
+          MarketSpot -> "/api/v3/klines"
+          MarketMargin -> "/api/v3/klines"
+          MarketFutures -> "/fapi/v1/klines"
+  req0 <- parseRequest (beBaseUrl env ++ path)
   let qs =
         renderSimpleQuery
           True
@@ -122,7 +141,12 @@ instance FromJSON TickerPrice where
 
 fetchTickerPrice :: BinanceEnv -> String -> IO Double
 fetchTickerPrice env symbol = do
-  req0 <- parseRequest (beBaseUrl env ++ "/api/v3/ticker/price")
+  let path =
+        case beMarket env of
+          MarketSpot -> "/api/v3/ticker/price"
+          MarketMargin -> "/api/v3/ticker/price"
+          MarketFutures -> "/fapi/v1/ticker/price"
+  req0 <- parseRequest (beBaseUrl env ++ path)
   let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
       req = req0 { method = "GET", queryString = qs }
   resp <- httpLbs req (beManager env)
@@ -150,15 +174,12 @@ placeMarketOrder
   -> OrderSide
   -> Maybe Double -- quantity (base)
   -> Maybe Double -- quoteOrderQty (quote)
+  -> Maybe Bool   -- reduceOnly (futures only)
   -> IO BL.ByteString
-placeMarketOrder env mode symbol side quantity quoteOrderQty = do
+placeMarketOrder env mode symbol side quantity quoteOrderQty reduceOnly = do
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
   ts <- getTimestampMs
-  case (quantity, quoteOrderQty) of
-    (Nothing, Nothing) -> throwIO (userError "Provide quantity or quoteOrderQty for MARKET orders")
-    _ -> pure ()
-
   let sideTxt = case side of { Buy -> "BUY"; Sell -> "SELL" }
       baseParams =
         [ ("symbol", BS.pack (map toUpperAscii symbol))
@@ -167,22 +188,53 @@ placeMarketOrder env mode symbol side quantity quoteOrderQty = do
         , ("recvWindow", "5000")
         , ("timestamp", BS.pack (show ts))
         ]
-      qtyParams =
+      qtyParamsSpotOrMargin =
         case (quantity, quoteOrderQty) of
           (Just q, _) -> [("quantity", renderDouble q)]
           (Nothing, Just qq) -> [("quoteOrderQty", renderDouble qq)]
           _ -> []
+      qtyParamsFutures =
+        case quantity of
+          Just q -> [("quantity", renderDouble q)]
+          Nothing -> []
+      reduceOnlyParams =
+        case reduceOnly of
+          Just True -> [("reduceOnly", "true")]
+          _ -> []
 
-      params = baseParams ++ qtyParams
+      (path, label, params) =
+        case beMarket env of
+          MarketSpot ->
+            let p =
+                  case (quantity, quoteOrderQty) of
+                    (Nothing, Nothing) -> error "Provide quantity or quoteOrderQty for MARKET orders"
+                    _ -> baseParams ++ qtyParamsSpotOrMargin
+             in ( if mode == OrderTest then "/api/v3/order/test" else "/api/v3/order"
+                , if mode == OrderTest then "order/test" else "order"
+                , p
+                )
+          MarketMargin ->
+            let p =
+                  case (quantity, quoteOrderQty) of
+                    (Nothing, Nothing) -> error "Provide quantity or quoteOrderQty for MARKET orders"
+                    _ -> baseParams ++ qtyParamsSpotOrMargin
+             in case mode of
+                  OrderTest -> error "Margin does not support order test; rerun with --binance-live"
+                  OrderLive -> ("/sapi/v1/margin/order", "margin/order", p)
+          MarketFutures ->
+            let p =
+                  case quantity of
+                    Nothing -> error "Futures MARKET orders require --order-quantity (or compute it from --order-quote in the caller)"
+                    Just _ -> baseParams ++ qtyParamsFutures ++ reduceOnlyParams
+             in ( if mode == OrderTest then "/fapi/v1/order/test" else "/fapi/v1/order"
+                , if mode == OrderTest then "futures/order/test" else "futures/order"
+                , p
+                )
+
       queryToSign = renderSimpleQuery False params
       sig = signQuery secret queryToSign
       paramsSigned = params ++ [("signature", sig)]
       qs = renderSimpleQuery True paramsSigned
-
-      path =
-        case mode of
-          OrderTest -> "/api/v3/order/test"
-          OrderLive -> "/api/v3/order"
 
   req0 <- parseRequest (beBaseUrl env ++ path)
   let req =
@@ -192,11 +244,14 @@ placeMarketOrder env mode symbol side quantity quoteOrderQty = do
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
   resp <- httpLbs req (beManager env)
-  ensure2xx (if mode == OrderTest then "order/test" else "order") resp
+  ensure2xx label resp
   pure (responseBody resp)
 
 fetchFreeBalance :: BinanceEnv -> String -> IO Double
 fetchFreeBalance env asset = do
+  case beMarket env of
+    MarketFutures -> throwIO (userError "fetchFreeBalance is not supported for futures; use fetchFuturesPositionAmt")
+    _ -> pure ()
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
   ts <- getTimestampMs
@@ -210,7 +265,12 @@ fetchFreeBalance env asset = do
       paramsSigned = params ++ [("signature", sig)]
       qs = renderSimpleQuery True paramsSigned
 
-  req0 <- parseRequest (beBaseUrl env ++ "/api/v3/account")
+  let path =
+        case beMarket env of
+          MarketSpot -> "/api/v3/account"
+          MarketMargin -> "/sapi/v1/margin/account"
+          MarketFutures -> "/api/v3/account"
+  req0 <- parseRequest (beBaseUrl env ++ path)
   let req =
         req0
           { method = "GET"
@@ -218,15 +278,27 @@ fetchFreeBalance env asset = do
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
   resp <- httpLbs req (beManager env)
-  ensure2xx "account" resp
-  case eitherDecode (responseBody resp) of
-    Left e -> throwIO (userError ("Failed to decode account: " ++ e))
-    Right (Account balances) ->
-      let sym = map toUpperAscii asset
-          match b = map toUpperAscii (baAsset b) == sym
-       in case filter match balances of
-            (b:_) -> pure (baFree b)
-            [] -> pure 0
+  ensure2xx (if beMarket env == MarketMargin then "margin/account" else "account") resp
+  case beMarket env of
+    MarketSpot ->
+      case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode account: " ++ e))
+        Right (Account balances) ->
+          let sym = map toUpperAscii asset
+              match b = map toUpperAscii (baAsset b) == sym
+           in case filter match balances of
+                (b:_) -> pure (baFree b)
+                [] -> pure 0
+    MarketMargin ->
+      case eitherDecode (responseBody resp) of
+        Left e -> throwIO (userError ("Failed to decode margin account: " ++ e))
+        Right (MarginAccount balances) ->
+          let sym = map toUpperAscii asset
+              match b = map toUpperAscii (mbaAsset b) == sym
+           in case filter match balances of
+                (b:_) -> pure (mbaNetAsset b)
+                [] -> pure 0
+    MarketFutures -> pure 0
 
 data Account = Account [Balance]
 
@@ -246,6 +318,74 @@ instance FromJSON Balance where
     freeTxt <- o .: "free"
     free <- parseDoubleText freeTxt
     pure Balance { baAsset = asset, baFree = free }
+
+data MarginAccount = MarginAccount [MarginBalance]
+
+data MarginBalance = MarginBalance
+  { mbaAsset :: String
+  , mbaNetAsset :: Double
+  }
+
+instance FromJSON MarginAccount where
+  parseJSON = withObject "MarginAccount" $ \o -> do
+    bals <- o .: "userAssets"
+    pure (MarginAccount bals)
+
+instance FromJSON MarginBalance where
+  parseJSON = withObject "MarginBalance" $ \o -> do
+    asset <- o .: "asset"
+    netTxt <- o .: "netAsset"
+    net <- parseDoubleText netTxt
+    pure MarginBalance { mbaAsset = asset, mbaNetAsset = net }
+
+fetchFuturesPositionAmt :: BinanceEnv -> String -> IO Double
+fetchFuturesPositionAmt env symbol = do
+  if beMarket env /= MarketFutures
+    then throwIO (userError "fetchFuturesPositionAmt requires MarketFutures")
+    else pure ()
+  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+  ts <- getTimestampMs
+
+  let params =
+        [ ("symbol", BS.pack (map toUpperAscii symbol))
+        , ("timestamp", BS.pack (show ts))
+        , ("recvWindow", "5000")
+        ]
+      queryToSign = renderSimpleQuery False params
+      sig = signQuery secret queryToSign
+      paramsSigned = params ++ [("signature", sig)]
+      qs = renderSimpleQuery True paramsSigned
+
+  req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/positionRisk")
+  let req =
+        req0
+          { method = "GET"
+          , queryString = qs
+          , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+          }
+  resp <- httpLbs req (beManager env)
+  ensure2xx "futures/positionRisk" resp
+  case eitherDecode (responseBody resp) of
+    Left e -> throwIO (userError ("Failed to decode futures positionRisk: " ++ e))
+    Right positions ->
+      let sym = map toUpperAscii symbol
+          match p = map toUpperAscii (fpSymbol p) == sym
+       in case filter match positions of
+            (p:_) -> pure (fpPositionAmt p)
+            [] -> pure 0
+
+data FuturesPosition = FuturesPosition
+  { fpSymbol :: String
+  , fpPositionAmt :: Double
+  }
+
+instance FromJSON FuturesPosition where
+  parseJSON = withObject "FuturesPosition" $ \o -> do
+    sym <- o .: "symbol"
+    amtTxt <- o .: "positionAmt"
+    amt <- parseDoubleText amtTxt
+    pure FuturesPosition { fpSymbol = sym, fpPositionAmt = amt }
 
 renderDouble :: Double -> BS.ByteString
 renderDouble x =

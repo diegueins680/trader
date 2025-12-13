@@ -3,7 +3,7 @@ Haskell Trading Bot (Kalman + LSTM + Binance)
 
 This repository contains a small Haskell trading demo that:
 - Predicts the next price using a small **LSTM**, and a **multi-sensor Kalman fusion** layer that combines multiple model outputs into a single latent expected return signal.
-- Only trades when Kalman and LSTM **agree on direction** (both predict up, or both predict down).
+- By default, only trades when Kalman and LSTM **agree on direction** (both predict up, or both predict down) — configurable via `--method`.
 - Can backtest on CSV data or pull klines from **Binance** (and optionally place test/live market orders).
 
 Features
@@ -59,6 +59,7 @@ cabal run trader-hs -- \
 Sending Binance orders (optional)
 ---------------------------------
 By default, orders are sent to `/api/v3/order/test`. Add `--binance-live` to send live orders.
+For futures orders, add `--futures` (uses `/fapi` endpoints). For margin orders, add `--margin` (requires `--binance-live`).
 
 Environment variables:
 - `BINANCE_API_KEY`
@@ -74,6 +75,7 @@ cabal run trader-hs -- \
   --interval 5m \
   --bars 500 \
   --epochs 5 \
+  --trade-only \
   --binance-trade \
   --order-quote 50
 ```
@@ -95,6 +97,8 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 - Binance (price fetch / optional trading)
   - `--binance-symbol SYMBOL` (default: none) fetch klines from Binance (e.g., `BTCUSDT`)
   - `--binance-testnet` (default: off) use Binance testnet base URL
+  - `--futures` (default: off) use Binance USDT-M futures endpoints (data + orders)
+  - `--margin` (default: off) use Binance margin account endpoints for orders/balance (requires `--binance-live`)
   - `--binance-api-key KEY` (default: none) or env `BINANCE_API_KEY`
   - `--binance-api-secret SECRET` (default: none) or env `BINANCE_API_SECRET`
   - `--binance-trade` (default: off) place a market order for the latest signal
@@ -123,7 +127,11 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 - Strategy / costs
   - `--threshold 0.001` direction threshold (fractional deadband)
   - `--method 11` choose `11` (Kalman+LSTM direction-agreement), `10` (Kalman only), `01` (LSTM only)
+    - When using `--method 10`, the LSTM is disabled (not trained).
+    - When using `--method 01`, the Kalman/predictors are disabled (not trained).
+  - `--optimize-operations` optimize `--method` and `--threshold` on the backtest split (uses best combo for the latest signal)
   - `--sweep-threshold` sweep thresholds on the backtest split and pick the best by final equity
+  - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
   - `--fee 0.0005` fee applied when switching position
 
 - Metrics
