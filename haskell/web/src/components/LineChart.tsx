@@ -37,8 +37,8 @@ export function LineChart({ series, height = 96, label = "Series chart" }: Props
   });
 
   const line = pts.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(" ");
-  const first = pts[0];
-  const last = pts[pts.length - 1];
+  const first = pts[0]!;
+  const last = pts[pts.length - 1]!;
   const area = `${line} L ${last.x} ${h - padY} L ${first.x} ${h - padY} Z`;
 
   return (
@@ -62,4 +62,3 @@ export function LineChart({ series, height = 96, label = "Series chart" }: Props
     </div>
   );
 }
-

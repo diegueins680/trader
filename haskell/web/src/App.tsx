@@ -4,7 +4,7 @@ import { backtest, health, signal, trade } from "./lib/api";
 import { copyText } from "./lib/clipboard";
 import { readJson, writeJson } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
-import { LineChart } from "./components/LineChart";
+import { BacktestChart } from "./components/BacktestChart";
 
 type RequestKind = "signal" | "backtest" | "trade";
 
@@ -732,7 +732,15 @@ export function App() {
             <div className="cardBody">
               {state.backtest ? (
                 <>
-                  <LineChart series={state.backtest.equityCurve} height={108} label="Equity curve (backtest)" />
+                  <BacktestChart
+                    prices={state.backtest.prices}
+                    equityCurve={state.backtest.equityCurve}
+                    positions={state.backtest.positions}
+                    agreementOk={state.backtest.agreementOk}
+                    trades={state.backtest.trades}
+                    backtestStartIndex={state.backtest.split.backtestStartIndex}
+                    height={360}
+                  />
                   <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
                     <span className="badge">Train: {state.backtest.split.train}</span>
                     <span className="badge">Backtest: {state.backtest.split.backtest}</span>
