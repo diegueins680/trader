@@ -662,6 +662,40 @@ initBotState args settings sym = do
       then Just <$> placeIfEnabled args settings latest env sym
       else pure Nothing
 
+  let maxPoints = max (lookback + 3) (bsMaxPoints settings)
+      dropCount = max 0 (V.length pricesV - maxPoints)
+      (pricesV2, openV2, eq2, pos2, ops2, openTrade2, startIndex2, mLstmCtx2) =
+        if dropCount <= 0
+          then (pricesV, openV, eq1, pos1, ops, openTrade, 0, mLstmCtx)
+          else
+            let openTradeShifted =
+                  case openTrade of
+                    Nothing -> Nothing
+                    Just (ei, eq0, hold) ->
+                      if ei >= dropCount
+                        then Just (ei - dropCount, eq0, hold)
+                        else Nothing
+                opsShifted =
+                  [ op { boIndex = boIndex op - dropCount }
+                  | op <- ops
+                  , boIndex op >= dropCount
+                  ]
+                lstmCtxShifted =
+                  case mLstmCtx of
+                    Nothing -> Nothing
+                    Just (normState, obsAll, lstmModel) ->
+                      Just (normState, drop dropCount obsAll, lstmModel)
+             in
+              ( V.drop dropCount pricesV
+              , V.drop dropCount openV
+              , V.drop dropCount eq1
+              , V.drop dropCount pos1
+              , opsShifted
+              , openTradeShifted
+              , dropCount
+              , lstmCtxShifted
+              )
+
   pure
     BotState
       { botArgs = args
@@ -669,19 +703,19 @@ initBotState args settings sym = do
       , botSymbol = sym
       , botEnv = env
       , botLookback = lookback
-      , botPrices = pricesV
-      , botOpenTimes = openV
-      , botEquityCurve = eq1
-      , botPositions = pos1
-      , botOps = ops
+      , botPrices = pricesV2
+      , botOpenTimes = openV2
+      , botEquityCurve = eq2
+      , botPositions = pos2
+      , botOps = ops2
       , botTrades = []
-      , botOpenTrade = openTrade
+      , botOpenTrade = openTrade2
       , botLatestSignal = latest
       , botLastOrder = mOrder
-      , botLstmCtx = mLstmCtx
+      , botLstmCtx = mLstmCtx2
       , botKalmanCtx = mKalmanCtx
       , botLastOpenTime = lastOt
-      , botStartIndex = 0
+      , botStartIndex = startIndex2
       , botStartedAtMs = now
       , botUpdatedAtMs = now
       , botError = Nothing
@@ -909,6 +943,14 @@ botApplyKline st k = do
               , botStartIndex st + dropCount
               )
 
+      mLstmCtx2 =
+        case mLstmCtx1 of
+          Nothing -> Nothing
+          Just (normState, obsAll, lstmModel) ->
+            if dropCount <= 0
+              then Just (normState, obsAll, lstmModel)
+              else Just (normState, drop dropCount obsAll, lstmModel)
+
   pure
     st
       { botPrices = pricesV2
@@ -920,7 +962,7 @@ botApplyKline st k = do
       , botOpenTrade = openTrade2
       , botLatestSignal = latest
       , botLastOrder = mOrder
-      , botLstmCtx = mLstmCtx1
+      , botLstmCtx = mLstmCtx2
       , botKalmanCtx = mKalmanCtx1
       , botLastOpenTime = openTimeNew
       , botStartIndex = startIndex2
