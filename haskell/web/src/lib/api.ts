@@ -65,6 +65,12 @@ async function fetchJson<T>(path: string, init: RequestInit, opts?: FetchJsonOpt
       throw new HttpError(res.status, message, payload);
     }
     return payload as T;
+  } catch (err) {
+    if (signal.aborted) {
+      const reason = (signal as AbortSignal & { reason?: unknown }).reason;
+      if (reason instanceof DOMException && reason.name === "TimeoutError") throw reason;
+    }
+    throw err;
   } finally {
     cleanup();
   }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiParams, ApiTradeResponse, BacktestResponse, LatestSignal, Market, Method, Normalization } from "./lib/types";
-import { backtest, health, signal, trade } from "./lib/api";
+import { HttpError, backtest, health, signal, trade } from "./lib/api";
 import { copyText } from "./lib/clipboard";
 import { readJson, readSessionString, removeSessionKey, writeJson, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
@@ -97,6 +97,22 @@ function escapeSingleQuotes(raw: string): string {
   return raw.replaceAll("'", "'\\''");
 }
 
+function errorName(err: unknown): string {
+  if (!err || typeof err !== "object" || !("name" in err)) return "";
+  return String((err as { name: unknown }).name);
+}
+
+function isAbortError(err: unknown): boolean {
+  const name = errorName(err);
+  if (name === "AbortError") return true;
+  if (!(err instanceof Error)) return false;
+  return err.message.toLowerCase().includes("aborted");
+}
+
+function isTimeoutError(err: unknown): boolean {
+  return errorName(err) === "TimeoutError";
+}
+
 function actionBadgeClass(action: string): string {
   const a = action.toUpperCase();
   if (a.includes("LONG")) return "badge badgeStrong badgeLong";
@@ -145,6 +161,7 @@ export function App() {
   });
 
   const abortRef = useRef<AbortController | null>(null);
+  const requestSeqRef = useRef(0);
   const errorRef = useRef<HTMLDivElement | null>(null);
   const signalRef = useRef<HTMLDivElement | null>(null);
   const backtestRef = useRef<HTMLDivElement | null>(null);
@@ -228,12 +245,13 @@ export function App() {
 
   const run = useCallback(
     async (kind: RequestKind, overrideParams?: ApiParams, opts?: RunOptions) => {
+      const requestId = ++requestSeqRef.current;
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
-      scrollToResult(kind);
-      setState((s) => ({ ...s, loading: true, error: null, lastKind: kind }));
+      if (!opts?.silent) scrollToResult(kind);
+      setState((s) => ({ ...s, loading: true, error: opts?.silent ? s.error : null, lastKind: kind }));
 
       try {
         const p = overrideParams ?? params;
@@ -242,39 +260,65 @@ export function App() {
 
         if (kind === "signal") {
           const out = await signal(p, { signal: controller.signal, headers: authHeaders, timeoutMs: SIGNAL_TIMEOUT_MS });
-          setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false }));
+          if (requestId !== requestSeqRef.current) return;
+          setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Signal updated");
         } else if (kind === "backtest") {
           const out = await backtest(p, { signal: controller.signal, headers: authHeaders, timeoutMs: BACKTEST_TIMEOUT_MS });
-          setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false }));
+          if (requestId !== requestSeqRef.current) return;
+          setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Backtest complete");
         } else {
           if (!form.tradeArmed) throw new Error("Trading is locked. Enable “Arm trading” to call /trade.");
           const out = await trade(p, { signal: controller.signal, headers: authHeaders, timeoutMs: TRADE_TIMEOUT_MS });
-          setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false }));
+          if (requestId !== requestSeqRef.current) return;
+          setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast(out.order.sent ? "Order sent" : "No order");
         }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        if (requestId !== requestSeqRef.current) return;
+        if (isAbortError(e)) return;
+
+        let msg = e instanceof Error ? e.message : String(e);
+        if (isTimeoutError(e)) msg = "Request timed out. Reduce bars/epochs or increase timeouts.";
+        if (e instanceof HttpError && typeof e.payload === "string") {
+          const payload = e.payload;
+          if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
+            msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+          }
+        }
+
+        setApiOk((prev) => {
+          const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500) || isTimeoutError(e);
+          return looksDown ? "down" : prev;
+        });
+
+        if (opts?.silent) {
+          setState((s) => ({ ...s, loading: false }));
+          return;
+        }
+
         setState((s) => ({ ...s, loading: false, error: msg }));
-        setApiOk(msg.toLowerCase().includes("fetch") ? "down" : apiOk);
-        if (!opts?.silent) showToast("Request failed");
+        showToast("Request failed");
+      } finally {
+        if (requestId === requestSeqRef.current) abortRef.current = null;
       }
     },
-    [apiOk, authHeaders, form.tradeArmed, params, scrollToResult, showToast],
+    [authHeaders, form.tradeArmed, params, scrollToResult, showToast],
   );
 
   useEffect(() => {
     if (!form.autoRefresh) return;
     const ms = clamp(form.autoRefreshSec, 5, 600) * 1000;
     const t = window.setInterval(() => {
+      if (state.loading) return;
       void run("signal", undefined, { silent: true });
     }, ms);
     return () => window.clearInterval(t);
-  }, [form.autoRefresh, form.autoRefreshSec, run]);
+  }, [form.autoRefresh, form.autoRefreshSec, run, state.loading]);
 
   useEffect(() => {
     if (!state.error) return;
