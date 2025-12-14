@@ -201,6 +201,10 @@ curl -s -X POST http://127.0.0.1:8080/bot/start \
   -d '{"binanceSymbol":"BTCUSDT","interval":"5m","bars":500,"method":"11","threshold":0.001,"fee":0.0005,"botOnlineEpochs":1,"botTrade":false}'
 ```
 
+Auto-optimize after each buy/sell operation:
+- Threshold only: add `"sweepThreshold": true`
+- Method + threshold: add `"optimizeOperations": true`
+
 Check status:
 ```
 curl -s http://127.0.0.1:8080/bot/status

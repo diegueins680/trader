@@ -793,7 +793,8 @@ export function App() {
                   </div>
                   <div className="hint">
                     Continuously ingests new bars, fine-tunes on each bar, and switches position based on the latest signal. Enable “Arm trading” to actually place
-                    Binance orders; otherwise it runs in paper mode.
+                    Binance orders; otherwise it runs in paper mode. If “Sweep threshold” or “Optimize operations” is enabled, the bot re-optimizes after each
+                    buy/sell operation.
                   </div>
                   {bot.error ? <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>{bot.error}</div> : null}
                 </div>
@@ -912,6 +913,7 @@ export function App() {
                     <span className="badge">{bot.status.interval}</span>
                     <span className="badge">{marketLabel(bot.status.market)}</span>
                     <span className="badge">{methodLabel(bot.status.method)}</span>
+                    <span className="badge">thr {fmtPct(bot.status.threshold, 3)}</span>
                     <span className="badge">{bot.status.error ? "Error" : "OK"}</span>
                   </div>
 

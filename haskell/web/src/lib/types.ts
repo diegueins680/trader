@@ -131,6 +131,7 @@ export type BotStatus =
       interval: string;
       market: Market;
       method: Method;
+      threshold: number;
       startIndex: number;
       startedAtMs: number;
       updatedAtMs: number;

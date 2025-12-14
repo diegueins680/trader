@@ -433,6 +433,8 @@ data BotState = BotState
   , botLookback :: !Int
   , botPrices :: !(V.Vector Double)
   , botOpenTimes :: !(V.Vector Int64)
+  , botKalmanPredNext :: !(V.Vector Double) -- predicted next price at each bar (len == prices)
+  , botLstmPredNext :: !(V.Vector Double)   -- predicted next price at each bar (len == prices)
   , botEquityCurve :: !(V.Vector Double)
   , botPositions :: !(V.Vector Int) -- position after decision at each bar (len == prices)
   , botOps :: ![BotOp]
@@ -489,6 +491,7 @@ botStatusJson st =
     , "interval" .= argInterval (botArgs st)
     , "market" .= marketCode (argBinanceMarket (botArgs st))
     , "method" .= methodCode (argMethod (botArgs st))
+    , "threshold" .= argTradeThreshold (botArgs st)
     , "startIndex" .= botStartIndex st
     , "startedAtMs" .= botStartedAtMs st
     , "updatedAtMs" .= botUpdatedAtMs st
@@ -581,9 +584,11 @@ initBotState args settings sym = do
       n = V.length pricesV
 
   let method = argMethod args
+      methodForCtx = if argOptimizeOperations args then MethodBoth else method
+      nan = 0 / 0 :: Double
 
   mLstmCtx <-
-    case method of
+    case methodForCtx of
       MethodKalmanOnly -> pure Nothing
       _ -> do
         let normState = fitNorm (argNormalization args) closes
@@ -602,9 +607,9 @@ initBotState args settings sym = do
             (lstmModel, _) = trainLSTM lstmCfg obsAll
         pure (Just (normState, obsAll, lstmModel))
 
-  mKalmanCtx <-
-    case method of
-      MethodLstmOnly -> pure Nothing
+  (mKalmanCtx, kalPred0) <-
+    case methodForCtx of
+      MethodLstmOnly -> pure (Nothing, V.replicate n nan)
       _ -> do
         let predictors = trainPredictors lookback pricesV
             hmm0 = initHMMFilter predictors []
@@ -615,23 +620,33 @@ initBotState args settings sym = do
                 (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
             sv0 = emptySensorVar
 
-            step (kal, hmm, sv) t =
+            step (kal, hmm, sv, predsAcc) t =
               let priceT = pricesV V.! t
                   nextP = pricesV V.! (t + 1)
                   realizedR = if priceT == 0 then 0 else nextP / priceT - 1
                   (sensorOuts, predState) = predictSensors predictors pricesV hmm t
                   meas = mapMaybe (toMeasurement args sv) sensorOuts
                   kal' = stepMulti meas kal
+                  fusedR = kMean kal'
+                  kalNext = priceT * (1 + fusedR)
                   sv' =
                     foldl'
                       (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
                       sv
                       sensorOuts
                   hmm' = updateHMM predictors predState realizedR
-               in (kal', hmm', sv')
+               in (kal', hmm', sv', kalNext : predsAcc)
 
-            (kalPrev, hmmPrev, svPrev) = foldl' step (kal0, hmm0, sv0) [0 .. n - 2]
-        pure (Just (predictors, kalPrev, hmmPrev, svPrev))
+            (kalPrev, hmmPrev, svPrev, predsRev) = foldl' step (kal0, hmm0, sv0, []) [0 .. n - 2]
+            preds = reverse predsRev
+            lastPrice = V.last pricesV
+            (sensorOutsLast, _) = predictSensors predictors pricesV hmmPrev (n - 1)
+            measLast = mapMaybe (toMeasurement args svPrev) sensorOutsLast
+            kalLast = stepMulti measLast kalPrev
+            kalLastNext = lastPrice * (1 + kMean kalLast)
+            kalPred = V.fromList (preds ++ [kalLastNext])
+
+        pure (Just (predictors, kalPrev, hmmPrev, svPrev), kalPred)
 
   let latest = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx
       desiredPos =
@@ -662,11 +677,24 @@ initBotState args settings sym = do
       then Just <$> placeIfEnabled args settings latest env sym
       else pure Nothing
 
+  let lstmPred0 =
+        case mLstmCtx of
+          Nothing -> V.replicate n nan
+          Just (normState, obsAll, lstmModel) ->
+            V.generate n $ \t ->
+              if t < lookback - 1
+                then nan
+                else
+                  let start = t - lookback + 1
+                      window = take lookback (drop start obsAll)
+                      predObs = predictNext lstmModel window
+                   in inverseNorm normState predObs
+
   let maxPoints = max (lookback + 3) (bsMaxPoints settings)
       dropCount = max 0 (V.length pricesV - maxPoints)
-      (pricesV2, openV2, eq2, pos2, ops2, openTrade2, startIndex2, mLstmCtx2) =
+      (pricesV2, openV2, kalPred2, lstmPred2, eq2, pos2, ops2, openTrade2, startIndex2, mLstmCtx2) =
         if dropCount <= 0
-          then (pricesV, openV, eq1, pos1, ops, openTrade, 0, mLstmCtx)
+          then (pricesV, openV, kalPred0, lstmPred0, eq1, pos1, ops, openTrade, 0, mLstmCtx)
           else
             let openTradeShifted =
                   case openTrade of
@@ -688,6 +716,8 @@ initBotState args settings sym = do
              in
               ( V.drop dropCount pricesV
               , V.drop dropCount openV
+              , V.drop dropCount kalPred0
+              , V.drop dropCount lstmPred0
               , V.drop dropCount eq1
               , V.drop dropCount pos1
               , opsShifted
@@ -705,6 +735,8 @@ initBotState args settings sym = do
       , botLookback = lookback
       , botPrices = pricesV2
       , botOpenTimes = openV2
+      , botKalmanPredNext = kalPred2
+      , botLstmPredNext = lstmPred2
       , botEquityCurve = eq2
       , botPositions = pos2
       , botOps = ops2
@@ -720,6 +752,45 @@ initBotState args settings sym = do
       , botUpdatedAtMs = now
       , botError = Nothing
       }
+
+botOptimizeAfterOperation :: BotState -> IO BotState
+botOptimizeAfterOperation st = do
+  let args = botArgs st
+      optimizeOps = argOptimizeOperations args
+      sweepThr = argSweepThreshold args
+  if not (optimizeOps || sweepThr)
+    then pure st
+    else do
+      let lookback = botLookback st
+          settings = botSettings st
+          pricesV = botPrices st
+          n = V.length pricesV
+      if n < max 3 (lookback + 3)
+        then pure st
+        else do
+          let win = min n (min 1000 (max (lookback + 3) (bsTrainBars settings)))
+              start = n - win
+              prices = V.toList (V.drop start pricesV)
+              kalPred = V.toList (V.slice start (win - 1) (botKalmanPredNext st))
+              lstmPred = V.toList (V.slice start (win - 1) (botLstmPredNext st))
+              baseThr = argTradeThreshold args
+              fee = argFee args
+              hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
+              (newMethod, newThr) =
+                if optimizeOps && hasBothCtx
+                  then
+                    let (m, thr, _) = optimizeOperations baseThr fee prices kalPred lstmPred
+                     in (m, thr)
+                  else
+                    let (thr, _) = sweepThreshold (argMethod args) baseThr fee prices kalPred lstmPred
+                     in (argMethod args, thr)
+              args' =
+                args
+                  { argMethod = newMethod
+                  , argTradeThreshold = newThr
+                  }
+              latest' = computeLatestSignal args' lookback pricesV (botLstmCtx st) (botKalmanCtx st)
+          pure st { botArgs = args', botLatestSignal = latest' }
 
 makeBinanceEnv :: Args -> IO BinanceEnv
 makeBinanceEnv args = do
@@ -790,7 +861,6 @@ botApplyKline :: BotState -> Kline -> IO BotState
 botApplyKline st k = do
   now <- getTimestampMs
   let args = botArgs st
-      method = argMethod args
       lookback = botLookback st
       settings = botSettings st
 
@@ -819,10 +889,9 @@ botApplyKline st k = do
 
   -- Update Kalman/HMM/sensor variance with the realized return on the last step.
   mKalmanCtx1 <-
-    case (method, botKalmanCtx st) of
-      (MethodLstmOnly, _) -> pure Nothing
-      (_, Nothing) -> pure Nothing
-      (_, Just (predictors, kalPrev, hmmPrev, svPrev)) -> do
+    case botKalmanCtx st of
+      Nothing -> pure Nothing
+      Just (predictors, kalPrev, hmmPrev, svPrev) -> do
         let t = nPrev - 1
             realizedR = if prevPrice == 0 then 0 else priceNew / prevPrice - 1
             (sensorOuts, predState) = predictSensors predictors pricesV hmmPrev t
@@ -838,10 +907,9 @@ botApplyKline st k = do
 
   -- LSTM: append the new observation and fine-tune for a few epochs.
   mLstmCtx1 <-
-    case (method, botLstmCtx st) of
-      (MethodKalmanOnly, _) -> pure Nothing
-      (_, Nothing) -> pure Nothing
-      (_, Just (normState, obsAll, lstmModel0)) -> do
+    case botLstmCtx st of
+      Nothing -> pure Nothing
+      Just (normState, obsAll, lstmModel0) -> do
         let obsAll' = obsAll ++ forwardSeries normState [priceNew]
             trainBars = max (lookback + 2) (bsTrainBars settings)
             obsTrain = takeLast trainBars obsAll'
@@ -864,6 +932,9 @@ botApplyKline st k = do
         pure (Just (normState, obsAll', lstmModel1))
 
   let latest = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1
+      nan = 0 / 0 :: Double
+      kalPred1 = V.snoc (botKalmanPredNext st) (maybe nan id (lsKalmanNext latest))
+      lstmPred1 = V.snoc (botLstmPredNext st) (maybe nan id (lsLstmNext latest))
       desiredPos =
         case lsChosenDir latest of
           Just 1 -> 1
@@ -908,9 +979,9 @@ botApplyKline st k = do
       maxPoints = max (lookback + 3) (bsMaxPoints settings)
       dropCount = max 0 (V.length pricesV - maxPoints)
 
-      (pricesV2, openTimesV2, eqV2, posV2, ops2, trades2, openTrade2, startIndex2) =
+      (pricesV2, openTimesV2, kalPred2, lstmPred2, eqV2, posV2, ops2, trades2, openTrade2, startIndex2) =
         if dropCount <= 0
-          then (pricesV, openTimesV, eqV1, posV1, ops', trades', openTrade', botStartIndex st)
+          then (pricesV, openTimesV, kalPred1, lstmPred1, eqV1, posV1, ops', trades', openTrade', botStartIndex st)
           else
             let shiftTrade tr =
                   tr { trEntryIndex = trEntryIndex tr - dropCount, trExitIndex = trExitIndex tr - dropCount }
@@ -933,8 +1004,10 @@ botApplyKline st k = do
                   , boIndex op >= dropCount
                   ]
              in
-              ( V.drop dropCount pricesV
-              , V.drop dropCount openTimesV
+             ( V.drop dropCount pricesV
+             , V.drop dropCount openTimesV
+              , V.drop dropCount kalPred1
+              , V.drop dropCount lstmPred1
               , V.drop dropCount eqV1
               , V.drop dropCount posV1
               , opsShifted
@@ -951,24 +1024,28 @@ botApplyKline st k = do
               then Just (normState, obsAll, lstmModel)
               else Just (normState, drop dropCount obsAll, lstmModel)
 
-  pure
-    st
-      { botPrices = pricesV2
-      , botOpenTimes = openTimesV2
-      , botEquityCurve = eqV2
-      , botPositions = posV2
-      , botOps = ops2
-      , botTrades = trades2
-      , botOpenTrade = openTrade2
-      , botLatestSignal = latest
-      , botLastOrder = mOrder
-      , botLstmCtx = mLstmCtx2
-      , botKalmanCtx = mKalmanCtx1
-      , botLastOpenTime = openTimeNew
-      , botStartIndex = startIndex2
-      , botUpdatedAtMs = now
-      , botError = Nothing
-      }
+  let st1 =
+        st
+          { botPrices = pricesV2
+          , botOpenTimes = openTimesV2
+          , botKalmanPredNext = kalPred2
+          , botLstmPredNext = lstmPred2
+          , botEquityCurve = eqV2
+          , botPositions = posV2
+          , botOps = ops2
+          , botTrades = trades2
+          , botOpenTrade = openTrade2
+          , botLatestSignal = latest
+          , botLastOrder = mOrder
+          , botLstmCtx = mLstmCtx2
+          , botKalmanCtx = mKalmanCtx1
+          , botLastOpenTime = openTimeNew
+          , botStartIndex = startIndex2
+          , botUpdatedAtMs = now
+          , botError = Nothing
+          }
+
+  if switched then botOptimizeAfterOperation st1 else pure st1
 
 placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeIfEnabled args settings sig env sym =
