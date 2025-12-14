@@ -4,7 +4,7 @@ module Main where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar)
-import Control.Exception (SomeException, finally, fromException, try)
+import Control.Exception (SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
@@ -21,7 +21,8 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
-import Network.HTTP.Types (Status, status200, status400, status401, status404, status405, status500)
+import Network.HTTP.Client (HttpException)
+import Network.HTTP.Types (Status, status200, status400, status401, status404, status405, status500, status502)
 import Network.HTTP.Types.Header (hAuthorization)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -1136,7 +1137,10 @@ exceptionToHttp ex =
       case fromException ex of
         Just io
           | isUserError io -> (status400, ioeGetErrorString io)
-        _ -> (status500, show ex)
+        _ ->
+          case (fromException ex :: Maybe HttpException) of
+            Just httpEx -> (status502, show httpEx)
+            Nothing -> (status500, show ex)
 
 handleSignal :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignal baseArgs req respond = do
@@ -1953,15 +1957,28 @@ loadPricesBinance args sym = do
   if market == MarketMargin && argBinanceTestnet args
     then error "--binance-testnet is not supported for margin operations"
     else pure ()
-  let base =
+  let tradeBase =
         case market of
           MarketFutures -> if argBinanceTestnet args then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
           _ -> if argBinanceTestnet args then binanceTestnetBaseUrl else binanceBaseUrl
+      dataBase =
+        case market of
+          MarketFutures -> binanceFuturesBaseUrl
+          _ -> binanceBaseUrl
   apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
-  env <- newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-  closes <- fetchCloses env sym (argInterval args) (argBars args)
-  pure (env, closes)
+  envTrade <- newBinanceEnv market tradeBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+  closesE <- try (fetchCloses envTrade sym (argInterval args) (argBars args)) :: IO (Either HttpException [Double])
+  closes <-
+    case closesE of
+      Right cs -> pure cs
+      Left ex ->
+        if argBinanceTestnet args
+          then do
+            envData <- newBinanceEnv market dataBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+            fetchCloses envData sym (argInterval args) (argBars args)
+          else throwIO ex
+  pure (envTrade, closes)
 
 resolveEnv :: String -> Maybe String -> IO (Maybe String)
 resolveEnv name override =

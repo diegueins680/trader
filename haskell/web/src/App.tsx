@@ -150,7 +150,7 @@ function marketLabel(m: Market): string {
 }
 
 export function App() {
-  const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down">("unknown");
+  const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [toast, setToast] = useState<string | null>(null);
   const [apiToken, setApiToken] = useState<string>(() => readSessionString(SESSION_TOKEN_KEY) ?? "");
   const [form, setForm] = useState<FormState>(() => {
@@ -308,6 +308,7 @@ export function App() {
         }
 
         setApiOk((prev) => {
+          if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
           const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500) || isTimeoutError(e);
           return looksDown ? "down" : prev;
         });
@@ -399,14 +400,14 @@ export function App() {
   }, [bot.loading, bot.status.running, refreshBot]);
 
   useEffect(() => {
-    if (!form.autoRefresh) return;
+    if (!form.autoRefresh || apiOk !== "ok") return;
     const ms = clamp(form.autoRefreshSec, 5, 600) * 1000;
     const t = window.setInterval(() => {
       if (state.loading) return;
       void run("signal", undefined, { silent: true });
     }, ms);
     return () => window.clearInterval(t);
-  }, [form.autoRefresh, form.autoRefreshSec, run, state.loading]);
+  }, [apiOk, form.autoRefresh, form.autoRefreshSec, run, state.loading]);
 
   useEffect(() => {
     if (!state.error) return;
@@ -415,7 +416,14 @@ export function App() {
 
   const statusDotClass =
     apiOk === "ok" ? "dot dotOk" : apiOk === "down" ? "dot dotBad" : "dot dotWarn";
-  const statusLabel = apiOk === "ok" ? "API online" : apiOk === "down" ? "API unreachable" : "API status unknown";
+  const statusLabel =
+    apiOk === "ok"
+      ? "API online"
+      : apiOk === "auth"
+        ? "API auth required"
+        : apiOk === "down"
+          ? "API unreachable"
+          : "API status unknown";
 
   const curlFor = useMemo(() => {
     const kind = state.lastKind ?? (form.optimizeOperations || form.sweepThreshold ? "backtest" : "signal");
