@@ -15,7 +15,15 @@ export class HttpError extends Error {
 type FetchJsonOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
+  headers?: Record<string, string>;
 };
+
+function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string> | undefined): HeadersInit | undefined {
+  if (!extra || Object.keys(extra).length === 0) return base;
+  const merged = new Headers(base);
+  for (const [key, value] of Object.entries(extra)) merged.set(key, value);
+  return merged;
+}
 
 function withTimeout(externalSignal: AbortSignal | undefined, timeoutMs: number) {
   const controller = new AbortController();
@@ -47,7 +55,7 @@ async function fetchJson<T>(path: string, init: RequestInit, opts?: FetchJsonOpt
   const timeoutMs = opts?.timeoutMs ?? 30_000;
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
-    const res = await fetch(path, { ...init, signal });
+    const res = await fetch(path, { ...init, headers: mergeHeaders(init.headers, opts?.headers), signal });
     const payload = await readJsonOrText(res);
     if (!res.ok) {
       const message =

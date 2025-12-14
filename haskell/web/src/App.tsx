@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ApiParams, ApiTradeResponse, BacktestResponse, LatestSignal, Market, Method, Normalization } from "./lib/types";
 import { backtest, health, signal, trade } from "./lib/api";
 import { copyText } from "./lib/clipboard";
-import { readJson, writeJson } from "./lib/storage";
+import { readJson, readSessionString, removeSessionKey, writeJson, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { BacktestChart } from "./components/BacktestChart";
 
@@ -45,6 +45,7 @@ type FormState = {
 };
 
 const STORAGE_KEY = "trader.ui.form.v1";
+const SESSION_TOKEN_KEY = "trader.ui.apiToken.v1";
 
 const defaultForm: FormState = {
   binanceSymbol: "BTCUSDT",
@@ -79,6 +80,10 @@ function numFromInput(raw: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function escapeSingleQuotes(raw: string): string {
+  return raw.replaceAll("'", "'\\''");
+}
+
 function actionBadgeClass(action: string): string {
   const a = action.toUpperCase();
   if (a.includes("LONG")) return "badge badgeStrong badgeLong";
@@ -111,6 +116,7 @@ function marketLabel(m: Market): string {
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down">("unknown");
   const [toast, setToast] = useState<string | null>(null);
+  const [apiToken, setApiToken] = useState<string>(() => readSessionString(SESSION_TOKEN_KEY) ?? "");
   const [form, setForm] = useState<FormState>(() => {
     const saved = readJson<Partial<FormState>>(STORAGE_KEY);
     return { ...defaultForm, ...(saved ?? {}) };
@@ -135,6 +141,12 @@ export function App() {
     writeJson(STORAGE_KEY, form);
   }, [form]);
 
+  useEffect(() => {
+    const token = apiToken.trim();
+    if (!token) removeSessionKey(SESSION_TOKEN_KEY);
+    else writeSessionString(SESSION_TOKEN_KEY, token);
+  }, [apiToken]);
+
   const toastTimerRef = useRef<number | null>(null);
   const showToast = useCallback((msg: string) => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
@@ -148,6 +160,11 @@ export function App() {
       abortRef.current?.abort();
     };
   }, []);
+
+  const authHeaders = useMemo(() => {
+    const token = apiToken.trim();
+    return token ? { Authorization: `Bearer ${token}` } : undefined;
+  }, [apiToken]);
 
   useEffect(() => {
     let mounted = true;
@@ -211,18 +228,18 @@ export function App() {
         if (!p.interval) throw new Error("interval is required.");
 
         if (kind === "signal") {
-          const out = await signal(p, { signal: controller.signal });
+          const out = await signal(p, { signal: controller.signal, headers: authHeaders });
           setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Signal updated");
         } else if (kind === "backtest") {
-          const out = await backtest(p, { signal: controller.signal });
+          const out = await backtest(p, { signal: controller.signal, headers: authHeaders });
           setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Backtest complete");
         } else {
           if (!form.tradeArmed) throw new Error("Trading is locked. Enable “Arm trading” to call /trade.");
-          const out = await trade(p, { signal: controller.signal });
+          const out = await trade(p, { signal: controller.signal, headers: authHeaders });
           setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false }));
           setApiOk("ok");
           if (!opts?.silent) showToast(out.order.sent ? "Order sent" : "No order");
@@ -234,7 +251,7 @@ export function App() {
         if (!opts?.silent) showToast("Request failed");
       }
     },
-    [apiOk, form.tradeArmed, params, scrollToResult, showToast],
+    [apiOk, authHeaders, form.tradeArmed, params, scrollToResult, showToast],
   );
 
   useEffect(() => {
@@ -259,9 +276,11 @@ export function App() {
     const kind = state.lastKind ?? "signal";
     const endpoint = kind === "signal" ? "/signal" : kind === "backtest" ? "/backtest" : "/trade";
     const json = JSON.stringify(params);
-    const safe = json.replaceAll("'", "'\\''");
-    return `curl -s -X POST http://127.0.0.1:8080${endpoint} -H 'Content-Type: application/json' -d '${safe}'`;
-  }, [params, state.lastKind]);
+    const safe = escapeSingleQuotes(json);
+    const token = apiToken.trim();
+    const auth = token ? ` -H 'Authorization: Bearer ${escapeSingleQuotes(token)}'` : "";
+    return `curl -s -X POST http://127.0.0.1:8080${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
+  }, [apiToken, params, state.lastKind]);
 
   return (
     <div className="container">
@@ -302,6 +321,32 @@ export function App() {
             <p className="cardSubtitle">Safe defaults, minimal knobs, and clear outputs.</p>
           </div>
           <div className="cardBody">
+            <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+              <div className="field">
+                <label className="label" htmlFor="apiToken">
+                  API token (optional)
+                </label>
+                <div className="row" style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}>
+                  <input
+                    id="apiToken"
+                    className="input"
+                    type="password"
+                    value={apiToken}
+                    onChange={(e) => setApiToken(e.target.value)}
+                    placeholder="TRADER_API_TOKEN"
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    inputMode="text"
+                  />
+                  <button className="btn" type="button" onClick={() => setApiToken("")} disabled={!apiToken.trim()}>
+                    Clear
+                  </button>
+                </div>
+                <div className="hint">Only needed when the backend sets TRADER_API_TOKEN. Stored in session storage (not in the URL).</div>
+              </div>
+            </div>
+
             <div className="row">
               <div className="field">
                 <label className="label" htmlFor="symbol">

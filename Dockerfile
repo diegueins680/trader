@@ -22,4 +22,6 @@ COPY --from=build /opt/trader/trader-hs /usr/local/bin/trader-hs
 
 EXPOSE 8080
 
+USER 65532:65532
+
 CMD ["trader-hs", "--serve", "--port", "8080"]

@@ -1,5 +1,10 @@
 .DS_Store
 
+# Env / secrets
+.env
+.env.*
+!.env.example
+
 # Python
 .venv/
 
@@ -27,3 +32,9 @@ cabal.sandbox.config
 *.prof
 *.hp
 *.eventlog
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo

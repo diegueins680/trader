@@ -243,20 +243,61 @@ argLookback args =
             Left err -> error err
             Right n -> positive n
 
+validateArgs :: Args -> Either String Args
+validateArgs args = do
+  ensure "--bars must be >= 0" (argBars args >= 0)
+  ensure "--bars must be 0 (all CSV) or >= 2" (argBars args /= 1)
+  case argBinanceSymbol args of
+    Nothing -> pure ()
+    Just _ -> ensure "--bars must be between 2 and 1000 for Binance data" (argBars args >= 2 && argBars args <= 1000)
+
+  ensure "--hidden-size must be >= 1" (argHiddenSize args >= 1)
+  ensure "--epochs must be >= 0" (argEpochs args >= 0)
+  ensure "--lr must be > 0" (argLr args > 0)
+  ensure "--val-ratio must be >= 0 and < 1" (argValRatio args >= 0 && argValRatio args < 1)
+  ensure "--backtest-ratio must be between 0 and 1" (argBacktestRatio args > 0 && argBacktestRatio args < 1)
+  ensure "--patience must be >= 0" (argPatience args >= 0)
+  case argGradClip args of
+    Nothing -> pure ()
+    Just g -> ensure "--grad-clip must be > 0" (g > 0)
+  ensure "--kalman-dt must be > 0" (argKalmanDt args > 0)
+  ensure "--kalman-process-var must be > 0" (argKalmanProcessVar args > 0)
+  ensure "--kalman-measurement-var must be > 0" (argKalmanMeasurementVar args > 0)
+  ensure "--threshold must be >= 0" (argTradeThreshold args >= 0)
+  ensure "--fee must be >= 0" (argFee args >= 0)
+  case argPeriodsPerYear args of
+    Nothing -> pure ()
+    Just v -> ensure "--periods-per-year must be > 0" (v > 0)
+  case argOrderQuote args of
+    Nothing -> pure ()
+    Just q -> ensure "--order-quote must be >= 0" (q >= 0)
+  case argOrderQuantity args of
+    Nothing -> pure ()
+    Just q -> ensure "--order-quantity must be >= 0" (q >= 0)
+
+  pure args
+  where
+    ensure :: String -> Bool -> Either String ()
+    ensure msg cond = if cond then Right () else Left msg
+
 main :: IO ()
 main = do
   args <- execParser (info (opts <**> helper) fullDesc)
+  args' <-
+    case validateArgs args of
+      Left e -> error e
+      Right ok -> pure ok
 
-  if argServe args
-    then runRestApi args
+  if argServe args'
+    then runRestApi args'
     else do
-      (prices, mBinanceEnv) <- loadPrices args
+      (prices, mBinanceEnv) <- loadPrices args'
       if length prices < 2 then error "Need at least 2 price rows" else pure ()
 
-      let lookback = argLookback args
-      if argTradeOnly args
-        then runTradeOnly args lookback prices mBinanceEnv
-        else runBacktestPipeline args lookback prices mBinanceEnv
+      let lookback = argLookback args'
+      if argTradeOnly args'
+        then runTradeOnly args' lookback prices mBinanceEnv
+        else runBacktestPipeline args' lookback prices mBinanceEnv
 
 -- REST API (stateless; computes per request)
 
@@ -564,7 +605,7 @@ argsFromApi baseArgs p = do
           , argOrderQuantity = pickMaybe (apOrderQuantity p) (argOrderQuantity baseArgs)
           }
 
-  pure args
+  validateArgs args
 
 dirLabel :: Maybe Int -> Maybe String
 dirLabel d =

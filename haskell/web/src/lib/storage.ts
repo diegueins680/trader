@@ -15,3 +15,27 @@ export function writeJson(key: string, value: unknown) {
     // ignore
   }
 }
+
+export function readSessionString(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export function writeSessionString(key: string, value: string) {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
+export function removeSessionKey(key: string) {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}

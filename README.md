@@ -221,6 +221,8 @@ TRADER_API_TARGET=http://127.0.0.1:9090 npm run dev
 
 Open `http://127.0.0.1:5173`.
 
+If your backend has `TRADER_API_TOKEN` set, paste the token into the UI’s “API token” field (it sends `Authorization: Bearer <token>`).
+
 Assumptions and limitations
 ---------------------------
 - The strategy is intentionally simple (long or flat only) and does not include sizing, risk limits, or robust transaction cost modeling.
