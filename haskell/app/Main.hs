@@ -8,7 +8,7 @@ import Control.Exception (SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
-import Data.Char (isDigit, isSpace, toLower)
+import Data.Char (isSpace, toLower)
 import Data.Int (Int64)
 import Data.List (foldl')
 import Data.Maybe (isJust, mapMaybe)
@@ -1291,6 +1291,22 @@ handleBacktest baseArgs req respond = do
                in respond (jsonError st msg)
             Right out -> respond (jsonValue status200 out)
 
+handleBinanceKeys :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceKeys baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          r <- try (computeBinanceKeysStatusFromArgs args0) :: IO (Either SomeException ApiBinanceKeysStatus)
+          case r of
+            Left ex ->
+              let (st, msg) = exceptionToHttp ex
+               in respond (jsonError st msg)
+            Right out -> respond (jsonValue status200 out)
+
 handleBotStart :: Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStart baseArgs botCtrl req respond = do
   body <- Wai.strictRequestBody req
@@ -1426,6 +1442,161 @@ computeTradeFromArgs args = do
       (_, Nothing) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing Binance environment (use binanceSymbol data source).")
       (Just sym, Just env) -> placeOrderForSignal args sym sig env
   pure ApiTradeResponse { atrSignal = sig, atrOrder = order }
+
+data BinanceApiError = BinanceApiError
+  { baeCode :: !Int
+  , baeMsg :: !String
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON BinanceApiError where
+  parseJSON = Aeson.withObject "BinanceApiError" $ \o -> do
+    c <- o Aeson..: "code"
+    m <- o Aeson..: "msg"
+    pure BinanceApiError { baeCode = c, baeMsg = m }
+
+extractBinanceApiError :: String -> Maybe BinanceApiError
+extractBinanceApiError raw =
+  case dropWhile (/= '{') raw of
+    [] -> Nothing
+    jsonish ->
+      case lastIndex '}' jsonish of
+        Nothing -> Nothing
+        Just end ->
+          let json = take (end + 1) jsonish
+           in case eitherDecode (BL.fromStrict (BS.pack json)) of
+                Left _ -> Nothing
+                Right e -> Just e
+  where
+    lastIndex c xs =
+      case reverse (zip [0 ..] xs) of
+        [] -> Nothing
+        pairs ->
+          case [i | (i, ch) <- pairs, ch == c] of
+            (i : _) -> Just i
+            [] -> Nothing
+
+mkProbe :: String -> Bool -> Maybe BinanceApiError -> String -> ApiBinanceProbe
+mkProbe step ok mErr summary =
+  ApiBinanceProbe
+    { abpOk = ok
+    , abpStep = step
+    , abpCode = baeCode <$> mErr
+    , abpMsg = baeMsg <$> mErr
+    , abpSummary = summary
+    }
+
+probeSigned :: BinanceEnv -> String -> IO ApiBinanceProbe
+probeSigned env sym = do
+  r <-
+    case beMarket env of
+      MarketFutures -> try (fetchFuturesPositionAmt env sym) :: IO (Either SomeException Double)
+      _ -> try (fetchFreeBalance env "USDT") :: IO (Either SomeException Double)
+  case r of
+    Right _ -> pure (mkProbe "signed" True Nothing "Signed check OK.")
+    Left ex ->
+      let msg = show ex
+          mErr = extractBinanceApiError msg
+       in pure (mkProbe "signed" False mErr ("Signed check failed: " ++ msg))
+
+probeTradeTest :: BinanceEnv -> String -> Maybe Double -> Maybe Double -> IO ApiBinanceProbe
+probeTradeTest env sym mOrderQty mOrderQuote =
+  case beMarket env of
+    MarketMargin ->
+      pure (mkProbe "orderTest" False Nothing "Margin has no order test endpoint; cannot safely validate trade permission.")
+    _ -> do
+      mQty <-
+        case beMarket env of
+          MarketFutures ->
+            case mOrderQty of
+              Just q | q > 0 -> pure (Just q)
+              _ ->
+                case mOrderQuote of
+                  Just qq | qq > 0 -> do
+                    px <- fetchTickerPrice env sym
+                    if px > 0 then pure (Just (qq / px)) else pure Nothing
+                  _ -> pure Nothing
+          _ -> pure mOrderQty
+
+      let mQuote =
+            case beMarket env of
+              MarketFutures -> Nothing
+              _ -> mOrderQuote
+
+      if beMarket env == MarketFutures && maybe True (<= 0) mQty
+        then pure (mkProbe "orderTest" False Nothing "Futures order test needs orderQuantity (or orderQuote to derive it).")
+        else
+          if beMarket env /= MarketFutures && maybe True (<= 0) mQty && maybe True (<= 0) mQuote
+            then pure (mkProbe "orderTest" False Nothing "Spot order test needs orderQuote or orderQuantity.")
+            else do
+              r <- try (placeMarketOrder env OrderTest sym Buy mQty mQuote Nothing) :: IO (Either SomeException BL.ByteString)
+              case r of
+                Right _ -> pure (mkProbe "orderTest" True Nothing "Trade permission OK (order test accepted).")
+                Left ex ->
+                  let msg = show ex
+                      mErr = extractBinanceApiError msg
+                      ok =
+                        case mErr of
+                          Just e ->
+                            let code = baeCode e
+                             in code /= (-1022) && code /= (-2014) && code /= (-2015)
+                          Nothing -> False
+                      summary =
+                        case mErr of
+                          Just e ->
+                            if ok
+                              then "Auth OK, but order rejected: " ++ baeMsg e
+                              else "Trade permission check failed: " ++ baeMsg e
+                          Nothing -> "Trade permission check failed: " ++ msg
+                   in pure (mkProbe "orderTest" ok mErr summary)
+
+computeBinanceKeysStatusFromArgs :: Args -> IO ApiBinanceKeysStatus
+computeBinanceKeysStatusFromArgs args = do
+  let market = argBinanceMarket args
+      testnet = argBinanceTestnet args
+      mSym = argBinanceSymbol args
+
+  apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
+  apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
+  let hasKey = isJust apiKey
+      hasSecret = isJust apiSecret
+
+  let base =
+        case market of
+          MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+          _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+
+  env <- newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+
+  signed <-
+    if hasKey && hasSecret
+      then
+        case market of
+          MarketFutures ->
+            case mSym of
+              Nothing -> pure (Just (mkProbe "signed" False Nothing "Signed check failed: missing binanceSymbol."))
+              Just sym -> Just <$> probeSigned env sym
+          _ -> Just <$> probeSigned env ""
+      else pure Nothing
+
+  tradeTest <-
+    if hasKey && hasSecret
+      then
+        case (market, mSym) of
+          (MarketMargin, _) -> pure (Just (mkProbe "orderTest" False Nothing "Margin has no order test endpoint; cannot safely validate trade permission."))
+          (_, Nothing) -> pure (Just (mkProbe "orderTest" False Nothing "Trade permission check needs binanceSymbol."))
+          (_, Just sym) -> Just <$> probeTradeTest env sym (argOrderQuantity args) (argOrderQuote args)
+      else pure Nothing
+
+  pure
+    ApiBinanceKeysStatus
+      { abkMarket = marketCode market
+      , abkTestnet = testnet
+      , abkSymbol = mSym
+      , abkHasApiKey = hasKey
+      , abkHasApiSecret = hasSecret
+      , abkSigned = signed
+      , abkTradeTest = tradeTest
+      }
 
 placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
 placeOrderForSignal args sym sig env = do
