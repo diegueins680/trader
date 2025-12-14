@@ -8,7 +8,7 @@ import Control.Exception (SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
-import Data.Char (isSpace, toLower)
+import Data.Char (isDigit, isSpace, toLower)
 import Data.Int (Int64)
 import Data.List (foldl')
 import Data.Maybe (isJust, mapMaybe)
@@ -38,6 +38,7 @@ import Trader.Binance
   , BinanceOrderMode(..)
   , OrderSide(..)
   , Kline(..)
+  , fetchTickerPrice
   , binanceBaseUrl
   , binanceTestnetBaseUrl
   , binanceFuturesBaseUrl
@@ -393,6 +394,30 @@ data ApiTradeResponse = ApiTradeResponse
 instance ToJSON ApiTradeResponse where
   toJSON = Aeson.genericToJSON (jsonOptions 3)
 
+data ApiBinanceProbe = ApiBinanceProbe
+  { abpOk :: !Bool
+  , abpStep :: !String
+  , abpCode :: !(Maybe Int)
+  , abpMsg :: !(Maybe String)
+  , abpSummary :: !String
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiBinanceProbe where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+data ApiBinanceKeysStatus = ApiBinanceKeysStatus
+  { abkMarket :: !String
+  , abkTestnet :: !Bool
+  , abkSymbol :: !(Maybe String)
+  , abkHasApiKey :: !Bool
+  , abkHasApiSecret :: !Bool
+  , abkSigned :: !(Maybe ApiBinanceProbe)
+  , abkTradeTest :: !(Maybe ApiBinanceProbe)
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiBinanceKeysStatus where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
 jsonOptions :: Int -> Aeson.Options
 jsonOptions prefixLen =
   Aeson.defaultOptions
@@ -439,6 +464,7 @@ data BotState = BotState
   , botEquityCurve :: !(V.Vector Double)
   , botPositions :: !(V.Vector Int) -- position after decision at each bar (len == prices)
   , botOps :: ![BotOp]
+  , botOrders :: ![BotOrderEvent]
   , botTrades :: ![Trade]
   , botOpenTrade :: !(Maybe (Int, Double, Int)) -- (entryIdx, entryEq, holdingPeriods)
   , botLatestSignal :: !LatestSignal
@@ -486,6 +512,11 @@ botSettingsFromApi args p = do
 
 botStatusJson :: BotState -> Aeson.Value
 botStatusJson st =
+  let finiteMaybe x =
+        if isNaN x || isInfinite x
+          then Nothing
+          else Just x
+   in
   object $
     [ "running" .= True
     , "symbol" .= botSymbol st
@@ -498,9 +529,12 @@ botStatusJson st =
     , "updatedAtMs" .= botUpdatedAtMs st
     , "prices" .= V.toList (botPrices st)
     , "openTimes" .= V.toList (botOpenTimes st)
+    , "kalmanPredNext" .= map finiteMaybe (V.toList (botKalmanPredNext st))
+    , "lstmPredNext" .= map finiteMaybe (V.toList (botLstmPredNext st))
     , "equityCurve" .= V.toList (botEquityCurve st)
     , "positions" .= V.toList (botPositions st)
     , "operations" .= botOps st
+    , "orders" .= botOrders st
     , "trades" .= map tradeToJson (botTrades st)
     , "latestSignal" .= botLatestSignal st
     ]
@@ -521,6 +555,18 @@ data BotOp = BotOp
 
 instance ToJSON BotOp where
   toJSON = Aeson.genericToJSON (jsonOptions 2)
+
+data BotOrderEvent = BotOrderEvent
+  { boeIndex :: !Int
+  , boeOpSide :: !String
+  , boePrice :: !Double
+  , boeOpenTime :: !Int64
+  , boeAtMs :: !Int64
+  , boeOrder :: !ApiOrderResult
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON BotOrderEvent where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
 
 marketCode :: BinanceMarket -> String
 marketCode m =
@@ -678,7 +724,12 @@ initBotState args settings sym = do
       then Just <$> placeIfEnabled args settings latest env sym
       else pure Nothing
 
-  let lstmPred0 =
+  let orders =
+        case (desiredPos, mOrder) of
+          (1, Just o) -> [BotOrderEvent (n - 1) "BUY" (V.last pricesV) lastOt now o]
+          _ -> []
+
+      lstmPred0 =
         case mLstmCtx of
           Nothing -> V.replicate n nan
           Just (normState, obsAll, lstmModel) ->
@@ -691,11 +742,12 @@ initBotState args settings sym = do
                       predObs = predictNext lstmModel window
                    in inverseNorm normState predObs
 
-  let maxPoints = max (lookback + 3) (bsMaxPoints settings)
+      maxPoints = max (lookback + 3) (bsMaxPoints settings)
       dropCount = max 0 (V.length pricesV - maxPoints)
-      (pricesV2, openV2, kalPred2, lstmPred2, eq2, pos2, ops2, openTrade2, startIndex2, mLstmCtx2) =
+
+      (pricesV2, openV2, kalPred2, lstmPred2, eq2, pos2, ops2, orders2, openTrade2, startIndex2, mLstmCtx2) =
         if dropCount <= 0
-          then (pricesV, openV, kalPred0, lstmPred0, eq1, pos1, ops, openTrade, 0, mLstmCtx)
+          then (pricesV, openV, kalPred0, lstmPred0, eq1, pos1, ops, orders, openTrade, 0, mLstmCtx)
           else
             let openTradeShifted =
                   case openTrade of
@@ -708,6 +760,11 @@ initBotState args settings sym = do
                   [ op { boIndex = boIndex op - dropCount }
                   | op <- ops
                   , boIndex op >= dropCount
+                  ]
+                ordersShifted =
+                  [ e { boeIndex = boeIndex e - dropCount }
+                  | e <- orders
+                  , boeIndex e >= dropCount
                   ]
                 lstmCtxShifted =
                   case mLstmCtx of
@@ -722,12 +779,13 @@ initBotState args settings sym = do
               , V.drop dropCount eq1
               , V.drop dropCount pos1
               , opsShifted
+              , ordersShifted
               , openTradeShifted
               , dropCount
               , lstmCtxShifted
               )
 
-  let st0 =
+      st0 =
         BotState
           { botArgs = args
           , botSettings = settings
@@ -741,6 +799,7 @@ initBotState args settings sym = do
           , botEquityCurve = eq2
           , botPositions = pos2
           , botOps = ops2
+          , botOrders = orders2
           , botTrades = []
           , botOpenTrade = openTrade2
           , botLatestSignal = latest
@@ -950,31 +1009,37 @@ botApplyKline st k = do
           then eqAfterReturn * (1 - argFee args)
           else eqAfterReturn
 
-  (ops', trades', openTrade', mOrder) <-
+  (ops', orders', trades', openTrade', mOrder) <-
     if not switched
-      then pure (botOps st, botTrades st, openTrade1, Nothing)
-      else
-        case (prevPos, desiredPos, openTrade1) of
-          (0, 1, _) -> do
-            o <- placeIfEnabled args settings latest (botEnv st) (botSymbol st)
-            let op = BotOp nPrev "BUY" priceNew
-            pure (botOps st ++ [op], botTrades st, Just (nPrev, eqAfterFee, 0), Just o)
-          (1, 0, Just (ei, entryEq, hold)) -> do
-            o <- placeIfEnabled args settings latest (botEnv st) (botSymbol st)
-            let op = BotOp nPrev "SELL" priceNew
-            let tr =
-                  Trade
-                    { trEntryIndex = ei
-                    , trExitIndex = nPrev
-                    , trEntryEquity = entryEq
-                    , trExitEquity = eqAfterFee
-                    , trReturn = eqAfterFee / entryEq - 1
-                    , trHoldingPeriods = hold
-                    }
-            pure (botOps st ++ [op], botTrades st ++ [tr], Nothing, Just o)
-          _ -> do
-            o <- placeIfEnabled args settings latest (botEnv st) (botSymbol st)
-            pure (botOps st, botTrades st, openTrade1, Just o)
+      then pure (botOps st, botOrders st, botTrades st, openTrade1, Nothing)
+      else do
+        o <- placeIfEnabled args settings latest (botEnv st) (botSymbol st)
+        let opSide =
+              if prevPos == 0 && desiredPos == 1
+                then "BUY"
+                else "SELL"
+            op = BotOp nPrev opSide priceNew
+            orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now o
+            opsNew = botOps st ++ [op]
+            ordersNew = botOrders st ++ [orderEv]
+            (openTradeNew, tradesNew) =
+              if opSide == "BUY"
+                then (Just (nPrev, eqAfterFee, 0), botTrades st)
+                else
+                  case openTrade1 of
+                    Just (ei, entryEq, hold) ->
+                      let tr =
+                            Trade
+                              { trEntryIndex = ei
+                              , trExitIndex = nPrev
+                              , trEntryEquity = entryEq
+                              , trExitEquity = eqAfterFee
+                              , trReturn = eqAfterFee / entryEq - 1
+                              , trHoldingPeriods = hold
+                              }
+                       in (Nothing, botTrades st ++ [tr])
+                    Nothing -> (Nothing, botTrades st)
+        pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o)
 
   let eqV1 = V.snoc (botEquityCurve st) eqAfterFee
       posV1 = V.snoc (botPositions st) desiredPos
@@ -982,9 +1047,9 @@ botApplyKline st k = do
       maxPoints = max (lookback + 3) (bsMaxPoints settings)
       dropCount = max 0 (V.length pricesV - maxPoints)
 
-      (pricesV2, openTimesV2, kalPred2, lstmPred2, eqV2, posV2, ops2, trades2, openTrade2, startIndex2) =
+      (pricesV2, openTimesV2, kalPred2, lstmPred2, eqV2, posV2, ops2, orders2, trades2, openTrade2, startIndex2) =
         if dropCount <= 0
-          then (pricesV, openTimesV, kalPred1, lstmPred1, eqV1, posV1, ops', trades', openTrade', botStartIndex st)
+          then (pricesV, openTimesV, kalPred1, lstmPred1, eqV1, posV1, ops', orders', trades', openTrade', botStartIndex st)
           else
             let shiftTrade tr =
                   tr { trEntryIndex = trEntryIndex tr - dropCount, trExitIndex = trExitIndex tr - dropCount }
@@ -1006,6 +1071,11 @@ botApplyKline st k = do
                   | op <- ops'
                   , boIndex op >= dropCount
                   ]
+                ordersShifted =
+                  [ e { boeIndex = boeIndex e - dropCount }
+                  | e <- orders'
+                  , boeIndex e >= dropCount
+                  ]
              in
              ( V.drop dropCount pricesV
              , V.drop dropCount openTimesV
@@ -1014,6 +1084,7 @@ botApplyKline st k = do
               , V.drop dropCount eqV1
               , V.drop dropCount posV1
               , opsShifted
+              , ordersShifted
               , tradesShifted
               , openTradeShifted
               , botStartIndex st + dropCount
@@ -1036,6 +1107,7 @@ botApplyKline st k = do
           , botEquityCurve = eqV2
           , botPositions = posV2
           , botOps = ops2
+          , botOrders = orders2
           , botTrades = trades2
           , botOpenTrade = openTrade2
           , botLatestSignal = latest
@@ -1095,6 +1167,10 @@ apiApp baseArgs apiToken botCtrl req respond =
             ["backtest"] ->
               case Wai.requestMethod req of
                 "POST" -> handleBacktest baseArgs req respond
+                _ -> respond (jsonError status405 "Method not allowed")
+            ["binance", "keys"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBinanceKeys baseArgs req respond
                 _ -> respond (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of

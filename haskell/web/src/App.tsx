@@ -5,6 +5,7 @@ import { copyText } from "./lib/clipboard";
 import { readJson, readSessionString, removeSessionKey, writeJson, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { BacktestChart } from "./components/BacktestChart";
+import { PredictionDiffChart } from "./components/PredictionDiffChart";
 
 type RequestKind = "signal" | "backtest" | "trade";
 
@@ -102,6 +103,15 @@ function numFromInput(raw: string, fallback: number): number {
 
 function escapeSingleQuotes(raw: string): string {
   return raw.replaceAll("'", "'\\''");
+}
+
+function fmtTimeMs(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  try {
+    return new Date(ms).toLocaleString();
+  } catch {
+    return String(ms);
+  }
 }
 
 function errorName(err: unknown): string {
@@ -253,6 +263,18 @@ export function App() {
 
     return base;
   }, [form]);
+
+  const botOrderLogText = useMemo(() => {
+    const st = bot.status;
+    if (!st.running) return "";
+    const rows = st.orders.slice(-200).map((e) => {
+      const bar = st.startIndex + e.index;
+      const sent = e.order.sent ? "SENT" : "NO";
+      const mode = e.order.mode ?? "—";
+      return `${fmtTimeMs(e.atMs)} | bar ${bar} | ${e.opSide} @ ${fmtMoney(e.price, 4)} | ${sent} ${mode} | ${e.order.message}`;
+    });
+    return rows.length ? rows.join("\n") : "No live operations yet.";
+  }, [bot.status]);
 
   const scrollToResult = useCallback((kind: RequestKind) => {
     const ref = kind === "signal" ? signalRef : kind === "backtest" ? backtestRef : tradeRef;
@@ -925,20 +947,32 @@ export function App() {
                     <span className="badge">{bot.status.error ? "Error" : "OK"}</span>
                   </div>
 
-                  <BacktestChart
-                    prices={bot.status.prices}
-                    equityCurve={bot.status.equityCurve}
-                    positions={bot.status.positions}
-                    trades={bot.status.trades}
-                    operations={bot.status.operations}
-                    backtestStartIndex={bot.status.startIndex}
-                    height={360}
-                  />
+	                  <BacktestChart
+	                    prices={bot.status.prices}
+	                    equityCurve={bot.status.equityCurve}
+	                    positions={bot.status.positions}
+	                    trades={bot.status.trades}
+	                    operations={bot.status.operations}
+	                    backtestStartIndex={bot.status.startIndex}
+	                    height={360}
+	                  />
 
-                  <div className="kv" style={{ marginTop: 12 }}>
-                    <div className="k">Equity / Position</div>
-                    <div className="v">
-                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
+	                  <div style={{ marginTop: 10 }}>
+	                    <div className="hint" style={{ marginBottom: 8 }}>
+	                      Prediction error (pred_next - next_close)
+	                    </div>
+	                    <PredictionDiffChart
+	                      prices={bot.status.prices}
+	                      kalmanPredNext={bot.status.kalmanPredNext}
+	                      lstmPredNext={bot.status.lstmPredNext}
+	                      height={140}
+	                    />
+	                  </div>
+
+	                  <div className="kv" style={{ marginTop: 12 }}>
+	                    <div className="k">Equity / Position</div>
+	                    <div className="v">
+	                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
                       {(bot.status.positions[bot.status.positions.length - 1] ?? 0) === 1 ? "LONG" : "FLAT"}
                     </div>
                   </div>
@@ -946,16 +980,23 @@ export function App() {
                     <div className="k">Last action</div>
                     <div className="v">{bot.status.latestSignal.action}</div>
                   </div>
-                  {bot.status.lastOrder ? (
-                    <div className="kv">
-                      <div className="k">Last order</div>
-                      <div className="v">{bot.status.lastOrder.message}</div>
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <div className="hint">Bot is stopped. Use “Start live bot” on the left.</div>
-              )}
+	                  {bot.status.lastOrder ? (
+	                    <div className="kv">
+	                      <div className="k">Last order</div>
+	                      <div className="v">{bot.status.lastOrder.message}</div>
+	                    </div>
+	                  ) : null}
+
+	                  <div style={{ marginTop: 12 }}>
+	                    <div className="hint" style={{ marginBottom: 8 }}>
+	                      Order log (latest last)
+	                    </div>
+	                    <pre className="code">{botOrderLogText}</pre>
+	                  </div>
+	                </>
+	              ) : (
+	                <div className="hint">Bot is stopped. Use “Start live bot” on the left.</div>
+	              )}
             </div>
           </div>
 

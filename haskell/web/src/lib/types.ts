@@ -123,6 +123,15 @@ export type BotOperation = {
   price: number;
 };
 
+export type BotOrderEvent = {
+  index: number;
+  opSide: "BUY" | "SELL";
+  price: number;
+  openTime: number;
+  atMs: number;
+  order: ApiOrderResult;
+};
+
 export type BotStatus =
   | { running: false }
   | {
@@ -137,9 +146,12 @@ export type BotStatus =
       updatedAtMs: number;
       prices: number[];
       openTimes: number[];
+      kalmanPredNext: Array<number | null>;
+      lstmPredNext: Array<number | null>;
       equityCurve: number[];
       positions: number[];
       operations: BotOperation[];
+      orders: BotOrderEvent[];
       trades: Trade[];
       latestSignal: LatestSignal;
       lastOrder?: ApiOrderResult;
