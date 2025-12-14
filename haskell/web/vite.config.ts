@@ -5,6 +5,7 @@ export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
   const apiTarget = env.TRADER_API_TARGET || "http://127.0.0.1:8080";
   const apiToken = (env.TRADER_API_TOKEN || "").trim();
+  const proxyTimeoutMs = 10 * 60 * 1000;
 
   return {
     plugins: [react()],
@@ -16,6 +17,8 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: apiTarget,
           changeOrigin: true,
+          timeout: proxyTimeoutMs,
+          proxyTimeout: proxyTimeoutMs,
           rewrite: (path) => path.replace(/^\/api/, ""),
           configure: (proxy) => {
             if (!apiToken) return;

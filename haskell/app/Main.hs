@@ -396,9 +396,15 @@ jsonOptions prefixLen =
 runRestApi :: Args -> IO ()
 runRestApi baseArgs = do
   apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
+  timeoutEnv <- lookupEnv "TRADER_API_TIMEOUT_SEC"
+  let timeoutSec =
+        case timeoutEnv >>= readMaybe of
+          Just n | n >= 0 -> n
+          _ -> 600
   let port = max 1 (argPort baseArgs)
       settings =
         Warp.setHost "0.0.0.0" $
+          Warp.setTimeout timeoutSec $
           Warp.setPort port Warp.defaultSettings
   putStrLn (printf "REST API listening on http://0.0.0.0:%d" port)
   Warp.runSettings settings (apiApp baseArgs apiToken)

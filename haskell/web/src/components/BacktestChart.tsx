@@ -104,6 +104,42 @@ export function BacktestChart({
   }, []);
 
   useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      if (n < 2) return;
+      e.preventDefault();
+
+      const rect = el.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const marginL = 14;
+      const marginR = 10;
+      const w = Math.max(1, size.w - marginL - marginR);
+
+      setView((prev) => {
+        const start = prev.start;
+        const end = prev.end;
+        const len = end - start + 1;
+        const t = clamp((x - marginL) / w, 0, 1);
+        const pivot = clamp(Math.round(start + t * (len - 1)), 0, n - 1);
+
+        const zoomIn = e.deltaY < 0;
+        const factor = zoomIn ? 0.86 : 1.18;
+        const minWin = Math.min(60, n);
+        const nextLen = clamp(Math.round(len * factor), minWin, n);
+        const ratio = len <= 1 ? 0 : (pivot - start) / (len - 1);
+        const nextStart = clamp(Math.round(pivot - ratio * (nextLen - 1)), 0, n - nextLen);
+        const nextEnd = nextStart + nextLen - 1;
+        return { start: nextStart, end: nextEnd };
+      });
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [n, size.w]);
+
+  useEffect(() => {
     const c = canvasRef.current;
     if (!c) return;
     const ctx = c.getContext("2d");
@@ -432,33 +468,6 @@ export function BacktestChart({
     resetView();
   };
 
-  const onWheel = (e: React.WheelEvent) => {
-    if (n < 2) return;
-    e.preventDefault();
-    const el = wrapRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const marginL = 14;
-    const marginR = 10;
-    const w = size.w - marginL - marginR;
-
-    const start = view.start;
-    const end = view.end;
-    const len = end - start + 1;
-    const t = clamp((x - marginL) / Math.max(1, w), 0, 1);
-    const pivot = clamp(Math.round(start + t * (len - 1)), 0, n - 1);
-
-    const zoomIn = e.deltaY < 0;
-    const factor = zoomIn ? 0.86 : 1.18;
-    const minWin = Math.min(60, n);
-    const nextLen = clamp(Math.round(len * factor), minWin, n);
-    const ratio = len <= 1 ? 0 : (pivot - start) / (len - 1);
-    const nextStart = clamp(Math.round(pivot - ratio * (nextLen - 1)), 0, n - nextLen);
-    const nextEnd = nextStart + nextLen - 1;
-    setView({ start: nextStart, end: nextEnd });
-  };
-
   const empty = n < 2 || equityCurve.length < 2;
 
   return (
@@ -486,7 +495,6 @@ export function BacktestChart({
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
         onDoubleClick={onDoubleClick}
-        onWheel={onWheel}
       >
         <canvas className="btCanvas" ref={canvasRef} />
 
@@ -537,4 +545,3 @@ export function BacktestChart({
     </div>
   );
 }
-

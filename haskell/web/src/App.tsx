@@ -56,6 +56,10 @@ type FormState = {
 const STORAGE_KEY = "trader.ui.form.v1";
 const SESSION_TOKEN_KEY = "trader.ui.apiToken.v1";
 
+const SIGNAL_TIMEOUT_MS = 5 * 60_000;
+const BACKTEST_TIMEOUT_MS = 10 * 60_000;
+const TRADE_TIMEOUT_MS = 5 * 60_000;
+
 const defaultForm: FormState = {
   binanceSymbol: "BTCUSDT",
   market: "spot",
@@ -237,18 +241,18 @@ export function App() {
         if (!p.interval) throw new Error("interval is required.");
 
         if (kind === "signal") {
-          const out = await signal(p, { signal: controller.signal, headers: authHeaders });
+          const out = await signal(p, { signal: controller.signal, headers: authHeaders, timeoutMs: SIGNAL_TIMEOUT_MS });
           setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Signal updated");
         } else if (kind === "backtest") {
-          const out = await backtest(p, { signal: controller.signal, headers: authHeaders });
+          const out = await backtest(p, { signal: controller.signal, headers: authHeaders, timeoutMs: BACKTEST_TIMEOUT_MS });
           setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Backtest complete");
         } else {
           if (!form.tradeArmed) throw new Error("Trading is locked. Enable “Arm trading” to call /trade.");
-          const out = await trade(p, { signal: controller.signal, headers: authHeaders });
+          const out = await trade(p, { signal: controller.signal, headers: authHeaders, timeoutMs: TRADE_TIMEOUT_MS });
           setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false }));
           setApiOk("ok");
           if (!opts?.silent) showToast(out.order.sent ? "Order sent" : "No order");
