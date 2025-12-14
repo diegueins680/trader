@@ -12,6 +12,15 @@ type RunOptions = {
   silent?: boolean;
 };
 
+const API_TARGET = (__TRADER_API_TARGET__ || "http://127.0.0.1:8080").replace(/\/+$/, "");
+const API_PORT = (() => {
+  try {
+    return new URL(API_TARGET).port || "8080";
+  } catch {
+    return "8080";
+  }
+})();
+
 type UiState = {
   loading: boolean;
   error: string | null;
@@ -273,14 +282,14 @@ export function App() {
   const statusLabel = apiOk === "ok" ? "API online" : apiOk === "down" ? "API unreachable" : "API status unknown";
 
   const curlFor = useMemo(() => {
-    const kind = state.lastKind ?? "signal";
+    const kind = state.lastKind ?? (form.optimizeOperations || form.sweepThreshold ? "backtest" : "signal");
     const endpoint = kind === "signal" ? "/signal" : kind === "backtest" ? "/backtest" : "/trade";
     const json = JSON.stringify(params);
     const safe = escapeSingleQuotes(json);
     const token = apiToken.trim();
     const auth = token ? ` -H 'Authorization: Bearer ${escapeSingleQuotes(token)}'` : "";
-    return `curl -s -X POST http://127.0.0.1:8080${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
-  }, [apiToken, params, state.lastKind]);
+    return `curl -s -X POST ${API_TARGET}${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
+  }, [apiToken, form.optimizeOperations, form.sweepThreshold, params, state.lastKind]);
 
   return (
     <div className="container">
@@ -304,7 +313,7 @@ export function App() {
             </span>
           ) : null}
           <span className="pill">
-            Proxy: <span style={{ fontFamily: "var(--mono)" }}>/api → 127.0.0.1:8080</span>
+            Proxy: <span style={{ fontFamily: "var(--mono)" }}>/api → {API_TARGET}</span>
           </span>
         </div>
       </header>
@@ -315,7 +324,7 @@ export function App() {
       ) : null}
 
       <div className="grid">
-        <section className="card">
+        <section className="card configCard">
           <div className="cardHeader">
             <h2 className="cardTitle">Configuration</h2>
             <p className="cardSubtitle">Safe defaults, minimal knobs, and clear outputs.</p>
@@ -700,7 +709,11 @@ export function App() {
             </div>
 
             <p className="footerNote">
-              Backend: start with <span style={{ fontFamily: "var(--mono)" }}>cd haskell && cabal run -v0 trader-hs -- --serve --port 8080</span>. The UI uses a
+              Backend: start with{" "}
+              <span style={{ fontFamily: "var(--mono)" }}>
+                cd haskell && cabal run -v0 trader-hs -- --serve --port {API_PORT}
+              </span>
+              . The UI uses a
               same-origin dev proxy (<span style={{ fontFamily: "var(--mono)" }}>/api</span>) to avoid CORS and reduce local attack surface.
             </p>
           </div>

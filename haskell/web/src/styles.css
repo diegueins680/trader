@@ -134,9 +134,35 @@ textarea {
   align-items: start;
 }
 
+.configCard {
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  display: flex;
+  flex-direction: column;
+}
+
+.configCard .cardBody {
+  overflow: auto;
+  flex: 1;
+  scrollbar-gutter: stable;
+  padding-right: 12px;
+}
+
 @media (max-width: 980px) {
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .configCard {
+    position: static;
+    max-height: none;
+    display: block;
+  }
+
+  .configCard .cardBody {
+    overflow: visible;
+    padding-right: 16px;
   }
 }
 
