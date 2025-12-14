@@ -2,11 +2,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Exception (SomeException, fromException, try)
+import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar)
+import Control.Exception (SomeException, finally, fromException, try)
 import Control.Applicative ((<|>))
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
 import Data.Char (isSpace, toLower)
+import Data.Int (Int64)
 import Data.List (foldl')
 import Data.Maybe (isJust, mapMaybe)
 import Data.Text (Text)
@@ -33,14 +36,17 @@ import Trader.Binance
   , BinanceMarket(..)
   , BinanceOrderMode(..)
   , OrderSide(..)
+  , Kline(..)
   , binanceBaseUrl
   , binanceTestnetBaseUrl
   , binanceFuturesBaseUrl
   , binanceFuturesTestnetBaseUrl
   , newBinanceEnv
+  , fetchKlines
   , fetchCloses
   , fetchFreeBalance
   , fetchFuturesPositionAmt
+  , getTimestampMs
   , placeMarketOrder
   )
 import Trader.KalmanFusion (Kalman1(..), initKalman1, stepMulti)
@@ -49,11 +55,12 @@ import Trader.LSTM
   , EpochStats(..)
   , LSTMModel
   , trainLSTM
+  , fineTuneLSTM
   , predictNext
   , predictSeriesNext
   )
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
-import Trader.Duration (lookbackBarsFrom)
+import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
 import Trader.Normalization (NormState, NormType(..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Predictors
   ( PredictorBundle
@@ -332,6 +339,11 @@ data ApiParams = ApiParams
   , apBinanceLive :: Maybe Bool
   , apOrderQuote :: Maybe Double
   , apOrderQuantity :: Maybe Double
+  , apBotPollSeconds :: Maybe Int
+  , apBotOnlineEpochs :: Maybe Int
+  , apBotTrainBars :: Maybe Int
+  , apBotMaxPoints :: Maybe Int
+  , apBotTrade :: Maybe Bool
   } deriving (Eq, Show, Generic)
 
 instance FromJSON ApiParams where
@@ -393,6 +405,535 @@ jsonOptions prefixLen =
         [] -> []
         (c:cs) -> toLower c : cs
 
+-- Live bot (stateful; continuous loop)
+
+data BotSettings = BotSettings
+  { bsPollSeconds :: !Int
+  , bsOnlineEpochs :: !Int
+  , bsTrainBars :: !Int
+  , bsMaxPoints :: !Int
+  , bsTradeEnabled :: !Bool
+  } deriving (Eq, Show)
+
+data BotController = BotController
+  { bcRuntime :: MVar (Maybe BotRuntime)
+  }
+
+data BotRuntime = BotRuntime
+  { brThreadId :: ThreadId
+  , brStateVar :: MVar BotState
+  , brStopSignal :: MVar ()
+  }
+
+data BotState = BotState
+  { botArgs :: !Args
+  , botSettings :: !BotSettings
+  , botSymbol :: !String
+  , botEnv :: !BinanceEnv
+  , botLookback :: !Int
+  , botPrices :: !(V.Vector Double)
+  , botOpenTimes :: !(V.Vector Int64)
+  , botEquityCurve :: !(V.Vector Double)
+  , botPositions :: !(V.Vector Int) -- position after decision at each bar (len == prices)
+  , botOps :: ![BotOp]
+  , botTrades :: ![Trade]
+  , botOpenTrade :: !(Maybe (Int, Double, Int)) -- (entryIdx, entryEq, holdingPeriods)
+  , botLatestSignal :: !LatestSignal
+  , botLastOrder :: !(Maybe ApiOrderResult)
+  , botLstmCtx :: !(Maybe LstmCtx)
+  , botKalmanCtx :: !(Maybe KalmanCtx)
+  , botLastOpenTime :: !Int64
+  , botStartIndex :: !Int
+  , botStartedAtMs :: !Int64
+  , botUpdatedAtMs :: !Int64
+  , botError :: !(Maybe String)
+  }
+
+newBotController :: IO BotController
+newBotController = BotController <$> newMVar Nothing
+
+clampInt :: Int -> Int -> Int -> Int
+clampInt lo hi n = max lo (min hi n)
+
+defaultBotPollSeconds :: Args -> Int
+defaultBotPollSeconds args =
+  case parseIntervalSeconds (argInterval args) of
+    Nothing -> 10
+    Just sec ->
+      let half = max 1 (sec `div` 2)
+       in clampInt 5 60 half
+
+botSettingsFromApi :: Args -> ApiParams -> Either String BotSettings
+botSettingsFromApi args p = do
+  let poll = maybe (defaultBotPollSeconds args) id (apBotPollSeconds p)
+      onlineEpochs = maybe 1 id (apBotOnlineEpochs p)
+      trainBars = maybe 800 id (apBotTrainBars p)
+      maxPoints = maybe 2000 id (apBotMaxPoints p)
+      tradeEnabled = maybe False id (apBotTrade p)
+
+  ensure "botPollSeconds must be between 1 and 3600" (poll >= 1 && poll <= 3600)
+  ensure "botOnlineEpochs must be between 0 and 50" (onlineEpochs >= 0 && onlineEpochs <= 50)
+  ensure "botTrainBars must be >= 10" (trainBars >= 10)
+  ensure "botMaxPoints must be between 100 and 100000" (maxPoints >= 100 && maxPoints <= 100000)
+
+  pure BotSettings { bsPollSeconds = poll, bsOnlineEpochs = onlineEpochs, bsTrainBars = trainBars, bsMaxPoints = maxPoints, bsTradeEnabled = tradeEnabled }
+  where
+    ensure :: String -> Bool -> Either String ()
+    ensure msg cond = if cond then Right () else Left msg
+
+botStatusJson :: BotState -> Aeson.Value
+botStatusJson st =
+  object $
+    [ "running" .= True
+    , "symbol" .= botSymbol st
+    , "interval" .= argInterval (botArgs st)
+    , "market" .= marketCode (argBinanceMarket (botArgs st))
+    , "method" .= methodCode (argMethod (botArgs st))
+    , "startIndex" .= botStartIndex st
+    , "startedAtMs" .= botStartedAtMs st
+    , "updatedAtMs" .= botUpdatedAtMs st
+    , "prices" .= V.toList (botPrices st)
+    , "openTimes" .= V.toList (botOpenTimes st)
+    , "equityCurve" .= V.toList (botEquityCurve st)
+    , "positions" .= V.toList (botPositions st)
+    , "operations" .= botOps st
+    , "trades" .= map tradeToJson (botTrades st)
+    , "latestSignal" .= botLatestSignal st
+    ]
+      ++ maybe [] (\o -> ["lastOrder" .= o]) (botLastOrder st)
+      ++ maybe [] (\e -> ["error" .= e]) (botError st)
+
+botStoppedJson :: Aeson.Value
+botStoppedJson =
+  object
+    [ "running" .= False
+    ]
+
+data BotOp = BotOp
+  { boIndex :: !Int
+  , boSide :: !String
+  , boPrice :: !Double
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON BotOp where
+  toJSON = Aeson.genericToJSON (jsonOptions 2)
+
+marketCode :: BinanceMarket -> String
+marketCode m =
+  case m of
+    MarketSpot -> "spot"
+    MarketMargin -> "margin"
+    MarketFutures -> "futures"
+
+botStart :: BotController -> Args -> ApiParams -> IO (Either String BotState)
+botStart ctrl args p =
+  case argData args of
+    Just _ -> pure (Left "bot/start supports binanceSymbol only (no CSV data source)")
+    Nothing ->
+      case argBinanceSymbol args of
+        Nothing -> pure (Left "bot/start requires binanceSymbol")
+        Just sym ->
+          case botSettingsFromApi args p of
+            Left e -> pure (Left e)
+            Right settings ->
+              modifyMVar (bcRuntime ctrl) $ \mrt ->
+                case mrt of
+                  Just _ -> pure (mrt, Left "Bot is already running")
+                  Nothing -> do
+                    r <- try (initBotState args settings sym) :: IO (Either SomeException BotState)
+                    case r of
+                      Left ex -> pure (Nothing, Left (show ex))
+                      Right st0 -> do
+                        stVar <- newMVar st0
+                        stopSig <- newEmptyMVar
+                        tid <- forkIO (botLoop ctrl stVar stopSig)
+                        pure (Just (BotRuntime tid stVar stopSig), Right st0)
+
+botStop :: BotController -> IO Bool
+botStop ctrl =
+  modifyMVar (bcRuntime ctrl) $ \mrt ->
+    case mrt of
+      Nothing -> pure (Nothing, False)
+      Just rt -> do
+        _ <- tryPutMVar (brStopSignal rt) ()
+        killThread (brThreadId rt)
+        pure (Nothing, True)
+
+botGetState :: BotController -> IO (Maybe BotState)
+botGetState ctrl = do
+  mrt <- readMVar (bcRuntime ctrl)
+  case mrt of
+    Nothing -> pure Nothing
+    Just rt -> Just <$> readMVar (brStateVar rt)
+
+initBotState :: Args -> BotSettings -> String -> IO BotState
+initBotState args settings sym = do
+  let lookback = argLookback args
+  now <- getTimestampMs
+  env <- makeBinanceEnv args
+  let initBars = max 2 (min 1000 (max 2 (argBars args)))
+  ks <- fetchKlines env sym (argInterval args) initBars
+  if length ks < 2 then error "Not enough klines to start bot" else pure ()
+  let closes = map kClose ks
+      openTimes = map kOpenTime ks
+      pricesV = V.fromList closes
+      openV = V.fromList openTimes
+      n = V.length pricesV
+
+  let method = argMethod args
+
+  mLstmCtx <-
+    case method of
+      MethodKalmanOnly -> pure Nothing
+      _ -> do
+        let normState = fitNorm (argNormalization args) closes
+            obsAll = forwardSeries normState closes
+            lstmCfg =
+              LSTMConfig
+                { lcLookback = lookback
+                , lcHiddenSize = argHiddenSize args
+                , lcEpochs = argEpochs args
+                , lcLearningRate = argLr args
+                , lcValRatio = argValRatio args
+                , lcPatience = argPatience args
+                , lcGradClip = argGradClip args
+                , lcSeed = argSeed args
+                }
+            (lstmModel, _) = trainLSTM lstmCfg obsAll
+        pure (Just (normState, obsAll, lstmModel))
+
+  mKalmanCtx <-
+    case method of
+      MethodLstmOnly -> pure Nothing
+      _ -> do
+        let predictors = trainPredictors lookback pricesV
+            hmm0 = initHMMFilter predictors []
+            kal0 =
+              initKalman1
+                0
+                (max 1e-12 (argKalmanMeasurementVar args))
+                (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+            sv0 = emptySensorVar
+
+            step (kal, hmm, sv) t =
+              let priceT = pricesV V.! t
+                  nextP = pricesV V.! (t + 1)
+                  realizedR = if priceT == 0 then 0 else nextP / priceT - 1
+                  (sensorOuts, predState) = predictSensors predictors pricesV hmm t
+                  meas = mapMaybe (toMeasurement args sv) sensorOuts
+                  kal' = stepMulti meas kal
+                  sv' =
+                    foldl'
+                      (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
+                      sv
+                      sensorOuts
+                  hmm' = updateHMM predictors predState realizedR
+               in (kal', hmm', sv')
+
+            (kalPrev, hmmPrev, svPrev) = foldl' step (kal0, hmm0, sv0) [0 .. n - 2]
+        pure (Just (predictors, kalPrev, hmmPrev, svPrev))
+
+  let latest = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx
+      desiredPos =
+        case lsChosenDir latest of
+          Just 1 -> 1
+          Just (-1) -> 0
+          _ -> 0
+      baseEq = 1.0
+      eq0 = V.replicate n baseEq
+      pos0 = V.replicate n 0
+      eq1 =
+        if desiredPos /= 0
+          then eq0 V.// [(n - 1, baseEq * (1 - argFee args))]
+          else eq0
+      pos1 = pos0 V.// [(n - 1, desiredPos)]
+      openTrade =
+        if desiredPos == 1
+          then Just (n - 1, eq1 V.! (n - 1), 0)
+          else Nothing
+      ops =
+        if desiredPos == 1
+          then [BotOp (n - 1) "BUY" (V.last pricesV)]
+          else []
+      lastOt = V.last openV
+
+  mOrder <-
+    if desiredPos == 1
+      then Just <$> placeIfEnabled args settings latest env sym
+      else pure Nothing
+
+  pure
+    BotState
+      { botArgs = args
+      , botSettings = settings
+      , botSymbol = sym
+      , botEnv = env
+      , botLookback = lookback
+      , botPrices = pricesV
+      , botOpenTimes = openV
+      , botEquityCurve = eq1
+      , botPositions = pos1
+      , botOps = ops
+      , botTrades = []
+      , botOpenTrade = openTrade
+      , botLatestSignal = latest
+      , botLastOrder = mOrder
+      , botLstmCtx = mLstmCtx
+      , botKalmanCtx = mKalmanCtx
+      , botLastOpenTime = lastOt
+      , botStartIndex = 0
+      , botStartedAtMs = now
+      , botUpdatedAtMs = now
+      , botError = Nothing
+      }
+
+makeBinanceEnv :: Args -> IO BinanceEnv
+makeBinanceEnv args = do
+  let market = argBinanceMarket args
+  if market == MarketMargin && argBinanceTestnet args
+    then error "--binance-testnet is not supported for margin operations"
+    else pure ()
+  let base =
+        case market of
+          MarketFutures -> if argBinanceTestnet args then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+          _ -> if argBinanceTestnet args then binanceTestnetBaseUrl else binanceBaseUrl
+  apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
+  apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
+  newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+
+botLoop :: BotController -> MVar BotState -> MVar () -> IO ()
+botLoop ctrl stVar stopSig = do
+  tid <- myThreadId
+  let sleepSec s = threadDelay (max 1 s * 1000000)
+
+      loop = do
+        stopReq <- isJust <$> tryReadMVar stopSig
+        if stopReq
+          then pure ()
+          else do
+            st <- readMVar stVar
+            let env = botEnv st
+                sym = botSymbol st
+                pollSec = bsPollSeconds (botSettings st)
+            r <- try (fetchKlines env sym (argInterval (botArgs st)) 10) :: IO (Either SomeException [Kline])
+            case r of
+              Left ex -> do
+                now <- getTimestampMs
+                let st' = st { botError = Just (show ex), botUpdatedAtMs = now }
+                _ <- swapMVar stVar st'
+                sleepSec pollSec
+                loop
+              Right ks -> do
+                let lastSeen = botLastOpenTime st
+                    newKs = filter (\k -> kOpenTime k > lastSeen) ks
+                if null newKs
+                  then do
+                    sleepSec pollSec
+                    loop
+                  else do
+                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe s0 k) (pure st) newKs
+                    _ <- swapMVar stVar st1
+                    loop
+
+      cleanup = do
+        modifyMVar_ (bcRuntime ctrl) $ \mrt ->
+          case mrt of
+            Just rt | brThreadId rt == tid -> pure Nothing
+            other -> pure other
+
+  loop `finally` cleanup
+
+botApplyKlineSafe :: BotState -> Kline -> IO BotState
+botApplyKlineSafe st k = do
+  r <- try (botApplyKline st k) :: IO (Either SomeException BotState)
+  case r of
+    Right st' -> pure st'
+    Left ex -> do
+      now <- getTimestampMs
+      pure st { botError = Just (show ex), botUpdatedAtMs = now, botLastOpenTime = kOpenTime k }
+
+botApplyKline :: BotState -> Kline -> IO BotState
+botApplyKline st k = do
+  now <- getTimestampMs
+  let args = botArgs st
+      method = argMethod args
+      lookback = botLookback st
+      settings = botSettings st
+
+      priceNew = kClose k
+      openTimeNew = kOpenTime k
+
+      pricesPrev = botPrices st
+      nPrev = V.length pricesPrev
+
+  if nPrev < 1 then error "botApplyKline: empty prices" else pure ()
+
+  let prevPrice = pricesPrev V.! (nPrev - 1)
+      prevEq = botEquityCurve st V.! (nPrev - 1)
+      prevPos = botPositions st V.! (nPrev - 1)
+      eqAfterReturn =
+        if prevPos == 1 && prevPrice > 0
+          then prevEq * (priceNew / prevPrice)
+          else prevEq
+      openTrade1 =
+        case (prevPos, botOpenTrade st) of
+          (1, Just (ei, eq0, hold)) -> Just (ei, eq0, hold + 1)
+          _ -> Nothing
+
+      pricesV = V.snoc pricesPrev priceNew
+      openTimesV = V.snoc (botOpenTimes st) openTimeNew
+
+  -- Update Kalman/HMM/sensor variance with the realized return on the last step.
+  mKalmanCtx1 <-
+    case (method, botKalmanCtx st) of
+      (MethodLstmOnly, _) -> pure Nothing
+      (_, Nothing) -> pure Nothing
+      (_, Just (predictors, kalPrev, hmmPrev, svPrev)) -> do
+        let t = nPrev - 1
+            realizedR = if prevPrice == 0 then 0 else priceNew / prevPrice - 1
+            (sensorOuts, predState) = predictSensors predictors pricesV hmmPrev t
+            meas = mapMaybe (toMeasurement args svPrev) sensorOuts
+            kal' = stepMulti meas kalPrev
+            sv' =
+              foldl'
+                (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
+                svPrev
+                sensorOuts
+            hmm' = updateHMM predictors predState realizedR
+        pure (Just (predictors, kal', hmm', sv'))
+
+  -- LSTM: append the new observation and fine-tune for a few epochs.
+  mLstmCtx1 <-
+    case (method, botLstmCtx st) of
+      (MethodKalmanOnly, _) -> pure Nothing
+      (_, Nothing) -> pure Nothing
+      (_, Just (normState, obsAll, lstmModel0)) -> do
+        let obsAll' = obsAll ++ forwardSeries normState [priceNew]
+            trainBars = max (lookback + 2) (bsTrainBars settings)
+            obsTrain = takeLast trainBars obsAll'
+            epochs = bsOnlineEpochs settings
+            cfg =
+              LSTMConfig
+                { lcLookback = lookback
+                , lcHiddenSize = argHiddenSize args
+                , lcEpochs = epochs
+                , lcLearningRate = argLr args
+                , lcValRatio = 0
+                , lcPatience = 0
+                , lcGradClip = argGradClip args
+                , lcSeed = argSeed args
+                }
+            (lstmModel1, _) =
+              if epochs <= 0
+                then (lstmModel0, [])
+                else fineTuneLSTM cfg lstmModel0 obsTrain
+        pure (Just (normState, obsAll', lstmModel1))
+
+  let latest = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1
+      desiredPos =
+        case lsChosenDir latest of
+          Just 1 -> 1
+          Just (-1) -> 0
+          _ -> prevPos
+
+      switched = desiredPos /= prevPos
+      eqAfterFee =
+        if switched
+          then eqAfterReturn * (1 - argFee args)
+          else eqAfterReturn
+
+  (ops', trades', openTrade', mOrder) <-
+    if not switched
+      then pure (botOps st, botTrades st, openTrade1, Nothing)
+      else
+        case (prevPos, desiredPos, openTrade1) of
+          (0, 1, _) -> do
+            o <- placeIfEnabled args settings latest (botEnv st) (botSymbol st)
+            let op = BotOp nPrev "BUY" priceNew
+            pure (botOps st ++ [op], botTrades st, Just (nPrev, eqAfterFee, 0), Just o)
+          (1, 0, Just (ei, entryEq, hold)) -> do
+            o <- placeIfEnabled args settings latest (botEnv st) (botSymbol st)
+            let op = BotOp nPrev "SELL" priceNew
+            let tr =
+                  Trade
+                    { trEntryIndex = ei
+                    , trExitIndex = nPrev
+                    , trEntryEquity = entryEq
+                    , trExitEquity = eqAfterFee
+                    , trReturn = eqAfterFee / entryEq - 1
+                    , trHoldingPeriods = hold
+                    }
+            pure (botOps st ++ [op], botTrades st ++ [tr], Nothing, Just o)
+          _ -> do
+            o <- placeIfEnabled args settings latest (botEnv st) (botSymbol st)
+            pure (botOps st, botTrades st, openTrade1, Just o)
+
+  let eqV1 = V.snoc (botEquityCurve st) eqAfterFee
+      posV1 = V.snoc (botPositions st) desiredPos
+
+      maxPoints = max (lookback + 3) (bsMaxPoints settings)
+      dropCount = max 0 (V.length pricesV - maxPoints)
+
+      (pricesV2, openTimesV2, eqV2, posV2, ops2, trades2, openTrade2, startIndex2) =
+        if dropCount <= 0
+          then (pricesV, openTimesV, eqV1, posV1, ops', trades', openTrade', botStartIndex st)
+          else
+            let shiftTrade tr =
+                  tr { trEntryIndex = trEntryIndex tr - dropCount, trExitIndex = trExitIndex tr - dropCount }
+                tradesShifted =
+                  [ shiftTrade tr
+                  | tr <- trades'
+                  , trEntryIndex tr >= dropCount
+                  , trExitIndex tr >= dropCount
+                  ]
+                openTradeShifted =
+                  case openTrade' of
+                    Nothing -> Nothing
+                    Just (ei, eq0, hold) ->
+                      if ei >= dropCount
+                        then Just (ei - dropCount, eq0, hold)
+                        else Nothing
+                opsShifted =
+                  [ op { boIndex = boIndex op - dropCount }
+                  | op <- ops'
+                  , boIndex op >= dropCount
+                  ]
+             in
+              ( V.drop dropCount pricesV
+              , V.drop dropCount openTimesV
+              , V.drop dropCount eqV1
+              , V.drop dropCount posV1
+              , opsShifted
+              , tradesShifted
+              , openTradeShifted
+              , botStartIndex st + dropCount
+              )
+
+  pure
+    st
+      { botPrices = pricesV2
+      , botOpenTimes = openTimesV2
+      , botEquityCurve = eqV2
+      , botPositions = posV2
+      , botOps = ops2
+      , botTrades = trades2
+      , botOpenTrade = openTrade2
+      , botLatestSignal = latest
+      , botLastOrder = mOrder
+      , botLstmCtx = mLstmCtx1
+      , botKalmanCtx = mKalmanCtx1
+      , botLastOpenTime = openTimeNew
+      , botStartIndex = startIndex2
+      , botUpdatedAtMs = now
+      , botError = Nothing
+      }
+
+placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
+placeIfEnabled args settings sig env sym =
+  if not (bsTradeEnabled settings)
+    then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing "Paper mode: no order sent.")
+    else placeOrderForSignal args sym sig env
+
 runRestApi :: Args -> IO ()
 runRestApi baseArgs = do
   apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
@@ -407,10 +948,11 @@ runRestApi baseArgs = do
           Warp.setTimeout timeoutSec $
           Warp.setPort port Warp.defaultSettings
   putStrLn (printf "REST API listening on http://0.0.0.0:%d" port)
-  Warp.runSettings settings (apiApp baseArgs apiToken)
+  bot <- newBotController
+  Warp.runSettings settings (apiApp baseArgs apiToken bot)
 
-apiApp :: Args -> Maybe BS.ByteString -> Wai.Application
-apiApp baseArgs apiToken req respond =
+apiApp :: Args -> Maybe BS.ByteString -> BotController -> Wai.Application
+apiApp baseArgs apiToken botCtrl req respond =
   let path = Wai.pathInfo req
    in if path /= ["health"] && not (authorized apiToken req)
         then respond (jsonError status401 "Unauthorized")
@@ -431,6 +973,18 @@ apiApp baseArgs apiToken req respond =
             ["backtest"] ->
               case Wai.requestMethod req of
                 "POST" -> handleBacktest baseArgs req respond
+                _ -> respond (jsonError status405 "Method not allowed")
+            ["bot", "start"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBotStart baseArgs botCtrl req respond
+                _ -> respond (jsonError status405 "Method not allowed")
+            ["bot", "stop"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBotStop botCtrl respond
+                _ -> respond (jsonError status405 "Method not allowed")
+            ["bot", "status"] ->
+              case Wai.requestMethod req of
+                "GET" -> handleBotStatus botCtrl respond
                 _ -> respond (jsonError status405 "Method not allowed")
             _ -> respond (jsonError status404 "Not found")
 
@@ -535,6 +1089,38 @@ handleBacktest baseArgs req respond = do
               let (st, msg) = exceptionToHttp ex
                in respond (jsonError st msg)
             Right out -> respond (jsonValue status200 out)
+
+handleBotStart :: Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStart baseArgs botCtrl req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          let args =
+                args0
+                  { argTradeOnly = True
+                  , argSweepThreshold = False
+                  , argOptimizeOperations = False
+                  }
+          r <- botStart botCtrl args params
+          case r of
+            Left e -> respond (jsonError status400 e)
+            Right st -> respond (jsonValue status200 (botStatusJson st))
+
+handleBotStop :: BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStop botCtrl respond = do
+  _ <- botStop botCtrl
+  respond (jsonValue status200 botStoppedJson)
+
+handleBotStatus :: BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStatus botCtrl respond = do
+  mSt <- botGetState botCtrl
+  case mSt of
+    Nothing -> respond (jsonValue status200 botStoppedJson)
+    Just st -> respond (jsonValue status200 (botStatusJson st))
 
 argsFromApi :: Args -> ApiParams -> Either String Args
 argsFromApi baseArgs p = do

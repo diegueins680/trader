@@ -1,4 +1,4 @@
-import type { ApiError, ApiParams, ApiTradeResponse, BacktestResponse, LatestSignal } from "./types";
+import type { ApiError, ApiParams, ApiTradeResponse, BacktestResponse, BotStatus, LatestSignal } from "./types";
 
 export class HttpError extends Error {
   readonly status: number;
@@ -116,4 +116,24 @@ export async function trade(params: ApiParams, opts?: FetchJsonOptions): Promise
     },
     opts,
   );
+}
+
+export async function botStart(params: ApiParams, opts?: FetchJsonOptions): Promise<BotStatus> {
+  return fetchJson<BotStatus>(
+    "/api/bot/start",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
+export async function botStop(opts?: FetchJsonOptions): Promise<BotStatus> {
+  return fetchJson<BotStatus>("/api/bot/stop", { method: "POST" }, opts);
+}
+
+export async function botStatus(opts?: FetchJsonOptions): Promise<BotStatus> {
+  return fetchJson<BotStatus>("/api/bot/status", { method: "GET" }, opts);
 }

@@ -9,12 +9,19 @@ type Trade = {
   holdingPeriods: number;
 };
 
+type Operation = {
+  index: number;
+  side: "BUY" | "SELL";
+  price?: number;
+};
+
 type Props = {
   prices: number[];
   equityCurve: number[];
   positions: number[];
   agreementOk?: boolean[];
   trades: Trade[];
+  operations?: Operation[];
   backtestStartIndex?: number;
   height?: number;
 };
@@ -42,12 +49,22 @@ function findTrade(trades: Trade[], idx: number): Trade | null {
   return null;
 }
 
+function findOp(ops: Operation[] | undefined, idx: number): Operation | null {
+  if (!ops) return null;
+  for (let i = ops.length - 1; i >= 0; i -= 1) {
+    const op = ops[i]!;
+    if (op.index === idx) return op;
+  }
+  return null;
+}
+
 export function BacktestChart({
   prices,
   equityCurve,
   positions,
   agreementOk,
   trades,
+  operations,
   backtestStartIndex = 0,
   height = 340,
 }: Props) {
@@ -340,6 +357,19 @@ export function BacktestChart({
       tri(xo, yo, false, "rgba(239, 68, 68, 0.92)");
     }
 
+    // Operations (buy/sell markers)
+    if (operations) {
+      for (const op of operations) {
+        if (op.index < start || op.index > end) continue;
+        const idx = clamp(op.index, start, end);
+        const x = xFor(idx);
+        const p = op.price ?? prices[idx]!;
+        const y = yScale(p, pr, yPrice0, hPrice);
+        if (op.side === "BUY") tri(x, y, true, "rgba(34, 197, 94, 0.95)");
+        if (op.side === "SELL") tri(x, y, false, "rgba(239, 68, 68, 0.92)");
+      }
+    }
+
     // Crosshair
     if (hoverIdx !== null && hoverIdx >= start && hoverIdx <= end) {
       const x = xFor(hoverIdx);
@@ -361,7 +391,7 @@ export function BacktestChart({
       ctx.arc(x, he, 3.1, 0, Math.PI * 2);
       ctx.fill();
     }
-  }, [agree, equityCurve, height, hoverIdx, n, pos, prices, size.h, size.w, trades, view.end, view.start]);
+  }, [agree, equityCurve, height, hoverIdx, n, operations, pos, prices, size.h, size.w, trades, view.end, view.start]);
 
   const hover = useMemo(() => {
     if (hoverIdx === null || hoverIdx < 0 || hoverIdx >= n) return null;
@@ -370,9 +400,10 @@ export function BacktestChart({
     const position = pos[hoverIdx] ?? 0;
     const ok = agree ? (agree[hoverIdx] ?? false) : null;
     const trade = findTrade(trades, hoverIdx);
+    const op = findOp(operations, hoverIdx);
     const bar = backtestStartIndex + hoverIdx;
-    return { idx: hoverIdx, bar, price, eq, position, ok, trade };
-  }, [agree, backtestStartIndex, equityCurve, hoverIdx, n, pos, prices, trades]);
+    return { idx: hoverIdx, bar, price, eq, position, ok, trade, op };
+  }, [agree, backtestStartIndex, equityCurve, hoverIdx, n, operations, pos, prices, trades]);
 
   const tooltipStyle = useMemo(() => {
     if (!pointer) return { display: "none" } as React.CSSProperties;
@@ -535,6 +566,12 @@ export function BacktestChart({
                   <div className="v">—</div>
                 </div>
               )}
+              {hover.op ? (
+                <div className="btTooltipRow">
+                  <div className="k">Op</div>
+                  <div className="v">{hover.op.side}</div>
+                </div>
+              ) : null}
               <div className="btTooltipHint">Wheel to zoom · Drag to pan · Click to lock · Double‑click to reset</div>
             </>
           ) : (

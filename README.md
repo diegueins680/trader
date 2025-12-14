@@ -147,7 +147,9 @@ cabal test
 
 REST API
 --------
-Run the bot as a stateless REST API (each request loads data and computes/trains as needed):
+Run the bot as a REST API:
+- Most endpoints are **stateless** (each request loads data and computes/trains as needed).
+- The optional **live bot** endpoints (`/bot/*`) start a **stateful, non-stop** loop that ingests new bars, fine-tunes the model each bar, and (optionally) places orders until stopped.
 ```
 cd haskell
 cabal run trader-hs -- --serve --port 8080
@@ -162,6 +164,9 @@ Endpoints:
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /trade` → returns the latest signal + attempts an order
 - `POST /backtest` → runs a backtest and returns summary metrics
+- `POST /bot/start` → starts the live bot loop (Binance data only)
+- `POST /bot/stop` → stops the live bot loop
+- `GET /bot/status` → returns the live bot status + chart data (prices/equity/positions/operations)
 
 Examples:
 ```
@@ -187,6 +192,23 @@ export BINANCE_API_SECRET=...
 curl -s -X POST http://127.0.0.1:8080/trade \
   -H 'Content-Type: application/json' \
   -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":200,"method":"10","threshold":0.003838,"orderQuote":20,"binanceLive":false}'
+```
+
+Start the live bot (paper mode; no orders):
+```
+curl -s -X POST http://127.0.0.1:8080/bot/start \
+  -H 'Content-Type: application/json' \
+  -d '{"binanceSymbol":"BTCUSDT","interval":"5m","bars":500,"method":"11","threshold":0.001,"fee":0.0005,"botOnlineEpochs":1,"botTrade":false}'
+```
+
+Check status:
+```
+curl -s http://127.0.0.1:8080/bot/status
+```
+
+Stop it:
+```
+curl -s -X POST http://127.0.0.1:8080/bot/stop
 ```
 
 Assumptions:
@@ -222,6 +244,8 @@ TRADER_API_TARGET=http://127.0.0.1:9090 npm run dev
 Open `http://127.0.0.1:5173`.
 
 If your backend has `TRADER_API_TOKEN` set, paste the token into the UI’s “API token” field (it sends `Authorization: Bearer <token>`).
+
+The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart.
 
 Assumptions and limitations
 ---------------------------

@@ -6,6 +6,7 @@ module Trader.LSTM
   , buildSequences
   , evaluateLoss
   , trainLSTM
+  , fineTuneLSTM
   , predictNext
   , predictSeriesNext
   ) where
@@ -70,6 +71,19 @@ trainLSTM cfg series =
 
       (bestFlat, history) = trainLoop cfg lookback hidden trainSet valSet initFlat
    in (LSTMModel { lmHiddenSize = hidden, lmParams = bestFlat }, history)
+
+fineTuneLSTM :: LSTMConfig -> LSTMModel -> [Double] -> (LSTMModel, [EpochStats])
+fineTuneLSTM cfg model series =
+  let lookback = lcLookback cfg
+      hidden = lcHiddenSize cfg
+   in if hidden /= lmHiddenSize model
+        then error "fineTuneLSTM: hidden size mismatch"
+        else
+          let dataset = buildSequences lookback series
+              (trainSet, valSet) = splitTrainVal (lcValRatio cfg) dataset
+              initFlat = lmParams model
+              (bestFlat, history) = trainLoop cfg lookback hidden trainSet valSet initFlat
+           in (LSTMModel { lmHiddenSize = hidden, lmParams = bestFlat }, history)
 
 predictNext :: LSTMModel -> [Double] -> Double
 predictNext model window =

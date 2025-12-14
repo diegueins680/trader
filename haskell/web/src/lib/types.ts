@@ -37,6 +37,13 @@ export type ApiParams = {
   binanceLive?: boolean;
   orderQuote?: number;
   orderQuantity?: number;
+
+  // Live bot (stateful) options
+  botPollSeconds?: number;
+  botOnlineEpochs?: number;
+  botTrainBars?: number;
+  botMaxPoints?: number;
+  botTrade?: boolean;
 };
 
 export type LatestSignal = {
@@ -65,6 +72,15 @@ export type ApiOrderResult = {
 export type ApiTradeResponse = {
   signal: LatestSignal;
   order: ApiOrderResult;
+};
+
+export type Trade = {
+  entryIndex: number;
+  exitIndex: number;
+  entryEquity: number;
+  exitEquity: number;
+  return: number;
+  holdingPeriods: number;
 };
 
 export type BacktestResponse = {
@@ -98,12 +114,33 @@ export type BacktestResponse = {
   prices: number[];
   positions: number[];
   agreementOk: boolean[];
-  trades: Array<{
-    entryIndex: number;
-    exitIndex: number;
-    entryEquity: number;
-    exitEquity: number;
-    return: number;
-    holdingPeriods: number;
-  }>;
+  trades: Trade[];
 };
+
+export type BotOperation = {
+  index: number;
+  side: "BUY" | "SELL";
+  price: number;
+};
+
+export type BotStatus =
+  | { running: false }
+  | {
+      running: true;
+      symbol: string;
+      interval: string;
+      market: Market;
+      method: Method;
+      startIndex: number;
+      startedAtMs: number;
+      updatedAtMs: number;
+      prices: number[];
+      openTimes: number[];
+      equityCurve: number[];
+      positions: number[];
+      operations: BotOperation[];
+      trades: Trade[];
+      latestSignal: LatestSignal;
+      lastOrder?: ApiOrderResult;
+      error?: string;
+    };

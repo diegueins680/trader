@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ApiParams, ApiTradeResponse, BacktestResponse, LatestSignal, Market, Method, Normalization } from "./lib/types";
-import { HttpError, backtest, health, signal, trade } from "./lib/api";
+import type { ApiParams, ApiTradeResponse, BacktestResponse, BotStatus, LatestSignal, Market, Method, Normalization } from "./lib/types";
+import { HttpError, backtest, botStart, botStatus, botStop, health, signal, trade } from "./lib/api";
 import { copyText } from "./lib/clipboard";
 import { readJson, readSessionString, removeSessionKey, writeJson, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
@@ -28,6 +28,12 @@ type UiState = {
   latestSignal: LatestSignal | null;
   backtest: BacktestResponse | null;
   trade: ApiTradeResponse | null;
+};
+
+type BotUiState = {
+  loading: boolean;
+  error: string | null;
+  status: BotStatus;
 };
 
 type FormState = {
@@ -59,6 +65,7 @@ const SESSION_TOKEN_KEY = "trader.ui.apiToken.v1";
 const SIGNAL_TIMEOUT_MS = 5 * 60_000;
 const BACKTEST_TIMEOUT_MS = 10 * 60_000;
 const TRADE_TIMEOUT_MS = 5 * 60_000;
+const BOT_START_TIMEOUT_MS = 10 * 60_000;
 
 const defaultForm: FormState = {
   binanceSymbol: "BTCUSDT",
@@ -160,8 +167,16 @@ export function App() {
     trade: null,
   });
 
+  const [bot, setBot] = useState<BotUiState>({
+    loading: false,
+    error: null,
+    status: { running: false },
+  });
+
   const abortRef = useRef<AbortController | null>(null);
+  const botAbortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
+  const botRequestSeqRef = useRef(0);
   const errorRef = useRef<HTMLDivElement | null>(null);
   const signalRef = useRef<HTMLDivElement | null>(null);
   const backtestRef = useRef<HTMLDivElement | null>(null);
@@ -188,6 +203,7 @@ export function App() {
     return () => {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
       abortRef.current?.abort();
+      botAbortRef.current?.abort();
     };
   }, []);
 
@@ -309,6 +325,78 @@ export function App() {
     },
     [authHeaders, form.tradeArmed, params, scrollToResult, showToast],
   );
+
+  const refreshBot = useCallback(
+    async (opts?: RunOptions) => {
+      const requestId = ++botRequestSeqRef.current;
+      botAbortRef.current?.abort();
+      const controller = new AbortController();
+      botAbortRef.current = controller;
+
+      if (!opts?.silent) setBot((s) => ({ ...s, loading: true, error: null }));
+
+      try {
+        const out = await botStatus({ signal: controller.signal, headers: authHeaders, timeoutMs: 10_000 });
+        if (requestId !== botRequestSeqRef.current) return;
+        setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+      } catch (e) {
+        if (requestId !== botRequestSeqRef.current) return;
+        if (isAbortError(e)) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setBot((s) => ({ ...s, loading: false, error: msg }));
+      } finally {
+        if (requestId === botRequestSeqRef.current) botAbortRef.current = null;
+      }
+    },
+    [authHeaders],
+  );
+
+  const startLiveBot = useCallback(async () => {
+    setBot((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const payload: ApiParams = {
+        ...params,
+        botTrade: form.tradeArmed,
+        botOnlineEpochs: 1,
+        botMaxPoints: clamp(Math.trunc(form.bars), 100, 100000),
+      };
+      const out = await botStart(payload, { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
+      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+      showToast(out.running ? (form.tradeArmed ? "Live bot started (trading armed)" : "Live bot started (paper mode)") : "Bot not running");
+    } catch (e) {
+      if (isAbortError(e)) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      setBot((s) => ({ ...s, loading: false, error: msg }));
+      showToast("Bot start failed");
+    }
+  }, [authHeaders, form.bars, form.tradeArmed, params, showToast]);
+
+  const stopLiveBot = useCallback(async () => {
+    setBot((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const out = await botStop({ headers: authHeaders, timeoutMs: 30_000 });
+      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+      showToast("Bot stopped");
+    } catch (e) {
+      if (isAbortError(e)) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      setBot((s) => ({ ...s, loading: false, error: msg }));
+      showToast("Bot stop failed");
+    }
+  }, [authHeaders, showToast]);
+
+  useEffect(() => {
+    void refreshBot({ silent: true });
+  }, [refreshBot]);
+
+  useEffect(() => {
+    if (!bot.status.running) return;
+    const t = window.setInterval(() => {
+      if (bot.loading) return;
+      void refreshBot({ silent: true });
+    }, 2000);
+    return () => window.clearInterval(t);
+  }, [bot.loading, bot.status.running, refreshBot]);
 
   useEffect(() => {
     if (!form.autoRefresh) return;
@@ -684,6 +772,35 @@ export function App() {
             </div>
 
             <div style={{ marginTop: 14 }}>
+              <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+                <div className="field">
+                  <label className="label">Live bot</label>
+                  <div className="actions" style={{ marginTop: 0 }}>
+                    <button
+                      className="btn btnPrimary"
+                      disabled={bot.loading || bot.status.running || state.loading}
+                      onClick={startLiveBot}
+                      title={form.tradeArmed ? "Trading armed (will send orders)" : "Paper mode (no orders)"}
+                    >
+                      {bot.loading ? "Starting…" : bot.status.running ? "Running" : "Start live bot"}
+                    </button>
+                    <button className="btn" disabled={bot.loading || !bot.status.running} onClick={stopLiveBot}>
+                      Stop bot
+                    </button>
+                    <button className="btn" disabled={bot.loading} onClick={() => refreshBot()}>
+                      Refresh
+                    </button>
+                  </div>
+                  <div className="hint">
+                    Continuously ingests new bars, fine-tunes on each bar, and switches position based on the latest signal. Enable “Arm trading” to actually place
+                    Binance orders; otherwise it runs in paper mode.
+                  </div>
+                  {bot.error ? <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>{bot.error}</div> : null}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
               <div className="row">
                 <div className="field">
                   <label className="label">Trade controls</label>
@@ -781,6 +898,56 @@ export function App() {
               </div>
             </div>
           ) : null}
+
+          <div className="card">
+            <div className="cardHeader">
+              <h2 className="cardTitle">Live bot</h2>
+              <p className="cardSubtitle">Non-stop loop (server-side): fetches new bars, updates the model each bar, and records each buy/sell operation.</p>
+            </div>
+            <div className="cardBody">
+              {bot.status.running ? (
+                <>
+                  <div className="pillRow" style={{ marginBottom: 10 }}>
+                    <span className="badge">{bot.status.symbol}</span>
+                    <span className="badge">{bot.status.interval}</span>
+                    <span className="badge">{marketLabel(bot.status.market)}</span>
+                    <span className="badge">{methodLabel(bot.status.method)}</span>
+                    <span className="badge">{bot.status.error ? "Error" : "OK"}</span>
+                  </div>
+
+                  <BacktestChart
+                    prices={bot.status.prices}
+                    equityCurve={bot.status.equityCurve}
+                    positions={bot.status.positions}
+                    trades={bot.status.trades}
+                    operations={bot.status.operations}
+                    backtestStartIndex={bot.status.startIndex}
+                    height={360}
+                  />
+
+                  <div className="kv" style={{ marginTop: 12 }}>
+                    <div className="k">Equity / Position</div>
+                    <div className="v">
+                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
+                      {(bot.status.positions[bot.status.positions.length - 1] ?? 0) === 1 ? "LONG" : "FLAT"}
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Last action</div>
+                    <div className="v">{bot.status.latestSignal.action}</div>
+                  </div>
+                  {bot.status.lastOrder ? (
+                    <div className="kv">
+                      <div className="k">Last order</div>
+                      <div className="v">{bot.status.lastOrder.message}</div>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="hint">Bot is stopped. Use “Start live bot” on the left.</div>
+              )}
+            </div>
+          </div>
 
           <div className="card" ref={signalRef}>
             <div className="cardHeader">
