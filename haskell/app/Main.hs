@@ -726,32 +726,34 @@ initBotState args settings sym = do
               , lstmCtxShifted
               )
 
-  pure
-    BotState
-      { botArgs = args
-      , botSettings = settings
-      , botSymbol = sym
-      , botEnv = env
-      , botLookback = lookback
-      , botPrices = pricesV2
-      , botOpenTimes = openV2
-      , botKalmanPredNext = kalPred2
-      , botLstmPredNext = lstmPred2
-      , botEquityCurve = eq2
-      , botPositions = pos2
-      , botOps = ops2
-      , botTrades = []
-      , botOpenTrade = openTrade2
-      , botLatestSignal = latest
-      , botLastOrder = mOrder
-      , botLstmCtx = mLstmCtx2
-      , botKalmanCtx = mKalmanCtx
-      , botLastOpenTime = lastOt
-      , botStartIndex = startIndex2
-      , botStartedAtMs = now
-      , botUpdatedAtMs = now
-      , botError = Nothing
-      }
+  let st0 =
+        BotState
+          { botArgs = args
+          , botSettings = settings
+          , botSymbol = sym
+          , botEnv = env
+          , botLookback = lookback
+          , botPrices = pricesV2
+          , botOpenTimes = openV2
+          , botKalmanPredNext = kalPred2
+          , botLstmPredNext = lstmPred2
+          , botEquityCurve = eq2
+          , botPositions = pos2
+          , botOps = ops2
+          , botTrades = []
+          , botOpenTrade = openTrade2
+          , botLatestSignal = latest
+          , botLastOrder = mOrder
+          , botLstmCtx = mLstmCtx2
+          , botKalmanCtx = mKalmanCtx
+          , botLastOpenTime = lastOt
+          , botStartIndex = startIndex2
+          , botStartedAtMs = now
+          , botUpdatedAtMs = now
+          , botError = Nothing
+          }
+
+  if desiredPos == 1 then botOptimizeAfterOperation st0 else pure st0
 
 botOptimizeAfterOperation :: BotState -> IO BotState
 botOptimizeAfterOperation st = do
