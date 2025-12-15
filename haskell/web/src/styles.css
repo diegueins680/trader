@@ -250,6 +250,23 @@ textarea {
   line-height: 1.35;
 }
 
+.details {
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 10px 12px;
+}
+
+.details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.details[open] > summary {
+  margin-bottom: 10px;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -409,6 +426,49 @@ textarea {
   overflow: auto;
   max-height: 220px;
   white-space: pre-wrap;
+}
+
+.tableWrap {
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  background: rgba(0, 0, 0, 0.25);
+  overflow: auto;
+  max-height: 260px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+  min-width: 760px;
+}
+
+.table th,
+.table td {
+  padding: 10px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: top;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  text-align: left;
+  z-index: 1;
+}
+
+.table tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tdMono {
+  font-family: var(--mono);
+  white-space: nowrap;
 }
 
 .footerNote {

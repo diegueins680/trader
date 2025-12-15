@@ -4,6 +4,7 @@ import type {
   ApiTradeResponse,
   BacktestResponse,
   BinanceKeysStatus,
+  BotOrderEvent,
   BotStatus,
   LatestSignal,
   Market,
@@ -54,6 +55,8 @@ type KeysUiState = {
   checkedAtMs: number | null;
 };
 
+type OrderSideFilter = "ALL" | "BUY" | "SELL";
+
 type FormState = {
   binanceSymbol: string;
   market: Market;
@@ -84,6 +87,12 @@ type FormState = {
   tradeArmed: boolean;
   autoRefresh: boolean;
   autoRefreshSec: number;
+
+  // Live bot (advanced)
+  botPollSeconds: number;
+  botOnlineEpochs: number;
+  botTrainBars: number;
+  botMaxPoints: number;
 };
 
 const STORAGE_KEY = "trader.ui.form.v1";
@@ -127,6 +136,11 @@ const defaultForm: FormState = {
   tradeArmed: false,
   autoRefresh: false,
   autoRefreshSec: 20,
+
+  botPollSeconds: 0,
+  botOnlineEpochs: 1,
+  botTrainBars: 800,
+  botMaxPoints: 2000,
 };
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -146,6 +160,10 @@ function escapeSingleQuotes(raw: string): string {
 function firstReason(...reasons: Array<string | null | undefined>): string | null {
   for (const r of reasons) if (r) return r;
   return null;
+}
+
+function isLocalHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
 function fmtTimeMs(ms: number): string {
@@ -235,6 +253,11 @@ export function App() {
     status: null,
     checkedAtMs: null,
   });
+
+  const [orderFilterText, setOrderFilterText] = useState("");
+  const [orderSentOnly, setOrderSentOnly] = useState(false);
+  const [orderSideFilter, setOrderSideFilter] = useState<OrderSideFilter>("ALL");
+  const [orderLimit, setOrderLimit] = useState(200);
 
   const abortRef = useRef<AbortController | null>(null);
   const botAbortRef = useRef<AbortController | null>(null);
@@ -404,18 +427,50 @@ export function App() {
     return withBinanceKeys(base);
   }, [form.binanceSymbol, form.binanceTestnet, form.market, form.orderQuantity, form.orderQuote, withBinanceKeys]);
 
-  const botOrderLogText = useMemo(() => {
+  const botOrdersView = useMemo(() => {
+    const st = bot.status;
+    if (!st.running) return { total: 0, shown: [] as BotOrderEvent[], startIndex: 0 };
+
+    const total = st.orders.length;
+    let shown = st.orders;
+
+    const limit = clamp(Math.trunc(orderLimit), 1, 2000);
+    shown = shown.slice(-limit);
+
+    if (orderSentOnly) shown = shown.filter((e) => e.order.sent);
+    if (orderSideFilter !== "ALL") shown = shown.filter((e) => e.opSide === orderSideFilter);
+
+    const q = orderFilterText.trim().toLowerCase();
+    if (q) {
+      shown = shown.filter((e) => {
+        const hay = [
+          e.opSide,
+          e.order.mode ?? "",
+          e.order.side ?? "",
+          e.order.symbol ?? "",
+          e.order.status ?? "",
+          e.order.message ?? "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    return { total, shown, startIndex: st.startIndex };
+  }, [bot.status, orderFilterText, orderLimit, orderSentOnly, orderSideFilter]);
+
+  const botOrderCopyText = useMemo(() => {
     const st = bot.status;
     if (!st.running) return "";
-    const orders = st.orders;
-    const rows = orders.slice(-200).map((e) => {
+    const rows = botOrdersView.shown.map((e) => {
       const bar = st.startIndex + e.index;
       const sent = e.order.sent ? "SENT" : "NO";
       const mode = e.order.mode ?? "—";
       return `${fmtTimeMs(e.atMs)} | bar ${bar} | ${e.opSide} @ ${fmtMoney(e.price, 4)} | ${sent} ${mode} | ${e.order.message}`;
     });
     return rows.length ? rows.join("\n") : "No live operations yet.";
-  }, [bot.status]);
+  }, [bot.status, botOrdersView.shown]);
 
   const botRisk = useMemo(() => {
     const st = bot.status;
@@ -585,25 +640,27 @@ export function App() {
     [apiBase, authHeaders],
   );
 
-  const startLiveBot = useCallback(async () => {
-    setBot((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const payload: ApiParams = {
-        ...params,
-        botTrade: form.tradeArmed,
-        botOnlineEpochs: 1,
-        botMaxPoints: clamp(Math.trunc(form.bars), 100, 100000),
-      };
-      const out = await botStart(apiBase, withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
-      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
-      showToast(out.running ? (form.tradeArmed ? "Live bot started (trading armed)" : "Live bot started (paper mode)") : "Bot not running");
-    } catch (e) {
+	  const startLiveBot = useCallback(async () => {
+	    setBot((s) => ({ ...s, loading: true, error: null }));
+	    try {
+	      const payload: ApiParams = {
+	        ...params,
+	        botTrade: form.tradeArmed,
+	        ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
+	        botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
+	        botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
+	        botMaxPoints: clamp(Math.trunc(form.botMaxPoints), 100, 100000),
+	      };
+	      const out = await botStart(apiBase, withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
+	      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+	      showToast(out.running ? (form.tradeArmed ? "Live bot started (trading armed)" : "Live bot started (paper mode)") : "Bot not running");
+	    } catch (e) {
       if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : String(e);
       setBot((s) => ({ ...s, loading: false, error: msg }));
-      showToast("Bot start failed");
-    }
-  }, [apiBase, authHeaders, form.bars, form.tradeArmed, params, showToast, withBinanceKeys]);
+	      showToast("Bot start failed");
+	    }
+	  }, [apiBase, authHeaders, form.botMaxPoints, form.botOnlineEpochs, form.botPollSeconds, form.botTrainBars, form.tradeArmed, params, showToast, withBinanceKeys]);
 
   const stopLiveBot = useCallback(async () => {
     setBot((s) => ({ ...s, loading: true, error: null }));
@@ -660,15 +717,22 @@ export function App() {
 
   const missingSymbol = !form.binanceSymbol.trim();
   const missingInterval = !form.interval.trim();
+  const showLocalStartHelp = useMemo(() => {
+    if (typeof window === "undefined") return true;
+    return isLocalHostname(window.location.hostname);
+  }, []);
   const apiBlockedReason = useMemo(() => {
     const authMissing = apiOk === "auth" && !apiToken.trim();
     const startCmd = `cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+    const downMsg = showLocalStartHelp
+      ? `Backend unreachable. Start it with: ${startCmd}`
+      : "Backend unreachable. Set “API base URL” to your deployed API host (e.g., your App Runner URL) or configure CloudFront to forward `/api/*` to your API origin.";
     return firstReason(
       apiBaseError,
-      apiOk === "down" ? `Backend unreachable. Start it with: ${startCmd}` : null,
+      apiOk === "down" ? downMsg : null,
       authMissing ? "API auth required. Paste TRADER_API_TOKEN above." : null,
     );
-  }, [apiBaseError, apiOk, apiToken]);
+  }, [apiBaseError, apiOk, apiToken, showLocalStartHelp]);
   const requestDisabledReason = firstReason(
     apiBlockedReason,
     missingSymbol ? "Binance symbol is required." : null,
@@ -801,11 +865,13 @@ export function App() {
                   <label className="label">Connection</label>
                   <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
                     {apiOk === "down"
-                      ? `Backend unreachable.\n\nStart it with:\ncd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`
+                      ? showLocalStartHelp
+                        ? `Backend unreachable.\n\nStart it with:\ncd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`
+                        : "Backend unreachable.\n\nSet “API base URL” to your deployed API host (e.g., your App Runner URL), or configure CloudFront to forward `/api/*` to your API origin."
                       : "API auth required.\n\nPaste TRADER_API_TOKEN above (it must match the backend’s TRADER_API_TOKEN)."}
                   </pre>
                   <div className="actions" style={{ marginTop: 0 }}>
-                    {apiOk === "down" ? (
+                    {apiOk === "down" && showLocalStartHelp ? (
                       <button
                         className="btn"
                         type="button"
@@ -919,11 +985,25 @@ export function App() {
                   value={form.interval}
                   onChange={(e) => setForm((f) => ({ ...f, interval: e.target.value }))}
                   placeholder="1h"
+                  list="intervalPresets"
                   spellCheck={false}
                 />
                 <div className="hint" style={missingInterval ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
-                  {missingInterval ? "Required." : "Examples: 1m, 5m, 1h, 1d."}
+                  {missingInterval ? "Required." : "Pick a common Binance interval, or type a custom one (e.g. 1m, 5m, 1h, 1d)."}
                 </div>
+                <datalist id="intervalPresets">
+                  <option value="1m" />
+                  <option value="3m" />
+                  <option value="5m" />
+                  <option value="15m" />
+                  <option value="30m" />
+                  <option value="1h" />
+                  <option value="2h" />
+                  <option value="4h" />
+                  <option value="6h" />
+                  <option value="12h" />
+                  <option value="1d" />
+                </datalist>
               </div>
               <div className="field">
                 <label className="label" htmlFor="bars">
@@ -1266,6 +1346,91 @@ export function App() {
                     buy/sell operation.
                   </div>
                   {bot.error ? <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>{bot.error}</div> : null}
+
+                  <details className="details" style={{ marginTop: 10 }}>
+                    <summary>Advanced live bot</summary>
+                    <div className="row" style={{ marginTop: 10 }}>
+                      <div className="field">
+                        <label className="label" htmlFor="botPollSeconds">
+                          Poll seconds (0 = auto)
+                        </label>
+                        <input
+                          id="botPollSeconds"
+                          className="input"
+                          type="number"
+                          min={0}
+                          max={3600}
+                          value={form.botPollSeconds}
+                          onChange={(e) => setForm((f) => ({ ...f, botPollSeconds: numFromInput(e.target.value, f.botPollSeconds) }))}
+                        />
+                        <div className="hint">How often the bot checks for a new bar (server-side).</div>
+                      </div>
+                      <div className="field">
+                        <label className="label" htmlFor="botOnlineEpochs">
+                          Online epochs
+                        </label>
+                        <input
+                          id="botOnlineEpochs"
+                          className="input"
+                          type="number"
+                          min={0}
+                          max={50}
+                          value={form.botOnlineEpochs}
+                          onChange={(e) => setForm((f) => ({ ...f, botOnlineEpochs: numFromInput(e.target.value, f.botOnlineEpochs) }))}
+                        />
+                        <div className="hint">0 disables per-bar fine-tuning (faster, less adaptive).</div>
+                      </div>
+                    </div>
+                    <div className="row" style={{ marginTop: 12 }}>
+                      <div className="field">
+                        <label className="label" htmlFor="botTrainBars">
+                          Train bars (rolling)
+                        </label>
+                        <input
+                          id="botTrainBars"
+                          className="input"
+                          type="number"
+                          min={10}
+                          value={form.botTrainBars}
+                          onChange={(e) => setForm((f) => ({ ...f, botTrainBars: numFromInput(e.target.value, f.botTrainBars) }))}
+                        />
+                        <div className="hint">Bars used for online fine-tuning and optimization windows.</div>
+                      </div>
+                      <div className="field">
+                        <label className="label" htmlFor="botMaxPoints">
+                          Max points (history)
+                        </label>
+                        <input
+                          id="botMaxPoints"
+                          className="input"
+                          type="number"
+                          min={100}
+                          max={100000}
+                          value={form.botMaxPoints}
+                          onChange={(e) => setForm((f) => ({ ...f, botMaxPoints: numFromInput(e.target.value, f.botMaxPoints) }))}
+                        />
+                        <div className="hint">Caps in-memory chart/history. Larger uses more memory.</div>
+                      </div>
+                    </div>
+                    <div className="actions" style={{ marginTop: 10 }}>
+                      <button
+                        className="btn"
+                        type="button"
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            botPollSeconds: defaultForm.botPollSeconds,
+                            botOnlineEpochs: defaultForm.botOnlineEpochs,
+                            botTrainBars: defaultForm.botTrainBars,
+                            botMaxPoints: defaultForm.botMaxPoints,
+                          }))
+                        }
+                      >
+                        Reset defaults
+                      </button>
+                      <span className="hint">Changes apply the next time you start the bot.</span>
+                    </div>
+                  </details>
                 </div>
               </div>
             </div>
@@ -1497,23 +1662,145 @@ export function App() {
 	                    <div className="k">Last action</div>
 	                    <div className="v">{bot.status.latestSignal.action}</div>
 	                  </div>
-	                  {bot.status.lastOrder ? (
-	                    <div className="kv">
-	                      <div className="k">Last order</div>
-	                      <div className="v">{bot.status.lastOrder.message}</div>
-	                    </div>
-	                  ) : null}
+		                  {bot.status.lastOrder ? (
+		                    <div className="kv">
+		                      <div className="k">Last order</div>
+		                      <div className="v">{bot.status.lastOrder.message}</div>
+		                    </div>
+		                  ) : null}
 
-	                  <div style={{ marginTop: 12 }}>
-	                    <div className="hint" style={{ marginBottom: 8 }}>
-	                      Order log (latest last)
-	                    </div>
-	                    <pre className="code">{botOrderLogText}</pre>
-	                  </div>
-	                </>
-	              ) : (
-	                <div className="hint">Bot is stopped. Use “Start live bot” on the left.</div>
-	              )}
+		                  <div style={{ marginTop: 12 }}>
+		                    <div className="btChartHeader" style={{ marginBottom: 10 }}>
+		                      <div className="btChartTitle">Order log</div>
+		                      <div className="btChartMeta">
+		                        <span className="badge">
+		                          showing {botOrdersView.shown.length}/{botOrdersView.total}
+		                        </span>
+		                        <span className="badge">latest last</span>
+		                      </div>
+		                      <div className="btChartActions">
+		                        <button
+		                          className="btn"
+		                          type="button"
+		                          disabled={botOrdersView.shown.length === 0}
+		                          onClick={() => {
+		                            void copyText(botOrderCopyText);
+		                            showToast("Copied order log");
+		                          }}
+		                        >
+		                          Copy
+		                        </button>
+		                        <button
+		                          className="btn"
+		                          type="button"
+		                          disabled={botOrdersView.shown.length === 0}
+		                          onClick={() => {
+		                            void copyText(JSON.stringify(botOrdersView.shown, null, 2));
+		                            showToast("Copied order log JSON");
+		                          }}
+		                        >
+		                          Copy JSON
+		                        </button>
+		                        <button
+		                          className="btn"
+		                          type="button"
+		                          disabled={!orderFilterText && !orderSentOnly && orderSideFilter === "ALL"}
+		                          onClick={() => {
+		                            setOrderFilterText("");
+		                            setOrderSentOnly(false);
+		                            setOrderSideFilter("ALL");
+		                            showToast("Cleared order log filters");
+		                          }}
+		                        >
+		                          Clear
+		                        </button>
+		                      </div>
+		                    </div>
+
+		                    <div className="pillRow" style={{ marginBottom: 10 }}>
+		                      <input
+		                        className="input"
+		                        style={{ flex: "1 1 240px" }}
+		                        value={orderFilterText}
+		                        onChange={(e) => setOrderFilterText(e.target.value)}
+		                        placeholder="Filter (message / mode / symbol)"
+		                        spellCheck={false}
+		                      />
+		                      <select
+		                        className="select"
+		                        style={{ width: 140 }}
+		                        value={orderSideFilter}
+		                        onChange={(e) => setOrderSideFilter(e.target.value as OrderSideFilter)}
+		                      >
+		                        <option value="ALL">All sides</option>
+		                        <option value="BUY">BUY</option>
+		                        <option value="SELL">SELL</option>
+		                      </select>
+		                      <select
+		                        className="select"
+		                        style={{ width: 140 }}
+		                        value={String(orderLimit)}
+		                        onChange={(e) => setOrderLimit(numFromInput(e.target.value, orderLimit))}
+		                        aria-label="Order log limit"
+		                      >
+		                        <option value="50">Last 50</option>
+		                        <option value="200">Last 200</option>
+		                        <option value="1000">Last 1000</option>
+		                        <option value="2000">Last 2000</option>
+		                      </select>
+		                      <label className="pill" style={{ userSelect: "none" }}>
+		                        <input type="checkbox" checked={orderSentOnly} onChange={(e) => setOrderSentOnly(e.target.checked)} />
+		                        Sent only
+		                      </label>
+		                    </div>
+
+		                    {botOrdersView.total === 0 ? (
+		                      <div className="hint">No live operations yet.</div>
+		                    ) : botOrdersView.shown.length === 0 ? (
+		                      <div className="hint">No matches. Try clearing filters.</div>
+		                    ) : (
+		                      <div className="tableWrap" role="region" aria-label="Live bot order log">
+		                        <table className="table">
+		                          <thead>
+		                            <tr>
+		                              <th>At</th>
+		                              <th>Bar</th>
+		                              <th>Side</th>
+		                              <th>Price</th>
+		                              <th>Sent</th>
+		                              <th>Mode</th>
+		                              <th>Message</th>
+		                            </tr>
+		                          </thead>
+		                          <tbody>
+		                            {botOrdersView.shown.map((e) => {
+		                              const bar = botOrdersView.startIndex + e.index;
+		                              const mode = e.order.mode ?? "—";
+		                              return (
+		                                <tr key={`${e.atMs}-${e.index}-${e.opSide}`}>
+		                                  <td className="tdMono">{fmtTimeMs(e.atMs)}</td>
+		                                  <td className="tdMono">{bar}</td>
+		                                  <td>
+		                                    <span className={e.opSide === "BUY" ? "badge badgeStrong badgeLong" : "badge badgeStrong badgeFlat"}>
+		                                      {e.opSide}
+		                                    </span>
+		                                  </td>
+		                                  <td className="tdMono">{fmtMoney(e.price, 4)}</td>
+		                                  <td className="tdMono">{e.order.sent ? "SENT" : "NO"}</td>
+		                                  <td className="tdMono">{mode}</td>
+		                                  <td style={{ whiteSpace: "pre-wrap" }}>{e.order.message}</td>
+		                                </tr>
+		                              );
+		                            })}
+		                          </tbody>
+		                        </table>
+		                      </div>
+		                    )}
+		                  </div>
+		                </>
+		              ) : (
+		                <div className="hint">Bot is stopped. Use “Start live bot” on the left.</div>
+		              )}
             </div>
           </div>
 
