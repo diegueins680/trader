@@ -20,6 +20,7 @@ type FetchJsonOptions = {
 
 type AsyncStartResponse = { jobId: string };
 type AsyncPollResponse<T> = { status: "running" | "done" | "error"; result?: T; error?: string };
+export type HealthResponse = { status: "ok"; authRequired?: boolean; authOk?: boolean };
 
 function resolveUrl(baseUrl: string, path: string): string {
   const base = baseUrl.trim().replace(/\/+$/, "");
@@ -172,12 +173,26 @@ async function runAsyncJob<T>(
 
     let status: AsyncPollResponse<T>;
     try {
-      status = await fetchJson<AsyncPollResponse<T>>(
-        baseUrl,
-        `${pollPath}/${encodeURIComponent(start.jobId)}`,
-        { method: "GET" },
-        { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
-      );
+      const pollUrl = `${pollPath}/${encodeURIComponent(start.jobId)}`;
+      try {
+        status = await fetchJson<AsyncPollResponse<T>>(
+          baseUrl,
+          pollUrl,
+          { method: "GET" },
+          { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
+        );
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 405) {
+          status = await fetchJson<AsyncPollResponse<T>>(
+            baseUrl,
+            pollUrl,
+            { method: "POST" },
+            { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
+          );
+        } else {
+          throw err;
+        }
+      }
     } catch (err) {
       if (err instanceof HttpError && (err.status === 401 || err.status === 403)) throw err;
       if (err instanceof HttpError && err.status === 404) throw err;
@@ -211,10 +226,10 @@ async function runAsyncJob<T>(
   }
 }
 
-export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<"ok"> {
-  const out = await fetchJson<{ status: string }>(baseUrl, "/health", { method: "GET" }, opts);
+export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<HealthResponse> {
+  const out = await fetchJson<{ status: string; authRequired?: boolean; authOk?: boolean }>(baseUrl, "/health", { method: "GET" }, opts);
   if (out.status !== "ok") throw new Error("Unexpected /health response");
-  return "ok";
+  return { status: "ok", authRequired: out.authRequired, authOk: out.authOk };
 }
 
 export async function signal(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<LatestSignal> {

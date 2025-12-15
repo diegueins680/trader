@@ -4,21 +4,21 @@ module Trader.Optimization
   , sweepThreshold
   ) where
 
-import Data.List (foldl')
+import Data.List (foldl', group, sort)
+import qualified Data.Vector as V
 
-import Trader.Method (Method(..), selectPredictions)
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), simulateEnsembleLongFlat)
+import Trader.Method (Method(..))
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), simulateEnsembleLongFlatV)
 
 bestFinalEquity :: BacktestResult -> Double
 bestFinalEquity br =
-  case reverse (brEquityCurve br) of
-    (x : _) -> x
+  case brEquityCurve br of
     [] -> 1.0
+    xs -> last xs
 
 optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> (Method, Double, BacktestResult)
 optimizeOperations baseCfg prices kalPred lstmPred =
   let eps = 1e-12
-      baseThreshold = ecTradeThreshold baseCfg
       methodRank m =
         case m of
           MethodBoth -> 2 :: Int
@@ -40,46 +40,67 @@ optimizeOperations baseCfg prices kalPred lstmPred =
                     then (eq, m, thr, bt)
                     else (bestEq, bestM, bestThr, bestBt)
             else (bestEq, bestM, bestThr, bestBt)
-   in case candidates of
-        [] ->
-          ( MethodBoth
-          , max 0 baseThreshold
-          , simulateEnsembleLongFlat baseCfg { ecTradeThreshold = max 0 baseThreshold } 1 prices kalPred lstmPred
-          )
-        (c : cs) ->
-          let (_, bestM, bestThr, bestBt) = foldl' pick c cs
-           in (bestM, bestThr, bestBt)
+      (c : cs) = candidates
+      (_, bestM, bestThr, bestBt) = foldl' pick c cs
+   in (bestM, bestThr, bestBt)
 
 sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> (Double, BacktestResult)
 sweepThreshold method baseCfg prices kalPred lstmPred =
-  let n = length prices
-      stepCount = n - 1
+  let pricesV = V.fromList prices
+      stepCount = V.length pricesV - 1
       eps = 1e-12
       baseThreshold = ecTradeThreshold baseCfg
-      (kalUsed, lstmUsed) = selectPredictions method kalPred lstmPred
+
+      kalV = V.fromList kalPred
+      lstmV = V.fromList lstmPred
+
+      (kalUsedV, lstmUsedV) =
+        case method of
+          MethodBoth -> (kalV, lstmV)
+          MethodKalmanOnly -> (kalV, kalV)
+          MethodLstmOnly -> (lstmV, lstmV)
+
       predSources =
         case method of
-          MethodBoth -> [kalPred, lstmPred]
-          MethodKalmanOnly -> [kalPred]
-          MethodLstmOnly -> [lstmPred]
+          MethodBoth -> [kalV, lstmV]
+          MethodKalmanOnly -> [kalV]
+          MethodLstmOnly -> [lstmV]
+
+      () =
+        case method of
+          MethodBoth ->
+            if V.length kalV < stepCount
+              then error "kalPred too short for sweepThreshold"
+              else if V.length lstmV < stepCount
+                then error "lstmPred too short for sweepThreshold"
+                else ()
+          MethodKalmanOnly ->
+            if V.length kalV < stepCount
+              then error "kalPred too short for sweepThreshold"
+              else ()
+          MethodLstmOnly ->
+            if V.length lstmV < stepCount
+              then error "lstmPred too short for sweepThreshold"
+              else ()
 
       mags =
         [ v
         | t <- [0 .. stepCount - 1]
-        , let prev = prices !! t
+        , let prev = pricesV V.! t
         , prev /= 0
-        , preds <- predSources
-        , let pred = preds !! t
+        , predsV <- predSources
+        , let pred = predsV V.! t
         , let v = abs (pred / prev - 1)
         , not (isNaN v)
         , not (isInfinite v)
         ]
 
-      candidates = 0 : map (\v -> max 0 (v - eps)) mags
+      uniqueSorted = map head . group . sort
+      candidates = uniqueSorted (0 : map (\v -> max 0 (v - eps)) mags)
 
       eval thr =
         let cfg = baseCfg { ecTradeThreshold = thr }
-            bt = simulateEnsembleLongFlat cfg 1 prices kalUsed lstmUsed
+            bt = simulateEnsembleLongFlatV cfg 1 pricesV kalUsedV lstmUsedV
          in (bestFinalEquity bt, thr, bt)
 
       (baseEq, baseThr, baseBt) = eval (max 0 baseThreshold)

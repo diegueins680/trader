@@ -21,6 +21,7 @@ import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException)
@@ -1643,6 +1644,16 @@ runRestApi baseArgs = do
         case timeoutEnv >>= readMaybe of
           Just n | n >= 0 -> n
           _ -> 600
+  -- With 1 vCPU (common in small ECS/Fargate tasks), long-running pure compute can starve the
+  -- Warp accept loop and make even quick "poll" endpoints appear to hang.
+  -- Ensure at least 2 capabilities so the server stays responsive while background work runs.
+  caps0 <- getNumCapabilities
+  if caps0 < 2
+    then do
+      setNumCapabilities 2
+      putStrLn "Increased GHC capabilities to 2 (to keep the API responsive during heavy compute)."
+    else pure ()
+
   let port = max 1 (argPort baseArgs)
       settings =
         Warp.setHost "0.0.0.0" $

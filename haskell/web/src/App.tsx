@@ -150,8 +150,54 @@ function normalizeApiBaseUrlInput(raw: string): string {
   if (!v) return "";
   if (v.startsWith("/") || /^https?:\/\//i.test(v)) return v;
   if (v.includes("://")) return v;
+
   const looksLikeHost = v === "localhost" || v.startsWith("localhost:") || v.includes(".") || v.includes(":");
-  return looksLikeHost ? `http://${v}` : `/${v}`;
+  if (!looksLikeHost) return `/${v}`;
+
+  const slashIdx = v.indexOf("/");
+  const authority = slashIdx === -1 ? v : v.slice(0, slashIdx);
+  const rest = slashIdx === -1 ? "" : v.slice(slashIdx);
+
+  const lowerAuthority = authority.toLowerCase();
+  const isLocal =
+    lowerAuthority === "localhost" ||
+    lowerAuthority.startsWith("localhost:") ||
+    lowerAuthority === "127.0.0.1" ||
+    lowerAuthority.startsWith("127.0.0.1:") ||
+    lowerAuthority === "0.0.0.0" ||
+    lowerAuthority.startsWith("0.0.0.0:") ||
+    lowerAuthority === "::1" ||
+    lowerAuthority.startsWith("::1:") ||
+    lowerAuthority === "[::1]" ||
+    lowerAuthority.startsWith("[::1]:");
+
+  const portFromAuthority = () => {
+    if (authority.startsWith("[")) {
+      const m = authority.match(/^\[[^\]]+\]:(\d{1,5})$/);
+      return m ? m[1] : null;
+    }
+    // For bare IPv6 (multiple ':'), treat as "no port"; port must be provided via brackets.
+    if (authority.split(":").length > 2) return null;
+    const m = authority.match(/:([0-9]{1,5})$/);
+    return m ? m[1] : null;
+  };
+
+  const port = portFromAuthority();
+  const normalizeAuthority = () => {
+    if (authority.startsWith("[")) return authority;
+    const parts = authority.split(":");
+    if (parts.length <= 2) return authority;
+
+    // Likely IPv6 without brackets; bracketize. If a port was detected (bracketed form), keep it.
+    if (port) {
+      const host = parts.slice(0, -1).join(":");
+      return `[${host}]:${port}`;
+    }
+    return `[${authority}]`;
+  };
+
+  const scheme = isLocal ? "http" : port && port !== "443" ? "http" : "https";
+  return `${scheme}://${normalizeAuthority()}${rest}`;
 }
 
 const defaultForm: FormState = {
@@ -313,6 +359,7 @@ function isLikelyOrderError(message: string | null | undefined, sent: boolean | 
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [toast, setToast] = useState<string | null>(null);
+  const [revealSecrets, setRevealSecrets] = useState(false);
   const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => normalizeApiBaseUrlInput(readJson<string>(STORAGE_API_BASE_KEY) ?? ""));
   const [apiToken, setApiToken] = useState<string>(() => readSessionString(SESSION_TOKEN_KEY) ?? "");
   const [binanceApiKey, setBinanceApiKey] = useState<string>(() => readSessionString(SESSION_BINANCE_KEY_KEY) ?? "");
@@ -630,7 +677,7 @@ export function App() {
     if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
     if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
     if (form.orderQuoteFraction > 0) base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
-    if (form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
+    if (form.orderQuoteFraction > 0 && form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
     if (form.idempotencyKey.trim()) base.idempotencyKey = form.idempotencyKey.trim();
 
     return base;
@@ -659,9 +706,20 @@ export function App() {
 
     if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
     if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
+    if (form.orderQuoteFraction > 0) base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
+    if (form.orderQuoteFraction > 0 && form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
 
     return withBinanceKeys(base);
-  }, [form.binanceSymbol, form.binanceTestnet, form.market, form.orderQuantity, form.orderQuote, withBinanceKeys]);
+  }, [
+    form.binanceSymbol,
+    form.binanceTestnet,
+    form.market,
+    form.maxOrderQuote,
+    form.orderQuantity,
+    form.orderQuote,
+    form.orderQuoteFraction,
+    withBinanceKeys,
+  ]);
 
   const botOrdersView = useMemo(() => {
     const st = bot.status;
@@ -1147,11 +1205,11 @@ export function App() {
                 <label className="label" htmlFor="apiToken">
                   API token (optional)
                 </label>
-                <div className="row" style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}>
+                <div className="row" style={{ gridTemplateColumns: "1fr auto auto", alignItems: "center" }}>
                   <input
                     id="apiToken"
                     className="input"
-                    type="password"
+                    type={revealSecrets ? "text" : "password"}
                     value={apiToken}
                     onChange={(e) => setApiToken(e.target.value)}
                     placeholder="TRADER_API_TOKEN"
@@ -1160,6 +1218,9 @@ export function App() {
                     autoCorrect="off"
                     inputMode="text"
                   />
+                  <button className="btn" type="button" onClick={() => setRevealSecrets((v) => !v)}>
+                    {revealSecrets ? "Hide" : "Show"}
+                  </button>
                   <button className="btn" type="button" onClick={() => setApiToken("")} disabled={!apiToken.trim()}>
                     Clear
                   </button>
@@ -1205,10 +1266,10 @@ export function App() {
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
                 <label className="label">Binance API keys (optional)</label>
-                <div className="row" style={{ gridTemplateColumns: "1fr 1fr auto", alignItems: "center" }}>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr auto auto", alignItems: "center" }}>
                   <input
                     className="input"
-                    type="password"
+                    type={revealSecrets ? "text" : "password"}
                     value={binanceApiKey}
                     onChange={(e) => setBinanceApiKey(e.target.value)}
                     placeholder="BINANCE_API_KEY"
@@ -1219,7 +1280,7 @@ export function App() {
                   />
                   <input
                     className="input"
-                    type="password"
+                    type={revealSecrets ? "text" : "password"}
                     value={binanceApiSecret}
                     onChange={(e) => setBinanceApiSecret(e.target.value)}
                     placeholder="BINANCE_API_SECRET"
@@ -1228,6 +1289,9 @@ export function App() {
                     autoCorrect="off"
                     inputMode="text"
                   />
+                  <button className="btn" type="button" onClick={() => setRevealSecrets((v) => !v)}>
+                    {revealSecrets ? "Hide" : "Show"}
+                  </button>
                   <button
                     className="btn"
                     type="button"
