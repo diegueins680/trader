@@ -100,6 +100,14 @@ export function BacktestChart({
     return [...agreementOk, ...Array.from({ length: n - agreementOk.length }, () => last)];
   }, [agreementOk, n]);
 
+  const legend = useMemo(() => {
+    return {
+      showAgreement: agree !== null,
+      showTrades: trades.length > 0,
+      showOps: Boolean(operations && operations.length > 0),
+    };
+  }, [agree, operations, trades.length]);
+
   useEffect(() => {
     setView({ start: 0, end: Math.max(1, n - 1) });
     setHoverIdx(null);
@@ -501,6 +509,7 @@ export function BacktestChart({
   };
 
   const empty = n < 2 || equityCurve.length < 2;
+  const showBuySell = legend.showTrades || legend.showOps;
 
   return (
     <div className="btChartWrap">
@@ -516,6 +525,49 @@ export function BacktestChart({
             Reset zoom
           </button>
         </div>
+      </div>
+
+      <div className="btLegend" role="list" aria-label="Chart legend">
+        <div className="btLegendItem" role="listitem">
+          <span className="btLegendSwatch btLegendPrice" aria-hidden="true" />
+          Price
+        </div>
+        <div className="btLegendItem" role="listitem">
+          <span className="btLegendSwatch btLegendEquity" aria-hidden="true" />
+          Equity
+        </div>
+        <div className="btLegendItem" role="listitem">
+          <span className="btLegendSwatch btLegendLong" aria-hidden="true" />
+          Long
+        </div>
+        {legend.showAgreement ? (
+          <div className="btLegendItem" role="listitem">
+            <span className="btLegendSwatch btLegendAgree" aria-hidden="true" />
+            Agree
+          </div>
+        ) : null}
+        {legend.showTrades ? (
+          <div className="btLegendItem" role="listitem">
+            <span className="btLegendSwatch btLegendTrade" aria-hidden="true" />
+            Trade window
+          </div>
+        ) : null}
+        {showBuySell ? (
+          <>
+            <div className="btLegendItem" role="listitem">
+              <span className="btLegendMarker btLegendBuy" aria-hidden="true">
+                ▲
+              </span>
+              BUY / entry
+            </div>
+            <div className="btLegendItem" role="listitem">
+              <span className="btLegendMarker btLegendSell" aria-hidden="true">
+                ▼
+              </span>
+              SELL / exit
+            </div>
+          </>
+        ) : null}
       </div>
 
       <div

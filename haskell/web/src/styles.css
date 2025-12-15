@@ -533,6 +533,71 @@ textarea {
   gap: 10px;
 }
 
+.btLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.btLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.1px;
+  user-select: none;
+}
+
+.btLegendSwatch {
+  width: 18px;
+  height: 8px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.btLegendPrice {
+  background: linear-gradient(90deg, rgba(14, 165, 233, 0.95), rgba(124, 58, 237, 0.95) 55%, rgba(34, 197, 94, 0.9));
+}
+
+.btLegendEquity {
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.85), rgba(255, 255, 255, 0.68));
+}
+
+.btLegendLong {
+  background: rgba(34, 197, 94, 0.32);
+}
+
+.btLegendAgree {
+  background: rgba(124, 58, 237, 0.32);
+}
+
+.btLegendTrade {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.btLegendMarker {
+  width: 18px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 12px;
+  line-height: 1;
+  font-family: var(--mono);
+}
+
+.btLegendBuy {
+  color: rgba(34, 197, 94, 0.95);
+}
+
+.btLegendSell {
+  color: rgba(239, 68, 68, 0.92);
+}
+
 .btChart {
   position: relative;
   touch-action: none;

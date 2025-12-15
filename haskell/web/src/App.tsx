@@ -505,7 +505,8 @@ export function App() {
 
   const authHeaders = useMemo(() => {
     const token = apiToken.trim();
-    return token ? { Authorization: `Bearer ${token}` } : undefined;
+    if (!token) return undefined;
+    return { Authorization: `Bearer ${token}`, "X-API-Key": token };
   }, [apiToken]);
 
   const apiBaseCandidate = useMemo(() => normalizeApiBaseUrlInput(apiBaseUrl), [apiBaseUrl]);
@@ -544,9 +545,10 @@ export function App() {
   useEffect(() => {
     let mounted = true;
     health(apiBase, { timeoutMs: 10_000, headers: authHeaders })
-      .then(() => {
+      .then((out) => {
         if (!mounted) return;
-        setApiOk("ok");
+        if (out.authRequired && out.authOk !== true) setApiOk("auth");
+        else setApiOk("ok");
       })
       .catch(() => {
         if (!mounted) return;
@@ -566,11 +568,18 @@ export function App() {
   }, [form.binanceLive, form.market, showToast]);
 
   const recheckHealth = useCallback(async () => {
+    let h: Awaited<ReturnType<typeof health>>;
     try {
-      await health(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      h = await health(apiBase, { timeoutMs: 10_000, headers: authHeaders });
     } catch {
       setApiOk("down");
       showToast("API unreachable");
+      return;
+    }
+
+    if (h.authRequired && h.authOk !== true) {
+      setApiOk("auth");
+      showToast(apiToken.trim() ? "API auth failed" : "API auth required");
       return;
     }
 
@@ -923,10 +932,12 @@ export function App() {
   }, [apiBase, authHeaders, showToast]);
 
   useEffect(() => {
+    if (apiOk !== "ok") return;
     void refreshBot({ silent: true });
-  }, [refreshBot]);
+  }, [apiOk, refreshBot]);
 
   useEffect(() => {
+    if (apiOk !== "ok") return;
     const starting = !bot.status.running && bot.status.starting === true;
     if (!bot.status.running && !starting) return;
     const t = window.setInterval(() => {
@@ -934,7 +945,7 @@ export function App() {
       void refreshBot({ silent: true });
     }, 2000);
     return () => window.clearInterval(t);
-  }, [bot.loading, bot.status, refreshBot]);
+  }, [apiOk, bot.loading, bot.status, refreshBot]);
 
   useEffect(() => {
     if (!form.autoRefresh || apiOk !== "ok") return;
@@ -1043,7 +1054,7 @@ export function App() {
     const json = JSON.stringify(params);
     const safe = escapeSingleQuotes(json);
     const token = apiToken.trim();
-    const auth = token ? ` -H 'Authorization: Bearer ${escapeSingleQuotes(token)}'` : "";
+    const auth = token ? ` -H 'Authorization: Bearer ${escapeSingleQuotes(token)}' -H 'X-API-Key: ${escapeSingleQuotes(token)}'` : "";
     const base =
       /^https?:\/\//.test(apiBase)
         ? apiBase

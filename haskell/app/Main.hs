@@ -100,8 +100,24 @@ loadPricesCsv path priceCol = do
   bs <- BL.readFile path
   case Csv.decodeByName bs of
     Left err -> error ("CSV decode failed: " ++ err)
-    Right (_, rows) -> do
-      let key = BS.pack priceCol
+    Right (hdr, rows) -> do
+      let wanted = trim priceCol
+          wantedLower = map toLower wanted
+          hdrList = V.toList hdr
+          mKeyExact =
+            if BS.pack wanted `elem` hdrList then Just (BS.pack wanted) else Nothing
+          mKey =
+            case mKeyExact of
+              Just k -> Just k
+              Nothing ->
+                case filter (\h -> map toLower (BS.unpack h) == wantedLower) hdrList of
+                  (h:_) -> Just h
+                  [] -> Nothing
+          available = BS.unpack (BS.intercalate ", " hdrList)
+      key <-
+        case mKey of
+          Just k -> pure k
+          Nothing -> error ("Column not found: " ++ wanted ++ ". Available columns: " ++ available)
       pure $ map (extractPrice key) (V.toList rows)
 
 extractPrice :: BS.ByteString -> Csv.NamedRecord -> Double
@@ -1651,6 +1667,14 @@ corsHeaders =
   , ("Access-Control-Max-Age", "86400")
   ]
 
+noCacheHeaders :: ResponseHeaders
+noCacheHeaders =
+  [ ("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+  , ("Pragma", "no-cache")
+  , ("Expires", "0")
+  , ("Vary", "Authorization, X-API-Key")
+  ]
+
 withCors :: Wai.Response -> Wai.Response
 withCors = Wai.mapResponseHeaders (\hs -> corsHeaders ++ hs)
 
@@ -1819,7 +1843,18 @@ apiApp baseArgs apiToken botCtrl metrics mJournal asyncStores req respond = do
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["health"] ->
               case Wai.requestMethod req of
-                "GET" -> respondCors (jsonValue status200 (object ["status" .= ("ok" :: String)]))
+                "GET" ->
+                  let authRequired = isJust apiToken
+                      authOk = authorized apiToken req
+                   in respondCors
+                        ( jsonValue
+                            status200
+                            ( object
+                                ( ["status" .= ("ok" :: String)]
+                                    ++ (if authRequired then ["authRequired" .= True, "authOk" .= authOk] else [])
+                                )
+                            )
+                        )
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["metrics"] ->
               case Wai.requestMethod req of
@@ -1836,6 +1871,7 @@ apiApp baseArgs apiToken botCtrl metrics mJournal asyncStores req respond = do
             ["signal", "async", jobId] ->
               case Wai.requestMethod req of
                 "GET" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
+                "POST" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade"] ->
               case Wai.requestMethod req of
@@ -1848,6 +1884,7 @@ apiApp baseArgs apiToken botCtrl metrics mJournal asyncStores req respond = do
             ["trade", "async", jobId] ->
               case Wai.requestMethod req of
                 "GET" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
+                "POST" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest"] ->
               case Wai.requestMethod req of
@@ -1860,6 +1897,7 @@ apiApp baseArgs apiToken botCtrl metrics mJournal asyncStores req respond = do
             ["backtest", "async", jobId] ->
               case Wai.requestMethod req of
                 "GET" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
+                "POST" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "keys"] ->
               case Wai.requestMethod req of
@@ -1892,7 +1930,7 @@ jsonValue :: ToJSON a => Status -> a -> Wai.Response
 jsonValue st v =
   Wai.responseLBS
     st
-    [("Content-Type", "application/json")]
+    ([("Content-Type", "application/json")] ++ noCacheHeaders)
     (encode v)
 
 jsonError :: Status -> String -> Wai.Response
@@ -1915,7 +1953,7 @@ textValue :: Status -> BL.ByteString -> Wai.Response
 textValue st body =
   Wai.responseLBS
     st
-    [("Content-Type", "text/plain; version=0.0.4")]
+    ([("Content-Type", "text/plain; version=0.0.4")] ++ noCacheHeaders)
     body
 
 handleMetrics :: Metrics -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -2404,7 +2442,12 @@ computeBinanceKeysStatusFromArgs args = do
                   let (_baseAsset, quoteAsset) = splitSymbol sym'
                   quoteBal <- fetchFreeBalance env quoteAsset
                   let q0 = quoteBal * f
-                      q1 = maybe q0 (\capQ -> min capQ q0) (argMaxOrderQuote args)
+                      q1 =
+                        let mCap =
+                              case argMaxOrderQuote args of
+                                Just q | q > 0 -> Just q
+                                _ -> Nothing
+                         in maybe q0 (\capQ -> min capQ q0) mCap
                   pure (if q1 > 0 then Just q1 else Nothing)
                 _ -> pure qqArg
             if qty == Nothing && qq == Nothing
@@ -2433,7 +2476,12 @@ computeBinanceKeysStatusFromArgs args = do
                             let (_baseAsset, quoteAsset) = splitSymbol sym'
                             bal <- fetchFuturesAvailableBalance env quoteAsset
                             let q0 = bal * f
-                                q1 = maybe q0 (\capQ -> min capQ q0) (argMaxOrderQuote args)
+                                q1 =
+                                  let mCap =
+                                        case argMaxOrderQuote args of
+                                          Just q | q > 0 -> Just q
+                                          _ -> Nothing
+                                   in maybe q0 (\capQ -> min capQ q0) mCap
                             pure (if q1 > 0 then Just q1 else Nothing)
                           _ -> pure Nothing
                   case qq of
@@ -2661,7 +2709,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
           qtyArg = case argOrderQuantity args of { Just q | q > 0 -> Just q; _ -> Nothing }
           quoteArg = case argOrderQuote args of { Just q | q > 0 -> Just q; _ -> Nothing }
           quoteFracArg = case argOrderQuoteFraction args of { Just f | f > 0 -> Just f; _ -> Nothing }
-          maxOrderQuoteArg = case argMaxOrderQuote args of { Just q | q >= 0 -> Just q; _ -> Nothing }
+          maxOrderQuoteArg = case argMaxOrderQuote args of { Just q | q > 0 -> Just q; _ -> Nothing }
 
       case dir of
         1 ->
@@ -2734,7 +2782,12 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
           (Nothing, Nothing, Just f) | f > 0 -> do
             bal <- fetchFuturesAvailableBalance env quoteAsset
             let q0 = bal * f
-                q1 = maybe q0 (\capQ -> min capQ q0) (argMaxOrderQuote args)
+                q1 =
+                  let mCap =
+                        case argMaxOrderQuote args of
+                          Just q | q > 0 -> Just q
+                          _ -> Nothing
+                   in maybe q0 (\capQ -> min capQ q0) mCap
             pure (Just q1)
           _ -> pure Nothing
       let mDesiredQtyRaw =
