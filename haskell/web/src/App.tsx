@@ -73,6 +73,8 @@ type FormState = {
   market: Market;
   interval: string;
   bars: number;
+  lookbackWindow: string;
+  lookbackBars: number;
   method: Method;
   threshold: number;
   fee: number;
@@ -139,10 +141,82 @@ const BINANCE_INTERVALS = [
 
 const BINANCE_INTERVAL_SET = new Set<string>(BINANCE_INTERVALS);
 
+const BINANCE_INTERVAL_SECONDS: Record<string, number> = {
+  "1m": 60,
+  "3m": 3 * 60,
+  "5m": 5 * 60,
+  "15m": 15 * 60,
+  "30m": 30 * 60,
+  "1h": 60 * 60,
+  "2h": 2 * 60 * 60,
+  "4h": 4 * 60 * 60,
+  "6h": 6 * 60 * 60,
+  "8h": 8 * 60 * 60,
+  "12h": 12 * 60 * 60,
+  "1d": 24 * 60 * 60,
+  "3d": 3 * 24 * 60 * 60,
+  "1w": 7 * 24 * 60 * 60,
+  "1M": 30 * 24 * 60 * 60,
+};
+
+function binanceIntervalSeconds(interval: string): number | null {
+  const sec = BINANCE_INTERVAL_SECONDS[interval];
+  return typeof sec === "number" && Number.isFinite(sec) ? sec : null;
+}
+
+function parseDurationSeconds(raw: string): number | null {
+  const s = raw.trim();
+  const m = /^(\d+)([A-Za-z])$/.exec(s);
+  if (!m) return null;
+
+  const n = Number(m[1]);
+  if (!Number.isFinite(n)) return null;
+  const unitRaw = m[2] ?? "";
+  const unit = unitRaw === "M" ? "M" : unitRaw.toLowerCase();
+
+  const mult =
+    unit === "s"
+      ? 1
+      : unit === "m"
+        ? 60
+        : unit === "h"
+          ? 60 * 60
+          : unit === "d"
+            ? 24 * 60 * 60
+            : unit === "w"
+              ? 7 * 24 * 60 * 60
+              : unit === "M"
+                ? 30 * 24 * 60 * 60
+                : null;
+  if (!mult) return null;
+  return n * mult;
+}
+
 function normalizeBinanceInterval(raw: unknown, fallback: string): string {
   if (typeof raw !== "string") return fallback;
   const value = raw.trim();
   return BINANCE_INTERVAL_SET.has(value) ? value : fallback;
+}
+
+function normalizeLookbackWindow(raw: unknown, fallback: string): string {
+  if (typeof raw !== "string") return fallback;
+  const value = raw.trim();
+  const sec = parseDurationSeconds(value);
+  return sec && sec > 0 ? value : fallback;
+}
+
+function normalizeLookbackBars(raw: unknown, fallback: number): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    const n = Math.trunc(raw);
+    return n >= 2 ? n : 0;
+  }
+  if (typeof raw === "string") {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    const i = Math.trunc(n);
+    return i >= 2 ? i : 0;
+  }
+  return fallback;
 }
 
 function normalizeApiBaseUrlInput(raw: string): string {
@@ -205,6 +279,8 @@ const defaultForm: FormState = {
   market: "spot",
   interval: "1h",
   bars: 200,
+  lookbackWindow: "24h",
+  lookbackBars: 0,
   method: "11",
   threshold: 0.001,
   fee: 0.0005,
@@ -238,6 +314,22 @@ const defaultForm: FormState = {
 };
 
 type SavedProfiles = Record<string, FormState>;
+
+type FormStateJson = Partial<FormState> & {
+  interval?: unknown;
+  lookbackWindow?: unknown;
+  lookbackBars?: unknown;
+};
+
+function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
+  const merged = { ...defaultForm, ...(raw ?? {}) };
+  return {
+    ...merged,
+    interval: normalizeBinanceInterval(raw?.interval ?? merged.interval, defaultForm.interval),
+    lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
+    lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
+  };
+}
 
 type PendingProfileLoad = {
   name: string;
@@ -364,13 +456,14 @@ export function App() {
   const [apiToken, setApiToken] = useState<string>(() => readSessionString(SESSION_TOKEN_KEY) ?? "");
   const [binanceApiKey, setBinanceApiKey] = useState<string>(() => readSessionString(SESSION_BINANCE_KEY_KEY) ?? "");
   const [binanceApiSecret, setBinanceApiSecret] = useState<string>(() => readSessionString(SESSION_BINANCE_SECRET_KEY) ?? "");
-  const [form, setForm] = useState<FormState>(() => {
-    const saved = readJson<Partial<FormState> & { interval?: unknown }>(STORAGE_KEY);
-    const merged = { ...defaultForm, ...(saved ?? {}) };
-    return { ...merged, interval: normalizeBinanceInterval(saved?.interval ?? merged.interval, defaultForm.interval) };
-  });
+  const [form, setForm] = useState<FormState>(() => normalizeFormState(readJson<FormStateJson>(STORAGE_KEY)));
 
-  const [profiles, setProfiles] = useState<SavedProfiles>(() => readJson<SavedProfiles>(STORAGE_PROFILES_KEY) ?? {});
+  const [profiles, setProfiles] = useState<SavedProfiles>(() => {
+    const raw = readJson<Record<string, FormStateJson>>(STORAGE_PROFILES_KEY) ?? {};
+    const out: SavedProfiles = {};
+    for (const [name, profile] of Object.entries(raw)) out[name] = normalizeFormState(profile);
+    return out;
+  });
   const [profileName, setProfileName] = useState("");
   const [profileSelected, setProfileSelected] = useState("");
   const [pendingProfileLoad, setPendingProfileLoad] = useState<PendingProfileLoad | null>(null);
@@ -521,11 +614,10 @@ export function App() {
       return;
     }
 
-    const normalized: FormState = { ...raw, interval: normalizeBinanceInterval((raw as { interval?: unknown }).interval, defaultForm.interval) };
     const profile: FormState =
-      normalized.market === "margin"
-        ? { ...normalized, binanceTestnet: false, binanceLive: true }
-        : normalized;
+      raw.market === "margin"
+        ? { ...raw, binanceTestnet: false, binanceLive: true }
+        : raw;
     const reasons: string[] = [];
     if (profile.market === "margin" && form.market !== "margin") reasons.push("switch market to Margin");
     if (profile.binanceLive && !form.binanceLive) reasons.push("enable Live orders");
@@ -646,14 +738,15 @@ export function App() {
     }
   }, [apiBase, apiToken, authHeaders, showToast]);
 
-  const params: ApiParams = useMemo(() => {
+  const commonParams: ApiParams = useMemo(() => {
     const interval = form.interval.trim();
     const intervalOk = BINANCE_INTERVAL_SET.has(interval);
+    const bars = clamp(Math.trunc(form.bars), 2, 1000);
     const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
       market: form.market,
       interval: intervalOk ? interval : undefined,
-      bars: clamp(Math.trunc(form.bars), 2, 1000),
+      bars,
       method: form.method,
       threshold: Math.max(0, form.threshold),
       fee: Math.max(0, form.fee),
@@ -670,18 +763,39 @@ export function App() {
       binanceTestnet: form.binanceTestnet,
     };
 
+    if (form.lookbackBars >= 2) base.lookbackBars = Math.trunc(form.lookbackBars);
+    else if (form.lookbackWindow.trim()) base.lookbackWindow = form.lookbackWindow.trim();
+
     if (form.optimizeOperations) base.optimizeOperations = true;
     if (form.sweepThreshold) base.sweepThreshold = true;
-    if (form.binanceLive) base.binanceLive = true;
-
-    if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
-    if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
-    if (form.orderQuoteFraction > 0) base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
-    if (form.orderQuoteFraction > 0 && form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
-    if (form.idempotencyKey.trim()) base.idempotencyKey = form.idempotencyKey.trim();
 
     return base;
   }, [form]);
+
+  const tradeParams: ApiParams = useMemo(() => {
+    const base: ApiParams = { ...commonParams };
+    if (form.binanceLive) base.binanceLive = true;
+    const k = form.idempotencyKey.trim();
+    const idOk = !k || (k.length <= 36 && /^[A-Za-z0-9_-]+$/.test(k));
+    if (k && idOk) base.idempotencyKey = k;
+
+    if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
+    else if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
+    else if (form.orderQuoteFraction > 0) {
+      base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
+      if (form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
+    }
+
+    return base;
+  }, [
+    commonParams,
+    form.binanceLive,
+    form.idempotencyKey,
+    form.maxOrderQuote,
+    form.orderQuantity,
+    form.orderQuote,
+    form.orderQuoteFraction,
+  ]);
 
   const withBinanceKeys = useCallback(
     (p: ApiParams): ApiParams => {
@@ -704,15 +818,22 @@ export function App() {
       binanceTestnet: form.binanceTestnet,
     };
 
+    const k = form.idempotencyKey.trim();
+    const idOk = !k || (k.length <= 36 && /^[A-Za-z0-9_-]+$/.test(k));
+    if (k && idOk) base.idempotencyKey = k;
+
     if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
-    if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
-    if (form.orderQuoteFraction > 0) base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
-    if (form.orderQuoteFraction > 0 && form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
+    else if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
+    else if (form.orderQuoteFraction > 0) {
+      base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
+      if (form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
+    }
 
     return withBinanceKeys(base);
   }, [
     form.binanceSymbol,
     form.binanceTestnet,
+    form.idempotencyKey,
     form.market,
     form.maxOrderQuote,
     form.orderQuantity,
@@ -798,7 +919,7 @@ export function App() {
       }
 
       try {
-        const p = overrideParams ?? params;
+        const p = overrideParams ?? (kind === "trade" ? tradeParams : commonParams);
         if (!p.binanceSymbol) throw new Error("binanceSymbol is required.");
         if (!p.interval) throw new Error("interval is required.");
 
@@ -858,7 +979,7 @@ export function App() {
         if (requestId === requestSeqRef.current) abortRef.current = null;
       }
     },
-    [apiBase, authHeaders, form.tradeArmed, params, scrollToResult, showToast, withBinanceKeys],
+    [apiBase, authHeaders, commonParams, form.tradeArmed, scrollToResult, showToast, tradeParams, withBinanceKeys],
   );
 
   const refreshKeys = useCallback(
@@ -945,35 +1066,46 @@ export function App() {
     [apiBase, authHeaders],
   );
 
-	  const startLiveBot = useCallback(async () => {
-	    setBot((s) => ({ ...s, loading: true, error: null }));
-	    try {
-	      const payload: ApiParams = {
-	        ...params,
-	        botTrade: form.tradeArmed,
-	        ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
-	        botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
-	        botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
-	        botMaxPoints: clamp(Math.trunc(form.botMaxPoints), 100, 100000),
-	      };
-	      const out = await botStart(apiBase, withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
-	      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
-		      showToast(
-		        out.running
-		          ? form.tradeArmed
-		            ? "Live bot started (trading armed)"
-		            : "Live bot started (paper mode)"
-		          : out.starting
-		            ? "Live bot starting…"
-		            : "Bot not running",
-		      );
-		    } catch (e) {
+  const startLiveBot = useCallback(async () => {
+    setBot((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const payload: ApiParams = {
+        ...tradeParams,
+        botTrade: form.tradeArmed,
+        ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
+        botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
+        botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
+        botMaxPoints: clamp(Math.trunc(form.botMaxPoints), 100, 100000),
+      };
+      const out = await botStart(apiBase, withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
+      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+      showToast(
+        out.running
+          ? form.tradeArmed
+            ? "Live bot started (trading armed)"
+            : "Live bot started (paper mode)"
+          : out.starting
+            ? "Live bot starting…"
+            : "Bot not running",
+      );
+    } catch (e) {
       if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : String(e);
       setBot((s) => ({ ...s, loading: false, error: msg }));
-	      showToast("Bot start failed");
-	    }
-	  }, [apiBase, authHeaders, form.botMaxPoints, form.botOnlineEpochs, form.botPollSeconds, form.botTrainBars, form.tradeArmed, params, showToast, withBinanceKeys]);
+      showToast("Bot start failed");
+    }
+  }, [
+    apiBase,
+    authHeaders,
+    form.botMaxPoints,
+    form.botOnlineEpochs,
+    form.botPollSeconds,
+    form.botTrainBars,
+    form.tradeArmed,
+    showToast,
+    tradeParams,
+    withBinanceKeys,
+  ]);
 
   const stopLiveBot = useCallback(async () => {
     setBot((s) => ({ ...s, loading: true, error: null }));
@@ -1036,6 +1168,46 @@ export function App() {
   const missingSymbol = !form.binanceSymbol.trim();
   const intervalValue = form.interval.trim();
   const missingInterval = !intervalValue || !BINANCE_INTERVAL_SET.has(intervalValue);
+  const lookbackState = useMemo(() => {
+    const bars = clamp(Math.trunc(form.bars), 2, 1000);
+    const interval = form.interval.trim();
+    const intervalSec = binanceIntervalSeconds(interval);
+
+    const overrideRaw = Math.trunc(form.lookbackBars);
+    const overrideOn = overrideRaw >= 2;
+
+    const windowRaw = form.lookbackWindow.trim();
+    const windowSec = windowRaw ? parseDurationSeconds(windowRaw) : null;
+    const windowBars = windowSec && windowSec > 0 && intervalSec ? Math.ceil(windowSec / intervalSec) : null;
+
+    const effectiveBars = overrideOn ? overrideRaw : windowBars;
+    const minBarsRequired = effectiveBars != null ? effectiveBars + 1 : null;
+
+    let error: string | null = null;
+    if (overrideOn) {
+      if (overrideRaw < 2) error = "Lookback bars must be >= 2 (or 0 to use the window).";
+    } else {
+      if (!windowRaw) error = "Lookback window is required (e.g. 24h).";
+      else if (windowSec == null || windowSec <= 0) error = "Lookback window must look like 24h, 90m, 7d.";
+      else if (!intervalSec) error = "Interval is required.";
+      else if (windowBars != null && windowBars < 2) error = "Lookback window is too small (needs at least 2 bars).";
+    }
+
+    if (!error && effectiveBars != null && effectiveBars >= 2 && bars <= effectiveBars) {
+      error = `Not enough bars for lookback: need bars >= ${effectiveBars + 1} (or reduce lookback).`;
+    }
+
+    const summary =
+      effectiveBars != null && effectiveBars >= 2
+        ? overrideOn
+          ? `Effective lookback: ${effectiveBars} bars (override). Need bars ≥ ${effectiveBars + 1}.`
+          : windowBars != null
+            ? `Effective lookback: ${windowRaw} ≈ ${effectiveBars} bars. Need bars ≥ ${effectiveBars + 1}.`
+            : "Effective lookback: —"
+        : "Effective lookback: —";
+
+    return { bars, intervalSec, windowBars, overrideOn, effectiveBars, minBarsRequired, error, summary };
+  }, [form.bars, form.interval, form.lookbackBars, form.lookbackWindow]);
   const showLocalStartHelp = useMemo(() => {
     if (typeof window === "undefined") return true;
     return isLocalHostname(window.location.hostname);
@@ -1062,6 +1234,7 @@ export function App() {
     apiBlockedReason,
     missingSymbol ? "Binance symbol is required." : null,
     missingInterval ? "Interval is required." : null,
+    lookbackState.error,
   );
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
 
@@ -1106,10 +1279,17 @@ export function App() {
     return null;
   }, [form.idempotencyKey]);
 
+  const requestPreviewKind = useMemo<RequestKind>(() => {
+    return state.lastKind ?? (form.optimizeOperations || form.sweepThreshold ? "backtest" : "signal");
+  }, [form.optimizeOperations, form.sweepThreshold, state.lastKind]);
+
+  const requestPreview = useMemo<ApiParams>(() => {
+    return requestPreviewKind === "trade" ? tradeParams : commonParams;
+  }, [commonParams, requestPreviewKind, tradeParams]);
+
   const curlFor = useMemo(() => {
-    const kind = state.lastKind ?? (form.optimizeOperations || form.sweepThreshold ? "backtest" : "signal");
-    const endpoint = kind === "signal" ? "/signal" : kind === "backtest" ? "/backtest" : "/trade";
-    const json = JSON.stringify(params);
+    const endpoint = requestPreviewKind === "signal" ? "/signal" : requestPreviewKind === "backtest" ? "/backtest" : "/trade";
+    const json = JSON.stringify(requestPreview);
     const safe = escapeSingleQuotes(json);
     const token = apiToken.trim();
     const auth = token ? ` -H 'Authorization: Bearer ${escapeSingleQuotes(token)}' -H 'X-API-Key: ${escapeSingleQuotes(token)}'` : "";
@@ -1120,7 +1300,7 @@ export function App() {
           ? `${window.location.origin}${apiBase}`
           : apiBase;
     return `curl -s -X POST ${base}${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
-  }, [apiBase, apiToken, form.optimizeOperations, form.sweepThreshold, params, state.lastKind]);
+  }, [apiBase, apiToken, requestPreview, requestPreviewKind]);
 
   return (
     <div className="container">
@@ -1477,6 +1657,63 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12 }}>
               <div className="field">
+                <label className="label" htmlFor="lookbackWindow">
+                  Lookback window
+                </label>
+                <input
+                  id="lookbackWindow"
+                  className={lookbackState.error && !lookbackState.overrideOn ? "input inputError" : "input"}
+                  value={form.lookbackWindow}
+                  disabled={form.lookbackBars >= 2}
+                  onChange={(e) => setForm((f) => ({ ...f, lookbackWindow: e.target.value }))}
+                  placeholder="24h"
+                  spellCheck={false}
+                />
+                <div className="hint" style={lookbackState.error && !lookbackState.overrideOn ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                  {form.lookbackBars >= 2 ? "Ignored while Lookback bars override is set." : lookbackState.error ?? lookbackState.summary}
+                </div>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="lookbackBars">
+                  Lookback bars override (optional)
+                </label>
+                <input
+                  id="lookbackBars"
+                  className={lookbackState.error && lookbackState.overrideOn ? "input inputError" : "input"}
+                  type="number"
+                  min={0}
+                  value={form.lookbackBars}
+                  onChange={(e) => setForm((f) => ({ ...f, lookbackBars: numFromInput(e.target.value, f.lookbackBars) }))}
+                  placeholder="0 (auto)"
+                />
+                <div className="hint" style={lookbackState.error && lookbackState.overrideOn ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                  {lookbackState.overrideOn ? lookbackState.error ?? lookbackState.summary : "0 = use lookbackWindow. Set ≥2 to override."}
+                </div>
+                {form.lookbackBars > 0 || lookbackState.error ? (
+                  <div className="actions" style={{ marginTop: 8 }}>
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={lookbackState.bars < 3}
+                      onClick={() => setForm((f) => ({ ...f, lookbackBars: Math.max(2, lookbackState.bars - 1) }))}
+                    >
+                      Fit lookback to bars ({Math.max(0, lookbackState.bars - 1)})
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={form.lookbackBars <= 0}
+                      onClick={() => setForm((f) => ({ ...f, lookbackBars: 0 }))}
+                    >
+                      Clear override
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12 }}>
+              <div className="field">
                 <label className="label" htmlFor="method">
                   Method
                 </label>
@@ -1788,7 +2025,7 @@ export function App() {
                 disabled={requestDisabled}
                 title={requestDisabledReason ?? undefined}
                 onClick={() => {
-                  const p = { ...params, sweepThreshold: true, optimizeOperations: false };
+                  const p = { ...commonParams, sweepThreshold: true, optimizeOperations: false };
                   setForm((f) => ({ ...f, sweepThreshold: true, optimizeOperations: false }));
                   void run("backtest", p);
                 }}
@@ -1800,7 +2037,7 @@ export function App() {
                 disabled={requestDisabled}
                 title={requestDisabledReason ?? undefined}
                 onClick={() => {
-                  const p = { ...params, optimizeOperations: true, sweepThreshold: false };
+                  const p = { ...commonParams, optimizeOperations: true, sweepThreshold: false };
                   setForm((f) => ({ ...f, optimizeOperations: true, sweepThreshold: false }));
                   void run("backtest", p);
                 }}
@@ -2159,7 +2396,9 @@ export function App() {
                     </button>
                   </div>
                   <div className="hint" style={idempotencyKeyError ? { color: "rgba(239, 68, 68, 0.9)" } : undefined}>
-                    {idempotencyKeyError ?? "Use for manual /trade retries. Leave blank for the live bot unless you know what you’re doing."}
+                    {idempotencyKeyError
+                      ? `${idempotencyKeyError} (not sent to the API).`
+                      : "Use for manual /trade retries. Leave blank for the live bot unless you know what you’re doing."}
                   </div>
                 </div>
               </div>
@@ -2714,7 +2953,7 @@ export function App() {
                   className="btn"
                   disabled={state.loading}
                   onClick={async () => {
-                    await copyText(JSON.stringify(params, null, 2));
+                    await copyText(JSON.stringify(requestPreview, null, 2));
                     showToast("Copied JSON");
                   }}
                 >
@@ -2741,7 +2980,7 @@ export function App() {
                   Reset
                 </button>
               </div>
-              <pre className="code">{JSON.stringify(params, null, 2)}</pre>
+              <pre className="code">{JSON.stringify(requestPreview, null, 2)}</pre>
             </div>
           </div>
         </section>

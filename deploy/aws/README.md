@@ -110,10 +110,11 @@ Then set it as `TRADER_API_TOKEN` on the backend and paste the same value into t
 If you prefer the UI calling `/api/*` on the same domain, configure a CloudFront behavior:
 - Path pattern: `/api/*`
 - Origin: your API service (App Runner/ALB/etc)
-- Allowed methods: include `POST` (and `OPTIONS`)
+- Allowed methods: include `POST` (and `OPTIONS`) — the UI uses `POST` for async job polling (with `GET` fallback)
 - Forward headers: at least `Authorization`, `X-API-Key`, `Content-Type`
 - Cache: disable caching for `/api/*`
 
 Notes:
 - You can also override the API base at runtime from the UI (stored in local storage) via the “API base URL” field.
 - If you *do* prefer same-origin `/api/*` routing, see “CloudFront `/api/*` proxy (optional)” above.
+- After uploading a new UI build to S3, invalidate CloudFront so clients fetch the new hashed JS/CSS assets.

@@ -175,6 +175,7 @@ cabal run trader-hs -- --serve --port 8080
 Optional auth (recommended for any deployment):
 - Set `TRADER_API_TOKEN` to require a token on all endpoints except `/health`
 - Send either `Authorization: Bearer <token>` or `X-API-Key: <token>`
+- `/health` stays public, and reports `authRequired`/`authOk` when `TRADER_API_TOKEN` is set (useful for quickly checking auth wiring)
 
 Endpoints:
 - `GET /` → basic endpoint list
@@ -182,13 +183,13 @@ Endpoints:
 - `GET /metrics`
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /signal/async` → starts an async signal job
-- `GET /signal/async/:jobId` → polls an async signal job
+- `GET /signal/async/:jobId` → polls an async signal job (also accepts `POST` for proxy compatibility)
 - `POST /trade` → returns the latest signal + attempts an order
 - `POST /trade/async` → starts an async trade job
-- `GET /trade/async/:jobId` → polls an async trade job
+- `GET /trade/async/:jobId` → polls an async trade job (also accepts `POST` for proxy compatibility)
 - `POST /backtest` → runs a backtest and returns summary metrics
 - `POST /backtest/async` → starts an async backtest job
-- `GET /backtest/async/:jobId` → polls an async backtest job
+- `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints
 - `POST /bot/start` → starts the live bot loop (Binance data only)
 - `POST /bot/stop` → stops the live bot loop

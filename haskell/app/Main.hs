@@ -288,26 +288,80 @@ argBinanceMarket args =
 
 argLookback :: Args -> Int
 argLookback args =
-  let positive n =
-        if n < 2
-          then error "--lookback-bars must be >= 2"
-          else n
-   in case argLookbackBars args of
-        Just n -> positive n
-        Nothing ->
-          case lookbackBarsFrom (argInterval args) (argLookbackWindow args) of
-            Left err -> error err
-            Right n -> positive n
+  case argLookbackBars args of
+    Just n ->
+      if n < 2
+        then error "--lookback-bars must be >= 2"
+        else n
+    Nothing ->
+      case lookbackBarsFrom (argInterval args) (argLookbackWindow args) of
+        Left err -> error err
+        Right n ->
+          if n < 2
+            then
+              error
+                ( "Lookback window too small: "
+                    ++ show (argLookbackWindow args)
+                    ++ " at interval "
+                    ++ show (argInterval args)
+                    ++ " yields "
+                    ++ show n
+                    ++ " bars; need at least 2 bars."
+                )
+            else n
 
 validateArgs :: Args -> Either String Args
 validateArgs args = do
   ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
+
+  let intervalStr = trim (argInterval args)
+  ensure "--interval is required" (not (null intervalStr))
+  case parseIntervalSeconds intervalStr of
+    Nothing -> Left ("Invalid interval: " ++ show intervalStr ++ " (expected like 5m, 1h, 1d)")
+    Just sec -> ensure "--interval must be > 0" (sec > 0)
+
+  let binanceIntervals = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"]
+  case argBinanceSymbol args of
+    Nothing -> pure ()
+    Just _ ->
+      ensure
+        ("--interval must be a Binance interval: " ++ unwords binanceIntervals)
+        (intervalStr `elem` binanceIntervals)
 
   ensure "--bars must be >= 0" (argBars args >= 0)
   ensure "--bars must be 0 (all CSV) or >= 2" (argBars args /= 1)
   case argBinanceSymbol args of
     Nothing -> pure ()
     Just _ -> ensure "--bars must be between 2 and 1000 for Binance data" (argBars args >= 2 && argBars args <= 1000)
+
+  case argLookbackBars args of
+    Just n -> ensure "--lookback-bars must be >= 2" (n >= 2)
+    Nothing ->
+      case lookbackBarsFrom intervalStr (argLookbackWindow args) of
+        Left e -> Left e
+        Right n ->
+          ensure
+            ("Lookback window too small: " ++ show (argLookbackWindow args) ++ " at interval " ++ show intervalStr ++ " yields " ++ show n ++ " bars; need at least 2 bars.")
+            (n >= 2)
+
+  let lookback =
+        case argLookbackBars args of
+          Just n -> n
+          Nothing ->
+            case lookbackBarsFrom intervalStr (argLookbackWindow args) of
+              Left _ -> 0
+              Right n -> n
+  case argBinanceSymbol args of
+    Nothing -> pure ()
+    Just _ ->
+      ensure
+        ( "--bars must be >= lookback+1 (need at least "
+            ++ show (lookback + 1)
+            ++ " bars for lookback="
+            ++ show lookback
+            ++ ")"
+        )
+        (argBars args > lookback)
 
   ensure "--hidden-size must be >= 1" (argHiddenSize args >= 1)
   ensure "--epochs must be >= 0" (argEpochs args >= 0)
