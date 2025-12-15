@@ -18,6 +18,23 @@ type FetchJsonOptions = {
   headers?: Record<string, string>;
 };
 
+function resolveUrl(baseUrl: string, path: string): string {
+  const base = baseUrl.trim().replace(/\/+$/, "");
+  const p = path.startsWith("/") ? path : `/${path}`;
+
+  if (/^https?:\/\//.test(base)) {
+    const url = new URL(base);
+    const basePath = url.pathname.replace(/\/+$/, "");
+    url.pathname = `${basePath}${p}`.replace(/\/{2,}/g, "/") || "/";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  }
+
+  const rel = base.startsWith("/") ? base : `/${base}`;
+  return `${rel}${p}`;
+}
+
 function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string> | undefined): HeadersInit | undefined {
   if (!extra || Object.keys(extra).length === 0) return base;
   const merged = new Headers(base);
@@ -51,11 +68,12 @@ async function readJsonOrText(res: Response): Promise<unknown> {
   return res.text();
 }
 
-async function fetchJson<T>(path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
+async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
   const timeoutMs = opts?.timeoutMs ?? 30_000;
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
-    const res = await fetch(path, { ...init, headers: mergeHeaders(init.headers, opts?.headers), signal });
+    const url = resolveUrl(baseUrl, path);
+    const res = await fetch(url, { ...init, headers: mergeHeaders(init.headers, opts?.headers), signal });
     const payload = await readJsonOrText(res);
     if (!res.ok) {
       const message =
@@ -76,15 +94,16 @@ async function fetchJson<T>(path: string, init: RequestInit, opts?: FetchJsonOpt
   }
 }
 
-export async function health(opts?: FetchJsonOptions): Promise<"ok"> {
-  const out = await fetchJson<{ status: string }>("/api/health", { method: "GET" }, opts);
+export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<"ok"> {
+  const out = await fetchJson<{ status: string }>(baseUrl, "/health", { method: "GET" }, opts);
   if (out.status !== "ok") throw new Error("Unexpected /health response");
   return "ok";
 }
 
-export async function signal(params: ApiParams, opts?: FetchJsonOptions): Promise<LatestSignal> {
+export async function signal(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<LatestSignal> {
   return fetchJson<LatestSignal>(
-    "/api/signal",
+    baseUrl,
+    "/signal",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -94,9 +113,10 @@ export async function signal(params: ApiParams, opts?: FetchJsonOptions): Promis
   );
 }
 
-export async function backtest(params: ApiParams, opts?: FetchJsonOptions): Promise<BacktestResponse> {
+export async function backtest(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<BacktestResponse> {
   return fetchJson<BacktestResponse>(
-    "/api/backtest",
+    baseUrl,
+    "/backtest",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -106,9 +126,10 @@ export async function backtest(params: ApiParams, opts?: FetchJsonOptions): Prom
   );
 }
 
-export async function trade(params: ApiParams, opts?: FetchJsonOptions): Promise<ApiTradeResponse> {
+export async function trade(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<ApiTradeResponse> {
   return fetchJson<ApiTradeResponse>(
-    "/api/trade",
+    baseUrl,
+    "/trade",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -118,9 +139,14 @@ export async function trade(params: ApiParams, opts?: FetchJsonOptions): Promise
   );
 }
 
-export async function binanceKeysStatus(params: ApiParams, opts?: FetchJsonOptions): Promise<BinanceKeysStatus> {
+export async function binanceKeysStatus(
+  baseUrl: string,
+  params: ApiParams,
+  opts?: FetchJsonOptions,
+): Promise<BinanceKeysStatus> {
   return fetchJson<BinanceKeysStatus>(
-    "/api/binance/keys",
+    baseUrl,
+    "/binance/keys",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -130,9 +156,10 @@ export async function binanceKeysStatus(params: ApiParams, opts?: FetchJsonOptio
   );
 }
 
-export async function botStart(params: ApiParams, opts?: FetchJsonOptions): Promise<BotStatus> {
+export async function botStart(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<BotStatus> {
   return fetchJson<BotStatus>(
-    "/api/bot/start",
+    baseUrl,
+    "/bot/start",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -142,10 +169,10 @@ export async function botStart(params: ApiParams, opts?: FetchJsonOptions): Prom
   );
 }
 
-export async function botStop(opts?: FetchJsonOptions): Promise<BotStatus> {
-  return fetchJson<BotStatus>("/api/bot/stop", { method: "POST" }, opts);
+export async function botStop(baseUrl: string, opts?: FetchJsonOptions): Promise<BotStatus> {
+  return fetchJson<BotStatus>(baseUrl, "/bot/stop", { method: "POST" }, opts);
 }
 
-export async function botStatus(opts?: FetchJsonOptions): Promise<BotStatus> {
-  return fetchJson<BotStatus>("/api/bot/status", { method: "GET" }, opts);
+export async function botStatus(baseUrl: string, opts?: FetchJsonOptions): Promise<BotStatus> {
+  return fetchJson<BotStatus>(baseUrl, "/bot/status", { method: "GET" }, opts);
 }

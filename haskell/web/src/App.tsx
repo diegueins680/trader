@@ -87,6 +87,7 @@ type FormState = {
 };
 
 const STORAGE_KEY = "trader.ui.form.v1";
+const STORAGE_API_BASE_KEY = "trader.ui.apiBaseUrl.v1";
 const SESSION_TOKEN_KEY = "trader.ui.apiToken.v1";
 const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
 const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
@@ -199,6 +200,7 @@ function marketLabel(m: Market): string {
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [toast, setToast] = useState<string | null>(null);
+  const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => readJson<string>(STORAGE_API_BASE_KEY) ?? "");
   const [apiToken, setApiToken] = useState<string>(() => readSessionString(SESSION_TOKEN_KEY) ?? "");
   const [binanceApiKey, setBinanceApiKey] = useState<string>(() => readSessionString(SESSION_BINANCE_KEY_KEY) ?? "");
   const [binanceApiSecret, setBinanceApiSecret] = useState<string>(() => readSessionString(SESSION_BINANCE_SECRET_KEY) ?? "");
@@ -245,6 +247,10 @@ export function App() {
   }, [form]);
 
   useEffect(() => {
+    writeJson(STORAGE_API_BASE_KEY, apiBaseUrl.trim());
+  }, [apiBaseUrl]);
+
+  useEffect(() => {
     const token = apiToken.trim();
     if (!token) removeSessionKey(SESSION_TOKEN_KEY);
     else writeSessionString(SESSION_TOKEN_KEY, token);
@@ -283,9 +289,30 @@ export function App() {
     return token ? { Authorization: `Bearer ${token}` } : undefined;
   }, [apiToken]);
 
+  const apiBaseError = useMemo(() => {
+    const raw = apiBaseUrl.trim();
+    if (!raw) return null;
+    if (raw.startsWith("/") || /^https?:\/\//.test(raw)) return null;
+    return "API base must start with https:// or /api";
+  }, [apiBaseUrl]);
+
+  const apiBase = useMemo(() => {
+    const raw = apiBaseUrl.trim();
+    if (raw && !apiBaseError) return raw.replace(/\/+$/, "");
+    if (!import.meta.env.DEV && /^https?:\/\//.test(API_TARGET)) {
+      try {
+        const u = new URL(API_TARGET);
+        if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") return API_TARGET.replace(/\/+$/, "");
+      } catch {
+        // ignore
+      }
+    }
+    return "/api";
+  }, [apiBaseError, apiBaseUrl]);
+
   useEffect(() => {
     let mounted = true;
-    health({ timeoutMs: 3000 })
+    health(apiBase, { timeoutMs: 3000, headers: authHeaders })
       .then(() => {
         if (!mounted) return;
         setApiOk("ok");
@@ -297,7 +324,7 @@ export function App() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [apiBase, authHeaders]);
 
   const params: ApiParams = useMemo(() => {
     const base: ApiParams = {
@@ -408,21 +435,21 @@ export function App() {
         if (!p.interval) throw new Error("interval is required.");
 
         if (kind === "signal") {
-          const out = await signal(p, { signal: controller.signal, headers: authHeaders, timeoutMs: SIGNAL_TIMEOUT_MS });
+          const out = await signal(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: SIGNAL_TIMEOUT_MS });
           if (requestId !== requestSeqRef.current) return;
           if (opts?.silent) setState((s) => ({ ...s, latestSignal: out }));
           else setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Signal updated");
         } else if (kind === "backtest") {
-          const out = await backtest(p, { signal: controller.signal, headers: authHeaders, timeoutMs: BACKTEST_TIMEOUT_MS });
+          const out = await backtest(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: BACKTEST_TIMEOUT_MS });
           if (requestId !== requestSeqRef.current) return;
           setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Backtest complete");
         } else {
           if (!form.tradeArmed) throw new Error("Trading is locked. Enable “Arm trading” to call /trade.");
-          const out = await trade(withBinanceKeys(p), { signal: controller.signal, headers: authHeaders, timeoutMs: TRADE_TIMEOUT_MS });
+          const out = await trade(apiBase, withBinanceKeys(p), { signal: controller.signal, headers: authHeaders, timeoutMs: TRADE_TIMEOUT_MS });
           if (requestId !== requestSeqRef.current) return;
           setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false, error: null }));
           setApiOk("ok");
@@ -458,7 +485,7 @@ export function App() {
         if (requestId === requestSeqRef.current) abortRef.current = null;
       }
     },
-    [authHeaders, form.tradeArmed, params, scrollToResult, showToast, withBinanceKeys],
+    [apiBase, authHeaders, form.tradeArmed, params, scrollToResult, showToast, withBinanceKeys],
   );
 
   const refreshKeys = useCallback(
@@ -474,7 +501,7 @@ export function App() {
         const p = keysParams;
         if (!p.binanceSymbol) throw new Error("binanceSymbol is required.");
 
-        const out = await binanceKeysStatus(p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
+        const out = await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
         if (requestId !== keysRequestSeqRef.current) return;
         setKeys({ loading: false, error: null, status: out, checkedAtMs: Date.now() });
         setApiOk("ok");
@@ -509,7 +536,7 @@ export function App() {
         if (requestId === keysRequestSeqRef.current) keysAbortRef.current = null;
       }
     },
-    [authHeaders, keysParams, showToast],
+    [apiBase, authHeaders, keysParams, showToast],
   );
 
   const refreshBot = useCallback(
@@ -522,7 +549,7 @@ export function App() {
       if (!opts?.silent) setBot((s) => ({ ...s, loading: true, error: null }));
 
       try {
-        const out = await botStatus({ signal: controller.signal, headers: authHeaders, timeoutMs: 10_000 });
+        const out = await botStatus(apiBase, { signal: controller.signal, headers: authHeaders, timeoutMs: 10_000 });
         if (requestId !== botRequestSeqRef.current) return;
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
       } catch (e) {
@@ -534,7 +561,7 @@ export function App() {
         if (requestId === botRequestSeqRef.current) botAbortRef.current = null;
       }
     },
-    [authHeaders],
+    [apiBase, authHeaders],
   );
 
   const startLiveBot = useCallback(async () => {
@@ -546,7 +573,7 @@ export function App() {
         botOnlineEpochs: 1,
         botMaxPoints: clamp(Math.trunc(form.bars), 100, 100000),
       };
-      const out = await botStart(withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
+      const out = await botStart(apiBase, withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
       setBot((s) => ({ ...s, loading: false, error: null, status: out }));
       showToast(out.running ? (form.tradeArmed ? "Live bot started (trading armed)" : "Live bot started (paper mode)") : "Bot not running");
     } catch (e) {
@@ -555,12 +582,12 @@ export function App() {
       setBot((s) => ({ ...s, loading: false, error: msg }));
       showToast("Bot start failed");
     }
-  }, [authHeaders, form.bars, form.tradeArmed, params, showToast, withBinanceKeys]);
+  }, [apiBase, authHeaders, form.bars, form.tradeArmed, params, showToast, withBinanceKeys]);
 
   const stopLiveBot = useCallback(async () => {
     setBot((s) => ({ ...s, loading: true, error: null }));
     try {
-      const out = await botStop({ headers: authHeaders, timeoutMs: 30_000 });
+      const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 });
       setBot((s) => ({ ...s, loading: false, error: null, status: out }));
       showToast("Bot stopped");
     } catch (e) {
@@ -569,7 +596,7 @@ export function App() {
       setBot((s) => ({ ...s, loading: false, error: msg }));
       showToast("Bot stop failed");
     }
-  }, [authHeaders, showToast]);
+  }, [apiBase, authHeaders, showToast]);
 
   useEffect(() => {
     void refreshBot({ silent: true });
@@ -617,8 +644,14 @@ export function App() {
     const safe = escapeSingleQuotes(json);
     const token = apiToken.trim();
     const auth = token ? ` -H 'Authorization: Bearer ${escapeSingleQuotes(token)}'` : "";
-    return `curl -s -X POST ${API_TARGET}${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
-  }, [apiToken, form.optimizeOperations, form.sweepThreshold, params, state.lastKind]);
+    const base =
+      /^https?:\/\//.test(apiBase)
+        ? apiBase
+        : typeof window !== "undefined"
+          ? `${window.location.origin}${apiBase}`
+          : apiBase;
+    return `curl -s -X POST ${base}${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
+  }, [apiBase, apiToken, form.optimizeOperations, form.sweepThreshold, params, state.lastKind]);
 
   return (
     <div className="container">
@@ -642,7 +675,15 @@ export function App() {
             </span>
           ) : null}
           <span className="pill">
-            Proxy: <span style={{ fontFamily: "var(--mono)" }}>/api → {API_TARGET}</span>
+            {import.meta.env.DEV && apiBase === "/api" ? (
+              <>
+                Proxy: <span style={{ fontFamily: "var(--mono)" }}>/api → {API_TARGET}</span>
+              </>
+            ) : (
+              <>
+                API: <span style={{ fontFamily: "var(--mono)" }}>{apiBase}</span>
+              </>
+            )}
           </span>
         </div>
       </header>
@@ -659,6 +700,36 @@ export function App() {
             <p className="cardSubtitle">Safe defaults, minimal knobs, and clear outputs.</p>
           </div>
           <div className="cardBody">
+            <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+              <div className="field">
+                <label className="label" htmlFor="apiBaseUrl">
+                  API base URL (optional)
+                </label>
+                <div className="row" style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}>
+                  <input
+                    id="apiBaseUrl"
+                    className="input"
+                    type="text"
+                    value={apiBaseUrl}
+                    onChange={(e) => setApiBaseUrl(e.target.value)}
+                    placeholder="/api or https://your-api-host"
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    inputMode="url"
+                  />
+                  <button className="btn" type="button" onClick={() => setApiBaseUrl("")} disabled={!apiBaseUrl.trim()}>
+                    Clear
+                  </button>
+                </div>
+                <div className="hint" style={apiBaseError ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                  {apiBaseError
+                    ? apiBaseError
+                    : "Leave blank to use /api. For CloudFront/S3 hosting, set this to your deployed API (HTTPS recommended)."}
+                </div>
+              </div>
+            </div>
+
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
                 <label className="label" htmlFor="apiToken">
@@ -1237,8 +1308,17 @@ export function App() {
               <span style={{ fontFamily: "var(--mono)" }}>
                 cd haskell && cabal run -v0 trader-hs -- --serve --port {API_PORT}
               </span>
-              . The UI uses a
-              same-origin dev proxy (<span style={{ fontFamily: "var(--mono)" }}>/api</span>) to avoid CORS and reduce local attack surface.
+              .{" "}
+              {import.meta.env.DEV ? (
+                <>
+                  The UI uses a same-origin dev proxy (<span style={{ fontFamily: "var(--mono)" }}>/api</span>) to avoid CORS and reduce local attack surface.
+                </>
+              ) : (
+                <>
+                  When hosting the UI separately (CloudFront/S3), set “API base URL” above (or configure <span style={{ fontFamily: "var(--mono)" }}>/api/*</span>{" "}
+                  to route to your backend).
+                </>
+              )}
             </p>
           </div>
         </section>
