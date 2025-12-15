@@ -178,7 +178,7 @@ async function runAsyncJob<T>(
         status = await fetchJson<AsyncPollResponse<T>>(
           baseUrl,
           pollUrl,
-          { method: "GET" },
+          { method: "POST" },
           { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
         );
       } catch (err) {
@@ -186,7 +186,7 @@ async function runAsyncJob<T>(
           status = await fetchJson<AsyncPollResponse<T>>(
             baseUrl,
             pollUrl,
-            { method: "POST" },
+            { method: "GET" },
             { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
           );
         } else {
