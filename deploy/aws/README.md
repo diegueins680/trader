@@ -68,3 +68,20 @@ docker push "${ECR_URI}:latest"
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
 
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).
+
+## Web UI (S3/CloudFront)
+
+The web UI is a static app (`haskell/web`). For production, it can call your deployed API directly (no CloudFront `/api/*` proxy required).
+
+Build the UI pointing at your API:
+
+```bash
+cd haskell/web
+TRADER_API_TARGET="https://<your-api-host>" npm run build
+```
+
+Then upload `haskell/web/dist` to your static hosting origin (S3/CloudFront).
+
+Notes:
+- You can also override the API base at runtime from the UI (stored in local storage) via the “API base URL” field.
+- If you *do* prefer same-origin `/api/*` routing, configure a CloudFront behavior for `/api/*` to forward to your API origin (and allow `POST`).
