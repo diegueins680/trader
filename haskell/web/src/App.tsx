@@ -143,6 +143,11 @@ function escapeSingleQuotes(raw: string): string {
   return raw.replaceAll("'", "'\\''");
 }
 
+function firstReason(...reasons: Array<string | null | undefined>): string | null {
+  for (const r of reasons) if (r) return r;
+  return null;
+}
+
 function fmtTimeMs(ms: number): string {
   if (!Number.isFinite(ms)) return "—";
   try {
@@ -293,7 +298,7 @@ export function App() {
     const raw = apiBaseUrl.trim();
     if (!raw) return null;
     if (raw.startsWith("/") || /^https?:\/\//.test(raw)) return null;
-    return "API base must start with https:// or /api";
+    return "API base must start with http(s):// or /api";
   }, [apiBaseUrl]);
 
   const apiBase = useMemo(() => {
@@ -325,6 +330,17 @@ export function App() {
       mounted = false;
     };
   }, [apiBase, authHeaders]);
+
+  const recheckHealth = useCallback(async () => {
+    try {
+      await health(apiBase, { timeoutMs: 3000, headers: authHeaders });
+      setApiOk("ok");
+      showToast("API online");
+    } catch {
+      setApiOk("down");
+      showToast("API unreachable");
+    }
+  }, [apiBase, authHeaders, showToast]);
 
   const params: ApiParams = useMemo(() => {
     const base: ApiParams = {
@@ -475,6 +491,11 @@ export function App() {
         });
 
         if (opts?.silent) {
+          if (e instanceof HttpError && e.status === 400) {
+            setForm((f) => (f.autoRefresh ? { ...f, autoRefresh: false } : f));
+            const short = msg.replaceAll("\n", " ");
+            showToast(`Auto-refresh paused: ${short.length > 140 ? `${short.slice(0, 137)}...` : short}`);
+          }
           setState((s) => ({ ...s, loading: false }));
           return;
         }
@@ -637,6 +658,24 @@ export function App() {
           ? "API unreachable"
           : "API status unknown";
 
+  const missingSymbol = !form.binanceSymbol.trim();
+  const missingInterval = !form.interval.trim();
+  const apiBlockedReason = useMemo(() => {
+    const authMissing = apiOk === "auth" && !apiToken.trim();
+    const startCmd = `cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+    return firstReason(
+      apiBaseError,
+      apiOk === "down" ? `Backend unreachable. Start it with: ${startCmd}` : null,
+      authMissing ? "API auth required. Paste TRADER_API_TOKEN above." : null,
+    );
+  }, [apiBaseError, apiOk, apiToken]);
+  const requestDisabledReason = firstReason(
+    apiBlockedReason,
+    missingSymbol ? "Binance symbol is required." : null,
+    missingInterval ? "Interval is required." : null,
+  );
+  const requestDisabled = state.loading || Boolean(requestDisabledReason);
+
   const curlFor = useMemo(() => {
     const kind = state.lastKind ?? (form.optimizeOperations || form.sweepThreshold ? "backtest" : "signal");
     const endpoint = kind === "signal" ? "/signal" : kind === "backtest" ? "/backtest" : "/trade";
@@ -756,6 +795,36 @@ export function App() {
               </div>
             </div>
 
+            {apiOk === "down" || (apiOk === "auth" && !apiToken.trim()) ? (
+              <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+                <div className="field">
+                  <label className="label">Connection</label>
+                  <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                    {apiOk === "down"
+                      ? `Backend unreachable.\n\nStart it with:\ncd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`
+                      : "API auth required.\n\nPaste TRADER_API_TOKEN above (it must match the backend’s TRADER_API_TOKEN)."}
+                  </pre>
+                  <div className="actions" style={{ marginTop: 0 }}>
+                    {apiOk === "down" ? (
+                      <button
+                        className="btn"
+                        type="button"
+                        onClick={() => {
+                          void copyText(`cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`);
+                          showToast("Copied start command");
+                        }}
+                      >
+                        Copy start command
+                      </button>
+                    ) : null}
+                    <button className="btn" type="button" onClick={() => void recheckHealth()}>
+                      Re-check
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
                 <label className="label">Binance API keys (optional)</label>
@@ -805,13 +874,15 @@ export function App() {
                 </label>
                 <input
                   id="symbol"
-                  className="input"
+                  className={missingSymbol ? "input inputError" : "input"}
                   value={form.binanceSymbol}
                   onChange={(e) => setForm((f) => ({ ...f, binanceSymbol: e.target.value.toUpperCase() }))}
                   placeholder="BTCUSDT"
                   spellCheck={false}
                 />
-                <div className="hint">Use a spot symbol like BTCUSDT (USDT-margined futures also use the same symbol).</div>
+                <div className="hint" style={missingSymbol ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                  {missingSymbol ? "Required." : "Use a spot symbol like BTCUSDT (USDT-margined futures also use the same symbol)."}
+                </div>
               </div>
 
               <div className="field">
@@ -844,13 +915,15 @@ export function App() {
                 </label>
                 <input
                   id="interval"
-                  className="input"
+                  className={missingInterval ? "input inputError" : "input"}
                   value={form.interval}
                   onChange={(e) => setForm((f) => ({ ...f, interval: e.target.value }))}
                   placeholder="1h"
                   spellCheck={false}
                 />
-                <div className="hint">Examples: 1m, 5m, 1h, 1d.</div>
+                <div className="hint" style={missingInterval ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                  {missingInterval ? "Required." : "Examples: 1m, 5m, 1h, 1d."}
+                </div>
               </div>
               <div className="field">
                 <label className="label" htmlFor="bars">
@@ -1130,15 +1203,21 @@ export function App() {
             </div>
 
             <div className="actions">
-              <button className="btn btnPrimary" disabled={state.loading} onClick={() => run("signal")}>
+              <button
+                className="btn btnPrimary"
+                disabled={requestDisabled}
+                onClick={() => run("signal")}
+                title={requestDisabledReason ?? undefined}
+              >
                 {state.loading && state.lastKind === "signal" ? "Getting signal…" : "Get signal"}
               </button>
-              <button className="btn" disabled={state.loading} onClick={() => run("backtest")}>
+              <button className="btn" disabled={requestDisabled} onClick={() => run("backtest")} title={requestDisabledReason ?? undefined}>
                 {state.loading && state.lastKind === "backtest" ? "Running backtest…" : "Run backtest"}
               </button>
               <button
                 className="btn"
-                disabled={state.loading}
+                disabled={requestDisabled}
+                title={requestDisabledReason ?? undefined}
                 onClick={() => {
                   const p = { ...params, sweepThreshold: true, optimizeOperations: false };
                   setForm((f) => ({ ...f, sweepThreshold: true, optimizeOperations: false }));
@@ -1149,7 +1228,8 @@ export function App() {
               </button>
               <button
                 className="btn"
-                disabled={state.loading}
+                disabled={requestDisabled}
+                title={requestDisabledReason ?? undefined}
                 onClick={() => {
                   const p = { ...params, optimizeOperations: true, sweepThreshold: false };
                   setForm((f) => ({ ...f, optimizeOperations: true, sweepThreshold: false }));
@@ -1167,16 +1247,16 @@ export function App() {
                   <div className="actions" style={{ marginTop: 0 }}>
                     <button
                       className="btn btnPrimary"
-                      disabled={bot.loading || bot.status.running || state.loading}
+                      disabled={bot.loading || bot.status.running || requestDisabled}
                       onClick={startLiveBot}
-                      title={form.tradeArmed ? "Trading armed (will send orders)" : "Paper mode (no orders)"}
+                      title={requestDisabledReason ?? (form.tradeArmed ? "Trading armed (will send orders)" : "Paper mode (no orders)")}
                     >
                       {bot.loading ? "Starting…" : bot.status.running ? "Running" : "Start live bot"}
                     </button>
                     <button className="btn" disabled={bot.loading || !bot.status.running} onClick={stopLiveBot}>
                       Stop bot
                     </button>
-                    <button className="btn" disabled={bot.loading} onClick={() => refreshBot()}>
+                    <button className="btn" disabled={bot.loading || Boolean(apiBlockedReason)} onClick={() => refreshBot()} title={apiBlockedReason ?? undefined}>
                       Refresh
                     </button>
                   </div>
@@ -1283,9 +1363,9 @@ export function App() {
               <div className="actions" style={{ marginTop: 10 }}>
                 <button
                   className="btn btnDanger"
-                  disabled={state.loading || !form.tradeArmed}
+                  disabled={state.loading || !form.tradeArmed || Boolean(requestDisabledReason)}
                   onClick={() => run("trade")}
-                  title={form.binanceLive ? "LIVE order mode enabled" : "Test order mode (default)"}
+                  title={requestDisabledReason ?? (form.binanceLive ? "LIVE order mode enabled" : "Test order mode (default)")}
                 >
                   {state.loading && state.lastKind === "trade" ? "Trading…" : "Trade (uses latest signal)"}
                 </button>
