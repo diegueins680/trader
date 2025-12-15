@@ -57,6 +57,17 @@ type KeysUiState = {
 
 type OrderSideFilter = "ALL" | "BUY" | "SELL";
 
+type OrderLogPrefs = {
+  filterText: string;
+  sentOnly: boolean;
+  side: OrderSideFilter;
+  limit: number;
+  errorsOnly: boolean;
+  showOrderId: boolean;
+  showStatus: boolean;
+  showClientOrderId: boolean;
+};
+
 type FormState = {
   binanceSymbol: string;
   market: Market;
@@ -96,10 +107,12 @@ type FormState = {
 };
 
 const STORAGE_KEY = "trader.ui.form.v1";
+const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
 const STORAGE_API_BASE_KEY = "trader.ui.apiBaseUrl.v1";
 const SESSION_TOKEN_KEY = "trader.ui.apiToken.v1";
 const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
 const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
+const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";
 
 const SIGNAL_TIMEOUT_MS = 5 * 60_000;
 const BACKTEST_TIMEOUT_MS = 10 * 60_000;
@@ -141,6 +154,14 @@ const defaultForm: FormState = {
   botOnlineEpochs: 1,
   botTrainBars: 800,
   botMaxPoints: 2000,
+};
+
+type SavedProfiles = Record<string, FormState>;
+
+type PendingProfileLoad = {
+  name: string;
+  profile: FormState;
+  reasons: string[];
 };
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -220,6 +241,40 @@ function marketLabel(m: Market): string {
   }
 }
 
+function generateIdempotencyKey(): string {
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // ignore
+  }
+  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
+  const bytes = new Uint8Array(24);
+  try {
+    crypto.getRandomValues(bytes);
+  } catch {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 1) out += alphabet[bytes[i]! % alphabet.length];
+  return out;
+}
+
+function isLikelyOrderError(message: string | null | undefined, sent: boolean | null | undefined, status: string | null | undefined): boolean {
+  if (sent === false) return true;
+  const s = `${status ?? ""} ${message ?? ""}`.toLowerCase();
+  return (
+    s.includes("error") ||
+    s.includes("fail") ||
+    s.includes("rejected") ||
+    s.includes("insufficient") ||
+    s.includes("no order") ||
+    s.includes("halt") ||
+    s.includes("denied")
+  );
+}
+
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [toast, setToast] = useState<string | null>(null);
@@ -232,6 +287,16 @@ export function App() {
     return { ...defaultForm, ...(saved ?? {}) };
   });
 
+  const [profiles, setProfiles] = useState<SavedProfiles>(() => readJson<SavedProfiles>(STORAGE_PROFILES_KEY) ?? {});
+  const [profileName, setProfileName] = useState("");
+  const [profileSelected, setProfileSelected] = useState("");
+  const [pendingProfileLoad, setPendingProfileLoad] = useState<PendingProfileLoad | null>(null);
+
+  const [confirmLive, setConfirmLive] = useState(false);
+  const [confirmArm, setConfirmArm] = useState(false);
+  const [pendingMarket, setPendingMarket] = useState<Market | null>(null);
+
+  const orderPrefsInit = readJson<OrderLogPrefs>(STORAGE_ORDER_LOG_PREFS_KEY);
   const [state, setState] = useState<UiState>({
     loading: false,
     error: null,
@@ -254,10 +319,14 @@ export function App() {
     checkedAtMs: null,
   });
 
-  const [orderFilterText, setOrderFilterText] = useState("");
-  const [orderSentOnly, setOrderSentOnly] = useState(false);
-  const [orderSideFilter, setOrderSideFilter] = useState<OrderSideFilter>("ALL");
-  const [orderLimit, setOrderLimit] = useState(200);
+  const [orderFilterText, setOrderFilterText] = useState(() => orderPrefsInit?.filterText ?? "");
+  const [orderSentOnly, setOrderSentOnly] = useState(() => orderPrefsInit?.sentOnly ?? false);
+  const [orderErrorsOnly, setOrderErrorsOnly] = useState(() => orderPrefsInit?.errorsOnly ?? false);
+  const [orderSideFilter, setOrderSideFilter] = useState<OrderSideFilter>(() => orderPrefsInit?.side ?? "ALL");
+  const [orderLimit, setOrderLimit] = useState(() => orderPrefsInit?.limit ?? 200);
+  const [orderShowOrderId, setOrderShowOrderId] = useState(() => orderPrefsInit?.showOrderId ?? false);
+  const [orderShowStatus, setOrderShowStatus] = useState(() => orderPrefsInit?.showStatus ?? false);
+  const [orderShowClientOrderId, setOrderShowClientOrderId] = useState(() => orderPrefsInit?.showClientOrderId ?? false);
 
   const abortRef = useRef<AbortController | null>(null);
   const botAbortRef = useRef<AbortController | null>(null);
@@ -273,6 +342,32 @@ export function App() {
   useEffect(() => {
     writeJson(STORAGE_KEY, form);
   }, [form]);
+
+  useEffect(() => {
+    writeJson(STORAGE_PROFILES_KEY, profiles);
+  }, [profiles]);
+
+  useEffect(() => {
+    writeJson(STORAGE_ORDER_LOG_PREFS_KEY, {
+      filterText: orderFilterText,
+      sentOnly: orderSentOnly,
+      errorsOnly: orderErrorsOnly,
+      side: orderSideFilter,
+      limit: orderLimit,
+      showOrderId: orderShowOrderId,
+      showStatus: orderShowStatus,
+      showClientOrderId: orderShowClientOrderId,
+    } satisfies OrderLogPrefs);
+  }, [
+    orderErrorsOnly,
+    orderFilterText,
+    orderLimit,
+    orderSentOnly,
+    orderShowClientOrderId,
+    orderShowOrderId,
+    orderShowStatus,
+    orderSideFilter,
+  ]);
 
   useEffect(() => {
     writeJson(STORAGE_API_BASE_KEY, apiBaseUrl.trim());
@@ -302,6 +397,63 @@ export function App() {
     setToast(msg);
     toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
+
+  const profileNames = useMemo(() => Object.keys(profiles).sort((a, b) => a.localeCompare(b)), [profiles]);
+
+  const saveProfile = useCallback(() => {
+    const name = profileName.trim();
+    if (!name) {
+      showToast("Profile name is required");
+      return;
+    }
+    const existed = Object.prototype.hasOwnProperty.call(profiles, name);
+    setProfiles((prev) => ({ ...prev, [name]: form }));
+    setProfileSelected(name);
+    setProfileName("");
+    showToast(existed ? `Profile updated: ${name}` : `Profile saved: ${name}`);
+  }, [form, profileName, profiles, showToast]);
+
+  const deleteProfile = useCallback(() => {
+    const name = profileSelected.trim();
+    if (!name) return;
+    setProfiles((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setProfileSelected("");
+    setPendingProfileLoad(null);
+    showToast(`Profile deleted: ${name}`);
+  }, [profileSelected, showToast]);
+
+  const requestLoadProfile = useCallback(() => {
+    const name = profileSelected.trim();
+    if (!name) {
+      showToast("Select a profile to load");
+      return;
+    }
+    const raw = profiles[name];
+    if (!raw) {
+      showToast("Profile not found");
+      return;
+    }
+
+    const profile: FormState =
+      raw.market === "margin" ? { ...raw, binanceTestnet: false, binanceLive: true } : raw;
+    const reasons: string[] = [];
+    if (profile.market === "margin" && form.market !== "margin") reasons.push("switch market to Margin");
+    if (profile.binanceLive && !form.binanceLive) reasons.push("enable Live orders");
+    if (profile.tradeArmed && !form.tradeArmed) reasons.push("arm trading");
+
+    if (reasons.length > 0) {
+      setPendingProfileLoad({ name, profile, reasons });
+      return;
+    }
+
+    setForm(profile);
+    setPendingProfileLoad(null);
+    showToast(`Profile loaded: ${name}`);
+  }, [form.binanceLive, form.market, form.tradeArmed, profileSelected, profiles, showToast]);
 
   useEffect(() => {
     return () => {
@@ -354,16 +506,38 @@ export function App() {
     };
   }, [apiBase, authHeaders]);
 
+  useEffect(() => {
+    // Prevent inconsistent state; margin requires live mode.
+    if (form.market !== "margin") return;
+    if (form.binanceLive) return;
+    setForm((f) => ({ ...f, market: "spot" }));
+    showToast("Margin requires Live orders (switched back to Spot)");
+  }, [form.binanceLive, form.market, showToast]);
+
   const recheckHealth = useCallback(async () => {
     try {
       await health(apiBase, { timeoutMs: 3000, headers: authHeaders });
-      setApiOk("ok");
-      showToast("API online");
     } catch {
       setApiOk("down");
       showToast("API unreachable");
+      return;
     }
-  }, [apiBase, authHeaders, showToast]);
+
+    try {
+      await botStatus(apiBase, { timeoutMs: 3000, headers: authHeaders });
+      setApiOk("ok");
+      showToast("API online");
+    } catch (e) {
+      if (isAbortError(e)) return;
+      if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+        setApiOk("auth");
+        showToast(apiToken.trim() ? "API auth failed" : "API auth required");
+        return;
+      }
+      setApiOk("down");
+      showToast(isTimeoutError(e) ? "API request timed out" : "API unreachable");
+    }
+  }, [apiBase, apiToken, authHeaders, showToast]);
 
   const params: ApiParams = useMemo(() => {
     const base: ApiParams = {
@@ -438,6 +612,7 @@ export function App() {
     shown = shown.slice(-limit);
 
     if (orderSentOnly) shown = shown.filter((e) => e.order.sent);
+    if (orderErrorsOnly) shown = shown.filter((e) => isLikelyOrderError(e.order.message, e.order.sent, e.order.status));
     if (orderSideFilter !== "ALL") shown = shown.filter((e) => e.opSide === orderSideFilter);
 
     const q = orderFilterText.trim().toLowerCase();
@@ -449,6 +624,8 @@ export function App() {
           e.order.side ?? "",
           e.order.symbol ?? "",
           e.order.status ?? "",
+          e.order.orderId ?? "",
+          e.order.clientOrderId ?? "",
           e.order.message ?? "",
         ]
           .join(" ")
@@ -458,7 +635,7 @@ export function App() {
     }
 
     return { total, shown, startIndex: st.startIndex };
-  }, [bot.status, orderFilterText, orderLimit, orderSentOnly, orderSideFilter]);
+  }, [bot.status, orderErrorsOnly, orderFilterText, orderLimit, orderSentOnly, orderSideFilter]);
 
   const botOrderCopyText = useMemo(() => {
     const st = bot.status;
@@ -631,8 +808,15 @@ export function App() {
       } catch (e) {
         if (requestId !== botRequestSeqRef.current) return;
         if (isAbortError(e)) return;
-        const msg = e instanceof Error ? e.message : String(e);
+        let msg = e instanceof Error ? e.message : String(e);
+        if (isTimeoutError(e)) msg = "Bot status timed out. Try again.";
         setBot((s) => ({ ...s, loading: false, error: msg }));
+
+        setApiOk((prev) => {
+          if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
+          const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500) || isTimeoutError(e);
+          return looksDown ? "down" : prev;
+        });
       } finally {
         if (requestId === botRequestSeqRef.current) botAbortRef.current = null;
       }
@@ -719,7 +903,9 @@ export function App() {
     apiOk === "ok"
       ? "API online"
       : apiOk === "auth"
-        ? "API auth required"
+        ? apiToken.trim()
+          ? "API auth failed"
+          : "API auth required"
         : apiOk === "down"
           ? "API unreachable"
           : "API status unknown";
@@ -731,7 +917,13 @@ export function App() {
     return isLocalHostname(window.location.hostname);
   }, []);
   const apiBlockedReason = useMemo(() => {
-    const authMissing = apiOk === "auth" && !apiToken.trim();
+    const authRequired = apiOk === "auth";
+    const tokenPresent = Boolean(apiToken.trim());
+    const authMsg = authRequired
+      ? tokenPresent
+        ? "API token rejected. Update TRADER_API_TOKEN above."
+        : "API auth required. Paste TRADER_API_TOKEN above."
+      : null;
     const startCmd = `cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
     const downMsg = showLocalStartHelp
       ? `Backend unreachable. Start it with: ${startCmd}`
@@ -739,7 +931,7 @@ export function App() {
     return firstReason(
       apiBaseError,
       apiOk === "down" ? downMsg : null,
-      authMissing ? "API auth required. Paste TRADER_API_TOKEN above." : null,
+      authMsg,
     );
   }, [apiBaseError, apiOk, apiToken, showLocalStartHelp]);
   const requestDisabledReason = firstReason(
@@ -748,6 +940,47 @@ export function App() {
     missingInterval ? "Interval is required." : null,
   );
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
+
+  const orderSizing = useMemo(() => {
+    const enabled = {
+      orderQuantity: form.orderQuantity > 0,
+      orderQuote: form.orderQuote > 0,
+      orderQuoteFraction: form.orderQuoteFraction > 0,
+    };
+    const active = Object.entries(enabled)
+      .filter(([, on]) => on)
+      .map(([k]) => k) as Array<keyof typeof enabled>;
+    const conflicts = active.length > 1;
+
+    let effective: keyof typeof enabled | "none" = "none";
+    if (enabled.orderQuantity) effective = "orderQuantity";
+    else if (enabled.orderQuote) effective = "orderQuote";
+    else if (enabled.orderQuoteFraction) effective = "orderQuoteFraction";
+
+    const label =
+      effective === "orderQuantity"
+        ? `orderQuantity = ${fmtNum(form.orderQuantity, 8)} (base units)`
+        : effective === "orderQuote"
+          ? `orderQuote = ${fmtMoney(form.orderQuote, 2)} (quote units)`
+          : effective === "orderQuoteFraction"
+            ? `orderQuoteFraction = ${fmtPct(clamp(form.orderQuoteFraction, 0, 1), 2)}${form.maxOrderQuote > 0 ? ` (cap ${fmtMoney(form.maxOrderQuote, 2)})` : ""}`
+            : "none";
+
+    const hint =
+      effective === "none"
+        ? "Set one sizing input. Precedence: orderQuantity → orderQuote → orderQuoteFraction."
+        : `Effective sizing: ${label}. Precedence: orderQuantity → orderQuote → orderQuoteFraction (fraction applies to BUYs).`;
+
+    return { active, conflicts, effective, hint };
+  }, [form.maxOrderQuote, form.orderQuantity, form.orderQuote, form.orderQuoteFraction]);
+
+  const idempotencyKeyError = useMemo(() => {
+    const k = form.idempotencyKey.trim();
+    if (!k) return null;
+    if (k.length > 36) return "Idempotency key is too long (max 36 chars).";
+    if (!/^[A-Za-z0-9_-]+$/.test(k)) return "Idempotency key may only contain letters, numbers, _ and -.";
+    return null;
+  }, [form.idempotencyKey]);
 
   const curlFor = useMemo(() => {
     const kind = state.lastKind ?? (form.optimizeOperations || form.sweepThreshold ? "backtest" : "signal");
@@ -868,7 +1101,7 @@ export function App() {
               </div>
             </div>
 
-            {apiOk === "down" || (apiOk === "auth" && !apiToken.trim()) ? (
+            {apiOk === "down" || apiOk === "auth" ? (
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
                 <div className="field">
                   <label className="label">Connection</label>
@@ -877,7 +1110,9 @@ export function App() {
                       ? showLocalStartHelp
                         ? `Backend unreachable.\n\nStart it with:\ncd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`
                         : "Backend unreachable.\n\nSet “API base URL” to your deployed API host (e.g., your App Runner URL), or configure CloudFront to forward `/api/*` to your API origin."
-                      : "API auth required.\n\nPaste TRADER_API_TOKEN above (it must match the backend’s TRADER_API_TOKEN)."}
+                      : apiToken.trim()
+                        ? "API auth failed.\n\nUpdate TRADER_API_TOKEN above (it must match the backend’s TRADER_API_TOKEN)."
+                        : "API auth required.\n\nPaste TRADER_API_TOKEN above (it must match the backend’s TRADER_API_TOKEN)."}
                   </pre>
                   <div className="actions" style={{ marginTop: 0 }}>
                     {apiOk === "down" && showLocalStartHelp ? (
@@ -942,6 +1177,65 @@ export function App() {
               </div>
             </div>
 
+            <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+              <div className="field">
+                <label className="label">Profiles</label>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr", alignItems: "center" }}>
+                  <select className="select" value={profileSelected} onChange={(e) => setProfileSelected(e.target.value)}>
+                    <option value="">{profileNames.length ? "Select saved profile…" : "No profiles yet"}</option>
+                    {profileNames.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="input"
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    placeholder="New profile name"
+                    spellCheck={false}
+                  />
+                </div>
+                <div className="actions" style={{ marginTop: 10 }}>
+                  <button className="btn" type="button" onClick={saveProfile} disabled={!profileName.trim()}>
+                    Save
+                  </button>
+                  <button className="btn" type="button" onClick={requestLoadProfile} disabled={!profileSelected.trim()}>
+                    Load
+                  </button>
+                  <button className="btn btnDanger" type="button" onClick={deleteProfile} disabled={!profileSelected.trim()}>
+                    Delete
+                  </button>
+                </div>
+                <div className="hint">Save/load named config presets. Does not include API token or Binance keys.</div>
+
+                {pendingProfileLoad ? (
+                  <>
+                    <pre className="code" style={{ borderColor: "rgba(245, 158, 11, 0.35)", marginTop: 10 }}>
+                      Loading “{pendingProfileLoad.name}” will: {pendingProfileLoad.reasons.join(", ")}.
+                    </pre>
+                    <div className="actions" style={{ marginTop: 10 }}>
+                      <button
+                        className="btn btnPrimary"
+                        type="button"
+                        onClick={() => {
+                          setForm(pendingProfileLoad.profile);
+                          setPendingProfileLoad(null);
+                          showToast(`Profile loaded: ${pendingProfileLoad.name}`);
+                        }}
+                      >
+                        Load profile
+                      </button>
+                      <button className="btn" type="button" onClick={() => setPendingProfileLoad(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
             <div className="row">
               <div className="field">
                 <label className="label" htmlFor="symbol">
@@ -968,18 +1262,47 @@ export function App() {
                   id="market"
                   className="select"
                   value={form.market}
-                  onChange={(e) =>
-                    setForm((f) => {
-                      const market = e.target.value as Market;
-                      return { ...f, market, binanceTestnet: market === "margin" ? false : f.binanceTestnet };
-                    })
-                  }
+                  onChange={(e) => {
+                    const market = e.target.value as Market;
+                    setPendingMarket(null);
+                    setPendingProfileLoad(null);
+                    if (market === "margin" && !form.binanceLive) {
+                      setPendingMarket(market);
+                      return;
+                    }
+                    setForm((f) => ({ ...f, market, binanceTestnet: market === "margin" ? false : f.binanceTestnet }));
+                  }}
                 >
                   <option value="spot">Spot</option>
                   <option value="margin">Margin</option>
                   <option value="futures">Futures (USDT-M)</option>
                 </select>
                 <div className="hint">Margin orders require live mode. Futures can close positions via reduce-only.</div>
+                {pendingMarket === "margin" ? (
+                  <>
+                    <pre className="code" style={{ borderColor: "rgba(245, 158, 11, 0.35)", marginTop: 10 }}>
+                      Switching to Margin requires enabling Live orders (Binance has no margin test endpoint). This will place real orders once you arm trading and
+                      trade.
+                    </pre>
+                    <div className="actions" style={{ marginTop: 10 }}>
+                      <button
+                        className="btn btnPrimary"
+                        type="button"
+                        onClick={() => {
+                          setForm((f) => ({ ...f, market: "margin", binanceTestnet: false, binanceLive: true }));
+                          setPendingMarket(null);
+                          setConfirmLive(false);
+                          showToast("Live orders enabled (required for margin)");
+                        }}
+                      >
+                        Enable live + switch
+                      </button>
+                      <button className="btn" type="button" onClick={() => setPendingMarket(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : null}
               </div>
             </div>
 
@@ -1103,41 +1426,59 @@ export function App() {
               <div className="field">
                 <label className="label">Bracket exits (fractions)</label>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-                  <input
-                    aria-label="stopLoss"
-                    className="input"
-                    type="number"
-                    step="0.001"
-                    min={0}
-                    max={0.999}
-                    value={form.stopLoss}
-                    onChange={(e) => setForm((f) => ({ ...f, stopLoss: numFromInput(e.target.value, f.stopLoss) }))}
-                    placeholder="stopLoss"
-                  />
-                  <input
-                    aria-label="takeProfit"
-                    className="input"
-                    type="number"
-                    step="0.001"
-                    min={0}
-                    max={0.999}
-                    value={form.takeProfit}
-                    onChange={(e) => setForm((f) => ({ ...f, takeProfit: numFromInput(e.target.value, f.takeProfit) }))}
-                    placeholder="takeProfit"
-                  />
-                  <input
-                    aria-label="trailingStop"
-                    className="input"
-                    type="number"
-                    step="0.001"
-                    min={0}
-                    max={0.999}
-                    value={form.trailingStop}
-                    onChange={(e) => setForm((f) => ({ ...f, trailingStop: numFromInput(e.target.value, f.trailingStop) }))}
-                    placeholder="trailingStop"
-                  />
+                  <div className="field">
+                    <label className="label" htmlFor="stopLoss">
+                      Stop-loss
+                    </label>
+                    <input
+                      id="stopLoss"
+                      className="input"
+                      type="number"
+                      step="0.001"
+                      min={0}
+                      max={0.999}
+                      value={form.stopLoss}
+                      onChange={(e) => setForm((f) => ({ ...f, stopLoss: numFromInput(e.target.value, f.stopLoss) }))}
+                      placeholder="0.02 (2%)"
+                    />
+                    <div className="hint">{form.stopLoss > 0 ? fmtPct(form.stopLoss, 2) : "0 disables"}</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="takeProfit">
+                      Take-profit
+                    </label>
+                    <input
+                      id="takeProfit"
+                      className="input"
+                      type="number"
+                      step="0.001"
+                      min={0}
+                      max={0.999}
+                      value={form.takeProfit}
+                      onChange={(e) => setForm((f) => ({ ...f, takeProfit: numFromInput(e.target.value, f.takeProfit) }))}
+                      placeholder="0.03 (3%)"
+                    />
+                    <div className="hint">{form.takeProfit > 0 ? fmtPct(form.takeProfit, 2) : "0 disables"}</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="trailingStop">
+                      Trailing stop
+                    </label>
+                    <input
+                      id="trailingStop"
+                      className="input"
+                      type="number"
+                      step="0.001"
+                      min={0}
+                      max={0.999}
+                      value={form.trailingStop}
+                      onChange={(e) => setForm((f) => ({ ...f, trailingStop: numFromInput(e.target.value, f.trailingStop) }))}
+                      placeholder="0.01 (1%)"
+                    />
+                    <div className="hint">{form.trailingStop > 0 ? fmtPct(form.trailingStop, 2) : "0 disables"}</div>
+                  </div>
                 </div>
-                <div className="hint">Optional synthetic exits (evaluated on closes): stopLoss, takeProfit, trailingStop.</div>
+                <div className="hint">Optional synthetic exits (evaluated on closes). Example: 0.02 = 2%.</div>
               </div>
             </div>
 
@@ -1145,38 +1486,56 @@ export function App() {
               <div className="field">
                 <label className="label">Risk kill-switches</label>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-                  <input
-                    aria-label="maxDrawdown"
-                    className="input"
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    max={0.999}
-                    value={form.maxDrawdown}
-                    onChange={(e) => setForm((f) => ({ ...f, maxDrawdown: numFromInput(e.target.value, f.maxDrawdown) }))}
-                    placeholder="maxDrawdown"
-                  />
-                  <input
-                    aria-label="maxDailyLoss"
-                    className="input"
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    max={0.999}
-                    value={form.maxDailyLoss}
-                    onChange={(e) => setForm((f) => ({ ...f, maxDailyLoss: numFromInput(e.target.value, f.maxDailyLoss) }))}
-                    placeholder="maxDailyLoss"
-                  />
-                  <input
-                    aria-label="maxOrderErrors"
-                    className="input"
-                    type="number"
-                    step="1"
-                    min={0}
-                    value={form.maxOrderErrors}
-                    onChange={(e) => setForm((f) => ({ ...f, maxOrderErrors: numFromInput(e.target.value, f.maxOrderErrors) }))}
-                    placeholder="maxOrderErrors"
-                  />
+                  <div className="field">
+                    <label className="label" htmlFor="maxDrawdown">
+                      Max drawdown
+                    </label>
+                    <input
+                      id="maxDrawdown"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      max={0.999}
+                      value={form.maxDrawdown}
+                      onChange={(e) => setForm((f) => ({ ...f, maxDrawdown: numFromInput(e.target.value, f.maxDrawdown) }))}
+                      placeholder="0.20 (20%)"
+                    />
+                    <div className="hint">{form.maxDrawdown > 0 ? fmtPct(form.maxDrawdown, 2) : "0 disables"}</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="maxDailyLoss">
+                      Max daily loss
+                    </label>
+                    <input
+                      id="maxDailyLoss"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      max={0.999}
+                      value={form.maxDailyLoss}
+                      onChange={(e) => setForm((f) => ({ ...f, maxDailyLoss: numFromInput(e.target.value, f.maxDailyLoss) }))}
+                      placeholder="0.10 (10%)"
+                    />
+                    <div className="hint">{form.maxDailyLoss > 0 ? fmtPct(form.maxDailyLoss, 2) : "0 disables"}</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="maxOrderErrors">
+                      Max order errors
+                    </label>
+                    <input
+                      id="maxOrderErrors"
+                      className="input"
+                      type="number"
+                      step="1"
+                      min={0}
+                      value={form.maxOrderErrors}
+                      onChange={(e) => setForm((f) => ({ ...f, maxOrderErrors: numFromInput(e.target.value, f.maxOrderErrors) }))}
+                      placeholder="3"
+                    />
+                    <div className="hint">{form.maxOrderErrors >= 1 ? `${Math.trunc(form.maxOrderErrors)} errors` : "0 disables"}</div>
+                  </div>
                 </div>
                 <div className="hint">When set, the live bot halts (and forces exit) on max drawdown, max daily loss, or consecutive order failures.</div>
               </div>
@@ -1453,7 +1812,17 @@ export function App() {
                       <input
                         type="checkbox"
                         checked={form.binanceLive}
-                        onChange={(e) => setForm((f) => ({ ...f, binanceLive: e.target.checked }))}
+                        disabled={form.market === "margin"}
+                        onChange={(e) => {
+                          setPendingProfileLoad(null);
+                          if (!e.target.checked) {
+                            setConfirmLive(false);
+                            setForm((f) => ({ ...f, binanceLive: false }));
+                            return;
+                          }
+                          setConfirmArm(false);
+                          setConfirmLive(true);
+                        }}
                       />
                       Live orders
                     </label>
@@ -1461,75 +1830,215 @@ export function App() {
                       <input
                         type="checkbox"
                         checked={form.tradeArmed}
-                        onChange={(e) => setForm((f) => ({ ...f, tradeArmed: e.target.checked }))}
+                        onChange={(e) => {
+                          setPendingProfileLoad(null);
+                          if (!e.target.checked) {
+                            setConfirmArm(false);
+                            setForm((f) => ({ ...f, tradeArmed: false }));
+                            return;
+                          }
+                          setConfirmLive(false);
+                          setConfirmArm(true);
+                        }}
                       />
                       Arm trading
                     </label>
                   </div>
                   <div className="hint">Trading is disabled by default. Only arm it when you’re ready.</div>
+                  {form.market === "margin" ? <div className="hint">Live orders are required for margin (forced on).</div> : null}
+
+                  {confirmLive ? (
+                    <>
+                      <pre className="code" style={{ borderColor: "rgba(245, 158, 11, 0.35)", marginTop: 10 }}>
+                        Enable Live orders? This can place real orders on Binance when you trade or start the live bot with trading armed.
+                      </pre>
+                      <div className="actions" style={{ marginTop: 10 }}>
+                        <button
+                          className="btn btnPrimary"
+                          type="button"
+                          onClick={() => {
+                            setForm((f) => ({ ...f, binanceLive: true }));
+                            setConfirmLive(false);
+                            showToast("Live orders enabled");
+                          }}
+                        >
+                          Enable live orders
+                        </button>
+                        <button className="btn" type="button" onClick={() => setConfirmLive(false)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {confirmArm ? (
+                    <>
+                      <pre className="code" style={{ borderColor: "rgba(245, 158, 11, 0.35)", marginTop: 10 }}>
+                        Arm trading? This unlocks calling /trade and allows the live bot to send orders (paper mode when unarmed).
+                      </pre>
+                      <div className="actions" style={{ marginTop: 10 }}>
+                        <button
+                          className="btn btnPrimary"
+                          type="button"
+                          onClick={() => {
+                            setForm((f) => ({ ...f, tradeArmed: true }));
+                            setConfirmArm(false);
+                            showToast("Trading armed");
+                          }}
+                        >
+                          Arm trading
+                        </button>
+                        <button className="btn" type="button" onClick={() => setConfirmArm(false)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
                 <div className="field">
-                  <label className="label" htmlFor="orderQuote">
-                    Order sizing
-                  </label>
-                  <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                    <input
-                      id="orderQuote"
-                      className="input"
-                      type="number"
-                      min={0}
-                      value={form.orderQuote}
-                      onChange={(e) => setForm((f) => ({ ...f, orderQuote: numFromInput(e.target.value, f.orderQuote) }))}
-                      placeholder="orderQuote"
-                    />
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      value={form.orderQuantity}
-                      onChange={(e) => setForm((f) => ({ ...f, orderQuantity: numFromInput(e.target.value, f.orderQuantity) }))}
-                      placeholder="orderQuantity"
-                    />
+                  <label className="label">Order sizing</label>
+                  <div className="hint" style={orderSizing.conflicts ? { color: "rgba(239, 68, 68, 0.9)" } : undefined}>
+                    {orderSizing.conflicts ? `Multiple sizing inputs are set (${orderSizing.active.join(", ")}). ` : ""}
+                    {orderSizing.hint}
                   </div>
+
+                  {orderSizing.conflicts ? (
+                    <div className="actions" style={{ marginTop: 10 }}>
+                      <button
+                        className="btn"
+                        type="button"
+                        onClick={() =>
+                          setForm((f) => {
+                            if (orderSizing.effective === "orderQuantity") return { ...f, orderQuote: 0, orderQuoteFraction: 0 };
+                            if (orderSizing.effective === "orderQuote") return { ...f, orderQuantity: 0, orderQuoteFraction: 0 };
+                            if (orderSizing.effective === "orderQuoteFraction") return { ...f, orderQuantity: 0, orderQuote: 0 };
+                            return f;
+                          })
+                        }
+                      >
+                        Keep {orderSizing.effective} and clear others
+                      </button>
+                    </div>
+                  ) : null}
+
                   <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 8 }}>
-                    <input
-                      aria-label="orderQuoteFraction"
-                      className="input"
-                      type="number"
-                      step="0.01"
-                      min={0}
-                      max={1}
-                      value={form.orderQuoteFraction}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, orderQuoteFraction: numFromInput(e.target.value, f.orderQuoteFraction) }))
-                      }
-                      placeholder="orderQuoteFraction (0..1)"
-                    />
-                    <input
-                      aria-label="maxOrderQuote"
-                      className="input"
-                      type="number"
-                      step="1"
-                      min={0}
-                      value={form.maxOrderQuote}
-                      onChange={(e) => setForm((f) => ({ ...f, maxOrderQuote: numFromInput(e.target.value, f.maxOrderQuote) }))}
-                      placeholder="maxOrderQuote"
-                    />
+                    <div className="field">
+                      <label className="label" htmlFor="orderQuote">
+                        Order quote (e.g., USDT)
+                      </label>
+                      <input
+                        id="orderQuote"
+                        className="input"
+                        type="number"
+                        min={0}
+                        value={form.orderQuote}
+                        onChange={(e) =>
+                          setForm((f) => {
+                            const v = numFromInput(e.target.value, f.orderQuote);
+                            return v > 0 ? { ...f, orderQuote: v, orderQuantity: 0, orderQuoteFraction: 0 } : { ...f, orderQuote: v };
+                          })
+                        }
+                        placeholder="20"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="orderQuantity">
+                        Order quantity (base units)
+                      </label>
+                      <input
+                        id="orderQuantity"
+                        className="input"
+                        type="number"
+                        min={0}
+                        value={form.orderQuantity}
+                        onChange={(e) =>
+                          setForm((f) => {
+                            const v = numFromInput(e.target.value, f.orderQuantity);
+                            return v > 0 ? { ...f, orderQuantity: v, orderQuote: 0, orderQuoteFraction: 0 } : { ...f, orderQuantity: v };
+                          })
+                        }
+                        placeholder="0.001"
+                      />
+                    </div>
                   </div>
-                  <input
-                    className="input"
-                    style={{ marginTop: 8 }}
-                    value={form.idempotencyKey}
-                    onChange={(e) => setForm((f) => ({ ...f, idempotencyKey: e.target.value }))}
-                    placeholder="idempotencyKey (optional)"
-                    spellCheck={false}
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    inputMode="text"
-                  />
-                  <div className="hint">
-                    Use one of orderQuantity/orderQuote, or size BUYs via orderQuoteFraction (optional cap: maxOrderQuote). Leave idempotencyKey blank for the live bot
-                    unless you know what you’re doing.
+
+                  <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 10 }}>
+                    <div className="field">
+                      <label className="label" htmlFor="orderQuoteFraction">
+                        Order quote fraction (0..1)
+                      </label>
+                      <input
+                        id="orderQuoteFraction"
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={1}
+                        value={form.orderQuoteFraction}
+                        onChange={(e) =>
+                          setForm((f) => {
+                            const v = numFromInput(e.target.value, f.orderQuoteFraction);
+                            return v > 0 ? { ...f, orderQuoteFraction: v, orderQuote: 0, orderQuantity: 0 } : { ...f, orderQuoteFraction: v };
+                          })
+                        }
+                        placeholder="0.10 (10%)"
+                      />
+                      <div className="hint">Applies to BUYs: uses a fraction of your available quote balance.</div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="maxOrderQuote">
+                        Max quote cap (optional)
+                      </label>
+                      <input
+                        id="maxOrderQuote"
+                        className="input"
+                        type="number"
+                        step="1"
+                        min={0}
+                        disabled={form.orderQuoteFraction <= 0}
+                        value={form.maxOrderQuote}
+                        onChange={(e) => setForm((f) => ({ ...f, maxOrderQuote: numFromInput(e.target.value, f.maxOrderQuote) }))}
+                        placeholder="0 (no cap)"
+                      />
+                      <div className="hint">
+                        {form.orderQuoteFraction > 0 ? "Optional cap when using orderQuoteFraction." : "Enable orderQuoteFraction to use this cap."}
+                      </div>
+                    </div>
+                  </div>
+
+                  <label className="label" htmlFor="idempotencyKey" style={{ marginTop: 10 }}>
+                    Idempotency key (optional)
+                  </label>
+                  <div className="row" style={{ gridTemplateColumns: "1fr auto auto", marginTop: 8, alignItems: "center" }}>
+                    <input
+                      id="idempotencyKey"
+                      className={idempotencyKeyError ? "input inputError" : "input"}
+                      value={form.idempotencyKey}
+                      onChange={(e) => setForm((f) => ({ ...f, idempotencyKey: e.target.value }))}
+                      placeholder="e.g. 1f6a2c7a-…"
+                      spellCheck={false}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      inputMode="text"
+                    />
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, idempotencyKey: generateIdempotencyKey() }))}
+                    >
+                      Generate
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={!form.idempotencyKey.trim()}
+                      onClick={() => setForm((f) => ({ ...f, idempotencyKey: "" }))}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="hint" style={idempotencyKeyError ? { color: "rgba(239, 68, 68, 0.9)" } : undefined}>
+                    {idempotencyKeyError ?? "Use for manual /trade retries. Leave blank for the live bot unless you know what you’re doing."}
                   </div>
                 </div>
               </div>
@@ -1622,7 +2131,7 @@ export function App() {
 
 	                  <div style={{ marginTop: 10 }}>
 	                    <div className="hint" style={{ marginBottom: 8 }}>
-	                      Prediction error (pred_next - next_close)
+	                      Prediction error vs next close (hover for details)
 	                    </div>
 	                    <PredictionDiffChart
 	                      prices={bot.status.prices}
@@ -1713,10 +2222,11 @@ export function App() {
 		                        <button
 		                          className="btn"
 		                          type="button"
-		                          disabled={!orderFilterText && !orderSentOnly && orderSideFilter === "ALL"}
+		                          disabled={!orderFilterText && !orderSentOnly && !orderErrorsOnly && orderSideFilter === "ALL"}
 		                          onClick={() => {
 		                            setOrderFilterText("");
 		                            setOrderSentOnly(false);
+		                            setOrderErrorsOnly(false);
 		                            setOrderSideFilter("ALL");
 		                            showToast("Cleared order log filters");
 		                          }}
@@ -1732,7 +2242,7 @@ export function App() {
 		                        style={{ flex: "1 1 240px" }}
 		                        value={orderFilterText}
 		                        onChange={(e) => setOrderFilterText(e.target.value)}
-		                        placeholder="Filter (message / mode / symbol)"
+		                        placeholder="Filter (message / symbol / id)"
 		                        spellCheck={false}
 		                      />
 		                      <select
@@ -1761,6 +2271,32 @@ export function App() {
 		                        <input type="checkbox" checked={orderSentOnly} onChange={(e) => setOrderSentOnly(e.target.checked)} />
 		                        Sent only
 		                      </label>
+		                      <label className="pill" style={{ userSelect: "none" }}>
+		                        <input type="checkbox" checked={orderErrorsOnly} onChange={(e) => setOrderErrorsOnly(e.target.checked)} />
+		                        Errors only
+		                      </label>
+		                    </div>
+
+		                    <div className="pillRow" style={{ marginBottom: 10 }}>
+		                      <span className="hint" style={{ marginRight: 6 }}>
+		                        Columns:
+		                      </span>
+		                      <label className="pill" style={{ userSelect: "none" }}>
+		                        <input type="checkbox" checked={orderShowStatus} onChange={(e) => setOrderShowStatus(e.target.checked)} />
+		                        Status
+		                      </label>
+		                      <label className="pill" style={{ userSelect: "none" }}>
+		                        <input type="checkbox" checked={orderShowOrderId} onChange={(e) => setOrderShowOrderId(e.target.checked)} />
+		                        Order ID
+		                      </label>
+		                      <label className="pill" style={{ userSelect: "none" }}>
+		                        <input
+		                          type="checkbox"
+		                          checked={orderShowClientOrderId}
+		                          onChange={(e) => setOrderShowClientOrderId(e.target.checked)}
+		                        />
+		                        Client order ID
+		                      </label>
 		                    </div>
 
 		                    {botOrdersView.total === 0 ? (
@@ -1778,6 +2314,9 @@ export function App() {
 		                              <th>Price</th>
 		                              <th>Sent</th>
 		                              <th>Mode</th>
+		                              {orderShowStatus ? <th>Status</th> : null}
+		                              {orderShowOrderId ? <th>Order ID</th> : null}
+		                              {orderShowClientOrderId ? <th>Client order ID</th> : null}
 		                              <th>Message</th>
 		                            </tr>
 		                          </thead>
@@ -1797,6 +2336,9 @@ export function App() {
 		                                  <td className="tdMono">{fmtMoney(e.price, 4)}</td>
 		                                  <td className="tdMono">{e.order.sent ? "SENT" : "NO"}</td>
 		                                  <td className="tdMono">{mode}</td>
+		                                  {orderShowStatus ? <td className="tdMono">{e.order.status ?? "—"}</td> : null}
+		                                  {orderShowOrderId ? <td className="tdMono">{e.order.orderId ?? "—"}</td> : null}
+		                                  {orderShowClientOrderId ? <td className="tdMono">{e.order.clientOrderId ?? "—"}</td> : null}
 		                                  <td style={{ whiteSpace: "pre-wrap" }}>{e.order.message}</td>
 		                                </tr>
 		                              );
@@ -1964,7 +2506,7 @@ export function App() {
                   className="btn"
                   type="button"
                   onClick={() => refreshKeys()}
-                  disabled={keys.loading || apiOk === "down" || (apiOk === "auth" && !apiToken.trim())}
+                  disabled={keys.loading || apiOk === "down" || apiOk === "auth"}
                 >
                   {keys.loading ? "Checking…" : "Check keys"}
                 </button>
