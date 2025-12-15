@@ -7,6 +7,7 @@ type Trade = {
   exitEquity: number;
   return: number;
   holdingPeriods: number;
+  exitReason?: string;
 };
 
 type Operation = {
@@ -555,6 +556,12 @@ export function BacktestChart({
                       {hover.trade.entryIndex} → {hover.trade.exitIndex} ({hover.trade.holdingPeriods}p)
                     </div>
                   </div>
+                  {hover.trade.exitReason ? (
+                    <div className="btTooltipRow">
+                      <div className="k">Exit</div>
+                      <div className="v">{hover.trade.exitReason}</div>
+                    </div>
+                  ) : null}
                   <div className="btTooltipRow">
                     <div className="k">Trade PnL</div>
                     <div className="v">{pct(hover.trade.return, 2)}</div>

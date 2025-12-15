@@ -105,6 +105,9 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--binance-live` (default: off) send LIVE orders (otherwise uses `/order/test`)
   - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`)
   - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`)
+  - `--order-quote-fraction F` (default: none) size BUY orders as a fraction of the free quote balance (`0 < F <= 1`)
+  - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
+  - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
 
 - Normalization
   - `--normalization standard` one of `none|minmax|standard|log`
@@ -133,6 +136,12 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--sweep-threshold` sweep thresholds on the backtest split and pick the best by final equity
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
   - `--fee 0.0005` fee applied when switching position
+  - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
+  - `--take-profit F` optional synthetic take profit (`0 < F < 1`)
+  - `--trailing-stop F` optional synthetic trailing stop (`0 < F < 1`)
+  - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
+  - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day)
+  - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
 
 - Metrics
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
@@ -150,6 +159,7 @@ REST API
 Run the bot as a REST API:
 - Most endpoints are **stateless** (each request loads data and computes/trains as needed).
 - The optional **live bot** endpoints (`/bot/*`) start a **stateful, non-stop** loop that ingests new bars, fine-tunes the model each bar, and (optionally) places orders until stopped.
+- `GET /metrics` exposes a small Prometheus-style endpoint.
 ```
 cd haskell
 cabal run trader-hs -- --serve --port 8080
@@ -161,12 +171,16 @@ Optional auth (recommended for any deployment):
 
 Endpoints:
 - `GET /health`
+- `GET /metrics`
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /trade` → returns the latest signal + attempts an order
 - `POST /backtest` → runs a backtest and returns summary metrics
 - `POST /bot/start` → starts the live bot loop (Binance data only)
 - `POST /bot/stop` → stops the live bot loop
 - `GET /bot/status` → returns the live bot status + chart data (prices/equity/positions/operations)
+
+Optional journaling:
+- Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
 
 Examples:
 ```

@@ -38,6 +38,8 @@ executable trader-hs
                      , base16-bytestring
                      , cassava >=0.5
                      , cryptonite
+                     , directory
+                     , filepath
                      , memory
                      , http-client
                      , http-client-tls
@@ -86,6 +88,8 @@ test-suite trader-tests
                      , base16-bytestring
                      , cassava >=0.5
                      , cryptonite
+                     , directory
+                     , filepath
                      , memory
                      , http-client
                      , http-client-tls
