@@ -331,7 +331,7 @@ export function App() {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
       market: form.market,
       interval: form.interval.trim() || undefined,
-      bars: clamp(Math.trunc(form.bars), 1, 1000),
+      bars: clamp(Math.trunc(form.bars), 2, 1000),
       method: form.method,
       threshold: Math.max(0, form.threshold),
       fee: Math.max(0, form.fee),
@@ -854,13 +854,13 @@ export function App() {
               </div>
               <div className="field">
                 <label className="label" htmlFor="bars">
-                  Bars (max 1000)
+                  Bars (2–1000)
                 </label>
                 <input
                   id="bars"
                   className="input"
                   type="number"
-                  min={1}
+                  min={2}
                   max={1000}
                   value={form.bars}
                   onChange={(e) => setForm((f) => ({ ...f, bars: numFromInput(e.target.value, f.bars) }))}
