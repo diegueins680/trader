@@ -217,8 +217,14 @@ testBinanceKlineParsing = do
 testMethodParsing :: IO ()
 testMethodParsing = do
   assert "parse 11" (parseMethod "11" == Right MethodBoth)
+  assert "parse both" (parseMethod "both" == Right MethodBoth)
+  assert "parse agreement" (parseMethod "agreement" == Right MethodBoth)
   assert "parse 10" (parseMethod "10" == Right MethodKalmanOnly)
+  assert "parse kalman" (parseMethod "kalman" == Right MethodKalmanOnly)
+  assert "parse Kalman-Only" (parseMethod "Kalman-Only" == Right MethodKalmanOnly)
   assert "parse 01" (parseMethod "01" == Right MethodLstmOnly)
+  assert "parse lstm" (parseMethod "lstm" == Right MethodLstmOnly)
+  assert "parse LSTM_ONLY" (parseMethod "LSTM_ONLY" == Right MethodLstmOnly)
   case parseMethod "00" of
     Left _ -> pure ()
     Right _ -> error "expected parse failure"

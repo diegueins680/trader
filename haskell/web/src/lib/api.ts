@@ -72,20 +72,24 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 function withTimeout(externalSignal: AbortSignal | undefined, timeoutMs: number) {
   const controller = new AbortController();
+  let onAbort: (() => void) | null = null;
 
   if (externalSignal) {
     if (externalSignal.aborted) controller.abort(externalSignal.reason);
     else {
-      externalSignal.addEventListener(
-        "abort",
-        () => controller.abort(externalSignal.reason),
-        { once: true },
-      );
+      onAbort = () => controller.abort(externalSignal.reason);
+      externalSignal.addEventListener("abort", onAbort, { once: true });
     }
   }
 
   const timer = window.setTimeout(() => controller.abort(new DOMException("Timeout", "TimeoutError")), timeoutMs);
-  return { signal: controller.signal, cleanup: () => window.clearTimeout(timer) };
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timer);
+      if (externalSignal && onAbort) externalSignal.removeEventListener("abort", onAbort);
+    },
+  };
 }
 
 async function readJsonOrText(res: Response): Promise<unknown> {
@@ -101,7 +105,12 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
     const url = resolveUrl(baseUrl, path);
-    const res = await fetch(url, { ...init, headers: mergeHeaders(init.headers, opts?.headers), signal });
+    const res = await fetch(url, {
+      ...init,
+      cache: init.cache ?? "no-store",
+      headers: mergeHeaders(init.headers, opts?.headers),
+      signal,
+    });
     const payload = await readJsonOrText(res);
     if (!res.ok) {
       const message =
@@ -126,6 +135,10 @@ function timeoutError(): DOMException {
   return new DOMException("Timeout", "TimeoutError");
 }
 
+function isTimeoutError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "TimeoutError";
+}
+
 async function runAsyncJob<T>(
   baseUrl: string,
   startPath: string,
@@ -135,6 +148,7 @@ async function runAsyncJob<T>(
 ): Promise<T> {
   const startedAt = Date.now();
   const overallTimeoutMs = opts?.timeoutMs ?? 30_000;
+  const perRequestTimeoutMs = Math.min(55_000, overallTimeoutMs);
 
   const start = await fetchJson<AsyncStartResponse>(
     baseUrl,
@@ -144,8 +158,11 @@ async function runAsyncJob<T>(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     },
-    { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(overallTimeoutMs, 30_000) },
+    { signal: opts?.signal, headers: opts?.headers, timeoutMs: perRequestTimeoutMs },
   );
+  if (!start || typeof start !== "object" || !("jobId" in start) || typeof (start as { jobId?: unknown }).jobId !== "string") {
+    throw new Error("Invalid async start response");
+  }
 
   let backoffMs = 750;
   for (;;) {
@@ -153,15 +170,41 @@ async function runAsyncJob<T>(
     const remaining = overallTimeoutMs - elapsed;
     if (remaining <= 0) throw timeoutError();
 
-    const status = await fetchJson<AsyncPollResponse<T>>(
-      baseUrl,
-      `${pollPath}/${encodeURIComponent(start.jobId)}`,
-      { method: "GET" },
-      { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, 30_000) },
-    );
+    let status: AsyncPollResponse<T>;
+    try {
+      status = await fetchJson<AsyncPollResponse<T>>(
+        baseUrl,
+        `${pollPath}/${encodeURIComponent(start.jobId)}`,
+        { method: "GET" },
+        { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
+      );
+    } catch (err) {
+      if (err instanceof HttpError && (err.status === 401 || err.status === 403)) throw err;
+      if (err instanceof HttpError && err.status === 404) throw err;
+      if (isTimeoutError(err)) {
+        await sleep(Math.min(backoffMs, remaining), opts?.signal);
+        backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+        continue;
+      }
+      if (err instanceof HttpError && err.status >= 500) {
+        await sleep(Math.min(backoffMs, remaining), opts?.signal);
+        backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+        continue;
+      }
+      if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
+        await sleep(Math.min(backoffMs, remaining), opts?.signal);
+        backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+        continue;
+      }
+      throw err;
+    }
 
+    if (!status || typeof status !== "object" || !("status" in status) || typeof (status as { status?: unknown }).status !== "string") {
+      throw new Error("Invalid async poll response");
+    }
     if (status.status === "done") return status.result as T;
     if (status.status === "error") throw new Error(status.error || "Async job failed");
+    if (status.status !== "running") throw new Error(`Unexpected async status: ${String(status.status)}`);
 
     await sleep(Math.min(backoffMs, remaining), opts?.signal);
     backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
@@ -215,16 +258,23 @@ export async function backtest(baseUrl: string, params: ApiParams, opts?: FetchJ
 }
 
 export async function trade(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<ApiTradeResponse> {
-  return fetchJson<ApiTradeResponse>(
-    baseUrl,
-    "/trade",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    },
-    opts,
-  );
+  try {
+    return await runAsyncJob<ApiTradeResponse>(baseUrl, "/trade/async", "/trade/async", params, opts);
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 404) {
+      return fetchJson<ApiTradeResponse>(
+        baseUrl,
+        "/trade",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        },
+        opts,
+      );
+    }
+    throw err;
+  }
 }
 
 export async function binanceKeysStatus(

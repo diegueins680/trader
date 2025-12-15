@@ -11,7 +11,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as AT
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
 import Data.Int (Int64)
-import Data.List (foldl', isPrefixOf)
+import Data.List (foldl', isPrefixOf, sortOn)
 import Data.Maybe (isJust, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -24,14 +24,16 @@ import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException)
-import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status500, status502)
+import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status429, status500, status502)
 import Network.HTTP.Types.Header (hAuthorization)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (lookupEnv)
+import System.Exit (die, exitFailure)
 import System.FilePath ((</>))
+import System.IO (hPutStrLn, stderr)
 import System.IO.Error (ioeGetErrorString, isUserError)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
@@ -212,7 +214,7 @@ opts =
     <*> switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders")
     <*> switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance")
     <*> strOption (long "interval" <> long "binance-interval" <> value "5m" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)")
-    <*> option auto (long "bars" <> long "binance-limit" <> value 500 <> help "Number of bars/klines to use (Binance max 1000)")
+    <*> option auto (long "bars" <> long "binance-limit" <> value 500 <> help "Number of bars/klines to use (0=all CSV; Binance 2..1000)")
     <*> strOption (long "lookback-window" <> value "24h" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
     <*> optional (option auto (long "lookback-bars" <> long "lookback" <> help "Override lookback bars (disables --lookback-window conversion)"))
     <*> switch (long "binance-testnet" <> help "Use Binance testnet base URL (public + signed endpoints)")
@@ -243,7 +245,7 @@ opts =
           ( long "method"
               <> value MethodBoth
               <> showDefaultWith methodCode
-              <> help "Method: 11=Kalman+LSTM (direction-agreement gated), 10=Kalman only, 01=LSTM only"
+              <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), 10|kalman=Kalman only, 01|lstm=LSTM only"
           )
     <*> switch (long "optimize-operations" <> help "Optimize method (11/10/01) and threshold on the backtest split")
     <*> switch (long "sweep-threshold" <> help "Sweep trade thresholds on the backtest split and print the best final equity")
@@ -282,6 +284,8 @@ argLookback args =
 
 validateArgs :: Args -> Either String Args
 validateArgs args = do
+  ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
+
   ensure "--bars must be >= 0" (argBars args >= 0)
   ensure "--bars must be 0 (all CSV) or >= 2" (argBars args /= 1)
   case argBinanceSymbol args of
@@ -329,12 +333,25 @@ validateArgs args = do
   case argOrderQuantity args of
     Nothing -> pure ()
     Just q -> ensure "--order-quantity must be >= 0" (q >= 0)
+
+  let qtyOn = maybe False (> 0) (argOrderQuantity args)
+      quoteOn = maybe False (> 0) (argOrderQuote args)
+      fracOn = maybe False (> 0) (argOrderQuoteFraction args)
+      sizingCount = fromEnum qtyOn + fromEnum quoteOn + fromEnum fracOn
+  ensure "Provide only one of --order-quantity, --order-quote, --order-quote-fraction" (sizingCount <= 1)
+
   case argOrderQuoteFraction args of
     Nothing -> pure ()
     Just f -> ensure "--order-quote-fraction must be > 0 and <= 1" (f > 0 && f <= 1)
   case argMaxOrderQuote args of
     Nothing -> pure ()
     Just q -> ensure "--max-order-quote must be >= 0" (q >= 0)
+
+  case argMaxOrderQuote args of
+    Just q | q > 0 -> ensure "--max-order-quote requires --order-quote-fraction" fracOn
+    _ -> pure ()
+
+  ensure "--margin requires --binance-live for trading" (not (argBinanceMargin args && argBinanceTrade args && not (argBinanceLive args)))
   case argIdempotencyKey args of
     Nothing -> pure ()
     Just raw ->
@@ -353,19 +370,26 @@ main = do
   args <- execParser (info (opts <**> helper) fullDesc)
   args' <-
     case validateArgs args of
-      Left e -> error e
+      Left e -> die (e ++ "\n\nRun with --help for usage.")
       Right ok -> pure ok
 
-  if argServe args'
-    then runRestApi args'
-    else do
-      (prices, mBinanceEnv) <- loadPrices args'
-      if length prices < 2 then error "Need at least 2 price rows" else pure ()
+  r <- try $ do
+    if argServe args'
+      then runRestApi args'
+      else do
+        (prices, mBinanceEnv) <- loadPrices args'
+        if length prices < 2 then error "Need at least 2 price rows" else pure ()
 
-      let lookback = argLookback args'
-      if argTradeOnly args'
-        then runTradeOnly args' lookback prices mBinanceEnv
-        else runBacktestPipeline args' lookback prices mBinanceEnv
+        let lookback = argLookback args'
+        if argTradeOnly args'
+          then runTradeOnly args' lookback prices mBinanceEnv
+          else runBacktestPipeline args' lookback prices mBinanceEnv
+  case (r :: Either SomeException ()) of
+    Left ex -> do
+      let (_, msg) = exceptionToHttp ex
+      hPutStrLn stderr msg
+      exitFailure
+    Right () -> pure ()
 
 -- REST API (stateless; computes per request)
 
@@ -1616,7 +1640,8 @@ runRestApi baseArgs = do
   bot <- newBotController
   asyncSignal <- newJobStore "signal"
   asyncBacktest <- newJobStore "backtest"
-  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal (AsyncStores asyncSignal asyncBacktest))
+  asyncTrade <- newJobStore "trade"
+  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal (AsyncStores asyncSignal asyncBacktest asyncTrade))
 
 corsHeaders :: ResponseHeaders
 corsHeaders =
@@ -1632,37 +1657,106 @@ withCors = Wai.mapResponseHeaders (\hs -> corsHeaders ++ hs)
 data JobStore a = JobStore
   { jsPrefix :: !Text
   , jsCounter :: !(IORef Int64)
-  , jsJobs :: !(MVar (HM.HashMap Text (MVar (Either String a))))
+  , jsJobs :: !(MVar (HM.HashMap Text (JobEntry a)))
+  , jsMaxJobs :: !Int
+  , jsTtlMs :: !Int64
+  , jsRunning :: !(MVar Int)
+  , jsMaxRunning :: !Int
+  }
+
+data JobEntry a = JobEntry
+  { jeCreatedAtMs :: !Int64
+  , jeResult :: !(MVar (Either String a))
   }
 
 newJobStore :: Text -> IO (JobStore a)
 newJobStore prefix = do
   counter <- newIORef 0
   jobs <- newMVar HM.empty
-  pure JobStore { jsPrefix = prefix, jsCounter = counter, jsJobs = jobs }
+  running <- newMVar 0
+  pure
+    JobStore
+      { jsPrefix = prefix
+      , jsCounter = counter
+      , jsJobs = jobs
+      , jsMaxJobs = 200
+      , jsTtlMs = 30 * 60 * 1000
+      , jsRunning = running
+      , jsMaxRunning = 2
+      }
 
-startJob :: JobStore a -> IO a -> IO Text
+pruneJobStore :: JobStore a -> Int64 -> IO ()
+pruneJobStore store now = modifyMVar_ (jsJobs store) $ \jobs0 -> do
+  jobs1 <-
+    fmap HM.fromList $
+      fmap mapMaybeM $
+        mapM
+          ( \(k, e) -> do
+              done <- isJust <$> tryReadMVar (jeResult e)
+              let expired = done && now - jeCreatedAtMs e > jsTtlMs store
+              pure (if expired then Nothing else Just (k, e))
+          )
+          (HM.toList jobs0)
+
+  let maxJobs = max 1 (jsMaxJobs store)
+  if HM.size jobs1 <= maxJobs
+    then pure jobs1
+    else do
+      annotated <-
+        mapM
+          ( \(k, e) -> do
+              done <- isJust <$> tryReadMVar (jeResult e)
+              pure (k, jeCreatedAtMs e, done)
+          )
+          (HM.toList jobs1)
+      let doneSorted =
+            take (HM.size jobs1 - maxJobs) $
+              sortOn
+                (\(_k, createdAt, _done) -> createdAt)
+                [x | x@(_k, _createdAt, done) <- annotated, done]
+          dropKeys = [k | (k, _createdAt, _done) <- doneSorted]
+          jobs2 = foldl' (flip HM.delete) jobs1 dropKeys
+      pure jobs2
+  where
+    mapMaybeM :: [Maybe a] -> [a]
+    mapMaybeM = mapMaybe id
+
+startJob :: JobStore a -> IO a -> IO (Either String Text)
 startJob store action = do
-  n <- atomicModifyIORef' (jsCounter store) (\x -> let y = x + 1 in (y, y))
-  let jobId = jsPrefix store <> "-" <> T.pack (show n)
-  out <- newEmptyMVar
-  modifyMVar_ (jsJobs store) (pure . HM.insert jobId out)
-  _ <-
-    forkIO $ do
-      r <- try action
-      case r of
-        Right v -> do
-          _ <- tryPutMVar out (Right v)
-          pure ()
-        Left ex -> do
-          let (_, msg) = exceptionToHttp ex
-          _ <- tryPutMVar out (Left msg)
-          pure ()
-  pure jobId
+  now <- getTimestampMs
+  pruneJobStore store now
+
+  ok <- modifyMVar (jsRunning store) $ \n ->
+    if n >= max 1 (jsMaxRunning store)
+      then pure (n, False)
+      else pure (n + 1, True)
+  if not ok
+    then pure (Left "Too many requests. Try again in a moment.")
+    else do
+      n <- atomicModifyIORef' (jsCounter store) (\x -> let y = x + 1 in (y, y))
+      let jobId = jsPrefix store <> "-" <> T.pack (show n)
+      out <- newEmptyMVar
+      modifyMVar_ (jsJobs store) (pure . HM.insert jobId (JobEntry now out))
+      _ <-
+        forkIO $
+          ( do
+              r <- try action
+              case r of
+                Right v -> do
+                  _ <- tryPutMVar out (Right v)
+                  pure ()
+                Left ex -> do
+                  let (_, msg) = exceptionToHttp ex
+                  _ <- tryPutMVar out (Left msg)
+                  pure ()
+          )
+            `finally` modifyMVar_ (jsRunning store) (pure . max 0 . subtract 1)
+      pure (Right jobId)
 
 data AsyncStores = AsyncStores
   { asSignal :: !(JobStore LatestSignal)
   , asBacktest :: !(JobStore Aeson.Value)
+  , asTrade :: !(JobStore ApiTradeResponse)
   }
 
 apiApp :: Args -> Maybe BS.ByteString -> BotController -> Metrics -> Maybe Journal -> AsyncStores -> Wai.Application
@@ -1677,6 +1771,7 @@ apiApp baseArgs apiToken botCtrl metrics mJournal asyncStores req respond = do
         case path of
           ["signal", "async", _] -> "signal/async/:jobId"
           ["backtest", "async", _] -> "backtest/async/:jobId"
+          ["trade", "async", _] -> "trade/async/:jobId"
           _ ->
             let go xs =
                   case xs of
@@ -1693,6 +1788,35 @@ apiApp baseArgs apiToken botCtrl metrics mJournal asyncStores req respond = do
         then respondCors (jsonError status401 "Unauthorized")
         else
           case path of
+            [] ->
+              case Wai.requestMethod req of
+                "GET" ->
+                  respondCors
+                    ( jsonValue
+                        status200
+                        ( object
+                            [ "name" .= ("trader-hs" :: String)
+                            , "endpoints"
+                                .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
+                                   ]
+                            ]
+                        )
+                    )
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["health"] ->
               case Wai.requestMethod req of
                 "GET" -> respondCors (jsonValue status200 (object ["status" .= ("ok" :: String)]))
@@ -1716,6 +1840,14 @@ apiApp baseArgs apiToken botCtrl metrics mJournal asyncStores req respond = do
             ["trade"] ->
               case Wai.requestMethod req of
                 "POST" -> handleTrade metrics mJournal baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["trade", "async"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleTradeAsync (asTrade asyncStores) metrics mJournal baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["trade", "async", jobId] ->
+              case Wai.requestMethod req of
+                "GET" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest"] ->
               case Wai.requestMethod req of
@@ -1831,8 +1963,10 @@ handleSignalAsync store baseArgs req respond = do
                   , argSweepThreshold = False
                   , argOptimizeOperations = False
                   }
-          jobId <- startJob store (computeLatestSignalFromArgs args)
-          respond (jsonValue status202 (object ["jobId" .= jobId]))
+          r <- startJob store (computeLatestSignalFromArgs args)
+          case r of
+            Left e -> respond (jsonError status429 e)
+            Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 handleTrade :: Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleTrade metrics mJournal baseArgs req respond = do
@@ -1843,36 +1977,76 @@ handleTrade metrics mJournal baseArgs req respond = do
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
         Right args0 -> do
-          let args =
+          let args1 =
                 args0
                   { argTradeOnly = True
                   , argBinanceTrade = True
-                  , argBinanceLive = maybe (argBinanceLive args0) id (apBinanceLive params)
-                  , argOrderQuote = apOrderQuote params <|> argOrderQuote args0
-                  , argOrderQuantity = apOrderQuantity params <|> argOrderQuantity args0
                   , argSweepThreshold = False
                   , argOptimizeOperations = False
                   }
-          r <- try (computeTradeFromArgs args) :: IO (Either SomeException ApiTradeResponse)
-          case r of
-            Left ex ->
-              let (st, msg) = exceptionToHttp ex
-               in respond (jsonError st msg)
-            Right out -> do
-              metricsRecordOrder metrics (atrOrder out)
-              now <- getTimestampMs
-              journalWriteMaybe
-                mJournal
-                ( object
-                    [ "type" .= ("trade.order" :: String)
-                    , "atMs" .= now
-                    , "symbol" .= argBinanceSymbol args
-                    , "market" .= marketCode (argBinanceMarket args)
-                    , "action" .= lsAction (atrSignal out)
-                    , "order" .= atrOrder out
-                    ]
-                )
-              respond (jsonValue status200 out)
+          case validateArgs args1 of
+            Left e -> respond (jsonError status400 e)
+            Right args -> do
+              r <- try (computeTradeFromArgs args) :: IO (Either SomeException ApiTradeResponse)
+              case r of
+                Left ex ->
+                  let (st, msg) = exceptionToHttp ex
+                   in respond (jsonError st msg)
+                Right out -> do
+                  metricsRecordOrder metrics (atrOrder out)
+                  now <- getTimestampMs
+                  journalWriteMaybe
+                    mJournal
+                    ( object
+                        [ "type" .= ("trade.order" :: String)
+                        , "atMs" .= now
+                        , "symbol" .= argBinanceSymbol args
+                        , "market" .= marketCode (argBinanceMarket args)
+                        , "action" .= lsAction (atrSignal out)
+                        , "order" .= atrOrder out
+                        ]
+                    )
+                  respond (jsonValue status200 out)
+
+handleTradeAsync :: JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleTradeAsync store metrics mJournal baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          let args1 =
+                args0
+                  { argTradeOnly = True
+                  , argBinanceTrade = True
+                  , argSweepThreshold = False
+                  , argOptimizeOperations = False
+                  }
+          case validateArgs args1 of
+            Left e -> respond (jsonError status400 e)
+            Right args -> do
+              r <-
+                startJob store $ do
+                  out <- computeTradeFromArgs args
+                  metricsRecordOrder metrics (atrOrder out)
+                  now <- getTimestampMs
+                  journalWriteMaybe
+                    mJournal
+                    ( object
+                        [ "type" .= ("trade.order" :: String)
+                        , "atMs" .= now
+                        , "symbol" .= argBinanceSymbol args
+                        , "market" .= marketCode (argBinanceMarket args)
+                        , "action" .= lsAction (atrSignal out)
+                        , "order" .= atrOrder out
+                        ]
+                    )
+                  pure out
+              case r of
+                Left e -> respond (jsonError status429 e)
+                Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 handleBacktest :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBacktest baseArgs req respond = do
@@ -1915,16 +2089,20 @@ handleBacktestAsync store baseArgs req respond = do
                   , argSweepThreshold = maybe (argSweepThreshold args0) id (apSweepThreshold params)
                   , argBacktestRatio = maybe (argBacktestRatio args0) id (apBacktestRatio params)
                   }
-          jobId <- startJob store (computeBacktestFromArgs args)
-          respond (jsonValue status202 (object ["jobId" .= jobId]))
+          r <- startJob store (computeBacktestFromArgs args)
+          case r of
+            Left e -> respond (jsonError status429 e)
+            Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 handleAsyncPoll :: ToJSON a => JobStore a -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleAsyncPoll store jobId respond = do
-  mVar <- withMVar (jsJobs store) (pure . HM.lookup jobId)
-  case mVar of
-    Nothing -> respond (jsonError status404 "Not found")
-    Just out -> do
-      r <- tryReadMVar out
+  now <- getTimestampMs
+  pruneJobStore store now
+  mEntry <- withMVar (jsJobs store) (pure . HM.lookup jobId)
+  case mEntry of
+    Nothing -> respond (jsonValue status200 (object ["status" .= ("error" :: String), "error" .= ("Not found" :: String)]))
+    Just entry -> do
+      r <- tryReadMVar (jeResult entry)
       case r of
         Nothing -> respond (jsonValue status200 (object ["status" .= ("running" :: String)]))
         Just (Left err) -> respond (jsonValue status200 (object ["status" .= ("error" :: String), "error" .= err]))
@@ -3150,6 +3328,7 @@ inferPeriodsPerYear :: String -> Double
 inferPeriodsPerYear interval =
   case interval of
     "1m" -> 60 * 24 * 365
+    "3m" -> 20 * 24 * 365
     "5m" -> 12 * 24 * 365
     "15m" -> 4 * 24 * 365
     "30m" -> 2 * 24 * 365
@@ -3160,7 +3339,9 @@ inferPeriodsPerYear interval =
     "8h" -> 3 * 365
     "12h" -> 2 * 365
     "1d" -> 365
+    "3d" -> 365 / 3
     "1w" -> 52
+    "1M" -> 12
     _ -> 365
 
 forwardReturns :: [Double] -> [Double]

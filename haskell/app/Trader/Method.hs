@@ -5,7 +5,7 @@ module Trader.Method
   , selectPredictions
   ) where
 
-import Data.Char (isSpace)
+import Data.Char (isSpace, toLower)
 
 data Method
   = MethodBoth
@@ -22,15 +22,29 @@ methodCode m =
 
 parseMethod :: String -> Either String Method
 parseMethod raw =
-  case trim raw of
+  case map toLower (trim raw) of
     "11" -> Right MethodBoth
+    "both" -> Right MethodBoth
+    "ensemble" -> Right MethodBoth
+    "agreement" -> Right MethodBoth
+    "gated" -> Right MethodBoth
+    "kalman+lstm" -> Right MethodBoth
+    "lstm+kalman" -> Right MethodBoth
     "10" -> Right MethodKalmanOnly
+    "kalman" -> Right MethodKalmanOnly
+    "kalman-only" -> Right MethodKalmanOnly
+    "kalman_only" -> Right MethodKalmanOnly
+    "kalmanonly" -> Right MethodKalmanOnly
     "01" -> Right MethodLstmOnly
+    "lstm" -> Right MethodLstmOnly
+    "lstm-only" -> Right MethodLstmOnly
+    "lstm_only" -> Right MethodLstmOnly
+    "lstmonly" -> Right MethodLstmOnly
     other ->
       Left
         ( "Invalid --method: "
             ++ show other
-            ++ " (expected 11 for both, 10 for Kalman only, 01 for LSTM only)"
+            ++ " (expected 11|both, 10|kalman, 01|lstm)"
         )
 
 selectPredictions :: Method -> [Double] -> [Double] -> ([Double], [Double])

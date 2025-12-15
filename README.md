@@ -96,7 +96,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 
 - Bars & lookback (defaults: `--interval 5m`, `--lookback-window 24h` → 288 bars)
   - `--interval 5m` (alias `--binance-interval`) bar interval / Binance kline interval
-  - `--bars 500` (alias `--binance-limit`) number of bars/klines to use (Binance max 1000)
+  - `--bars 500` (alias `--binance-limit`) number of bars/klines to use (`0` = all CSV; Binance 2..1000)
   - `--lookback-window 24h` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
 
@@ -114,6 +114,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--order-quote-fraction F` (default: none) size BUY orders as a fraction of the free quote balance (`0 < F <= 1`)
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
+  - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
 
 - Normalization
   - `--normalization standard` one of `none|minmax|standard|log`
@@ -135,7 +136,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 
 - Strategy / costs
   - `--threshold 0.001` direction threshold (fractional deadband)
-  - `--method 11` choose `11` (Kalman+LSTM direction-agreement), `10` (Kalman only), `01` (LSTM only)
+  - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
   - `--optimize-operations` optimize `--method` and `--threshold` on the backtest split (uses best combo for the latest signal)
@@ -176,11 +177,19 @@ Optional auth (recommended for any deployment):
 - Send either `Authorization: Bearer <token>` or `X-API-Key: <token>`
 
 Endpoints:
+- `GET /` → basic endpoint list
 - `GET /health`
 - `GET /metrics`
 - `POST /signal` → returns the latest signal (no orders)
+- `POST /signal/async` → starts an async signal job
+- `GET /signal/async/:jobId` → polls an async signal job
 - `POST /trade` → returns the latest signal + attempts an order
+- `POST /trade/async` → starts an async trade job
+- `GET /trade/async/:jobId` → polls an async trade job
 - `POST /backtest` → runs a backtest and returns summary metrics
+- `POST /backtest/async` → starts an async backtest job
+- `GET /backtest/async/:jobId` → polls an async backtest job
+- `POST /binance/keys` → checks key/secret presence and probes signed endpoints
 - `POST /bot/start` → starts the live bot loop (Binance data only)
 - `POST /bot/stop` → stops the live bot loop
 - `GET /bot/status` → returns the live bot status + chart data (prices/equity/positions/operations)
@@ -237,7 +246,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
-- `method` is `"11"` (both; direction-agreement gated), `"10"` (Kalman only), or `"01"` (LSTM only).
+- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), or `"01"`/`"lstm"` (LSTM only).
 
 Deploy to AWS
 -------------
@@ -274,5 +283,5 @@ The UI also includes a “Live bot” panel to start/stop the continuous loop an
 Assumptions and limitations
 ---------------------------
 - The strategy is intentionally simple (long or flat only) and does not include sizing, risk limits, or robust transaction cost modeling.
-- Live order placement does not handle Binance symbol filters (lot size/step size/min notional) and may be rejected by the exchange.
+- Live order placement attempts to fetch/apply symbol filters (minQty/step size/minNotional), but is not exhaustive and may still be rejected by the exchange.
 - This code is for experimentation and education only; it is **not** production-ready nor financial advice.

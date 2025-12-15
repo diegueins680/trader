@@ -119,6 +119,41 @@ const BACKTEST_TIMEOUT_MS = 10 * 60_000;
 const TRADE_TIMEOUT_MS = 5 * 60_000;
 const BOT_START_TIMEOUT_MS = 10 * 60_000;
 
+const BINANCE_INTERVALS = [
+  "1m",
+  "3m",
+  "5m",
+  "15m",
+  "30m",
+  "1h",
+  "2h",
+  "4h",
+  "6h",
+  "8h",
+  "12h",
+  "1d",
+  "3d",
+  "1w",
+  "1M",
+] as const;
+
+const BINANCE_INTERVAL_SET = new Set<string>(BINANCE_INTERVALS);
+
+function normalizeBinanceInterval(raw: unknown, fallback: string): string {
+  if (typeof raw !== "string") return fallback;
+  const value = raw.trim();
+  return BINANCE_INTERVAL_SET.has(value) ? value : fallback;
+}
+
+function normalizeApiBaseUrlInput(raw: string): string {
+  const v = raw.trim();
+  if (!v) return "";
+  if (v.startsWith("/") || /^https?:\/\//i.test(v)) return v;
+  if (v.includes("://")) return v;
+  const looksLikeHost = v === "localhost" || v.startsWith("localhost:") || v.includes(".") || v.includes(":");
+  return looksLikeHost ? `http://${v}` : `/${v}`;
+}
+
 const defaultForm: FormState = {
   binanceSymbol: "BTCUSDT",
   market: "spot",
@@ -278,13 +313,14 @@ function isLikelyOrderError(message: string | null | undefined, sent: boolean | 
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [toast, setToast] = useState<string | null>(null);
-  const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => readJson<string>(STORAGE_API_BASE_KEY) ?? "");
+  const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => normalizeApiBaseUrlInput(readJson<string>(STORAGE_API_BASE_KEY) ?? ""));
   const [apiToken, setApiToken] = useState<string>(() => readSessionString(SESSION_TOKEN_KEY) ?? "");
   const [binanceApiKey, setBinanceApiKey] = useState<string>(() => readSessionString(SESSION_BINANCE_KEY_KEY) ?? "");
   const [binanceApiSecret, setBinanceApiSecret] = useState<string>(() => readSessionString(SESSION_BINANCE_SECRET_KEY) ?? "");
   const [form, setForm] = useState<FormState>(() => {
-    const saved = readJson<Partial<FormState>>(STORAGE_KEY);
-    return { ...defaultForm, ...(saved ?? {}) };
+    const saved = readJson<Partial<FormState> & { interval?: unknown }>(STORAGE_KEY);
+    const merged = { ...defaultForm, ...(saved ?? {}) };
+    return { ...merged, interval: normalizeBinanceInterval(saved?.interval ?? merged.interval, defaultForm.interval) };
   });
 
   const [profiles, setProfiles] = useState<SavedProfiles>(() => readJson<SavedProfiles>(STORAGE_PROFILES_KEY) ?? {});
@@ -438,8 +474,11 @@ export function App() {
       return;
     }
 
+    const normalized: FormState = { ...raw, interval: normalizeBinanceInterval((raw as { interval?: unknown }).interval, defaultForm.interval) };
     const profile: FormState =
-      raw.market === "margin" ? { ...raw, binanceTestnet: false, binanceLive: true } : raw;
+      normalized.market === "margin"
+        ? { ...normalized, binanceTestnet: false, binanceLive: true }
+        : normalized;
     const reasons: string[] = [];
     if (profile.market === "margin" && form.market !== "margin") reasons.push("switch market to Margin");
     if (profile.binanceLive && !form.binanceLive) reasons.push("enable Live orders");
@@ -469,15 +508,27 @@ export function App() {
     return token ? { Authorization: `Bearer ${token}` } : undefined;
   }, [apiToken]);
 
+  const apiBaseCandidate = useMemo(() => normalizeApiBaseUrlInput(apiBaseUrl), [apiBaseUrl]);
+
   const apiBaseError = useMemo(() => {
     const raw = apiBaseUrl.trim();
     if (!raw) return null;
-    if (raw.startsWith("/") || /^https?:\/\//.test(raw)) return null;
+    const candidate = apiBaseCandidate.trim();
+    if (candidate.startsWith("/")) return null;
+    if (/^https?:\/\//i.test(candidate)) {
+      try {
+        // Validate host-like input early to avoid confusing fetch errors later.
+        new URL(candidate);
+        return null;
+      } catch {
+        return "API base must be a valid URL (e.g. https://your-api-host) or a path like /api";
+      }
+    }
     return "API base must start with http(s):// or /api";
-  }, [apiBaseUrl]);
+  }, [apiBaseCandidate, apiBaseUrl]);
 
   const apiBase = useMemo(() => {
-    const raw = apiBaseUrl.trim();
+    const raw = apiBaseCandidate.trim();
     if (raw && !apiBaseError) return raw.replace(/\/+$/, "");
     if (!import.meta.env.DEV && /^https?:\/\//.test(API_TARGET)) {
       try {
@@ -488,11 +539,11 @@ export function App() {
       }
     }
     return "/api";
-  }, [apiBaseError, apiBaseUrl]);
+  }, [apiBaseCandidate, apiBaseError]);
 
   useEffect(() => {
     let mounted = true;
-    health(apiBase, { timeoutMs: 3000, headers: authHeaders })
+    health(apiBase, { timeoutMs: 10_000, headers: authHeaders })
       .then(() => {
         if (!mounted) return;
         setApiOk("ok");
@@ -516,7 +567,7 @@ export function App() {
 
   const recheckHealth = useCallback(async () => {
     try {
-      await health(apiBase, { timeoutMs: 3000, headers: authHeaders });
+      await health(apiBase, { timeoutMs: 10_000, headers: authHeaders });
     } catch {
       setApiOk("down");
       showToast("API unreachable");
@@ -524,7 +575,7 @@ export function App() {
     }
 
     try {
-      await botStatus(apiBase, { timeoutMs: 3000, headers: authHeaders });
+      await botStatus(apiBase, { timeoutMs: 10_000, headers: authHeaders });
       setApiOk("ok");
       showToast("API online");
     } catch (e) {
@@ -540,10 +591,12 @@ export function App() {
   }, [apiBase, apiToken, authHeaders, showToast]);
 
   const params: ApiParams = useMemo(() => {
+    const interval = form.interval.trim();
+    const intervalOk = BINANCE_INTERVAL_SET.has(interval);
     const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
       market: form.market,
-      interval: form.interval.trim() || undefined,
+      interval: intervalOk ? interval : undefined,
       bars: clamp(Math.trunc(form.bars), 2, 1000),
       method: form.method,
       threshold: Math.max(0, form.threshold),
@@ -718,7 +771,7 @@ export function App() {
 
         setApiOk((prev) => {
           if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
-          const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500) || isTimeoutError(e);
+          const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500);
           return looksDown ? "down" : prev;
         });
 
@@ -805,6 +858,7 @@ export function App() {
         const out = await botStatus(apiBase, { signal: controller.signal, headers: authHeaders, timeoutMs: 10_000 });
         if (requestId !== botRequestSeqRef.current) return;
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+        setApiOk("ok");
       } catch (e) {
         if (requestId !== botRequestSeqRef.current) return;
         if (isAbortError(e)) return;
@@ -911,7 +965,8 @@ export function App() {
           : "API status unknown";
 
   const missingSymbol = !form.binanceSymbol.trim();
-  const missingInterval = !form.interval.trim();
+  const intervalValue = form.interval.trim();
+  const missingInterval = !intervalValue || !BINANCE_INTERVAL_SET.has(intervalValue);
   const showLocalStartHelp = useMemo(() => {
     if (typeof window === "undefined") return true;
     return isLocalHostname(window.location.hostname);
@@ -1057,6 +1112,7 @@ export function App() {
                     type="text"
                     value={apiBaseUrl}
                     onChange={(e) => setApiBaseUrl(e.target.value)}
+                    onBlur={() => setApiBaseUrl((v) => normalizeApiBaseUrlInput(v))}
                     placeholder="/api or https://your-api-host"
                     spellCheck={false}
                     autoCapitalize="none"
@@ -1311,31 +1367,21 @@ export function App() {
                 <label className="label" htmlFor="interval">
                   Interval
                 </label>
-                <input
+                <select
                   id="interval"
-                  className={missingInterval ? "input inputError" : "input"}
+                  className={missingInterval ? "select selectError" : "select"}
                   value={form.interval}
                   onChange={(e) => setForm((f) => ({ ...f, interval: e.target.value }))}
-                  placeholder="1h"
-                  list="intervalPresets"
-                  spellCheck={false}
-                />
+                >
+                  {BINANCE_INTERVALS.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
                 <div className="hint" style={missingInterval ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
-                  {missingInterval ? "Required." : "Pick a common Binance interval, or type a custom one (e.g. 1m, 5m, 1h, 1d)."}
+                  {missingInterval ? "Required." : "Binance interval: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M."}
                 </div>
-                <datalist id="intervalPresets">
-                  <option value="1m" />
-                  <option value="3m" />
-                  <option value="5m" />
-                  <option value="15m" />
-                  <option value="30m" />
-                  <option value="1h" />
-                  <option value="2h" />
-                  <option value="4h" />
-                  <option value="6h" />
-                  <option value="12h" />
-                  <option value="1d" />
-                </datalist>
               </div>
               <div className="field">
                 <label className="label" htmlFor="bars">
