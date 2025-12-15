@@ -3,14 +3,15 @@
 module Main where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Exception (SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
-import Data.Char (isDigit, isSpace, toLower)
+import qualified Data.Aeson.Types as AT
+import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
 import Data.Int (Int64)
-import Data.List (foldl')
+import Data.List (foldl', isPrefixOf)
 import Data.Maybe (isJust, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -19,15 +20,18 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException)
-import Network.HTTP.Types (Status, status200, status400, status401, status404, status405, status500, status502)
+import Network.HTTP.Types (ResponseHeaders, Status, status200, status204, status400, status401, status404, status405, status500, status502)
 import Network.HTTP.Types.Header (hAuthorization)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
+import System.Directory (createDirectoryIfMissing)
 import System.Environment (lookupEnv)
+import System.FilePath ((</>))
 import System.IO.Error (ioeGetErrorString, isUserError)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
@@ -37,6 +41,8 @@ import Trader.Binance
   , BinanceMarket(..)
   , BinanceOrderMode(..)
   , OrderSide(..)
+  , SymbolFilters(..)
+  , Step(..)
   , Kline(..)
   , fetchTickerPrice
   , binanceBaseUrl
@@ -47,9 +53,13 @@ import Trader.Binance
   , fetchKlines
   , fetchCloses
   , fetchFreeBalance
+  , fetchFuturesAvailableBalance
   , fetchFuturesPositionAmt
+  , fetchSymbolFilters
+  , quantizeDown
   , getTimestampMs
   , placeMarketOrder
+  , fetchOrderByClientId
   )
 import Trader.KalmanFusion (Kalman1(..), initKalman1, stepMulti)
 import Trader.LSTM
@@ -161,6 +171,9 @@ data Args = Args
   , argBinanceLive :: Bool
   , argOrderQuote :: Maybe Double
   , argOrderQuantity :: Maybe Double
+  , argOrderQuoteFraction :: Maybe Double
+  , argMaxOrderQuote :: Maybe Double
+  , argIdempotencyKey :: Maybe String
   , argNormalization :: NormType
   , argHiddenSize :: Int
   , argEpochs :: Int
@@ -179,6 +192,12 @@ data Args = Args
   , argSweepThreshold :: Bool
   , argTradeOnly :: Bool
   , argFee :: Double
+  , argStopLoss :: Maybe Double
+  , argTakeProfit :: Maybe Double
+  , argTrailingStop :: Maybe Double
+  , argMaxDrawdown :: Maybe Double
+  , argMaxDailyLoss :: Maybe Double
+  , argMaxOrderErrors :: Maybe Int
   , argPeriodsPerYear :: Maybe Double
   , argServe :: Bool
   , argPort :: Int
@@ -203,6 +222,9 @@ opts =
     <*> switch (long "binance-live" <> help "If set, send LIVE orders (otherwise uses /order/test)")
     <*> optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
     <*> optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
+    <*> optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0..1) when --order-quote/--order-quantity not set"))
+    <*> optional (option auto (long "max-order-quote" <> help "Cap the computed quote amount when using --order-quote-fraction"))
+    <*> optional (strOption (long "idempotency-key" <> metavar "ID" <> help "Optional Binance newClientOrderId for idempotent orders"))
     <*> option (maybeReader parseNormType) (long "normalization" <> value NormStandard <> help "none|minmax|standard|log")
     <*> option auto (long "hidden-size" <> value 16 <> help "LSTM hidden size")
     <*> option auto (long "epochs" <> value 30 <> help "LSTM training epochs (Adam)")
@@ -227,6 +249,12 @@ opts =
     <*> switch (long "sweep-threshold" <> help "Sweep trade thresholds on the backtest split and print the best final equity")
     <*> switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     <*> option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
+    <*> optional (option auto (long "stop-loss" <> help "Stop loss fraction for a bracket exit (e.g., 0.02 for 2%)"))
+    <*> optional (option auto (long "take-profit" <> help "Take profit fraction for a bracket exit (e.g., 0.03 for 3%)"))
+    <*> optional (option auto (long "trailing-stop" <> help "Trailing stop fraction for a bracket exit (e.g., 0.01 for 1%)"))
+    <*> optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
+    <*> optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
+    <*> optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
     <*> optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
     <*> switch (long "serve" <> help "Run REST API server on localhost instead of running the CLI workflow")
     <*> option auto (long "port" <> value 8080 <> help "REST API port (when --serve)")
@@ -274,6 +302,24 @@ validateArgs args = do
   ensure "--kalman-measurement-var must be > 0" (argKalmanMeasurementVar args > 0)
   ensure "--threshold must be >= 0" (argTradeThreshold args >= 0)
   ensure "--fee must be >= 0" (argFee args >= 0)
+  case argStopLoss args of
+    Nothing -> pure ()
+    Just v -> ensure "--stop-loss must be > 0 and < 1" (v > 0 && v < 1)
+  case argTakeProfit args of
+    Nothing -> pure ()
+    Just v -> ensure "--take-profit must be > 0 and < 1" (v > 0 && v < 1)
+  case argTrailingStop args of
+    Nothing -> pure ()
+    Just v -> ensure "--trailing-stop must be > 0 and < 1" (v > 0 && v < 1)
+  case argMaxDrawdown args of
+    Nothing -> pure ()
+    Just v -> ensure "--max-drawdown must be > 0 and < 1" (v > 0 && v < 1)
+  case argMaxDailyLoss args of
+    Nothing -> pure ()
+    Just v -> ensure "--max-daily-loss must be > 0 and < 1" (v > 0 && v < 1)
+  case argMaxOrderErrors args of
+    Nothing -> pure ()
+    Just n -> ensure "--max-order-errors must be >= 1" (n >= 1)
   case argPeriodsPerYear args of
     Nothing -> pure ()
     Just v -> ensure "--periods-per-year must be > 0" (v > 0)
@@ -283,6 +329,19 @@ validateArgs args = do
   case argOrderQuantity args of
     Nothing -> pure ()
     Just q -> ensure "--order-quantity must be >= 0" (q >= 0)
+  case argOrderQuoteFraction args of
+    Nothing -> pure ()
+    Just f -> ensure "--order-quote-fraction must be > 0 and <= 1" (f > 0 && f <= 1)
+  case argMaxOrderQuote args of
+    Nothing -> pure ()
+    Just q -> ensure "--max-order-quote must be >= 0" (q >= 0)
+  case argIdempotencyKey args of
+    Nothing -> pure ()
+    Just raw ->
+      let k = trim raw
+          okLen = not (null k) && length k <= 36
+          okChars = all (\c -> isAlphaNum c || c == '-' || c == '_') k
+       in ensure "--idempotency-key must be 1..36 chars of [A-Za-z0-9_-]" (okLen && okChars)
 
   pure args
   where
@@ -320,6 +379,8 @@ data ApiParams = ApiParams
   , apLookbackWindow :: Maybe String
   , apLookbackBars :: Maybe Int
   , apBinanceTestnet :: Maybe Bool
+  , apBinanceApiKey :: Maybe String
+  , apBinanceApiSecret :: Maybe String
   , apNormalization :: Maybe String
   , apHiddenSize :: Maybe Int
   , apEpochs :: Maybe Int
@@ -337,10 +398,19 @@ data ApiParams = ApiParams
   , apOptimizeOperations :: Maybe Bool
   , apSweepThreshold :: Maybe Bool
   , apFee :: Maybe Double
+  , apStopLoss :: Maybe Double
+  , apTakeProfit :: Maybe Double
+  , apTrailingStop :: Maybe Double
+  , apMaxDrawdown :: Maybe Double
+  , apMaxDailyLoss :: Maybe Double
+  , apMaxOrderErrors :: Maybe Int
   , apPeriodsPerYear :: Maybe Double
   , apBinanceLive :: Maybe Bool
   , apOrderQuote :: Maybe Double
   , apOrderQuantity :: Maybe Double
+  , apOrderQuoteFraction :: Maybe Double
+  , apMaxOrderQuote :: Maybe Double
+  , apIdempotencyKey :: Maybe String
   , apBotPollSeconds :: Maybe Int
   , apBotOnlineEpochs :: Maybe Int
   , apBotTrainBars :: Maybe Int
@@ -379,6 +449,11 @@ data ApiOrderResult = ApiOrderResult
   , aorSymbol :: Maybe String
   , aorQuantity :: Maybe Double
   , aorQuoteQuantity :: Maybe Double
+  , aorOrderId :: Maybe Int64
+  , aorClientOrderId :: Maybe String
+  , aorStatus :: Maybe String
+  , aorExecutedQty :: Maybe Double
+  , aorCummulativeQuoteQty :: Maybe Double
   , aorResponse :: Maybe String
   , aorMessage :: String
   } deriving (Eq, Show, Generic)
@@ -431,6 +506,121 @@ jsonOptions prefixLen =
         [] -> []
         (c:cs) -> toLower c : cs
 
+-- Observability (metrics + journaling)
+
+data Metrics = Metrics
+  { mtRequestsTotal :: !(IORef Int64)
+  , mtRequestsByEndpoint :: !(IORef (HM.HashMap String Int64))
+  , mtOrdersSentTotal :: !(IORef Int64)
+  , mtOrdersFailedTotal :: !(IORef Int64)
+  , mtBotHaltsTotal :: !(IORef Int64)
+  }
+
+newMetrics :: IO Metrics
+newMetrics = do
+  reqTotal <- newIORef 0
+  reqBy <- newIORef HM.empty
+  ordersSent <- newIORef 0
+  ordersFailed <- newIORef 0
+  botHalts <- newIORef 0
+  pure
+    Metrics
+      { mtRequestsTotal = reqTotal
+      , mtRequestsByEndpoint = reqBy
+      , mtOrdersSentTotal = ordersSent
+      , mtOrdersFailedTotal = ordersFailed
+      , mtBotHaltsTotal = botHalts
+      }
+
+incCounter :: IORef Int64 -> IO ()
+incCounter ref = atomicModifyIORef' ref (\n -> (n + 1, ()))
+
+metricsIncEndpoint :: Metrics -> String -> IO ()
+metricsIncEndpoint m endpoint = do
+  incCounter (mtRequestsTotal m)
+  atomicModifyIORef' (mtRequestsByEndpoint m) $ \hm ->
+    let next = maybe 0 id (HM.lookup endpoint hm) + 1
+     in (HM.insert endpoint next hm, ())
+
+metricsRecordOrder :: Metrics -> ApiOrderResult -> IO ()
+metricsRecordOrder m o
+  | aorSent o = incCounter (mtOrdersSentTotal m)
+  | "Order failed:" `isPrefixOf` aorMessage o = incCounter (mtOrdersFailedTotal m)
+  | otherwise = pure ()
+
+metricsRecordBotHalt :: Metrics -> IO ()
+metricsRecordBotHalt m = incCounter (mtBotHaltsTotal m)
+
+escapePromLabel :: String -> String
+escapePromLabel = concatMap esc
+  where
+    esc '"' = "\\\""
+    esc '\\' = "\\\\"
+    esc c = [c]
+
+renderMetricsText :: Metrics -> Bool -> IO BL.ByteString
+renderMetricsText m botRunning = do
+  reqTotal <- readIORef (mtRequestsTotal m)
+  reqBy <- readIORef (mtRequestsByEndpoint m)
+  ordersSent <- readIORef (mtOrdersSentTotal m)
+  ordersFailed <- readIORef (mtOrdersFailedTotal m)
+  botHalts <- readIORef (mtBotHaltsTotal m)
+  let header =
+        [ "# HELP trader_http_requests_total Total HTTP requests."
+        , "# TYPE trader_http_requests_total counter"
+        , "trader_http_requests_total " ++ show reqTotal
+        , "# HELP trader_http_requests_by_endpoint_total Total HTTP requests by endpoint."
+        , "# TYPE trader_http_requests_by_endpoint_total counter"
+        ]
+      byEndpoint =
+        [ "trader_http_requests_by_endpoint_total{endpoint=\"" ++ escapePromLabel k ++ "\"} " ++ show v
+        | (k, v) <- HM.toList reqBy
+        ]
+      orders =
+        [ "# HELP trader_orders_total Total orders (sent/failed)."
+        , "# TYPE trader_orders_total counter"
+        , "trader_orders_total{result=\"sent\"} " ++ show ordersSent
+        , "trader_orders_total{result=\"failed\"} " ++ show ordersFailed
+        ]
+      bot =
+        [ "# HELP trader_bot_halts_total Bot halts."
+        , "# TYPE trader_bot_halts_total counter"
+        , "trader_bot_halts_total " ++ show botHalts
+        , "# HELP trader_bot_running Bot running."
+        , "# TYPE trader_bot_running gauge"
+        , "trader_bot_running " ++ if botRunning then "1" else "0"
+        ]
+      txt = unlines (header ++ byEndpoint ++ orders ++ bot)
+  pure (BL.fromStrict (BS.pack txt))
+
+data Journal = Journal
+  { jPath :: !FilePath
+  , jLock :: !(MVar ())
+  }
+
+newJournalFromEnv :: IO (Maybe Journal)
+newJournalFromEnv = do
+  mDir <- lookupEnv "TRADER_JOURNAL_DIR"
+  case trim <$> mDir of
+    Nothing -> pure Nothing
+    Just dir | null dir -> pure Nothing
+    Just dir -> do
+      createDirectoryIfMissing True dir
+      ts <- getTimestampMs
+      lock <- newMVar ()
+      pure (Just (Journal (dir </> ("trader-" ++ show ts ++ ".jsonl")) lock))
+
+journalWrite :: Journal -> Aeson.Value -> IO ()
+journalWrite j v =
+  withMVar (jLock j) $ \_ ->
+    BL.appendFile (jPath j) (encode v <> BL.fromStrict (BS.pack "\n"))
+
+journalWriteMaybe :: Maybe Journal -> Aeson.Value -> IO ()
+journalWriteMaybe mj v =
+  case mj of
+    Nothing -> pure ()
+    Just j -> journalWrite j v
+
 -- Live bot (stateful; continuous loop)
 
 data BotSettings = BotSettings
@@ -466,9 +656,15 @@ data BotState = BotState
   , botOps :: ![BotOp]
   , botOrders :: ![BotOrderEvent]
   , botTrades :: ![Trade]
-  , botOpenTrade :: !(Maybe (Int, Double, Int)) -- (entryIdx, entryEq, holdingPeriods)
+  , botOpenTrade :: !(Maybe (Int, Double, Int, Double, Double)) -- (entryIdx, entryEq, holdingPeriods, entryPrice, trailHigh)
   , botLatestSignal :: !LatestSignal
   , botLastOrder :: !(Maybe ApiOrderResult)
+  , botHaltReason :: !(Maybe String)
+  , botHaltedAtMs :: !(Maybe Int64)
+  , botPeakEquity :: !Double
+  , botDayKey :: !Int64
+  , botDayStartEquity :: !Double
+  , botConsecutiveOrderErrors :: !Int
   , botLstmCtx :: !(Maybe LstmCtx)
   , botKalmanCtx :: !(Maybe KalmanCtx)
   , botLastOpenTime :: !Int64
@@ -527,6 +723,10 @@ botStatusJson st =
     , "startIndex" .= botStartIndex st
     , "startedAtMs" .= botStartedAtMs st
     , "updatedAtMs" .= botUpdatedAtMs st
+    , "halted" .= isJust (botHaltReason st)
+    , "peakEquity" .= botPeakEquity st
+    , "dayStartEquity" .= botDayStartEquity st
+    , "consecutiveOrderErrors" .= botConsecutiveOrderErrors st
     , "prices" .= V.toList (botPrices st)
     , "openTimes" .= V.toList (botOpenTimes st)
     , "kalmanPredNext" .= map finiteMaybe (V.toList (botKalmanPredNext st))
@@ -539,6 +739,8 @@ botStatusJson st =
     , "latestSignal" .= botLatestSignal st
     ]
       ++ maybe [] (\o -> ["lastOrder" .= o]) (botLastOrder st)
+      ++ maybe [] (\r -> ["haltReason" .= r]) (botHaltReason st)
+      ++ maybe [] (\t -> ["haltedAtMs" .= t]) (botHaltedAtMs st)
       ++ maybe [] (\e -> ["error" .= e]) (botError st)
 
 botStoppedJson :: Aeson.Value
@@ -575,8 +777,8 @@ marketCode m =
     MarketMargin -> "margin"
     MarketFutures -> "futures"
 
-botStart :: BotController -> Args -> ApiParams -> IO (Either String BotState)
-botStart ctrl args p =
+botStart :: Metrics -> Maybe Journal -> BotController -> Args -> ApiParams -> IO (Either String BotState)
+botStart metrics mJournal ctrl args p =
   case argData args of
     Just _ -> pure (Left "bot/start supports binanceSymbol only (no CSV data source)")
     Nothing ->
@@ -596,7 +798,7 @@ botStart ctrl args p =
                       Right st0 -> do
                         stVar <- newMVar st0
                         stopSig <- newEmptyMVar
-                        tid <- forkIO (botLoop ctrl stVar stopSig)
+                        tid <- forkIO (botLoop metrics mJournal ctrl stVar stopSig)
                         pure (Just (BotRuntime tid stVar stopSig), Right st0)
 
 botStop :: BotController -> IO Bool
@@ -696,7 +898,7 @@ initBotState args settings sym = do
         pure (Just (predictors, kalPrev, hmmPrev, svPrev), kalPred)
 
   let latest = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx
-      desiredPos =
+      desiredPosSignal =
         case lsChosenDir latest of
           Just 1 -> 1
           Just (-1) -> 0
@@ -704,28 +906,37 @@ initBotState args settings sym = do
       baseEq = 1.0
       eq0 = V.replicate n baseEq
       pos0 = V.replicate n 0
+      lastOt = V.last openV
+
+  mOrder <-
+    if desiredPosSignal == 1
+      then Just <$> placeIfEnabled args settings latest env sym
+      else pure Nothing
+
+  let tradeEnabled = bsTradeEnabled settings
+      orderSent = maybe False aorSent mOrder
+      appliedEntry = desiredPosSignal == 1 && (not tradeEnabled || orderSent)
+      desiredPos = if appliedEntry then 1 else 0
+      didTradeNow = desiredPos == 1 && (not tradeEnabled || orderSent)
+
       eq1 =
-        if desiredPos /= 0
+        if didTradeNow
           then eq0 V.// [(n - 1, baseEq * (1 - argFee args))]
           else eq0
       pos1 = pos0 V.// [(n - 1, desiredPos)]
       openTrade =
         if desiredPos == 1
-          then Just (n - 1, eq1 V.! (n - 1), 0)
+          then
+            let px = V.last pricesV
+             in Just (n - 1, eq1 V.! (n - 1), 0, px, px)
           else Nothing
       ops =
         if desiredPos == 1
           then [BotOp (n - 1) "BUY" (V.last pricesV)]
           else []
-      lastOt = V.last openV
 
-  mOrder <-
-    if desiredPos == 1
-      then Just <$> placeIfEnabled args settings latest env sym
-      else pure Nothing
-
-  let orders =
-        case (desiredPos, mOrder) of
+      orders =
+        case (desiredPosSignal, mOrder) of
           (1, Just o) -> [BotOrderEvent (n - 1) "BUY" (V.last pricesV) lastOt now o]
           _ -> []
 
@@ -752,9 +963,9 @@ initBotState args settings sym = do
             let openTradeShifted =
                   case openTrade of
                     Nothing -> Nothing
-                    Just (ei, eq0, hold) ->
+                    Just (ei, eq0, hold, entryPx, trailHigh) ->
                       if ei >= dropCount
-                        then Just (ei - dropCount, eq0, hold)
+                        then Just (ei - dropCount, eq0, hold, entryPx, trailHigh)
                         else Nothing
                 opsShifted =
                   [ op { boIndex = boIndex op - dropCount }
@@ -785,6 +996,19 @@ initBotState args settings sym = do
               , lstmCtxShifted
               )
 
+      peakEq = if V.null eq2 then 1.0 else V.maximum eq2
+      dayMs = 86400000 :: Int64
+      dayKey = V.last openV2 `div` dayMs
+      dayStartEq = V.last eq2
+      initOrderErrors =
+        if tradeEnabled && desiredPosSignal == 1 && not orderSent
+          then 1
+          else 0
+      (haltReason0, haltedAt0) =
+        case argMaxOrderErrors args of
+          Just lim | initOrderErrors >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
+          _ -> (Nothing, Nothing)
+
       st0 =
         BotState
           { botArgs = args
@@ -804,6 +1028,12 @@ initBotState args settings sym = do
           , botOpenTrade = openTrade2
           , botLatestSignal = latest
           , botLastOrder = mOrder
+          , botHaltReason = haltReason0
+          , botHaltedAtMs = haltedAt0
+          , botPeakEquity = peakEq
+          , botDayKey = dayKey
+          , botDayStartEquity = dayStartEq
+          , botConsecutiveOrderErrors = initOrderErrors
           , botLstmCtx = mLstmCtx2
           , botKalmanCtx = mKalmanCtx
           , botLastOpenTime = lastOt
@@ -837,14 +1067,22 @@ botOptimizeAfterOperation st = do
               lstmPred = V.toList (V.slice start (win - 1) (botLstmPredNext st))
               baseThr = argTradeThreshold args
               fee = argFee args
+              baseCfg =
+                EnsembleConfig
+                  { ecTradeThreshold = baseThr
+                  , ecFee = fee
+                  , ecStopLoss = argStopLoss args
+                  , ecTakeProfit = argTakeProfit args
+                  , ecTrailingStop = argTrailingStop args
+                  }
               hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
               (newMethod, newThr) =
                 if optimizeOps && hasBothCtx
                   then
-                    let (m, thr, _) = optimizeOperations baseThr fee prices kalPred lstmPred
+                    let (m, thr, _) = optimizeOperations baseCfg prices kalPred lstmPred
                      in (m, thr)
                   else
-                    let (thr, _) = sweepThreshold (argMethod args) baseThr fee prices kalPred lstmPred
+                    let (thr, _) = sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred
                      in (argMethod args, thr)
               args' =
                 args
@@ -868,8 +1106,8 @@ makeBinanceEnv args = do
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
   newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
 
-botLoop :: BotController -> MVar BotState -> MVar () -> IO ()
-botLoop ctrl stVar stopSig = do
+botLoop :: Metrics -> Maybe Journal -> BotController -> MVar BotState -> MVar () -> IO ()
+botLoop metrics mJournal ctrl stVar stopSig = do
   tid <- myThreadId
   let sleepSec s = threadDelay (max 1 s * 1000000)
 
@@ -898,7 +1136,7 @@ botLoop ctrl stVar stopSig = do
                     sleepSec pollSec
                     loop
                   else do
-                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe s0 k) (pure st) newKs
+                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe metrics mJournal s0 k) (pure st) newKs
                     _ <- swapMVar stVar st1
                     loop
 
@@ -910,17 +1148,17 @@ botLoop ctrl stVar stopSig = do
 
   loop `finally` cleanup
 
-botApplyKlineSafe :: BotState -> Kline -> IO BotState
-botApplyKlineSafe st k = do
-  r <- try (botApplyKline st k) :: IO (Either SomeException BotState)
+botApplyKlineSafe :: Metrics -> Maybe Journal -> BotState -> Kline -> IO BotState
+botApplyKlineSafe metrics mJournal st k = do
+  r <- try (botApplyKline metrics mJournal st k) :: IO (Either SomeException BotState)
   case r of
     Right st' -> pure st'
     Left ex -> do
       now <- getTimestampMs
       pure st { botError = Just (show ex), botUpdatedAtMs = now, botLastOpenTime = kOpenTime k }
 
-botApplyKline :: BotState -> Kline -> IO BotState
-botApplyKline st k = do
+botApplyKline :: Metrics -> Maybe Journal -> BotState -> Kline -> IO BotState
+botApplyKline metrics mJournal st k = do
   now <- getTimestampMs
   let args = botArgs st
       lookback = botLookback st
@@ -943,8 +1181,34 @@ botApplyKline st k = do
           else prevEq
       openTrade1 =
         case (prevPos, botOpenTrade st) of
-          (1, Just (ei, eq0, hold)) -> Just (ei, eq0, hold + 1)
+          (1, Just (ei, eq0, hold, entryPx, trailHigh)) -> Just (ei, eq0, hold + 1, entryPx, max trailHigh priceNew)
           _ -> Nothing
+      dayMs = 86400000 :: Int64
+      dayKeyNew = openTimeNew `div` dayMs
+      (dayKey1, dayStartEq1) =
+        if dayKeyNew /= botDayKey st
+          then (dayKeyNew, prevEq)
+          else (botDayKey st, botDayStartEquity st)
+      peakEq0 = botPeakEquity st
+      drawdown =
+        if peakEq0 > 0
+          then max 0 (1 - eqAfterReturn / peakEq0)
+          else 0
+      dailyLoss =
+        if dayStartEq1 > 0
+          then max 0 (1 - eqAfterReturn / dayStartEq1)
+          else 0
+      riskHaltReason =
+        if isJust (botHaltReason st)
+          then Nothing
+          else
+            case () of
+              _ | maybe False (\lim -> dailyLoss >= lim) (argMaxDailyLoss args) -> Just "MAX_DAILY_LOSS"
+                | maybe False (\lim -> drawdown >= lim) (argMaxDrawdown args) -> Just "MAX_DRAWDOWN"
+                | otherwise -> Nothing
+      haltReason1 = botHaltReason st <|> riskHaltReason
+      haltedAt1 = botHaltedAtMs st <|> (if isJust riskHaltReason then Just now else Nothing)
+      halted = isJust haltReason1
 
       pricesV = V.snoc pricesPrev priceNew
       openTimesV = V.snoc (botOpenTimes st) openTimeNew
@@ -993,56 +1257,193 @@ botApplyKline st k = do
                 else fineTuneLSTM cfg lstmModel0 obsTrain
         pure (Just (normState, obsAll', lstmModel1))
 
-  let latest = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1
+  let latest0 = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1
       nan = 0 / 0 :: Double
-      kalPred1 = V.snoc (botKalmanPredNext st) (maybe nan id (lsKalmanNext latest))
-      lstmPred1 = V.snoc (botLstmPredNext st) (maybe nan id (lsLstmNext latest))
-      desiredPos =
-        case lsChosenDir latest of
+      kalPred1 = V.snoc (botKalmanPredNext st) (maybe nan id (lsKalmanNext latest0))
+      lstmPred1 = V.snoc (botLstmPredNext st) (maybe nan id (lsLstmNext latest0))
+
+      desiredPosSignal =
+        case lsChosenDir latest0 of
           Just 1 -> 1
           Just (-1) -> 0
           _ -> prevPos
 
-      switched = desiredPos /= prevPos
-      eqAfterFee =
-        if switched
-          then eqAfterReturn * (1 - argFee args)
-          else eqAfterReturn
+      bracketExitReason entryPx trailHigh =
+        let mTpPx =
+              case argTakeProfit args of
+                Just tp | tp > 0 -> Just (entryPx * (1 + tp))
+                _ -> Nothing
+            mSlPx =
+              case argStopLoss args of
+                Just sl | sl > 0 -> Just (entryPx * (1 - sl))
+                _ -> Nothing
+            mTsPx =
+              case argTrailingStop args of
+                Just ts | ts > 0 -> Just (trailHigh * (1 - ts))
+                _ -> Nothing
 
-  (ops', orders', trades', openTrade', mOrder) <-
-    if not switched
-      then pure (botOps st, botOrders st, botTrades st, openTrade1, Nothing)
+            tpHit = maybe False (\tpPx -> priceNew >= tpPx) mTpPx
+            (mStopPx, stopWhy) =
+              case (mSlPx, mTsPx) of
+                (Nothing, Nothing) -> (Nothing, Nothing)
+                (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                (Just slPx, Just tsPx) ->
+                  if tsPx > slPx
+                    then (Just tsPx, Just "TRAILING_STOP")
+                    else (Just slPx, Just "STOP_LOSS")
+            stopHit = maybe False (\stPx -> priceNew <= stPx) mStopPx
+         in if tpHit then Just "TAKE_PROFIT" else if stopHit then stopWhy else Nothing
+
+      mBracketExit =
+        case (prevPos, openTrade1) of
+          (1, Just (_ei, _eq0, _hold, entryPx, trailHigh)) -> bracketExitReason entryPx trailHigh
+          _ -> Nothing
+
+      (latestPre, desiredPosPre, mExitReasonPre) =
+        case mBracketExit of
+          Just why ->
+            let sigExit = latest0 { lsChosenDir = Just (-1), lsAction = "EXIT_" ++ why }
+             in (sigExit, 0, Just why)
+          Nothing ->
+            let exitReason =
+                  if prevPos == 1 && desiredPosSignal == 0
+                    then Just "SIGNAL"
+                    else Nothing
+             in (latest0, desiredPosSignal, exitReason)
+
+      (latest, desiredPosWanted, mExitReason) =
+        if halted
+          then
+            let why = haltReason1
+                latestHalt =
+                  case (prevPos, desiredPosPre, why) of
+                    (1, 1, Just r) -> latest0 { lsChosenDir = Just (-1), lsAction = "EXIT_" ++ r }
+                    (0, 1, Just r) -> latest0 { lsChosenDir = Nothing, lsAction = "HALTED_" ++ r }
+                    _ -> latestPre
+                exitReason =
+                  if prevPos == 1 && desiredPosPre == 1 && not (isJust mExitReasonPre)
+                    then why
+                    else mExitReasonPre
+             in (latestHalt, 0, exitReason)
+          else (latestPre, desiredPosPre, mExitReasonPre)
+
+      wantSwitch = desiredPosWanted /= prevPos
+
+  (ops', orders', trades', openTrade', mOrder, posFinal, eqFinal, switchedApplied, orderErrors1, haltReason2, haltedAt2) <-
+    if not wantSwitch
+      then
+        pure
+          ( botOps st
+          , botOrders st
+          , botTrades st
+          , openTrade1
+          , Nothing
+          , prevPos
+          , eqAfterReturn
+          , False
+          , botConsecutiveOrderErrors st
+          , haltReason1
+          , haltedAt1
+          )
       else do
         o <- placeIfEnabled args settings latest (botEnv st) (botSymbol st)
         let opSide =
-              if prevPos == 0 && desiredPos == 1
+              if prevPos == 0 && desiredPosWanted == 1
                 then "BUY"
                 else "SELL"
-            op = BotOp nPrev opSide priceNew
             orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now o
-            opsNew = botOps st ++ [op]
             ordersNew = botOrders st ++ [orderEv]
+            tradeEnabled = bsTradeEnabled settings
+            alreadyMsg =
+              aorMessage o == "No order: already long." || aorMessage o == "No order: already flat."
+            appliedSwitch =
+              if not tradeEnabled
+                then True
+                else aorSent o || alreadyMsg
+            feeApplied =
+              if not tradeEnabled
+                then True
+                else aorSent o
+            eqAfterFee =
+              if appliedSwitch && feeApplied
+                then eqAfterReturn * (1 - argFee args)
+                else eqAfterReturn
+            posNew = if appliedSwitch then desiredPosWanted else prevPos
+            switchedApplied1 = posNew /= prevPos
+            opsNew =
+              if appliedSwitch
+                then botOps st ++ [BotOp nPrev opSide priceNew]
+                else botOps st
             (openTradeNew, tradesNew) =
-              if opSide == "BUY"
-                then (Just (nPrev, eqAfterFee, 0), botTrades st)
+              if not appliedSwitch
+                then (openTrade1, botTrades st)
                 else
-                  case openTrade1 of
-                    Just (ei, entryEq, hold) ->
-                      let tr =
-                            Trade
-                              { trEntryIndex = ei
-                              , trExitIndex = nPrev
-                              , trEntryEquity = entryEq
-                              , trExitEquity = eqAfterFee
-                              , trReturn = eqAfterFee / entryEq - 1
-                              , trHoldingPeriods = hold
-                              }
-                       in (Nothing, botTrades st ++ [tr])
-                    Nothing -> (Nothing, botTrades st)
-        pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o)
+                  if opSide == "BUY"
+                    then (Just (nPrev, eqAfterFee, 0, priceNew, priceNew), botTrades st)
+                    else
+                      case openTrade1 of
+                        Just (ei, entryEq, hold, _entryPx, _trailHigh) ->
+                          let tr =
+                                Trade
+                                  { trEntryIndex = ei
+                                  , trExitIndex = nPrev
+                                  , trEntryEquity = entryEq
+                                  , trExitEquity = eqAfterFee
+                                  , trReturn = eqAfterFee / entryEq - 1
+                                  , trHoldingPeriods = hold
+                                  , trExitReason = mExitReason
+                                  }
+                           in (Nothing, botTrades st ++ [tr])
+                        Nothing -> (Nothing, botTrades st)
+            errors0 = botConsecutiveOrderErrors st
+            errors1 =
+              if tradeEnabled
+                then if appliedSwitch then 0 else errors0 + 1
+                else 0
+            (haltReason3, haltedAt3) =
+              case haltReason1 of
+                Just _ -> (haltReason1, haltedAt1)
+                Nothing ->
+                  case argMaxOrderErrors args of
+                    Just lim | errors1 >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
+                    _ -> (Nothing, Nothing)
 
-  let eqV1 = V.snoc (botEquityCurve st) eqAfterFee
-      posV1 = V.snoc (botPositions st) desiredPos
+        metricsRecordOrder metrics o
+        journalWriteMaybe
+          mJournal
+          ( object
+              [ "type" .= ("bot.order" :: String)
+              , "atMs" .= now
+              , "symbol" .= botSymbol st
+              , "market" .= marketCode (argBinanceMarket args)
+              , "event" .= orderEv
+              ]
+          )
+
+        pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
+
+  case (botHaltReason st, haltReason2) of
+    (Nothing, Just r) -> do
+      metricsRecordBotHalt metrics
+      journalWriteMaybe
+        mJournal
+        ( object
+            [ "type" .= ("bot.halt" :: String)
+            , "atMs" .= now
+            , "symbol" .= botSymbol st
+            , "market" .= marketCode (argBinanceMarket args)
+            , "reason" .= r
+            , "equity" .= eqFinal
+            , "drawdown" .= drawdown
+            , "dailyLoss" .= dailyLoss
+            , "consecutiveOrderErrors" .= orderErrors1
+            ]
+        )
+    _ -> pure ()
+
+  let eqV1 = V.snoc (botEquityCurve st) eqFinal
+      posV1 = V.snoc (botPositions st) posFinal
 
       maxPoints = max (lookback + 3) (bsMaxPoints settings)
       dropCount = max 0 (V.length pricesV - maxPoints)
@@ -1062,9 +1463,9 @@ botApplyKline st k = do
                 openTradeShifted =
                   case openTrade' of
                     Nothing -> Nothing
-                    Just (ei, eq0, hold) ->
+                    Just (ei, eq0, hold, entryPx, trailHigh) ->
                       if ei >= dropCount
-                        then Just (ei - dropCount, eq0, hold)
+                        then Just (ei - dropCount, eq0, hold, entryPx, trailHigh)
                         else Nothing
                 opsShifted =
                   [ op { boIndex = boIndex op - dropCount }
@@ -1111,7 +1512,13 @@ botApplyKline st k = do
           , botTrades = trades2
           , botOpenTrade = openTrade2
           , botLatestSignal = latest
-          , botLastOrder = mOrder
+          , botLastOrder = mOrder <|> botLastOrder st
+          , botHaltReason = haltReason2
+          , botHaltedAtMs = haltedAt2
+          , botPeakEquity = max (botPeakEquity st) eqFinal
+          , botDayKey = dayKey1
+          , botDayStartEquity = dayStartEq1
+          , botConsecutiveOrderErrors = orderErrors1
           , botLstmCtx = mLstmCtx2
           , botKalmanCtx = mKalmanCtx1
           , botLastOpenTime = openTimeNew
@@ -1120,12 +1527,12 @@ botApplyKline st k = do
           , botError = Nothing
           }
 
-  if switched then botOptimizeAfterOperation st1 else pure st1
+  if switchedApplied then botOptimizeAfterOperation st1 else pure st1
 
 placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeIfEnabled args settings sig env sym =
   if not (bsTradeEnabled settings)
-    then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing "Paper mode: no order sent.")
+    then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
     else placeOrderForSignal args sym sig env
 
 runRestApi :: Args -> IO ()
@@ -1142,49 +1549,85 @@ runRestApi baseArgs = do
           Warp.setTimeout timeoutSec $
           Warp.setPort port Warp.defaultSettings
   putStrLn (printf "REST API listening on http://0.0.0.0:%d" port)
+  metrics <- newMetrics
+  mJournal <- newJournalFromEnv
+  now <- getTimestampMs
+  journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
   bot <- newBotController
-  Warp.runSettings settings (apiApp baseArgs apiToken bot)
+  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal)
 
-apiApp :: Args -> Maybe BS.ByteString -> BotController -> Wai.Application
-apiApp baseArgs apiToken botCtrl req respond =
-  let path = Wai.pathInfo req
-   in if path /= ["health"] && not (authorized apiToken req)
-        then respond (jsonError status401 "Unauthorized")
+corsHeaders :: ResponseHeaders
+corsHeaders =
+  [ ("Access-Control-Allow-Origin", "*")
+  , ("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+  , ("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key")
+  , ("Access-Control-Max-Age", "86400")
+  ]
+
+withCors :: Wai.Response -> Wai.Response
+withCors = Wai.mapResponseHeaders (\hs -> corsHeaders ++ hs)
+
+apiApp :: Args -> Maybe BS.ByteString -> BotController -> Metrics -> Maybe Journal -> Wai.Application
+apiApp baseArgs apiToken botCtrl metrics mJournal req respond = do
+  let rawPath = Wai.pathInfo req
+      path =
+        case rawPath of
+          ("api" : rest) -> rest
+          _ -> rawPath
+      respondCors = respond . withCors
+      label =
+        let go xs =
+              case xs of
+                [] -> "root"
+                [x] -> T.unpack x
+                (x:rest) -> T.unpack x ++ "/" ++ go rest
+         in go path
+
+  case Wai.requestMethod req of
+    "OPTIONS" -> respond (Wai.responseLBS status204 corsHeaders "")
+    _ -> do
+      metricsIncEndpoint metrics label
+      if path /= ["health"] && not (authorized apiToken req)
+        then respondCors (jsonError status401 "Unauthorized")
         else
           case path of
             ["health"] ->
               case Wai.requestMethod req of
-                "GET" -> respond (jsonValue status200 (object ["status" .= ("ok" :: String)]))
-                _ -> respond (jsonError status405 "Method not allowed")
+                "GET" -> respondCors (jsonValue status200 (object ["status" .= ("ok" :: String)]))
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["metrics"] ->
+              case Wai.requestMethod req of
+                "GET" -> handleMetrics metrics botCtrl respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["signal"] ->
               case Wai.requestMethod req of
-                "POST" -> handleSignal baseArgs req respond
-                _ -> respond (jsonError status405 "Method not allowed")
+                "POST" -> handleSignal baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade"] ->
               case Wai.requestMethod req of
-                "POST" -> handleTrade baseArgs req respond
-                _ -> respond (jsonError status405 "Method not allowed")
+                "POST" -> handleTrade metrics mJournal baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBacktest baseArgs req respond
-                _ -> respond (jsonError status405 "Method not allowed")
+                "POST" -> handleBacktest baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "keys"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceKeys baseArgs req respond
-                _ -> respond (jsonError status405 "Method not allowed")
+                "POST" -> handleBinanceKeys baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStart baseArgs botCtrl req respond
-                _ -> respond (jsonError status405 "Method not allowed")
+                "POST" -> handleBotStart metrics mJournal baseArgs botCtrl req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "stop"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStop botCtrl respond
-                _ -> respond (jsonError status405 "Method not allowed")
+                "POST" -> handleBotStop mJournal botCtrl respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "status"] ->
               case Wai.requestMethod req of
-                "GET" -> handleBotStatus botCtrl respond
-                _ -> respond (jsonError status405 "Method not allowed")
-            _ -> respond (jsonError status404 "Not found")
+                "GET" -> handleBotStatus botCtrl respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            _ -> respondCors (jsonError status404 "Not found")
 
 authorized :: Maybe BS.ByteString -> Wai.Request -> Bool
 authorized mToken req =
@@ -1218,6 +1661,19 @@ exceptionToHttp ex =
             Just httpEx -> (status502, show httpEx)
             Nothing -> (status500, show ex)
 
+textValue :: Status -> BL.ByteString -> Wai.Response
+textValue st body =
+  Wai.responseLBS
+    st
+    [("Content-Type", "text/plain; version=0.0.4")]
+    body
+
+handleMetrics :: Metrics -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleMetrics metrics botCtrl respond = do
+  mSt <- botGetState botCtrl
+  body <- renderMetricsText metrics (isJust mSt)
+  respond (textValue status200 body)
+
 handleSignal :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignal baseArgs req respond = do
   body <- Wai.strictRequestBody req
@@ -1241,8 +1697,8 @@ handleSignal baseArgs req respond = do
                in respond (jsonError st msg)
             Right sig -> respond (jsonValue status200 sig)
 
-handleTrade :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleTrade baseArgs req respond = do
+handleTrade :: Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleTrade metrics mJournal baseArgs req respond = do
   body <- Wai.strictRequestBody req
   case eitherDecode body of
     Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
@@ -1265,7 +1721,21 @@ handleTrade baseArgs req respond = do
             Left ex ->
               let (st, msg) = exceptionToHttp ex
                in respond (jsonError st msg)
-            Right out -> respond (jsonValue status200 out)
+            Right out -> do
+              metricsRecordOrder metrics (atrOrder out)
+              now <- getTimestampMs
+              journalWriteMaybe
+                mJournal
+                ( object
+                    [ "type" .= ("trade.order" :: String)
+                    , "atMs" .= now
+                    , "symbol" .= argBinanceSymbol args
+                    , "market" .= marketCode (argBinanceMarket args)
+                    , "action" .= lsAction (atrSignal out)
+                    , "order" .= atrOrder out
+                    ]
+                )
+              respond (jsonValue status200 out)
 
 handleBacktest :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBacktest baseArgs req respond = do
@@ -1291,8 +1761,24 @@ handleBacktest baseArgs req respond = do
                in respond (jsonError st msg)
             Right out -> respond (jsonValue status200 out)
 
-handleBotStart :: Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStart baseArgs botCtrl req respond = do
+handleBinanceKeys :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceKeys baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          r <- try (computeBinanceKeysStatusFromArgs args0) :: IO (Either SomeException ApiBinanceKeysStatus)
+          case r of
+            Left ex ->
+              let (st, msg) = exceptionToHttp ex
+               in respond (jsonError st msg)
+            Right out -> respond (jsonValue status200 out)
+
+handleBotStart :: Metrics -> Maybe Journal -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStart metrics mJournal baseArgs botCtrl req respond = do
   body <- Wai.strictRequestBody req
   case eitherDecode body of
     Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
@@ -1303,17 +1789,30 @@ handleBotStart baseArgs botCtrl req respond = do
           let args =
                 args0
                   { argTradeOnly = True
-                  , argSweepThreshold = False
-                  , argOptimizeOperations = False
                   }
-          r <- botStart botCtrl args params
+          r <- botStart metrics mJournal botCtrl args params
           case r of
             Left e -> respond (jsonError status400 e)
-            Right st -> respond (jsonValue status200 (botStatusJson st))
+            Right st -> do
+              now <- getTimestampMs
+              journalWriteMaybe
+                mJournal
+                ( object
+                    [ "type" .= ("bot.start" :: String)
+                    , "atMs" .= now
+                    , "symbol" .= botSymbol st
+                    , "market" .= marketCode (argBinanceMarket (botArgs st))
+                    , "interval" .= argInterval (botArgs st)
+                    , "tradeEnabled" .= bsTradeEnabled (botSettings st)
+                    ]
+                )
+              respond (jsonValue status200 (botStatusJson st))
 
-handleBotStop :: BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStop botCtrl respond = do
+handleBotStop :: Maybe Journal -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStop mJournal botCtrl respond = do
   _ <- botStop botCtrl
+  now <- getTimestampMs
+  journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now])
   respond (jsonValue status200 botStoppedJson)
 
 handleBotStatus :: BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -1369,6 +1868,8 @@ argsFromApi baseArgs p = do
           , argLookbackWindow = pick (apLookbackWindow p) (argLookbackWindow baseArgs)
           , argLookbackBars = pickMaybe (apLookbackBars p) (argLookbackBars baseArgs)
           , argBinanceTestnet = pick (apBinanceTestnet p) (argBinanceTestnet baseArgs)
+          , argBinanceApiKey = pickMaybe (apBinanceApiKey p) (argBinanceApiKey baseArgs)
+          , argBinanceApiSecret = pickMaybe (apBinanceApiSecret p) (argBinanceApiSecret baseArgs)
           , argNormalization = norm
           , argHiddenSize = pick (apHiddenSize p) (argHiddenSize baseArgs)
           , argEpochs = pick (apEpochs p) (argEpochs baseArgs)
@@ -1389,6 +1890,12 @@ argsFromApi baseArgs p = do
           , argOptimizeOperations = pick (apOptimizeOperations p) (argOptimizeOperations baseArgs)
           , argSweepThreshold = pick (apSweepThreshold p) (argSweepThreshold baseArgs)
           , argFee = pick (apFee p) (argFee baseArgs)
+          , argStopLoss = pickMaybe (apStopLoss p) (argStopLoss baseArgs)
+          , argTakeProfit = pickMaybe (apTakeProfit p) (argTakeProfit baseArgs)
+          , argTrailingStop = pickMaybe (apTrailingStop p) (argTrailingStop baseArgs)
+          , argMaxDrawdown = pickMaybe (apMaxDrawdown p) (argMaxDrawdown baseArgs)
+          , argMaxDailyLoss = pickMaybe (apMaxDailyLoss p) (argMaxDailyLoss baseArgs)
+          , argMaxOrderErrors = pickMaybe (apMaxOrderErrors p) (argMaxOrderErrors baseArgs)
           , argPeriodsPerYear =
               case apPeriodsPerYear p of
                 Nothing -> argPeriodsPerYear baseArgs
@@ -1396,6 +1903,9 @@ argsFromApi baseArgs p = do
           , argBinanceLive = pick (apBinanceLive p) (argBinanceLive baseArgs)
           , argOrderQuote = pickMaybe (apOrderQuote p) (argOrderQuote baseArgs)
           , argOrderQuantity = pickMaybe (apOrderQuantity p) (argOrderQuantity baseArgs)
+          , argOrderQuoteFraction = pickMaybe (apOrderQuoteFraction p) (argOrderQuoteFraction baseArgs)
+          , argMaxOrderQuote = pickMaybe (apMaxOrderQuote p) (argMaxOrderQuote baseArgs)
+          , argIdempotencyKey = pickMaybe (apIdempotencyKey p) (argIdempotencyKey baseArgs)
           }
 
   validateArgs args
@@ -1422,111 +1932,501 @@ computeTradeFromArgs args = do
   sig <- computeTradeOnlySignal args lookback prices
   order <-
     case (argBinanceSymbol args, mBinanceEnv) of
-      (Nothing, _) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing binanceSymbol.")
-      (_, Nothing) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing Binance environment (use binanceSymbol data source).")
+      (Nothing, _) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing binanceSymbol.")
+      (_, Nothing) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing Binance environment (use binanceSymbol data source).")
       (Just sym, Just env) -> placeOrderForSignal args sym sig env
   pure ApiTradeResponse { atrSignal = sig, atrOrder = order }
 
+data BinanceApiErrorBody = BinanceApiErrorBody
+  { baeCode :: !Int
+  , baeMsg :: !String
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON BinanceApiErrorBody where
+  parseJSON =
+    Aeson.withObject "BinanceApiErrorBody" $ \o ->
+      BinanceApiErrorBody
+        <$> o Aeson..: "code"
+        <*> o Aeson..: "msg"
+
+truncateString :: Int -> String -> String
+truncateString n s =
+  if length s <= n then s else take n s ++ "..."
+
+extractHttpStatusCode :: String -> Maybe Int
+extractHttpStatusCode msg =
+  let go [] = Nothing
+      go ('H':'T':'T':'P':' ':rest) =
+        let digits = takeWhile isDigit rest
+         in readMaybe digits
+      go (_:xs) = go xs
+   in go msg
+
+extractJsonObject :: String -> Maybe String
+extractJsonObject msg =
+  case dropWhile (/= '{') msg of
+    [] -> Nothing
+    s0 ->
+      case break (== '}') s0 of
+        (obj, '}':_) -> Just (obj ++ "}")
+        _ -> Nothing
+
+parseBinanceError :: String -> (Maybe Int, Maybe String, String)
+parseBinanceError raw =
+  let raw' = truncateString 240 raw
+      httpCode = extractHttpStatusCode raw'
+      decoded =
+        case extractJsonObject raw' of
+          Nothing -> Nothing
+          Just json ->
+            case eitherDecode (BL.fromStrict (BS.pack json)) of
+              Right b -> Just (b :: BinanceApiErrorBody)
+              Left _ -> Nothing
+      outCode = maybe httpCode (Just . baeCode) decoded
+      outMsg = baeMsg <$> decoded
+      summary = maybe raw' id outMsg
+   in (outCode, outMsg, summary)
+
+probeBinance :: String -> IO a -> IO ApiBinanceProbe
+probeBinance step action = do
+  r <- try action
+  case r of
+    Right _ -> pure (ApiBinanceProbe True step Nothing Nothing "OK")
+    Left ex -> do
+      let msg =
+            case (fromException ex :: Maybe IOError) of
+              Just io | isUserError io -> ioeGetErrorString io
+              _ -> show ex
+          (code, m, summary) = parseBinanceError msg
+      pure (ApiBinanceProbe False step code m summary)
+
+computeBinanceKeysStatusFromArgs :: Args -> IO ApiBinanceKeysStatus
+computeBinanceKeysStatusFromArgs args = do
+  apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
+  apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
+
+  let hasApiKey = maybe False (not . null . trim) apiKey
+      hasApiSecret = maybe False (not . null . trim) apiSecret
+      market = argBinanceMarket args
+      sym = argBinanceSymbol args
+      baseStatus =
+        ApiBinanceKeysStatus
+          { abkMarket = marketCode market
+          , abkTestnet = argBinanceTestnet args
+          , abkSymbol = sym
+          , abkHasApiKey = hasApiKey
+          , abkHasApiSecret = hasApiSecret
+          , abkSigned = Nothing
+          , abkTradeTest = Nothing
+          }
+
+  if not hasApiKey || not hasApiSecret
+    then pure baseStatus
+    else do
+      env <- makeBinanceEnv args
+      sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure sym
+      signedProbe <-
+        probeBinance "signed" $ do
+          case market of
+            MarketFutures -> do
+              _ <- fetchFuturesPositionAmt env sym'
+              pure ()
+            _ -> do
+              let (baseAsset, _) = splitSymbol sym'
+              _ <- fetchFreeBalance env baseAsset
+              pure ()
+
+      tradeProbe <-
+        case market of
+          MarketMargin -> pure Nothing
+          MarketSpot -> do
+            let qty =
+                  case argOrderQuantity args of
+                    Just q | q > 0 -> Just q
+                    _ -> Nothing
+                qqArg =
+                  case argOrderQuote args of
+                    Just q | q > 0 -> Just q
+                    _ -> Nothing
+            qq <-
+              case (qty, qqArg, argOrderQuoteFraction args) of
+                (Nothing, Nothing, Just f) | f > 0 -> do
+                  let (_baseAsset, quoteAsset) = splitSymbol sym'
+                  quoteBal <- fetchFreeBalance env quoteAsset
+                  let q0 = quoteBal * f
+                      q1 = maybe q0 (\capQ -> min capQ q0) (argMaxOrderQuote args)
+                  pure (if q1 > 0 then Just q1 else Nothing)
+                _ -> pure qqArg
+            if qty == Nothing && qq == Nothing
+              then
+                let msg =
+                      if isJust (argOrderQuoteFraction args)
+                        then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
+                        else "Provide orderQuantity or orderQuote."
+                 in pure (Just (ApiBinanceProbe False "order/test" Nothing Nothing msg))
+              else Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym' Buy qty qq Nothing (trim <$> argIdempotencyKey args) >> pure ())
+          MarketFutures -> do
+            let qtyFromArgs =
+                  case argOrderQuantity args of
+                    Just q | q > 0 -> Just q
+                    _ -> Nothing
+            qty <-
+              case qtyFromArgs of
+                Just q -> pure (Just q)
+                Nothing -> do
+                  qq <-
+                    case argOrderQuote args of
+                      Just qq | qq > 0 -> pure (Just qq)
+                      _ ->
+                        case argOrderQuoteFraction args of
+                          Just f | f > 0 -> do
+                            let (_baseAsset, quoteAsset) = splitSymbol sym'
+                            bal <- fetchFuturesAvailableBalance env quoteAsset
+                            let q0 = bal * f
+                                q1 = maybe q0 (\capQ -> min capQ q0) (argMaxOrderQuote args)
+                            pure (if q1 > 0 then Just q1 else Nothing)
+                          _ -> pure Nothing
+                  case qq of
+                    Nothing -> pure Nothing
+                    Just q -> do
+                      price <- fetchTickerPrice env sym'
+                      pure (if price > 0 then Just (q / price) else Nothing)
+            case qty of
+              Nothing ->
+                let msg =
+                      if isJust (argOrderQuoteFraction args)
+                        then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
+                        else "Provide orderQuantity or orderQuote."
+                 in pure (Just (ApiBinanceProbe False "futures/order/test" Nothing Nothing msg))
+              Just q ->
+                Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
+
+      let isAuthFailureCode c = c == (-1022) || c == (-2014) || c == (-2015)
+          normalizeTradeProbe p =
+            if abpOk p
+              then p
+              else
+                case abpCode p of
+                  Just c | not (isAuthFailureCode c) ->
+                    p { abpOk = True, abpSummary = "Auth OK, but order rejected: " ++ abpSummary p }
+                  _ -> p
+      pure baseStatus { abkSigned = Just signedProbe, abkTradeTest = normalizeTradeProbe <$> tradeProbe }
+
+data BinanceOrderInfo = BinanceOrderInfo
+  { boiOrderId :: !(Maybe Int64)
+  , boiClientOrderId :: !(Maybe String)
+  , boiStatus :: !(Maybe String)
+  , boiExecutedQty :: !(Maybe Double)
+  , boiCummulativeQuoteQty :: !(Maybe Double)
+  } deriving (Eq, Show)
+
+instance FromJSON BinanceOrderInfo where
+  parseJSON =
+    Aeson.withObject "BinanceOrderInfo" $ \o -> do
+      oid <- o Aeson..:? "orderId"
+      cid <- o Aeson..:? "clientOrderId"
+      st <- o Aeson..:? "status"
+      exec <- parseMaybeDoubleField o "executedQty"
+      cum <-
+        parseMaybeDoubleField o "cummulativeQuoteQty"
+          <|> parseMaybeDoubleField o "cumQuote"
+          <|> parseMaybeDoubleField o "cumQuoteQty"
+      pure BinanceOrderInfo { boiOrderId = oid, boiClientOrderId = cid, boiStatus = st, boiExecutedQty = exec, boiCummulativeQuoteQty = cum }
+    where
+      parseMaybeDoubleField o k = do
+        mv <- o Aeson..:? k :: AT.Parser (Maybe Aeson.Value)
+        case mv of
+          Nothing -> pure Nothing
+          Just v -> Just <$> parseJsonDouble v
+
+      parseJsonDouble v =
+        case v of
+          Aeson.String t ->
+            case readMaybe (T.unpack t) of
+              Just d -> pure d
+              Nothing -> fail ("Failed to parse double: " ++ T.unpack t)
+          Aeson.Number n -> pure (realToFrac n)
+          _ -> fail "Expected number or string"
+
+decodeOrderInfo :: BL.ByteString -> Maybe BinanceOrderInfo
+decodeOrderInfo raw =
+  case Aeson.decode raw of
+    Nothing -> Nothing
+    Just v -> AT.parseMaybe parseJSON v
+
+applyOrderInfo :: BinanceOrderInfo -> ApiOrderResult -> ApiOrderResult
+applyOrderInfo info r =
+  r
+    { aorOrderId = boiOrderId info <|> aorOrderId r
+    , aorClientOrderId = boiClientOrderId info <|> aorClientOrderId r
+    , aorStatus = boiStatus info <|> aorStatus r
+    , aorExecutedQty = boiExecutedQty info <|> aorExecutedQty r
+    , aorCummulativeQuoteQty = boiCummulativeQuoteQty info <|> aorCummulativeQuoteQty r
+    }
+
 placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
-placeOrderForSignal args sym sig env = do
-  let mode = if argBinanceLive args then OrderLive else OrderTest
-      modeLabelStr = case mode of { OrderLive -> "live"; OrderTest -> "test" }
-      base = ApiOrderResult False (Just modeLabelStr) Nothing (Just sym) Nothing Nothing Nothing
+placeOrderForSignal args sym sig env =
+  placeOrderForSignalEx args sym sig env Nothing
 
-  let noOrder msg = pure (base msg)
-
+placeOrderForSignalEx :: Args -> String -> LatestSignal -> BinanceEnv -> Maybe String -> IO ApiOrderResult
+placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
   case (beApiKey env, beApiSecret env) of
     (Nothing, _) -> noOrder "No order: missing Binance API key."
     (_, Nothing) -> noOrder "No order: missing Binance API secret."
-    (Just _, Just _) -> do
-      let (baseAsset, _) = splitSymbol sym
-      r <- try (place baseAsset) :: IO (Either SomeException ApiOrderResult)
-      case r of
-        Left ex -> noOrder ("Order failed: " ++ show ex)
-        Right out -> pure out
+    (Just _, Just _) ->
+      case chosenDir of
+        Nothing -> noOrder neutralMsg
+        Just dir -> do
+          mFilters <- tryFetchFilters
+          let (baseAsset, quoteAsset) = splitSymbol sym
+          r <- try (place mFilters baseAsset quoteAsset dir) :: IO (Either SomeException ApiOrderResult)
+          case r of
+            Left ex -> noOrder ("Order failed: " ++ shortErr ex)
+            Right out -> pure out
   where
     method = lsMethod sig
     chosenDir = lsChosenDir sig
     currentPrice = lsCurrentPrice sig
 
-    place baseAsset =
-      case beMarket env of
-        MarketSpot -> placeSpotOrMargin baseAsset
-        MarketMargin ->
-          if mode == OrderTest
-            then pure (ApiOrderResult False (Just "test") Nothing (Just sym) Nothing Nothing Nothing "No order: margin trading requires binanceLive (no test endpoint).")
-            else placeSpotOrMargin baseAsset
-        MarketFutures -> placeFutures
+    clientOrderId :: Maybe String
+    clientOrderId = trim <$> (mClientOrderIdOverride <|> argIdempotencyKey args)
+
+    baseResult :: ApiOrderResult
+    baseResult =
+      ApiOrderResult
+        { aorSent = False
+        , aorMode = Just (modeLabel mode)
+        , aorSide = Nothing
+        , aorSymbol = Just sym
+        , aorQuantity = Nothing
+        , aorQuoteQuantity = Nothing
+        , aorOrderId = Nothing
+        , aorClientOrderId = clientOrderId
+        , aorStatus = Nothing
+        , aorExecutedQty = Nothing
+        , aorCummulativeQuoteQty = Nothing
+        , aorResponse = Nothing
+        , aorMessage = ""
+        }
+
+    noOrder :: String -> IO ApiOrderResult
+    noOrder msg = pure baseResult { aorMessage = msg }
+
+    neutralMsg =
+      case method of
+        MethodBoth -> "No order: directions disagree or neutral (direction gate)."
+        MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
+        MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
+
+    shortErr :: SomeException -> String
+    shortErr ex = take 240 (show ex)
 
     mode = if argBinanceLive args then OrderLive else OrderTest
 
-    placeSpotOrMargin baseAsset = do
-      baseBal <- fetchFreeBalance env baseAsset
-      case chosenDir of
-        Just 1 ->
-          if baseBal <= 0
-            then do
-              let qty = argOrderQuantity args
-                  qq = argOrderQuote args
-              case (qty, qq) of
-                (Nothing, Nothing) ->
-                  pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: provide orderQuantity or orderQuote.")
-                _ -> do
-                  resp <- placeMarketOrder env mode sym Buy qty qq Nothing
-                  pure (ApiOrderResult True (Just (modeLabel mode)) (Just "BUY") (Just sym) qty qq (Just (shortResp resp)) "Order sent.")
-            else pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: already long.")
-        Just (-1) ->
-          if baseBal > 0
-            then do
-              let qty = Just (maybe baseBal id (argOrderQuantity args))
-              resp <- placeMarketOrder env mode sym Sell qty Nothing Nothing
-              pure (ApiOrderResult True (Just (modeLabel mode)) (Just "SELL") (Just sym) qty Nothing (Just (shortResp resp)) "Order sent.")
-            else pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: already flat.")
-        _ ->
-          let msg =
-                case method of
-                  MethodBoth -> "No order: directions disagree or neutral (direction gate)."
-                  MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
-                  MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
-           in pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing msg)
+    tryFetchFilters :: IO (Maybe SymbolFilters)
+    tryFetchFilters = do
+      r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
+      case r of
+        Left _ -> pure Nothing
+        Right sf -> pure (Just sf)
 
-    placeFutures = do
+    effectiveStep sf = sfMarketStepSize sf <|> sfLotStepSize sf
+    effectiveMinQty sf = sfMarketMinQty sf <|> sfLotMinQty sf
+    effectiveMaxQty sf = sfMarketMaxQty sf <|> sfLotMaxQty sf
+
+    isLongSpot :: Maybe SymbolFilters -> Double -> Bool
+    isLongSpot mSf baseBal =
+      case mSf >>= effectiveMinQty of
+        Nothing -> baseBal > 0
+        Just minQ -> baseBal >= minQ
+
+    normalizeQty :: SymbolFilters -> Double -> Double -> Either String Double
+    normalizeQty sf price qtyRaw =
+      let qty0 = max 0 qtyRaw
+          qty1 = maybe qty0 (\st -> quantizeDown st qty0) (effectiveStep sf)
+       in if qty1 <= 0
+            then Left "Quantity rounds to 0."
+            else
+              case effectiveMinQty sf of
+                Just minQ | qty1 < minQ -> Left ("Quantity below minQty (" ++ show minQ ++ ").")
+                _ ->
+                  case effectiveMaxQty sf of
+                    Just maxQ | qty1 > maxQ -> Left ("Quantity above maxQty (" ++ show maxQ ++ ").")
+                    _ ->
+                      case sfMinNotional sf of
+                        Just mn | price > 0 && qty1 * price < mn -> Left ("Notional below minNotional (" ++ show mn ++ ").")
+                        _ -> Right qty1
+
+    sendMarketOrder :: String -> OrderSide -> Maybe Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
+    sendMarketOrder sideLabel side mQty mQuote mReduceOnly = do
+      let baseOut =
+            baseResult
+              { aorSide = Just sideLabel
+              , aorQuantity = mQty
+              , aorQuoteQuantity = mQuote
+              }
+
+      let tryReconcile ex =
+            case (mode, clientOrderId) of
+              (OrderLive, Just cid) -> do
+                r2 <- try (fetchOrderByClientId env sym cid) :: IO (Either SomeException BL.ByteString)
+                case r2 of
+                  Left _ -> pure baseOut { aorMessage = "Order failed: " ++ shortErr ex }
+                  Right body ->
+                    let out0 =
+                          baseOut
+                            { aorSent = True
+                            , aorResponse = Just (shortResp body)
+                            , aorMessage = "Order reconciled by clientOrderId after error: " ++ shortErr ex
+                            }
+                     in pure (maybe out0 (`applyOrderInfo` out0) (decodeOrderInfo body))
+              _ -> pure baseOut { aorMessage = "Order failed: " ++ shortErr ex }
+
+      r <- try (placeMarketOrder env mode sym side mQty mQuote mReduceOnly clientOrderId) :: IO (Either SomeException BL.ByteString)
+      case r of
+        Left ex -> tryReconcile ex
+        Right body ->
+          let out0 =
+                baseOut
+                  { aorSent = True
+                  , aorResponse = Just (shortResp body)
+                  , aorMessage = "Order sent."
+                  }
+           in pure (maybe out0 (`applyOrderInfo` out0) (decodeOrderInfo body))
+
+    place :: Maybe SymbolFilters -> String -> String -> Int -> IO ApiOrderResult
+    place mSf baseAsset quoteAsset dir =
+      case beMarket env of
+        MarketSpot -> placeSpotOrMargin mSf baseAsset quoteAsset dir
+        MarketMargin ->
+          if mode == OrderTest
+            then pure baseResult { aorMessage = "No order: margin trading requires binanceLive (no test endpoint)." }
+            else placeSpotOrMargin mSf baseAsset quoteAsset dir
+        MarketFutures -> placeFutures mSf quoteAsset dir
+
+    placeSpotOrMargin :: Maybe SymbolFilters -> String -> String -> Int -> IO ApiOrderResult
+    placeSpotOrMargin mSf baseAsset quoteAsset dir = do
+      baseBal <- fetchFreeBalance env baseAsset
+      let alreadyLong = isLongSpot mSf baseBal
+          qtyArg = case argOrderQuantity args of { Just q | q > 0 -> Just q; _ -> Nothing }
+          quoteArg = case argOrderQuote args of { Just q | q > 0 -> Just q; _ -> Nothing }
+          quoteFracArg = case argOrderQuoteFraction args of { Just f | f > 0 -> Just f; _ -> Nothing }
+          maxOrderQuoteArg = case argMaxOrderQuote args of { Just q | q >= 0 -> Just q; _ -> Nothing }
+
+      case dir of
+        1 ->
+          if alreadyLong
+            then pure baseResult { aorMessage = "No order: already long." }
+            else do
+              quoteBal <- fetchFreeBalance env quoteAsset
+              let quoteFromFraction =
+                    case (qtyArg, quoteArg, quoteFracArg) of
+                      (Nothing, Nothing, Just f) ->
+                        let q0 = quoteBal * f
+                            q1 = maybe q0 (\capQ -> min capQ q0) maxOrderQuoteArg
+                         in Just q1
+                      _ -> Nothing
+                  quoteEffective = quoteArg <|> quoteFromFraction
+
+              case (qtyArg, quoteEffective) of
+                (Nothing, Nothing) ->
+                  case quoteFracArg of
+                    Nothing -> pure baseResult { aorMessage = "No order: provide orderQuantity or orderQuote." }
+                    Just _ -> pure baseResult { aorMessage = "No order: computed quote is 0 (check quote balance / orderQuoteFraction / maxOrderQuote)." }
+                (Just qRaw, _) ->
+                  case mSf of
+                    Nothing ->
+                      if qRaw * currentPrice > quoteBal
+                        then pure baseResult { aorMessage = "No order: insufficient quote balance." }
+                        else sendMarketOrder "BUY" Buy (Just qRaw) Nothing Nothing
+                    Just sf ->
+                      case normalizeQty sf currentPrice qRaw of
+                        Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                        Right q ->
+                          if q * currentPrice > quoteBal
+                            then pure baseResult { aorMessage = "No order: insufficient quote balance." }
+                            else sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
+                (Nothing, Just qq0) ->
+                  let qq = max 0 qq0
+                   in if qq <= 0
+                        then pure baseResult { aorMessage = "No order: quote is 0." }
+                        else
+                          case mSf >>= sfMinNotional of
+                            Just mn | qq < mn -> pure baseResult { aorMessage = "No order: quote below minNotional." }
+                            _ ->
+                              if qq > quoteBal
+                                then pure baseResult { aorMessage = "No order: insufficient quote balance." }
+                                else sendMarketOrder "BUY" Buy Nothing (Just qq) Nothing
+        (-1) ->
+          if not alreadyLong
+            then pure baseResult { aorMessage = "No order: already flat." }
+            else do
+              let qRaw = maybe baseBal id qtyArg
+              case mSf of
+                Nothing ->
+                  if qRaw <= 0
+                    then pure baseResult { aorMessage = "No order: quantity is 0." }
+                    else sendMarketOrder "SELL" Sell (Just qRaw) Nothing Nothing
+                Just sf ->
+                  case normalizeQty sf currentPrice qRaw of
+                    Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                    Right q ->
+                      if q > baseBal
+                        then pure baseResult { aorMessage = "No order: insufficient base balance." }
+                        else sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
+        _ -> pure baseResult { aorMessage = neutralMsg }
+
+    placeFutures :: Maybe SymbolFilters -> String -> Int -> IO ApiOrderResult
+    placeFutures mSf quoteAsset dir = do
       posAmt <- fetchFuturesPositionAmt env sym
-      let mDesiredQty =
+      mQuoteFromFraction <-
+        case (argOrderQuantity args, argOrderQuote args, argOrderQuoteFraction args) of
+          (Nothing, Nothing, Just f) | f > 0 -> do
+            bal <- fetchFuturesAvailableBalance env quoteAsset
+            let q0 = bal * f
+                q1 = maybe q0 (\capQ -> min capQ q0) (argMaxOrderQuote args)
+            pure (Just q1)
+          _ -> pure Nothing
+      let mDesiredQtyRaw =
             case argOrderQuantity args of
               Just q | q > 0 -> Just q
               Just _ -> Nothing
               Nothing ->
-                case argOrderQuote args of
+                case (argOrderQuote args <|> mQuoteFromFraction) of
                   Just qq | qq > 0 && currentPrice > 0 -> Just (qq / currentPrice)
                   _ -> Nothing
-          closeOrder side qty = do
-            resp <- placeMarketOrder env mode sym side (Just qty) Nothing (Just True)
-            pure (ApiOrderResult True (Just (modeLabel mode)) (Just (show side)) (Just sym) (Just qty) Nothing (Just (shortResp resp)) "Order sent.")
-      case chosenDir of
-        Just 1 ->
+
+          normalizeFuturesQty qRaw =
+            case mSf of
+              Nothing -> Right qRaw
+              Just sf -> normalizeQty sf currentPrice qRaw
+
+          closeOrder sideLabel side qtyRaw = do
+            case normalizeFuturesQty qtyRaw of
+              Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+              Right q ->
+                if q <= 0 then pure baseResult { aorMessage = "No order: quantity is 0." } else sendMarketOrder sideLabel side (Just q) Nothing (Just True)
+
+      case dir of
+        1 ->
           if posAmt > 0
-            then pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: already long.")
+            then pure baseResult { aorMessage = "No order: already long." }
             else
-              case mDesiredQty of
-                Nothing -> pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: futures requires orderQuantity or orderQuote.")
-                Just q -> do
-                  let qtyToBuy = if posAmt < 0 then abs posAmt + q else q
-                  resp <- placeMarketOrder env mode sym Buy (Just qtyToBuy) Nothing Nothing
-                  pure (ApiOrderResult True (Just (modeLabel mode)) (Just "BUY") (Just sym) (Just qtyToBuy) Nothing (Just (shortResp resp)) "Order sent.")
-        Just (-1) ->
+              case mDesiredQtyRaw of
+                Nothing -> pure baseResult { aorMessage = "No order: futures requires orderQuantity or orderQuote." }
+                Just q0 -> do
+                  let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
+                  case normalizeFuturesQty qtyToBuyRaw of
+                    Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                    Right q ->
+                      if q <= 0 then pure baseResult { aorMessage = "No order: quantity is 0." } else sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
+        (-1) ->
           if posAmt == 0
-            then pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing "No order: already flat.")
+            then pure baseResult { aorMessage = "No order: already flat." }
             else if posAmt > 0
-              then closeOrder Sell (abs posAmt)
-              else closeOrder Buy (abs posAmt)
-        _ ->
-          let msg =
-                case method of
-                  MethodBoth -> "No order: directions disagree or neutral (direction gate)."
-                  MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
-                  MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
-           in pure (ApiOrderResult False (Just (modeLabel mode)) Nothing (Just sym) Nothing Nothing Nothing msg)
+              then closeOrder "SELL" Sell (abs posAmt)
+              else closeOrder "BUY" Buy (abs posAmt)
+        _ -> pure baseResult { aorMessage = neutralMsg }
 
     modeLabel m =
       case m of
@@ -1568,6 +2468,7 @@ tradeToJson tr =
     , "exitEquity" .= trExitEquity tr
     , "return" .= trReturn tr
     , "holdingPeriods" .= trHoldingPeriods tr
+    , "exitReason" .= trExitReason tr
     ]
 
 metricsToJson :: BacktestMetrics -> Aeson.Value
@@ -1824,21 +2725,25 @@ computeBacktestSummary args lookback prices = do
               , Just (predictors, kalFinal, hmmFinal, svFinal)
               )
 
+      baseCfg =
+        EnsembleConfig
+          { ecTradeThreshold = argTradeThreshold args
+          , ecFee = argFee args
+          , ecStopLoss = argStopLoss args
+          , ecTakeProfit = argTakeProfit args
+          , ecTrailingStop = argTrailingStop args
+          }
+
       (methodUsed, bestThreshold, backtest) =
         if argOptimizeOperations args
-          then optimizeOperations (argTradeThreshold args) (argFee args) backtestPrices kalPredPrice lstmPredPrice
+          then optimizeOperations baseCfg backtestPrices kalPredPrice lstmPredPrice
           else if argSweepThreshold args
             then
-              let (thr, bt) = sweepThreshold methodRequested (argTradeThreshold args) (argFee args) backtestPrices kalPredPrice lstmPredPrice
+              let (thr, bt) = sweepThreshold methodRequested baseCfg backtestPrices kalPredPrice lstmPredPrice
                in (methodRequested, thr, bt)
             else
               let (kalPredUsed, lstmPredUsed) = selectPredictions methodRequested kalPredPrice lstmPredPrice
-                  cfg =
-                    EnsembleConfig
-                      { ecTradeThreshold = argTradeThreshold args
-                      , ecFee = argFee args
-                      }
-               in (methodRequested, argTradeThreshold args, simulateEnsembleLongFlat cfg 1 backtestPrices kalPredUsed lstmPredUsed)
+               in (methodRequested, argTradeThreshold args, simulateEnsembleLongFlat baseCfg 1 backtestPrices kalPredUsed lstmPredUsed)
 
       ppy = periodsPerYear args
       metrics = computeMetrics ppy backtest

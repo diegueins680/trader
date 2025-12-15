@@ -1,4 +1,4 @@
-import type { ApiError, ApiParams, ApiTradeResponse, BacktestResponse, BotStatus, LatestSignal } from "./types";
+import type { ApiError, ApiParams, ApiTradeResponse, BacktestResponse, BinanceKeysStatus, BotStatus, LatestSignal } from "./types";
 
 export class HttpError extends Error {
   readonly status: number;
@@ -109,6 +109,18 @@ export async function backtest(params: ApiParams, opts?: FetchJsonOptions): Prom
 export async function trade(params: ApiParams, opts?: FetchJsonOptions): Promise<ApiTradeResponse> {
   return fetchJson<ApiTradeResponse>(
     "/api/trade",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
+export async function binanceKeysStatus(params: ApiParams, opts?: FetchJsonOptions): Promise<BinanceKeysStatus> {
+  return fetchJson<BinanceKeysStatus>(
+    "/api/binance/keys",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

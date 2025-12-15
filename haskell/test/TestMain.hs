@@ -178,7 +178,7 @@ testAgreementGate = do
       lookback = 2
       kalPred = [101, 110, 120]  -- length 3
       lstmPred = [110, 100]      -- length 2, for t=1..2
-      cfg = EnsembleConfig { ecTradeThreshold = 0.0, ecFee = 0.0 }
+      cfg = EnsembleConfig { ecTradeThreshold = 0.0, ecFee = 0.0, ecStopLoss = Nothing, ecTakeProfit = Nothing, ecTrailingStop = Nothing }
       res = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred
   assert "expected one position change" (brPositionChanges res == 1)
 
@@ -256,7 +256,8 @@ testSweepThreshold = do
   let prices = [100, 110]
       kalPred = [110]
       lstmPred = [110]
-      (thr, bt) = sweepThreshold MethodKalmanOnly 0.0 0.0 prices kalPred lstmPred
+      cfg = EnsembleConfig { ecTradeThreshold = 0.0, ecFee = 0.0, ecStopLoss = Nothing, ecTakeProfit = Nothing, ecTrailingStop = Nothing }
+      (thr, bt) = sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred
   assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)
   assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
 
@@ -265,7 +266,8 @@ testOptimizeOperations = do
   let prices = [100, 110]
       kalPred = [110]
       lstmPred = [90]
-      (m, thr, bt) = optimizeOperations 0.0 0.0 prices kalPred lstmPred
+      cfg = EnsembleConfig { ecTradeThreshold = 0.0, ecFee = 0.0, ecStopLoss = Nothing, ecTakeProfit = Nothing, ecTrailingStop = Nothing }
+      (m, thr, bt) = optimizeOperations cfg prices kalPred lstmPred
   assert "picked kalman-only" (m == MethodKalmanOnly)
   assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)
   assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
@@ -282,17 +284,17 @@ testBinanceOrderValidation = do
   envSpot <- newBinanceEnv MarketSpot binanceBaseUrl (Just "k") (Just "s")
   assertThrowsContains
     "Provide quantity or quoteOrderQty"
-    (\() -> placeMarketOrder envSpot OrderTest "BTCUSDT" Buy Nothing Nothing Nothing)
+    (\() -> placeMarketOrder envSpot OrderTest "BTCUSDT" Buy Nothing Nothing Nothing Nothing)
 
   envMargin <- newBinanceEnv MarketMargin binanceBaseUrl (Just "k") (Just "s")
   assertThrowsContains
     "Margin does not support order test"
-    (\() -> placeMarketOrder envMargin OrderTest "BTCUSDT" Buy (Just 0.1) Nothing Nothing)
+    (\() -> placeMarketOrder envMargin OrderTest "BTCUSDT" Buy (Just 0.1) Nothing Nothing Nothing)
 
   envFutures <- newBinanceEnv MarketFutures binanceBaseUrl (Just "k") (Just "s")
   assertThrowsContains
     "Futures MARKET orders require --order-quantity"
-    (\() -> placeMarketOrder envFutures OrderTest "BTCUSDT" Buy Nothing (Just 50) Nothing)
+    (\() -> placeMarketOrder envFutures OrderTest "BTCUSDT" Buy Nothing (Just 50) Nothing Nothing)
 
 forwardReturns :: [Double] -> [Double]
 forwardReturns ps =

@@ -15,16 +15,17 @@ bestFinalEquity br =
     (x : _) -> x
     [] -> 1.0
 
-optimizeOperations :: Double -> Double -> [Double] -> [Double] -> [Double] -> (Method, Double, BacktestResult)
-optimizeOperations baseThreshold fee prices kalPred lstmPred =
+optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> (Method, Double, BacktestResult)
+optimizeOperations baseCfg prices kalPred lstmPred =
   let eps = 1e-12
+      baseThreshold = ecTradeThreshold baseCfg
       methodRank m =
         case m of
           MethodBoth -> 2 :: Int
           MethodKalmanOnly -> 1
           MethodLstmOnly -> 0
       eval m =
-        let (thr, bt) = sweepThreshold m baseThreshold fee prices kalPred lstmPred
+        let (thr, bt) = sweepThreshold m baseCfg prices kalPred lstmPred
             eq = bestFinalEquity bt
          in (eq, m, thr, bt)
       candidates = map eval [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
@@ -43,17 +44,18 @@ optimizeOperations baseThreshold fee prices kalPred lstmPred =
         [] ->
           ( MethodBoth
           , max 0 baseThreshold
-          , simulateEnsembleLongFlat (EnsembleConfig (max 0 baseThreshold) fee) 1 prices kalPred lstmPred
+          , simulateEnsembleLongFlat baseCfg { ecTradeThreshold = max 0 baseThreshold } 1 prices kalPred lstmPred
           )
         (c : cs) ->
           let (_, bestM, bestThr, bestBt) = foldl' pick c cs
            in (bestM, bestThr, bestBt)
 
-sweepThreshold :: Method -> Double -> Double -> [Double] -> [Double] -> [Double] -> (Double, BacktestResult)
-sweepThreshold method baseThreshold fee prices kalPred lstmPred =
+sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> (Double, BacktestResult)
+sweepThreshold method baseCfg prices kalPred lstmPred =
   let n = length prices
       stepCount = n - 1
       eps = 1e-12
+      baseThreshold = ecTradeThreshold baseCfg
       (kalUsed, lstmUsed) = selectPredictions method kalPred lstmPred
       predSources =
         case method of
@@ -76,11 +78,7 @@ sweepThreshold method baseThreshold fee prices kalPred lstmPred =
       candidates = 0 : map (\v -> max 0 (v - eps)) mags
 
       eval thr =
-        let cfg =
-              EnsembleConfig
-                { ecTradeThreshold = thr
-                , ecFee = fee
-                }
+        let cfg = baseCfg { ecTradeThreshold = thr }
             bt = simulateEnsembleLongFlat cfg 1 prices kalUsed lstmUsed
          in (bestFinalEquity bt, thr, bt)
 

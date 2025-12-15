@@ -16,6 +16,8 @@ export type ApiParams = {
   lookbackWindow?: string;
   lookbackBars?: number;
   binanceTestnet?: boolean;
+  binanceApiKey?: string;
+  binanceApiSecret?: string;
   normalization?: Normalization;
   hiddenSize?: number;
   epochs?: number;
@@ -33,10 +35,19 @@ export type ApiParams = {
   optimizeOperations?: boolean;
   sweepThreshold?: boolean;
   fee?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  trailingStop?: number;
+  maxDrawdown?: number;
+  maxDailyLoss?: number;
+  maxOrderErrors?: number;
   periodsPerYear?: number;
   binanceLive?: boolean;
   orderQuote?: number;
   orderQuantity?: number;
+  orderQuoteFraction?: number;
+  maxOrderQuote?: number;
+  idempotencyKey?: string;
 
   // Live bot (stateful) options
   botPollSeconds?: number;
@@ -65,6 +76,11 @@ export type ApiOrderResult = {
   symbol?: string;
   quantity?: number;
   quoteQuantity?: number;
+  orderId?: number;
+  clientOrderId?: string;
+  status?: string;
+  executedQty?: number;
+  cummulativeQuoteQty?: number;
   response?: string;
   message: string;
 };
@@ -74,6 +90,24 @@ export type ApiTradeResponse = {
   order: ApiOrderResult;
 };
 
+export type BinanceProbe = {
+  ok: boolean;
+  step: string;
+  code?: number;
+  msg?: string;
+  summary: string;
+};
+
+export type BinanceKeysStatus = {
+  market: Market;
+  testnet: boolean;
+  symbol?: string;
+  hasApiKey: boolean;
+  hasApiSecret: boolean;
+  signed?: BinanceProbe;
+  tradeTest?: BinanceProbe;
+};
+
 export type Trade = {
   entryIndex: number;
   exitIndex: number;
@@ -81,6 +115,7 @@ export type Trade = {
   exitEquity: number;
   return: number;
   holdingPeriods: number;
+  exitReason?: string;
 };
 
 export type BacktestResponse = {
@@ -141,6 +176,12 @@ export type BotStatus =
       market: Market;
       method: Method;
       threshold: number;
+      halted: boolean;
+      peakEquity: number;
+      dayStartEquity: number;
+      consecutiveOrderErrors: number;
+      haltReason?: string;
+      haltedAtMs?: number;
       startIndex: number;
       startedAtMs: number;
       updatedAtMs: number;

@@ -10,6 +10,9 @@ import Data.List (foldl')
 data EnsembleConfig = EnsembleConfig
   { ecTradeThreshold :: !Double
   , ecFee :: !Double
+  , ecStopLoss :: !(Maybe Double)      -- fractional, e.g. 0.02
+  , ecTakeProfit :: !(Maybe Double)    -- fractional, e.g. 0.03
+  , ecTrailingStop :: !(Maybe Double)  -- fractional, e.g. 0.01
   } deriving (Eq, Show)
 
 data Trade = Trade
@@ -19,6 +22,7 @@ data Trade = Trade
   , trExitEquity :: !Double
   , trReturn :: !Double
   , trHoldingPeriods :: !Int
+  , trExitReason :: !(Maybe String)
   } deriving (Eq, Show)
 
 data BacktestResult = BacktestResult
@@ -82,10 +86,10 @@ simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext =
                                       ( 1
                                       , equityFee
                                       , changes + 1
-                                      , Just (t, equityFee, 0)
+                                      , Just (t, equityFee, 0, prev, prev)
                                       , tradesAcc
                                       )
-                                    (1, 0, Just (entryT, entryEq, hold)) ->
+                                    (1, 0, Just (entryT, entryEq, hold, entryPx, trailHigh)) ->
                                       let exitEq = equityFee
                                           tr = Trade
                                                 { trEntryIndex = entryT
@@ -94,6 +98,7 @@ simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext =
                                                 , trExitEquity = exitEq
                                                 , trReturn = exitEq / entryEq - 1
                                                 , trHoldingPeriods = hold
+                                                , trExitReason = Just "SIGNAL"
                                                 }
                                        in ( 0
                                           , exitEq
@@ -111,33 +116,78 @@ simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext =
                               let eq' = equityAfterSwitch * (nextP / prev)
                                   openTradeNext' =
                                     case openTrade' of
-                                      Just (entryT, entryEq, hold) -> Just (entryT, entryEq, hold + 1)
+                                      Just (entryT, entryEq, hold, entryPx, trailHigh) ->
+                                        let trailHigh' = max trailHigh nextP
+                                         in Just (entryT, entryEq, hold + 1, entryPx, trailHigh')
                                       Nothing -> Nothing
                                in (eq', openTradeNext')
                             else (equityAfterSwitch, openTrade')
+
+                        (posFinal, equityFinal, changesFinal, openTradeFinal, tradesFinal) =
+                          case (posAfterSwitch, openTradeNext) of
+                            (1, Just (entryT, entryEq, hold, entryPx, trailHigh)) ->
+                              let mTp =
+                                    case ecTakeProfit cfg of
+                                      Just tp | tp > 0 -> Just (entryPx * (1 + tp))
+                                      _ -> Nothing
+                                  mSl =
+                                    case ecStopLoss cfg of
+                                      Just sl | sl > 0 -> Just (entryPx * (1 - sl))
+                                      _ -> Nothing
+                                  mTs =
+                                    case ecTrailingStop cfg of
+                                      Just ts | ts > 0 -> Just (trailHigh * (1 - ts))
+                                      _ -> Nothing
+                                  (mStop, stopWhy) =
+                                    case (mSl, mTs) of
+                                      (Nothing, Nothing) -> (Nothing, Nothing)
+                                      (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                                      (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                                      (Just slPx, Just tsPx) ->
+                                        if tsPx > slPx
+                                          then (Just tsPx, Just "TRAILING_STOP")
+                                          else (Just slPx, Just "STOP_LOSS")
+                                  tpHit = maybe False (\tpPx -> nextP >= tpPx) mTp
+                                  stopHit = maybe False (\stPx -> nextP <= stPx) mStop
+                               in if tpHit || stopHit
+                                    then
+                                      let reason = if tpHit then Just "TAKE_PROFIT" else stopWhy
+                                          exitEq = equityNext * (1 - ecFee cfg)
+                                          tr = Trade
+                                                { trEntryIndex = entryT
+                                                , trExitIndex = t + 1
+                                                , trEntryEquity = entryEq
+                                                , trExitEquity = exitEq
+                                                , trReturn = exitEq / entryEq - 1
+                                                , trHoldingPeriods = hold
+                                                , trExitReason = reason
+                                                }
+                                       in (0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
+                                    else (1, equityNext, changes', openTradeNext, tradesAcc')
+                            _ -> (posAfterSwitch, equityNext, changes', openTradeNext, tradesAcc')
                      in ( t + 1
-                        , posAfterSwitch
-                        , equityNext
-                        , equityNext : eqAcc
+                        , posFinal
+                        , equityFinal
+                        , equityFinal : eqAcc
                         , posAfterSwitch : posAcc
                         , agreeOk : agreeAcc
-                        , changes'
-                        , openTradeNext
-                        , tradesAcc'
+                        , changesFinal
+                        , openTradeFinal
+                        , tradesFinal
                         )
 
               -- Fold over steps, building reversed accumulators.
               (_, finalPos, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev) =
                 foldl'
                   (\st _ -> stepFn st)
-                  (0, 0 :: Int, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe (Int, Double, Int), [])
+                  (0, 0 :: Int, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe (Int, Double, Int, Double, Double), [])
                   [1..stepCount]
 
               -- Close any open trade at end (no extra fee, mark-to-market already reflected in equity curve).
               tradesRev' =
                 case openTrade of
                   Nothing -> tradesRev
-                  Just (entryT, entryEq, hold) ->
+                  Just (entryT, entryEq, hold, _entryPx, _trailHigh) ->
                     let exitEq = finalEq
                         tr = Trade
                               { trEntryIndex = entryT
@@ -146,6 +196,7 @@ simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext =
                               , trExitEquity = exitEq
                               , trReturn = exitEq / entryEq - 1
                               , trHoldingPeriods = hold
+                              , trExitReason = Just "EOD"
                               }
                      in tr : tradesRev
            in BacktestResult

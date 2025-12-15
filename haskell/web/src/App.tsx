@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ApiParams, ApiTradeResponse, BacktestResponse, BotStatus, LatestSignal, Market, Method, Normalization } from "./lib/types";
-import { HttpError, backtest, botStart, botStatus, botStop, health, signal, trade } from "./lib/api";
+import type {
+  ApiParams,
+  ApiTradeResponse,
+  BacktestResponse,
+  BinanceKeysStatus,
+  BotStatus,
+  LatestSignal,
+  Market,
+  Method,
+  Normalization,
+} from "./lib/types";
+import { HttpError, backtest, binanceKeysStatus, botStart, botStatus, botStop, health, signal, trade } from "./lib/api";
 import { copyText } from "./lib/clipboard";
 import { readJson, readSessionString, removeSessionKey, writeJson, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
@@ -37,6 +47,13 @@ type BotUiState = {
   status: BotStatus;
 };
 
+type KeysUiState = {
+  loading: boolean;
+  error: string | null;
+  status: BinanceKeysStatus | null;
+  checkedAtMs: number | null;
+};
+
 type FormState = {
   binanceSymbol: string;
   market: Market;
@@ -45,6 +62,12 @@ type FormState = {
   method: Method;
   threshold: number;
   fee: number;
+  stopLoss: number;
+  takeProfit: number;
+  trailingStop: number;
+  maxDrawdown: number;
+  maxDailyLoss: number;
+  maxOrderErrors: number;
   backtestRatio: number;
   normalization: Normalization;
   epochs: number;
@@ -54,6 +77,9 @@ type FormState = {
   binanceTestnet: boolean;
   orderQuote: number;
   orderQuantity: number;
+  orderQuoteFraction: number;
+  maxOrderQuote: number;
+  idempotencyKey: string;
   binanceLive: boolean;
   tradeArmed: boolean;
   autoRefresh: boolean;
@@ -62,6 +88,8 @@ type FormState = {
 
 const STORAGE_KEY = "trader.ui.form.v1";
 const SESSION_TOKEN_KEY = "trader.ui.apiToken.v1";
+const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
+const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
 
 const SIGNAL_TIMEOUT_MS = 5 * 60_000;
 const BACKTEST_TIMEOUT_MS = 10 * 60_000;
@@ -76,6 +104,12 @@ const defaultForm: FormState = {
   method: "11",
   threshold: 0.001,
   fee: 0.0005,
+  stopLoss: 0,
+  takeProfit: 0,
+  trailingStop: 0,
+  maxDrawdown: 0,
+  maxDailyLoss: 0,
+  maxOrderErrors: 0,
   backtestRatio: 0.2,
   normalization: "standard",
   epochs: 30,
@@ -85,6 +119,9 @@ const defaultForm: FormState = {
   binanceTestnet: false,
   orderQuote: 20,
   orderQuantity: 0,
+  orderQuoteFraction: 0,
+  maxOrderQuote: 0,
+  idempotencyKey: "",
   binanceLive: false,
   tradeArmed: false,
   autoRefresh: false,
@@ -163,6 +200,8 @@ export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [toast, setToast] = useState<string | null>(null);
   const [apiToken, setApiToken] = useState<string>(() => readSessionString(SESSION_TOKEN_KEY) ?? "");
+  const [binanceApiKey, setBinanceApiKey] = useState<string>(() => readSessionString(SESSION_BINANCE_KEY_KEY) ?? "");
+  const [binanceApiSecret, setBinanceApiSecret] = useState<string>(() => readSessionString(SESSION_BINANCE_SECRET_KEY) ?? "");
   const [form, setForm] = useState<FormState>(() => {
     const saved = readJson<Partial<FormState>>(STORAGE_KEY);
     return { ...defaultForm, ...(saved ?? {}) };
@@ -183,10 +222,19 @@ export function App() {
     status: { running: false },
   });
 
+  const [keys, setKeys] = useState<KeysUiState>({
+    loading: false,
+    error: null,
+    status: null,
+    checkedAtMs: null,
+  });
+
   const abortRef = useRef<AbortController | null>(null);
   const botAbortRef = useRef<AbortController | null>(null);
+  const keysAbortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
   const botRequestSeqRef = useRef(0);
+  const keysRequestSeqRef = useRef(0);
   const errorRef = useRef<HTMLDivElement | null>(null);
   const signalRef = useRef<HTMLDivElement | null>(null);
   const backtestRef = useRef<HTMLDivElement | null>(null);
@@ -202,6 +250,18 @@ export function App() {
     else writeSessionString(SESSION_TOKEN_KEY, token);
   }, [apiToken]);
 
+  useEffect(() => {
+    const v = binanceApiKey.trim();
+    if (!v) removeSessionKey(SESSION_BINANCE_KEY_KEY);
+    else writeSessionString(SESSION_BINANCE_KEY_KEY, v);
+  }, [binanceApiKey]);
+
+  useEffect(() => {
+    const v = binanceApiSecret.trim();
+    if (!v) removeSessionKey(SESSION_BINANCE_SECRET_KEY);
+    else writeSessionString(SESSION_BINANCE_SECRET_KEY, v);
+  }, [binanceApiSecret]);
+
   const toastTimerRef = useRef<number | null>(null);
   const showToast = useCallback((msg: string) => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
@@ -214,6 +274,7 @@ export function App() {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
       abortRef.current?.abort();
       botAbortRef.current?.abort();
+      keysAbortRef.current?.abort();
     };
   }, []);
 
@@ -247,6 +308,12 @@ export function App() {
       method: form.method,
       threshold: Math.max(0, form.threshold),
       fee: Math.max(0, form.fee),
+      ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
+      ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
+      ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
+      ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
+      ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
+      ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       normalization: form.normalization,
       epochs: clamp(Math.trunc(form.epochs), 0, 5000),
@@ -260,20 +327,62 @@ export function App() {
 
     if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
     if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
+    if (form.orderQuoteFraction > 0) base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
+    if (form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
+    if (form.idempotencyKey.trim()) base.idempotencyKey = form.idempotencyKey.trim();
 
     return base;
   }, [form]);
 
+  const withBinanceKeys = useCallback(
+    (p: ApiParams): ApiParams => {
+      const key = binanceApiKey.trim();
+      const secret = binanceApiSecret.trim();
+      if (!key && !secret) return p;
+      return {
+        ...p,
+        ...(key ? { binanceApiKey: key } : {}),
+        ...(secret ? { binanceApiSecret: secret } : {}),
+      };
+    },
+    [binanceApiKey, binanceApiSecret],
+  );
+
+  const keysParams: ApiParams = useMemo(() => {
+    const base: ApiParams = {
+      binanceSymbol: form.binanceSymbol.trim() || undefined,
+      market: form.market,
+      binanceTestnet: form.binanceTestnet,
+    };
+
+    if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
+    if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
+
+    return withBinanceKeys(base);
+  }, [form.binanceSymbol, form.binanceTestnet, form.market, form.orderQuantity, form.orderQuote, withBinanceKeys]);
+
   const botOrderLogText = useMemo(() => {
     const st = bot.status;
     if (!st.running) return "";
-    const rows = st.orders.slice(-200).map((e) => {
+    const orders = st.orders;
+    const rows = orders.slice(-200).map((e) => {
       const bar = st.startIndex + e.index;
       const sent = e.order.sent ? "SENT" : "NO";
       const mode = e.order.mode ?? "—";
       return `${fmtTimeMs(e.atMs)} | bar ${bar} | ${e.opSide} @ ${fmtMoney(e.price, 4)} | ${sent} ${mode} | ${e.order.message}`;
     });
     return rows.length ? rows.join("\n") : "No live operations yet.";
+  }, [bot.status]);
+
+  const botRisk = useMemo(() => {
+    const st = bot.status;
+    if (!st.running) return null;
+    const lastEq = st.equityCurve[st.equityCurve.length - 1] ?? 1;
+    const peak = st.peakEquity || 1;
+    const dayStart = st.dayStartEquity || 1;
+    const dd = peak > 0 ? Math.max(0, 1 - lastEq / peak) : 0;
+    const dl = dayStart > 0 ? Math.max(0, 1 - lastEq / dayStart) : 0;
+    return { lastEq, dd, dl };
   }, [bot.status]);
 
   const scrollToResult = useCallback((kind: RequestKind) => {
@@ -310,7 +419,7 @@ export function App() {
           if (!opts?.silent) showToast("Backtest complete");
         } else {
           if (!form.tradeArmed) throw new Error("Trading is locked. Enable “Arm trading” to call /trade.");
-          const out = await trade(p, { signal: controller.signal, headers: authHeaders, timeoutMs: TRADE_TIMEOUT_MS });
+          const out = await trade(withBinanceKeys(p), { signal: controller.signal, headers: authHeaders, timeoutMs: TRADE_TIMEOUT_MS });
           if (requestId !== requestSeqRef.current) return;
           setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false, error: null }));
           setApiOk("ok");
@@ -346,7 +455,58 @@ export function App() {
         if (requestId === requestSeqRef.current) abortRef.current = null;
       }
     },
-    [authHeaders, form.tradeArmed, params, scrollToResult, showToast],
+    [authHeaders, form.tradeArmed, params, scrollToResult, showToast, withBinanceKeys],
+  );
+
+  const refreshKeys = useCallback(
+    async (opts?: RunOptions) => {
+      const requestId = ++keysRequestSeqRef.current;
+      keysAbortRef.current?.abort();
+      const controller = new AbortController();
+      keysAbortRef.current = controller;
+
+      setKeys((s) => ({ ...s, loading: true, error: opts?.silent ? s.error : null }));
+
+      try {
+        const p = keysParams;
+        if (!p.binanceSymbol) throw new Error("binanceSymbol is required.");
+
+        const out = await binanceKeysStatus(p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
+        if (requestId !== keysRequestSeqRef.current) return;
+        setKeys({ loading: false, error: null, status: out, checkedAtMs: Date.now() });
+        setApiOk("ok");
+        if (!opts?.silent) showToast("Key status updated");
+      } catch (e) {
+        if (requestId !== keysRequestSeqRef.current) return;
+        if (isAbortError(e)) return;
+
+        let msg = e instanceof Error ? e.message : String(e);
+        if (isTimeoutError(e)) msg = "Key check timed out. Try again, or switch testnet off.";
+        if (e instanceof HttpError && typeof e.payload === "string") {
+          const payload = e.payload;
+          if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
+            msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+          }
+        }
+
+        setApiOk((prev) => {
+          if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
+          const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500) || isTimeoutError(e);
+          return looksDown ? "down" : prev;
+        });
+
+        if (opts?.silent) {
+          setKeys((s) => ({ ...s, loading: false }));
+          return;
+        }
+
+        setKeys((s) => ({ ...s, loading: false, error: msg }));
+        showToast("Key check failed");
+      } finally {
+        if (requestId === keysRequestSeqRef.current) keysAbortRef.current = null;
+      }
+    },
+    [authHeaders, keysParams, showToast],
   );
 
   const refreshBot = useCallback(
@@ -383,7 +543,7 @@ export function App() {
         botOnlineEpochs: 1,
         botMaxPoints: clamp(Math.trunc(form.bars), 100, 100000),
       };
-      const out = await botStart(payload, { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
+      const out = await botStart(withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
       setBot((s) => ({ ...s, loading: false, error: null, status: out }));
       showToast(out.running ? (form.tradeArmed ? "Live bot started (trading armed)" : "Live bot started (paper mode)") : "Bot not running");
     } catch (e) {
@@ -392,7 +552,7 @@ export function App() {
       setBot((s) => ({ ...s, loading: false, error: msg }));
       showToast("Bot start failed");
     }
-  }, [authHeaders, form.bars, form.tradeArmed, params, showToast]);
+  }, [authHeaders, form.bars, form.tradeArmed, params, showToast, withBinanceKeys]);
 
   const stopLiveBot = useCallback(async () => {
     setBot((s) => ({ ...s, loading: true, error: null }));
@@ -519,6 +679,48 @@ export function App() {
                   </button>
                 </div>
                 <div className="hint">Only needed when the backend sets TRADER_API_TOKEN. Stored in session storage (not in the URL).</div>
+              </div>
+            </div>
+
+            <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+              <div className="field">
+                <label className="label">Binance API keys (optional)</label>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr auto", alignItems: "center" }}>
+                  <input
+                    className="input"
+                    type="password"
+                    value={binanceApiKey}
+                    onChange={(e) => setBinanceApiKey(e.target.value)}
+                    placeholder="BINANCE_API_KEY"
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    inputMode="text"
+                  />
+                  <input
+                    className="input"
+                    type="password"
+                    value={binanceApiSecret}
+                    onChange={(e) => setBinanceApiSecret(e.target.value)}
+                    placeholder="BINANCE_API_SECRET"
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    inputMode="text"
+                  />
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => {
+                      setBinanceApiKey("");
+                      setBinanceApiSecret("");
+                    }}
+                    disabled={!binanceApiKey.trim() && !binanceApiSecret.trim()}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="hint">Stored in session storage. Used for /trade and “Check keys”. The request preview/curl omits it.</div>
               </div>
             </div>
 
@@ -658,6 +860,89 @@ export function App() {
                   onChange={(e) => setForm((f) => ({ ...f, fee: numFromInput(e.target.value, f.fee) }))}
                 />
                 <div className="hint">Applied when switching position (long ↔ flat).</div>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
+              <div className="field">
+                <label className="label">Bracket exits (fractions)</label>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <input
+                    aria-label="stopLoss"
+                    className="input"
+                    type="number"
+                    step="0.001"
+                    min={0}
+                    max={0.999}
+                    value={form.stopLoss}
+                    onChange={(e) => setForm((f) => ({ ...f, stopLoss: numFromInput(e.target.value, f.stopLoss) }))}
+                    placeholder="stopLoss"
+                  />
+                  <input
+                    aria-label="takeProfit"
+                    className="input"
+                    type="number"
+                    step="0.001"
+                    min={0}
+                    max={0.999}
+                    value={form.takeProfit}
+                    onChange={(e) => setForm((f) => ({ ...f, takeProfit: numFromInput(e.target.value, f.takeProfit) }))}
+                    placeholder="takeProfit"
+                  />
+                  <input
+                    aria-label="trailingStop"
+                    className="input"
+                    type="number"
+                    step="0.001"
+                    min={0}
+                    max={0.999}
+                    value={form.trailingStop}
+                    onChange={(e) => setForm((f) => ({ ...f, trailingStop: numFromInput(e.target.value, f.trailingStop) }))}
+                    placeholder="trailingStop"
+                  />
+                </div>
+                <div className="hint">Optional synthetic exits (evaluated on closes): stopLoss, takeProfit, trailingStop.</div>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
+              <div className="field">
+                <label className="label">Risk kill-switches</label>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <input
+                    aria-label="maxDrawdown"
+                    className="input"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={0.999}
+                    value={form.maxDrawdown}
+                    onChange={(e) => setForm((f) => ({ ...f, maxDrawdown: numFromInput(e.target.value, f.maxDrawdown) }))}
+                    placeholder="maxDrawdown"
+                  />
+                  <input
+                    aria-label="maxDailyLoss"
+                    className="input"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={0.999}
+                    value={form.maxDailyLoss}
+                    onChange={(e) => setForm((f) => ({ ...f, maxDailyLoss: numFromInput(e.target.value, f.maxDailyLoss) }))}
+                    placeholder="maxDailyLoss"
+                  />
+                  <input
+                    aria-label="maxOrderErrors"
+                    className="input"
+                    type="number"
+                    step="1"
+                    min={0}
+                    value={form.maxOrderErrors}
+                    onChange={(e) => setForm((f) => ({ ...f, maxOrderErrors: numFromInput(e.target.value, f.maxOrderErrors) }))}
+                    placeholder="maxOrderErrors"
+                  />
+                </div>
+                <div className="hint">When set, the live bot halts (and forces exit) on max drawdown, max daily loss, or consecutive order failures.</div>
               </div>
             </div>
 
@@ -878,7 +1163,46 @@ export function App() {
                       placeholder="orderQuantity"
                     />
                   </div>
-                  <div className="hint">Set one: quote for BUY (spot), or quantity (required for futures in many cases).</div>
+                  <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 8 }}>
+                    <input
+                      aria-label="orderQuoteFraction"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      max={1}
+                      value={form.orderQuoteFraction}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, orderQuoteFraction: numFromInput(e.target.value, f.orderQuoteFraction) }))
+                      }
+                      placeholder="orderQuoteFraction (0..1)"
+                    />
+                    <input
+                      aria-label="maxOrderQuote"
+                      className="input"
+                      type="number"
+                      step="1"
+                      min={0}
+                      value={form.maxOrderQuote}
+                      onChange={(e) => setForm((f) => ({ ...f, maxOrderQuote: numFromInput(e.target.value, f.maxOrderQuote) }))}
+                      placeholder="maxOrderQuote"
+                    />
+                  </div>
+                  <input
+                    className="input"
+                    style={{ marginTop: 8 }}
+                    value={form.idempotencyKey}
+                    onChange={(e) => setForm((f) => ({ ...f, idempotencyKey: e.target.value }))}
+                    placeholder="idempotencyKey (optional)"
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    inputMode="text"
+                  />
+                  <div className="hint">
+                    Use one of orderQuantity/orderQuote, or size BUYs via orderQuoteFraction (optional cap: maxOrderQuote). Leave idempotencyKey blank for the live bot
+                    unless you know what you’re doing.
+                  </div>
                 </div>
               </div>
 
@@ -938,14 +1262,15 @@ export function App() {
             <div className="cardBody">
               {bot.status.running ? (
                 <>
-                  <div className="pillRow" style={{ marginBottom: 10 }}>
-                    <span className="badge">{bot.status.symbol}</span>
-                    <span className="badge">{bot.status.interval}</span>
-                    <span className="badge">{marketLabel(bot.status.market)}</span>
-                    <span className="badge">{methodLabel(bot.status.method)}</span>
-                    <span className="badge">thr {fmtPct(bot.status.threshold, 3)}</span>
-                    <span className="badge">{bot.status.error ? "Error" : "OK"}</span>
-                  </div>
+	                  <div className="pillRow" style={{ marginBottom: 10 }}>
+	                    <span className="badge">{bot.status.symbol}</span>
+	                    <span className="badge">{bot.status.interval}</span>
+	                    <span className="badge">{marketLabel(bot.status.market)}</span>
+	                    <span className="badge">{methodLabel(bot.status.method)}</span>
+	                    <span className="badge">thr {fmtPct(bot.status.threshold, 3)}</span>
+	                    <span className="badge">{bot.status.halted ? "HALTED" : "ACTIVE"}</span>
+	                    <span className="badge">{bot.status.error ? "Error" : "OK"}</span>
+	                  </div>
 
 	                  <BacktestChart
 	                    prices={bot.status.prices}
@@ -969,17 +1294,45 @@ export function App() {
 	                    />
 	                  </div>
 
-	                  <div className="kv" style={{ marginTop: 12 }}>
-	                    <div className="k">Equity / Position</div>
+		                  <div className="kv" style={{ marginTop: 12 }}>
+		                    <div className="k">Equity / Position</div>
+		                    <div className="v">
+		                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
+	                      {(bot.status.positions[bot.status.positions.length - 1] ?? 0) === 1 ? "LONG" : "FLAT"}
+	                    </div>
+	                  </div>
+	                  <div className="kv">
+	                    <div className="k">Peak / Drawdown</div>
 	                    <div className="v">
-	                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
-                      {(bot.status.positions[bot.status.positions.length - 1] ?? 0) === 1 ? "LONG" : "FLAT"}
-                    </div>
-                  </div>
-                  <div className="kv">
-                    <div className="k">Last action</div>
-                    <div className="v">{bot.status.latestSignal.action}</div>
-                  </div>
+	                      {fmtRatio(bot.status.peakEquity, 4)}x / {botRisk ? fmtPct(botRisk.dd, 2) : "—"}
+	                    </div>
+	                  </div>
+	                  <div className="kv">
+	                    <div className="k">Day start / Daily loss</div>
+	                    <div className="v">
+	                      {fmtRatio(bot.status.dayStartEquity, 4)}x / {botRisk ? fmtPct(botRisk.dl, 2) : "—"}
+	                    </div>
+	                  </div>
+	                  <div className="kv">
+	                    <div className="k">Halt status</div>
+	                    <div className="v">
+	                      {bot.status.halted ? `HALTED${bot.status.haltReason ? ` (${bot.status.haltReason})` : ""}` : "Active"}
+	                    </div>
+	                  </div>
+	                  {bot.status.haltedAtMs ? (
+	                    <div className="kv">
+	                      <div className="k">Halted at</div>
+	                      <div className="v">{fmtTimeMs(bot.status.haltedAtMs)}</div>
+	                    </div>
+	                  ) : null}
+	                  <div className="kv">
+	                    <div className="k">Order errors</div>
+	                    <div className="v">{bot.status.consecutiveOrderErrors}</div>
+	                  </div>
+	                  <div className="kv">
+	                    <div className="k">Last action</div>
+	                    <div className="v">{bot.status.latestSignal.action}</div>
+	                  </div>
 	                  {bot.status.lastOrder ? (
 	                    <div className="kv">
 	                      <div className="k">Last order</div>
@@ -1118,9 +1471,95 @@ export function App() {
           <div className="card" ref={tradeRef}>
             <div className="cardHeader">
               <h2 className="cardTitle">Trade result</h2>
-              <p className="cardSubtitle">Only populated after calling /trade. Keys must be provided via env or CLI.</p>
+              <p className="cardSubtitle">Shows current key status, and trade output after calling /trade.</p>
             </div>
             <div className="cardBody">
+              <div className="pillRow" style={{ marginBottom: 10 }}>
+                <span className="badge">
+                  Keys:{" "}
+                  {keys.status
+                    ? keys.status.hasApiKey && keys.status.hasApiSecret
+                      ? "provided"
+                      : "missing"
+                    : "unknown"}
+                </span>
+                <span className="badge">
+                  {marketLabel(form.market)}
+                  {form.binanceTestnet ? " testnet" : ""}
+                </span>
+                {keys.status?.signed ? <span className="badge">Signed: {keys.status.signed.ok ? "OK" : "FAIL"}</span> : null}
+                {keys.status?.tradeTest ? (
+                  <span className="badge">
+                    Trade: {form.market === "margin" ? "N/A" : keys.status.tradeTest.ok ? "OK" : "FAIL"}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => refreshKeys()}
+                  disabled={keys.loading || apiOk === "down" || (apiOk === "auth" && !apiToken.trim())}
+                >
+                  {keys.loading ? "Checking…" : "Check keys"}
+                </button>
+                <span className="hint">
+                  {keys.checkedAtMs ? `Last checked: ${fmtTimeMs(keys.checkedAtMs)}` : "Uses Binance signed endpoints + /order/test (no real order)."}
+                </span>
+              </div>
+
+              {keys.error ? (
+                <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 10 }}>
+                  {keys.error}
+                </pre>
+              ) : null}
+
+              {keys.status ? (
+                <>
+                  <div className="kv">
+                    <div className="k">BINANCE_API_KEY / BINANCE_API_SECRET</div>
+                    <div className="v">
+                      {keys.status.hasApiKey ? "present" : "missing"} / {keys.status.hasApiSecret ? "present" : "missing"}
+                    </div>
+                  </div>
+
+                  <div className="kv">
+                    <div className="k">Signed check</div>
+                    <div className="v">
+                      {keys.status.signed ? (
+                        <>
+                          {keys.status.signed.ok ? "OK" : "FAIL"}{" "}
+                          {keys.status.signed.code !== undefined ? `(${keys.status.signed.code}) ` : ""}
+                          {keys.status.signed.summary}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="kv">
+                    <div className="k">Trade permission</div>
+                    <div className="v">
+                      {keys.status.tradeTest ? (
+                        <>
+                          {keys.status.tradeTest.ok ? "OK" : "FAIL"}{" "}
+                          {keys.status.tradeTest.code !== undefined ? `(${keys.status.tradeTest.code}) ` : ""}
+                          {keys.status.tradeTest.summary}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="hint" style={{ marginBottom: 10 }}>
+                  Key status not loaded yet.
+                </div>
+              )}
+
               {state.trade ? (
                 <>
                   <div className="pillRow" style={{ marginBottom: 10 }}>
@@ -1140,7 +1579,7 @@ export function App() {
           <div className="card">
             <div className="cardHeader">
               <h2 className="cardTitle">Request preview</h2>
-              <p className="cardSubtitle">This JSON is what the UI sends to the API.</p>
+              <p className="cardSubtitle">This JSON is what the UI sends to the API (excluding session-stored secrets).</p>
             </div>
             <div className="cardBody">
               <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
