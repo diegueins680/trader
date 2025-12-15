@@ -24,7 +24,7 @@ import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException)
-import Network.HTTP.Types (ResponseHeaders, Status, status200, status204, status400, status401, status404, status405, status500, status502)
+import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status500, status502)
 import Network.HTTP.Types.Header (hAuthorization)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -632,8 +632,21 @@ data BotSettings = BotSettings
   } deriving (Eq, Show)
 
 data BotController = BotController
-  { bcRuntime :: MVar (Maybe BotRuntime)
+  { bcRuntime :: MVar (Maybe BotRuntimeState)
   }
+
+data BotStartRuntime = BotStartRuntime
+  { bsrThreadId :: !ThreadId
+  , bsrStopSignal :: !(MVar ())
+  , bsrArgs :: !Args
+  , bsrSettings :: !BotSettings
+  , bsrSymbol :: !String
+  , bsrRequestedAtMs :: !Int64
+  }
+
+data BotRuntimeState
+  = BotStarting !BotStartRuntime
+  | BotRunning !BotRuntime
 
 data BotRuntime = BotRuntime
   { brThreadId :: ThreadId
@@ -743,6 +756,19 @@ botStatusJson st =
       ++ maybe [] (\t -> ["haltedAtMs" .= t]) (botHaltedAtMs st)
       ++ maybe [] (\e -> ["error" .= e]) (botError st)
 
+botStartingJson :: BotStartRuntime -> Aeson.Value
+botStartingJson rt =
+  object
+    [ "running" .= False
+    , "starting" .= True
+    , "symbol" .= bsrSymbol rt
+    , "interval" .= argInterval (bsrArgs rt)
+    , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
+    , "method" .= methodCode (argMethod (bsrArgs rt))
+    , "threshold" .= argTradeThreshold (bsrArgs rt)
+    , "startedAtMs" .= bsrRequestedAtMs rt
+    ]
+
 botStoppedJson :: Aeson.Value
 botStoppedJson =
   object
@@ -777,7 +803,7 @@ marketCode m =
     MarketMargin -> "margin"
     MarketFutures -> "futures"
 
-botStart :: Metrics -> Maybe Journal -> BotController -> Args -> ApiParams -> IO (Either String BotState)
+botStart :: Metrics -> Maybe Journal -> BotController -> Args -> ApiParams -> IO (Either String BotStartRuntime)
 botStart metrics mJournal ctrl args p =
   case argData args of
     Just _ -> pure (Left "bot/start supports binanceSymbol only (no CSV data source)")
@@ -787,26 +813,59 @@ botStart metrics mJournal ctrl args p =
         Just sym ->
           case botSettingsFromApi args p of
             Left e -> pure (Left e)
-            Right settings ->
+            Right settings -> do
+              now <- getTimestampMs
               modifyMVar (bcRuntime ctrl) $ \mrt ->
                 case mrt of
-                  Just _ -> pure (mrt, Left "Bot is already running")
+                  Just (BotRunning _) -> pure (mrt, Left "Bot is already running")
+                  Just (BotStarting _) -> pure (mrt, Left "Bot is starting")
                   Nothing -> do
-                    r <- try (initBotState args settings sym) :: IO (Either SomeException BotState)
-                    case r of
-                      Left ex -> pure (Nothing, Left (show ex))
-                      Right st0 -> do
-                        stVar <- newMVar st0
-                        stopSig <- newEmptyMVar
-                        tid <- forkIO (botLoop metrics mJournal ctrl stVar stopSig)
-                        pure (Just (BotRuntime tid stVar stopSig), Right st0)
+                    stopSig <- newEmptyMVar
+                    tid <- forkIO (botStartWorker metrics mJournal ctrl args settings sym stopSig)
+                    let rt =
+                          BotStartRuntime
+                            { bsrThreadId = tid
+                            , bsrStopSignal = stopSig
+                            , bsrArgs = args
+                            , bsrSettings = settings
+                            , bsrSymbol = sym
+                            , bsrRequestedAtMs = now
+                            }
+                    pure (Just (BotStarting rt), Right rt)
+
+botStartWorker :: Metrics -> Maybe Journal -> BotController -> Args -> BotSettings -> String -> MVar () -> IO ()
+botStartWorker metrics mJournal ctrl args settings sym stopSig = do
+  tid <- myThreadId
+  r <- try (initBotState args settings sym) :: IO (Either SomeException BotState)
+  case r of
+    Left ex -> do
+      now <- getTimestampMs
+      journalWriteMaybe mJournal (object ["type" .= ("bot.start_failed" :: String), "atMs" .= now, "error" .= show ex])
+      modifyMVar_ (bcRuntime ctrl) $ \mrt ->
+        case mrt of
+          Just (BotStarting rt) | bsrThreadId rt == tid -> pure Nothing
+          other -> pure other
+    Right st0 -> do
+      stVar <- newMVar st0
+      startOk <-
+        modifyMVar (bcRuntime ctrl) $ \mrt ->
+          case mrt of
+            Just (BotStarting rt) | bsrThreadId rt == tid -> pure (Just (BotRunning (BotRuntime tid stVar stopSig)), True)
+            _ -> pure (mrt, False)
+      if startOk
+        then botLoop metrics mJournal ctrl stVar stopSig
+        else pure ()
 
 botStop :: BotController -> IO Bool
 botStop ctrl =
   modifyMVar (bcRuntime ctrl) $ \mrt ->
     case mrt of
       Nothing -> pure (Nothing, False)
-      Just rt -> do
+      Just (BotStarting rt) -> do
+        _ <- tryPutMVar (bsrStopSignal rt) ()
+        killThread (bsrThreadId rt)
+        pure (Nothing, True)
+      Just (BotRunning rt) -> do
         _ <- tryPutMVar (brStopSignal rt) ()
         killThread (brThreadId rt)
         pure (Nothing, True)
@@ -816,7 +875,8 @@ botGetState ctrl = do
   mrt <- readMVar (bcRuntime ctrl)
   case mrt of
     Nothing -> pure Nothing
-    Just rt -> Just <$> readMVar (brStateVar rt)
+    Just (BotStarting _) -> pure Nothing
+    Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
 
 initBotState :: Args -> BotSettings -> String -> IO BotState
 initBotState args settings sym = do
@@ -1143,7 +1203,7 @@ botLoop metrics mJournal ctrl stVar stopSig = do
       cleanup = do
         modifyMVar_ (bcRuntime ctrl) $ \mrt ->
           case mrt of
-            Just rt | brThreadId rt == tid -> pure Nothing
+            Just (BotRunning rt) | brThreadId rt == tid -> pure Nothing
             other -> pure other
 
   loop `finally` cleanup
@@ -1554,7 +1614,9 @@ runRestApi baseArgs = do
   now <- getTimestampMs
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
   bot <- newBotController
-  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal)
+  asyncSignal <- newJobStore "signal"
+  asyncBacktest <- newJobStore "backtest"
+  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal (AsyncStores asyncSignal asyncBacktest))
 
 corsHeaders :: ResponseHeaders
 corsHeaders =
@@ -1567,8 +1629,44 @@ corsHeaders =
 withCors :: Wai.Response -> Wai.Response
 withCors = Wai.mapResponseHeaders (\hs -> corsHeaders ++ hs)
 
-apiApp :: Args -> Maybe BS.ByteString -> BotController -> Metrics -> Maybe Journal -> Wai.Application
-apiApp baseArgs apiToken botCtrl metrics mJournal req respond = do
+data JobStore a = JobStore
+  { jsPrefix :: !Text
+  , jsCounter :: !(IORef Int64)
+  , jsJobs :: !(MVar (HM.HashMap Text (MVar (Either String a))))
+  }
+
+newJobStore :: Text -> IO (JobStore a)
+newJobStore prefix = do
+  counter <- newIORef 0
+  jobs <- newMVar HM.empty
+  pure JobStore { jsPrefix = prefix, jsCounter = counter, jsJobs = jobs }
+
+startJob :: JobStore a -> IO a -> IO Text
+startJob store action = do
+  n <- atomicModifyIORef' (jsCounter store) (\x -> let y = x + 1 in (y, y))
+  let jobId = jsPrefix store <> "-" <> T.pack (show n)
+  out <- newEmptyMVar
+  modifyMVar_ (jsJobs store) (pure . HM.insert jobId out)
+  _ <-
+    forkIO $ do
+      r <- try action
+      case r of
+        Right v -> do
+          _ <- tryPutMVar out (Right v)
+          pure ()
+        Left ex -> do
+          let (_, msg) = exceptionToHttp ex
+          _ <- tryPutMVar out (Left msg)
+          pure ()
+  pure jobId
+
+data AsyncStores = AsyncStores
+  { asSignal :: !(JobStore LatestSignal)
+  , asBacktest :: !(JobStore Aeson.Value)
+  }
+
+apiApp :: Args -> Maybe BS.ByteString -> BotController -> Metrics -> Maybe Journal -> AsyncStores -> Wai.Application
+apiApp baseArgs apiToken botCtrl metrics mJournal asyncStores req respond = do
   let rawPath = Wai.pathInfo req
       path =
         case rawPath of
@@ -1576,12 +1674,16 @@ apiApp baseArgs apiToken botCtrl metrics mJournal req respond = do
           _ -> rawPath
       respondCors = respond . withCors
       label =
-        let go xs =
-              case xs of
-                [] -> "root"
-                [x] -> T.unpack x
-                (x:rest) -> T.unpack x ++ "/" ++ go rest
-         in go path
+        case path of
+          ["signal", "async", _] -> "signal/async/:jobId"
+          ["backtest", "async", _] -> "backtest/async/:jobId"
+          _ ->
+            let go xs =
+                  case xs of
+                    [] -> "root"
+                    [x] -> T.unpack x
+                    (x:rest) -> T.unpack x ++ "/" ++ go rest
+             in go path
 
   case Wai.requestMethod req of
     "OPTIONS" -> respond (Wai.responseLBS status204 corsHeaders "")
@@ -1603,6 +1705,14 @@ apiApp baseArgs apiToken botCtrl metrics mJournal req respond = do
               case Wai.requestMethod req of
                 "POST" -> handleSignal baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
+            ["signal", "async"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleSignalAsync (asSignal asyncStores) baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["signal", "async", jobId] ->
+              case Wai.requestMethod req of
+                "GET" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade"] ->
               case Wai.requestMethod req of
                 "POST" -> handleTrade metrics mJournal baseArgs req respondCors
@@ -1610,6 +1720,14 @@ apiApp baseArgs apiToken botCtrl metrics mJournal req respond = do
             ["backtest"] ->
               case Wai.requestMethod req of
                 "POST" -> handleBacktest baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["backtest", "async"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBacktestAsync (asBacktest asyncStores) baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["backtest", "async", jobId] ->
+              case Wai.requestMethod req of
+                "GET" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "keys"] ->
               case Wai.requestMethod req of
@@ -1697,6 +1815,25 @@ handleSignal baseArgs req respond = do
                in respond (jsonError st msg)
             Right sig -> respond (jsonValue status200 sig)
 
+handleSignalAsync :: JobStore LatestSignal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleSignalAsync store baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          let args =
+                args0
+                  { argTradeOnly = True
+                  , argBinanceTrade = False
+                  , argSweepThreshold = False
+                  , argOptimizeOperations = False
+                  }
+          jobId <- startJob store (computeLatestSignalFromArgs args)
+          respond (jsonValue status202 (object ["jobId" .= jobId]))
+
 handleTrade :: Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleTrade metrics mJournal baseArgs req respond = do
   body <- Wai.strictRequestBody req
@@ -1761,6 +1898,38 @@ handleBacktest baseArgs req respond = do
                in respond (jsonError st msg)
             Right out -> respond (jsonValue status200 out)
 
+handleBacktestAsync :: JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBacktestAsync store baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          let args =
+                args0
+                  { argTradeOnly = False
+                  , argBinanceTrade = False
+                  , argOptimizeOperations = maybe (argOptimizeOperations args0) id (apOptimizeOperations params)
+                  , argSweepThreshold = maybe (argSweepThreshold args0) id (apSweepThreshold params)
+                  , argBacktestRatio = maybe (argBacktestRatio args0) id (apBacktestRatio params)
+                  }
+          jobId <- startJob store (computeBacktestFromArgs args)
+          respond (jsonValue status202 (object ["jobId" .= jobId]))
+
+handleAsyncPoll :: ToJSON a => JobStore a -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleAsyncPoll store jobId respond = do
+  mVar <- withMVar (jsJobs store) (pure . HM.lookup jobId)
+  case mVar of
+    Nothing -> respond (jsonError status404 "Not found")
+    Just out -> do
+      r <- tryReadMVar out
+      case r of
+        Nothing -> respond (jsonValue status200 (object ["status" .= ("running" :: String)]))
+        Just (Left err) -> respond (jsonValue status200 (object ["status" .= ("error" :: String), "error" .= err]))
+        Just (Right v) -> respond (jsonValue status200 (object ["status" .= ("done" :: String), "result" .= v]))
+
 handleBinanceKeys :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceKeys baseArgs req respond = do
   body <- Wai.strictRequestBody req
@@ -1793,20 +1962,20 @@ handleBotStart metrics mJournal baseArgs botCtrl req respond = do
           r <- botStart metrics mJournal botCtrl args params
           case r of
             Left e -> respond (jsonError status400 e)
-            Right st -> do
+            Right rt -> do
               now <- getTimestampMs
               journalWriteMaybe
                 mJournal
                 ( object
                     [ "type" .= ("bot.start" :: String)
                     , "atMs" .= now
-                    , "symbol" .= botSymbol st
-                    , "market" .= marketCode (argBinanceMarket (botArgs st))
-                    , "interval" .= argInterval (botArgs st)
-                    , "tradeEnabled" .= bsTradeEnabled (botSettings st)
+                    , "symbol" .= bsrSymbol rt
+                    , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
+                    , "interval" .= argInterval (bsrArgs rt)
+                    , "tradeEnabled" .= bsTradeEnabled (bsrSettings rt)
                     ]
                 )
-              respond (jsonValue status200 (botStatusJson st))
+              respond (jsonValue status202 (botStartingJson rt))
 
 handleBotStop :: Maybe Journal -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStop mJournal botCtrl respond = do
@@ -1817,10 +1986,13 @@ handleBotStop mJournal botCtrl respond = do
 
 handleBotStatus :: BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStatus botCtrl respond = do
-  mSt <- botGetState botCtrl
-  case mSt of
+  mrt <- readMVar (bcRuntime botCtrl)
+  case mrt of
     Nothing -> respond (jsonValue status200 botStoppedJson)
-    Just st -> respond (jsonValue status200 (botStatusJson st))
+    Just (BotStarting rt) -> respond (jsonValue status200 (botStartingJson rt))
+    Just (BotRunning rt) -> do
+      st <- readMVar (brStateVar rt)
+      respond (jsonValue status200 (botStatusJson st))
 
 argsFromApi :: Args -> ApiParams -> Either String Args
 argsFromApi baseArgs p = do

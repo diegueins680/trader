@@ -18,6 +18,9 @@ type FetchJsonOptions = {
   headers?: Record<string, string>;
 };
 
+type AsyncStartResponse = { jobId: string };
+type AsyncPollResponse<T> = { status: "running" | "done" | "error"; result?: T; error?: string };
+
 function resolveUrl(baseUrl: string, path: string): string {
   const base = baseUrl.trim().replace(/\/+$/, "");
   const p = path.startsWith("/") ? path : `/${path}`;
@@ -40,6 +43,31 @@ function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, strin
   const merged = new Headers(base);
   for (const [key, value] of Object.entries(extra)) merged.set(key, value);
   return merged;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject((signal as AbortSignal & { reason?: unknown }).reason ?? new DOMException("Aborted", "AbortError"));
+    };
+
+    const timer = window.setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+
+    if (signal) {
+      if (signal.aborted) return onAbort();
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  });
 }
 
 function withTimeout(externalSignal: AbortSignal | undefined, timeoutMs: number) {
@@ -94,6 +122,52 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
   }
 }
 
+function timeoutError(): DOMException {
+  return new DOMException("Timeout", "TimeoutError");
+}
+
+async function runAsyncJob<T>(
+  baseUrl: string,
+  startPath: string,
+  pollPath: string,
+  params: ApiParams,
+  opts?: FetchJsonOptions,
+): Promise<T> {
+  const startedAt = Date.now();
+  const overallTimeoutMs = opts?.timeoutMs ?? 30_000;
+
+  const start = await fetchJson<AsyncStartResponse>(
+    baseUrl,
+    startPath,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(overallTimeoutMs, 30_000) },
+  );
+
+  let backoffMs = 750;
+  for (;;) {
+    const elapsed = Date.now() - startedAt;
+    const remaining = overallTimeoutMs - elapsed;
+    if (remaining <= 0) throw timeoutError();
+
+    const status = await fetchJson<AsyncPollResponse<T>>(
+      baseUrl,
+      `${pollPath}/${encodeURIComponent(start.jobId)}`,
+      { method: "GET" },
+      { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, 30_000) },
+    );
+
+    if (status.status === "done") return status.result as T;
+    if (status.status === "error") throw new Error(status.error || "Async job failed");
+
+    await sleep(Math.min(backoffMs, remaining), opts?.signal);
+    backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+  }
+}
+
 export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<"ok"> {
   const out = await fetchJson<{ status: string }>(baseUrl, "/health", { method: "GET" }, opts);
   if (out.status !== "ok") throw new Error("Unexpected /health response");
@@ -101,29 +175,43 @@ export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<
 }
 
 export async function signal(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<LatestSignal> {
-  return fetchJson<LatestSignal>(
-    baseUrl,
-    "/signal",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    },
-    opts,
-  );
+  try {
+    return await runAsyncJob<LatestSignal>(baseUrl, "/signal/async", "/signal/async", params, opts);
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 404) {
+      return fetchJson<LatestSignal>(
+        baseUrl,
+        "/signal",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        },
+        opts,
+      );
+    }
+    throw err;
+  }
 }
 
 export async function backtest(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<BacktestResponse> {
-  return fetchJson<BacktestResponse>(
-    baseUrl,
-    "/backtest",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    },
-    opts,
-  );
+  try {
+    return await runAsyncJob<BacktestResponse>(baseUrl, "/backtest/async", "/backtest/async", params, opts);
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 404) {
+      return fetchJson<BacktestResponse>(
+        baseUrl,
+        "/backtest",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        },
+        opts,
+      );
+    }
+    throw err;
+  }
 }
 
 export async function trade(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<ApiTradeResponse> {

@@ -82,6 +82,38 @@ TRADER_API_TARGET="https://<your-api-host>" npm run build
 
 Then upload `haskell/web/dist` to your static hosting origin (S3/CloudFront).
 
+### What’s the “API host”?
+
+It’s the public base URL where your backend is reachable (the service running `trader-hs -- --serve`), for example:
+- your **App Runner** service URL
+- an **ALB** / API Gateway URL in front of your container
+- an EC2 public URL (prefer putting it behind HTTPS)
+
+It is not your CloudFront static site URL.
+
+### API token
+
+If you set `TRADER_API_TOKEN` on the backend, all endpoints except `/health` require it via:
+- `Authorization: Bearer <token>` or
+- `X-API-Key: <token>`
+
+Generate a random token locally (example):
+
+```bash
+openssl rand -hex 32
+```
+
+Then set it as `TRADER_API_TOKEN` on the backend and paste the same value into the UI’s “API token” field.
+
+### CloudFront `/api/*` proxy (optional)
+
+If you prefer the UI calling `/api/*` on the same domain, configure a CloudFront behavior:
+- Path pattern: `/api/*`
+- Origin: your API service (App Runner/ALB/etc)
+- Allowed methods: include `POST` (and `OPTIONS`)
+- Forward headers: at least `Authorization`, `X-API-Key`, `Content-Type`
+- Cache: disable caching for `/api/*`
+
 Notes:
 - You can also override the API base at runtime from the UI (stored in local storage) via the “API base URL” field.
-- If you *do* prefer same-origin `/api/*` routing, configure a CloudFront behavior for `/api/*` to forward to your API origin (and allow `POST`).
+- If you *do* prefer same-origin `/api/*` routing, see “CloudFront `/api/*` proxy (optional)” above.

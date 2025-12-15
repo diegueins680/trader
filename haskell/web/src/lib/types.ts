@@ -168,7 +168,17 @@ export type BotOrderEvent = {
 };
 
 export type BotStatus =
-  | { running: false }
+  | {
+      running: false;
+      starting?: boolean;
+      symbol?: string;
+      interval?: string;
+      market?: Market;
+      method?: Method;
+      threshold?: number;
+      startedAtMs?: number;
+      error?: string;
+    }
   | {
       running: true;
       symbol: string;

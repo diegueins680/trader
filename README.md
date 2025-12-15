@@ -65,6 +65,12 @@ Environment variables:
 - `BINANCE_API_KEY`
 - `BINANCE_API_SECRET`
 
+Getting Binance API keys:
+- Binance → Profile → **API Management** → **Create API**
+- Enable only what you need (Spot/Margin/Futures trading) and keep withdrawals disabled
+- Prefer IP restrictions (allowlist your server IP) when possible
+- Save the secret: Binance only shows it once
+
 Example (test endpoint):
 ```
 cd haskell

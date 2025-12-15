@@ -653,8 +653,16 @@ export function App() {
 	      };
 	      const out = await botStart(apiBase, withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
 	      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
-	      showToast(out.running ? (form.tradeArmed ? "Live bot started (trading armed)" : "Live bot started (paper mode)") : "Bot not running");
-	    } catch (e) {
+		      showToast(
+		        out.running
+		          ? form.tradeArmed
+		            ? "Live bot started (trading armed)"
+		            : "Live bot started (paper mode)"
+		          : out.starting
+		            ? "Live bot starting…"
+		            : "Bot not running",
+		      );
+		    } catch (e) {
       if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : String(e);
       setBot((s) => ({ ...s, loading: false, error: msg }));
@@ -681,13 +689,14 @@ export function App() {
   }, [refreshBot]);
 
   useEffect(() => {
-    if (!bot.status.running) return;
+    const starting = !bot.status.running && bot.status.starting === true;
+    if (!bot.status.running && !starting) return;
     const t = window.setInterval(() => {
       if (bot.loading) return;
       void refreshBot({ silent: true });
     }, 2000);
     return () => window.clearInterval(t);
-  }, [bot.loading, bot.status.running, refreshBot]);
+  }, [bot.loading, bot.status, refreshBot]);
 
   useEffect(() => {
     if (!form.autoRefresh || apiOk !== "ok") return;
@@ -1327,13 +1336,13 @@ export function App() {
                   <div className="actions" style={{ marginTop: 0 }}>
                     <button
                       className="btn btnPrimary"
-                      disabled={bot.loading || bot.status.running || requestDisabled}
+                      disabled={bot.loading || bot.status.running || (!bot.status.running && bot.status.starting === true) || requestDisabled}
                       onClick={startLiveBot}
                       title={requestDisabledReason ?? (form.tradeArmed ? "Trading armed (will send orders)" : "Paper mode (no orders)")}
                     >
-                      {bot.loading ? "Starting…" : bot.status.running ? "Running" : "Start live bot"}
+                      {bot.loading || (!bot.status.running && bot.status.starting === true) ? "Starting…" : bot.status.running ? "Running" : "Start live bot"}
                     </button>
-                    <button className="btn" disabled={bot.loading || !bot.status.running} onClick={stopLiveBot}>
+                    <button className="btn" disabled={bot.loading || (!bot.status.running && bot.status.starting !== true)} onClick={stopLiveBot}>
                       Stop bot
                     </button>
                     <button className="btn" disabled={bot.loading || Boolean(apiBlockedReason)} onClick={() => refreshBot()} title={apiBlockedReason ?? undefined}>
@@ -1799,7 +1808,11 @@ export function App() {
 		                  </div>
 		                </>
 		              ) : (
-		                <div className="hint">Bot is stopped. Use “Start live bot” on the left.</div>
+		                <div className="hint">
+		                  {!bot.status.running && bot.status.starting === true
+		                    ? "Bot is starting… (initializing model). Use “Refresh” to check status."
+		                    : "Bot is stopped. Use “Start live bot” on the left."}
+		                </div>
 		              )}
             </div>
           </div>
