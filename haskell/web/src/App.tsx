@@ -397,8 +397,10 @@ export function App() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      if (!opts?.silent) scrollToResult(kind);
-      setState((s) => ({ ...s, loading: true, error: opts?.silent ? s.error : null, lastKind: kind }));
+      if (!opts?.silent) {
+        scrollToResult(kind);
+        setState((s) => ({ ...s, loading: true, error: null, lastKind: kind }));
+      }
 
       try {
         const p = overrideParams ?? params;
@@ -408,7 +410,8 @@ export function App() {
         if (kind === "signal") {
           const out = await signal(p, { signal: controller.signal, headers: authHeaders, timeoutMs: SIGNAL_TIMEOUT_MS });
           if (requestId !== requestSeqRef.current) return;
-          setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false, error: null }));
+          if (opts?.silent) setState((s) => ({ ...s, latestSignal: out }));
+          else setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Signal updated");
         } else if (kind === "backtest") {
@@ -585,11 +588,11 @@ export function App() {
     if (!form.autoRefresh || apiOk !== "ok") return;
     const ms = clamp(form.autoRefreshSec, 5, 600) * 1000;
     const t = window.setInterval(() => {
-      if (state.loading) return;
+      if (abortRef.current) return;
       void run("signal", undefined, { silent: true });
     }, ms);
     return () => window.clearInterval(t);
-  }, [apiOk, form.autoRefresh, form.autoRefreshSec, run, state.loading]);
+  }, [apiOk, form.autoRefresh, form.autoRefreshSec, run]);
 
   useEffect(() => {
     if (!state.error) return;
@@ -1220,6 +1223,7 @@ export function App() {
                   disabled={state.loading}
                   onClick={() => {
                     abortRef.current?.abort();
+                    abortRef.current = null;
                     setState((s) => ({ ...s, loading: false }));
                   }}
                 >
