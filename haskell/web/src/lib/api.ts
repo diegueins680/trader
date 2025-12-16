@@ -249,7 +249,9 @@ async function runAsyncJob<T>(
     if (status.status === "error") {
       const msg = status.error || "Async job failed";
       if (msg.trim().toLowerCase() === "not found") {
-        throw new Error("Async job not found (server restarted or behind a non-sticky load balancer). Please retry.");
+        throw new Error(
+          "Async job not found (server restarted or behind a non-sticky load balancer). Please retry; for multi-instance deployments, enable shared async job storage (TRADER_API_ASYNC_DIR) or run single-instance.",
+        );
       }
       throw new Error(msg);
     }

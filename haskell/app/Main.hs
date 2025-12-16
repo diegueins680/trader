@@ -263,7 +263,8 @@ type KalmanCtx = (PredictorBundle, Kalman1, HMMFilter, SensorVar)
 data LatestSignal = LatestSignal
   { lsMethod :: !Method
   , lsCurrentPrice :: !Double
-  , lsThreshold :: !Double
+  , lsOpenThreshold :: !Double
+  , lsCloseThreshold :: !Double
   , lsKalmanNext :: !(Maybe Double)
   , lsKalmanReturn :: !(Maybe Double)
   , lsKalmanStd :: !(Maybe Double)
@@ -290,7 +291,8 @@ data BacktestSummary = BacktestSummary
   , bsBacktestSize :: !Int
   , bsBacktestRatio :: !Double
   , bsMethodUsed :: !Method
-  , bsBestThreshold :: !Double
+  , bsBestOpenThreshold :: !Double
+  , bsBestCloseThreshold :: !Double
   , bsMetrics :: !BacktestMetrics
   , bsLstmHistory :: !(Maybe [EpochStats])
   , bsLatestSignal :: !LatestSignal
@@ -336,7 +338,8 @@ data Args = Args
   , argKalmanDt :: Double
   , argKalmanProcessVar :: Double
   , argKalmanMeasurementVar :: Double
-  , argTradeThreshold :: Double
+  , argOpenThreshold :: Double
+  , argCloseThreshold :: Double
   , argMethod :: Method
   , argPositioning :: Positioning
   , argOptimizeOperations :: Bool
@@ -2449,6 +2452,7 @@ data JobStore a = JobStore
 
 data JobEntry a = JobEntry
   { jeCreatedAtMs :: !Int64
+  , jeThreadId :: !ThreadId
   , jeResult :: !(MVar (Either String a))
   }
 
@@ -2477,40 +2481,42 @@ newJobStore prefix maxRunning mAsyncDir = do
       }
 
 pruneJobStore :: JobStore a -> Int64 -> IO ()
-pruneJobStore store now = do
-  modifyMVar_ (jsJobs store) $ \jobs0 -> do
-    jobs1 <-
-      fmap HM.fromList $
-        fmap (mapMaybe id) $
-          mapM
-            ( \(k, e) -> do
-                done <- isJust <$> tryReadMVar (jeResult e)
-                let expired = done && now - jeCreatedAtMs e > jsTtlMs store
-                pure (if expired then Nothing else Just (k, e))
-            )
-            (HM.toList jobs0)
+pruneJobStore store now =
+  modifyMVar_
+    (jsJobs store)
+    ( \jobs0 -> do
+        jobs1 <-
+          fmap HM.fromList $
+            fmap (mapMaybe id) $
+              mapM
+                ( \(k, e) -> do
+                    done <- isJust <$> tryReadMVar (jeResult e)
+                    let expired = done && now - jeCreatedAtMs e > jsTtlMs store
+                    pure (if expired then Nothing else Just (k, e))
+                )
+                (HM.toList jobs0)
 
-    let maxJobs = max 1 (jsMaxJobs store)
-    if HM.size jobs1 <= maxJobs
-      then pure jobs1
-      else do
-        annotated <-
-          mapM
-            ( \(k, e) -> do
-                done <- isJust <$> tryReadMVar (jeResult e)
-                pure (k, jeCreatedAtMs e, done)
-            )
-            (HM.toList jobs1)
-        let doneSorted =
-              take (HM.size jobs1 - maxJobs) $
-                sortOn
-                  (\(_k, createdAt, _done) -> createdAt)
-                  [x | x@(_k, _createdAt, done) <- annotated, done]
-            dropKeys = [k | (k, _createdAt, _done) <- doneSorted]
-            jobs2 = foldl' (flip HM.delete) jobs1 dropKeys
-        pure jobs2
-
-  pruneJobStoreDisk store now
+        let maxJobs = max 1 (jsMaxJobs store)
+        if HM.size jobs1 <= maxJobs
+          then pure jobs1
+          else do
+            annotated <-
+              mapM
+                ( \(k, e) -> do
+                    done <- isJust <$> tryReadMVar (jeResult e)
+                    pure (k, jeCreatedAtMs e, done)
+                )
+                (HM.toList jobs1)
+            let doneSorted =
+                  take (HM.size jobs1 - maxJobs) $
+                    sortOn
+                      (\(_k, createdAt, _done) -> createdAt)
+                      [x | x@(_k, _createdAt, done) <- annotated, done]
+                dropKeys = [k | (k, _createdAt, _done) <- doneSorted]
+                jobs2 = foldl' (flip HM.delete) jobs1 dropKeys
+            pure jobs2
+    )
+    >> pruneJobStoreDisk store now
 
 data StoredAsyncJobMeta = StoredAsyncJobMeta
   { sajStatus :: !String
@@ -2639,9 +2645,8 @@ startJob store action = do
       n <- atomicModifyIORef' (jsCounter store) (\x -> let y = x + 1 in (y, y))
       let jobId = jsPrefix store <> "-" <> T.pack (show now) <> "-" <> T.pack (show n)
       out <- newEmptyMVar
-      modifyMVar_ (jsJobs store) (pure . HM.insert jobId (JobEntry now out))
       writeJobFile store jobId (object ["status" .= ("running" :: String), "createdAtMs" .= now])
-      _ <-
+      tid <-
         forkIO $
           ( do
               r <- try action
@@ -2659,6 +2664,7 @@ startJob store action = do
                   pure ()
           )
             `finally` modifyMVar_ (jsRunning store) (pure . max 0 . subtract 1)
+      modifyMVar_ (jsJobs store) (pure . HM.insert jobId (JobEntry now tid out))
       pure (Right jobId)
 
 data AsyncStores = AsyncStores
@@ -3186,6 +3192,43 @@ handleAsyncPoll store jobId respond = do
             ( jsonValue
                 status200
                 (object ["status" .= ("done" :: String), "createdAtMs" .= jeCreatedAtMs entry, "result" .= v])
+            )
+
+handleAsyncCancel :: ToJSON a => JobStore a -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleAsyncCancel store jobId respond = do
+  now <- getTimestampMs
+  pruneJobStore store now
+  mEntry <- withMVar (jsJobs store) (pure . HM.lookup jobId)
+  case mEntry of
+    Nothing -> respond (jsonValue status200 (object ["status" .= ("error" :: String), "error" .= ("Not found" :: String)]))
+    Just entry -> do
+      r <- tryReadMVar (jeResult entry)
+      case r of
+        Just (Right _) ->
+          respond
+            ( jsonValue
+                status200
+                (object ["status" .= ("done" :: String), "createdAtMs" .= jeCreatedAtMs entry])
+            )
+        Just (Left err) ->
+          respond
+            ( jsonValue
+                status200
+                (object ["status" .= ("error" :: String), "createdAtMs" .= jeCreatedAtMs entry, "error" .= err])
+            )
+        Nothing -> do
+          canceledAt <- getTimestampMs
+          let msg = "Canceled" :: String
+          writeJobFile
+            store
+            jobId
+            (object ["status" .= ("error" :: String), "createdAtMs" .= jeCreatedAtMs entry, "completedAtMs" .= canceledAt, "error" .= msg])
+          _ <- tryPutMVar (jeResult entry) (Left msg)
+          killThread (jeThreadId entry)
+          respond
+            ( jsonValue
+                status200
+                (object ["status" .= ("canceled" :: String), "createdAtMs" .= jeCreatedAtMs entry, "canceledAtMs" .= canceledAt])
             )
 
 handleBinanceKeys :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived

@@ -881,6 +881,7 @@ export function App() {
 	      fee: Math.max(0, form.fee),
 	      ...(form.slippage > 0 ? { slippage: clamp(form.slippage, 0, 0.999999) } : {}),
 	      ...(form.spread > 0 ? { spread: clamp(form.spread, 0, 0.999999) } : {}),
+	      ...(form.intrabarFill !== "stop-first" ? { intrabarFill: form.intrabarFill } : {}),
 	      ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
 	      ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
 	      ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
@@ -2082,10 +2083,27 @@ export function App() {
                     />
                     <div className="hint">{form.trailingStop > 0 ? fmtPct(form.trailingStop, 2) : "0 disables"}</div>
                   </div>
-                </div>
-                <div className="hint">Optional synthetic exits (evaluated on closes). Example: 0.02 = 2%.</div>
-              </div>
-            </div>
+	                </div>
+	                <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+	                  <div className="field">
+	                    <label className="label" htmlFor="intrabarFill">
+	                      Intrabar fill
+	                    </label>
+	                    <select
+	                      id="intrabarFill"
+	                      className="select"
+	                      value={form.intrabarFill}
+	                      onChange={(e) => setForm((f) => ({ ...f, intrabarFill: e.target.value as IntrabarFill }))}
+	                    >
+	                      <option value="stop-first">Stop-first (conservative)</option>
+	                      <option value="take-profit-first">Take-profit-first (optimistic)</option>
+	                    </select>
+	                    <div className="hint">If take-profit and stop are both hit within a bar.</div>
+	                  </div>
+	                </div>
+	                <div className="hint">Optional bracket exits (uses OHLC high/low when available; otherwise close-only). Example: 0.02 = 2%.</div>
+	              </div>
+	            </div>
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
               <div className="field">
@@ -2211,7 +2229,7 @@ export function App() {
                     Optimize operations (method + threshold)
                   </label>
                 </div>
-                <div className="hint">Runs on the backtest split and selects the best final equity.</div>
+	                <div className="hint">Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.</div>
               </div>
               <div className="field">
                 <label className="label">Options</label>
@@ -3033,10 +3051,10 @@ export function App() {
           </div>
 
           <div className="card" ref={backtestRef}>
-            <div className="cardHeader">
-              <h2 className="cardTitle">Backtest summary</h2>
-              <p className="cardSubtitle">Uses a time split (train vs held-out backtest) to avoid lookahead.</p>
-            </div>
+	            <div className="cardHeader">
+	              <h2 className="cardTitle">Backtest summary</h2>
+	              <p className="cardSubtitle">Uses a time split (train vs held-out backtest). When optimizing, tunes on a fit/tune split inside train.</p>
+	            </div>
             <div className="cardBody">
               {state.backtest ? (
                 <>
@@ -3048,19 +3066,22 @@ export function App() {
 	                    trades={state.backtest.trades}
 	                    backtestStartIndex={state.backtest.split.backtestStartIndex}
 	                    height={360}
-	                  />
-	                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
-	                    <span className="badge">Train: {state.backtest.split.train}</span>
-	                    <span className="badge">Fit: {state.backtest.split.fit}</span>
-	                    {state.backtest.split.tune > 0 ? (
-	                      <span className="badge">
-	                        Tune: {state.backtest.split.tune} ({fmtPct(state.backtest.split.tuneRatio, 1)})
-	                      </span>
-	                    ) : null}
-	                    <span className="badge">Backtest: {state.backtest.split.backtest}</span>
-	                    <span className="badge">Holdout: {fmtPct(state.backtest.split.backtestRatio, 1)}</span>
-	                    <span className="badge">{methodLabel(state.backtest.method)}</span>
-	                  </div>
+		                  />
+		                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
+		                    {state.backtest.split.tune > 0 ? (
+		                      <>
+		                        <span className="badge">Fit: {state.backtest.split.fit}</span>
+		                        <span className="badge">
+		                          Tune: {state.backtest.split.tune} ({fmtPct(state.backtest.split.tuneRatio, 1)})
+		                        </span>
+		                      </>
+		                    ) : (
+		                      <span className="badge">Train: {state.backtest.split.train}</span>
+		                    )}
+		                    <span className="badge">Backtest: {state.backtest.split.backtest}</span>
+		                    <span className="badge">Holdout: {fmtPct(state.backtest.split.backtestRatio, 1)}</span>
+		                    <span className="badge">{methodLabel(state.backtest.method)}</span>
+		                  </div>
 
                   <div className="kv">
                     <div className="k">Best threshold</div>
