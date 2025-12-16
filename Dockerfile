@@ -20,6 +20,11 @@ RUN apt-get update \
 
 COPY --from=build /opt/trader/trader-hs /usr/local/bin/trader-hs
 
+ENV TRADER_API_ASYNC_DIR=/var/lib/trader/async
+
+RUN mkdir -p /var/lib/trader/async \
+  && chown -R 65532:65532 /var/lib/trader
+
 EXPOSE 8080
 
 USER 65532:65532

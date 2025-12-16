@@ -108,6 +108,14 @@ If you run multiple instances behind a non-sticky load balancer (including the o
 
 Recommendation: run **single-instance** (min=1 / max=1) unless you have shared async-job storage.
 
+Helper (AWS CLI):
+
+```bash
+AWS_REGION=ap-northeast-1
+APP_RUNNER_SERVICE_ARN="arn:aws:apprunner:..."
+bash deploy/aws/set-app-runner-single-instance.sh --service-arn "$APP_RUNNER_SERVICE_ARN" --min 1 --max 1
+```
+
 ## Web UI (S3/CloudFront)
 
 The web UI is a static app (`haskell/web`). For production, it can call your deployed API directly (no CloudFront `/api/*` proxy required).
