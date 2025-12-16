@@ -673,6 +673,10 @@ export function App() {
   const [orderShowStatus, setOrderShowStatus] = useState(() => orderPrefsInit?.showStatus ?? false);
   const [orderShowClientOrderId, setOrderShowClientOrderId] = useState(() => orderPrefsInit?.showClientOrderId ?? false);
 
+  const [dataLog, setDataLog] = useState<Array<{ timestamp: number; label: string; data: unknown }>>([]);
+  const [dataLogExpanded, setDataLogExpanded] = useState(false);
+  const dataLogRef = useRef<HTMLDivElement | null>(null);
+
   const abortRef = useRef<AbortController | null>(null);
   const botAbortRef = useRef<AbortController | null>(null);
   const keysAbortRef = useRef<AbortController | null>(null);
@@ -1176,7 +1180,10 @@ export function App() {
             }));
           }
           if (opts?.silent) setState((s) => ({ ...s, latestSignal: out }));
-          else setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false, error: null }));
+          else {
+            setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Signal Response", data: out }].slice(-100));
+            setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false, error: null }));
+          }
           setApiOk("ok");
           if (!opts?.silent) showToast("Signal updated");
         } else if (kind === "backtest") {
@@ -1201,6 +1208,7 @@ export function App() {
             }));
           }
           setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false, error: null }));
+          setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Backtest Response", data: out }].slice(-100));
           setApiOk("ok");
           if (!opts?.silent) showToast("Backtest complete");
         } else {
@@ -1227,6 +1235,7 @@ export function App() {
             }));
           }
           setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false, error: null }));
+          setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Trade Response", data: out }].slice(-100));
           setApiOk("ok");
           if (!opts?.silent) showToast(out.order.sent ? "Order sent" : "No order");
         }
@@ -3784,6 +3793,70 @@ export function App() {
           </div>
         </section>
       </div>
+
+      <section className="card" style={{ marginTop: "18px" }}>
+        <div className="cardHeader">
+          <h2 className="cardTitle">Data Log</h2>
+          <p className="cardSubtitle">All incoming API responses (last 100 entries)</p>
+        </div>
+        <div className="cardBody">
+          <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
+            <button
+              className="btn"
+              onClick={() => setDataLog([])}
+            >
+              Clear Log
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                const logText = dataLog
+                  .map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
+                  .join("\n\n");
+                copyText(logText);
+                showToast("Copied log to clipboard");
+              }}
+            >
+              Copy All
+            </button>
+          </div>
+          <div
+            ref={dataLogRef}
+            style={{
+              height: "500px",
+              overflowY: "auto",
+              backgroundColor: "#0a0e27",
+              border: "1px solid #374151",
+              borderRadius: "6px",
+              padding: "12px",
+              fontFamily: "var(--mono)",
+              fontSize: "12px",
+              color: "#e5e7eb",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {dataLog.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>No data logged yet. Run a signal, backtest, or trade to see incoming data.</div>
+            ) : (
+              dataLog.map((entry, idx) => (
+                <div key={idx} style={{ marginBottom: "12px", paddingBottom: "12px", borderBottom: "1px solid #1f2937" }}>
+                  <div style={{ color: "#60a5fa", marginBottom: "4px" }}>
+                    [{new Date(entry.timestamp).toLocaleTimeString()}] <span style={{ color: "#34d399" }}>{entry.label}</span>
+                  </div>
+                  <div style={{ color: "#d1d5db", fontSize: "11px" }}>
+                    {JSON.stringify(entry.data, null, 2)
+                      .split("\n")
+                      .slice(0, 50)
+                      .join("\n")}
+                    {JSON.stringify(entry.data, null, 2).split("\n").length > 50 && "\n... (truncated)"}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
