@@ -1,0 +1,242 @@
+export type Market = "spot" | "margin" | "futures";
+export type Method = "11" | "10" | "01";
+export type Normalization = "none" | "minmax" | "standard" | "log";
+export type Positioning = "long-flat" | "long-short";
+export type IntrabarFill = "stop-first" | "take-profit-first";
+
+export type DirectionLabel = "UP" | "DOWN" | null;
+
+export type ApiError = { error: string };
+
+export type ApiParams = {
+  data?: string;
+  priceColumn?: string;
+  binanceSymbol?: string;
+  market?: Market;
+  interval?: string;
+  bars?: number;
+  lookbackWindow?: string;
+  lookbackBars?: number;
+  binanceTestnet?: boolean;
+  binanceApiKey?: string;
+  binanceApiSecret?: string;
+  normalization?: Normalization;
+  hiddenSize?: number;
+  epochs?: number;
+  lr?: number;
+  valRatio?: number;
+  backtestRatio?: number;
+  tuneRatio?: number;
+  patience?: number;
+  gradClip?: number;
+  seed?: number;
+  kalmanDt?: number;
+  kalmanProcessVar?: number;
+  kalmanMeasurementVar?: number;
+  threshold?: number;
+  method?: Method;
+  positioning?: Positioning;
+  optimizeOperations?: boolean;
+  sweepThreshold?: boolean;
+  fee?: number;
+  slippage?: number;
+  spread?: number;
+  intrabarFill?: IntrabarFill;
+  stopLoss?: number;
+  takeProfit?: number;
+  trailingStop?: number;
+  maxDrawdown?: number;
+  maxDailyLoss?: number;
+  maxOrderErrors?: number;
+  periodsPerYear?: number;
+  binanceLive?: boolean;
+  orderQuote?: number;
+  orderQuantity?: number;
+  orderQuoteFraction?: number;
+  maxOrderQuote?: number;
+  idempotencyKey?: string;
+
+  // Confidence / gating (Kalman sensors + HMM/intervals)
+  kalmanZMin?: number;
+  kalmanZMax?: number;
+  maxHighVolProb?: number;
+  maxConformalWidth?: number;
+  maxQuantileWidth?: number;
+  confirmConformal?: boolean;
+  confirmQuantiles?: boolean;
+  confidenceSizing?: boolean;
+  minPositionSize?: number;
+
+  // Live bot (stateful) options
+  botPollSeconds?: number;
+  botOnlineEpochs?: number;
+  botTrainBars?: number;
+  botMaxPoints?: number;
+  botTrade?: boolean;
+};
+
+export type LatestSignal = {
+  method: Method;
+  currentPrice: number;
+  threshold: number;
+  kalmanNext: number | null;
+  kalmanReturn?: number | null;
+  kalmanStd?: number | null;
+  kalmanZ?: number | null;
+  regimes?: { trend: number; mr: number; highVol: number } | null;
+  quantiles?: { q10: number; q50: number; q90: number; width: number } | null;
+  conformalInterval?: { lo: number; hi: number; width: number } | null;
+  confidence?: number | null;
+  positionSize?: number | null;
+  kalmanDirection: DirectionLabel;
+  lstmNext: number | null;
+  lstmDirection: DirectionLabel;
+  chosenDirection: DirectionLabel;
+  action: string;
+};
+
+export type ApiOrderResult = {
+  sent: boolean;
+  mode?: string;
+  side?: string;
+  symbol?: string;
+  quantity?: number;
+  quoteQuantity?: number;
+  orderId?: number;
+  clientOrderId?: string;
+  status?: string;
+  executedQty?: number;
+  cummulativeQuoteQty?: number;
+  response?: string;
+  message: string;
+};
+
+export type ApiTradeResponse = {
+  signal: LatestSignal;
+  order: ApiOrderResult;
+};
+
+export type BinanceProbe = {
+  ok: boolean;
+  step: string;
+  code?: number;
+  msg?: string;
+  summary: string;
+};
+
+export type BinanceKeysStatus = {
+  market: Market;
+  testnet: boolean;
+  symbol?: string;
+  hasApiKey: boolean;
+  hasApiSecret: boolean;
+  signed?: BinanceProbe;
+  tradeTest?: BinanceProbe;
+};
+
+export type Trade = {
+  entryIndex: number;
+  exitIndex: number;
+  entryEquity: number;
+  exitEquity: number;
+  return: number;
+  holdingPeriods: number;
+  exitReason?: string;
+};
+
+export type BacktestResponse = {
+  split: {
+    train: number;
+    fit: number;
+    tune: number;
+    tuneRatio: number;
+    tuneStartIndex: number;
+    backtest: number;
+    backtestRatio: number;
+    backtestStartIndex: number;
+  };
+  method: Method;
+  threshold: number;
+  metrics: {
+    finalEquity: number;
+    totalReturn: number;
+    annualizedReturn: number;
+    annualizedVolatility: number;
+    sharpe: number;
+    maxDrawdown: number;
+    tradeCount: number;
+    roundTrips: number;
+    winRate: number;
+    grossProfit: number;
+    grossLoss: number;
+    profitFactor: number | null;
+    avgTradeReturn: number;
+    avgHoldingPeriods: number;
+    exposure: number;
+    agreementRate: number;
+    turnover: number;
+  };
+  latestSignal: LatestSignal;
+  equityCurve: number[];
+  prices: number[];
+  positions: number[];
+  agreementOk: boolean[];
+  trades: Trade[];
+};
+
+export type BotOperation = {
+  index: number;
+  side: "BUY" | "SELL";
+  price: number;
+};
+
+export type BotOrderEvent = {
+  index: number;
+  opSide: "BUY" | "SELL";
+  price: number;
+  openTime: number;
+  atMs: number;
+  order: ApiOrderResult;
+};
+
+export type BotStatus =
+  | {
+      running: false;
+      starting?: boolean;
+      symbol?: string;
+      interval?: string;
+      market?: Market;
+      method?: Method;
+      threshold?: number;
+      startedAtMs?: number;
+      error?: string;
+    }
+  | {
+      running: true;
+      symbol: string;
+      interval: string;
+      market: Market;
+      method: Method;
+      threshold: number;
+      halted: boolean;
+      peakEquity: number;
+      dayStartEquity: number;
+      consecutiveOrderErrors: number;
+      haltReason?: string;
+      haltedAtMs?: number;
+      startIndex: number;
+      startedAtMs: number;
+      updatedAtMs: number;
+      prices: number[];
+      openTimes: number[];
+      kalmanPredNext: Array<number | null>;
+      lstmPredNext: Array<number | null>;
+      equityCurve: number[];
+      positions: number[];
+      operations: BotOperation[];
+      orders: BotOrderEvent[];
+      trades: Trade[];
+      latestSignal: LatestSignal;
+      lastOrder?: ApiOrderResult;
+      error?: string;
+    };

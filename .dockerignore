@@ -1,0 +1,9 @@
+.git
+.DS_Store
+.venv
+node_modules
+haskell/web
+**/dist-newstyle
+**/.stack-work
+**/*.hi
+**/*.o
