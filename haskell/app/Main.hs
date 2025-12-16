@@ -504,8 +504,8 @@ opts =
               <> showDefaultWith positioningCode
               <> help "Positioning: long-flat (default) or long-short (experimental; futures-only for live orders)"
           )
-    <*> switch (long "optimize-operations" <> help "Optimize method (11/10/01) and threshold on a tune split (avoids lookahead on the backtest split)")
-    <*> switch (long "sweep-threshold" <> help "Sweep thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
+    <*> switch (long "optimize-operations" <> help "Optimize method (11/10/01), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
+    <*> switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
     <*> switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     <*> option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
     <*> option auto (long "slippage" <> value 0.0 <> help "Slippage per side (fractional, e.g. 0.0002)")

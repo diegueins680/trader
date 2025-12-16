@@ -202,7 +202,8 @@ testAgreementGate = do
       lstmPred = [110, 100]      -- length 2, for t=1..2
       cfg =
         EnsembleConfig
-          { ecTradeThreshold = 0.0
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
           , ecFee = 0.0
           , ecSlippage = 0.0
           , ecSpread = 0.0
@@ -222,7 +223,7 @@ testAgreementGate = do
           , ecMinPositionSize = 0
           }
       res = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred Nothing
-  assert "expected one position change" (brPositionChanges res == 1)
+  assert "expected two position changes (enter + exit)" (brPositionChanges res == 2)
 
 testLongShortDownMove :: IO ()
 testLongShortDownMove = do
@@ -232,7 +233,8 @@ testLongShortDownMove = do
       lstmPred = [90]
       baseCfg =
         EnsembleConfig
-          { ecTradeThreshold = 0.0
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
           , ecFee = 0.0
           , ecSlippage = 0.0
           , ecSpread = 0.0
@@ -340,7 +342,8 @@ testSweepThreshold = do
       lstmPred = [110]
       cfg =
         EnsembleConfig
-          { ecTradeThreshold = 0.0
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
           , ecFee = 0.0
           , ecSlippage = 0.0
           , ecSpread = 0.0
@@ -359,8 +362,9 @@ testSweepThreshold = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      (thr, bt) = sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred Nothing
-  assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)
+      (openThr, closeThr, bt) = sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred Nothing
+  assert "open thr close to 10%" (openThr > 0.099999 && openThr < 0.1)
+  assert "close thr close to 10%" (closeThr > 0.099999 && closeThr < 0.1)
   assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
 
 testOptimizeOperations :: IO ()
@@ -370,7 +374,8 @@ testOptimizeOperations = do
       lstmPred = [90]
       cfg =
         EnsembleConfig
-          { ecTradeThreshold = 0.0
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
           , ecFee = 0.0
           , ecSlippage = 0.0
           , ecSpread = 0.0
@@ -389,9 +394,10 @@ testOptimizeOperations = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      (m, thr, bt) = optimizeOperations cfg prices kalPred lstmPred Nothing
+      (m, openThr, closeThr, bt) = optimizeOperations cfg prices kalPred lstmPred Nothing
   assert "picked kalman-only" (m == MethodKalmanOnly)
-  assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)
+  assert "open thr close to 10%" (openThr > 0.099999 && openThr < 0.1)
+  assert "close thr close to 10%" (closeThr > 0.099999 && closeThr < 0.1)
   assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
 
 assertThrowsContains :: String -> (() -> IO a) -> IO ()

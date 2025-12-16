@@ -63,15 +63,17 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
       eps = 1e-12
       baseOpenThreshold = max 0 (ecOpenThreshold baseCfg)
       baseCloseThreshold = max 0 (ecCloseThreshold baseCfg)
-      closeRatio =
-        if baseOpenThreshold <= eps
-          then 1
-          else baseCloseThreshold / baseOpenThreshold
+      maxCandidates = 60 :: Int
 
-      closeThrForOpen openThr =
-        if baseOpenThreshold <= eps
-          then baseCloseThreshold
-          else max 0 (openThr * closeRatio)
+      downsample :: Int -> [Double] -> [Double]
+      downsample k xs
+        | k <= 0 = []
+        | length xs <= k = xs
+        | otherwise =
+            let n = length xs
+                denom = max 1 (k - 1)
+                pick i = (i * (n - 1)) `div` denom
+             in [ xs !! pick i | i <- [0 .. k - 1] ]
 
       kalV = V.fromList kalPred
       lstmV = V.fromList lstmPred
@@ -124,22 +126,28 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
         ]
 
       uniqueSorted = map head . group . sort
-      candidates = uniqueSorted (0 : map (\v -> max 0 (v - eps)) mags)
+      candidates0 = uniqueSorted (0 : map (\v -> max 0 (v - eps)) mags)
+      candidates =
+        uniqueSorted
+          ( baseOpenThreshold
+              : baseCloseThreshold
+              : downsample maxCandidates candidates0
+          )
 
-      eval openThr =
-        let closeThr = closeThrForOpen openThr
-            cfg = baseCfg { ecOpenThreshold = openThr, ecCloseThreshold = closeThr }
+      eval openThr closeThr =
+        let cfg = baseCfg { ecOpenThreshold = openThr, ecCloseThreshold = closeThr }
             bt = simulateEnsembleLongFlatVWithHL cfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
          in (bestFinalEquity bt, openThr, closeThr, bt)
 
-      (baseEq, baseOpenThr, baseCloseThr, baseBt) = eval baseOpenThreshold
+      (baseEq, baseOpenThr, baseCloseThr, baseBt) = eval baseOpenThreshold baseCloseThreshold
       eqEps = 1e-12
-      pick (bestEq, bestOpenThr, bestCloseThr, bestBt) openThr =
-        let (eq, openThr', closeThr', bt) = eval openThr
+      pick (bestEq, bestOpenThr, bestCloseThr, bestBt) (openThr, closeThr) =
+        let (eq, openThr', closeThr', bt) = eval openThr closeThr
          in
           if eq > bestEq + eqEps || (abs (eq - bestEq) <= eqEps && (openThr', closeThr') > (bestOpenThr, bestCloseThr))
             then (eq, openThr', closeThr', bt)
             else (bestEq, bestOpenThr, bestCloseThr, bestBt)
 
-      (_, bestOpenThr, bestCloseThr, bestBt) = foldl' pick (baseEq, baseOpenThr, baseCloseThr, baseBt) candidates
+      pairs = [(o, c) | o <- candidates, c <- candidates]
+      (_, bestOpenThr, bestCloseThr, bestBt) = foldl' pick (baseEq, baseOpenThr, baseCloseThr, baseBt) pairs
    in (bestOpenThr, bestCloseThr, bestBt)

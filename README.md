@@ -40,7 +40,8 @@ cabal run trader-hs -- \
   --lookback-window 6h \
   --hidden-size 8 \
   --epochs 10 \
-  --threshold 0.001 \
+  --open-threshold 0.001 \
+  --close-threshold 0.001 \
   --fee 0.0005
 ```
 
@@ -133,13 +134,14 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--kalman-measurement-var 1e-3` fallback measurement variance (and initial variance)
 
 - Strategy / costs
-  - `--threshold 0.001` direction threshold (fractional deadband)
+  - `--open-threshold 0.001` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
+  - `--close-threshold 0.001` exit/close threshold (fractional deadband; defaults to open-threshold when omitted)
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
   - `--positioning long-flat` (default) or `--positioning long-short` (allows short positions in backtests; if trading, requires `--futures`; live bot is long-flat only)
-  - `--optimize-operations` optimize `--method` and `--threshold` on the backtest split (uses best combo for the latest signal)
-  - `--sweep-threshold` sweep thresholds on the backtest split and pick the best by final equity
+  - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal)
+  - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
   - `--fee 0.0005` fee applied when switching position
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
@@ -210,10 +212,10 @@ curl -s http://127.0.0.1:8080/health
 ```
 curl -s -X POST http://127.0.0.1:8080/signal \
   -H 'Content-Type: application/json' \
-  -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":200,"method":"10","threshold":0.003838}'
+  -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":200,"method":"10","openThreshold":0.003838,"closeThreshold":0.003838}'
 ```
 
-Optimize `method` and `threshold` on the backtest split (no orders):
+Optimize `method` and thresholds on the tune split (no orders):
 ```
 curl -s -X POST http://127.0.0.1:8080/backtest \
   -H 'Content-Type: application/json' \
@@ -225,19 +227,19 @@ export BINANCE_API_KEY=...
 export BINANCE_API_SECRET=...
 curl -s -X POST http://127.0.0.1:8080/trade \
   -H 'Content-Type: application/json' \
-  -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":200,"method":"10","threshold":0.003838,"orderQuote":20,"binanceLive":false}'
+  -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":200,"method":"10","openThreshold":0.003838,"closeThreshold":0.003838,"orderQuote":20,"binanceLive":false}'
 ```
 
 Start the live bot (paper mode; no orders):
 ```
 curl -s -X POST http://127.0.0.1:8080/bot/start \
   -H 'Content-Type: application/json' \
-  -d '{"binanceSymbol":"BTCUSDT","interval":"5m","bars":500,"method":"11","threshold":0.001,"fee":0.0005,"botOnlineEpochs":1,"botTrade":false}'
+  -d '{"binanceSymbol":"BTCUSDT","interval":"5m","bars":500,"method":"11","openThreshold":0.001,"closeThreshold":0.001,"fee":0.0005,"botOnlineEpochs":1,"botTrade":false}'
 ```
 
 Auto-optimize after each buy/sell operation:
-- Threshold only: add `"sweepThreshold": true`
-- Method + threshold: add `"optimizeOperations": true`
+- Thresholds only: add `"sweepThreshold": true`
+- Method + thresholds: add `"optimizeOperations": true`
 
 Check status:
 ```
@@ -291,9 +293,9 @@ The UI also includes a “Live bot” panel to start/stop the continuous loop an
 
 Troubleshooting: “No live operations yet”
 - The live bot only records an operation when it switches position (BUY/SELL). If the latest signal is `HOLD`/neutral, the operations list stays empty.
-- A signal is neutral when the predicted next price is within the `threshold` deadband: it must be `> currentPrice*(1+threshold)` for UP or `< currentPrice*(1-threshold)` for DOWN.
+- A signal is neutral when the predicted next price is within the `openThreshold` deadband: it must be `> currentPrice*(1+openThreshold)` for UP or `< currentPrice*(1-openThreshold)` for DOWN.
 - With `positioning=long-flat` (required by `/bot/start`), a DOWN signal while already flat does nothing; you’ll only see a SELL after you previously bought.
-- If you want it to trade more often, lower `threshold` (or run “Optimize threshold/operations”) and/or use a higher timeframe.
+- If you want it to trade more often, lower `openThreshold`/`closeThreshold` (or run “Optimize thresholds/operations”) and/or use a higher timeframe.
 
 Assumptions and limitations
 ---------------------------
