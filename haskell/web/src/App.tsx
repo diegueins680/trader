@@ -33,6 +33,7 @@ import { readJson, readLocalString, readSessionString, removeLocalKey, removeSes
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { BacktestChart } from "./components/BacktestChart";
 import { PredictionDiffChart } from "./components/PredictionDiffChart";
+import { TopCombosChart, type OptimizationCombo } from "./components/TopCombosChart";
 
 type RequestKind = "signal" | "backtest" | "trade";
 
@@ -127,6 +128,10 @@ type FormState = {
   tuneRatio: number;
   normalization: Normalization;
   epochs: number;
+  learningRate: number;
+  valRatio: number;
+  patience: number;
+  gradClip: number;
   hiddenSize: number;
   kalmanZMin: number;
   kalmanZMax: number;
@@ -351,6 +356,10 @@ const defaultForm: FormState = {
   tuneRatio: 0.2,
   normalization: "standard",
   epochs: 30,
+  learningRate: 0.001,
+  valRatio: 0.2,
+  patience: 10,
+  gradClip: 0,
   hiddenSize: 16,
   kalmanZMin: 0,
   kalmanZMax: 3,
@@ -457,6 +466,10 @@ function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
     confirmConformal: normalizeBool(rawRec.confirmConformal ?? merged.confirmConformal, defaultForm.confirmConformal),
     confirmQuantiles: normalizeBool(rawRec.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
     confidenceSizing: normalizeBool(rawRec.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
+    learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1),
+    valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
+    patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
+    gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
     minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
   };
 }
@@ -675,6 +688,10 @@ export function App() {
 
   const [dataLog, setDataLog] = useState<Array<{ timestamp: number; label: string; data: unknown }>>([]);
   const [dataLogExpanded, setDataLogExpanded] = useState(false);
+  const [topCombos, setTopCombos] = useState<OptimizationCombo[]>([]);
+  const [topCombosLoading, setTopCombosLoading] = useState(true);
+  const [topCombosError, setTopCombosError] = useState<string | null>(null);
+  const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
   const dataLogRef = useRef<HTMLDivElement | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -771,6 +788,40 @@ export function App() {
     setToast(msg);
     toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
+
+  const handleComboSelect = useCallback(
+    (combo: OptimizationCombo) => {
+      setForm((prev) => {
+        const openThr = combo.openThreshold ?? prev.openThreshold;
+        const closeThr = combo.closeThreshold ?? openThr ?? prev.closeThreshold;
+          return {
+            ...prev,
+            interval: combo.params.interval,
+            bars: combo.params.bars,
+            method: combo.params.method,
+            normalization: combo.params.normalization,
+            epochs: Math.max(0, Math.trunc(combo.params.epochs)),
+            slippage: combo.params.slippage,
+            spread: combo.params.spread,
+            learningRate: combo.params.learningRate,
+            valRatio: combo.params.valRatio,
+            patience: combo.params.patience,
+            gradClip: combo.params.gradClip ?? 0,
+            stopLoss: combo.params.stopLoss ?? 0,
+            takeProfit: combo.params.takeProfit ?? 0,
+          trailingStop: combo.params.trailingStop ?? 0,
+          maxDrawdown: combo.params.maxDrawdown ?? 0,
+          maxDailyLoss: combo.params.maxDailyLoss ?? 0,
+          maxOrderErrors: combo.params.maxOrderErrors ?? 0,
+          openThreshold: openThr,
+          closeThreshold: closeThr,
+        };
+      });
+      setSelectedComboId(combo.id);
+      showToast(`Loaded optimizer combo #${combo.id}`);
+    },
+    [showToast],
+  );
 
   useEffect(() => {
     activeAsyncJobRef.current = activeAsyncJob;
@@ -956,19 +1007,20 @@ export function App() {
   }, [apiBase, apiToken, authHeaders, showToast]);
 
 	  const commonParams: ApiParams = useMemo(() => {
-	    const interval = form.interval.trim();
-	    const intervalOk = BINANCE_INTERVAL_SET.has(interval);
-	    const bars = clamp(Math.trunc(form.bars), 2, 1000);
-	    const base: ApiParams = {
+    const interval = form.interval.trim();
+    const intervalOk = BINANCE_INTERVAL_SET.has(interval);
+    const barsRaw = Math.trunc(form.bars);
+    const bars = barsRaw <= 0 ? 0 : clamp(barsRaw, 2, 1000);
+    const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
       market: form.market,
       interval: intervalOk ? interval : undefined,
-	      bars,
-	      method: form.method,
-	      ...(form.positioning !== "long-flat" ? { positioning: form.positioning } : {}),
-	      openThreshold: Math.max(0, form.openThreshold),
-	      closeThreshold: Math.max(0, form.closeThreshold),
-	      fee: Math.max(0, form.fee),
+      bars,
+      method: form.method,
+      ...(form.positioning !== "long-flat" ? { positioning: form.positioning } : {}),
+      openThreshold: Math.max(0, form.openThreshold),
+      closeThreshold: Math.max(0, form.closeThreshold),
+      fee: Math.max(0, form.fee),
 	      ...(form.slippage > 0 ? { slippage: clamp(form.slippage, 0, 0.999999) } : {}),
 	      ...(form.spread > 0 ? { spread: clamp(form.spread, 0, 0.999999) } : {}),
 	      ...(form.intrabarFill !== "stop-first" ? { intrabarFill: form.intrabarFill } : {}),
@@ -978,11 +1030,15 @@ export function App() {
 	      ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
 	      ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
 	      ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
-	      backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
-	      tuneRatio: clamp(form.tuneRatio, 0, 0.99),
-		      normalization: form.normalization,
-		      epochs: clamp(Math.trunc(form.epochs), 0, 5000),
-		      hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
+      backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
+      tuneRatio: clamp(form.tuneRatio, 0, 0.99),
+      normalization: form.normalization,
+      epochs: clamp(Math.trunc(form.epochs), 0, 5000),
+      hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
+      lr: Math.max(1e-9, form.learningRate),
+      valRatio: clamp(form.valRatio, 0, 1),
+      patience: clamp(Math.trunc(form.patience), 0, 1000),
+      ...(form.gradClip > 0 ? { gradClip: clamp(form.gradClip, 0, 100) } : {}),
 	      kalmanZMin: Math.max(0, form.kalmanZMin),
 	      kalmanZMax: Math.max(Math.max(0, form.kalmanZMin), form.kalmanZMax),
 	      binanceTestnet: form.binanceTestnet,
@@ -1584,6 +1640,85 @@ export function App() {
     errorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [state.error]);
 
+  useEffect(() => {
+    let isCancelled = false;
+    setTopCombosLoading(true);
+    void fetch("/top-combos.json")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((payload) => {
+        if (isCancelled) return;
+        const rawCombos = Array.isArray(payload?.combos) ? payload.combos : [];
+        const methods: Method[] = ["11", "10", "01"];
+        const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
+        const sanitized: OptimizationCombo[] = rawCombos.map((raw, index) => {
+          const params = raw.params ?? {};
+          const method =
+            typeof params.method === "string" && methods.includes(params.method as Method)
+              ? (params.method as Method)
+              : defaultForm.method;
+          const normalization =
+            typeof params.normalization === "string" && normalizations.includes(params.normalization as Normalization)
+              ? (params.normalization as Normalization)
+              : defaultForm.normalization;
+          const interval = typeof params.interval === "string" && params.interval ? params.interval : defaultForm.interval;
+          const bars = typeof params.bars === "number" && Number.isFinite(params.bars) ? Math.trunc(params.bars) : Math.trunc(defaultForm.bars);
+          const hiddenSize =
+            typeof params.hiddenSize === "number" && Number.isFinite(params.hiddenSize) ? Math.max(1, Math.trunc(params.hiddenSize)) : Math.trunc(defaultForm.hiddenSize);
+          const learningRate =
+            typeof params.learningRate === "number" && Number.isFinite(params.learningRate) ? params.learningRate : 0.001;
+          const valRatio =
+            typeof params.valRatio === "number" && Number.isFinite(params.valRatio)
+              ? clamp(params.valRatio, 0, 1)
+              : defaultForm.valRatio;
+          const patience =
+            typeof params.patience === "number" && Number.isFinite(params.patience) ? Math.max(0, Math.trunc(params.patience)) : Math.trunc(defaultForm.patience);
+          const gradClip =
+            typeof params.gradClip === "number" && Number.isFinite(params.gradClip) ? Math.max(0, params.gradClip) : null;
+          const epochs = typeof params.epochs === "number" && Number.isFinite(params.epochs) ? Math.max(0, Math.trunc(params.epochs)) : Math.trunc(defaultForm.epochs);
+          const slippage = typeof params.slippage === "number" && Number.isFinite(params.slippage) ? params.slippage : defaultForm.slippage;
+          const spread = typeof params.spread === "number" && Number.isFinite(params.spread) ? params.spread : defaultForm.spread;
+          return {
+            id: typeof raw.rank === "number" ? raw.rank : index + 1,
+            finalEquity: typeof raw.finalEquity === "number" ? raw.finalEquity : 0,
+            openThreshold: typeof raw.openThreshold === "number" ? raw.openThreshold : null,
+            closeThreshold: typeof raw.closeThreshold === "number" ? raw.closeThreshold : null,
+            params: {
+              interval,
+              bars,
+              method,
+              normalization,
+              epochs,
+              slippage,
+              spread,
+              stopLoss: typeof params.stopLoss === "number" && Number.isFinite(params.stopLoss) ? params.stopLoss : null,
+              takeProfit: typeof params.takeProfit === "number" && Number.isFinite(params.takeProfit) ? params.takeProfit : null,
+              trailingStop: typeof params.trailingStop === "number" && Number.isFinite(params.trailingStop) ? params.trailingStop : null,
+              maxDrawdown: typeof params.maxDrawdown === "number" && Number.isFinite(params.maxDrawdown) ? params.maxDrawdown : null,
+              maxDailyLoss: typeof params.maxDailyLoss === "number" && Number.isFinite(params.maxDailyLoss) ? params.maxDailyLoss : null,
+              maxOrderErrors:
+                typeof params.maxOrderErrors === "number" && Number.isFinite(params.maxOrderErrors) ? Math.max(1, Math.trunc(params.maxOrderErrors)) : null,
+            },
+          };
+        });
+        setTopCombos(sanitized);
+        setTopCombosError(null);
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        setTopCombosError(err instanceof Error ? err.message : "Failed to load optimizer combos.");
+      })
+      .finally(() => {
+        if (isCancelled) return;
+        setTopCombosLoading(false);
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
   const statusDotClass =
     apiOk === "ok" ? "dot dotOk" : apiOk === "down" ? "dot dotBad" : "dot dotWarn";
   const statusLabel =
@@ -1601,7 +1736,8 @@ export function App() {
   const intervalValue = form.interval.trim();
   const missingInterval = !intervalValue || !BINANCE_INTERVAL_SET.has(intervalValue);
   const lookbackState = useMemo(() => {
-    const bars = clamp(Math.trunc(form.bars), 2, 1000);
+    const barsRaw = Math.trunc(form.bars);
+    const bars = barsRaw <= 0 ? 0 : clamp(barsRaw, 2, 1000);
     const interval = form.interval.trim();
     const intervalSec = binanceIntervalSeconds(interval);
 
@@ -1625,7 +1761,7 @@ export function App() {
       else if (windowBars != null && windowBars < 2) error = "Lookback window is too small (needs at least 2 bars).";
     }
 
-    if (!error && effectiveBars != null && effectiveBars >= 2 && bars <= effectiveBars) {
+    if (!error && effectiveBars != null && effectiveBars >= 2 && barsRaw > 0 && bars <= effectiveBars) {
       error = `Not enough bars for lookback: need bars >= ${effectiveBars + 1} (or reduce lookback).`;
     }
 
@@ -1665,7 +1801,10 @@ export function App() {
 
   const apiComputeLimits = healthInfo?.computeLimits ?? null;
   const apiLstmEnabled = form.method !== "10";
-  const barsExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.bars > apiComputeLimits.maxBarsLstm);
+  const barsRawForLimits = Math.trunc(form.bars);
+  const barsExceedsApi = Boolean(
+    apiComputeLimits && apiLstmEnabled && barsRawForLimits > 0 && barsRawForLimits > apiComputeLimits.maxBarsLstm,
+  );
   const epochsExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.epochs > apiComputeLimits.maxEpochs);
   const hiddenSizeExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.hiddenSize > apiComputeLimits.maxHiddenSize);
   const apiLimitsReason = barsExceedsApi
@@ -2019,9 +2158,23 @@ export function App() {
                       </button>
                     </div>
                   </>
-                ) : null}
-              </div>
+              ) : null}
             </div>
+          </div>
+
+          <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+            <div className="field">
+              <label className="label">Optimizer combos</label>
+              <TopCombosChart
+                combos={topCombos}
+                loading={topCombosLoading}
+                error={topCombosError}
+                selectedId={selectedComboId}
+                onSelect={handleComboSelect}
+              />
+              <div className="hint">Click a combo to preload its parameters into the form (bars=0 runs the full dataset).</div>
+            </div>
+          </div>
 
             <div className="row">
               <div className="field">
@@ -2116,13 +2269,13 @@ export function App() {
               </div>
               <div className="field">
                 <label className="label" htmlFor="bars">
-                  Bars (2–1000)
+                  Bars (0=auto, 2–1000)
                 </label>
                 <input
                   id="bars"
                   className={barsExceedsApi ? "input inputError" : "input"}
                   type="number"
-                  min={2}
+                  min={0}
                   max={1000}
                   value={form.bars}
                   onChange={(e) => setForm((f) => ({ ...f, bars: numFromInput(e.target.value, f.bars) }))}
@@ -2130,7 +2283,8 @@ export function App() {
                 <div className="hint" style={barsExceedsApi ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
                   {barsExceedsApi
                     ? `API limit: max ${apiComputeLimits?.maxBarsLstm ?? "?"} bars for LSTM methods. Reduce bars or use method=10 (Kalman-only).`
-                    : "Larger values take longer (more training + longer backtest)."}
+                    : "0 uses all CSV data. For Binance, keep values between 2–1000 (default 500). Larger values take longer."
+                  }
                 </div>
               </div>
             </div>

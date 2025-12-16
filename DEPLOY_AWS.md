@@ -117,18 +117,54 @@ Create an AWS App Runner service to run your API.
 
 ```bash
 export AWS_REGION=ap-northeast-1
+export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 export ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/trader-api:latest"
 
+# One-time (per account): App Runner needs an IAM role to pull from private ECR
+ROLE_NAME=AppRunnerECRAccessRole
+POLICY_ARN=arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess
+
+cat > apprunner-ecr-trust.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "build.apprunner.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+
+aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1 || \
+  aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document file://apprunner-ecr-trust.json >/dev/null
+aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "$POLICY_ARN" >/dev/null
+ECR_ACCESS_ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)
+
 # Create the service (adjust CPU/memory as needed)
+cat > apprunner-source.json <<EOF
+{
+  "AuthenticationConfiguration": { "AccessRoleArn": "${ECR_ACCESS_ROLE_ARN}" },
+  "AutoDeploymentsEnabled": true,
+  "ImageRepository": {
+    "ImageIdentifier": "${ECR_URI}",
+    "ImageRepositoryType": "ECR",
+    "ImageConfiguration": { "Port": "8080" }
+  }
+}
+EOF
+
 aws apprunner create-service \
   --region "$AWS_REGION" \
   --service-name trader-api \
-  --source-configuration '{"ImageRepository":{"ImageIdentifier":"'"$ECR_URI"'","ImageRepositoryType":"ECR","ImageConfiguration":{"Port":"8080"}}}' \
-  --instance-configuration '{"Cpu":"1024","Memory":"2048"}' \
+  --source-configuration file://apprunner-source.json \
+  --health-check-configuration 'Protocol=HTTP,Path=/health' \
+  --instance-configuration 'Cpu=1024,Memory=2048' \
   --tags Key=Name,Value=trader-api
 ```
 
-**Note the Service URL** (you'll see it after deployment completes, format: `https://xxxx.ap-northeast-1.apprunner.amazonaws.com`)
+**Note the Service URL** (you'll see it after deployment completes; `aws apprunner describe-service --service-arn <arn> --query 'Service.ServiceUrl' --output text` returns a host you can prefix with `https://`.)
 
 ---
 

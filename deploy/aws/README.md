@@ -98,6 +98,8 @@ docker push "${ECR_URI}:latest"
 
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).
 
+Note (AWS CLI): when creating an App Runner service from a **private ECR** image, you must provide `AuthenticationConfiguration.AccessRoleArn` (an IAM role trusted by `build.apprunner.amazonaws.com` with the managed policy `AWSAppRunnerServicePolicyForECRAccess`). The repo’s `deploy-aws-quick.sh` script creates/reuses this role automatically.
+
 ### Scaling note (important)
 
 This API includes:

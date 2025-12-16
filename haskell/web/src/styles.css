@@ -442,6 +442,77 @@ textarea {
   border-color: rgba(148, 163, 184, 0.32);
 }
 
+.topCombosChart {
+  display: grid;
+  gap: 8px;
+}
+
+.comboRow {
+  width: 100%;
+  border: 1px solid var(--stroke2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comboRow:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.comboRowSelected {
+  border-color: rgba(124, 58, 237, 0.75);
+  box-shadow: var(--ring);
+}
+
+.comboRowHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.comboTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.comboDetail {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.comboEquity {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.comboBarWrapper {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.comboBar {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.95), rgba(59, 130, 246, 0.9));
+}
+
+.comboDetailRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .code {
   font-family: var(--mono);
   font-size: 12px;

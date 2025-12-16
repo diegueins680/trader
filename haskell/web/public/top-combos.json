@@ -1,0 +1,32 @@
+{
+  "generatedAtMs": 1765927407453,
+  "source": "optimize_equity.py",
+  "combos": [
+    {
+      "rank": 1,
+      "finalEquity": 1.029335413222458,
+      "openThreshold": 0.002850997543677769,
+      "closeThreshold": 0.0034066353570977093,
+      "params": {
+        "interval": "30m",
+        "bars": 296,
+        "method": "10",
+        "normalization": "standard",
+        "epochs": 4,
+        "hiddenSize": 17,
+        "learningRate": 0.0002695426688737328,
+        "valRatio": 0.3290482387019572,
+        "patience": 3,
+        "gradClip": null,
+        "slippage": 9.671637683346401e-05,
+        "spread": 0.0008474943663474598,
+        "stopLoss": 0.082278533464751,
+        "takeProfit": 0.023631221915677934,
+        "trailingStop": 0.011431382325422328,
+        "maxDrawdown": null,
+        "maxDailyLoss": null,
+        "maxOrderErrors": null
+      }
+    }
+  ]
+}

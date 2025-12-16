@@ -15,6 +15,8 @@ NC='\033[0m' # No Color
 AWS_REGION="${1:-ap-northeast-1}"
 TRADER_API_TOKEN="${2:-}"
 ECR_REPO="trader-api"
+APP_RUNNER_SERVICE_NAME="${APP_RUNNER_SERVICE_NAME:-$ECR_REPO}"
+APP_RUNNER_ECR_ACCESS_ROLE_NAME="${APP_RUNNER_ECR_ACCESS_ROLE_NAME:-AppRunnerECRAccessRole}"
 
 echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
 
@@ -91,64 +93,181 @@ build_and_push() {
 # Create App Runner service
 create_app_runner() {
   local ecr_uri="$1"
+  local image_identifier="${ecr_uri}:latest"
   
   echo "Creating App Runner service..."
   
-  # Check if service already exists
-  if aws apprunner describe-service --service-arn "arn:aws:apprunner:${AWS_REGION}:$(get_account_id):service/${ECR_REPO}" --region "$AWS_REGION" >/dev/null 2>&1; then
-    echo -e "${YELLOW}✓ App Runner service already exists${NC}"
-    aws apprunner describe-service \
-      --service-arn "arn:aws:apprunner:${AWS_REGION}:$(get_account_id):service/${ECR_REPO}" \
+  # Find existing service (if any)
+  local existing_service_arn=""
+  existing_service_arn="$(
+    aws apprunner list-services \
       --region "$AWS_REGION" \
-      --query 'Service.ServiceUrl' \
-      --output text
-    return
+      --query 'ServiceSummaryList[?ServiceName==`'"${APP_RUNNER_SERVICE_NAME}"'`].ServiceArn | [0]' \
+      --output text 2>/dev/null || true
+  )"
+  if [[ "$existing_service_arn" == "None" ]]; then
+    existing_service_arn=""
   fi
-  
-  # Create environment variables JSON
-  local env_vars='[{"Name":"TRADER_API_ASYNC_DIR","Value":"/var/lib/trader/async"}'
+
+  echo "Ensuring App Runner ECR access role..."
+  local access_role_arn=""
+  access_role_arn="$(ensure_apprunner_ecr_access_role)"
+  echo -e "${GREEN}✓ Using ECR access role: ${access_role_arn}${NC}"
+
+  # Create source-configuration JSON (file:// is the most reliable for AWS CLI JSON input)
+  local src_cfg
+  src_cfg="$(mktemp)"
+
+  local runtime_env_json='"TRADER_API_ASYNC_DIR":"/var/lib/trader/async"'
   if [[ -n "$TRADER_API_TOKEN" ]]; then
-    env_vars="${env_vars},$(printf '{"Name":"TRADER_API_TOKEN","Value":"%s"}' "$TRADER_API_TOKEN")"
+    runtime_env_json="${runtime_env_json},\"TRADER_API_TOKEN\":\"${TRADER_API_TOKEN}\""
   fi
-  env_vars="${env_vars}]"
-  
-  # Create service
-  local service_arn=$(aws apprunner create-service \
-    --region "$AWS_REGION" \
-    --service-name "$ECR_REPO" \
-    --source-configuration '{"ImageRepository":{"ImageIdentifier":"'"$ecr_uri"'","ImageRepositoryType":"ECR","ImageConfiguration":{"Port":"8080"}}}' \
-    --instance-configuration '{"Cpu":"1024","Memory":"2048"}' \
-    --environment-variables "$env_vars" \
-    --tags Key=Name,Value=trader-api \
-    --query 'Service.ServiceArn' \
-    --output text)
-  
-  echo -e "${GREEN}✓ App Runner service created${NC}"
-  
-  # Get service URL
-  echo "Waiting for service to be active (this may take a few minutes)..."
-  local max_attempts=60
+
+  cat >"$src_cfg" <<EOF
+{
+  "AuthenticationConfiguration": { "AccessRoleArn": "${access_role_arn}" },
+  "AutoDeploymentsEnabled": true,
+  "ImageRepository": {
+    "ImageIdentifier": "${image_identifier}",
+    "ImageRepositoryType": "ECR",
+    "ImageConfiguration": {
+      "Port": "8080",
+      "RuntimeEnvironmentVariables": { ${runtime_env_json} }
+    }
+  }
+}
+EOF
+
+  local health_cfg="Protocol=HTTP,Path=/health"
+
+  local service_arn=""
+  if [[ -n "$existing_service_arn" ]]; then
+    echo -e "${YELLOW}✓ App Runner service already exists (${APP_RUNNER_SERVICE_NAME})${NC}"
+    service_arn="$existing_service_arn"
+
+    echo "Updating service configuration..."
+    aws apprunner update-service \
+      --region "$AWS_REGION" \
+      --service-arn "$service_arn" \
+      --source-configuration "file://${src_cfg}" \
+      --instance-configuration "Cpu=1024,Memory=2048" \
+      --health-check-configuration "$health_cfg" \
+      >/dev/null
+
+    echo "Starting a new deployment..."
+    aws apprunner start-deployment --region "$AWS_REGION" --service-arn "$service_arn" >/dev/null || true
+  else
+    echo "Creating service..."
+    service_arn="$(aws apprunner create-service \
+      --region "$AWS_REGION" \
+      --service-name "$APP_RUNNER_SERVICE_NAME" \
+      --source-configuration "file://${src_cfg}" \
+      --instance-configuration "Cpu=1024,Memory=2048" \
+      --health-check-configuration "$health_cfg" \
+      --tags Key=Name,Value=trader-api \
+      --query 'Service.ServiceArn' \
+      --output text)"
+    echo -e "${GREEN}✓ App Runner service created${NC}"
+  fi
+
+  rm -f "$src_cfg"
+
+  echo "Setting single-instance scaling (min=1, max=1)..."
+  AWS_REGION="$AWS_REGION" bash deploy/aws/set-app-runner-single-instance.sh --service-arn "$service_arn" --min 1 --max 1 >/dev/null
+  echo -e "${GREEN}✓ Scaling updated${NC}"
+
+  echo "Waiting for service to be RUNNING (this may take a few minutes)..."
+  local max_attempts=90
   local attempt=0
-  
+  local status=""
+
   while [[ $attempt -lt $max_attempts ]]; do
-    local status=$(aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.Status' --output text 2>/dev/null || echo "")
-    
-    if [[ "$status" == "ACTIVE" ]]; then
-      echo -e "${GREEN}✓ Service is active${NC}"
+    status="$(
+      aws apprunner describe-service \
+        --service-arn "$service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.Status' \
+        --output text 2>/dev/null || echo ""
+    )"
+
+    if [[ "$status" == "RUNNING" ]]; then
+      echo -e "${GREEN}✓ Service is RUNNING${NC}"
       break
     fi
-    
-    if [[ "$status" == "FAILED" ]]; then
-      echo -e "${RED}✗ Service failed to start${NC}"
+    if [[ "$status" == "CREATE_FAILED" || "$status" == "DELETE_FAILED" ]]; then
+      echo -e "${RED}✗ Service status: ${status}${NC}"
+      echo "Check App Runner events/logs in the AWS Console for details."
       exit 1
     fi
-    
+
     echo -n "."
     sleep 5
     ((attempt++))
   done
-  
-  aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.ServiceUrl' --output text
+  echo ""
+
+  local service_host
+  service_host="$(aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.ServiceUrl' --output text)"
+  if [[ "$service_host" == http* ]]; then
+    echo "$service_host"
+  else
+    echo "https://${service_host}"
+  fi
+}
+
+# Ensure an IAM role exists for App Runner to pull from private ECR.
+# https://docs.aws.amazon.com/apprunner/latest/dg/security_iam_service-role.html
+ensure_apprunner_ecr_access_role() {
+  local role_name="$APP_RUNNER_ECR_ACCESS_ROLE_NAME"
+  local policy_arn="arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
+
+  local role_arn=""
+  role_arn="$(aws iam get-role --role-name "$role_name" --query 'Role.Arn' --output text 2>/dev/null || true)"
+  if [[ -n "$role_arn" && "$role_arn" != "None" ]]; then
+    aws iam attach-role-policy --role-name "$role_name" --policy-arn "$policy_arn" >/dev/null 2>&1 || true
+    echo "$role_arn"
+    return 0
+  fi
+
+  echo "Creating IAM role: ${role_name}"
+
+  local trust_doc
+  trust_doc="$(mktemp)"
+  cat >"$trust_doc" <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "build.apprunner.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+
+  aws iam create-role \
+    --role-name "$role_name" \
+    --assume-role-policy-document "file://${trust_doc}" \
+    --description "App Runner ECR access role (created by trader deploy script)" \
+    >/dev/null
+
+  aws iam attach-role-policy --role-name "$role_name" --policy-arn "$policy_arn" >/dev/null
+
+  rm -f "$trust_doc"
+
+  # IAM is eventually consistent; give it a moment.
+  for _ in {1..12}; do
+    role_arn="$(aws iam get-role --role-name "$role_name" --query 'Role.Arn' --output text 2>/dev/null || true)"
+    if [[ -n "$role_arn" && "$role_arn" != "None" ]]; then
+      echo "$role_arn"
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "Error: failed to create or read IAM role '${role_name}'." >&2
+  exit 1
 }
 
 # Main execution

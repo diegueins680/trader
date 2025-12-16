@@ -21,8 +21,9 @@ The script will:
 1. ✅ Create ECR repository
 2. ✅ Build Docker image
 3. ✅ Push to ECR
-4. ✅ Create App Runner service
-5. ✅ Return the public API URL
+4. ✅ Create (or reuse) the App Runner ECR access IAM role
+5. ✅ Create/update App Runner service (single-instance)
+6. ✅ Return the public API URL
 
 **Total time: 5-10 minutes**
 
@@ -160,4 +161,3 @@ aws s3 rb "s3://${S3_BUCKET}" --force
 **Service stays in CREATING state:**
 - Check logs in App Runner console
 - Common cause: insufficient compute (1 vCPU / 2 GB minimum)
-
