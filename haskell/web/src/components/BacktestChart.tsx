@@ -33,6 +33,8 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
 
+const CHART_MARGIN = { l: 14, r: 78, t: 10, b: 26 };
+
 function fmt(n: number, digits = 4): string {
   if (!Number.isFinite(n)) return "—";
   return n.toFixed(digits);
@@ -41,6 +43,44 @@ function fmt(n: number, digits = 4): string {
 function pct(n: number, digits = 2): string {
   if (!Number.isFinite(n)) return "—";
   return `${(n * 100).toFixed(digits)}%`;
+}
+
+function decimalsForStep(step: number, maxDecimals = 6): number {
+  if (!Number.isFinite(step) || step === 0) return 0;
+  let d = 0;
+  let s = Math.abs(step);
+  while (d < maxDecimals && Math.abs(Math.round(s) - s) > 1e-9) {
+    s *= 10;
+    d += 1;
+  }
+  return d;
+}
+
+function niceStep(span: number, ticks: number): number {
+  const s = Math.abs(span);
+  if (!Number.isFinite(s) || s === 0) return 1;
+  const rough = s / Math.max(1, ticks - 1);
+  const pow10 = 10 ** Math.floor(Math.log10(rough));
+  const err = rough / pow10;
+  const mult = err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 2.25 ? 2.5 : err >= 1.5 ? 2 : 1;
+  return mult * pow10;
+}
+
+function niceTicks(min: number, max: number, ticks = 5): { ticks: number[]; min: number; max: number; step: number } {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { ticks: [0, 1], min: 0, max: 1, step: 1 };
+  let a = min;
+  let b = max;
+  if (a === b) {
+    const d = Math.abs(a) || 1;
+    a -= d;
+    b += d;
+  }
+  const step = niceStep(b - a, ticks);
+  const lo = Math.floor(a / step) * step;
+  const hi = Math.ceil(b / step) * step;
+  const out: number[] = [];
+  for (let v = lo; v <= hi + step / 2; v += step) out.push(v);
+  return { ticks: out, min: lo, max: hi, step };
 }
 
 function findTrade(trades: Trade[], idx: number): Trade | null {
@@ -139,15 +179,13 @@ export function BacktestChart({
 
       const rect = el.getBoundingClientRect();
       const x = e.clientX - rect.left;
-      const marginL = 14;
-      const marginR = 10;
-      const w = Math.max(1, size.w - marginL - marginR);
+      const w = Math.max(1, size.w - CHART_MARGIN.l - CHART_MARGIN.r);
 
       setView((prev) => {
         const start = prev.start;
         const end = prev.end;
         const len = end - start + 1;
-        const t = clamp((x - marginL) / w, 0, 1);
+        const t = clamp((x - CHART_MARGIN.l) / w, 0, 1);
         const pivot = clamp(Math.round(start + t * (len - 1)), 0, n - 1);
 
         const zoomIn = e.deltaY < 0;
@@ -185,10 +223,10 @@ export function BacktestChart({
     const end = clamp(view.end, start + 1, n - 1);
     const len = end - start + 1;
 
-    const marginL = 14;
-    const marginR = 10;
-    const marginT = 10;
-    const marginB = 12;
+    const marginL = CHART_MARGIN.l;
+    const marginR = CHART_MARGIN.r;
+    const marginT = CHART_MARGIN.t;
+    const marginB = CHART_MARGIN.b;
 
     const w = size.w - marginL - marginR;
     const h = size.h - marginT - marginB;
@@ -231,6 +269,13 @@ export function BacktestChart({
     const pr = padRange(pMin, pMax);
     const er = padRange(eMin, eMax);
 
+    const priceTicksN = clamp(Math.round(hPrice / 54) + 1, 3, 6);
+    const equityTicksN = clamp(Math.round(hEquity / 54) + 1, 3, 6);
+    const prTicks = niceTicks(pr.min, pr.max, priceTicksN);
+    const erTicks = niceTicks(er.min, er.max, equityTicksN);
+    const prNice = { min: prTicks.min, max: prTicks.max };
+    const erNice = { min: erTicks.min, max: erTicks.max };
+
     const yScale = (v: number, r: { min: number; max: number }, y0: number, hh: number) => {
       const t = (v - r.min) / (r.max - r.min || 1);
       return y0 + (1 - clamp(t, 0, 1)) * hh;
@@ -246,20 +291,30 @@ export function BacktestChart({
     ctx.lineTo(marginL + w, yPos0);
     ctx.stroke();
 
-    // Subtle grid lines (horizontal)
-    const grid = (y0: number, hh: number) => {
-      ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    // Subtle grid lines (horizontal) + y-axis labels
+    const yGrid = (ticks: { ticks: number[]; step: number }, r: { min: number; max: number }, y0: number, hh: number, suffix = "") => {
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
       ctx.lineWidth = 1;
-      for (let k = 1; k <= 3; k += 1) {
-        const yy = y0 + (k / 4) * hh;
+      ctx.fillStyle = "rgba(255,255,255,0.58)";
+      ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+
+      const d = decimalsForStep(ticks.step);
+      for (const tv of ticks.ticks) {
+        const y = yScale(tv, r, y0, hh);
         ctx.beginPath();
-        ctx.moveTo(marginL, yy);
-        ctx.lineTo(marginL + w, yy);
+        ctx.moveTo(marginL, y);
+        ctx.lineTo(marginL + w, y);
         ctx.stroke();
+
+        const v = Math.abs(tv) < (ticks.step || 1) * 1e-9 ? 0 : tv;
+        const label = `${v.toFixed(d)}${suffix}`;
+        ctx.fillText(label, marginL + w + 6, y);
       }
     };
-    grid(yPrice0, hPrice);
-    grid(yEquity0, hEquity);
+    yGrid(prTicks, prNice, yPrice0, hPrice);
+    yGrid(erTicks, erNice, yEquity0, hEquity, "x");
 
     // Trade highlight regions
     for (const t of trades) {
@@ -305,7 +360,7 @@ export function BacktestChart({
     ctx.beginPath();
     for (let i = start; i <= end; i += 1) {
       const x = xFor(i);
-      const y = yScale(prices[i]!, pr, yPrice0, hPrice);
+      const y = yScale(prices[i]!, prNice, yPrice0, hPrice);
       if (i === start) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -321,7 +376,7 @@ export function BacktestChart({
     for (let i = start; i <= end; i += 1) {
       const x = xFor(i);
       const e = equityCurve[i] ?? equityCurve[equityCurve.length - 1] ?? 1;
-      const y = yScale(e, er, yEquity0, hEquity);
+      const y = yScale(e, erNice, yEquity0, hEquity);
       if (i === start) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -349,11 +404,11 @@ export function BacktestChart({
       const ei = clamp(t.entryIndex, start, end);
       const xi = xFor(ei);
       const entryPrice = prices[ei]!;
-      const yi = yScale(entryPrice, pr, yPrice0, hPrice);
+      const yi = yScale(entryPrice, prNice, yPrice0, hPrice);
 
       const xo = xFor(clamp(t.exitIndex, start, end));
       const exitPrice = prices[clamp(t.exitIndex, start, end)]!;
-      const yo = yScale(exitPrice, pr, yPrice0, hPrice);
+      const yo = yScale(exitPrice, prNice, yPrice0, hPrice);
 
       ctx.strokeStyle = t.return >= 0 ? "rgba(34, 197, 94, 0.55)" : "rgba(239, 68, 68, 0.55)";
       ctx.lineWidth = 1.2;
@@ -373,7 +428,7 @@ export function BacktestChart({
         const idx = clamp(op.index, start, end);
         const x = xFor(idx);
         const p = op.price ?? prices[idx]!;
-        const y = yScale(p, pr, yPrice0, hPrice);
+        const y = yScale(p, prNice, yPrice0, hPrice);
         if (op.side === "BUY") tri(x, y, true, "rgba(34, 197, 94, 0.95)");
         if (op.side === "SELL") tri(x, y, false, "rgba(239, 68, 68, 0.92)");
       }
@@ -389,8 +444,8 @@ export function BacktestChart({
       ctx.lineTo(x, marginT + h);
       ctx.stroke();
 
-      const hp = yScale(prices[hoverIdx]!, pr, yPrice0, hPrice);
-      const he = yScale(equityCurve[hoverIdx] ?? 1, er, yEquity0, hEquity);
+      const hp = yScale(prices[hoverIdx]!, prNice, yPrice0, hPrice);
+      const he = yScale(equityCurve[hoverIdx] ?? 1, erNice, yEquity0, hEquity);
 
       ctx.fillStyle = "rgba(255,255,255,0.85)";
       ctx.beginPath();
@@ -400,7 +455,31 @@ export function BacktestChart({
       ctx.arc(x, he, 3.1, 0, Math.PI * 2);
       ctx.fill();
     }
-  }, [agree, equityCurve, height, hoverIdx, n, operations, pos, prices, size.h, size.w, trades, view.end, view.start]);
+
+    // X-axis bar scale (bottom)
+    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.lineWidth = 1;
+    ctx.fillStyle = "rgba(255,255,255,0.58)";
+    ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+
+    const xTicksN = clamp(Math.round(w / 170) + 1, 2, 7);
+    const xTicks: number[] = [];
+    for (let k = 0; k < xTicksN; k += 1) {
+      const idx = Math.round(start + (k * Math.max(1, len - 1)) / Math.max(1, xTicksN - 1));
+      if (xTicks[xTicks.length - 1] !== idx) xTicks.push(idx);
+    }
+    const yBase = marginT + h;
+    for (const idx of xTicks) {
+      const x = xFor(idx);
+      ctx.beginPath();
+      ctx.moveTo(x, yBase);
+      ctx.lineTo(x, yBase + 5);
+      ctx.stroke();
+      ctx.fillText(String(backtestStartIndex + idx), x, yBase + 7);
+    }
+  }, [agree, backtestStartIndex, equityCurve, height, hoverIdx, n, operations, pos, prices, size.h, size.w, trades, view.end, view.start]);
 
   const hover = useMemo(() => {
     if (hoverIdx === null || hoverIdx < 0 || hoverIdx >= n) return null;
@@ -437,9 +516,7 @@ export function BacktestChart({
 
     if (dragRef.current) {
       const { startX, startView } = dragRef.current;
-      const marginL = 14;
-      const marginR = 10;
-      const w = size.w - marginL - marginR;
+      const w = size.w - CHART_MARGIN.l - CHART_MARGIN.r;
       const len = clamp(startView.end, startView.start + 1, n - 1) - startView.start + 1;
       const dx = x - startX;
       const deltaIdx = Math.round((dx / Math.max(1, w)) * (len - 1));
@@ -456,13 +533,11 @@ export function BacktestChart({
     if (locked) return;
     setPointer({ x, y });
 
-    const marginL = 14;
-    const marginR = 10;
-    const w = size.w - marginL - marginR;
+    const w = size.w - CHART_MARGIN.l - CHART_MARGIN.r;
     const start = view.start;
     const end = view.end;
     const len = end - start + 1;
-    const t = clamp((x - marginL) / Math.max(1, w), 0, 1);
+    const t = clamp((x - CHART_MARGIN.l) / Math.max(1, w), 0, 1);
     const idx = clamp(Math.round(start + t * (len - 1)), 0, n - 1);
     setHoverIdx(idx);
   };
@@ -516,7 +591,7 @@ export function BacktestChart({
       <div className="btChartHeader">
         <div className="btChartTitle">Chart</div>
         <div className="btChartMeta">
-          <span className="badge">Range: {view.start}–{view.end}</span>
+          <span className="badge">Range: {backtestStartIndex + view.start}–{backtestStartIndex + view.end}</span>
           <span className="badge">Zoom: {Math.round(((view.end - view.start + 1) / Math.max(1, n)) * 100)}%</span>
           <span className="badge">{locked ? "Locked" : "Hover"}</span>
         </div>

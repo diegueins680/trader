@@ -2676,6 +2676,7 @@ export function App() {
 	                      prices={bot.status.prices}
 	                      kalmanPredNext={bot.status.kalmanPredNext}
 	                      lstmPredNext={bot.status.lstmPredNext}
+	                      startIndex={bot.status.startIndex}
 	                      height={140}
 	                    />
 	                  </div>

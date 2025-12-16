@@ -6,6 +6,7 @@ type Props = {
   prices: number[];
   kalmanPredNext?: Series;
   lstmPredNext?: Series;
+  startIndex?: number;
   height?: number;
   label?: string;
 };
@@ -30,6 +31,44 @@ function pct(n: number, digits = 2): string {
   return `${(n * 100).toFixed(digits)}%`;
 }
 
+function decimalsForStep(step: number, maxDecimals = 6): number {
+  if (!Number.isFinite(step) || step === 0) return 0;
+  let d = 0;
+  let s = Math.abs(step);
+  while (d < maxDecimals && Math.abs(Math.round(s) - s) > 1e-9) {
+    s *= 10;
+    d += 1;
+  }
+  return d;
+}
+
+function niceStep(span: number, ticks: number): number {
+  const s = Math.abs(span);
+  if (!Number.isFinite(s) || s === 0) return 1;
+  const rough = s / Math.max(1, ticks - 1);
+  const pow10 = 10 ** Math.floor(Math.log10(rough));
+  const err = rough / pow10;
+  const mult = err >= 7.5 ? 10 : err >= 3.5 ? 5 : err >= 2.25 ? 2.5 : err >= 1.5 ? 2 : 1;
+  return mult * pow10;
+}
+
+function niceTicks(min: number, max: number, ticks = 5): { ticks: number[]; min: number; max: number; step: number } {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return { ticks: [0, 1], min: 0, max: 1, step: 1 };
+  let a = min;
+  let b = max;
+  if (a === b) {
+    const d = Math.abs(a) || 1;
+    a -= d;
+    b += d;
+  }
+  const step = niceStep(b - a, ticks);
+  const lo = Math.floor(a / step) * step;
+  const hi = Math.ceil(b / step) * step;
+  const out: number[] = [];
+  for (let v = lo; v <= hi + step / 2; v += step) out.push(v);
+  return { ticks: out, min: lo, max: hi, step };
+}
+
 function buildNextPriceError(prices: number[], predNext: Series | undefined, mode: ErrorMode): Array<number | null> {
   const n = prices.length;
   const out: Array<number | null> = Array.from({ length: n }, () => null);
@@ -48,18 +87,21 @@ function buildNextPriceError(prices: number[], predNext: Series | undefined, mod
   return out;
 }
 
-function pathFor(series: Array<number | null>, w: number, h: number, padX: number, padY: number, min: number, max: number): string {
+type Pads = { l: number; r: number; t: number; b: number };
+
+function pathFor(series: Array<number | null>, w: number, h: number, pad: Pads, min: number, max: number): string {
   const n = series.length;
   if (n < 2) return "";
   const span = max - min || 1;
-  const xFor = (i: number) => padX + (i * (w - padX * 2)) / Math.max(1, n - 1);
+  const xFor = (i: number) => pad.l + (i * (w - pad.l - pad.r)) / Math.max(1, n - 1);
   const yFor = (v: number) => {
     const t = (v - min) / span;
-    return padY + (1 - clamp(t, 0, 1)) * (h - padY * 2);
+    return pad.t + (1 - clamp(t, 0, 1)) * (h - pad.t - pad.b);
   };
 
   let d = "";
   let penDown = false;
+  let pts = 0;
   for (let i = 0; i < n; i++) {
     const v = series[i];
     if (!isFiniteNumber(v)) {
@@ -74,15 +116,24 @@ function pathFor(series: Array<number | null>, w: number, h: number, padX: numbe
     } else {
       d += `L ${x} ${y} `;
     }
+    pts += 1;
   }
+  if (pts < 2) return "";
   return d.trim();
 }
 
-export function PredictionDiffChart({ prices, kalmanPredNext, lstmPredNext, height = 140, label = "Prediction error chart" }: Props) {
+export function PredictionDiffChart({
+  prices,
+  kalmanPredNext,
+  lstmPredNext,
+  startIndex = 0,
+  height = 140,
+  label = "Prediction error chart",
+}: Props) {
   const w = 1000;
   const h = 240;
-  const padX = 10;
-  const padY = 18;
+  const pad: Pads = { l: 66, r: 18, t: 18, b: 34 };
+  const nPred = Math.max(0, prices.length - 1);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const group = useId();
@@ -101,24 +152,26 @@ export function PredictionDiffChart({ prices, kalmanPredNext, lstmPredNext, heig
     return { kalErr, lstmErr, min, max };
   }, [kalmanPredNext, lstmPredNext, mode, prices]);
 
-  const kalPath = useMemo(() => pathFor(kalErr, w, h, padX, padY, min, max), [kalErr, max, min]);
-  const lstmPath = useMemo(() => pathFor(lstmErr, w, h, padX, padY, min, max), [lstmErr, max, min]);
+  const yAxis = useMemo(() => niceTicks(min, max, 5), [max, min]);
+  const yMin = yAxis.min;
+  const yMax = yAxis.max;
+  const kalPath = useMemo(() => pathFor(kalErr.slice(0, nPred), w, h, pad, yMin, yMax), [kalErr, nPred, yMax, yMin]);
+  const lstmPath = useMemo(() => pathFor(lstmErr.slice(0, nPred), w, h, pad, yMin, yMax), [lstmErr, nPred, yMax, yMin]);
 
-  const empty = prices.length < 2 || (!kalPath && !lstmPath);
-  const span = max - min || 1;
-  const y0 = padY + (1 - clamp((0 - min) / span, 0, 1)) * (h - padY * 2);
+  const empty = nPred < 2 || (!kalPath && !lstmPath);
+  const span = yMax - yMin || 1;
+  const y0 = pad.t + (1 - clamp((0 - yMin) / span, 0, 1)) * (h - pad.t - pad.b);
 
-  const xFor = (i: number) => padX + (i * (w - padX * 2)) / Math.max(1, prices.length - 1);
+  const xFor = (i: number) => pad.l + (i * (w - pad.l - pad.r)) / Math.max(1, nPred - 1);
   const yFor = (v: number) => {
-    const t = (v - min) / span;
-    return padY + (1 - clamp(t, 0, 1)) * (h - padY * 2);
+    const t = (v - yMin) / span;
+    return pad.t + (1 - clamp(t, 0, 1)) * (h - pad.t - pad.b);
   };
 
   const hover = useMemo(() => {
     if (hoverIdx === null) return null;
-    const n = prices.length;
-    if (n < 2) return null;
-    const idx = clamp(hoverIdx, 0, n - 2);
+    if (nPred < 1) return null;
+    const idx = clamp(hoverIdx, 0, nPred - 1);
     const actualNext = prices[idx + 1]!;
     const kalPred = kalmanPredNext?.[idx];
     const lstmPred = lstmPredNext?.[idx];
@@ -132,7 +185,7 @@ export function PredictionDiffChart({ prices, kalmanPredNext, lstmPredNext, heig
       kalErr: isFiniteNumber(kalE) ? kalE : null,
       lstmErr: isFiniteNumber(lstmE) ? lstmE : null,
     };
-  }, [hoverIdx, kalErr, kalmanPredNext, lstmErr, lstmPredNext, prices]);
+  }, [hoverIdx, kalErr, kalmanPredNext, lstmErr, lstmPredNext, nPred, prices]);
 
   const tooltipStyle = useMemo(() => {
     if (!pointer || !hover) return { display: "none" } as React.CSSProperties;
@@ -151,11 +204,10 @@ export function PredictionDiffChart({ prices, kalmanPredNext, lstmPredNext, heig
     const y = e.clientY - rect.top;
     setPointer({ x, y, w: rect.width, h: rect.height });
 
-    const n = prices.length;
-    if (n < 2) return;
+    if (nPred < 2) return;
     const xSvg = (x / Math.max(1, rect.width)) * w;
-    const t = clamp((xSvg - padX) / Math.max(1, w - padX * 2), 0, 1);
-    const idx = clamp(Math.round(t * (n - 1)), 0, n - 2);
+    const t = clamp((xSvg - pad.l) / Math.max(1, w - pad.l - pad.r), 0, 1);
+    const idx = clamp(Math.round(t * (nPred - 1)), 0, nPred - 1);
     setHoverIdx(idx);
   };
 
@@ -192,7 +244,7 @@ export function PredictionDiffChart({ prices, kalmanPredNext, lstmPredNext, heig
         {hover ? (
           <div className="btTooltip" style={tooltipStyle} aria-hidden={false}>
             <div className="btTooltipTitle">
-              <span className="badge">bar {hover.idx}</span>
+              <span className="badge">bar {startIndex + hover.idx}</span>
               <span className="badge">{mode === "pct" ? "percent" : "absolute"}</span>
             </div>
             <div className="btTooltipRow">
@@ -222,7 +274,54 @@ export function PredictionDiffChart({ prices, kalmanPredNext, lstmPredNext, heig
           <div className="chartEmpty">Not enough data</div>
         ) : (
           <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="chartSvg" aria-hidden="true">
-            <line x1={padX} x2={w - padX} y1={y0} y2={y0} stroke="rgba(255,255,255,0.16)" strokeWidth="2" />
+            <g>
+              {yAxis.ticks.map((tv) => {
+                const y = yFor(tv);
+                const isZero = Math.abs(tv) < (yAxis.step || 1) * 1e-6;
+                const label =
+                  mode === "pct"
+                    ? `${(tv * 100).toFixed(decimalsForStep(yAxis.step * 100))}%`
+                    : tv.toFixed(decimalsForStep(yAxis.step));
+                return (
+                  <g key={`y-${tv}`}>
+                    <line
+                      x1={pad.l}
+                      x2={w - pad.r}
+                      y1={y}
+                      y2={y}
+                      stroke={isZero ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.07)"}
+                      strokeWidth={isZero ? "2" : "1"}
+                    />
+                    <text x={pad.l - 10} y={y + 4} fill="rgba(255,255,255,0.62)" fontSize="14" fontFamily="monospace" textAnchor="end">
+                      {label === "-0" || label === "-0.0" || label === "-0.00" || label === "-0.000" ? label.slice(1) : label}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
+
+            <g>
+              {(() => {
+                const target = clamp(Math.round((w - pad.l - pad.r) / 180) + 1, 2, 7);
+                const ticks: number[] = [];
+                for (let k = 0; k < target; k += 1) {
+                  const idx = Math.round((k * Math.max(1, nPred - 1)) / Math.max(1, target - 1));
+                  if (ticks[ticks.length - 1] !== idx) ticks.push(idx);
+                }
+                return ticks.map((idx) => {
+                  const x = xFor(idx);
+                  return (
+                    <g key={`x-${idx}`}>
+                      <line x1={x} x2={x} y1={h - pad.b} y2={h - pad.b + 6} stroke="rgba(255,255,255,0.14)" strokeWidth="1" />
+                      <text x={x} y={h - pad.b + 22} fill="rgba(255,255,255,0.62)" fontSize="14" fontFamily="monospace" textAnchor="middle">
+                        {startIndex + idx}
+                      </text>
+                    </g>
+                  );
+                });
+              })()}
+            </g>
+
             {kalPath ? <path d={kalPath} fill="none" stroke="rgba(14, 165, 233, 0.85)" strokeWidth="3.5" /> : null}
             {lstmPath ? <path d={lstmPath} fill="none" stroke="rgba(124, 58, 237, 0.9)" strokeWidth="3.5" /> : null}
 
@@ -231,8 +330,8 @@ export function PredictionDiffChart({ prices, kalmanPredNext, lstmPredNext, heig
                 <line
                   x1={xFor(hover.idx)}
                   x2={xFor(hover.idx)}
-                  y1={padY}
-                  y2={h - padY}
+                  y1={pad.t}
+                  y2={h - pad.b}
                   stroke="rgba(255,255,255,0.16)"
                   strokeWidth="1.5"
                 />
@@ -242,13 +341,13 @@ export function PredictionDiffChart({ prices, kalmanPredNext, lstmPredNext, heig
             ) : null}
 
             <g>
-              <rect x={padX} y={padY - 12} width={440} height={28} rx={8} fill="rgba(0,0,0,0.35)" />
-              <circle cx={padX + 12} cy={padY + 2} r={4} fill="rgba(14, 165, 233, 0.85)" />
-              <text x={padX + 22} y={padY + 6} fill="rgba(255,255,255,0.78)" fontSize="12" fontFamily="monospace">
+              <rect x={pad.l} y={pad.t - 12} width={440} height={28} rx={8} fill="rgba(0,0,0,0.35)" />
+              <circle cx={pad.l + 12} cy={pad.t + 2} r={4} fill="rgba(14, 165, 233, 0.85)" />
+              <text x={pad.l + 22} y={pad.t + 6} fill="rgba(255,255,255,0.78)" fontSize="12" fontFamily="monospace">
                 Kalman error
               </text>
-              <circle cx={padX + 128} cy={padY + 2} r={4} fill="rgba(124, 58, 237, 0.9)" />
-              <text x={padX + 138} y={padY + 6} fill="rgba(255,255,255,0.78)" fontSize="12" fontFamily="monospace">
+              <circle cx={pad.l + 128} cy={pad.t + 2} r={4} fill="rgba(124, 58, 237, 0.9)" />
+              <text x={pad.l + 138} y={pad.t + 6} fill="rgba(255,255,255,0.78)" fontSize="12" fontFamily="monospace">
                 LSTM error {mode === "pct" ? "(pred_next - next_close) / next_close" : "(pred_next - next_close)"}
               </text>
             </g>
