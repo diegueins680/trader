@@ -6,18 +6,23 @@ import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Exception (SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
+import Crypto.Hash (Digest, hash)
+import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as AT
+import Data.ByteArray (convert)
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
 import Data.Foldable (toList)
 import Data.Int (Int64)
-import Data.List (foldl', isInfixOf, isPrefixOf, sortOn)
+import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn)
 import Data.Maybe (isJust, listToMaybe, mapMaybe)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
@@ -33,10 +38,10 @@ import Network.HTTP.Types.Header (hAuthorization)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.Exit (die, exitFailure)
-import System.FilePath ((</>))
+import System.FilePath ((</>), takeDirectory)
 import System.IO (IOMode(ReadMode), hGetLine, hIsEOF, hPutStrLn, stderr, withFile)
 import System.IO.Error (ioeGetErrorString, isUserError)
 import Text.Printf (printf)
@@ -71,7 +76,8 @@ import Trader.KalmanFusion (Kalman1(..), initKalman1, stepMulti)
 import Trader.LSTM
   ( LSTMConfig(..)
   , EpochStats(..)
-  , LSTMModel
+  , LSTMModel(..)
+  , paramCount
   , trainLSTM
   , fineTuneLSTM
   , predictNext
@@ -96,9 +102,9 @@ import Trader.Predictors
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.Symbol (splitSymbol)
 import Trader.Method (Method(..), methodCode, parseMethod, selectPredictions)
-import Trader.Optimization (optimizeOperations, sweepThreshold)
+import Trader.Optimization (optimizeOperations, optimizeOperationsWithHL, sweepThreshold, sweepThresholdWithHL)
 import Trader.Split (Split(..), splitTrainBacktest)
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), Trade(..), simulateEnsembleLongFlat, simulateEnsembleLongFlatWithHL)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), StepMeta(..), Trade(..), simulateEnsembleLongFlat, simulateEnsembleLongFlatWithHL)
 
 -- CSV loading
 
@@ -290,7 +296,7 @@ data BacktestSummary = BacktestSummary
   , bsLatestSignal :: !LatestSignal
   , bsEquityCurve :: ![Double]
   , bsBacktestPrices :: ![Double]
-  , bsPositions :: ![Int]
+  , bsPositions :: ![Double]
   , bsAgreementOk :: ![Bool]
   , bsTrades :: ![Trade]
   } deriving (Eq, Show)
@@ -485,8 +491,8 @@ opts =
               <> showDefaultWith positioningCode
               <> help "Positioning: long-flat (default) or long-short (experimental; futures-only for live orders)"
           )
-    <*> switch (long "optimize-operations" <> help "Optimize method (11/10/01) and threshold on the backtest split")
-    <*> switch (long "sweep-threshold" <> help "Sweep trade thresholds on the backtest split and print the best final equity")
+    <*> switch (long "optimize-operations" <> help "Optimize method (11/10/01) and threshold on a tune split (avoids lookahead on the backtest split)")
+    <*> switch (long "sweep-threshold" <> help "Sweep thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
     <*> switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     <*> option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
     <*> option auto (long "slippage" <> value 0.0 <> help "Slippage per side (fractional, e.g. 0.0002)")
@@ -1812,15 +1818,24 @@ botOptimizeAfterOperation st = do
                   , ecTrailingStop = argTrailingStop args
                   , ecPositioning = LongFlat
                   , ecIntrabarFill = argIntrabarFill args
+                  , ecKalmanZMin = argKalmanZMin args
+                  , ecKalmanZMax = argKalmanZMax args
+                  , ecMaxHighVolProb = argMaxHighVolProb args
+                  , ecMaxConformalWidth = argMaxConformalWidth args
+                  , ecMaxQuantileWidth = argMaxQuantileWidth args
+                  , ecConfirmConformal = argConfirmConformal args
+                  , ecConfirmQuantiles = argConfirmQuantiles args
+                  , ecConfidenceSizing = argConfidenceSizing args
+                  , ecMinPositionSize = argMinPositionSize args
                   }
               hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
               (newMethod, newThr) =
                 if optimizeOps && hasBothCtx
                   then
-                    let (m, thr, _) = optimizeOperations baseCfg prices kalPred lstmPred
+                    let (m, thr, _) = optimizeOperations baseCfg prices kalPred lstmPred Nothing
                      in (m, thr)
                   else
-                    let (thr, _) = sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred
+                    let (thr, _) = sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred Nothing
                      in (argMethod args, thr)
               args' =
                 args
@@ -2605,23 +2620,24 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
                     ( jsonValue
                         status200
                         ( object
-                            [ "name" .= ("trader-hs" :: String)
-                            , "endpoints"
-                                .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
+	                            [ "name" .= ("trader-hs" :: String)
+	                            , "endpoints"
+	                                .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
+	                                   , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
+	                                   , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
+	                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
+	                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
+	                                   , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
+	                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
+	                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
+	                                   , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
+	                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
+	                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
+	                                   , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
+	                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
+	                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
+	                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
+	                                   , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
                                    ]
                             ]
                         )
@@ -3911,31 +3927,43 @@ runBacktestPipeline args lookback series mBinanceEnv = do
             )
         else pure ()
 
-      putStrLn
-        ( printf
-            "\nSplit: train=%d backtest=%d (backtest-ratio=%.3f)"
-            (bsTrainSize summary)
-            (bsBacktestSize summary)
-            backtestRatio
-        )
+      if bsTuneSize summary > 0
+        then
+          putStrLn
+            ( printf
+                "\nSplit: fit=%d tune=%d backtest=%d (tune-ratio=%.3f, backtest-ratio=%.3f)"
+                (bsFitSize summary)
+                (bsTuneSize summary)
+                (bsBacktestSize summary)
+                (bsTuneRatio summary)
+                backtestRatio
+            )
+        else
+          putStrLn
+            ( printf
+                "\nSplit: train=%d backtest=%d (backtest-ratio=%.3f)"
+                (bsTrainSize summary)
+                (bsBacktestSize summary)
+                backtestRatio
+            )
 
       if argOptimizeOperations args
         then
           putStrLn
             ( printf
-                "Optimized operations: method=%s threshold=%.6f (%.3f%%)"
-                (methodCode (bsMethodUsed summary))
-                (bsBestThreshold summary)
-                (bsBestThreshold summary * 100)
-            )
+	                "Optimized on tune split: method=%s threshold=%.6f (%.3f%%)"
+	                (methodCode (bsMethodUsed summary))
+	                (bsBestThreshold summary)
+	                (bsBestThreshold summary * 100)
+	            )
         else if argSweepThreshold args
           then
             putStrLn
               ( printf
-                  "Best threshold (by final equity): %.6f (%.3f%%)"
-                  (bsBestThreshold summary)
-                  (bsBestThreshold summary * 100)
-              )
+	                  "Best threshold on tune split (by final equity): %.6f (%.3f%%)"
+	                  (bsBestThreshold summary)
+	                  (bsBestThreshold summary * 100)
+	              )
           else pure ()
 
       putStrLn $
@@ -4027,10 +4055,133 @@ computeTradeOnlySignal args lookback prices = do
 
   pure (computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx)
 
+-- LSTM weight persistence (for incremental training across backtests)
+
+data PersistedLstmModel = PersistedLstmModel
+  { plmVersion :: !Int
+  , plmHiddenSize :: !Int
+  , plmParams :: ![Double]
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON PersistedLstmModel where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 3)
+
+instance ToJSON PersistedLstmModel where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+defaultLstmWeightsDir :: FilePath
+defaultLstmWeightsDir = ".tmp/lstm"
+
+resolveLstmWeightsDir :: IO (Maybe FilePath)
+resolveLstmWeightsDir = do
+  mDir <- lookupEnv "TRADER_LSTM_WEIGHTS_DIR"
+  case trim <$> mDir of
+    Nothing -> pure (Just defaultLstmWeightsDir)
+    Just dir | null dir -> pure Nothing
+    Just dir -> pure (Just dir)
+
+safeCanonicalizePath :: FilePath -> IO FilePath
+safeCanonicalizePath path = do
+  r <- try (canonicalizePath path) :: IO (Either SomeException FilePath)
+  pure (either (const path) id r)
+
+lstmModelKey :: Args -> Int -> IO String
+lstmModelKey args lookback = do
+  src <-
+    case (argBinanceSymbol args, argData args) of
+      (Just sym, _) -> pure ("binance:" ++ marketCode (argBinanceMarket args) ++ ":" ++ sym)
+      (Nothing, Just path0) -> do
+        path <- safeCanonicalizePath path0
+        pure ("csv:" ++ path ++ ":" ++ argPriceCol args)
+      _ -> pure "unknown"
+  pure
+    ( intercalate
+        "|"
+        [ "v1"
+        , src
+        , "interval=" ++ argInterval args
+        , "norm=" ++ show (argNormalization args)
+        , "hidden=" ++ show (argHiddenSize args)
+        , "lookback=" ++ show lookback
+        ]
+    )
+
+hashKeyHex :: String -> String
+hashKeyHex s =
+  let digest :: Digest SHA256
+      digest = hash (TE.encodeUtf8 (T.pack s))
+   in BS.unpack (B16.encode (convert digest))
+
+lstmWeightsPath :: Args -> Int -> IO (Maybe FilePath)
+lstmWeightsPath args lookback = do
+  mDir <- resolveLstmWeightsDir
+  case mDir of
+    Nothing -> pure Nothing
+    Just dir -> do
+      key <- lstmModelKey args lookback
+      let file = "lstm-" ++ hashKeyHex key ++ ".json"
+      pure (Just (dir </> file))
+
+loadPersistedLstmModel :: FilePath -> Int -> IO (Maybe LSTMModel)
+loadPersistedLstmModel path hidden = do
+  exists <- doesFileExist path
+  if not exists
+    then pure Nothing
+    else do
+      eBs <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+      case eBs of
+        Left _ -> pure Nothing
+        Right bs ->
+          case eitherDecode bs of
+            Left _ -> pure Nothing
+            Right plm ->
+              let ok =
+                    plmVersion plm == 1
+                      && plmHiddenSize plm == hidden
+                      && length (plmParams plm) == paramCount hidden
+               in if ok
+                    then pure (Just (LSTMModel (plmHiddenSize plm) (plmParams plm)))
+                    else pure Nothing
+
+savePersistedLstmModelMaybe :: Maybe FilePath -> LSTMModel -> IO ()
+savePersistedLstmModelMaybe mPath model =
+  case mPath of
+    Nothing -> pure ()
+    Just path -> do
+      _ <-
+        try
+          ( do
+              createDirectoryIfMissing True (takeDirectory path)
+              let plm =
+                    PersistedLstmModel
+                      { plmVersion = 1
+                      , plmHiddenSize = lmHiddenSize model
+                      , plmParams = lmParams model
+                      }
+              BL.writeFile path (encode plm)
+          )
+          :: IO (Either SomeException ())
+      pure ()
+
+trainLstmWithPersistence :: Args -> Int -> LSTMConfig -> [Double] -> IO (LSTMModel, [EpochStats])
+trainLstmWithPersistence args lookback cfg series = do
+  mPath <- lstmWeightsPath args lookback
+  mSeed <-
+    case mPath of
+      Nothing -> pure Nothing
+      Just path -> loadPersistedLstmModel path (lcHiddenSize cfg)
+  let (model, hist) =
+        case mSeed of
+          Just seedModel -> fineTuneLSTM cfg seedModel series
+          Nothing -> trainLSTM cfg series
+  savePersistedLstmModelMaybe mPath model
+  pure (model, hist)
+
 computeBacktestSummary :: Args -> Int -> PriceSeries -> IO BacktestSummary
 computeBacktestSummary args lookback series = do
   let prices = psClose series
-  let backtestRatio = argBacktestRatio args
+      n = length prices
+      backtestRatio = argBacktestRatio args
       split =
         case splitTrainBacktest lookback backtestRatio prices of
           Left err -> error err
@@ -4040,19 +4191,59 @@ computeBacktestSummary args lookback series = do
       trainEnd = splitTrainEnd split
       trainPrices = splitTrain split
       backtestPrices = splitBacktest split
-      (backtestHighs, backtestLows) =
+
+      trainSize = length trainPrices
+      tuningEnabled = argOptimizeOperations args || argSweepThreshold args
+      tuneRatio = max 0 (min 0.999999 (argTuneRatio args))
+      tuneRatioUsed = if tuningEnabled then tuneRatio else 0
+      tuneSize =
+        if tuningEnabled
+          then max 0 (min trainSize (floor (fromIntegral trainSize * tuneRatioUsed)))
+          else 0
+      fitSize = max 0 (trainSize - tuneSize)
+
+  if tuningEnabled && tuneSize < 2
+    then
+      error
+        ( printf
+            "Tune window too small (%d). Increase --tune-ratio, reduce --backtest-ratio, or increase the number of bars."
+            tuneSize
+        )
+    else pure ()
+  if tuningEnabled && fitSize < lookback + 1
+    then
+      error
+        ( printf
+            "Fit window too small for lookback=%d (fit=%d, tune=%d). Decrease --tune-ratio, reduce --lookback-bars/--lookback-window, or increase the number of bars."
+            lookback
+            fitSize
+            tuneSize
+        )
+    else pure ()
+
+  let (highsAll, lowsAll) =
         case (psHigh series, psLow series) of
           (Just hs, Just ls)
-            | length hs == length prices && length ls == length prices ->
-                (drop trainEnd hs, drop trainEnd ls)
-          _ -> (backtestPrices, backtestPrices)
+            | length hs == n && length ls == n -> (hs, ls)
+          _ -> (prices, prices)
+
+      predStart = if tuningEnabled then fitSize else trainEnd
+      stepCount = n - predStart - 1
+      fitPrices = take predStart prices
+
+      tunePrices = drop fitSize trainPrices
+      tuneHighs = take tuneSize (drop fitSize highsAll)
+      tuneLows = take tuneSize (drop fitSize lowsAll)
+
+      backtestHighs = drop trainEnd highsAll
+      backtestLows = drop trainEnd lowsAll
+
       methodRequested = argMethod args
       methodForComputation =
         if argOptimizeOperations args
           then MethodBoth
           else methodRequested
       pricesV = V.fromList prices
-      stepCount = length backtestPrices - 1
 
       lstmCfg =
         LSTMConfig
@@ -4066,92 +4257,131 @@ computeBacktestSummary args lookback series = do
           , lcSeed = argSeed args
           }
 
-      (mLstmCtx, mHistory, kalPredPrice, lstmPredPrice, mKalmanCtx) =
-        case methodForComputation of
-          MethodKalmanOnly ->
-            let trainPricesV = V.fromList trainPrices
-                predictors = trainPredictors lookback trainPricesV
-                hmmInitReturns = forwardReturns (take (trainEnd + 1) prices)
-                hmm0 = initHMMFilter predictors hmmInitReturns
-                kal0 =
-                  initKalman1
-                    0
-                    (max 1e-12 (argKalmanMeasurementVar args))
-                    (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
-                sv0 = emptySensorVar
-                (kalFinal, hmmFinal, svFinal, kalPredRev) =
-                  foldl'
-                    (backtestStepKalmanOnly args pricesV predictors trainEnd)
-                    (kal0, hmm0, sv0, [])
-                    [0 .. stepCount - 1]
-                kalPred = reverse kalPredRev
-             in (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal))
-          MethodLstmOnly ->
-            let normState = fitNorm (argNormalization args) trainPrices
-                obsAll = forwardSeries normState prices
-                obsTrain = take trainEnd obsAll
-                (lstmModel, history) = trainLSTM lstmCfg obsTrain
-                lstmPred =
-                  [ let t = trainEnd + i
-                        window = take lookback (drop (t - lookback + 1) obsAll)
-                        predObs = predictNext lstmModel window
-                     in inverseNorm normState predObs
-                  | i <- [0 .. stepCount - 1]
-                  ]
-             in (Just (normState, obsAll, lstmModel), Just history, lstmPred, lstmPred, Nothing)
-          MethodBoth ->
-            let normState = fitNorm (argNormalization args) trainPrices
-                obsAll = forwardSeries normState prices
-                obsTrain = take trainEnd obsAll
-                (lstmModel, history) = trainLSTM lstmCfg obsTrain
-                trainPricesV = V.fromList trainPrices
-                predictors = trainPredictors lookback trainPricesV
-                hmmInitReturns = forwardReturns (take (trainEnd + 1) prices)
-                hmm0 = initHMMFilter predictors hmmInitReturns
-                kal0 =
-                  initKalman1
-                    0
-                    (max 1e-12 (argKalmanMeasurementVar args))
-                    (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
-                sv0 = emptySensorVar
-                (kalFinal, hmmFinal, svFinal, kalPredRev, lstmPredRev) =
-                  foldl'
-                    (backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEnd)
-                    (kal0, hmm0, sv0, [], [])
-                    [0 .. stepCount - 1]
-                kalPred = reverse kalPredRev
-                lstmPred = reverse lstmPredRev
-             in
-              ( Just (normState, obsAll, lstmModel)
-              , Just history
-              , kalPred
-              , lstmPred
-              , Just (predictors, kalFinal, hmmFinal, svFinal)
-              )
+  (mLstmCtx, mHistory, kalPredAll, lstmPredAll, mKalmanCtx, mMetaAll) <-
+    case methodForComputation of
+      MethodKalmanOnly -> do
+        let fitPricesV = V.fromList fitPrices
+            predictors = trainPredictors lookback fitPricesV
+            hmmInitReturns = forwardReturns (take (predStart + 1) prices)
+            hmm0 = initHMMFilter predictors hmmInitReturns
+            kal0 =
+              initKalman1
+                0
+                (max 1e-12 (argKalmanMeasurementVar args))
+                (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+            sv0 = emptySensorVar
+            (kalFinal, hmmFinal, svFinal, kalPredRev, metaRev) =
+              foldl'
+                (backtestStepKalmanOnly args pricesV predictors predStart)
+                (kal0, hmm0, sv0, [], [])
+                [0 .. stepCount - 1]
+            kalPred = reverse kalPredRev
+            meta = reverse metaRev
+        pure (Nothing, Nothing, kalPred, kalPred, Just (predictors, kalFinal, hmmFinal, svFinal), Just meta)
+      MethodLstmOnly -> do
+        let normState = fitNorm (argNormalization args) fitPrices
+            obsAll = forwardSeries normState prices
+            obsTrain = take predStart obsAll
+        (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
+        let lstmPred =
+              [ let t = predStart + i
+                    window = take lookback (drop (t - lookback + 1) obsAll)
+                    predObs = predictNext lstmModel window
+                 in inverseNorm normState predObs
+              | i <- [0 .. stepCount - 1]
+              ]
+        pure (Just (normState, obsAll, lstmModel), Just history, lstmPred, lstmPred, Nothing, Nothing)
+      MethodBoth -> do
+        let normState = fitNorm (argNormalization args) fitPrices
+            obsAll = forwardSeries normState prices
+            obsTrain = take predStart obsAll
+        (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
+        let fitPricesV = V.fromList fitPrices
+            predictors = trainPredictors lookback fitPricesV
+            hmmInitReturns = forwardReturns (take (predStart + 1) prices)
+            hmm0 = initHMMFilter predictors hmmInitReturns
+            kal0 =
+              initKalman1
+                0
+                (max 1e-12 (argKalmanMeasurementVar args))
+                (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+            sv0 = emptySensorVar
+            (kalFinal, hmmFinal, svFinal, kalPredRev, lstmPredRev, metaRev) =
+              foldl'
+                (backtestStep args lookback normState obsAll pricesV lstmModel predictors predStart)
+                (kal0, hmm0, sv0, [], [], [])
+                [0 .. stepCount - 1]
+            kalPred = reverse kalPredRev
+            lstmPred = reverse lstmPredRev
+            meta = reverse metaRev
+        pure
+          ( Just (normState, obsAll, lstmModel)
+          , Just history
+          , kalPred
+          , lstmPred
+          , Just (predictors, kalFinal, hmmFinal, svFinal)
+          , Just meta
+          )
 
-      baseCfg =
-        EnsembleConfig
-          { ecTradeThreshold = argTradeThreshold args
-          , ecFee = argFee args
-          , ecSlippage = argSlippage args
-          , ecSpread = argSpread args
-          , ecStopLoss = argStopLoss args
-          , ecTakeProfit = argTakeProfit args
-          , ecTrailingStop = argTrailingStop args
-          , ecPositioning = argPositioning args
-          , ecIntrabarFill = argIntrabarFill args
-          }
+	  let baseCfg =
+	        EnsembleConfig
+	          { ecTradeThreshold = argTradeThreshold args
+	          , ecFee = argFee args
+	          , ecSlippage = argSlippage args
+	          , ecSpread = argSpread args
+	          , ecStopLoss = argStopLoss args
+	          , ecTakeProfit = argTakeProfit args
+	          , ecTrailingStop = argTrailingStop args
+	          , ecPositioning = argPositioning args
+	          , ecIntrabarFill = argIntrabarFill args
+	          , ecKalmanZMin = argKalmanZMin args
+	          , ecKalmanZMax = argKalmanZMax args
+	          , ecMaxHighVolProb = argMaxHighVolProb args
+	          , ecMaxConformalWidth = argMaxConformalWidth args
+	          , ecMaxQuantileWidth = argMaxQuantileWidth args
+	          , ecConfirmConformal = argConfirmConformal args
+	          , ecConfirmQuantiles = argConfirmQuantiles args
+	          , ecConfidenceSizing = argConfidenceSizing args
+	          , ecMinPositionSize = argMinPositionSize args
+	          }
 
-      (methodUsed, bestThreshold, backtest) =
-        if argOptimizeOperations args
-          then optimizeOperations baseCfg backtestPrices kalPredPrice lstmPredPrice
-          else if argSweepThreshold args
-            then
-              let (thr, bt) = sweepThreshold methodRequested baseCfg backtestPrices kalPredPrice lstmPredPrice
-               in (methodRequested, thr, bt)
-            else
-              let (kalPredUsed, lstmPredUsed) = selectPredictions methodRequested kalPredPrice lstmPredPrice
-               in (methodRequested, argTradeThreshold args, simulateEnsembleLongFlatWithHL baseCfg 1 backtestPrices backtestHighs backtestLows kalPredUsed lstmPredUsed)
+	      offsetBacktestPred = max 0 (trainEnd - predStart)
+	      kalPredBacktest = drop offsetBacktestPred kalPredAll
+	      lstmPredBacktest = drop offsetBacktestPred lstmPredAll
+	      kalPredTune = take (max 0 (tuneSize - 1)) kalPredAll
+	      lstmPredTune = take (max 0 (tuneSize - 1)) lstmPredAll
+	      metaBacktest = fmap (drop offsetBacktestPred) mMetaAll
+	      metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
+
+	      (methodUsed, bestThreshold) =
+	        if argOptimizeOperations args
+	          then
+	            let (m, thr, _btTune) =
+	                  optimizeOperationsWithHL baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
+	             in (m, thr)
+	          else if argSweepThreshold args
+	            then
+	              let (thr, _btTune) =
+	                    sweepThresholdWithHL methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
+	               in (methodRequested, thr)
+	            else (methodRequested, argTradeThreshold args)
+
+	      backtestCfg = baseCfg { ecTradeThreshold = bestThreshold }
+	      (kalPredUsedBacktest, lstmPredUsedBacktest) = selectPredictions methodUsed kalPredBacktest lstmPredBacktest
+	      metaUsedBacktest =
+	        case methodUsed of
+	          MethodLstmOnly -> Nothing
+	          _ -> metaBacktest
+	      backtest =
+	        simulateEnsembleLongFlatWithHL
+	          backtestCfg
+	          1
+	          backtestPrices
+	          backtestHighs
+	          backtestLows
+	          kalPredUsedBacktest
+	          lstmPredUsedBacktest
+	          metaUsedBacktest
 
       ppy = periodsPerYear args
       metrics = computeMetrics ppy backtest
@@ -4165,11 +4395,6 @@ computeBacktestSummary args lookback series = do
 
       latestSignal = computeLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx
 
-      trainSize = length trainPrices
-      tuneRatio = max 0 (min 0.999999 (argTuneRatio args))
-      tuneSize = max 0 (min trainSize (floor (fromIntegral trainSize * tuneRatio)))
-      fitSize = max 0 (trainSize - tuneSize)
-
   pure
     BacktestSummary
       { bsTrainEndRaw = trainEndRaw
@@ -4177,7 +4402,7 @@ computeBacktestSummary args lookback series = do
       , bsTrainSize = trainSize
       , bsFitSize = fitSize
       , bsTuneSize = tuneSize
-      , bsTuneRatio = tuneRatio
+      , bsTuneRatio = tuneRatioUsed
       , bsBacktestSize = length backtestPrices
       , bsBacktestRatio = backtestRatio
       , bsMethodUsed = methodUsed
@@ -4628,20 +4853,33 @@ backtestStepKalmanOnly
   -> V.Vector Double
   -> PredictorBundle
   -> Int
-  -> (Kalman1, HMMFilter, SensorVar, [Double])
+  -> (Kalman1, HMMFilter, SensorVar, [Double], [StepMeta])
   -> Int
-  -> (Kalman1, HMMFilter, SensorVar, [Double])
-backtestStepKalmanOnly args pricesV predictors trainEnd (kal, hmm, sv, kalAcc) i =
+  -> (Kalman1, HMMFilter, SensorVar, [Double], [StepMeta])
+backtestStepKalmanOnly args pricesV predictors trainEnd (kal, hmm, sv, kalAcc, metaAcc) i =
   let t = trainEnd + i
       priceT = pricesV V.! t
       nextP = pricesV V.! (t + 1)
       realizedR = if priceT == 0 then 0 else nextP / priceT - 1
 
       (sensorOuts, predState) = predictSensors predictors pricesV hmm t
+      mReg = listToMaybe [r | (_sid, out) <- sensorOuts, Just r <- [soRegimes out]]
+      mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
+      mI = listToMaybe [i' | (_sid, out) <- sensorOuts, Just i' <- [soInterval out]]
       meas = mapMaybe (toMeasurement args sv) sensorOuts
       kal' = stepMulti meas kal
       fusedR = kMean kal'
       kalNext = priceT * (1 + fusedR)
+      meta =
+        StepMeta
+          { smKalmanMean = kMean kal'
+          , smKalmanVar = kVar kal'
+          , smHighVolProb = rpHighVol <$> mReg
+          , smQuantile10 = q10 <$> mQ
+          , smQuantile90 = q90 <$> mQ
+          , smConformalLo = iLo <$> mI
+          , smConformalHi = iHi <$> mI
+          }
 
       sv' =
         foldl'
@@ -4649,7 +4887,7 @@ backtestStepKalmanOnly args pricesV predictors trainEnd (kal, hmm, sv, kalAcc) i
           sv
           sensorOuts
       hmm' = updateHMM predictors predState realizedR
-   in (kal', hmm', sv', kalNext : kalAcc)
+   in (kal', hmm', sv', kalNext : kalAcc, meta : metaAcc)
 
 backtestStep
   :: Args
@@ -4660,20 +4898,33 @@ backtestStep
   -> LSTMModel
   -> PredictorBundle
   -> Int
-  -> (Kalman1, HMMFilter, SensorVar, [Double], [Double])
+  -> (Kalman1, HMMFilter, SensorVar, [Double], [Double], [StepMeta])
   -> Int
-  -> (Kalman1, HMMFilter, SensorVar, [Double], [Double])
-backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEnd (kal, hmm, sv, kalAcc, lstmAcc) i =
+  -> (Kalman1, HMMFilter, SensorVar, [Double], [Double], [StepMeta])
+backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEnd (kal, hmm, sv, kalAcc, lstmAcc, metaAcc) i =
   let t = trainEnd + i
       priceT = pricesV V.! t
       nextP = pricesV V.! (t + 1)
       realizedR = if priceT == 0 then 0 else nextP / priceT - 1
 
       (sensorOuts, predState) = predictSensors predictors pricesV hmm t
+      mReg = listToMaybe [r | (_sid, out) <- sensorOuts, Just r <- [soRegimes out]]
+      mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
+      mI = listToMaybe [i' | (_sid, out) <- sensorOuts, Just i' <- [soInterval out]]
       meas = mapMaybe (toMeasurement args sv) sensorOuts
       kal' = stepMulti meas kal
       fusedR = kMean kal'
       kalNext = priceT * (1 + fusedR)
+      meta =
+        StepMeta
+          { smKalmanMean = kMean kal'
+          , smKalmanVar = kVar kal'
+          , smHighVolProb = rpHighVol <$> mReg
+          , smQuantile10 = q10 <$> mQ
+          , smQuantile90 = q90 <$> mQ
+          , smConformalLo = iLo <$> mI
+          , smConformalHi = iHi <$> mI
+          }
 
       window = take lookback (drop (t - lookback + 1) obsAll)
       lstmNextObs = predictNext lstmModel window
@@ -4685,7 +4936,7 @@ backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEn
           sv
           sensorOuts
       hmm' = updateHMM predictors predState realizedR
-   in (kal', hmm', sv', kalNext : kalAcc, lstmNext : lstmAcc)
+   in (kal', hmm', sv', kalNext : kalAcc, lstmNext : lstmAcc, meta : metaAcc)
 
 printLstmSummary :: [EpochStats] -> IO ()
 printLstmSummary history =
