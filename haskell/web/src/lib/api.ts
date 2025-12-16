@@ -1,4 +1,14 @@
-import type { ApiError, ApiParams, ApiTradeResponse, BacktestResponse, BinanceKeysStatus, BotStatus, LatestSignal } from "./types";
+import type {
+  ApiError,
+  ApiParams,
+  ApiTradeResponse,
+  BacktestResponse,
+  BinanceKeysStatus,
+  BinanceListenKeyKeepAliveResponse,
+  BinanceListenKeyResponse,
+  BotStatus,
+  LatestSignal,
+} from "./types";
 
 export class HttpError extends Error {
   readonly status: number;
@@ -385,6 +395,56 @@ export async function binanceKeysStatus(
   return fetchJson<BinanceKeysStatus>(
     baseUrl,
     "/binance/keys",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
+type BinanceListenKeyStartParams = Pick<ApiParams, "market" | "binanceTestnet" | "binanceApiKey" | "binanceApiSecret">;
+type BinanceListenKeyActionParams = BinanceListenKeyStartParams & { listenKey: string };
+
+export async function binanceListenKey(baseUrl: string, params: BinanceListenKeyStartParams, opts?: FetchJsonOptions): Promise<BinanceListenKeyResponse> {
+  return fetchJson<BinanceListenKeyResponse>(
+    baseUrl,
+    "/binance/listenKey",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
+export async function binanceListenKeyKeepAlive(
+  baseUrl: string,
+  params: BinanceListenKeyActionParams,
+  opts?: FetchJsonOptions,
+): Promise<BinanceListenKeyKeepAliveResponse> {
+  return fetchJson<BinanceListenKeyKeepAliveResponse>(
+    baseUrl,
+    "/binance/listenKey/keepAlive",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
+export async function binanceListenKeyClose(
+  baseUrl: string,
+  params: BinanceListenKeyActionParams,
+  opts?: FetchJsonOptions,
+): Promise<BinanceListenKeyKeepAliveResponse> {
+  return fetchJson<BinanceListenKeyKeepAliveResponse>(
+    baseUrl,
+    "/binance/listenKey/close",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

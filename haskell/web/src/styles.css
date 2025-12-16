@@ -299,6 +299,32 @@ textarea {
   transform: none;
 }
 
+.btnSmall {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: rgba(124, 58, 237, 0.14);
+  border: 1px solid rgba(124, 58, 237, 0.32);
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+  font-size: 12px;
+}
+
+.btnSmall:hover {
+  transform: translateY(-1px);
+  background: rgba(124, 58, 237, 0.2);
+}
+
+.btnSmall:active {
+  transform: translateY(0);
+}
+
+.btnSmall:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .btnPrimary {
   background: linear-gradient(135deg, rgba(124, 58, 237, 0.95), rgba(14, 165, 233, 0.85));
   border-color: rgba(255, 255, 255, 0.12);

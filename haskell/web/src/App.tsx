@@ -4,6 +4,7 @@ import type {
   ApiTradeResponse,
   BacktestResponse,
   BinanceKeysStatus,
+  BinanceListenKeyResponse,
   BotOrderEvent,
   BotStatus,
   IntrabarFill,
@@ -13,7 +14,20 @@ import type {
   Normalization,
   Positioning,
 } from "./lib/types";
-import { HttpError, backtest, binanceKeysStatus, botStart, botStatus, botStop, health, signal, trade } from "./lib/api";
+import {
+  HttpError,
+  backtest,
+  binanceKeysStatus,
+  binanceListenKey,
+  binanceListenKeyClose,
+  binanceListenKeyKeepAlive,
+  botStart,
+  botStatus,
+  botStop,
+  health,
+  signal,
+  trade,
+} from "./lib/api";
 import { copyText } from "./lib/clipboard";
 import { readJson, readLocalString, readSessionString, removeLocalKey, removeSessionKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
@@ -61,6 +75,18 @@ type KeysUiState = {
   error: string | null;
   status: BinanceKeysStatus | null;
   checkedAtMs: number | null;
+};
+
+type ListenKeyUiState = {
+  loading: boolean;
+  error: string | null;
+  info: BinanceListenKeyResponse | null;
+  wsStatus: "disconnected" | "connecting" | "connected";
+  wsError: string | null;
+  lastEventAtMs: number | null;
+  lastEvent: string | null;
+  keepAliveAtMs: number | null;
+  keepAliveError: string | null;
 };
 
 type OrderSideFilter = "ALL" | "BUY" | "SELL";
@@ -624,6 +650,20 @@ export function App() {
     checkedAtMs: null,
   });
 
+  const [listenKeyUi, setListenKeyUi] = useState<ListenKeyUiState>({
+    loading: false,
+    error: null,
+    info: null,
+    wsStatus: "disconnected",
+    wsError: null,
+    lastEventAtMs: null,
+    lastEvent: null,
+    keepAliveAtMs: null,
+    keepAliveError: null,
+  });
+  const listenKeyWsRef = useRef<WebSocket | null>(null);
+  const listenKeyKeepAliveTimerRef = useRef<number | null>(null);
+
   const [orderFilterText, setOrderFilterText] = useState(() => orderPrefsInit?.filterText ?? "");
   const [orderSentOnly, setOrderSentOnly] = useState(() => orderPrefsInit?.sentOnly ?? false);
   const [orderErrorsOnly, setOrderErrorsOnly] = useState(() => orderPrefsInit?.errorsOnly ?? false);
@@ -804,6 +844,10 @@ export function App() {
       abortRef.current?.abort();
       botAbortRef.current?.abort();
       keysAbortRef.current?.abort();
+      if (listenKeyKeepAliveTimerRef.current) window.clearInterval(listenKeyKeepAliveTimerRef.current);
+      const ws = listenKeyWsRef.current;
+      listenKeyWsRef.current = null;
+      ws?.close();
     };
   }, []);
 
@@ -1292,6 +1336,119 @@ export function App() {
     },
     [apiBase, authHeaders, keysParams, showToast],
   );
+
+  const stopListenKeyStream = useCallback(
+    async (opts?: { close?: boolean; silent?: boolean }) => {
+      if (listenKeyKeepAliveTimerRef.current) {
+        window.clearInterval(listenKeyKeepAliveTimerRef.current);
+        listenKeyKeepAliveTimerRef.current = null;
+      }
+      const ws = listenKeyWsRef.current;
+      listenKeyWsRef.current = null;
+      ws?.close();
+
+      const info = listenKeyUi.info;
+      if (opts?.close && info) {
+        try {
+          const base: ApiParams = { market: info.market, binanceTestnet: info.testnet };
+          await binanceListenKeyClose(
+            apiBase,
+            { ...withBinanceKeys(base), listenKey: info.listenKey },
+            { headers: authHeaders, timeoutMs: 30_000 },
+          );
+        } catch (e) {
+          if (!opts?.silent) {
+            const msg = e instanceof Error ? e.message : String(e);
+            showToast(`Listen key close failed: ${msg}`);
+          }
+        }
+      }
+
+      setListenKeyUi((s) => ({
+        ...s,
+        loading: false,
+        error: null,
+        info: null,
+        wsStatus: "disconnected",
+        wsError: null,
+        lastEventAtMs: null,
+        lastEvent: null,
+        keepAliveAtMs: null,
+        keepAliveError: null,
+      }));
+    },
+    [apiBase, authHeaders, listenKeyUi.info, showToast, withBinanceKeys],
+  );
+
+  const keepAliveListenKeyStream = useCallback(
+    async (info: BinanceListenKeyResponse, opts?: { silent?: boolean }) => {
+      setListenKeyUi((s) => ({ ...s, keepAliveError: null }));
+      try {
+        const base: ApiParams = { market: info.market, binanceTestnet: info.testnet };
+        const out = await binanceListenKeyKeepAlive(
+          apiBase,
+          { ...withBinanceKeys(base), listenKey: info.listenKey },
+          { headers: authHeaders, timeoutMs: 30_000 },
+        );
+        setListenKeyUi((s) => ({ ...s, keepAliveAtMs: out.atMs, keepAliveError: null }));
+        if (!opts?.silent) showToast("Listen key kept alive");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setListenKeyUi((s) => ({ ...s, keepAliveError: msg }));
+        if (!opts?.silent) showToast("Listen key keep-alive failed");
+      }
+    },
+    [apiBase, authHeaders, showToast, withBinanceKeys],
+  );
+
+  const startListenKeyStream = useCallback(async () => {
+    if (apiOk !== "ok") return;
+    await stopListenKeyStream({ close: false, silent: true });
+    setListenKeyUi((s) => ({ ...s, loading: true, error: null, wsError: null, keepAliveError: null, wsStatus: "connecting" }));
+    try {
+      const base: ApiParams = { market: form.market, binanceTestnet: form.binanceTestnet };
+      const out = await binanceListenKey(apiBase, withBinanceKeys(base), { headers: authHeaders, timeoutMs: 30_000 });
+
+      setListenKeyUi((s) => ({ ...s, loading: false, error: null, info: out, wsStatus: "connecting" }));
+
+      const ws = new WebSocket(out.wsUrl);
+      listenKeyWsRef.current = ws;
+      ws.addEventListener("open", () => {
+        if (listenKeyWsRef.current !== ws) return;
+        setListenKeyUi((s) => ({ ...s, wsStatus: "connected", wsError: null }));
+      });
+      ws.addEventListener("close", () => {
+        if (listenKeyWsRef.current !== ws) return;
+        setListenKeyUi((s) => ({ ...s, wsStatus: "disconnected" }));
+      });
+      ws.addEventListener("error", () => {
+        if (listenKeyWsRef.current !== ws) return;
+        setListenKeyUi((s) => ({ ...s, wsError: "WebSocket error" }));
+      });
+      ws.addEventListener("message", (ev) => {
+        if (listenKeyWsRef.current !== ws) return;
+        const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
+        let pretty = raw;
+        try {
+          pretty = JSON.stringify(JSON.parse(raw), null, 2);
+        } catch {
+          // ignore
+        }
+        if (pretty.length > 8000) pretty = `${pretty.slice(0, 7997)}...`;
+        setListenKeyUi((s) => ({ ...s, lastEventAtMs: Date.now(), lastEvent: pretty }));
+      });
+
+      void keepAliveListenKeyStream(out, { silent: true });
+      const intervalMs = Math.max(60_000, Math.round(out.keepAliveMs * 0.9));
+      listenKeyKeepAliveTimerRef.current = window.setInterval(() => void keepAliveListenKeyStream(out, { silent: true }), intervalMs);
+
+      showToast("Listen key started");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setListenKeyUi((s) => ({ ...s, loading: false, error: msg, wsStatus: "disconnected" }));
+      showToast("Listen key start failed");
+    }
+  }, [apiBase, apiOk, authHeaders, form.binanceTestnet, form.market, keepAliveListenKeyStream, showToast, stopListenKeyStream, withBinanceKeys]);
 
   const refreshBot = useCallback(
     async (opts?: RunOptions) => {
@@ -3467,6 +3624,117 @@ export function App() {
                 </>
               ) : (
                 <div className="hint">No trade attempt yet.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="cardHeader">
+              <h2 className="cardTitle">User data stream (listenKey)</h2>
+              <p className="cardSubtitle">Keeps the Binance user-data listen key alive via the API, and connects the browser to Binance WebSocket.</p>
+            </div>
+            <div className="cardBody">
+              <div className="pillRow" style={{ marginBottom: 10 }}>
+                <span className="badge">
+                  {marketLabel(form.market)}
+                  {form.binanceTestnet ? " testnet" : ""}
+                </span>
+                <span className="badge">WS: {listenKeyUi.wsStatus}</span>
+                {listenKeyUi.keepAliveAtMs ? <span className="badge">Keep-alive: {fmtTimeMs(listenKeyUi.keepAliveAtMs)}</span> : null}
+              </div>
+
+              <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
+                <button className="btn" type="button" onClick={() => void startListenKeyStream()} disabled={listenKeyUi.loading || apiOk !== "ok"}>
+                  {listenKeyUi.loading ? "Starting…" : listenKeyUi.info ? "Restart stream" : "Start stream"}
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => (listenKeyUi.info ? void keepAliveListenKeyStream(listenKeyUi.info) : undefined)}
+                  disabled={!listenKeyUi.info || listenKeyUi.loading || apiOk !== "ok"}
+                >
+                  Keep alive now
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => void stopListenKeyStream({ close: true })}
+                  disabled={!listenKeyUi.info || listenKeyUi.loading || apiOk !== "ok"}
+                >
+                  Stop
+                </button>
+                <span className="hint">Binance requires a keep-alive (PUT) at least every ~30 minutes; the UI schedules one every ~{Math.round((listenKeyUi.info?.keepAliveMs ?? 25 * 60_000) * 0.9 / 60_000)} minutes.</span>
+              </div>
+
+              {listenKeyUi.error ? (
+                <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 10 }}>
+                  {listenKeyUi.error}
+                </pre>
+              ) : null}
+              {listenKeyUi.keepAliveError ? (
+                <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 10 }}>
+                  {listenKeyUi.keepAliveError}
+                </pre>
+              ) : null}
+              {listenKeyUi.wsError ? (
+                <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 10 }}>
+                  {listenKeyUi.wsError}
+                </pre>
+              ) : null}
+
+              {listenKeyUi.info ? (
+                <>
+                  <div className="kv">
+                    <div className="k">Listen key</div>
+                    <div className="v">
+                      <span className="tdMono">
+                        {listenKeyUi.info.listenKey.length > 14
+                          ? `${listenKeyUi.info.listenKey.slice(0, 6)}…${listenKeyUi.info.listenKey.slice(-6)}`
+                          : listenKeyUi.info.listenKey}
+                      </span>{" "}
+                      <button
+                        className="btnSmall"
+                        type="button"
+                        onClick={async () => {
+                          await copyText(listenKeyUi.info?.listenKey ?? "");
+                          showToast("Copied listen key");
+                        }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">WebSocket URL</div>
+                    <div className="v">
+                      <span className="tdMono">{listenKeyUi.info.wsUrl}</span>{" "}
+                      <button
+                        className="btnSmall"
+                        type="button"
+                        onClick={async () => {
+                          await copyText(listenKeyUi.info?.wsUrl ?? "");
+                          showToast("Copied WebSocket URL");
+                        }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+
+                  {listenKeyUi.lastEvent ? (
+                    <>
+                      <div className="kv">
+                        <div className="k">Last event</div>
+                        <div className="v">{listenKeyUi.lastEventAtMs ? fmtTimeMs(listenKeyUi.lastEventAtMs) : "—"}</div>
+                      </div>
+                      <pre className="code">{listenKeyUi.lastEvent}</pre>
+                    </>
+                  ) : (
+                    <div className="hint">No user-data events yet.</div>
+                  )}
+                </>
+              ) : (
+                <div className="hint">Not running.</div>
               )}
             </div>
           </div>
