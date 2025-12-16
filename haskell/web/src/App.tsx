@@ -1572,10 +1572,10 @@ export function App() {
     const ms = clamp(form.autoRefreshSec, 5, 600) * 1000;
     const t = window.setInterval(() => {
       if (abortRef.current) return;
-      void run("signal", undefined, { silent: true });
+      void run("signal", requestPreview, { silent: true });
     }, ms);
     return () => window.clearInterval(t);
-  }, [apiOk, form.autoRefresh, form.autoRefreshSec, run]);
+  }, [apiOk, form.autoRefresh, form.autoRefreshSec, run, requestPreview]);
 
   useEffect(() => {
     if (!state.error) return;
