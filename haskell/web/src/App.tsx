@@ -1121,6 +1121,16 @@ export function App() {
             },
           });
           if (requestId !== requestSeqRef.current) return;
+          if (p.optimizeOperations || p.sweepThreshold) {
+            const openThreshold = out.openThreshold ?? out.threshold;
+            const closeThreshold = out.closeThreshold ?? out.openThreshold ?? out.threshold;
+            setForm((f) => ({
+              ...f,
+              ...(p.optimizeOperations ? { method: out.method } : {}),
+              openThreshold: Math.max(0, openThreshold),
+              closeThreshold: Math.max(0, closeThreshold),
+            }));
+          }
           if (opts?.silent) setState((s) => ({ ...s, latestSignal: out }));
           else setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false, error: null }));
           setApiOk("ok");
@@ -1136,6 +1146,16 @@ export function App() {
             },
           });
           if (requestId !== requestSeqRef.current) return;
+          if (p.optimizeOperations || p.sweepThreshold) {
+            const openThreshold = out.openThreshold ?? out.threshold;
+            const closeThreshold = out.closeThreshold ?? out.openThreshold ?? out.threshold;
+            setForm((f) => ({
+              ...f,
+              ...(p.optimizeOperations ? { method: out.method } : {}),
+              openThreshold: Math.max(0, openThreshold),
+              closeThreshold: Math.max(0, closeThreshold),
+            }));
+          }
           setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Backtest complete");
@@ -1151,6 +1171,17 @@ export function App() {
             },
           });
           if (requestId !== requestSeqRef.current) return;
+          if (p.optimizeOperations || p.sweepThreshold) {
+            const sig = out.signal;
+            const openThreshold = sig.openThreshold ?? sig.threshold;
+            const closeThreshold = sig.closeThreshold ?? sig.openThreshold ?? sig.threshold;
+            setForm((f) => ({
+              ...f,
+              ...(p.optimizeOperations ? { method: sig.method } : {}),
+              openThreshold: Math.max(0, openThreshold),
+              closeThreshold: Math.max(0, closeThreshold),
+            }));
+          }
           setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast(out.order.sent ? "Order sent" : "No order");

@@ -14,6 +14,19 @@ docker run --rm -p 8080:8080 -e TRADER_API_TOKEN="$TRADER_API_TOKEN" trader-api:
 curl -s http://127.0.0.1:8080/health
 ```
 
+Async job persistence (recommended if you use the `*/async` endpoints behind a non-sticky load balancer):
+- Mount a shared volume at `/var/lib/trader/async` (the Docker image defaults `TRADER_API_ASYNC_DIR` to this path), or override `TRADER_API_ASYNC_DIR` to your shared mount.
+
+Example (named Docker volume):
+
+```bash
+docker volume create trader-async
+docker run --rm -p 8080:8080 \
+  -e TRADER_API_TOKEN="$TRADER_API_TOKEN" \
+  -v trader-async:/var/lib/trader/async \
+  trader-api:local
+```
+
 When `TRADER_API_TOKEN` is set, all endpoints except `/health` require either:
 - `Authorization: Bearer <token>` or
 - `X-API-Key: <token>`
@@ -67,6 +80,7 @@ docker push "${ECR_URI}:latest"
 - Image: `trader-api:latest`
 - Port: `8080`
 - Health check path: `/health`
+- Scaling: set **min=1 / max=1** unless you configure shared async-job storage (see below)
 - Environment variables:
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
@@ -78,10 +92,21 @@ docker push "${ECR_URI}:latest"
     - `TRADER_API_MAX_BARS_LSTM` (default: `300`)
     - `TRADER_API_MAX_EPOCHS` (default: `60`)
     - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`)
-  - Optional async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
-    - `TRADER_API_ASYNC_DIR` (e.g. an EFS-mounted path). When set, async job polling can succeed across restarts/instances.
+  - Async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
+    - `TRADER_API_ASYNC_DIR` (e.g. an EFS-mounted path). Docker image default: `/var/lib/trader/async`.
+      - For multi-instance deployments, ensure this path is a shared writable mount across all instances (otherwise polling can still return “Not found”).
 
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).
+
+### Scaling note (important)
+
+This API includes:
+- **Stateful** endpoints (`/bot/*`) that assume a single running instance, and
+- **Async job** endpoints (`/signal/async`, `/backtest/async`, `/trade/async`) that need a shared `TRADER_API_ASYNC_DIR` mount for polling to work across instances (a local-only directory won’t help behind a non-sticky load balancer).
+
+If you run multiple instances behind a non-sticky load balancer (including the optional CloudFront `/api/*` proxy), the UI can fail async polling with “Async job not found”.
+
+Recommendation: run **single-instance** (min=1 / max=1) unless you have shared async-job storage.
 
 ## Web UI (S3/CloudFront)
 
@@ -131,6 +156,6 @@ If you prefer the UI calling `/api/*` on the same domain, configure a CloudFront
 
 Notes:
 - You can also override the API base at runtime from the UI (stored in local storage) via the “API base URL” field.
-- If you run multiple backend instances, either keep it single-instance or set `TRADER_API_ASYNC_DIR` to a shared writable directory (CloudFront itself is not sticky, so in-memory async jobs can return “Not found” when polling hits a different instance).
+- If you run multiple backend instances, either keep it single-instance or ensure `TRADER_API_ASYNC_DIR` points to a shared writable directory (CloudFront itself is not sticky, so async jobs can return “Not found” when polling hits a different instance).
 - If you *do* prefer same-origin `/api/*` routing, see “CloudFront `/api/*` proxy (optional)” above.
 - After uploading a new UI build to S3, invalidate CloudFront so clients fetch the new hashed JS/CSS assets.
