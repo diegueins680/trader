@@ -598,10 +598,9 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                   (0 :: Int, 0 :: Double, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe OpenTrade, [])
                   [0 .. stepCount - 1]
 
-              eqCurve0 = reverse eqRev
-              (eqCurve, tradesRev') =
+              (eqRev', tradesRev') =
                 case openTrade of
-                  Nothing -> (eqCurve0, tradesRev)
+                  Nothing -> (eqRev, tradesRev)
                   Just ot ->
                     let exitEq = applyCost finalEq finalPosSize
                         tr =
@@ -614,11 +613,12 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             , trHoldingPeriods = otHoldingPeriods ot
                             , trExitReason = Just "EOD"
                             }
-                        eqCurve1 =
-                          case eqCurve0 of
-                            [] -> []
-                            _ -> take (length eqCurve0 - 1) eqCurve0 ++ [exitEq]
-                     in (eqCurve1, tr : tradesRev)
+                        eqRev1 =
+                          case eqRev of
+                            [] -> [exitEq]
+                            (_ : rest) -> exitEq : rest
+                     in (eqRev1, tr : tradesRev)
+              eqCurve = reverse eqRev'
            in BacktestResult
                 { brEquityCurve = eqCurve
                 , brPositions = reverse posRev

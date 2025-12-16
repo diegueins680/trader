@@ -68,12 +68,15 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
       downsample :: Int -> [Double] -> [Double]
       downsample k xs
         | k <= 0 = []
-        | length xs <= k = xs
         | otherwise =
-            let n = length xs
-                denom = max 1 (k - 1)
-                pick i = (i * (n - 1)) `div` denom
-             in [ xs !! pick i | i <- [0 .. k - 1] ]
+            let v = V.fromList xs
+                n = V.length v
+             in if n <= k
+                  then xs
+                  else
+                    let denom = max 1 (k - 1)
+                        pick i = (i * (n - 1)) `div` denom
+                     in [ v V.! pick i | i <- [0 .. k - 1] ]
 
       kalV = V.fromList kalPred
       lstmV = V.fromList lstmPred
@@ -148,6 +151,6 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
             then (eq, openThr', closeThr', bt)
             else (bestEq, bestOpenThr, bestCloseThr, bestBt)
 
-      pairs = [(o, c) | o <- candidates, c <- candidates]
-      (_, bestOpenThr, bestCloseThr, bestBt) = foldl' pick (baseEq, baseOpenThr, baseCloseThr, baseBt) pairs
+      foldClose acc openThr = foldl' (\acc0 closeThr -> pick acc0 (openThr, closeThr)) acc candidates
+      (_, bestOpenThr, bestCloseThr, bestBt) = foldl' foldClose (baseEq, baseOpenThr, baseCloseThr, baseBt) candidates
    in (bestOpenThr, bestCloseThr, bestBt)

@@ -33,9 +33,9 @@ computeMetrics periodsPerYear br =
   let eq = brEquityCurve br
       periods = max 0 (length eq - 1)
       finalEq =
-        case reverse eq of
-          (x:_) -> x
+        case eq of
           [] -> 1.0
+          xs -> last xs
       totalRet = finalEq - 1
       rets = returnsFromEquity eq
       meanR = mean rets
