@@ -20,7 +20,14 @@ type FetchJsonOptions = {
 
 type AsyncStartResponse = { jobId: string };
 type AsyncPollResponse<T> = { status: "running" | "done" | "error"; result?: T; error?: string };
-export type HealthResponse = { status: "ok"; authRequired?: boolean; authOk?: boolean };
+export type HealthResponse = {
+  status: "ok";
+  authRequired?: boolean;
+  authOk?: boolean;
+  computeLimits?: { maxBarsLstm: number; maxEpochs: number; maxHiddenSize: number };
+  asyncJobs?: { maxRunning: number; ttlMs: number; persistence: boolean };
+};
+type AsyncJobOptions = FetchJsonOptions & { onJobId?: (jobId: string) => void };
 
 function resolveUrl(baseUrl: string, path: string): string {
   const base = baseUrl.trim().replace(/\/+$/, "");
@@ -146,6 +153,10 @@ function isTimeoutError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "TimeoutError";
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError";
+}
+
 function describeAsyncTimeout(baseUrl: string, overallTimeoutMs: number, lastError: unknown): string {
   const seconds = Math.max(1, Math.round(overallTimeoutMs / 1000));
   const last =
@@ -165,7 +176,7 @@ async function runAsyncJob<T>(
   startPath: string,
   pollPath: string,
   params: ApiParams,
-  opts?: FetchJsonOptions,
+  opts?: AsyncJobOptions,
 ): Promise<T> {
   const startedAt = Date.now();
   const overallTimeoutMs = opts?.timeoutMs ?? 30_000;
@@ -185,90 +196,114 @@ async function runAsyncJob<T>(
   if (!start || typeof start !== "object" || !("jobId" in start) || typeof (start as { jobId?: unknown }).jobId !== "string") {
     throw new Error("Invalid async start response");
   }
+  opts?.onJobId?.(start.jobId);
+
+  let cancelSent = false;
+  const cancel = async () => {
+    if (cancelSent) return;
+    cancelSent = true;
+    const cancelUrl = `${pollPath}/${encodeURIComponent(start.jobId)}/cancel`;
+    try {
+      await fetchJson<{ status?: string }>(baseUrl, cancelUrl, { method: "POST" }, { headers: opts?.headers, timeoutMs: 10_000 });
+    } catch {
+      // Best-effort; ignore if the API doesn't support cancel or we can't reach it.
+    }
+  };
 
   let backoffMs = 750;
-  for (;;) {
-    const elapsed = Date.now() - startedAt;
-    const remaining = overallTimeoutMs - elapsed;
-    if (remaining <= 0) {
-      if (lastTransientError) throw new Error(describeAsyncTimeout(baseUrl, overallTimeoutMs, lastTransientError));
-      throw timeoutError();
-    }
+  try {
+    for (;;) {
+      const elapsed = Date.now() - startedAt;
+      const remaining = overallTimeoutMs - elapsed;
+      if (remaining <= 0) {
+        if (lastTransientError) throw new Error(describeAsyncTimeout(baseUrl, overallTimeoutMs, lastTransientError));
+        throw timeoutError();
+      }
 
-    let status: AsyncPollResponse<T>;
-    try {
-      const pollUrl = `${pollPath}/${encodeURIComponent(start.jobId)}`;
+      let status: AsyncPollResponse<T>;
       try {
-        status = await fetchJson<AsyncPollResponse<T>>(
-          baseUrl,
-          pollUrl,
-          { method: "POST" },
-          { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
-        );
-      } catch (err) {
-        if (err instanceof HttpError && err.status === 405) {
+        const pollUrl = `${pollPath}/${encodeURIComponent(start.jobId)}`;
+        try {
           status = await fetchJson<AsyncPollResponse<T>>(
             baseUrl,
             pollUrl,
-            { method: "GET" },
+            { method: "POST" },
             { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
           );
-        } else {
-          throw err;
+        } catch (err) {
+          if (err instanceof HttpError && err.status === 405) {
+            status = await fetchJson<AsyncPollResponse<T>>(
+              baseUrl,
+              pollUrl,
+              { method: "GET" },
+              { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
+            );
+          } else {
+            throw err;
+          }
         }
+      } catch (err) {
+        if (err instanceof HttpError && (err.status === 401 || err.status === 403)) throw err;
+        if (err instanceof HttpError && err.status === 404) throw err;
+        if (isTimeoutError(err)) {
+          lastTransientError = err;
+          await sleep(Math.min(backoffMs, remaining), opts?.signal);
+          backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+          continue;
+        }
+        if (err instanceof HttpError && err.status >= 500) {
+          lastTransientError = err;
+          await sleep(Math.min(backoffMs, remaining), opts?.signal);
+          backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+          continue;
+        }
+        if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
+          lastTransientError = err;
+          await sleep(Math.min(backoffMs, remaining), opts?.signal);
+          backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+          continue;
+        }
+        throw err;
       }
-    } catch (err) {
-      if (err instanceof HttpError && (err.status === 401 || err.status === 403)) throw err;
-      if (err instanceof HttpError && err.status === 404) throw err;
-      if (isTimeoutError(err)) {
-        lastTransientError = err;
-        await sleep(Math.min(backoffMs, remaining), opts?.signal);
-        backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
-        continue;
-      }
-      if (err instanceof HttpError && err.status >= 500) {
-        lastTransientError = err;
-        await sleep(Math.min(backoffMs, remaining), opts?.signal);
-        backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
-        continue;
-      }
-      if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
-        lastTransientError = err;
-        await sleep(Math.min(backoffMs, remaining), opts?.signal);
-        backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
-        continue;
-      }
-      throw err;
-    }
 
-    lastTransientError = null;
-    if (!status || typeof status !== "object" || !("status" in status) || typeof (status as { status?: unknown }).status !== "string") {
-      throw new Error("Invalid async poll response");
-    }
-    if (status.status === "done") return status.result as T;
-    if (status.status === "error") {
-      const msg = status.error || "Async job failed";
-      if (msg.trim().toLowerCase() === "not found") {
-        throw new Error(
-          "Async job not found (server restarted or behind a non-sticky load balancer). Please retry; for multi-instance deployments, enable shared async job storage (TRADER_API_ASYNC_DIR) or run single-instance.",
-        );
+      lastTransientError = null;
+      if (!status || typeof status !== "object" || !("status" in status) || typeof (status as { status?: unknown }).status !== "string") {
+        throw new Error("Invalid async poll response");
       }
-      throw new Error(msg);
-    }
-    if (status.status !== "running") throw new Error(`Unexpected async status: ${String(status.status)}`);
+      if (status.status === "done") return status.result as T;
+      if (status.status === "error") {
+        const msg = status.error || "Async job failed";
+        if (msg.trim().toLowerCase() === "not found") {
+          throw new Error(
+            "Async job not found (server restarted or behind a non-sticky load balancer). Please retry; for multi-instance deployments, enable shared async job storage (TRADER_API_ASYNC_DIR) or run single-instance.",
+          );
+        }
+        throw new Error(msg);
+      }
+      if (status.status !== "running") throw new Error(`Unexpected async status: ${String(status.status)}`);
 
-    await sleep(Math.min(backoffMs, remaining), opts?.signal);
-    backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+      await sleep(Math.min(backoffMs, remaining), opts?.signal);
+      backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+    }
+  } catch (err) {
+    if (isAbortError(err)) await cancel();
+    throw err;
   }
 }
 
 export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<HealthResponse> {
-  const out = await fetchJson<{ status: string; authRequired?: boolean; authOk?: boolean }>(baseUrl, "/health", { method: "GET" }, opts);
+  const out = await fetchJson<{
+    status: string;
+    authRequired?: boolean;
+    authOk?: boolean;
+    computeLimits?: { maxBarsLstm: number; maxEpochs: number; maxHiddenSize: number };
+    asyncJobs?: { maxRunning: number; ttlMs: number; persistence: boolean };
+  }>(baseUrl, "/health", { method: "GET" }, opts);
   if (out.status !== "ok") throw new Error("Unexpected /health response");
-  return { status: "ok", authRequired: out.authRequired, authOk: out.authOk };
+  return { status: "ok", authRequired: out.authRequired, authOk: out.authOk, computeLimits: out.computeLimits, asyncJobs: out.asyncJobs };
 }
 
-export async function signal(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<LatestSignal> {
+export async function signal(baseUrl: string, params: ApiParams, opts?: AsyncJobOptions): Promise<LatestSignal> {
   try {
     return await runAsyncJob<LatestSignal>(baseUrl, "/signal/async", "/signal/async", params, opts);
   } catch (err) {
@@ -288,7 +323,7 @@ export async function signal(baseUrl: string, params: ApiParams, opts?: FetchJso
   }
 }
 
-export async function backtest(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<BacktestResponse> {
+export async function backtest(baseUrl: string, params: ApiParams, opts?: AsyncJobOptions): Promise<BacktestResponse> {
   try {
     return await runAsyncJob<BacktestResponse>(baseUrl, "/backtest/async", "/backtest/async", params, opts);
   } catch (err) {
@@ -308,7 +343,7 @@ export async function backtest(baseUrl: string, params: ApiParams, opts?: FetchJ
   }
 }
 
-export async function trade(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<ApiTradeResponse> {
+export async function trade(baseUrl: string, params: ApiParams, opts?: AsyncJobOptions): Promise<ApiTradeResponse> {
   try {
     return await runAsyncJob<ApiTradeResponse>(baseUrl, "/trade/async", "/trade/async", params, opts);
   } catch (err) {

@@ -18,11 +18,11 @@ bestFinalEquity br =
     [] -> 1.0
     xs -> last xs
 
-optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Method, Double, BacktestResult)
+optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Method, Double, Double, BacktestResult)
 optimizeOperations baseCfg prices kalPred lstmPred mMeta =
   optimizeOperationsWithHL baseCfg prices prices prices kalPred lstmPred mMeta
 
-optimizeOperationsWithHL :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Method, Double, BacktestResult)
+optimizeOperationsWithHL :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Method, Double, Double, BacktestResult)
 optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred mMeta =
   let eps = 1e-12
       methodRank m =
@@ -31,37 +31,47 @@ optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred mMeta =
           MethodKalmanOnly -> 1
           MethodLstmOnly -> 0
       eval m =
-        let (thr, bt) = sweepThresholdWithHL m baseCfg closes highs lows kalPred lstmPred mMeta
+        let (openThr, closeThr, bt) = sweepThresholdWithHL m baseCfg closes highs lows kalPred lstmPred mMeta
             eq = bestFinalEquity bt
-         in (eq, m, thr, bt)
+         in (eq, m, openThr, closeThr, bt)
       candidates = map eval [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
-      pick (bestEq, bestM, bestThr, bestBt) (eq, m, thr, bt) =
+      pick (bestEq, bestM, bestOpenThr, bestCloseThr, bestBt) (eq, m, openThr, closeThr, bt) =
         if eq > bestEq + eps
-          then (eq, m, thr, bt)
+          then (eq, m, openThr, closeThr, bt)
           else if abs (eq - bestEq) <= eps
             then
               let r = methodRank m
                   bestR = methodRank bestM
-               in if r > bestR || (r == bestR && thr > bestThr)
-                    then (eq, m, thr, bt)
-                    else (bestEq, bestM, bestThr, bestBt)
-            else (bestEq, bestM, bestThr, bestBt)
+               in if r > bestR || (r == bestR && (openThr, closeThr) > (bestOpenThr, bestCloseThr))
+                    then (eq, m, openThr, closeThr, bt)
+                    else (bestEq, bestM, bestOpenThr, bestCloseThr, bestBt)
+            else (bestEq, bestM, bestOpenThr, bestCloseThr, bestBt)
       (c : cs) = candidates
-      (_, bestM, bestThr, bestBt) = foldl' pick c cs
-  in (bestM, bestThr, bestBt)
+      (_, bestM, bestOpenThr, bestCloseThr, bestBt) = foldl' pick c cs
+  in (bestM, bestOpenThr, bestCloseThr, bestBt)
 
-sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Double, BacktestResult)
+sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Double, Double, BacktestResult)
 sweepThreshold method baseCfg prices kalPred lstmPred mMeta =
   sweepThresholdWithHL method baseCfg prices prices prices kalPred lstmPred mMeta
 
-sweepThresholdWithHL :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Double, BacktestResult)
+sweepThresholdWithHL :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Double, Double, BacktestResult)
 sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
   let pricesV = V.fromList closes
       highsV = V.fromList highs
       lowsV = V.fromList lows
       stepCount = V.length pricesV - 1
       eps = 1e-12
-      baseThreshold = ecTradeThreshold baseCfg
+      baseOpenThreshold = max 0 (ecOpenThreshold baseCfg)
+      baseCloseThreshold = max 0 (ecCloseThreshold baseCfg)
+      closeRatio =
+        if baseOpenThreshold <= eps
+          then 1
+          else baseCloseThreshold / baseOpenThreshold
+
+      closeThrForOpen openThr =
+        if baseOpenThreshold <= eps
+          then baseCloseThreshold
+          else max 0 (openThr * closeRatio)
 
       kalV = V.fromList kalPred
       lstmV = V.fromList lstmPred
@@ -116,18 +126,20 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
       uniqueSorted = map head . group . sort
       candidates = uniqueSorted (0 : map (\v -> max 0 (v - eps)) mags)
 
-      eval thr =
-        let cfg = baseCfg { ecTradeThreshold = thr }
+      eval openThr =
+        let closeThr = closeThrForOpen openThr
+            cfg = baseCfg { ecOpenThreshold = openThr, ecCloseThreshold = closeThr }
             bt = simulateEnsembleLongFlatVWithHL cfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
-         in (bestFinalEquity bt, thr, bt)
+         in (bestFinalEquity bt, openThr, closeThr, bt)
 
-      (baseEq, baseThr, baseBt) = eval (max 0 baseThreshold)
+      (baseEq, baseOpenThr, baseCloseThr, baseBt) = eval baseOpenThreshold
       eqEps = 1e-12
-      pick (bestEq, bestThr, bestBt) thr =
-        let (eq, thr', bt) = eval thr
-         in if eq > bestEq + eqEps || (abs (eq - bestEq) <= eqEps && thr' > bestThr)
-              then (eq, thr', bt)
-              else (bestEq, bestThr, bestBt)
+      pick (bestEq, bestOpenThr, bestCloseThr, bestBt) openThr =
+        let (eq, openThr', closeThr', bt) = eval openThr
+         in
+          if eq > bestEq + eqEps || (abs (eq - bestEq) <= eqEps && (openThr', closeThr') > (bestOpenThr, bestCloseThr))
+            then (eq, openThr', closeThr', bt)
+            else (bestEq, bestOpenThr, bestCloseThr, bestBt)
 
-      (_, bestThr, bestBt) = foldl' pick (baseEq, baseThr, baseBt) candidates
-   in (bestThr, bestBt)
+      (_, bestOpenThr, bestCloseThr, bestBt) = foldl' pick (baseEq, baseOpenThr, baseCloseThr, baseBt) candidates
+   in (bestOpenThr, bestCloseThr, bestBt)

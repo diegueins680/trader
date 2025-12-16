@@ -374,6 +374,9 @@ data Args = Args
 autoBarsSentinel :: Int
 autoBarsSentinel = -1
 
+closeThresholdSentinel :: Double
+closeThresholdSentinel = -1
+
 defaultBinanceBars :: Int
 defaultBinanceBars = 500
 
@@ -479,7 +482,14 @@ opts =
     <*> option auto (long "kalman-dt" <> value 1.0 <> help "Kalman dt")
     <*> option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
     <*> option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
-    <*> option auto (long "threshold" <> value 0.001 <> help "Direction threshold (fractional deadband)")
+    <*> option auto (long "open-threshold" <> long "threshold" <> value 0.001 <> help "Entry/open direction threshold (fractional deadband)")
+    <*> option
+          auto
+          ( long "close-threshold"
+              <> value closeThresholdSentinel
+              <> showDefaultWith (\t -> if t == closeThresholdSentinel then "same as open-threshold" else show t)
+              <> help "Exit/close threshold (fractional deadband; defaults to open-threshold when omitted)"
+          )
     <*> option
           (eitherReader parseMethod)
           ( long "method"
@@ -560,7 +570,11 @@ argLookback args =
             else n
 
 validateArgs :: Args -> Either String Args
-validateArgs args = do
+validateArgs args0 = do
+  let args =
+        if argCloseThreshold args0 == closeThresholdSentinel
+          then args0 { argCloseThreshold = argOpenThreshold args0 }
+          else args0
   ensure "Provide only one of --data or --binance-symbol" (not (isJust (argData args) && isJust (argBinanceSymbol args)))
   ensure "--json cannot be used with --serve" (not (argJson args && argServe args))
   ensure "--positioning long-short is not supported with --serve (live bot is long-flat only)" (not (argServe args && argPositioning args == LongShort))
@@ -635,7 +649,8 @@ validateArgs args = do
   ensure "--kalman-dt must be > 0" (argKalmanDt args > 0)
   ensure "--kalman-process-var must be > 0" (argKalmanProcessVar args > 0)
   ensure "--kalman-measurement-var must be > 0" (argKalmanMeasurementVar args > 0)
-  ensure "--threshold must be >= 0" (argTradeThreshold args >= 0)
+  ensure "--open-threshold/--threshold must be >= 0" (argOpenThreshold args >= 0)
+  ensure "--close-threshold must be >= 0" (argCloseThreshold args >= 0)
   ensure "--fee must be >= 0" (argFee args >= 0)
   ensure "--slippage must be >= 0" (argSlippage args >= 0)
   ensure "--spread must be >= 0" (argSpread args >= 0)
@@ -769,6 +784,8 @@ data ApiParams = ApiParams
   , apKalmanProcessVar :: Maybe Double
   , apKalmanMeasurementVar :: Maybe Double
   , apThreshold :: Maybe Double
+  , apOpenThreshold :: Maybe Double
+  , apCloseThreshold :: Maybe Double
   , apMethod :: Maybe String -- "11" | "10" | "01"
   , apPositioning :: Maybe String -- "long-flat" | "long-short"
   , apOptimizeOperations :: Maybe Bool
@@ -848,7 +865,9 @@ instance ToJSON LatestSignal where
     object
       [ "method" .= methodCode (lsMethod s)
       , "currentPrice" .= lsCurrentPrice s
-      , "threshold" .= lsThreshold s
+      , "threshold" .= lsOpenThreshold s
+      , "openThreshold" .= lsOpenThreshold s
+      , "closeThreshold" .= lsCloseThreshold s
       , "kalmanNext" .= lsKalmanNext s
       , "kalmanReturn" .= lsKalmanReturn s
       , "kalmanStd" .= lsKalmanStd s
@@ -1136,7 +1155,9 @@ argsPublicJson args =
       , "kalmanDt" .= argKalmanDt args
       , "kalmanProcessVar" .= argKalmanProcessVar args
       , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
-      , "threshold" .= argTradeThreshold args
+      , "threshold" .= argOpenThreshold args
+      , "openThreshold" .= argOpenThreshold args
+      , "closeThreshold" .= argCloseThreshold args
       , "method" .= methodCode (argMethod args)
       , "positioning" .= positioningCode (argPositioning args)
       , "optimizeOperations" .= argOptimizeOperations args
@@ -1362,7 +1383,9 @@ botStatusJson st =
     , "interval" .= argInterval (botArgs st)
     , "market" .= marketCode (argBinanceMarket (botArgs st))
     , "method" .= methodCode (argMethod (botArgs st))
-    , "threshold" .= argTradeThreshold (botArgs st)
+    , "threshold" .= argOpenThreshold (botArgs st)
+    , "openThreshold" .= argOpenThreshold (botArgs st)
+    , "closeThreshold" .= argCloseThreshold (botArgs st)
     , "startIndex" .= botStartIndex st
     , "startedAtMs" .= botStartedAtMs st
     , "updatedAtMs" .= botUpdatedAtMs st
@@ -1436,7 +1459,9 @@ botStartingJson rt =
     , "interval" .= argInterval (bsrArgs rt)
     , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
     , "method" .= methodCode (argMethod (bsrArgs rt))
-    , "threshold" .= argTradeThreshold (bsrArgs rt)
+    , "threshold" .= argOpenThreshold (bsrArgs rt)
+    , "openThreshold" .= argOpenThreshold (bsrArgs rt)
+    , "closeThreshold" .= argCloseThreshold (bsrArgs rt)
     , "startedAtMs" .= bsrRequestedAtMs rt
     ]
 
@@ -1808,11 +1833,13 @@ botOptimizeAfterOperation st = do
               prices = V.toList (V.drop start pricesV)
               kalPred = V.toList (V.slice start (win - 1) (botKalmanPredNext st))
               lstmPred = V.toList (V.slice start (win - 1) (botLstmPredNext st))
-              baseThr = argTradeThreshold args
+              baseOpenThr = argOpenThreshold args
+              baseCloseThr = argCloseThreshold args
               fee = argFee args
               baseCfg =
                 EnsembleConfig
-                  { ecTradeThreshold = baseThr
+                  { ecOpenThreshold = baseOpenThr
+                  , ecCloseThreshold = baseCloseThr
                   , ecFee = fee
                   , ecSlippage = argSlippage args
                   , ecSpread = argSpread args
@@ -1832,18 +1859,19 @@ botOptimizeAfterOperation st = do
                   , ecMinPositionSize = argMinPositionSize args
                   }
               hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
-              (newMethod, newThr) =
+              (newMethod, newOpenThr, newCloseThr) =
                 if optimizeOps && hasBothCtx
                   then
-                    let (m, thr, _) = optimizeOperations baseCfg prices kalPred lstmPred Nothing
-                     in (m, thr)
+                    let (m, openThr, closeThr, _) = optimizeOperations baseCfg prices kalPred lstmPred Nothing
+                     in (m, openThr, closeThr)
                   else
-                    let (thr, _) = sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred Nothing
-                     in (argMethod args, thr)
+                    let (openThr, closeThr, _) = sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred Nothing
+                     in (argMethod args, openThr, closeThr)
               args' =
                 args
                   { argMethod = newMethod
-                  , argTradeThreshold = newThr
+                  , argOpenThreshold = newOpenThr
+                  , argCloseThreshold = newCloseThr
                   }
               latest' = computeLatestSignal args' lookback pricesV (botLstmCtx st) (botKalmanCtx st)
           pure st { botArgs = args', botLatestSignal = latest' }
@@ -2516,7 +2544,6 @@ pruneJobStore store now =
                 jobs2 = foldl' (flip HM.delete) jobs1 dropKeys
             pure jobs2
     )
-    >> pruneJobStoreDisk store now
 
 data StoredAsyncJobMeta = StoredAsyncJobMeta
   { sajStatus :: !String
@@ -2634,6 +2661,7 @@ startJob :: ToJSON a => JobStore a -> IO a -> IO (Either String Text)
 startJob store action = do
   now <- getTimestampMs
   pruneJobStore store now
+  pruneJobStoreDisk store now
 
   ok <- modifyMVar (jsRunning store) $ \n ->
     if n >= max 1 (jsMaxRunning store)
@@ -2735,6 +2763,9 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
       respondCors = respond . withCors
       label =
         case path of
+          ["signal", "async", _, "cancel"] -> "signal/async/:jobId/cancel"
+          ["backtest", "async", _, "cancel"] -> "backtest/async/:jobId/cancel"
+          ["trade", "async", _, "cancel"] -> "trade/async/:jobId/cancel"
           ["signal", "async", _] -> "signal/async/:jobId"
           ["backtest", "async", _] -> "backtest/async/:jobId"
           ["trade", "async", _] -> "trade/async/:jobId"
@@ -2769,12 +2800,15 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
                                    , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
                                    , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async/:jobId/cancel" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
                                    , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async/:jobId/cancel" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
                                    , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
@@ -2789,12 +2823,26 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
                 "GET" ->
                   let authRequired = isJust apiToken
                       authOk = authorized apiToken req
+                      asyncCfg = asBacktest asyncStores
                    in respondCors
                         ( jsonValue
                             status200
                             ( object
                                 ( ["status" .= ("ok" :: String)]
                                     ++ (if authRequired then ["authRequired" .= True, "authOk" .= authOk] else [])
+                                    ++ [ "computeLimits"
+                                          .= object
+                                            [ "maxBarsLstm" .= aclMaxBarsLstm limits
+                                            , "maxEpochs" .= aclMaxEpochs limits
+                                            , "maxHiddenSize" .= aclMaxHiddenSize limits
+                                            ]
+                                       , "asyncJobs"
+                                          .= object
+                                            [ "maxRunning" .= jsMaxRunning asyncCfg
+                                            , "ttlMs" .= jsTtlMs asyncCfg
+                                            , "persistence" .= isJust (jsDir asyncCfg)
+                                            ]
+                                       ]
                                 )
                             )
                         )
@@ -2820,6 +2868,10 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
                 "GET" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
                 "POST" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
+            ["signal", "async", jobId, "cancel"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleAsyncCancel (asSignal asyncStores) jobId respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade"] ->
               case Wai.requestMethod req of
                 "POST" -> handleTrade mOps limits metrics mJournal baseArgs req respondCors
@@ -2833,6 +2885,10 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
                 "GET" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
                 "POST" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
+            ["trade", "async", jobId, "cancel"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleAsyncCancel (asTrade asyncStores) jobId respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest"] ->
               case Wai.requestMethod req of
                 "POST" -> handleBacktest mOps limits baseArgs req respondCors
@@ -2845,6 +2901,10 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
               case Wai.requestMethod req of
                 "GET" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
                 "POST" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["backtest", "async", jobId, "cancel"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleAsyncCancel (asBacktest asyncStores) jobId respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "keys"] ->
               case Wai.requestMethod req of
@@ -3371,6 +3431,18 @@ argsFromApi baseArgs p = do
           Just _ -> v
           Nothing -> def
 
+      openThr =
+        pick
+          (apOpenThreshold p <|> apThreshold p)
+          (argOpenThreshold baseArgs)
+      closeThr =
+        case (apCloseThreshold p <|> apThreshold p) of
+          Just v -> v
+          Nothing ->
+            case apOpenThreshold p of
+              Just _ -> openThr
+              Nothing -> argCloseThreshold baseArgs
+
       args =
         baseArgs
           { argData = pickMaybe (apData p) (argData baseArgs)
@@ -3401,7 +3473,8 @@ argsFromApi baseArgs p = do
           , argKalmanDt = pick (apKalmanDt p) (argKalmanDt baseArgs)
           , argKalmanProcessVar = pick (apKalmanProcessVar p) (argKalmanProcessVar baseArgs)
           , argKalmanMeasurementVar = pick (apKalmanMeasurementVar p) (argKalmanMeasurementVar baseArgs)
-          , argTradeThreshold = pick (apThreshold p) (argTradeThreshold baseArgs)
+          , argOpenThreshold = openThr
+          , argCloseThreshold = closeThr
           , argMethod = method
           , argPositioning = positioning
           , argOptimizeOperations = pick (apOptimizeOperations p) (argOptimizeOperations baseArgs)
@@ -4030,7 +4103,9 @@ backtestSummaryJson summary =
           , "backtestStartIndex" .= bsTrainEnd summary
           ]
     , "method" .= methodCode (bsMethodUsed summary)
-    , "threshold" .= bsBestThreshold summary
+    , "threshold" .= bsBestOpenThreshold summary
+    , "openThreshold" .= bsBestOpenThreshold summary
+    , "closeThreshold" .= bsBestCloseThreshold summary
     , "metrics" .= metricsToJson (bsMetrics summary)
     , "latestSignal" .= bsLatestSignal summary
     , "equityCurve" .= bsEquityCurve summary
@@ -4150,18 +4225,22 @@ runBacktestPipeline args lookback series mBinanceEnv = do
         then
           putStrLn
             ( printf
-                "Optimized on tune split: method=%s threshold=%.6f (%.3f%%)"
+                "Optimized on tune split: method=%s open=%.6f (%.3f%%) close=%.6f (%.3f%%)"
                 (methodCode (bsMethodUsed summary))
-                (bsBestThreshold summary)
-                (bsBestThreshold summary * 100)
+                (bsBestOpenThreshold summary)
+                (bsBestOpenThreshold summary * 100)
+                (bsBestCloseThreshold summary)
+                (bsBestCloseThreshold summary * 100)
             )
         else if argSweepThreshold args
           then
             putStrLn
               ( printf
-                  "Best threshold on tune split (by final equity): %.6f (%.3f%%)"
-                  (bsBestThreshold summary)
-                  (bsBestThreshold summary * 100)
+                  "Best thresholds on tune split (by final equity): open=%.6f (%.3f%%) close=%.6f (%.3f%%)"
+                  (bsBestOpenThreshold summary)
+                  (bsBestOpenThreshold summary * 100)
+                  (bsBestCloseThreshold summary)
+                  (bsBestCloseThreshold summary * 100)
               )
           else pure ()
 
@@ -4524,7 +4603,8 @@ computeBacktestSummary args lookback series = do
 
   let baseCfg =
         EnsembleConfig
-          { ecTradeThreshold = argTradeThreshold args
+          { ecOpenThreshold = argOpenThreshold args
+          , ecCloseThreshold = argCloseThreshold args
           , ecFee = argFee args
           , ecSlippage = argSlippage args
           , ecSpread = argSpread args
@@ -4552,20 +4632,20 @@ computeBacktestSummary args lookback series = do
       metaBacktest = fmap (drop offsetBacktestPred) mMetaAll
       metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
 
-      (methodUsed, bestThreshold) =
+      (methodUsed, bestOpenThr, bestCloseThr) =
         if argOptimizeOperations args
           then
-            let (m, thr, _btTune) =
+            let (m, openThr, closeThr, _btTune) =
                   optimizeOperationsWithHL baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
-             in (m, thr)
+             in (m, openThr, closeThr)
           else if argSweepThreshold args
             then
-              let (thr, _btTune) =
+              let (openThr, closeThr, _btTune) =
                     sweepThresholdWithHL methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
-               in (methodRequested, thr)
-            else (methodRequested, argTradeThreshold args)
+               in (methodRequested, openThr, closeThr)
+            else (methodRequested, argOpenThreshold args, argCloseThreshold args)
 
-      backtestCfg = baseCfg { ecTradeThreshold = bestThreshold }
+      backtestCfg = baseCfg { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
       (kalPredUsedBacktest, lstmPredUsedBacktest) = selectPredictions methodUsed kalPredBacktest lstmPredBacktest
       metaUsedBacktest =
         case methodUsed of
@@ -4587,9 +4667,9 @@ computeBacktestSummary args lookback series = do
 
       argsForSignal =
         if argOptimizeOperations args
-          then args { argMethod = methodUsed, argTradeThreshold = bestThreshold }
+          then args { argMethod = methodUsed, argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr }
           else if argSweepThreshold args
-            then args { argTradeThreshold = bestThreshold }
+            then args { argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr }
             else args
 
       latestSignal = computeLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx
@@ -4605,7 +4685,8 @@ computeBacktestSummary args lookback series = do
       , bsBacktestSize = length backtestPrices
       , bsBacktestRatio = backtestRatio
       , bsMethodUsed = methodUsed
-      , bsBestThreshold = bestThreshold
+      , bsBestOpenThreshold = bestOpenThr
+      , bsBestCloseThreshold = bestCloseThr
       , bsMetrics = metrics
       , bsLstmHistory = mHistory
       , bsLatestSignal = latestSignal
@@ -4646,8 +4727,9 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
             else
               let t = n - 1
                   currentPrice = pricesV V.! t
-                  thr = max 0 (argTradeThreshold args)
-                  directionPrice pred =
+                  openThr = max 0 (argOpenThreshold args)
+                  closeThr = max 0 (argCloseThreshold args)
+                  directionPrice thr pred =
                     let upEdge = currentPrice * (1 + thr)
                         downEdge = currentPrice * (1 - thr)
                      in if pred > upEdge
@@ -4671,8 +4753,8 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
                   quantileWidth :: Quantiles -> Double
                   quantileWidth q = q90 q - q10 q
 
-                  confirmConformal :: Maybe Interval -> Int -> Bool
-                  confirmConformal mI dir =
+                  confirmConformal :: Double -> Maybe Interval -> Int -> Bool
+                  confirmConformal thr mI dir =
                     if not (argConfirmConformal args)
                       then True
                       else
@@ -4681,8 +4763,8 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
                           (Just i, (-1)) -> iHi i < negate thr
                           _ -> False
 
-                  confirmQuantiles :: Maybe Quantiles -> Int -> Bool
-                  confirmQuantiles mQ dir =
+                  confirmQuantiles :: Double -> Maybe Quantiles -> Int -> Bool
+                  confirmQuantiles thr mQ dir =
                     if not (argConfirmQuantiles args)
                       then True
                       else
@@ -4691,8 +4773,8 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
                           (Just q, (-1)) -> q90 q < negate thr
                           _ -> False
 
-                  gateKalmanDir :: Double -> Maybe RegimeProbs -> Maybe Interval -> Maybe Quantiles -> Double -> Maybe Int -> (Maybe Int, Maybe String)
-                  gateKalmanDir kalZ mReg mI mQ confScore dirRaw =
+                  gateKalmanDir :: Double -> Double -> Maybe RegimeProbs -> Maybe Interval -> Maybe Quantiles -> Double -> Maybe Int -> (Maybe Int, Maybe String)
+                  gateKalmanDir thr kalZ mReg mI mQ confScore dirRaw =
                     case dirRaw of
                       Nothing -> (Nothing, Nothing)
                       Just dir ->
@@ -4721,9 +4803,9 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
                                   then (Nothing, Just "CONFORMAL_WIDTH")
                                   else if not qWidthOk
                                     then (Nothing, Just "QUANTILE_WIDTH")
-                                    else if not (confirmConformal mI dir)
+                                    else if not (confirmConformal thr mI dir)
                                       then (Nothing, Just "CONFORMAL_CONFIRM")
-                                      else if not (confirmQuantiles mQ dir)
+                                      else if not (confirmQuantiles thr mQ dir)
                                         then (Nothing, Just "QUANTILE_CONFIRM")
                                         else if argConfidenceSizing args && not confOk
                                           then (Nothing, Just "MIN_SIZE")
@@ -4763,7 +4845,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
                             kalStd = sqrt kalVar
                             kalZ = if kalStd <= 0 then 0 else abs kalReturn / kalStd
                             kalNext = currentPrice * (1 + kalReturn)
-                            dirRaw = directionPrice kalNext
+                            dirRaw = directionPrice openThr kalNext
                             confScore = confidenceScoreKalman kalZ mReg mI mQ
                             sizeRaw =
                               if argConfidenceSizing args
@@ -4772,7 +4854,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
                                   case dirRaw of
                                     Nothing -> 0
                                     Just _ -> 1
-                            (dirUsed, mWhy) = gateKalmanDir kalZ mReg mI mQ confScore dirRaw
+                            (dirUsed, mWhy) = gateKalmanDir openThr kalZ mReg mI mQ confScore dirRaw
                             sizeUsed =
                               case dirUsed of
                                 Nothing -> 0
@@ -4805,7 +4887,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
                                 let window = take lookback (drop start obsAll)
                                     lstmNextObs = predictNext lstmModel window
                                     lstmNext = inverseNorm normState lstmNextObs
-                                 in (Just lstmNext, directionPrice lstmNext)
+                                 in (Just lstmNext, directionPrice openThr lstmNext)
 
                   agreeDir =
                     if kalDir == lstmDir
@@ -4875,7 +4957,8 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
                in LatestSignal
                     { lsMethod = method
                     , lsCurrentPrice = currentPrice
-                    , lsThreshold = thr
+                    , lsOpenThreshold = openThr
+                    , lsCloseThreshold = closeThr
                     , lsKalmanNext = mKalNext
                     , lsKalmanReturn = mKalReturn
                     , lsKalmanStd = mKalStd
@@ -4922,7 +5005,8 @@ printLatestSignalSummary sig = do
   case lsLstmNext sig of
     Nothing -> putStrLn "LSTM next:   (disabled)"
     Just lstmNext -> putStrLn (printf "LSTM next:   %.4f (%s)" lstmNext (showDir (lsLstmDir sig)))
-  putStrLn (printf "Direction threshold: %.3f%%" (lsThreshold sig * 100))
+  putStrLn (printf "Open threshold:  %.3f%%" (lsOpenThreshold sig * 100))
+  putStrLn (printf "Close threshold: %.3f%%" (lsCloseThreshold sig * 100))
   putStrLn (printf "Action: %s" (lsAction sig))
 
 maybeSendBinanceOrder :: Args -> Maybe BinanceEnv -> LatestSignal -> IO ()

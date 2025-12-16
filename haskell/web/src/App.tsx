@@ -26,6 +26,12 @@ type RunOptions = {
   silent?: boolean;
 };
 
+type ActiveAsyncJob = {
+  kind: RequestKind;
+  jobId: string | null;
+  startedAtMs: number;
+};
+
 const API_TARGET = (__TRADER_API_TARGET__ || "http://127.0.0.1:8080").replace(/\/+$/, "");
 const API_PORT = (() => {
   try {
@@ -540,6 +546,7 @@ function isLikelyOrderError(message: string | null | undefined, sent: boolean | 
 
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
+  const [healthInfo, setHealthInfo] = useState<Awaited<ReturnType<typeof health>> | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [revealSecrets, setRevealSecrets] = useState(false);
   const [persistSecrets, setPersistSecrets] = useState<boolean>(() => readJson<boolean>(STORAGE_PERSIST_SECRETS_KEY) ?? false);
@@ -584,6 +591,10 @@ export function App() {
     backtest: null,
     trade: null,
   });
+
+  const [activeAsyncJob, setActiveAsyncJob] = useState<ActiveAsyncJob | null>(null);
+  const activeAsyncJobRef = useRef<ActiveAsyncJob | null>(null);
+  const [activeAsyncTickMs, setActiveAsyncTickMs] = useState(() => Date.now());
 
   const [bot, setBot] = useState<BotUiState>({
     loading: false,
@@ -702,6 +713,17 @@ export function App() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
 
+  useEffect(() => {
+    activeAsyncJobRef.current = activeAsyncJob;
+  }, [activeAsyncJob]);
+
+  useEffect(() => {
+    if (!state.loading) return;
+    setActiveAsyncTickMs(Date.now());
+    const t = window.setInterval(() => setActiveAsyncTickMs(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [state.loading]);
+
   const profileNames = useMemo(() => Object.keys(profiles).sort((a, b) => a.localeCompare(b)), [profiles]);
 
   const saveProfile = useCallback(() => {
@@ -814,11 +836,13 @@ export function App() {
     health(apiBase, { timeoutMs: 10_000, headers: authHeaders })
       .then((out) => {
         if (!mounted) return;
+        setHealthInfo(out);
         if (out.authRequired && out.authOk !== true) setApiOk("auth");
         else setApiOk("ok");
       })
       .catch(() => {
         if (!mounted) return;
+        setHealthInfo(null);
         setApiOk("down");
       });
     return () => {
@@ -839,11 +863,13 @@ export function App() {
     try {
       h = await health(apiBase, { timeoutMs: 10_000, headers: authHeaders });
     } catch {
+      setHealthInfo(null);
       setApiOk("down");
       showToast("API unreachable");
       return;
     }
 
+    setHealthInfo(h);
     if (h.authRequired && h.authOk !== true) {
       setApiOk("auth");
       showToast(apiToken.trim() ? "API auth failed" : "API auth required");
@@ -1052,6 +1078,7 @@ export function App() {
   const run = useCallback(
     async (kind: RequestKind, overrideParams?: ApiParams, opts?: RunOptions) => {
       const requestId = ++requestSeqRef.current;
+      const startedAtMs = Date.now();
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -1059,6 +1086,7 @@ export function App() {
       if (!opts?.silent) {
         scrollToResult(kind);
         setState((s) => ({ ...s, loading: true, error: null, lastKind: kind }));
+        setActiveAsyncJob({ kind, jobId: null, startedAtMs });
       }
 
       try {
@@ -1067,21 +1095,45 @@ export function App() {
         if (!p.interval) throw new Error("interval is required.");
 
         if (kind === "signal") {
-          const out = await signal(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: SIGNAL_TIMEOUT_MS });
+          const out = await signal(apiBase, p, {
+            signal: controller.signal,
+            headers: authHeaders,
+            timeoutMs: SIGNAL_TIMEOUT_MS,
+            onJobId: (jobId) => {
+              if (requestId !== requestSeqRef.current) return;
+              setActiveAsyncJob({ kind, jobId, startedAtMs });
+            },
+          });
           if (requestId !== requestSeqRef.current) return;
           if (opts?.silent) setState((s) => ({ ...s, latestSignal: out }));
           else setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Signal updated");
         } else if (kind === "backtest") {
-          const out = await backtest(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: BACKTEST_TIMEOUT_MS });
+          const out = await backtest(apiBase, p, {
+            signal: controller.signal,
+            headers: authHeaders,
+            timeoutMs: BACKTEST_TIMEOUT_MS,
+            onJobId: (jobId) => {
+              if (requestId !== requestSeqRef.current) return;
+              setActiveAsyncJob({ kind, jobId, startedAtMs });
+            },
+          });
           if (requestId !== requestSeqRef.current) return;
           setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false, error: null }));
           setApiOk("ok");
           if (!opts?.silent) showToast("Backtest complete");
         } else {
           if (!form.tradeArmed) throw new Error("Trading is locked. Enable “Arm trading” to call /trade.");
-          const out = await trade(apiBase, withBinanceKeys(p), { signal: controller.signal, headers: authHeaders, timeoutMs: TRADE_TIMEOUT_MS });
+          const out = await trade(apiBase, withBinanceKeys(p), {
+            signal: controller.signal,
+            headers: authHeaders,
+            timeoutMs: TRADE_TIMEOUT_MS,
+            onJobId: (jobId) => {
+              if (requestId !== requestSeqRef.current) return;
+              setActiveAsyncJob({ kind, jobId, startedAtMs });
+            },
+          });
           if (requestId !== requestSeqRef.current) return;
           setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false, error: null }));
           setApiOk("ok");
@@ -1124,11 +1176,24 @@ export function App() {
         setState((s) => ({ ...s, loading: false, error: msg }));
         showToast("Request failed");
       } finally {
-        if (requestId === requestSeqRef.current) abortRef.current = null;
+        if (requestId === requestSeqRef.current) {
+          abortRef.current = null;
+          setActiveAsyncJob(null);
+        }
       }
     },
     [apiBase, authHeaders, commonParams, form.tradeArmed, scrollToResult, showToast, tradeParams, withBinanceKeys],
   );
+
+  const cancelActiveRequest = useCallback(() => {
+    if (!state.loading) return;
+    const job = activeAsyncJobRef.current;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setActiveAsyncJob(null);
+    setState((s) => ({ ...s, loading: false }));
+    showToast(job?.jobId ? `Cancel requested (${job.jobId})` : "Cancel requested");
+  }, [showToast, state.loading]);
 
   const refreshKeys = useCallback(
     async (opts?: RunOptions) => {
@@ -1382,11 +1447,25 @@ export function App() {
       authMsg,
     );
   }, [apiBaseError, apiOk, apiToken, showLocalStartHelp]);
+
+  const apiComputeLimits = healthInfo?.computeLimits ?? null;
+  const apiLstmEnabled = form.method !== "10";
+  const barsExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.bars > apiComputeLimits.maxBarsLstm);
+  const epochsExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.epochs > apiComputeLimits.maxEpochs);
+  const hiddenSizeExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.hiddenSize > apiComputeLimits.maxHiddenSize);
+  const apiLimitsReason = barsExceedsApi
+    ? `Bars exceed API limit (max ${apiComputeLimits?.maxBarsLstm ?? "?"} for LSTM methods). Reduce bars or use method=10 (Kalman-only).`
+    : epochsExceedsApi
+      ? `Epochs exceed API limit (max ${apiComputeLimits?.maxEpochs ?? "?"}). Reduce epochs or switch to method=10 (Kalman-only).`
+      : hiddenSizeExceedsApi
+        ? `Hidden size exceeds API limit (max ${apiComputeLimits?.maxHiddenSize ?? "?"}). Reduce hidden size or switch to method=10 (Kalman-only).`
+        : null;
   const requestDisabledReason = firstReason(
     apiBlockedReason,
     missingSymbol ? "Binance symbol is required." : null,
     missingInterval ? "Interval is required." : null,
     lookbackState.error,
+    apiLimitsReason,
   );
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
   const tradeDisabledReason = firstReason(
@@ -1533,6 +1612,17 @@ export function App() {
                     ? apiBaseError
                     : "Leave blank to use /api. For CloudFront/S3 hosting, set this to your deployed API (HTTPS recommended)."}
                 </div>
+                {healthInfo?.computeLimits ? (
+                  <div className="hint" style={{ marginTop: 6 }}>
+                    API limits: max LSTM bars {healthInfo.computeLimits.maxBarsLstm}, epochs {healthInfo.computeLimits.maxEpochs}, hidden{" "}
+                    {healthInfo.computeLimits.maxHiddenSize}.
+                    {healthInfo.asyncJobs
+                      ? ` Async: max running ${healthInfo.asyncJobs.maxRunning}, TTL ${Math.round(
+                          healthInfo.asyncJobs.ttlMs / 60000,
+                        )}m, persistence ${healthInfo.asyncJobs.persistence ? "on" : "off"}.`
+                      : ""}
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -1815,14 +1905,18 @@ export function App() {
                 </label>
                 <input
                   id="bars"
-                  className="input"
+                  className={barsExceedsApi ? "input inputError" : "input"}
                   type="number"
                   min={2}
                   max={1000}
                   value={form.bars}
                   onChange={(e) => setForm((f) => ({ ...f, bars: numFromInput(e.target.value, f.bars) }))}
                 />
-                <div className="hint">Larger values take longer (more training + longer backtest).</div>
+                <div className="hint" style={barsExceedsApi ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                  {barsExceedsApi
+                    ? `API limit: max ${apiComputeLimits?.maxBarsLstm ?? "?"} bars for LSTM methods. Reduce bars or use method=10 (Kalman-only).`
+                    : "Larger values take longer (more training + longer backtest)."}
+                </div>
               </div>
             </div>
 
@@ -2189,7 +2283,7 @@ export function App() {
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
                   <input
                     id="epochs"
-                    className="input"
+                    className={epochsExceedsApi ? "input inputError" : "input"}
                     type="number"
                     min={0}
                     value={form.epochs}
@@ -2197,14 +2291,20 @@ export function App() {
                   />
                   <input
                     aria-label="Hidden size"
-                    className="input"
+                    className={hiddenSizeExceedsApi ? "input inputError" : "input"}
                     type="number"
                     min={1}
                     value={form.hiddenSize}
                     onChange={(e) => setForm((f) => ({ ...f, hiddenSize: numFromInput(e.target.value, f.hiddenSize) }))}
                   />
                 </div>
-                <div className="hint">Higher = slower. For quick iteration, reduce epochs.</div>
+                <div className="hint" style={epochsExceedsApi || hiddenSizeExceedsApi ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                  {!apiLstmEnabled
+                    ? "Ignored for Kalman-only."
+                    : epochsExceedsApi || hiddenSizeExceedsApi
+                      ? `API limits: epochs ≤ ${apiComputeLimits?.maxEpochs ?? "?"}, hidden ≤ ${apiComputeLimits?.maxHiddenSize ?? "?"}.`
+                      : "Higher = slower. For quick iteration, reduce epochs."}
+                </div>
               </div>
             </div>
 
@@ -2309,7 +2409,21 @@ export function App() {
               >
                 {state.loading && state.lastKind === "backtest" ? "Optimizing…" : "Optimize operations"}
               </button>
+              <button className="btn" disabled={!state.loading} onClick={cancelActiveRequest}>
+                Cancel
+              </button>
             </div>
+
+            {state.loading ? (
+              <div className="hint" style={{ marginTop: 10 }}>
+                {activeAsyncJob?.jobId
+                  ? `Async job: ${activeAsyncJob.jobId} • ${activeAsyncJob.kind} • ${Math.max(
+                      0,
+                      Math.floor((activeAsyncTickMs - activeAsyncJob.startedAtMs) / 1000),
+                    )}s`
+                  : "Starting async job…"}
+              </div>
+            ) : null}
 
             <div style={{ marginTop: 14 }}>
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
@@ -2691,12 +2805,8 @@ export function App() {
                 </button>
                 <button
                   className="btn"
-                  disabled={state.loading}
-                  onClick={() => {
-                    abortRef.current?.abort();
-                    abortRef.current = null;
-                    setState((s) => ({ ...s, loading: false }));
-                  }}
+                  disabled={!state.loading}
+                  onClick={cancelActiveRequest}
                 >
                   Cancel
                 </button>

@@ -20,7 +20,8 @@ data Positioning
   deriving (Eq, Show)
 
 data EnsembleConfig = EnsembleConfig
-  { ecTradeThreshold :: !Double
+  { ecOpenThreshold :: !Double
+  , ecCloseThreshold :: !Double
   , ecFee :: !Double
   , ecSlippage :: !Double          -- fractional per side, e.g. 0.0002
   , ecSpread :: !Double            -- fractional total spread, e.g. 0.0005 (half per side)
@@ -148,8 +149,9 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
         then error "Need at least 2 prices to simulate"
         else
           let startT = max 0 (lookback - 1)
-              thr = max 0 (ecTradeThreshold cfg)
-              direction prev pred =
+              openThr = max 0 (ecOpenThreshold cfg)
+              closeThr = max 0 (ecCloseThreshold cfg)
+              direction thr prev pred =
                 let upEdge = prev * (1 + thr)
                     downEdge = prev * (1 - thr)
                  in if pred > upEdge
@@ -271,8 +273,8 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                   then True
                   else
                     case (smConformalLo m, smConformalHi m, dir) of
-                      (Just lo', _, 1) -> lo' > thr
-                      (_, Just hi', (-1)) -> hi' < negate thr
+                      (Just lo', _, 1) -> lo' > openThr
+                      (_, Just hi', (-1)) -> hi' < negate openThr
                       _ -> False
 
               confirmQuantiles :: StepMeta -> Int -> Bool
@@ -281,8 +283,8 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                   then True
                   else
                     case (smQuantile10 m, smQuantile90 m, dir) of
-                      (Just q10', _, 1) -> q10' > thr
-                      (_, Just q90', (-1)) -> q90' < negate thr
+                      (Just q10', _, 1) -> q10' > openThr
+                      (_, Just q90', (-1)) -> q90' < negate openThr
                       _ -> False
 
               confidenceScoreKalman :: StepMeta -> Double
@@ -356,22 +358,39 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                         else
                           let kp = kalPredNextV V.! t
                               lp = lstmPredNextV V.! (t - startT)
-                              kalDirRaw = direction prev kp
-                              (kalDir, kalSize) =
+                              kalOpenDirRaw = direction openThr prev kp
+                              kalCloseDirRaw = direction closeThr prev kp
+                              (kalOpenDir, kalSize) =
                                 case metaAt t of
-                                  Nothing -> (kalDirRaw, if kalDirRaw == Nothing then 0 else 1)
+                                  Nothing -> (kalOpenDirRaw, if kalOpenDirRaw == Nothing then 0 else 1)
                                   Just m ->
                                     let confScore = confidenceScoreKalman m
-                                     in gateKalmanDir m confScore kalDirRaw
-                              lstmDir = direction prev lp
-                              agreeDir =
-                                if kalDir == lstmDir
-                                  then kalDir
+                                     in gateKalmanDir m confScore kalOpenDirRaw
+                              lstmOpenDir = direction openThr prev lp
+                              lstmCloseDir = direction closeThr prev lp
+                              openAgreeDir =
+                                if kalOpenDir == lstmOpenDir
+                                  then kalOpenDir
                                   else Nothing
-                           in case agreeDir of
-                                Just 1 -> (True, desiredPosFromDir 1, kalSize)
-                                Just (-1) -> (True, desiredPosFromDir (-1), kalSize)
-                                _ -> (False, posDir, posSize)
+                              closeAgreeDir =
+                                if kalCloseDirRaw == lstmCloseDir
+                                  then kalCloseDirRaw
+                                  else Nothing
+
+                              desiredFromOpen dir =
+                                let d = desiredPosFromDir dir
+                                 in (d, if d == 0 then 0 else kalSize)
+
+                              (desiredDir', desiredSize') =
+                                case openAgreeDir of
+                                  Just dir -> desiredFromOpen dir
+                                  Nothing ->
+                                    case posDir of
+                                      0 -> (0, 0)
+                                      1 -> if closeAgreeDir == Just 1 then (1, posSize) else (0, 0)
+                                      (-1) -> if closeAgreeDir == Just (-1) then ((-1), posSize) else (0, 0)
+                                      _ -> (0, 0)
+                           in (openAgreeDir == Just 1 || openAgreeDir == Just (-1), desiredDir', desiredSize')
 
                     desiredSize =
                       if desiredDirRaw == 0
