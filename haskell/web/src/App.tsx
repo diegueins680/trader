@@ -85,7 +85,8 @@ type FormState = {
   lookbackBars: number;
   method: Method;
   positioning: Positioning;
-  threshold: number;
+  openThreshold: number;
+  closeThreshold: number;
   fee: number;
   slippage: number;
   spread: number;
@@ -308,7 +309,8 @@ const defaultForm: FormState = {
   lookbackBars: 0,
   method: "11",
   positioning: "long-flat",
-  threshold: 0.001,
+  openThreshold: 0.001,
+  closeThreshold: 0.001,
   fee: 0.0005,
   slippage: 0,
   spread: 0,
@@ -355,6 +357,7 @@ const defaultForm: FormState = {
 type SavedProfiles = Record<string, FormState>;
 
 type FormStateJson = Partial<FormState> & {
+  threshold?: unknown; // legacy field (maps to openThreshold/closeThreshold)
   interval?: unknown;
   positioning?: unknown;
   intrabarFill?: unknown;
@@ -390,33 +393,45 @@ function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFi
 
 function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
-  const kalmanZMin = normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.kalmanZMin ?? merged.kalmanZMin, defaultForm.kalmanZMin, 0, 1e9);
+  const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
+  const legacyThreshold = rawRec.threshold;
+  const openThreshold = normalizeFiniteNumber(rawRec.openThreshold ?? legacyThreshold ?? merged.openThreshold, defaultForm.openThreshold, 0, 1e9);
+  const closeThreshold = normalizeFiniteNumber(
+    rawRec.closeThreshold ?? legacyThreshold ?? (rawRec.openThreshold != null ? openThreshold : merged.closeThreshold),
+    defaultForm.closeThreshold,
+    0,
+    1e9,
+  );
+  const kalmanZMin = normalizeFiniteNumber(rawRec.kalmanZMin ?? merged.kalmanZMin, defaultForm.kalmanZMin, 0, 1e9);
   const kalmanZMaxRaw = normalizeFiniteNumber(
-    (raw as Record<string, unknown> | null | undefined)?.kalmanZMax ?? merged.kalmanZMax,
+    rawRec.kalmanZMax ?? merged.kalmanZMax,
     defaultForm.kalmanZMax,
     0,
     1e9,
   );
   const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
+  const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
   return {
-    ...merged,
+    ...mergedNoLegacy,
     interval: normalizeBinanceInterval(raw?.interval ?? merged.interval, defaultForm.interval),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
     lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
-    slippage: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
-    spread: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
-    intrabarFill: normalizeIntrabarFill((raw as Record<string, unknown> | null | undefined)?.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
-    tuneRatio: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
+    openThreshold,
+    closeThreshold,
+    slippage: normalizeFiniteNumber(rawRec.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
+    spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
+    intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
+    tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
     kalmanZMin,
     kalmanZMax,
-    maxHighVolProb: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
-    maxConformalWidth: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
-    maxQuantileWidth: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.maxQuantileWidth ?? merged.maxQuantileWidth, 0, 0, 1e9),
-    confirmConformal: normalizeBool((raw as Record<string, unknown> | null | undefined)?.confirmConformal ?? merged.confirmConformal, defaultForm.confirmConformal),
-    confirmQuantiles: normalizeBool((raw as Record<string, unknown> | null | undefined)?.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
-    confidenceSizing: normalizeBool((raw as Record<string, unknown> | null | undefined)?.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
-    minPositionSize: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
+    maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
+    maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
+    maxQuantileWidth: normalizeFiniteNumber(rawRec.maxQuantileWidth ?? merged.maxQuantileWidth, 0, 0, 1e9),
+    confirmConformal: normalizeBool(rawRec.confirmConformal ?? merged.confirmConformal, defaultForm.confirmConformal),
+    confirmQuantiles: normalizeBool(rawRec.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
+    confidenceSizing: normalizeBool(rawRec.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
+    minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
   };
 }
 
@@ -900,10 +915,11 @@ export function App() {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
       market: form.market,
       interval: intervalOk ? interval : undefined,
-      bars,
+	      bars,
 	      method: form.method,
 	      ...(form.positioning !== "long-flat" ? { positioning: form.positioning } : {}),
-	      threshold: Math.max(0, form.threshold),
+	      openThreshold: Math.max(0, form.openThreshold),
+	      closeThreshold: Math.max(0, form.closeThreshold),
 	      fee: Math.max(0, form.fee),
 	      ...(form.slippage > 0 ? { slippage: clamp(form.slippage, 0, 0.999999) } : {}),
 	      ...(form.spread > 0 ? { spread: clamp(form.spread, 0, 0.999999) } : {}),
@@ -1977,7 +1993,7 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
               <div className="field">
                 <label className="label" htmlFor="method">
                   Method
@@ -1992,7 +2008,7 @@ export function App() {
                   <option value="10">10 — Kalman only</option>
                   <option value="01">01 — LSTM only</option>
                 </select>
-                <div className="hint">“11” only trades when both models agree on direction (up/down) outside the threshold.</div>
+                <div className="hint">“11” only trades when both models agree on direction (up/down) outside the open threshold.</div>
               </div>
               <div className="field">
                 <label className="label" htmlFor="positioning">
@@ -2021,19 +2037,34 @@ export function App() {
                 </div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="threshold">
-                  Threshold (fraction)
+                <label className="label" htmlFor="openThreshold">
+                  Open threshold (fraction)
                 </label>
                 <input
-                  id="threshold"
+                  id="openThreshold"
                   className="input"
                   type="number"
                   step="0.0001"
                   min={0}
-                  value={form.threshold}
-                  onChange={(e) => setForm((f) => ({ ...f, threshold: numFromInput(e.target.value, f.threshold) }))}
+                  value={form.openThreshold}
+                  onChange={(e) => setForm((f) => ({ ...f, openThreshold: numFromInput(e.target.value, f.openThreshold) }))}
                 />
-                <div className="hint">Deadband for “neutral”. Default 0.001 = 0.1%.</div>
+                <div className="hint">Entry deadband. Default 0.001 = 0.1%.</div>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="closeThreshold">
+                  Close threshold (fraction)
+                </label>
+                <input
+                  id="closeThreshold"
+                  className="input"
+                  type="number"
+                  step="0.0001"
+                  min={0}
+                  value={form.closeThreshold}
+                  onChange={(e) => setForm((f) => ({ ...f, closeThreshold: numFromInput(e.target.value, f.closeThreshold) }))}
+                />
+                <div className="hint">Exit deadband. Often smaller than open threshold to reduce churn.</div>
               </div>
             </div>
 
@@ -2068,7 +2099,7 @@ export function App() {
                   value={form.tuneRatio}
                   onChange={(e) => setForm((f) => ({ ...f, tuneRatio: numFromInput(e.target.value, f.tuneRatio) }))}
                 />
-                <div className="hint">Used only when optimizing/sweeping: tunes threshold/method on the last part of the train split.</div>
+                <div className="hint">Used only when optimizing/sweeping: tunes thresholds/method on the last part of the train split.</div>
               </div>
               <div className="field">
                 <label className="label" htmlFor="fee">
@@ -2318,7 +2349,7 @@ export function App() {
                       checked={form.sweepThreshold}
                       onChange={(e) => setForm((f) => ({ ...f, sweepThreshold: e.target.checked, optimizeOperations: false }))}
                     />
-                    Sweep threshold
+                    Sweep thresholds
                   </label>
                   <label className="pill">
                     <input
@@ -2326,7 +2357,7 @@ export function App() {
                       checked={form.optimizeOperations}
                       onChange={(e) => setForm((f) => ({ ...f, optimizeOperations: e.target.checked, sweepThreshold: false }))}
                     />
-                    Optimize operations (method + threshold)
+                    Optimize operations (method + thresholds)
                   </label>
                 </div>
 	                <div className="hint">Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.</div>
@@ -2395,7 +2426,7 @@ export function App() {
                   void run("backtest", p);
                 }}
               >
-                {state.loading && state.lastKind === "backtest" ? "Optimizing…" : "Optimize threshold"}
+                {state.loading && state.lastKind === "backtest" ? "Optimizing…" : "Optimize thresholds"}
               </button>
               <button
                 className="btn"
@@ -2459,7 +2490,7 @@ export function App() {
                   </div>
                   <div className="hint">
                     Continuously ingests new bars, fine-tunes on each bar, and switches position based on the latest signal. Enable “Arm trading” to actually place
-                    Binance orders; otherwise it runs in paper mode. If “Sweep threshold” or “Optimize operations” is enabled, the bot re-optimizes after each
+                    Binance orders; otherwise it runs in paper mode. If “Sweep thresholds” or “Optimize operations” is enabled, the bot re-optimizes after each
                     buy/sell operation.
                   </div>
                   {bot.error ? <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>{bot.error}</div> : null}
@@ -2861,7 +2892,10 @@ export function App() {
 	                    <span className="badge">{bot.status.interval}</span>
 	                    <span className="badge">{marketLabel(bot.status.market)}</span>
 	                    <span className="badge">{methodLabel(bot.status.method)}</span>
-	                    <span className="badge">thr {fmtPct(bot.status.threshold, 3)}</span>
+	                    <span className="badge">open {fmtPct(bot.status.openThreshold ?? bot.status.threshold, 3)}</span>
+	                    <span className="badge">
+	                      close {fmtPct(bot.status.closeThreshold ?? bot.status.openThreshold ?? bot.status.threshold, 3)}
+	                    </span>
 	                    <span className="badge">{bot.status.halted ? "HALTED" : "ACTIVE"}</span>
 	                    <span className="badge">{bot.status.error ? "Error" : "OK"}</span>
 	                  </div>
@@ -3130,9 +3164,22 @@ export function App() {
                     <div className="v">{fmtMoney(state.latestSignal.currentPrice, 4)}</div>
                   </div>
                   <div className="kv">
-                    <div className="k">Threshold</div>
+                    <div className="k">Open threshold</div>
                     <div className="v">
-                      {fmtNum(state.latestSignal.threshold, 6)} ({fmtPct(state.latestSignal.threshold, 3)})
+                      {(() => {
+                        const openThr = state.latestSignal.openThreshold ?? state.latestSignal.threshold;
+                        return `${fmtNum(openThr, 6)} (${fmtPct(openThr, 3)})`;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Close threshold</div>
+                    <div className="v">
+                      {(() => {
+                        const openThr = state.latestSignal.openThreshold ?? state.latestSignal.threshold;
+                        const closeThr = state.latestSignal.closeThreshold ?? openThr;
+                        return `${fmtNum(closeThr, 6)} (${fmtPct(closeThr, 3)})`;
+                      })()}
                     </div>
                   </div>
                   <div className="kv">
@@ -3194,9 +3241,22 @@ export function App() {
 		                  </div>
 
                   <div className="kv">
-                    <div className="k">Best threshold</div>
+                    <div className="k">Best open threshold</div>
                     <div className="v">
-                      {fmtNum(state.backtest.threshold, 6)} ({fmtPct(state.backtest.threshold, 3)})
+                      {(() => {
+                        const openThr = state.backtest.openThreshold ?? state.backtest.threshold;
+                        return `${fmtNum(openThr, 6)} (${fmtPct(openThr, 3)})`;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Best close threshold</div>
+                    <div className="v">
+                      {(() => {
+                        const openThr = state.backtest.openThreshold ?? state.backtest.threshold;
+                        const closeThr = state.backtest.closeThreshold ?? openThr;
+                        return `${fmtNum(closeThr, 6)} (${fmtPct(closeThr, 3)})`;
+                      })()}
                     </div>
                   </div>
                   <div className="kv">
