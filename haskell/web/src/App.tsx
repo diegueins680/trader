@@ -6,6 +6,7 @@ import type {
   BinanceKeysStatus,
   BotOrderEvent,
   BotStatus,
+  IntrabarFill,
   LatestSignal,
   Market,
   Method,
@@ -80,6 +81,9 @@ type FormState = {
   positioning: Positioning;
   threshold: number;
   fee: number;
+  slippage: number;
+  spread: number;
+  intrabarFill: IntrabarFill;
   stopLoss: number;
   takeProfit: number;
   trailingStop: number;
@@ -87,6 +91,7 @@ type FormState = {
   maxDailyLoss: number;
   maxOrderErrors: number;
   backtestRatio: number;
+  tuneRatio: number;
   normalization: Normalization;
   epochs: number;
   hiddenSize: number;
@@ -299,6 +304,9 @@ const defaultForm: FormState = {
   positioning: "long-flat",
   threshold: 0.001,
   fee: 0.0005,
+  slippage: 0,
+  spread: 0,
+  intrabarFill: "stop-first",
   stopLoss: 0,
   takeProfit: 0,
   trailingStop: 0,
@@ -306,6 +314,7 @@ const defaultForm: FormState = {
   maxDailyLoss: 0,
   maxOrderErrors: 0,
   backtestRatio: 0.2,
+  tuneRatio: 0.2,
   normalization: "standard",
   epochs: 30,
   hiddenSize: 16,
@@ -342,6 +351,7 @@ type SavedProfiles = Record<string, FormState>;
 type FormStateJson = Partial<FormState> & {
   interval?: unknown;
   positioning?: unknown;
+  intrabarFill?: unknown;
   lookbackWindow?: unknown;
   lookbackBars?: unknown;
 };
@@ -367,6 +377,11 @@ function normalizePositioning(raw: unknown, fallback: Positioning): Positioning 
   return fallback;
 }
 
+function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFill {
+  if (raw === "stop-first" || raw === "take-profit-first") return raw;
+  return fallback;
+}
+
 function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
   const kalmanZMin = normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.kalmanZMin ?? merged.kalmanZMin, defaultForm.kalmanZMin, 0, 1e9);
@@ -383,6 +398,10 @@ function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
     lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
+    slippage: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
+    spread: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
+    intrabarFill: normalizeIntrabarFill((raw as Record<string, unknown> | null | undefined)?.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
+    tuneRatio: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
     kalmanZMin,
     kalmanZMax,
     maxHighVolProb: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
@@ -431,6 +450,13 @@ function fmtTimeMs(ms: number): string {
   } catch {
     return String(ms);
   }
+}
+
+function fmtProfitFactor(pf: number | null | undefined, grossProfit: number, grossLoss: number): string {
+  if (typeof pf === "number" && Number.isFinite(pf)) return fmtNum(pf, 3);
+  if (grossLoss === 0 && grossProfit > 0) return "∞";
+  if (grossLoss === 0 && grossProfit === 0) return "0";
+  return "—";
 }
 
 function errorName(err: unknown): string {
@@ -849,20 +875,23 @@ export function App() {
       market: form.market,
       interval: intervalOk ? interval : undefined,
       bars,
-      method: form.method,
-      ...(form.positioning !== "long-flat" ? { positioning: form.positioning } : {}),
-      threshold: Math.max(0, form.threshold),
-      fee: Math.max(0, form.fee),
-      ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
-      ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
-      ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
-      ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
-      ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
-      ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
-      backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
-	      normalization: form.normalization,
-	      epochs: clamp(Math.trunc(form.epochs), 0, 5000),
-	      hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
+	      method: form.method,
+	      ...(form.positioning !== "long-flat" ? { positioning: form.positioning } : {}),
+	      threshold: Math.max(0, form.threshold),
+	      fee: Math.max(0, form.fee),
+	      ...(form.slippage > 0 ? { slippage: clamp(form.slippage, 0, 0.999999) } : {}),
+	      ...(form.spread > 0 ? { spread: clamp(form.spread, 0, 0.999999) } : {}),
+	      ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
+	      ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
+	      ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
+	      ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
+	      ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
+	      ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
+	      backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
+	      tuneRatio: clamp(form.tuneRatio, 0, 0.99),
+		      normalization: form.normalization,
+		      epochs: clamp(Math.trunc(form.epochs), 0, 5000),
+		      hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
 	      kalmanZMin: Math.max(0, form.kalmanZMin),
 	      kalmanZMax: Math.max(Math.max(0, form.kalmanZMin), form.kalmanZMax),
 	      binanceTestnet: form.binanceTestnet,
@@ -1913,7 +1942,7 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12 }}>
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
               <div className="field">
                 <label className="label" htmlFor="backtestRatio">
                   Backtest ratio
@@ -1931,6 +1960,22 @@ export function App() {
                 <div className="hint">Time-split holdout (last portion). Train and backtest are different.</div>
               </div>
               <div className="field">
+                <label className="label" htmlFor="tuneRatio">
+                  Tune ratio
+                </label>
+                <input
+                  id="tuneRatio"
+                  className="input"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={0.99}
+                  value={form.tuneRatio}
+                  onChange={(e) => setForm((f) => ({ ...f, tuneRatio: numFromInput(e.target.value, f.tuneRatio) }))}
+                />
+                <div className="hint">Used only when optimizing/sweeping: tunes threshold/method on the last part of the train split.</div>
+              </div>
+              <div className="field">
                 <label className="label" htmlFor="fee">
                   Fee (fraction)
                 </label>
@@ -1943,7 +1988,42 @@ export function App() {
                   value={form.fee}
                   onChange={(e) => setForm((f) => ({ ...f, fee: numFromInput(e.target.value, f.fee) }))}
                 />
-                <div className="hint">Applied when switching position (long ↔ flat).</div>
+                <div className="hint">
+                  Per-side ≈ {fmtPct(Math.max(0, form.fee) + Math.max(0, form.slippage) + Math.max(0, form.spread) / 2, 3)} (fee + slippage + spread/2).
+                </div>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr" }}>
+              <div className="field">
+                <label className="label" htmlFor="slippage">
+                  Slippage (fraction per side)
+                </label>
+                <input
+                  id="slippage"
+                  className="input"
+                  type="number"
+                  step="0.0001"
+                  min={0}
+                  value={form.slippage}
+                  onChange={(e) => setForm((f) => ({ ...f, slippage: numFromInput(e.target.value, f.slippage) }))}
+                />
+                <div className="hint">Approx market impact on entry/exit. 0 disables.</div>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="spread">
+                  Spread (fraction total)
+                </label>
+                <input
+                  id="spread"
+                  className="input"
+                  type="number"
+                  step="0.0001"
+                  min={0}
+                  value={form.spread}
+                  onChange={(e) => setForm((f) => ({ ...f, spread: numFromInput(e.target.value, f.spread) }))}
+                />
+                <div className="hint">Half is applied per side. 0 disables.</div>
               </div>
             </div>
 
@@ -2683,11 +2763,16 @@ export function App() {
 
 		                  <div className="kv" style={{ marginTop: 12 }}>
 		                    <div className="k">Equity / Position</div>
-		                    <div className="v">
-		                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
-	                      {(bot.status.positions[bot.status.positions.length - 1] ?? 0) === 1 ? "LONG" : "FLAT"}
-	                    </div>
-	                  </div>
+			                    <div className="v">
+			                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
+		                      {(() => {
+		                        const p = bot.status.positions[bot.status.positions.length - 1] ?? 0;
+		                        if (p > 0) return `LONG${Math.abs(p) < 0.9999 ? ` (${fmtPct(Math.abs(p), 1)})` : ""}`;
+		                        if (p < 0) return `SHORT${Math.abs(p) < 0.9999 ? ` (${fmtPct(Math.abs(p), 1)})` : ""}`;
+		                        return "FLAT";
+		                      })()}
+		                    </div>
+		                  </div>
 	                  <div className="kv">
 	                    <div className="k">Peak / Drawdown</div>
 	                    <div className="v">
@@ -2955,21 +3040,27 @@ export function App() {
             <div className="cardBody">
               {state.backtest ? (
                 <>
-                  <BacktestChart
-                    prices={state.backtest.prices}
-                    equityCurve={state.backtest.equityCurve}
-                    positions={state.backtest.positions}
-                    agreementOk={state.backtest.agreementOk}
-                    trades={state.backtest.trades}
-                    backtestStartIndex={state.backtest.split.backtestStartIndex}
-                    height={360}
-                  />
-                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
-                    <span className="badge">Train: {state.backtest.split.train}</span>
-                    <span className="badge">Backtest: {state.backtest.split.backtest}</span>
-                    <span className="badge">Holdout: {fmtPct(state.backtest.split.backtestRatio, 1)}</span>
-                    <span className="badge">{methodLabel(state.backtest.method)}</span>
-                  </div>
+	                  <BacktestChart
+	                    prices={state.backtest.prices}
+	                    equityCurve={state.backtest.equityCurve}
+	                    positions={state.backtest.positions}
+	                    agreementOk={state.backtest.agreementOk}
+	                    trades={state.backtest.trades}
+	                    backtestStartIndex={state.backtest.split.backtestStartIndex}
+	                    height={360}
+	                  />
+	                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
+	                    <span className="badge">Train: {state.backtest.split.train}</span>
+	                    <span className="badge">Fit: {state.backtest.split.fit}</span>
+	                    {state.backtest.split.tune > 0 ? (
+	                      <span className="badge">
+	                        Tune: {state.backtest.split.tune} ({fmtPct(state.backtest.split.tuneRatio, 1)})
+	                      </span>
+	                    ) : null}
+	                    <span className="badge">Backtest: {state.backtest.split.backtest}</span>
+	                    <span className="badge">Holdout: {fmtPct(state.backtest.split.backtestRatio, 1)}</span>
+	                    <span className="badge">{methodLabel(state.backtest.method)}</span>
+	                  </div>
 
                   <div className="kv">
                     <div className="k">Best threshold</div>
@@ -3015,20 +3106,28 @@ export function App() {
                         <div className="k">Operations (position changes)</div>
                         <div className="v">{state.backtest.metrics.tradeCount}</div>
                       </div>
-                      <div className="kv">
-                        <div className="k">Annualized volatility</div>
-                        <div className="v">{fmtPct(state.backtest.metrics.annualizedVolatility, 2)}</div>
-                      </div>
-                      <div className="kv">
-                        <div className="k">Profit factor</div>
-                        <div className="v">{fmtNum(state.backtest.metrics.profitFactor, 3)}</div>
-                      </div>
-                      <div className="kv">
-                        <div className="k">Avg trade return / Avg hold</div>
-                        <div className="v">
-                          {fmtPct(state.backtest.metrics.avgTradeReturn, 2)} / {fmtNum(state.backtest.metrics.avgHoldingPeriods, 2)} bars
-                        </div>
-                      </div>
+	                      <div className="kv">
+	                        <div className="k">Annualized volatility</div>
+	                        <div className="v">{fmtPct(state.backtest.metrics.annualizedVolatility, 2)}</div>
+	                      </div>
+	                      <div className="kv">
+	                        <div className="k">Gross profit / Gross loss</div>
+	                        <div className="v">
+	                          {fmtPct(state.backtest.metrics.grossProfit, 2)} / {fmtPct(state.backtest.metrics.grossLoss, 2)}
+	                        </div>
+	                      </div>
+	                      <div className="kv">
+	                        <div className="k">Profit factor</div>
+	                        <div className="v">
+	                          {fmtProfitFactor(state.backtest.metrics.profitFactor, state.backtest.metrics.grossProfit, state.backtest.metrics.grossLoss)}
+	                        </div>
+	                      </div>
+	                      <div className="kv">
+	                        <div className="k">Avg trade return / Avg hold</div>
+	                        <div className="v">
+	                          {fmtPct(state.backtest.metrics.avgTradeReturn, 2)} / {fmtNum(state.backtest.metrics.avgHoldingPeriods, 2)} bars
+	                        </div>
+	                      </div>
                       <div className="kv">
                         <div className="k">Agreement rate</div>
                         <div className="v">{fmtPct(state.backtest.metrics.agreementRate, 1)}</div>

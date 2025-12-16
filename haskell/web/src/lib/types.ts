@@ -2,6 +2,7 @@ export type Market = "spot" | "margin" | "futures";
 export type Method = "11" | "10" | "01";
 export type Normalization = "none" | "minmax" | "standard" | "log";
 export type Positioning = "long-flat" | "long-short";
+export type IntrabarFill = "stop-first" | "take-profit-first";
 
 export type DirectionLabel = "UP" | "DOWN" | null;
 
@@ -25,6 +26,7 @@ export type ApiParams = {
   lr?: number;
   valRatio?: number;
   backtestRatio?: number;
+  tuneRatio?: number;
   patience?: number;
   gradClip?: number;
   seed?: number;
@@ -37,6 +39,9 @@ export type ApiParams = {
   optimizeOperations?: boolean;
   sweepThreshold?: boolean;
   fee?: number;
+  slippage?: number;
+  spread?: number;
+  intrabarFill?: IntrabarFill;
   stopLoss?: number;
   takeProfit?: number;
   trailingStop?: number;
@@ -142,6 +147,10 @@ export type Trade = {
 export type BacktestResponse = {
   split: {
     train: number;
+    fit: number;
+    tune: number;
+    tuneRatio: number;
+    tuneStartIndex: number;
     backtest: number;
     backtestRatio: number;
     backtestStartIndex: number;
@@ -158,7 +167,9 @@ export type BacktestResponse = {
     tradeCount: number;
     roundTrips: number;
     winRate: number;
-    profitFactor: number;
+    grossProfit: number;
+    grossLoss: number;
+    profitFactor: number | null;
     avgTradeReturn: number;
     avgHoldingPeriods: number;
     exposure: number;

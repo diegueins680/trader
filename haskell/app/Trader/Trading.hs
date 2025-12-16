@@ -2,6 +2,7 @@ module Trader.Trading
   ( Positioning(..)
   , EnsembleConfig(..)
   , IntrabarFill(..)
+  , StepMeta(..)
   , Trade(..)
   , BacktestResult(..)
   , simulateEnsembleLongFlat
@@ -28,12 +29,32 @@ data EnsembleConfig = EnsembleConfig
   , ecTrailingStop :: !(Maybe Double)  -- fractional, e.g. 0.01
   , ecPositioning :: !Positioning
   , ecIntrabarFill :: !IntrabarFill
+  -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
+  , ecKalmanZMin :: !Double
+  , ecKalmanZMax :: !Double
+  , ecMaxHighVolProb :: !(Maybe Double)
+  , ecMaxConformalWidth :: !(Maybe Double)
+  , ecMaxQuantileWidth :: !(Maybe Double)
+  , ecConfirmConformal :: !Bool
+  , ecConfirmQuantiles :: !Bool
+  , ecConfidenceSizing :: !Bool
+  , ecMinPositionSize :: !Double
   } deriving (Eq, Show)
 
 data IntrabarFill
   = StopFirst
   | TakeProfitFirst
   deriving (Eq, Show)
+
+data StepMeta = StepMeta
+  { smKalmanMean :: !Double
+  , smKalmanVar :: !Double
+  , smHighVolProb :: !(Maybe Double)
+  , smQuantile10 :: !(Maybe Double)
+  , smQuantile90 :: !(Maybe Double)
+  , smConformalLo :: !(Maybe Double)
+  , smConformalHi :: !(Maybe Double)
+  } deriving (Eq, Show)
 
 data Trade = Trade
   { trEntryIndex :: !Int
@@ -56,7 +77,7 @@ data OpenTrade = OpenTrade
 
 data BacktestResult = BacktestResult
   { brEquityCurve :: [Double]     -- length n
-  , brPositions :: [Int]          -- length n-1 (position held for return t->t+1)
+  , brPositions :: [Double]       -- length n-1 (signed position size held for return t->t+1, -1..1)
   , brAgreementOk :: [Bool]       -- length n-1 (only meaningful where both preds available)
   , brPositionChanges :: !Int
   , brTrades :: [Trade]
@@ -68,14 +89,16 @@ simulateEnsembleLongFlat
   -> [Double]       -- prices length n
   -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
   -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> BacktestResult
-simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext =
+simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext mMeta =
   simulateEnsembleLongFlatV
     cfg
     lookback
     (V.fromList prices)
     (V.fromList kalPredNext)
     (V.fromList lstmPredNext)
+    (V.fromList <$> mMeta)
 
 simulateEnsembleLongFlatWithHL
   :: EnsembleConfig
@@ -85,8 +108,9 @@ simulateEnsembleLongFlatWithHL
   -> [Double]       -- lows length n
   -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
   -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> BacktestResult
-simulateEnsembleLongFlatWithHL cfg lookback closes highs lows kalPredNext lstmPredNext =
+simulateEnsembleLongFlatWithHL cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
   simulateEnsembleLongFlatVWithHL
     cfg
     lookback
@@ -95,6 +119,7 @@ simulateEnsembleLongFlatWithHL cfg lookback closes highs lows kalPredNext lstmPr
     (V.fromList lows)
     (V.fromList kalPredNext)
     (V.fromList lstmPredNext)
+    (V.fromList <$> mMeta)
 
 simulateEnsembleLongFlatV
   :: EnsembleConfig
@@ -102,9 +127,10 @@ simulateEnsembleLongFlatV
   -> V.Vector Double
   -> V.Vector Double
   -> V.Vector Double
+  -> Maybe (V.Vector StepMeta) -- optional per-step confidence meta
   -> BacktestResult
-simulateEnsembleLongFlatV cfg lookback pricesV kalPredNextV lstmPredNextV =
-  simulateEnsembleLongFlatVWithHL cfg lookback pricesV pricesV pricesV kalPredNextV lstmPredNextV
+simulateEnsembleLongFlatV cfg lookback pricesV kalPredNextV lstmPredNextV mMetaV =
+  simulateEnsembleLongFlatVWithHL cfg lookback pricesV pricesV pricesV kalPredNextV lstmPredNextV mMetaV
 
 simulateEnsembleLongFlatVWithHL
   :: EnsembleConfig
@@ -114,8 +140,9 @@ simulateEnsembleLongFlatVWithHL
   -> V.Vector Double -- lows
   -> V.Vector Double
   -> V.Vector Double
+  -> Maybe (V.Vector StepMeta) -- optional per-step confidence meta
   -> BacktestResult
-simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV =
+simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV =
   let n = V.length pricesV
    in if n < 2
         then error "Need at least 2 prices to simulate"
@@ -144,23 +171,28 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
               () =
                 if V.length highsV /= n || V.length lowsV /= n
                   then error "high/low vectors must match closes length"
-                  else if V.length kalPredNextV < kalNeed
-                  then
-                    error
-                      ( "kalPredNext too short: need at least "
-                          ++ show kalNeed
-                          ++ ", got "
-                          ++ show (V.length kalPredNextV)
-                      )
-                  else if V.length lstmPredNextV < lstmNeed
-                    then
-                      error
-                        ( "lstmPredNext too short: need at least "
-                            ++ show lstmNeed
-                            ++ ", got "
-                            ++ show (V.length lstmPredNextV)
-                        )
-                    else ()
+                  else
+                    if maybe False (\mv -> V.length mv < stepCount) mMetaV
+                      then error "meta vector too short for simulateEnsembleLongFlatVWithHL"
+                      else
+                        if V.length kalPredNextV < kalNeed
+                          then
+                            error
+                              ( "kalPredNext too short: need at least "
+                                  ++ show kalNeed
+                                  ++ ", got "
+                                  ++ show (V.length kalPredNextV)
+                              )
+                          else
+                            if V.length lstmPredNextV < lstmNeed
+                              then
+                                error
+                                  ( "lstmPredNext too short: need at least "
+                                      ++ show lstmNeed
+                                      ++ ", got "
+                                      ++ show (V.length lstmPredNextV)
+                                  )
+                              else ()
 
               perSideCost =
                 let fee = max 0 (ecFee cfg)
@@ -169,8 +201,10 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                     c = fee + slip + spr / 2
                  in min 0.999999 (max 0 c)
 
-              applyCost eq = eq * (1 - perSideCost)
-              applyTwoCosts eq = applyCost (applyCost eq)
+              applyCost :: Double -> Double -> Double
+              applyCost eq size =
+                let s = min 1 (max 0 (abs size))
+                 in eq * (1 - perSideCost * s)
 
               barHigh t1 =
                 let h = highsV V.! t1
@@ -191,30 +225,161 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                       (-1) -> 2 - px / basePx
                       _ -> 1
 
-              stepFn (pos, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc) t =
+              clamp01 :: Double -> Double
+              clamp01 x = max 0 (min 1 x)
+
+              scale01 :: Double -> Double -> Double -> Double
+              scale01 lo hi x =
+                let lo' = min lo hi
+                    hi' = max lo hi
+                 in if hi' <= lo' + 1e-12
+                      then if x >= hi' then 1 else 0
+                      else clamp01 ((x - lo') / (hi' - lo'))
+
+              metaAt :: Int -> Maybe StepMeta
+              metaAt t =
+                case mMetaV of
+                  Nothing -> Nothing
+                  Just mv -> if t >= 0 && t < V.length mv then Just (mv V.! t) else Nothing
+
+              intervalWidth :: StepMeta -> Maybe Double
+              intervalWidth m =
+                case (smConformalLo m, smConformalHi m) of
+                  (Just lo', Just hi') ->
+                    let w = hi' - lo'
+                     in if isNaN w || isInfinite w then Nothing else Just w
+                  _ -> Nothing
+
+              quantileWidth :: StepMeta -> Maybe Double
+              quantileWidth m =
+                case (smQuantile10 m, smQuantile90 m) of
+                  (Just q10', Just q90') ->
+                    let w = q90' - q10'
+                     in if isNaN w || isInfinite w then Nothing else Just w
+                  _ -> Nothing
+
+              kalmanZ :: StepMeta -> Double
+              kalmanZ m =
+                let var = max 0 (smKalmanVar m)
+                    std = sqrt var
+                    mu = smKalmanMean m
+                 in if std <= 0 || isNaN std || isInfinite std then 0 else abs mu / std
+
+              confirmConformal :: StepMeta -> Int -> Bool
+              confirmConformal m dir =
+                if not (ecConfirmConformal cfg)
+                  then True
+                  else
+                    case (smConformalLo m, smConformalHi m, dir) of
+                      (Just lo', _, 1) -> lo' > thr
+                      (_, Just hi', (-1)) -> hi' < negate thr
+                      _ -> False
+
+              confirmQuantiles :: StepMeta -> Int -> Bool
+              confirmQuantiles m dir =
+                if not (ecConfirmQuantiles cfg)
+                  then True
+                  else
+                    case (smQuantile10 m, smQuantile90 m, dir) of
+                      (Just q10', _, 1) -> q10' > thr
+                      (_, Just q90', (-1)) -> q90' < negate thr
+                      _ -> False
+
+              confidenceScoreKalman :: StepMeta -> Double
+              confidenceScoreKalman m =
+                let zMin = max 0 (ecKalmanZMin cfg)
+                    zMax = max zMin (ecKalmanZMax cfg)
+                    zScore = scale01 zMin zMax (kalmanZ m)
+                    hvScore =
+                      case (ecMaxHighVolProb cfg, smHighVolProb m) of
+                        (Just maxHv, Just hv) -> clamp01 ((maxHv - hv) / max 1e-12 maxHv)
+                        _ -> 1
+                    confScore =
+                      case (ecMaxConformalWidth cfg, intervalWidth m) of
+                        (Just maxW, Just w) -> clamp01 ((maxW - w) / max 1e-12 maxW)
+                        _ -> 1
+                    qScore =
+                      case (ecMaxQuantileWidth cfg, quantileWidth m) of
+                        (Just maxW, Just w) -> clamp01 ((maxW - w) / max 1e-12 maxW)
+                        _ -> 1
+                 in zScore * hvScore * confScore * qScore
+
+              gateKalmanDir :: StepMeta -> Double -> Maybe Int -> (Maybe Int, Double)
+              gateKalmanDir m confScore dirRaw =
+                case dirRaw of
+                  Nothing -> (Nothing, 0)
+                  Just dir ->
+                    let kalZ = kalmanZ m
+                        zMin = max 0 (ecKalmanZMin cfg)
+                        hvOk =
+                          case (ecMaxHighVolProb cfg, smHighVolProb m) of
+                            (Just maxHv, Just hv) -> hv <= maxHv
+                            (Just _, Nothing) -> False
+                            _ -> True
+                        confWidthOk =
+                          case (ecMaxConformalWidth cfg, intervalWidth m) of
+                            (Just maxW, Just w) -> w <= maxW
+                            (Just _, Nothing) -> False
+                            _ -> True
+                        qWidthOk =
+                          case (ecMaxQuantileWidth cfg, quantileWidth m) of
+                            (Just maxW, Just w) -> w <= maxW
+                            (Just _, Nothing) -> False
+                            _ -> True
+                        confOk = confScore >= max 0 (min 1 (ecMinPositionSize cfg))
+                        size0 = if ecConfidenceSizing cfg then confScore else 1
+                     in
+                      if kalZ < zMin
+                        then (Nothing, 0)
+                        else if not hvOk
+                          then (Nothing, 0)
+                          else if not confWidthOk
+                            then (Nothing, 0)
+                            else if not qWidthOk
+                              then (Nothing, 0)
+                              else if not (confirmConformal m dir)
+                                then (Nothing, 0)
+                                else if not (confirmQuantiles m dir)
+                                  then (Nothing, 0)
+                                  else if ecConfidenceSizing cfg && (not confOk || size0 <= 0)
+                                    then (Nothing, 0)
+                                    else (Just dir, if ecConfidenceSizing cfg then size0 else 1)
+
+              stepFn (posDir, posSize, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc) t =
                 let prev = pricesV V.! t
                     nextClose = pricesV V.! (t + 1)
                     hi = barHigh (t + 1)
                     lo = barLow (t + 1)
-                    (agreeOk, desiredPos) =
+                    (agreeOk, desiredDirRaw, desiredSizeRaw) =
                       if t < startT
-                        then (False, pos)
+                        then (False, posDir, posSize)
                         else
                           let kp = kalPredNextV V.! t
                               lp = lstmPredNextV V.! (t - startT)
-                              kalDir = direction prev kp
+                              kalDirRaw = direction prev kp
+                              (kalDir, kalSize) =
+                                case metaAt t of
+                                  Nothing -> (kalDirRaw, if kalDirRaw == Nothing then 0 else 1)
+                                  Just m ->
+                                    let confScore = confidenceScoreKalman m
+                                     in gateKalmanDir m confScore kalDirRaw
                               lstmDir = direction prev lp
                               agreeDir =
                                 if kalDir == lstmDir
                                   then kalDir
                                   else Nothing
                            in case agreeDir of
-                                Just 1 -> (True, desiredPosFromDir 1)
-                                Just (-1) -> (True, desiredPosFromDir (-1))
-                                _ -> (False, pos)
+                                Just 1 -> (True, desiredPosFromDir 1, kalSize)
+                                Just (-1) -> (True, desiredPosFromDir (-1), kalSize)
+                                _ -> (False, posDir, posSize)
 
-                    (posAfterSwitch, equityAfterSwitch, changes', openTrade', tradesAcc') =
-                      if desiredPos /= pos
+                    desiredSize =
+                      if desiredDirRaw == 0
+                        then 0
+                        else min 1 (max 0 desiredSizeRaw)
+
+                    (posAfterSwitch, posSizeAfterSwitch, equityAfterSwitch, changes', openTrade', tradesAcc') =
+                      if desiredDirRaw /= posDir
                         then
                           let closeTradeAt exitIndex why eqExit ot =
                                 Trade
@@ -231,38 +396,40 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                   { otEntryIndex = t
                                   , otEntryEquity = eqEntry
                                   , otHoldingPeriods = 0
-                                  , otEntryPrice = prev
-                                  , otTrail = prev
-                                  , otDir = dir
-                                  }
-                           in case (pos, desiredPos, openTrade) of
-                                (0, dir, Nothing) | dir /= 0 ->
-                                  let eq1 = applyCost equity
-                                   in (dir, eq1, changes + 1, Just (openTradeFor dir eq1), tradesAcc)
+                                      , otEntryPrice = prev
+                                      , otTrail = prev
+                                      , otDir = dir
+                                      }
+                           in case (posDir, desiredDirRaw, openTrade) of
+                                (0, dir, Nothing) | dir /= 0 && desiredSize > 0 ->
+                                  let eq1 = applyCost equity desiredSize
+                                   in (dir, desiredSize, eq1, changes + 1, Just (openTradeFor dir eq1), tradesAcc)
                                 (dir0, 0, Just ot) | dir0 /= 0 ->
-                                  let eq1 = applyCost equity
+                                  let eq1 = applyCost equity posSize
                                       tr = closeTradeAt t "SIGNAL" eq1 ot
-                                   in (0, eq1, changes + 1, Nothing, tr : tradesAcc)
-                                (dir0, dir1, Just ot) | dir0 /= 0 && dir1 /= 0 && dir0 /= dir1 ->
-                                  let eqExit = applyCost equity
+                                   in (0, 0, eq1, changes + 1, Nothing, tr : tradesAcc)
+                                (dir0, dir1, Just ot) | dir0 /= 0 && dir1 /= 0 && dir0 /= dir1 && desiredSize > 0 ->
+                                  let eqExit = applyCost equity posSize
                                       tr = closeTradeAt t "SIGNAL" eqExit ot
-                                      eqEntry = applyCost eqExit
-                                   in (dir1, eqEntry, changes + 1, Just (openTradeFor dir1 eqEntry), tr : tradesAcc)
-                                (dir0, dir1, Nothing) | dir0 /= 0 && dir1 /= 0 && dir0 /= dir1 ->
-                                  let eqExit = applyCost equity
-                                      eqEntry = applyCost eqExit
-                                   in (dir1, eqEntry, changes + 1, Just (openTradeFor dir1 eqEntry), tradesAcc)
+                                      eqEntry = applyCost eqExit desiredSize
+                                   in (dir1, desiredSize, eqEntry, changes + 1, Just (openTradeFor dir1 eqEntry), tr : tradesAcc)
+                                (dir0, dir1, Nothing) | dir0 /= 0 && dir1 /= 0 && dir0 /= dir1 && desiredSize > 0 ->
+                                  let eqExit = applyCost equity posSize
+                                      eqEntry = applyCost eqExit desiredSize
+                                   in (dir1, desiredSize, eqEntry, changes + 1, Just (openTradeFor dir1 eqEntry), tradesAcc)
                                 _ ->
-                                  let eq1 = applyCost equity
-                                   in (desiredPos, eq1, changes + 1, openTrade, tradesAcc)
-                        else (pos, equity, changes, openTrade, tradesAcc)
+                                  let eq1 = applyCost equity posSize
+                                   in (desiredDirRaw, posSize, eq1, changes + 1, openTrade, tradesAcc)
+                        else (posDir, posSize, equity, changes, openTrade, tradesAcc)
 
                     equityAtClose =
-                      if posAfterSwitch /= 0
-                        then equityAfterSwitch * markToMarket posAfterSwitch prev nextClose
+                      if posAfterSwitch /= 0 && posSizeAfterSwitch > 0
+                        then
+                          let factor = markToMarket posAfterSwitch prev nextClose
+                           in equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
                         else equityAfterSwitch
 
-                    (posFinal, equityFinal, changesFinal, openTradeFinal, tradesFinal) =
+                    (posFinal, posSizeFinal, equityFinal, changesFinal, openTradeFinal, tradesFinal) =
                       case (posAfterSwitch, openTrade') of
                         (1, Just ot0) ->
                           let otHeld = ot0 { otHoldingPeriods = otHoldingPeriods ot0 + 1 }
@@ -312,8 +479,9 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                               else (Nothing, trail1)
                            in case exitOrTrail of
                                 (Just (exitPx, reason), _trailUsed) ->
-                                  let exitEq0 = equityAfterSwitch * markToMarket 1 prev exitPx
-                                      exitEq = applyCost exitEq0
+                                  let factor = markToMarket 1 prev exitPx
+                                      exitEq0 = equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
+                                      exitEq = applyCost exitEq0 posSizeAfterSwitch
                                       tr =
                                         Trade
                                           { trEntryIndex = otEntryIndex otHeld
@@ -324,10 +492,10 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                           , trHoldingPeriods = otHoldingPeriods otHeld
                                           , trExitReason = reason
                                           }
-                                   in (0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
+                                   in (0, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
                                 (Nothing, trail1) ->
                                   let otCont = otHeld { otTrail = trail1 }
-                                   in (1, equityAtClose, changes', Just otCont, tradesAcc')
+                                   in (1, posSizeAfterSwitch, equityAtClose, changes', Just otCont, tradesAcc')
                         ((-1), Just ot0) ->
                           let otHeld = ot0 { otHoldingPeriods = otHoldingPeriods ot0 + 1 }
                               entryPx = otEntryPrice ot0
@@ -376,8 +544,9 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                               else (Nothing, trail1)
                            in case exitOrTrail of
                                 (Just (exitPx, reason), _trailUsed) ->
-                                  let exitEq0 = equityAfterSwitch * markToMarket (-1) prev exitPx
-                                      exitEq = applyCost exitEq0
+                                  let factor = markToMarket (-1) prev exitPx
+                                      exitEq0 = equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
+                                      exitEq = applyCost exitEq0 posSizeAfterSwitch
                                       tr =
                                         Trade
                                           { trEntryIndex = otEntryIndex otHeld
@@ -388,25 +557,26 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                           , trHoldingPeriods = otHoldingPeriods otHeld
                                           , trExitReason = reason
                                           }
-                                   in (0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
+                                   in (0, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
                                 (Nothing, trail1) ->
                                   let otCont = otHeld { otTrail = trail1 }
-                                   in ((-1), equityAtClose, changes', Just otCont, tradesAcc')
-                        _ -> (posAfterSwitch, equityAtClose, changes', openTrade', tradesAcc')
+                                   in ((-1), posSizeAfterSwitch, equityAtClose, changes', Just otCont, tradesAcc')
+                        _ -> (posAfterSwitch, posSizeAfterSwitch, equityAtClose, changes', openTrade', tradesAcc')
                  in ( posFinal
+                    , posSizeFinal
                     , equityFinal
                     , equityFinal : eqAcc
-                    , posAfterSwitch : posAcc
+                    , (fromIntegral posAfterSwitch * posSizeAfterSwitch) : posAcc
                     , agreeOk : agreeAcc
                     , changesFinal
                     , openTradeFinal
                     , tradesFinal
                     )
 
-              (_finalPos, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev) =
+              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev) =
                 foldl'
                   stepFn
-                  (0 :: Int, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe OpenTrade, [])
+                  (0 :: Int, 0 :: Double, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe OpenTrade, [])
                   [0 .. stepCount - 1]
 
               eqCurve0 = reverse eqRev
@@ -414,7 +584,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                 case openTrade of
                   Nothing -> (eqCurve0, tradesRev)
                   Just ot ->
-                    let exitEq = applyCost finalEq
+                    let exitEq = applyCost finalEq finalPosSize
                         tr =
                           Trade
                             { trEntryIndex = otEntryIndex ot

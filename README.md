@@ -289,6 +289,12 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` requi
 
 The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (long-flat only).
 
+Troubleshooting: “No live operations yet”
+- The live bot only records an operation when it switches position (BUY/SELL). If the latest signal is `HOLD`/neutral, the operations list stays empty.
+- A signal is neutral when the predicted next price is within the `threshold` deadband: it must be `> currentPrice*(1+threshold)` for UP or `< currentPrice*(1-threshold)` for DOWN.
+- With `positioning=long-flat` (required by `/bot/start`), a DOWN signal while already flat does nothing; you’ll only see a SELL after you previously bought.
+- If you want it to trade more often, lower `threshold` (or run “Optimize threshold/operations”) and/or use a higher timeframe.
+
 Assumptions and limitations
 ---------------------------
 - The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests) and does not include sizing, risk limits, or robust transaction cost modeling.

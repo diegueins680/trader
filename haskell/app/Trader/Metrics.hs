@@ -18,7 +18,9 @@ data BacktestMetrics = BacktestMetrics
   , bmTradeCount :: !Int
   , bmRoundTrips :: !Int
   , bmWinRate :: !Double
-  , bmProfitFactor :: !Double
+  , bmGrossProfit :: !Double
+  , bmGrossLoss :: !Double
+  , bmProfitFactor :: !(Maybe Double)
   , bmAvgTradeReturn :: !Double
   , bmAvgHoldingPeriods :: !Double
   , bmExposure :: !Double
@@ -55,14 +57,19 @@ computeMetrics periodsPerYear br =
       winRate = if null tradeReturns then 0 else fromIntegral wins / fromIntegral (length tradeReturns)
       grossProfits = sum (filter (> 0) tradeReturns)
       grossLosses = abs (sum (filter (< 0) tradeReturns))
-      profitFactor = if grossLosses == 0 then (if grossProfits > 0 then 1/0 else 0) else grossProfits / grossLosses
+      profitFactor =
+        if grossLosses > 0
+          then Just (grossProfits / grossLosses)
+          else if grossProfits > 0
+            then Nothing
+            else Just 0
       avgTrade = if null tradeReturns then 0 else mean tradeReturns
       holding = map trHoldingPeriods trades
       avgHold = if null holding then 0 else fromIntegral (sum holding) / fromIntegral (length holding)
 
       exposure =
         let pos = brPositions br
-         in if null pos then 0 else fromIntegral (length (filter (/= 0) pos)) / fromIntegral (length pos)
+         in if null pos then 0 else sum (map abs pos) / fromIntegral (length pos)
 
       agree =
         let flags = brAgreementOk br
@@ -82,6 +89,8 @@ computeMetrics periodsPerYear br =
         , bmTradeCount = brPositionChanges br
         , bmRoundTrips = roundTrips
         , bmWinRate = winRate
+        , bmGrossProfit = grossProfits
+        , bmGrossLoss = grossLosses
         , bmProfitFactor = profitFactor
         , bmAvgTradeReturn = avgTrade
         , bmAvgHoldingPeriods = avgHold

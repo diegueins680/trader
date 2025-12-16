@@ -70,11 +70,16 @@ docker push "${ECR_URI}:latest"
 - Environment variables:
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
+  - Optional: operation persistence (append-only JSONL) for `GET /ops`:
+    - `TRADER_OPS_DIR=/tmp/trader-ops` (ephemeral unless you mount durable storage)
+    - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`)
   - Optional safety limits (to avoid OOM / timeouts on small instances):
     - `TRADER_API_MAX_ASYNC_RUNNING` (default: `1`)
     - `TRADER_API_MAX_BARS_LSTM` (default: `300`)
     - `TRADER_API_MAX_EPOCHS` (default: `60`)
     - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`)
+  - Optional async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
+    - `TRADER_API_ASYNC_DIR` (e.g. an EFS-mounted path). When set, async job polling can succeed across restarts/instances.
 
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).
 
@@ -126,5 +131,6 @@ If you prefer the UI calling `/api/*` on the same domain, configure a CloudFront
 
 Notes:
 - You can also override the API base at runtime from the UI (stored in local storage) via the “API base URL” field.
+- If you run multiple backend instances, either keep it single-instance or set `TRADER_API_ASYNC_DIR` to a shared writable directory (CloudFront itself is not sticky, so in-memory async jobs can return “Not found” when polling hits a different instance).
 - If you *do* prefer same-origin `/api/*` routing, see “CloudFront `/api/*` proxy (optional)” above.
 - After uploading a new UI build to S3, invalidate CloudFront so clients fetch the new hashed JS/CSS assets.

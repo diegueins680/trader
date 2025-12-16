@@ -10,7 +10,7 @@ import Data.List (foldl', group, sort)
 import qualified Data.Vector as V
 
 import Trader.Method (Method(..))
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), simulateEnsembleLongFlatV, simulateEnsembleLongFlatVWithHL)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), StepMeta(..), simulateEnsembleLongFlatV, simulateEnsembleLongFlatVWithHL)
 
 bestFinalEquity :: BacktestResult -> Double
 bestFinalEquity br =
@@ -18,12 +18,12 @@ bestFinalEquity br =
     [] -> 1.0
     xs -> last xs
 
-optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> (Method, Double, BacktestResult)
-optimizeOperations baseCfg prices kalPred lstmPred =
-  optimizeOperationsWithHL baseCfg prices prices prices kalPred lstmPred
+optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Method, Double, BacktestResult)
+optimizeOperations baseCfg prices kalPred lstmPred mMeta =
+  optimizeOperationsWithHL baseCfg prices prices prices kalPred lstmPred mMeta
 
-optimizeOperationsWithHL :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> (Method, Double, BacktestResult)
-optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred =
+optimizeOperationsWithHL :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Method, Double, BacktestResult)
+optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred mMeta =
   let eps = 1e-12
       methodRank m =
         case m of
@@ -31,7 +31,7 @@ optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred =
           MethodKalmanOnly -> 1
           MethodLstmOnly -> 0
       eval m =
-        let (thr, bt) = sweepThresholdWithHL m baseCfg closes highs lows kalPred lstmPred
+        let (thr, bt) = sweepThresholdWithHL m baseCfg closes highs lows kalPred lstmPred mMeta
             eq = bestFinalEquity bt
          in (eq, m, thr, bt)
       candidates = map eval [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
@@ -50,12 +50,12 @@ optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred =
       (_, bestM, bestThr, bestBt) = foldl' pick c cs
   in (bestM, bestThr, bestBt)
 
-sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> (Double, BacktestResult)
-sweepThreshold method baseCfg prices kalPred lstmPred =
-  sweepThresholdWithHL method baseCfg prices prices prices kalPred lstmPred
+sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Double, BacktestResult)
+sweepThreshold method baseCfg prices kalPred lstmPred mMeta =
+  sweepThresholdWithHL method baseCfg prices prices prices kalPred lstmPred mMeta
 
-sweepThresholdWithHL :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> (Double, BacktestResult)
-sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred =
+sweepThresholdWithHL :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Double, BacktestResult)
+sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
   let pricesV = V.fromList closes
       highsV = V.fromList highs
       lowsV = V.fromList lows
@@ -65,6 +65,12 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred =
 
       kalV = V.fromList kalPred
       lstmV = V.fromList lstmPred
+
+      metaV = V.fromList <$> mMeta
+      metaUsed =
+        case method of
+          MethodLstmOnly -> Nothing
+          _ -> metaV
 
       (kalUsedV, lstmUsedV) =
         case method of
@@ -112,7 +118,7 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred =
 
       eval thr =
         let cfg = baseCfg { ecTradeThreshold = thr }
-            bt = simulateEnsembleLongFlatVWithHL cfg 1 pricesV highsV lowsV kalUsedV lstmUsedV
+            bt = simulateEnsembleLongFlatVWithHL cfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
          in (bestFinalEquity bt, thr, bt)
 
       (baseEq, baseThr, baseBt) = eval (max 0 baseThreshold)

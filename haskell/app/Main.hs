@@ -2399,13 +2399,22 @@ runRestApi baseArgs = do
   metrics <- newMetrics
   mJournal <- newJournalFromEnv
   mOps <- newOpsStoreFromEnv
+  asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
+  let mAsyncDir =
+        case trim <$> asyncDirEnv of
+          Nothing -> Nothing
+          Just dir | null dir -> Nothing
+          Just dir -> Just dir
+  case mAsyncDir of
+    Nothing -> pure ()
+    Just dir -> putStrLn (printf "Async job persistence enabled: %s" dir)
   now <- getTimestampMs
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
   opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing
   bot <- newBotController
-  asyncSignal <- newJobStore "signal" maxAsyncRunning
-  asyncBacktest <- newJobStore "backtest" maxAsyncRunning
-  asyncTrade <- newJobStore "trade" maxAsyncRunning
+  asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
+  asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
+  asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
   Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal mOps limits (AsyncStores asyncSignal asyncBacktest asyncTrade))
 
 corsHeaders :: ResponseHeaders
@@ -2435,6 +2444,7 @@ data JobStore a = JobStore
   , jsTtlMs :: !Int64
   , jsRunning :: !(MVar Int)
   , jsMaxRunning :: !Int
+  , jsDir :: !(Maybe FilePath)
   }
 
 data JobEntry a = JobEntry
@@ -2442,11 +2452,18 @@ data JobEntry a = JobEntry
   , jeResult :: !(MVar (Either String a))
   }
 
-newJobStore :: Text -> Int -> IO (JobStore a)
-newJobStore prefix maxRunning = do
+newJobStore :: Text -> Int -> Maybe FilePath -> IO (JobStore a)
+newJobStore prefix maxRunning mAsyncDir = do
   counter <- newIORef 0
   jobs <- newMVar HM.empty
   running <- newMVar 0
+  let mDir =
+        case mAsyncDir of
+          Nothing -> Nothing
+          Just baseDir -> Just (baseDir </> T.unpack prefix)
+  case mDir of
+    Nothing -> pure ()
+    Just dir -> createDirectoryIfMissing True dir
   pure
     JobStore
       { jsPrefix = prefix
@@ -2456,45 +2473,158 @@ newJobStore prefix maxRunning = do
       , jsTtlMs = 30 * 60 * 1000
       , jsRunning = running
       , jsMaxRunning = max 1 maxRunning
+      , jsDir = mDir
       }
 
 pruneJobStore :: JobStore a -> Int64 -> IO ()
-pruneJobStore store now = modifyMVar_ (jsJobs store) $ \jobs0 -> do
-  jobs1 <-
-    fmap HM.fromList $
-      fmap mapMaybeM $
-        mapM
-          ( \(k, e) -> do
-              done <- isJust <$> tryReadMVar (jeResult e)
-              let expired = done && now - jeCreatedAtMs e > jsTtlMs store
-              pure (if expired then Nothing else Just (k, e))
-          )
-          (HM.toList jobs0)
+pruneJobStore store now = do
+  modifyMVar_ (jsJobs store) $ \jobs0 -> do
+    jobs1 <-
+      fmap HM.fromList $
+        fmap (mapMaybe id) $
+          mapM
+            ( \(k, e) -> do
+                done <- isJust <$> tryReadMVar (jeResult e)
+                let expired = done && now - jeCreatedAtMs e > jsTtlMs store
+                pure (if expired then Nothing else Just (k, e))
+            )
+            (HM.toList jobs0)
 
-  let maxJobs = max 1 (jsMaxJobs store)
-  if HM.size jobs1 <= maxJobs
-    then pure jobs1
-    else do
-      annotated <-
-        mapM
-          ( \(k, e) -> do
-              done <- isJust <$> tryReadMVar (jeResult e)
-              pure (k, jeCreatedAtMs e, done)
+    let maxJobs = max 1 (jsMaxJobs store)
+    if HM.size jobs1 <= maxJobs
+      then pure jobs1
+      else do
+        annotated <-
+          mapM
+            ( \(k, e) -> do
+                done <- isJust <$> tryReadMVar (jeResult e)
+                pure (k, jeCreatedAtMs e, done)
+            )
+            (HM.toList jobs1)
+        let doneSorted =
+              take (HM.size jobs1 - maxJobs) $
+                sortOn
+                  (\(_k, createdAt, _done) -> createdAt)
+                  [x | x@(_k, _createdAt, done) <- annotated, done]
+            dropKeys = [k | (k, _createdAt, _done) <- doneSorted]
+            jobs2 = foldl' (flip HM.delete) jobs1 dropKeys
+        pure jobs2
+
+  pruneJobStoreDisk store now
+
+data StoredAsyncJobMeta = StoredAsyncJobMeta
+  { sajStatus :: !String
+  , sajCreatedAtMs :: !(Maybe Int64)
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON StoredAsyncJobMeta where
+  parseJSON =
+    Aeson.withObject "StoredAsyncJobMeta" $ \o ->
+      StoredAsyncJobMeta
+        <$> o Aeson..: "status"
+        <*> o Aeson..:? "createdAtMs"
+
+isSafeJobId :: Text -> Bool
+isSafeJobId jobId =
+  let s = T.unpack jobId
+   in not (null s)
+        && length s <= 200
+        && all (\c -> isAlphaNum c || c == '-' || c == '_') s
+
+jobFilePath :: JobStore a -> Text -> Maybe FilePath
+jobFilePath store jobId =
+  case jsDir store of
+    Nothing -> Nothing
+    Just dir ->
+      let prefixOk = (jsPrefix store <> "-") `T.isPrefixOf` jobId
+       in if prefixOk && isSafeJobId jobId
+            then Just (dir </> (T.unpack jobId ++ ".json"))
+            else Nothing
+
+writeJobFile :: JobStore a -> Text -> Aeson.Value -> IO ()
+writeJobFile store jobId payload =
+  case jobFilePath store jobId of
+    Nothing -> pure ()
+    Just path -> do
+      let tmp = path ++ ".tmp"
+      _ <-
+        try
+          ( do
+              createDirectoryIfMissing True (takeDirectory path)
+              BL.writeFile tmp (encode payload)
+              renameFile tmp path
           )
-          (HM.toList jobs1)
-      let doneSorted =
-            take (HM.size jobs1 - maxJobs) $
-              sortOn
-                (\(_k, createdAt, _done) -> createdAt)
-                [x | x@(_k, _createdAt, done) <- annotated, done]
-          dropKeys = [k | (k, _createdAt, _done) <- doneSorted]
-          jobs2 = foldl' (flip HM.delete) jobs1 dropKeys
-      pure jobs2
+          :: IO (Either SomeException ())
+      pure ()
+
+readJobFile :: JobStore a -> Text -> IO (Maybe Aeson.Value)
+readJobFile store jobId =
+  case jobFilePath store jobId of
+    Nothing -> pure Nothing
+    Just path -> do
+      exists <- doesFileExist path
+      if not exists
+        then pure Nothing
+        else do
+          eBs <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+          case eBs of
+            Left _ -> pure Nothing
+            Right bs ->
+              case eitherDecode bs of
+                Left _ -> pure Nothing
+                Right v -> pure (Just v)
+
+pruneJobStoreDisk :: JobStore a -> Int64 -> IO ()
+pruneJobStoreDisk store now =
+  case jsDir store of
+    Nothing -> pure ()
+    Just dir -> do
+      eNames <- try (listDirectory dir) :: IO (Either SomeException [FilePath])
+      case eNames of
+        Left _ -> pure ()
+        Right names0 -> do
+          let names = [n | n <- names0, ".json" `isSuffixOf` n]
+          parsed <-
+            mapM
+              ( \name -> do
+                  let path = dir </> name
+                  eBs <- try (BL.readFile path) :: IO (Either SomeException BL.ByteString)
+                  case eBs of
+                    Left _ -> pure Nothing
+                    Right bs ->
+                      case eitherDecode bs of
+                        Left _ -> pure Nothing
+                        Right meta -> pure (Just (path, meta :: StoredAsyncJobMeta))
+              )
+              names
+          let entries = mapMaybe id parsed
+              isDoneOrError st = st == "done" || st == "error"
+              isExpired meta =
+                case sajCreatedAtMs meta of
+                  Just createdAt ->
+                    isDoneOrError (sajStatus meta) && now - createdAt > jsTtlMs store
+                  Nothing -> False
+              expiredPaths = [path | (path, meta) <- entries, isExpired meta]
+          mapM_ removeFileSafe expiredPaths
+
+          let maxJobs = max 1 (jsMaxJobs store)
+              kept = [(path, meta) | (path, meta) <- entries, not (isExpired meta)]
+              totalAfter = length names - length expiredPaths
+          if totalAfter <= maxJobs
+            then pure ()
+            else do
+              let doneSorted =
+                    sortOn
+                      (\(_path, meta) -> maybe (maxBound :: Int64) id (sajCreatedAtMs meta))
+                      [x | x@(_path, meta) <- kept, isDoneOrError (sajStatus meta)]
+                  dropCount = totalAfter - maxJobs
+              mapM_ (removeFileSafe . fst) (take dropCount doneSorted)
   where
-    mapMaybeM :: [Maybe a] -> [a]
-    mapMaybeM = mapMaybe id
+    removeFileSafe path = do
+      _ <- try (removeFile path) :: IO (Either SomeException ())
+      pure ()
 
-startJob :: JobStore a -> IO a -> IO (Either String Text)
+startJob :: ToJSON a => JobStore a -> IO a -> IO (Either String Text)
 startJob store action = do
   now <- getTimestampMs
   pruneJobStore store now
@@ -2507,19 +2637,24 @@ startJob store action = do
     then pure (Left "Too many requests. Try again in a moment.")
     else do
       n <- atomicModifyIORef' (jsCounter store) (\x -> let y = x + 1 in (y, y))
-      let jobId = jsPrefix store <> "-" <> T.pack (show n)
+      let jobId = jsPrefix store <> "-" <> T.pack (show now) <> "-" <> T.pack (show n)
       out <- newEmptyMVar
       modifyMVar_ (jsJobs store) (pure . HM.insert jobId (JobEntry now out))
+      writeJobFile store jobId (object ["status" .= ("running" :: String), "createdAtMs" .= now])
       _ <-
         forkIO $
           ( do
               r <- try action
               case r of
                 Right v -> do
+                  doneAt <- getTimestampMs
+                  writeJobFile store jobId (object ["status" .= ("done" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "result" .= v])
                   _ <- tryPutMVar out (Right v)
                   pure ()
                 Left ex -> do
                   let (_, msg) = exceptionToHttp ex
+                  doneAt <- getTimestampMs
+                  writeJobFile store jobId (object ["status" .= ("error" :: String), "createdAtMs" .= now, "completedAtMs" .= doneAt, "error" .= msg])
                   _ <- tryPutMVar out (Left msg)
                   pure ()
           )
@@ -2620,24 +2755,24 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
                     ( jsonValue
                         status200
                         ( object
-	                            [ "name" .= ("trader-hs" :: String)
-	                            , "endpoints"
-	                                .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
-	                                   , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
-	                                   , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
-	                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
-	                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
-	                                   , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
-	                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
-	                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
-	                                   , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
-	                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
-	                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
-	                                   , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
-	                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
-	                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
-	                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
-	                                   , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
+                            [ "name" .= ("trader-hs" :: String)
+                            , "endpoints"
+                                .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
                                    ]
                             ]
                         )
@@ -3026,13 +3161,32 @@ handleAsyncPoll store jobId respond = do
   pruneJobStore store now
   mEntry <- withMVar (jsJobs store) (pure . HM.lookup jobId)
   case mEntry of
-    Nothing -> respond (jsonValue status200 (object ["status" .= ("error" :: String), "error" .= ("Not found" :: String)]))
+    Nothing -> do
+      mDisk <- readJobFile store jobId
+      case mDisk of
+        Just v -> respond (jsonValue status200 v)
+        Nothing -> respond (jsonValue status200 (object ["status" .= ("error" :: String), "error" .= ("Not found" :: String)]))
     Just entry -> do
       r <- tryReadMVar (jeResult entry)
       case r of
-        Nothing -> respond (jsonValue status200 (object ["status" .= ("running" :: String)]))
-        Just (Left err) -> respond (jsonValue status200 (object ["status" .= ("error" :: String), "error" .= err]))
-        Just (Right v) -> respond (jsonValue status200 (object ["status" .= ("done" :: String), "result" .= v]))
+        Nothing ->
+          respond
+            ( jsonValue
+                status200
+                (object ["status" .= ("running" :: String), "createdAtMs" .= jeCreatedAtMs entry])
+            )
+        Just (Left err) ->
+          respond
+            ( jsonValue
+                status200
+                (object ["status" .= ("error" :: String), "createdAtMs" .= jeCreatedAtMs entry, "error" .= err])
+            )
+        Just (Right v) ->
+          respond
+            ( jsonValue
+                status200
+                (object ["status" .= ("done" :: String), "createdAtMs" .= jeCreatedAtMs entry, "result" .= v])
+            )
 
 handleBinanceKeys :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceKeys baseArgs req respond = do
@@ -3867,6 +4021,8 @@ metricsToJson m =
     , "tradeCount" .= bmTradeCount m
     , "roundTrips" .= bmRoundTrips m
     , "winRate" .= bmWinRate m
+    , "grossProfit" .= bmGrossProfit m
+    , "grossLoss" .= bmGrossLoss m
     , "profitFactor" .= bmProfitFactor m
     , "avgTradeReturn" .= bmAvgTradeReturn m
     , "avgHoldingPeriods" .= bmAvgHoldingPeriods m
@@ -3951,19 +4107,19 @@ runBacktestPipeline args lookback series mBinanceEnv = do
         then
           putStrLn
             ( printf
-	                "Optimized on tune split: method=%s threshold=%.6f (%.3f%%)"
-	                (methodCode (bsMethodUsed summary))
-	                (bsBestThreshold summary)
-	                (bsBestThreshold summary * 100)
-	            )
+                "Optimized on tune split: method=%s threshold=%.6f (%.3f%%)"
+                (methodCode (bsMethodUsed summary))
+                (bsBestThreshold summary)
+                (bsBestThreshold summary * 100)
+            )
         else if argSweepThreshold args
           then
             putStrLn
               ( printf
-	                  "Best threshold on tune split (by final equity): %.6f (%.3f%%)"
-	                  (bsBestThreshold summary)
-	                  (bsBestThreshold summary * 100)
-	              )
+                  "Best threshold on tune split (by final equity): %.6f (%.3f%%)"
+                  (bsBestThreshold summary)
+                  (bsBestThreshold summary * 100)
+              )
           else pure ()
 
       putStrLn $
@@ -4323,65 +4479,65 @@ computeBacktestSummary args lookback series = do
           , Just meta
           )
 
-	  let baseCfg =
-	        EnsembleConfig
-	          { ecTradeThreshold = argTradeThreshold args
-	          , ecFee = argFee args
-	          , ecSlippage = argSlippage args
-	          , ecSpread = argSpread args
-	          , ecStopLoss = argStopLoss args
-	          , ecTakeProfit = argTakeProfit args
-	          , ecTrailingStop = argTrailingStop args
-	          , ecPositioning = argPositioning args
-	          , ecIntrabarFill = argIntrabarFill args
-	          , ecKalmanZMin = argKalmanZMin args
-	          , ecKalmanZMax = argKalmanZMax args
-	          , ecMaxHighVolProb = argMaxHighVolProb args
-	          , ecMaxConformalWidth = argMaxConformalWidth args
-	          , ecMaxQuantileWidth = argMaxQuantileWidth args
-	          , ecConfirmConformal = argConfirmConformal args
-	          , ecConfirmQuantiles = argConfirmQuantiles args
-	          , ecConfidenceSizing = argConfidenceSizing args
-	          , ecMinPositionSize = argMinPositionSize args
-	          }
+  let baseCfg =
+        EnsembleConfig
+          { ecTradeThreshold = argTradeThreshold args
+          , ecFee = argFee args
+          , ecSlippage = argSlippage args
+          , ecSpread = argSpread args
+          , ecStopLoss = argStopLoss args
+          , ecTakeProfit = argTakeProfit args
+          , ecTrailingStop = argTrailingStop args
+          , ecPositioning = argPositioning args
+          , ecIntrabarFill = argIntrabarFill args
+          , ecKalmanZMin = argKalmanZMin args
+          , ecKalmanZMax = argKalmanZMax args
+          , ecMaxHighVolProb = argMaxHighVolProb args
+          , ecMaxConformalWidth = argMaxConformalWidth args
+          , ecMaxQuantileWidth = argMaxQuantileWidth args
+          , ecConfirmConformal = argConfirmConformal args
+          , ecConfirmQuantiles = argConfirmQuantiles args
+          , ecConfidenceSizing = argConfidenceSizing args
+          , ecMinPositionSize = argMinPositionSize args
+          }
 
-	      offsetBacktestPred = max 0 (trainEnd - predStart)
-	      kalPredBacktest = drop offsetBacktestPred kalPredAll
-	      lstmPredBacktest = drop offsetBacktestPred lstmPredAll
-	      kalPredTune = take (max 0 (tuneSize - 1)) kalPredAll
-	      lstmPredTune = take (max 0 (tuneSize - 1)) lstmPredAll
-	      metaBacktest = fmap (drop offsetBacktestPred) mMetaAll
-	      metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
+      offsetBacktestPred = max 0 (trainEnd - predStart)
+      kalPredBacktest = drop offsetBacktestPred kalPredAll
+      lstmPredBacktest = drop offsetBacktestPred lstmPredAll
+      kalPredTune = take (max 0 (tuneSize - 1)) kalPredAll
+      lstmPredTune = take (max 0 (tuneSize - 1)) lstmPredAll
+      metaBacktest = fmap (drop offsetBacktestPred) mMetaAll
+      metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
 
-	      (methodUsed, bestThreshold) =
-	        if argOptimizeOperations args
-	          then
-	            let (m, thr, _btTune) =
-	                  optimizeOperationsWithHL baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
-	             in (m, thr)
-	          else if argSweepThreshold args
-	            then
-	              let (thr, _btTune) =
-	                    sweepThresholdWithHL methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
-	               in (methodRequested, thr)
-	            else (methodRequested, argTradeThreshold args)
+      (methodUsed, bestThreshold) =
+        if argOptimizeOperations args
+          then
+            let (m, thr, _btTune) =
+                  optimizeOperationsWithHL baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
+             in (m, thr)
+          else if argSweepThreshold args
+            then
+              let (thr, _btTune) =
+                    sweepThresholdWithHL methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
+               in (methodRequested, thr)
+            else (methodRequested, argTradeThreshold args)
 
-	      backtestCfg = baseCfg { ecTradeThreshold = bestThreshold }
-	      (kalPredUsedBacktest, lstmPredUsedBacktest) = selectPredictions methodUsed kalPredBacktest lstmPredBacktest
-	      metaUsedBacktest =
-	        case methodUsed of
-	          MethodLstmOnly -> Nothing
-	          _ -> metaBacktest
-	      backtest =
-	        simulateEnsembleLongFlatWithHL
-	          backtestCfg
-	          1
-	          backtestPrices
-	          backtestHighs
-	          backtestLows
-	          kalPredUsedBacktest
-	          lstmPredUsedBacktest
-	          metaUsedBacktest
+      backtestCfg = baseCfg { ecTradeThreshold = bestThreshold }
+      (kalPredUsedBacktest, lstmPredUsedBacktest) = selectPredictions methodUsed kalPredBacktest lstmPredBacktest
+      metaUsedBacktest =
+        case methodUsed of
+          MethodLstmOnly -> Nothing
+          _ -> metaBacktest
+      backtest =
+        simulateEnsembleLongFlatWithHL
+          backtestCfg
+          1
+          backtestPrices
+          backtestHighs
+          backtestLows
+          kalPredUsedBacktest
+          lstmPredUsedBacktest
+          metaUsedBacktest
 
       ppy = periodsPerYear args
       metrics = computeMetrics ppy backtest
@@ -4965,7 +5121,17 @@ printMetrics method m = do
   putStrLn (printf "Position changes: %d" (bmTradeCount m))
   putStrLn (printf "Round trips: %d" (bmRoundTrips m))
   putStrLn (printf "Win rate: %.1f%%" (bmWinRate m * 100))
-  putStrLn (printf "Profit factor: %.3f" (bmProfitFactor m))
+  let profitFactorLabel :: String
+      profitFactorLabel =
+        case bmProfitFactor m of
+          Just pf -> printf "%.3f" pf
+          Nothing ->
+            if bmGrossProfit m > 0
+              then "∞"
+              else "0"
+  putStrLn (printf "Gross profit: %.4f" (bmGrossProfit m))
+  putStrLn (printf "Gross loss: %.4f" (bmGrossLoss m))
+  putStrLn (printf "Profit factor: %s" profitFactorLabel)
   putStrLn (printf "Avg trade return: %.2f%%" (bmAvgTradeReturn m * 100))
   putStrLn (printf "Avg holding (periods): %.2f" (bmAvgHoldingPeriods m))
 

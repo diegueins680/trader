@@ -211,8 +211,17 @@ testAgreementGate = do
           , ecTrailingStop = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
           }
-      res = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred
+      res = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred Nothing
   assert "expected one position change" (brPositionChanges res == 1)
 
 testLongShortDownMove :: IO ()
@@ -232,9 +241,18 @@ testLongShortDownMove = do
           , ecTrailingStop = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
           }
-      btFlat = simulateEnsembleLongFlat baseCfg lookback prices kalPred lstmPred
-      btShort = simulateEnsembleLongFlat (baseCfg { ecPositioning = LongShort }) lookback prices kalPred lstmPred
+      btFlat = simulateEnsembleLongFlat baseCfg lookback prices kalPred lstmPred Nothing
+      btShort = simulateEnsembleLongFlat (baseCfg { ecPositioning = LongShort }) lookback prices kalPred lstmPred Nothing
 
   assertApprox "flat final equity" 1e-12 (last (brEquityCurve btFlat)) 1.0
   assertApprox "short final equity" 1e-12 (last (brEquityCurve btShort)) 1.1
@@ -245,7 +263,7 @@ testMetricsMaxDrawdown = do
   let br =
         BacktestResult
           { brEquityCurve = [1.0, 1.1, 1.0]
-          , brPositions = [1, 0]
+          , brPositions = [1.0, 0.0]
           , brAgreementOk = [True, True]
           , brPositionChanges = 2
           , brTrades = []
@@ -331,8 +349,17 @@ testSweepThreshold = do
           , ecTrailingStop = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
           }
-      (thr, bt) = sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred
+      (thr, bt) = sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred Nothing
   assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)
   assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
 
@@ -352,8 +379,17 @@ testOptimizeOperations = do
           , ecTrailingStop = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
           }
-      (m, thr, bt) = optimizeOperations cfg prices kalPred lstmPred
+      (m, thr, bt) = optimizeOperations cfg prices kalPred lstmPred Nothing
   assert "picked kalman-only" (m == MethodKalmanOnly)
   assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)
   assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1

@@ -125,28 +125,30 @@ export function BacktestChart({
     moved: boolean;
   } | null>(null);
 
-  const pos = useMemo(() => {
+  const pos = useMemo<number[]>(() => {
     if (n === 0) return [];
     if (positions.length >= n) return positions.slice(0, n);
-    const last = positions.length > 0 ? positions[positions.length - 1] : 0;
+    const last = positions.length > 0 ? positions[positions.length - 1]! : 0;
     return [...positions, ...Array.from({ length: n - positions.length }, () => last)];
   }, [n, positions]);
 
-  const agree = useMemo(() => {
+  const agree = useMemo<boolean[] | null>(() => {
     if (!agreementOk) return null;
     if (n === 0) return [];
     if (agreementOk.length >= n) return agreementOk.slice(0, n);
-    const last = agreementOk.length > 0 ? agreementOk[agreementOk.length - 1] : false;
+    const last = agreementOk.length > 0 ? agreementOk[agreementOk.length - 1]! : false;
     return [...agreementOk, ...Array.from({ length: n - agreementOk.length }, () => last)];
   }, [agreementOk, n]);
 
   const legend = useMemo(() => {
+    const hasShort = pos.some((p) => p < 0);
     return {
       showAgreement: agree !== null,
       showTrades: trades.length > 0,
       showOps: Boolean(operations && operations.length > 0),
+      hasShort,
     };
-  }, [agree, operations, trades.length]);
+  }, [agree, operations, pos, trades.length]);
 
   useEffect(() => {
     setView({ start: 0, end: Math.max(1, n - 1) });
@@ -346,8 +348,15 @@ export function BacktestChart({
       if (p === 0) continue;
       const x0 = xFor(i);
       const x1 = xFor(i + 1);
-      ctx.fillStyle = p === 1 ? "rgba(34, 197, 94, 0.18)" : "rgba(239, 68, 68, 0.18)";
-      ctx.fillRect(x0, yPos0 + Math.floor(hPos * 0.22), Math.max(1, x1 - x0), Math.floor(hPos * 0.62));
+      const dir = p > 0 ? 1 : -1;
+      const size = clamp(Math.abs(p), 0, 1);
+      const paneY = yPos0 + Math.floor(hPos * 0.22);
+      const paneH = Math.floor(hPos * 0.62);
+      const barH = Math.max(1, Math.floor(paneH * size));
+      const y = paneY + Math.floor((paneH - barH) / 2);
+      const alpha = 0.08 + 0.22 * size;
+      ctx.fillStyle = dir > 0 ? `rgba(34, 197, 94, ${alpha})` : `rgba(239, 68, 68, ${alpha})`;
+      ctx.fillRect(x0, y, Math.max(1, x1 - x0), barH);
     }
 
     // Price line
@@ -615,6 +624,12 @@ export function BacktestChart({
           <span className="btLegendSwatch btLegendLong" aria-hidden="true" />
           Long
         </div>
+        {legend.hasShort ? (
+          <div className="btLegendItem" role="listitem">
+            <span className="btLegendSwatch btLegendShort" aria-hidden="true" />
+            Short
+          </div>
+        ) : null}
         {legend.showAgreement ? (
           <div className="btLegendItem" role="listitem">
             <span className="btLegendSwatch btLegendAgree" aria-hidden="true" />
@@ -659,14 +674,17 @@ export function BacktestChart({
 
         {empty ? <div className="chartEmpty">Not enough data</div> : null}
 
-        <div className="btTooltip" style={tooltipStyle} aria-hidden={!hover}>
-          {hover ? (
-            <>
-              <div className="btTooltipTitle">
-                Bar <span style={{ fontFamily: "var(--mono)" }}>#{hover.bar}</span>{" "}
-                <span className="badge">{hover.position === 1 ? "LONG" : hover.position === -1 ? "SHORT" : "FLAT"}</span>{" "}
-                {hover.ok !== null ? <span className="badge">{hover.ok ? "AGREE" : "NO-AGREE"}</span> : null}
-              </div>
+	        <div className="btTooltip" style={tooltipStyle} aria-hidden={!hover}>
+	          {hover ? (
+	            <>
+	              <div className="btTooltipTitle">
+	                Bar <span style={{ fontFamily: "var(--mono)" }}>#{hover.bar}</span>{" "}
+	                <span className="badge">{hover.position > 0 ? "LONG" : hover.position < 0 ? "SHORT" : "FLAT"}</span>{" "}
+	                {hover.position !== 0 && Math.abs(hover.position) < 0.9999 ? (
+	                  <span className="badge">size {pct(Math.abs(hover.position), 1)}</span>
+	                ) : null}{" "}
+	                {hover.ok !== null ? <span className="badge">{hover.ok ? "AGREE" : "NO-AGREE"}</span> : null}
+	              </div>
               <div className="btTooltipRow">
                 <div className="k">Close</div>
                 <div className="v">{fmt(hover.price, 4)}</div>
