@@ -52,7 +52,6 @@ cd haskell
 cabal run trader-hs -- \
   --binance-symbol BTCUSDT \
   --interval 5m \
-  --bars 500 \
   --epochs 5
 ```
 
@@ -79,7 +78,6 @@ export BINANCE_API_SECRET=...
 cabal run trader-hs -- \
   --binance-symbol BTCUSDT \
   --interval 5m \
-  --bars 500 \
   --epochs 5 \
   --trade-only \
   --binance-trade \
@@ -94,9 +92,9 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--data PATH` (default: none) CSV file containing prices
   - `--price-column close` CSV column name for price
 
-- Bars & lookback (defaults: `--interval 5m`, `--lookback-window 24h` → 288 bars)
+- Bars & lookback (defaults: `--interval 5m`, `--lookback-window 24h` → 288 bars, `--bars auto`)
   - `--interval 5m` (alias `--binance-interval`) bar interval / Binance kline interval
-  - `--bars 500` (alias `--binance-limit`) number of bars/klines to use (`0` = all CSV; Binance 2..1000)
+  - `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or 500 for Binance; CSV also supports `0` = all; Binance 2..1000)
   - `--lookback-window 24h` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
 
@@ -139,6 +137,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
+  - `--positioning long-flat` (default) or `--positioning long-short` (allows short positions in backtests; if trading, requires `--futures`; live bot is long-flat only)
   - `--optimize-operations` optimize `--method` and `--threshold` on the backtest split (uses best combo for the latest signal)
   - `--sweep-threshold` sweep thresholds on the backtest split and pick the best by final equity
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
@@ -153,6 +152,11 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 - Metrics
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
   - `--periods-per-year N` (default: inferred from `--interval`)
+
+- Output
+  - `--json` machine-readable JSON to stdout:
+    - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
+    - Backtest: `{ "mode": "backtest", "backtest": ... }` (and includes `"trade"` if `--binance-trade` is set)
 
 Tests
 -----
@@ -248,6 +252,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
 - `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), or `"01"`/`"lstm"` (LSTM only).
+- `positioning` is `"long-flat"` (default) or `"long-short"` (shorts require futures when placing orders; live bot is long-flat only).
 
 Deploy to AWS
 -------------
@@ -282,10 +287,10 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` requi
 - Web UI: paste the token into the UI’s “API token” field (stored in session storage and sent as `Authorization: Bearer <token>`).
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
-The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart.
+The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (long-flat only).
 
 Assumptions and limitations
 ---------------------------
-- The strategy is intentionally simple (long or flat only) and does not include sizing, risk limits, or robust transaction cost modeling.
+- The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests) and does not include sizing, risk limits, or robust transaction cost modeling.
 - Live order placement attempts to fetch/apply symbol filters (minQty/step size/minNotional), but is not exhaustive and may still be rejected by the exchange.
 - This code is for experimentation and education only; it is **not** production-ready nor financial advice.

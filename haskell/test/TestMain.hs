@@ -21,7 +21,7 @@ import Trader.Binance
   )
 import Trader.Duration (lookbackBarsFrom)
 import Trader.KalmanFusion (Kalman1(..), initKalman1, updateMulti)
-import Trader.Kalman3 (forecastNextConstantAcceleration1D, runConstantAcceleration1D, KalmanRun(..))
+import Trader.Kalman3 (Vec3(..), Kalman3(..), constantAcceleration1D, step, forecastNextConstantAcceleration1D, runConstantAcceleration1D, KalmanRun(..))
 import Trader.LSTM (LSTMConfig(..), LSTMModel(..), trainLSTM, buildSequences, evaluateLoss)
 import Trader.Method (Method(..), parseMethod, selectPredictions)
 import Trader.Metrics (computeMetrics, bmMaxDrawdown, bmTotalReturn)
@@ -36,7 +36,7 @@ import Trader.Predictors
   , initHMMFilter
   , predictSensors
   )
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), simulateEnsembleLongFlat)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), simulateEnsembleLongFlat)
 import Trader.Split (Split(..), splitTrainBacktest)
 
 main :: IO ()
@@ -47,8 +47,11 @@ main = do
     , run "predictors output shape" testPredictorsOutputs
     , run "kalman constant series" testKalmanConstant
     , run "kalman forecast constant" testKalmanForecast
+    , run "kalman innovation sign" testKalmanInnovationSign
+    , run "forward return sign" testForwardReturnSign
     , run "lstm training improves loss" testLstmImprovesLoss
     , run "ensemble agreement gate" testAgreementGate
+    , run "long-short down move" testLongShortDownMove
     , run "metrics max drawdown" testMetricsMaxDrawdown
     , run "binance signature length" testBinanceSignatureLength
     , run "binance kline json parsing" testBinanceKlineParsing
@@ -148,6 +151,25 @@ testKalmanForecast = do
       f = forecastNextConstantAcceleration1D 1.0 1e-6 1e-6 xs
   assertApprox "forecast near constant" 1e-2 f 10.0
 
+testKalmanInnovationSign :: IO ()
+testKalmanInnovationSign = do
+  let k0 = constantAcceleration1D 1.0 0 1e-6 0
+      (predZ, k1) = step 1.0 k0
+      Vec3 pos _ _ = kx k1
+  assertApprox "initial prediction" 1e-12 predZ 0.0
+  assert "innovation sign (update moves toward measurement)" (pos > 0)
+
+testForwardReturnSign :: IO ()
+testForwardReturnSign = do
+  let up = forwardReturns [1.0, 2.0]
+      down = forwardReturns [2.0, 1.0]
+  case up of
+    [r] -> assert "up return positive" (r > 0)
+    _ -> error "expected one return for up series"
+  case down of
+    [r] -> assert "down return negative" (r < 0)
+    _ -> error "expected one return for down series"
+
 testLstmImprovesLoss :: IO ()
 testLstmImprovesLoss = do
   let series = replicate 80 1.0
@@ -178,9 +200,45 @@ testAgreementGate = do
       lookback = 2
       kalPred = [101, 110, 120]  -- length 3
       lstmPred = [110, 100]      -- length 2, for t=1..2
-      cfg = EnsembleConfig { ecTradeThreshold = 0.0, ecFee = 0.0, ecStopLoss = Nothing, ecTakeProfit = Nothing, ecTrailingStop = Nothing }
+      cfg =
+        EnsembleConfig
+          { ecTradeThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecPositioning = LongFlat
+          , ecIntrabarFill = StopFirst
+          }
       res = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred
   assert "expected one position change" (brPositionChanges res == 1)
+
+testLongShortDownMove :: IO ()
+testLongShortDownMove = do
+  let prices = [100, 90]
+      lookback = 1
+      kalPred = [90]
+      lstmPred = [90]
+      baseCfg =
+        EnsembleConfig
+          { ecTradeThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecPositioning = LongFlat
+          , ecIntrabarFill = StopFirst
+          }
+      btFlat = simulateEnsembleLongFlat baseCfg lookback prices kalPred lstmPred
+      btShort = simulateEnsembleLongFlat (baseCfg { ecPositioning = LongShort }) lookback prices kalPred lstmPred
+
+  assertApprox "flat final equity" 1e-12 (last (brEquityCurve btFlat)) 1.0
+  assertApprox "short final equity" 1e-12 (last (brEquityCurve btShort)) 1.1
+  assert "short position opened" (brPositions btShort == [-1])
 
 testMetricsMaxDrawdown :: IO ()
 testMetricsMaxDrawdown = do
@@ -262,7 +320,18 @@ testSweepThreshold = do
   let prices = [100, 110]
       kalPred = [110]
       lstmPred = [110]
-      cfg = EnsembleConfig { ecTradeThreshold = 0.0, ecFee = 0.0, ecStopLoss = Nothing, ecTakeProfit = Nothing, ecTrailingStop = Nothing }
+      cfg =
+        EnsembleConfig
+          { ecTradeThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecPositioning = LongFlat
+          , ecIntrabarFill = StopFirst
+          }
       (thr, bt) = sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred
   assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)
   assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
@@ -272,7 +341,18 @@ testOptimizeOperations = do
   let prices = [100, 110]
       kalPred = [110]
       lstmPred = [90]
-      cfg = EnsembleConfig { ecTradeThreshold = 0.0, ecFee = 0.0, ecStopLoss = Nothing, ecTakeProfit = Nothing, ecTrailingStop = Nothing }
+      cfg =
+        EnsembleConfig
+          { ecTradeThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecPositioning = LongFlat
+          , ecIntrabarFill = StopFirst
+          }
       (m, thr, bt) = optimizeOperations cfg prices kalPred lstmPred
   assert "picked kalman-only" (m == MethodKalmanOnly)
   assert "thr close to 10%" (thr > 0.099999 && thr < 0.1)

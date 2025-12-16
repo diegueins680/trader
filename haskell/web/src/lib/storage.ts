@@ -16,6 +16,30 @@ export function writeJson(key: string, value: unknown) {
   }
 }
 
+export function readLocalString(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export function writeLocalString(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
+export function removeLocalKey(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
 export function readSessionString(key: string): string | null {
   try {
     return sessionStorage.getItem(key);

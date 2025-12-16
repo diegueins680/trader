@@ -62,7 +62,7 @@ computeMetrics periodsPerYear br =
 
       exposure =
         let pos = brPositions br
-         in if null pos then 0 else fromIntegral (length (filter (== 1) pos)) / fromIntegral (length pos)
+         in if null pos then 0 else fromIntegral (length (filter (/= 0) pos)) / fromIntegral (length pos)
 
       agree =
         let flags = brAgreementOk br

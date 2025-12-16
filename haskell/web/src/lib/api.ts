@@ -24,19 +24,25 @@ export type HealthResponse = { status: "ok"; authRequired?: boolean; authOk?: bo
 
 function resolveUrl(baseUrl: string, path: string): string {
   const base = baseUrl.trim().replace(/\/+$/, "");
-  const p = path.startsWith("/") ? path : `/${path}`;
+  const raw = path.startsWith("/") ? path : `/${path}`;
+  const hashIndex = raw.indexOf("#");
+  const rawNoHash = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+  const hash = hashIndex >= 0 ? raw.slice(hashIndex) : "";
+  const queryIndex = rawNoHash.indexOf("?");
+  const pathname = queryIndex >= 0 ? rawNoHash.slice(0, queryIndex) : rawNoHash;
+  const search = queryIndex >= 0 ? rawNoHash.slice(queryIndex) : "";
 
   if (/^https?:\/\//.test(base)) {
     const url = new URL(base);
     const basePath = url.pathname.replace(/\/+$/, "");
-    url.pathname = `${basePath}${p}`.replace(/\/{2,}/g, "/") || "/";
-    url.search = "";
-    url.hash = "";
+    url.pathname = `${basePath}${pathname}`.replace(/\/{2,}/g, "/") || "/";
+    url.search = search;
+    url.hash = hash;
     return url.toString();
   }
 
   const rel = base.startsWith("/") ? base : `/${base}`;
-  return `${rel}${p}`;
+  return `${rel}${pathname}${search}${hash}`;
 }
 
 function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string> | undefined): HeadersInit | undefined {
@@ -140,6 +146,20 @@ function isTimeoutError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "TimeoutError";
 }
 
+function describeAsyncTimeout(baseUrl: string, overallTimeoutMs: number, lastError: unknown): string {
+  const seconds = Math.max(1, Math.round(overallTimeoutMs / 1000));
+  const last =
+    lastError instanceof HttpError
+      ? `${lastError.status} ${lastError.message}`
+      : lastError instanceof Error
+        ? lastError.message
+        : String(lastError);
+  const hint = baseUrl.startsWith("/api")
+    ? " Check your CloudFront `/api/*` proxy (or set the UI “API base URL” to your API host)."
+    : " Check API connectivity and try again.";
+  return `Async request timed out after ${seconds}s while retrying after errors (last error: ${last}).${hint}`;
+}
+
 async function runAsyncJob<T>(
   baseUrl: string,
   startPath: string,
@@ -150,6 +170,7 @@ async function runAsyncJob<T>(
   const startedAt = Date.now();
   const overallTimeoutMs = opts?.timeoutMs ?? 30_000;
   const perRequestTimeoutMs = Math.min(55_000, overallTimeoutMs);
+  let lastTransientError: unknown = null;
 
   const start = await fetchJson<AsyncStartResponse>(
     baseUrl,
@@ -169,7 +190,10 @@ async function runAsyncJob<T>(
   for (;;) {
     const elapsed = Date.now() - startedAt;
     const remaining = overallTimeoutMs - elapsed;
-    if (remaining <= 0) throw timeoutError();
+    if (remaining <= 0) {
+      if (lastTransientError) throw new Error(describeAsyncTimeout(baseUrl, overallTimeoutMs, lastTransientError));
+      throw timeoutError();
+    }
 
     let status: AsyncPollResponse<T>;
     try {
@@ -197,16 +221,19 @@ async function runAsyncJob<T>(
       if (err instanceof HttpError && (err.status === 401 || err.status === 403)) throw err;
       if (err instanceof HttpError && err.status === 404) throw err;
       if (isTimeoutError(err)) {
+        lastTransientError = err;
         await sleep(Math.min(backoffMs, remaining), opts?.signal);
         backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
         continue;
       }
       if (err instanceof HttpError && err.status >= 500) {
+        lastTransientError = err;
         await sleep(Math.min(backoffMs, remaining), opts?.signal);
         backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
         continue;
       }
       if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
+        lastTransientError = err;
         await sleep(Math.min(backoffMs, remaining), opts?.signal);
         backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
         continue;
@@ -214,11 +241,18 @@ async function runAsyncJob<T>(
       throw err;
     }
 
+    lastTransientError = null;
     if (!status || typeof status !== "object" || !("status" in status) || typeof (status as { status?: unknown }).status !== "string") {
       throw new Error("Invalid async poll response");
     }
     if (status.status === "done") return status.result as T;
-    if (status.status === "error") throw new Error(status.error || "Async job failed");
+    if (status.status === "error") {
+      const msg = status.error || "Async job failed";
+      if (msg.trim().toLowerCase() === "not found") {
+        throw new Error("Async job not found (server restarted or behind a non-sticky load balancer). Please retry.");
+      }
+      throw new Error(msg);
+    }
     if (status.status !== "running") throw new Error(`Unexpected async status: ${String(status.status)}`);
 
     await sleep(Math.min(backoffMs, remaining), opts?.signal);
@@ -326,6 +360,8 @@ export async function botStop(baseUrl: string, opts?: FetchJsonOptions): Promise
   return fetchJson<BotStatus>(baseUrl, "/bot/stop", { method: "POST" }, opts);
 }
 
-export async function botStatus(baseUrl: string, opts?: FetchJsonOptions): Promise<BotStatus> {
-  return fetchJson<BotStatus>(baseUrl, "/bot/status", { method: "GET" }, opts);
+export async function botStatus(baseUrl: string, opts?: FetchJsonOptions, tail?: number): Promise<BotStatus> {
+  const tailSafe = typeof tail === "number" && Number.isFinite(tail) ? Math.trunc(tail) : 0;
+  const path = tailSafe > 0 ? `/bot/status?tail=${tailSafe}` : "/bot/status";
+  return fetchJson<BotStatus>(baseUrl, path, { method: "GET" }, opts);
 }

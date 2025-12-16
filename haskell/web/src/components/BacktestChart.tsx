@@ -286,12 +286,12 @@ export function BacktestChart({
     }
 
     // Positions (bottom pane)
-    ctx.fillStyle = "rgba(34, 197, 94, 0.18)";
     for (let i = start; i < end; i += 1) {
       const p = pos[i] ?? 0;
-      if (p !== 1) continue;
+      if (p === 0) continue;
       const x0 = xFor(i);
       const x1 = xFor(i + 1);
+      ctx.fillStyle = p === 1 ? "rgba(34, 197, 94, 0.18)" : "rgba(239, 68, 68, 0.18)";
       ctx.fillRect(x0, yPos0 + Math.floor(hPos * 0.22), Math.max(1, x1 - x0), Math.floor(hPos * 0.62));
     }
 
@@ -589,7 +589,7 @@ export function BacktestChart({
             <>
               <div className="btTooltipTitle">
                 Bar <span style={{ fontFamily: "var(--mono)" }}>#{hover.bar}</span>{" "}
-                <span className="badge">{hover.position === 1 ? "LONG" : "FLAT"}</span>{" "}
+                <span className="badge">{hover.position === 1 ? "LONG" : hover.position === -1 ? "SHORT" : "FLAT"}</span>{" "}
                 {hover.ok !== null ? <span className="badge">{hover.ok ? "AGREE" : "NO-AGREE"}</span> : null}
               </div>
               <div className="btTooltipRow">

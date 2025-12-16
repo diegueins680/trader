@@ -38,3 +38,8 @@ cabal.sandbox.config
 .vscode/
 *.swp
 *.swo
+
+# Local artifacts
+Long.csv
+Short.csv
+.tmp/

@@ -44,6 +44,7 @@ executable trader-hs
                      , http-client
                      , http-client-tls
                      , http-types
+                     , containers
                      , wai
                      , warp
                      , unordered-containers
@@ -95,6 +96,7 @@ test-suite trader-tests
                      , http-client
                      , http-client-tls
                      , http-types
+                     , containers
                      , unordered-containers
                      , optparse-applicative >=0.17
                      , random >=1.2

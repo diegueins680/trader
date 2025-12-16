@@ -1,14 +1,16 @@
 module Trader.Optimization
   ( bestFinalEquity
   , optimizeOperations
+  , optimizeOperationsWithHL
   , sweepThreshold
+  , sweepThresholdWithHL
   ) where
 
 import Data.List (foldl', group, sort)
 import qualified Data.Vector as V
 
 import Trader.Method (Method(..))
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), simulateEnsembleLongFlatV)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), simulateEnsembleLongFlatV, simulateEnsembleLongFlatVWithHL)
 
 bestFinalEquity :: BacktestResult -> Double
 bestFinalEquity br =
@@ -18,6 +20,10 @@ bestFinalEquity br =
 
 optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> (Method, Double, BacktestResult)
 optimizeOperations baseCfg prices kalPred lstmPred =
+  optimizeOperationsWithHL baseCfg prices prices prices kalPred lstmPred
+
+optimizeOperationsWithHL :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> (Method, Double, BacktestResult)
+optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred =
   let eps = 1e-12
       methodRank m =
         case m of
@@ -25,7 +31,7 @@ optimizeOperations baseCfg prices kalPred lstmPred =
           MethodKalmanOnly -> 1
           MethodLstmOnly -> 0
       eval m =
-        let (thr, bt) = sweepThreshold m baseCfg prices kalPred lstmPred
+        let (thr, bt) = sweepThresholdWithHL m baseCfg closes highs lows kalPred lstmPred
             eq = bestFinalEquity bt
          in (eq, m, thr, bt)
       candidates = map eval [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
@@ -42,11 +48,17 @@ optimizeOperations baseCfg prices kalPred lstmPred =
             else (bestEq, bestM, bestThr, bestBt)
       (c : cs) = candidates
       (_, bestM, bestThr, bestBt) = foldl' pick c cs
-   in (bestM, bestThr, bestBt)
+  in (bestM, bestThr, bestBt)
 
 sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> (Double, BacktestResult)
 sweepThreshold method baseCfg prices kalPred lstmPred =
-  let pricesV = V.fromList prices
+  sweepThresholdWithHL method baseCfg prices prices prices kalPred lstmPred
+
+sweepThresholdWithHL :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> (Double, BacktestResult)
+sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred =
+  let pricesV = V.fromList closes
+      highsV = V.fromList highs
+      lowsV = V.fromList lows
       stepCount = V.length pricesV - 1
       eps = 1e-12
       baseThreshold = ecTradeThreshold baseCfg
@@ -100,7 +112,7 @@ sweepThreshold method baseCfg prices kalPred lstmPred =
 
       eval thr =
         let cfg = baseCfg { ecTradeThreshold = thr }
-            bt = simulateEnsembleLongFlatV cfg 1 pricesV kalUsedV lstmUsedV
+            bt = simulateEnsembleLongFlatVWithHL cfg 1 pricesV highsV lowsV kalUsedV lstmUsedV
          in (bestFinalEquity bt, thr, bt)
 
       (baseEq, baseThr, baseBt) = eval (max 0 baseThreshold)

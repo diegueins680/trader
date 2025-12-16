@@ -69,6 +69,9 @@ data OrderSide = Buy | Sell deriving (Eq, Show)
 
 data Kline = Kline
   { kOpenTime :: !Int64
+  , kOpen :: !Double
+  , kHigh :: !Double
+  , kLow :: !Double
   , kClose :: !Double
   } deriving (Eq, Show)
 
@@ -95,9 +98,15 @@ instance FromJSON Kline where
       then fail "Kline array too short"
       else do
         openTime <- parseIndexInt64 0 arr
+        openTxt <- parseIndexText 1 arr
+        highTxt <- parseIndexText 2 arr
+        lowTxt <- parseIndexText 3 arr
         closeTxt <- parseIndexText 4 arr
+        open <- parseDoubleText openTxt
+        high <- parseDoubleText highTxt
+        low <- parseDoubleText lowTxt
         close <- parseDoubleText closeTxt
-        pure Kline { kOpenTime = openTime, kClose = close }
+        pure Kline { kOpenTime = openTime, kOpen = open, kHigh = high, kLow = low, kClose = close }
     where
       parseIndexInt64 i a =
         case a V.!? i of

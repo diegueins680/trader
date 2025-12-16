@@ -6,7 +6,11 @@ This project exposes a REST API when run with `--serve` (default port `8080`).
 
 ```bash
 docker build -t trader-api:local .
-docker run --rm -p 8080:8080 -e TRADER_API_TOKEN=change-me trader-api:local
+
+# Optional: set an API token (recommended if you expose the port beyond localhost)
+TRADER_API_TOKEN="$(openssl rand -hex 32)"
+
+docker run --rm -p 8080:8080 -e TRADER_API_TOKEN="$TRADER_API_TOKEN" trader-api:local
 curl -s http://127.0.0.1:8080/health
 ```
 
@@ -66,6 +70,11 @@ docker push "${ECR_URI}:latest"
 - Environment variables:
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
+  - Optional safety limits (to avoid OOM / timeouts on small instances):
+    - `TRADER_API_MAX_ASYNC_RUNNING` (default: `1`)
+    - `TRADER_API_MAX_BARS_LSTM` (default: `300`)
+    - `TRADER_API_MAX_EPOCHS` (default: `60`)
+    - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`)
 
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).
 
@@ -112,6 +121,7 @@ If you prefer the UI calling `/api/*` on the same domain, configure a CloudFront
 - Origin: your API service (App Runner/ALB/etc)
 - Allowed methods: include `POST` (and `OPTIONS`) — the UI uses `POST` for async job polling (with `GET` fallback)
 - Forward headers: at least `Authorization`, `X-API-Key`, `Content-Type`
+- Forward query strings: include all (the UI uses `/bot/status?tail=...` to keep responses small)
 - Cache: disable caching for `/api/*`
 
 Notes:

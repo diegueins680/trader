@@ -10,10 +10,11 @@ import type {
   Market,
   Method,
   Normalization,
+  Positioning,
 } from "./lib/types";
 import { HttpError, backtest, binanceKeysStatus, botStart, botStatus, botStop, health, signal, trade } from "./lib/api";
 import { copyText } from "./lib/clipboard";
-import { readJson, readSessionString, removeSessionKey, writeJson, writeSessionString } from "./lib/storage";
+import { readJson, readLocalString, readSessionString, removeLocalKey, removeSessionKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { BacktestChart } from "./components/BacktestChart";
 import { PredictionDiffChart } from "./components/PredictionDiffChart";
@@ -76,6 +77,7 @@ type FormState = {
   lookbackWindow: string;
   lookbackBars: number;
   method: Method;
+  positioning: Positioning;
   threshold: number;
   fee: number;
   stopLoss: number;
@@ -88,6 +90,15 @@ type FormState = {
   normalization: Normalization;
   epochs: number;
   hiddenSize: number;
+  kalmanZMin: number;
+  kalmanZMax: number;
+  maxHighVolProb: number;
+  maxConformalWidth: number;
+  maxQuantileWidth: number;
+  confirmConformal: boolean;
+  confirmQuantiles: boolean;
+  confidenceSizing: boolean;
+  minPositionSize: number;
   optimizeOperations: boolean;
   sweepThreshold: boolean;
   binanceTestnet: boolean;
@@ -111,6 +122,7 @@ type FormState = {
 const STORAGE_KEY = "trader.ui.form.v1";
 const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
 const STORAGE_API_BASE_KEY = "trader.ui.apiBaseUrl.v1";
+const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
 const SESSION_TOKEN_KEY = "trader.ui.apiToken.v1";
 const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
 const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
@@ -120,6 +132,8 @@ const SIGNAL_TIMEOUT_MS = 5 * 60_000;
 const BACKTEST_TIMEOUT_MS = 10 * 60_000;
 const TRADE_TIMEOUT_MS = 5 * 60_000;
 const BOT_START_TIMEOUT_MS = 10 * 60_000;
+const BOT_STATUS_TIMEOUT_MS = 30_000;
+const BOT_STATUS_TAIL_POINTS = 5000;
 
 const BINANCE_INTERVALS = [
   "1m",
@@ -282,6 +296,7 @@ const defaultForm: FormState = {
   lookbackWindow: "24h",
   lookbackBars: 0,
   method: "11",
+  positioning: "long-flat",
   threshold: 0.001,
   fee: 0.0005,
   stopLoss: 0,
@@ -294,6 +309,15 @@ const defaultForm: FormState = {
   normalization: "standard",
   epochs: 30,
   hiddenSize: 16,
+  kalmanZMin: 0,
+  kalmanZMax: 3,
+  maxHighVolProb: 0,
+  maxConformalWidth: 0,
+  maxQuantileWidth: 0,
+  confirmConformal: false,
+  confirmQuantiles: false,
+  confidenceSizing: false,
+  minPositionSize: 0,
   optimizeOperations: false,
   sweepThreshold: false,
   binanceTestnet: false,
@@ -317,17 +341,57 @@ type SavedProfiles = Record<string, FormState>;
 
 type FormStateJson = Partial<FormState> & {
   interval?: unknown;
+  positioning?: unknown;
   lookbackWindow?: unknown;
   lookbackBars?: unknown;
 };
 
+function normalizeBool(raw: unknown, fallback: boolean): boolean {
+  if (typeof raw === "boolean") return raw;
+  if (raw === 1 || raw === "1" || raw === "true") return true;
+  if (raw === 0 || raw === "0" || raw === "false") return false;
+  return fallback;
+}
+
+function normalizeFiniteNumber(raw: unknown, fallback: number, lo: number, hi: number): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return clamp(raw, lo, hi);
+  if (typeof raw === "string") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return clamp(n, lo, hi);
+  }
+  return fallback;
+}
+
+function normalizePositioning(raw: unknown, fallback: Positioning): Positioning {
+  if (raw === "long-flat" || raw === "long-short") return raw;
+  return fallback;
+}
+
 function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
+  const kalmanZMin = normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.kalmanZMin ?? merged.kalmanZMin, defaultForm.kalmanZMin, 0, 1e9);
+  const kalmanZMaxRaw = normalizeFiniteNumber(
+    (raw as Record<string, unknown> | null | undefined)?.kalmanZMax ?? merged.kalmanZMax,
+    defaultForm.kalmanZMax,
+    0,
+    1e9,
+  );
+  const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
   return {
     ...merged,
     interval: normalizeBinanceInterval(raw?.interval ?? merged.interval, defaultForm.interval),
+    positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
     lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
+    kalmanZMin,
+    kalmanZMax,
+    maxHighVolProb: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
+    maxConformalWidth: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
+    maxQuantileWidth: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.maxQuantileWidth ?? merged.maxQuantileWidth, 0, 0, 1e9),
+    confirmConformal: normalizeBool((raw as Record<string, unknown> | null | undefined)?.confirmConformal ?? merged.confirmConformal, defaultForm.confirmConformal),
+    confirmQuantiles: normalizeBool((raw as Record<string, unknown> | null | undefined)?.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
+    confidenceSizing: normalizeBool((raw as Record<string, unknown> | null | undefined)?.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
+    minPositionSize: normalizeFiniteNumber((raw as Record<string, unknown> | null | undefined)?.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
   };
 }
 
@@ -452,10 +516,23 @@ export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [toast, setToast] = useState<string | null>(null);
   const [revealSecrets, setRevealSecrets] = useState(false);
+  const [persistSecrets, setPersistSecrets] = useState<boolean>(() => readJson<boolean>(STORAGE_PERSIST_SECRETS_KEY) ?? false);
   const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => normalizeApiBaseUrlInput(readJson<string>(STORAGE_API_BASE_KEY) ?? ""));
-  const [apiToken, setApiToken] = useState<string>(() => readSessionString(SESSION_TOKEN_KEY) ?? "");
-  const [binanceApiKey, setBinanceApiKey] = useState<string>(() => readSessionString(SESSION_BINANCE_KEY_KEY) ?? "");
-  const [binanceApiSecret, setBinanceApiSecret] = useState<string>(() => readSessionString(SESSION_BINANCE_SECRET_KEY) ?? "");
+  const [apiToken, setApiToken] = useState<string>(() => {
+    const persisted = readLocalString(SESSION_TOKEN_KEY) ?? "";
+    const session = readSessionString(SESSION_TOKEN_KEY) ?? "";
+    return persistSecrets ? persisted || session : session;
+  });
+  const [binanceApiKey, setBinanceApiKey] = useState<string>(() => {
+    const persisted = readLocalString(SESSION_BINANCE_KEY_KEY) ?? "";
+    const session = readSessionString(SESSION_BINANCE_KEY_KEY) ?? "";
+    return persistSecrets ? persisted || session : session;
+  });
+  const [binanceApiSecret, setBinanceApiSecret] = useState<string>(() => {
+    const persisted = readLocalString(SESSION_BINANCE_SECRET_KEY) ?? "";
+    const session = readSessionString(SESSION_BINANCE_SECRET_KEY) ?? "";
+    return persistSecrets ? persisted || session : session;
+  });
   const [form, setForm] = useState<FormState>(() => normalizeFormState(readJson<FormStateJson>(STORAGE_KEY)));
 
   const [profiles, setProfiles] = useState<SavedProfiles>(() => {
@@ -551,21 +628,46 @@ export function App() {
 
   useEffect(() => {
     const token = apiToken.trim();
-    if (!token) removeSessionKey(SESSION_TOKEN_KEY);
-    else writeSessionString(SESSION_TOKEN_KEY, token);
-  }, [apiToken]);
+    if (persistSecrets) {
+      if (!token) removeLocalKey(SESSION_TOKEN_KEY);
+      else writeLocalString(SESSION_TOKEN_KEY, token);
+      removeSessionKey(SESSION_TOKEN_KEY);
+    } else {
+      if (!token) removeSessionKey(SESSION_TOKEN_KEY);
+      else writeSessionString(SESSION_TOKEN_KEY, token);
+      removeLocalKey(SESSION_TOKEN_KEY);
+    }
+  }, [apiToken, persistSecrets]);
 
   useEffect(() => {
     const v = binanceApiKey.trim();
-    if (!v) removeSessionKey(SESSION_BINANCE_KEY_KEY);
-    else writeSessionString(SESSION_BINANCE_KEY_KEY, v);
-  }, [binanceApiKey]);
+    if (persistSecrets) {
+      if (!v) removeLocalKey(SESSION_BINANCE_KEY_KEY);
+      else writeLocalString(SESSION_BINANCE_KEY_KEY, v);
+      removeSessionKey(SESSION_BINANCE_KEY_KEY);
+    } else {
+      if (!v) removeSessionKey(SESSION_BINANCE_KEY_KEY);
+      else writeSessionString(SESSION_BINANCE_KEY_KEY, v);
+      removeLocalKey(SESSION_BINANCE_KEY_KEY);
+    }
+  }, [binanceApiKey, persistSecrets]);
 
   useEffect(() => {
     const v = binanceApiSecret.trim();
-    if (!v) removeSessionKey(SESSION_BINANCE_SECRET_KEY);
-    else writeSessionString(SESSION_BINANCE_SECRET_KEY, v);
-  }, [binanceApiSecret]);
+    if (persistSecrets) {
+      if (!v) removeLocalKey(SESSION_BINANCE_SECRET_KEY);
+      else writeLocalString(SESSION_BINANCE_SECRET_KEY, v);
+      removeSessionKey(SESSION_BINANCE_SECRET_KEY);
+    } else {
+      if (!v) removeSessionKey(SESSION_BINANCE_SECRET_KEY);
+      else writeSessionString(SESSION_BINANCE_SECRET_KEY, v);
+      removeLocalKey(SESSION_BINANCE_SECRET_KEY);
+    }
+  }, [binanceApiSecret, persistSecrets]);
+
+  useEffect(() => {
+    writeJson(STORAGE_PERSIST_SECRETS_KEY, persistSecrets);
+  }, [persistSecrets]);
 
   const toastTimerRef = useRef<number | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -738,16 +840,17 @@ export function App() {
     }
   }, [apiBase, apiToken, authHeaders, showToast]);
 
-  const commonParams: ApiParams = useMemo(() => {
-    const interval = form.interval.trim();
-    const intervalOk = BINANCE_INTERVAL_SET.has(interval);
-    const bars = clamp(Math.trunc(form.bars), 2, 1000);
-    const base: ApiParams = {
+	  const commonParams: ApiParams = useMemo(() => {
+	    const interval = form.interval.trim();
+	    const intervalOk = BINANCE_INTERVAL_SET.has(interval);
+	    const bars = clamp(Math.trunc(form.bars), 2, 1000);
+	    const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
       market: form.market,
       interval: intervalOk ? interval : undefined,
       bars,
       method: form.method,
+      ...(form.positioning !== "long-flat" ? { positioning: form.positioning } : {}),
       threshold: Math.max(0, form.threshold),
       fee: Math.max(0, form.fee),
       ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
@@ -757,20 +860,30 @@ export function App() {
       ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
       ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
-      normalization: form.normalization,
-      epochs: clamp(Math.trunc(form.epochs), 0, 5000),
-      hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
-      binanceTestnet: form.binanceTestnet,
-    };
+	      normalization: form.normalization,
+	      epochs: clamp(Math.trunc(form.epochs), 0, 5000),
+	      hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
+	      kalmanZMin: Math.max(0, form.kalmanZMin),
+	      kalmanZMax: Math.max(Math.max(0, form.kalmanZMin), form.kalmanZMax),
+	      binanceTestnet: form.binanceTestnet,
+	    };
 
     if (form.lookbackBars >= 2) base.lookbackBars = Math.trunc(form.lookbackBars);
     else if (form.lookbackWindow.trim()) base.lookbackWindow = form.lookbackWindow.trim();
 
-    if (form.optimizeOperations) base.optimizeOperations = true;
-    if (form.sweepThreshold) base.sweepThreshold = true;
+	    if (form.optimizeOperations) base.optimizeOperations = true;
+	    if (form.sweepThreshold) base.sweepThreshold = true;
 
-    return base;
-  }, [form]);
+	    if (form.maxHighVolProb > 0) base.maxHighVolProb = clamp(form.maxHighVolProb, 0, 1);
+	    if (form.maxConformalWidth > 0) base.maxConformalWidth = Math.max(0, form.maxConformalWidth);
+	    if (form.maxQuantileWidth > 0) base.maxQuantileWidth = Math.max(0, form.maxQuantileWidth);
+	    if (form.confirmConformal) base.confirmConformal = true;
+	    if (form.confirmQuantiles) base.confirmQuantiles = true;
+	    if (form.confidenceSizing) base.confidenceSizing = true;
+	    if (form.minPositionSize > 0) base.minPositionSize = clamp(form.minPositionSize, 0, 1);
+
+	    return base;
+	  }, [form]);
 
   const tradeParams: ApiParams = useMemo(() => {
     const base: ApiParams = { ...commonParams };
@@ -956,6 +1069,11 @@ export function App() {
             msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
           }
         }
+        if (e instanceof HttpError && e.status === 504) {
+          msg = apiBase.startsWith("/api")
+            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, or set “API base URL” to https://<your-api-host>."
+            : "API gateway timed out (504). Try again, or reduce bars/epochs, or scale the API.";
+        }
 
         setApiOk((prev) => {
           if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
@@ -1043,7 +1161,11 @@ export function App() {
       if (!opts?.silent) setBot((s) => ({ ...s, loading: true, error: null }));
 
       try {
-        const out = await botStatus(apiBase, { signal: controller.signal, headers: authHeaders, timeoutMs: 10_000 });
+        const out = await botStatus(
+          apiBase,
+          { signal: controller.signal, headers: authHeaders, timeoutMs: BOT_STATUS_TIMEOUT_MS },
+          BOT_STATUS_TAIL_POINTS,
+        );
         if (requestId !== botRequestSeqRef.current) return;
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         setApiOk("ok");
@@ -1237,6 +1359,10 @@ export function App() {
     lookbackState.error,
   );
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
+  const tradeDisabledReason = firstReason(
+    requestDisabledReason,
+    form.positioning === "long-short" && form.market !== "futures" ? "Long/Short trading requires Futures market." : null,
+  );
 
   const orderSizing = useMemo(() => {
     const enabled = {
@@ -1405,7 +1531,20 @@ export function App() {
                     Clear
                   </button>
                 </div>
-                <div className="hint">Only needed when the backend sets TRADER_API_TOKEN. Stored in session storage (not in the URL).</div>
+                <div className="hint">
+                  Only needed when the backend sets TRADER_API_TOKEN. Stored in {persistSecrets ? "local storage" : "session storage"} (not in the URL). For local
+                  dev, setting TRADER_API_TOKEN in your environment (or `haskell/web/.env.local`) makes the dev proxy attach it automatically.
+                </div>
+                <div className="pillRow" style={{ marginTop: 10 }}>
+                  <label className="pill">
+                    <input type="checkbox" checked={persistSecrets} onChange={(e) => setPersistSecrets(e.target.checked)} />
+                    Remember token & keys
+                  </label>
+                </div>
+                <div className="hint">
+                  When enabled, the token and Binance keys are stored in local storage so you can reopen the app later without re-entering them (not recommended on
+                  shared machines).
+                </div>
               </div>
             </div>
 
@@ -1484,7 +1623,9 @@ export function App() {
                     Clear
                   </button>
                 </div>
-                <div className="hint">Stored in session storage. Used for /trade and “Check keys”. The request preview/curl omits it.</div>
+                <div className="hint">
+                  Used for /trade and “Check keys”. Stored in {persistSecrets ? "local storage" : "session storage"}. The request preview/curl omits it.
+                </div>
               </div>
             </div>
 
@@ -1712,7 +1853,7 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12 }}>
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
               <div className="field">
                 <label className="label" htmlFor="method">
                   Method
@@ -1728,6 +1869,32 @@ export function App() {
                   <option value="01">01 — LSTM only</option>
                 </select>
                 <div className="hint">“11” only trades when both models agree on direction (up/down) outside the threshold.</div>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="positioning">
+                  Positioning
+                </label>
+                <select
+                  id="positioning"
+                  className="select"
+                  value={form.positioning}
+                  onChange={(e) => setForm((f) => ({ ...f, positioning: e.target.value as Positioning }))}
+                >
+                  <option value="long-flat">Long / Flat</option>
+                  <option value="long-short">Long / Short (futures)</option>
+                </select>
+                <div
+                  className="hint"
+                  style={
+                    form.positioning === "long-short" && form.market !== "futures"
+                      ? { color: "rgba(245, 158, 11, 0.9)" }
+                      : undefined
+                  }
+                >
+                  {form.positioning === "long-short" && form.market !== "futures"
+                    ? "Long/Short trading requires Futures market (switch Market to Futures to trade)."
+                    : "Down signals go FLAT (long/flat) or SHORT (long/short)."}
+                </div>
               </div>
               <div className="field">
                 <label className="label" htmlFor="threshold">
@@ -2053,9 +2220,21 @@ export function App() {
                   <div className="actions" style={{ marginTop: 0 }}>
                     <button
                       className="btn btnPrimary"
-                      disabled={bot.loading || bot.status.running || (!bot.status.running && bot.status.starting === true) || requestDisabled}
+                      disabled={
+                        bot.loading ||
+                        bot.status.running ||
+                        (!bot.status.running && bot.status.starting === true) ||
+                        requestDisabled ||
+                        form.positioning === "long-short"
+                      }
                       onClick={startLiveBot}
-                      title={requestDisabledReason ?? (form.tradeArmed ? "Trading armed (will send orders)" : "Paper mode (no orders)")}
+                      title={
+                        firstReason(
+                          form.positioning === "long-short" ? "Live bot supports Long/Flat only." : null,
+                          requestDisabledReason,
+                          form.tradeArmed ? "Trading armed (will send orders)" : "Paper mode (no orders)",
+                        ) ?? undefined
+                      }
                     >
                       {bot.loading || (!bot.status.running && bot.status.starting === true) ? "Starting…" : bot.status.running ? "Running" : "Start live bot"}
                     </button>
@@ -2406,9 +2585,9 @@ export function App() {
               <div className="actions" style={{ marginTop: 10 }}>
                 <button
                   className="btn btnDanger"
-                  disabled={state.loading || !form.tradeArmed || Boolean(requestDisabledReason)}
+                  disabled={state.loading || !form.tradeArmed || Boolean(tradeDisabledReason)}
                   onClick={() => run("trade")}
-                  title={requestDisabledReason ?? (form.binanceLive ? "LIVE order mode enabled" : "Test order mode (default)")}
+                  title={tradeDisabledReason ?? (form.binanceLive ? "LIVE order mode enabled" : "Test order mode (default)")}
                 >
                   {state.loading && state.lastKind === "trade" ? "Trading…" : "Trade (uses latest signal)"}
                 </button>
@@ -2822,11 +3001,39 @@ export function App() {
                     </div>
                   </div>
                   <div className="kv">
-                    <div className="k">Trade count / Win rate</div>
+                    <div className="k">Trades / Win rate</div>
                     <div className="v">
-                      {state.backtest.metrics.tradeCount} / {fmtPct(state.backtest.metrics.winRate, 1)}
+                      {state.backtest.metrics.roundTrips} / {fmtPct(state.backtest.metrics.winRate, 1)}
                     </div>
                   </div>
+
+                  <details className="details" style={{ marginTop: 12 }}>
+                    <summary>More metrics</summary>
+                    <div style={{ marginTop: 10 }}>
+                      <div className="kv">
+                        <div className="k">Operations (position changes)</div>
+                        <div className="v">{state.backtest.metrics.tradeCount}</div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">Annualized volatility</div>
+                        <div className="v">{fmtPct(state.backtest.metrics.annualizedVolatility, 2)}</div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">Profit factor</div>
+                        <div className="v">{fmtNum(state.backtest.metrics.profitFactor, 3)}</div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">Avg trade return / Avg hold</div>
+                        <div className="v">
+                          {fmtPct(state.backtest.metrics.avgTradeReturn, 2)} / {fmtNum(state.backtest.metrics.avgHoldingPeriods, 2)} bars
+                        </div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">Agreement rate</div>
+                        <div className="v">{fmtPct(state.backtest.metrics.agreementRate, 1)}</div>
+                      </div>
+                    </div>
+                  </details>
                 </>
               ) : (
                 <div className="hint">No backtest yet.</div>

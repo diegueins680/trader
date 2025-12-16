@@ -212,7 +212,7 @@ lossFromFlat lookback hidden dataset flat =
          in e * e
    in if nInt <= 0
         then 0
-        else sum (map err dataset) / n
+        else foldl' (\acc x -> acc + err x) 0 dataset / n
 
 forwardWindow :: Floating a => LSTMParams a -> [a] -> a
 forwardWindow p xs =

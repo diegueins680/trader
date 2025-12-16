@@ -1,6 +1,7 @@
 export type Market = "spot" | "margin" | "futures";
 export type Method = "11" | "10" | "01";
 export type Normalization = "none" | "minmax" | "standard" | "log";
+export type Positioning = "long-flat" | "long-short";
 
 export type DirectionLabel = "UP" | "DOWN" | null;
 
@@ -32,6 +33,7 @@ export type ApiParams = {
   kalmanMeasurementVar?: number;
   threshold?: number;
   method?: Method;
+  positioning?: Positioning;
   optimizeOperations?: boolean;
   sweepThreshold?: boolean;
   fee?: number;
@@ -49,6 +51,17 @@ export type ApiParams = {
   maxOrderQuote?: number;
   idempotencyKey?: string;
 
+  // Confidence / gating (Kalman sensors + HMM/intervals)
+  kalmanZMin?: number;
+  kalmanZMax?: number;
+  maxHighVolProb?: number;
+  maxConformalWidth?: number;
+  maxQuantileWidth?: number;
+  confirmConformal?: boolean;
+  confirmQuantiles?: boolean;
+  confidenceSizing?: boolean;
+  minPositionSize?: number;
+
   // Live bot (stateful) options
   botPollSeconds?: number;
   botOnlineEpochs?: number;
@@ -62,6 +75,14 @@ export type LatestSignal = {
   currentPrice: number;
   threshold: number;
   kalmanNext: number | null;
+  kalmanReturn?: number | null;
+  kalmanStd?: number | null;
+  kalmanZ?: number | null;
+  regimes?: { trend: number; mr: number; highVol: number } | null;
+  quantiles?: { q10: number; q50: number; q90: number; width: number } | null;
+  conformalInterval?: { lo: number; hi: number; width: number } | null;
+  confidence?: number | null;
+  positionSize?: number | null;
   kalmanDirection: DirectionLabel;
   lstmNext: number | null;
   lstmDirection: DirectionLabel;
