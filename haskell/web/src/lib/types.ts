@@ -138,6 +138,16 @@ export type BinanceKeysStatus = {
   tradeTest?: BinanceProbe;
 };
 
+export type BinanceListenKeyResponse = {
+  listenKey: string;
+  market: Market;
+  testnet: boolean;
+  wsUrl: string;
+  keepAliveMs: number;
+};
+
+export type BinanceListenKeyKeepAliveResponse = { ok: boolean; atMs: number };
+
 export type Trade = {
   entryIndex: number;
   exitIndex: number;

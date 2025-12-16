@@ -73,6 +73,9 @@ import Trader.Binance
   , getTimestampMs
   , placeMarketOrder
   , fetchOrderByClientId
+  , createListenKey
+  , keepAliveListenKey
+  , closeListenKey
   )
 import Trader.KalmanFusion (Kalman1(..), initKalman1, stepMulti)
 import Trader.LSTM
@@ -935,6 +938,38 @@ data ApiBinanceKeysStatus = ApiBinanceKeysStatus
   } deriving (Eq, Show, Generic)
 
 instance ToJSON ApiBinanceKeysStatus where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+data ApiListenKeyStartParams = ApiListenKeyStartParams
+  { alsMarket :: !(Maybe String)
+  , alsBinanceTestnet :: !(Maybe Bool)
+  , alsBinanceApiKey :: !(Maybe String)
+  , alsBinanceApiSecret :: !(Maybe String)
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON ApiListenKeyStartParams where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 3)
+
+data ApiListenKeyActionParams = ApiListenKeyActionParams
+  { alaMarket :: !(Maybe String)
+  , alaBinanceTestnet :: !(Maybe Bool)
+  , alaBinanceApiKey :: !(Maybe String)
+  , alaBinanceApiSecret :: !(Maybe String)
+  , alaListenKey :: !String
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON ApiListenKeyActionParams where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 3)
+
+data ApiListenKeyResponse = ApiListenKeyResponse
+  { alrListenKey :: !String
+  , alrMarket :: !String
+  , alrTestnet :: !Bool
+  , alrWsUrl :: !String
+  , alrKeepAliveMs :: !Int
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiListenKeyResponse where
   toJSON = Aeson.genericToJSON (jsonOptions 3)
 
 jsonOptions :: Int -> Aeson.Options
@@ -2842,6 +2877,9 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
                                    , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/close" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
                                    , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
@@ -2941,6 +2979,18 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
             ["binance", "keys"] ->
               case Wai.requestMethod req of
                 "POST" -> handleBinanceKeys baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["binance", "listenKey"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBinanceListenKey baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["binance", "listenKey", "keepAlive"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBinanceListenKeyKeepAlive baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["binance", "listenKey", "close"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBinanceListenKeyClose baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of
@@ -3338,6 +3388,130 @@ handleBinanceKeys baseArgs req respond = do
               let (st, msg) = exceptionToHttp ex
                in respond (jsonError st msg)
             Right out -> respond (jsonValue status200 out)
+
+parseMarketForListenKey :: Args -> Maybe String -> Either String BinanceMarket
+parseMarketForListenKey baseArgs raw =
+  case raw of
+    Nothing -> Right (argBinanceMarket baseArgs)
+    Just r ->
+      case normalizeKey r of
+        "spot" -> Right MarketSpot
+        "margin" -> Right MarketMargin
+        "futures" -> Right MarketFutures
+        other -> Left ("Invalid market: " ++ show other ++ " (expected spot|margin|futures)")
+
+resolveTestnetForListenKey :: Args -> Maybe Bool -> Bool
+resolveTestnetForListenKey baseArgs raw = maybe (argBinanceTestnet baseArgs) id raw
+
+binanceUserStreamWsBase :: BinanceMarket -> Bool -> String
+binanceUserStreamWsBase market testnet =
+  case market of
+    MarketFutures ->
+      if testnet
+        then "wss://stream.binancefuture.com/ws"
+        else "wss://fstream.binance.com/ws"
+    _ ->
+      if testnet
+        then "wss://testnet.binance.vision/ws"
+        else "wss://stream.binance.com:9443/ws"
+
+binanceUserStreamWsUrl :: BinanceMarket -> Bool -> String -> String
+binanceUserStreamWsUrl market testnet listenKey =
+  binanceUserStreamWsBase market testnet ++ "/" ++ listenKey
+
+handleBinanceListenKey :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKey baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params -> do
+      let testnet = resolveTestnetForListenKey baseArgs (alsBinanceTestnet params)
+      case parseMarketForListenKey baseArgs (alsMarket params) of
+        Left e -> respond (jsonError status400 e)
+        Right market -> do
+          if market == MarketMargin && testnet
+            then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+            else do
+              apiKey <- resolveEnv "BINANCE_API_KEY" (alsBinanceApiKey params <|> argBinanceApiKey baseArgs)
+              apiSecret <- resolveEnv "BINANCE_API_SECRET" (alsBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+              let baseUrl =
+                    case market of
+                      MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                      _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+              env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+              r <- try (createListenKey env) :: IO (Either SomeException String)
+              case r of
+                Left ex ->
+                  let (st, msg) = exceptionToHttp ex
+                   in respond (jsonError st msg)
+                Right lk -> do
+                  let resp =
+                        ApiListenKeyResponse
+                          { alrListenKey = lk
+                          , alrMarket = marketCode market
+                          , alrTestnet = testnet
+                          , alrWsUrl = binanceUserStreamWsUrl market testnet lk
+                          , alrKeepAliveMs = 25 * 60 * 1000
+                          }
+                  respond (jsonValue status200 resp)
+
+handleBinanceListenKeyKeepAlive :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKeyKeepAlive baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params -> do
+      let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
+      case parseMarketForListenKey baseArgs (alaMarket params) of
+        Left e -> respond (jsonError status400 e)
+        Right market -> do
+          if market == MarketMargin && testnet
+            then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+            else do
+              apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
+              apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+              let baseUrl =
+                    case market of
+                      MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                      _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+              env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+              r <- try (keepAliveListenKey env (alaListenKey params)) :: IO (Either SomeException ())
+              case r of
+                Left ex ->
+                  let (st, msg) = exceptionToHttp ex
+                   in respond (jsonError st msg)
+                Right _ -> do
+                  now <- getTimestampMs
+                  respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+
+handleBinanceListenKeyClose :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKeyClose baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params -> do
+      let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
+      case parseMarketForListenKey baseArgs (alaMarket params) of
+        Left e -> respond (jsonError status400 e)
+        Right market -> do
+          if market == MarketMargin && testnet
+            then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+            else do
+              apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
+              apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+              let baseUrl =
+                    case market of
+                      MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                      _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+              env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+              r <- try (closeListenKey env (alaListenKey params)) :: IO (Either SomeException ())
+              case r of
+                Left ex ->
+                  let (st, msg) = exceptionToHttp ex
+                   in respond (jsonError st msg)
+                Right _ -> do
+                  now <- getTimestampMs
+                  respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
 handleBotStart :: Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStart mOps limits metrics mJournal baseArgs botCtrl req respond = do

@@ -24,6 +24,9 @@ module Trader.Binance
   , fetchFreeBalance
   , fetchFuturesAvailableBalance
   , fetchFuturesPositionAmt
+  , createListenKey
+  , keepAliveListenKey
+  , closeListenKey
   ) where
 
 import Control.Applicative ((<|>))
@@ -661,6 +664,66 @@ ensure2xx label resp =
    in if code >= 200 && code < 300
         then pure ()
         else throwIO (userError (label ++ " HTTP " ++ show code ++ ": " ++ BS.unpack (BS.take 300 (BL.toStrict (responseBody resp)))))
+
+data ListenKeyResponse = ListenKeyResponse { lkrListenKey :: String }
+
+instance FromJSON ListenKeyResponse where
+  parseJSON = withObject "ListenKeyResponse" $ \o -> do
+    k <- o .: "listenKey"
+    pure (ListenKeyResponse k)
+
+userDataStreamPath :: BinanceMarket -> String
+userDataStreamPath market =
+  case market of
+    MarketSpot -> "/api/v3/userDataStream"
+    MarketMargin -> "/sapi/v1/userDataStream"
+    MarketFutures -> "/fapi/v1/listenKey"
+
+createListenKey :: BinanceEnv -> IO String
+createListenKey env = do
+  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+  let path = userDataStreamPath (beMarket env)
+  req0 <- parseRequest (beBaseUrl env ++ path)
+  let req =
+        req0
+          { method = "POST"
+          , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+          }
+  resp <- httpLbs req (beManager env)
+  ensure2xx "listenKey" resp
+  case eitherDecode (responseBody resp) of
+    Left e -> throwIO (userError ("Failed to decode listenKey: " ++ e))
+    Right (ListenKeyResponse k) -> pure k
+
+keepAliveListenKey :: BinanceEnv -> String -> IO ()
+keepAliveListenKey env listenKey = do
+  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+  let path = userDataStreamPath (beMarket env)
+      qs = renderSimpleQuery True [("listenKey", BS.pack listenKey)]
+  req0 <- parseRequest (beBaseUrl env ++ path)
+  let req =
+        req0
+          { method = "PUT"
+          , queryString = qs
+          , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+          }
+  resp <- httpLbs req (beManager env)
+  ensure2xx "listenKey/keepAlive" resp
+
+closeListenKey :: BinanceEnv -> String -> IO ()
+closeListenKey env listenKey = do
+  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+  let path = userDataStreamPath (beMarket env)
+      qs = renderSimpleQuery True [("listenKey", BS.pack listenKey)]
+  req0 <- parseRequest (beBaseUrl env ++ path)
+  let req =
+        req0
+          { method = "DELETE"
+          , queryString = qs
+          , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+          }
+  resp <- httpLbs req (beManager env)
+  ensure2xx "listenKey/close" resp
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace

@@ -9,6 +9,8 @@ type Props = {
   startIndex?: number;
   height?: number;
   label?: string;
+  openThreshold?: number;
+  closeThreshold?: number;
 };
 
 type ErrorMode = "abs" | "pct";
@@ -129,6 +131,8 @@ export function PredictionDiffChart({
   startIndex = 0,
   height = 140,
   label = "Prediction error chart",
+  openThreshold,
+  closeThreshold,
 }: Props) {
   const w = 1000;
   const h = 240;
@@ -141,15 +145,20 @@ export function PredictionDiffChart({
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  const { kalErr, lstmErr, min, max } = useMemo(() => {
+  const { kalErr, lstmErr, min, max, kalPreds, lstmPreds } = useMemo(() => {
     const kalErr = buildNextPriceError(prices, kalmanPredNext, mode);
     const lstmErr = buildNextPriceError(prices, lstmPredNext, mode);
+    
+    // Collect actual predictions (next price values)
+    const kalPreds = kalmanPredNext ? [...kalmanPredNext] : [];
+    const lstmPreds = lstmPredNext ? [...lstmPredNext] : [];
+    
     const finiteVals = [...kalErr, ...lstmErr].filter((v): v is number => isFiniteNumber(v));
-    if (finiteVals.length === 0) return { kalErr, lstmErr, min: -1, max: 1 };
+    if (finiteVals.length === 0) return { kalErr, lstmErr, min: -1, max: 1, kalPreds, lstmPreds };
     const min = Math.min(0, ...finiteVals);
     const max = Math.max(0, ...finiteVals);
-    if (min === max) return { kalErr, lstmErr, min: min - 1, max: max + 1 };
-    return { kalErr, lstmErr, min, max };
+    if (min === max) return { kalErr, lstmErr, min: min - 1, max: max + 1, kalPreds, lstmPreds };
+    return { kalErr, lstmErr, min, max, kalPreds, lstmPreds };
   }, [kalmanPredNext, lstmPredNext, mode, prices]);
 
   const yAxis = useMemo(() => niceTicks(min, max, 5), [max, min]);
@@ -177,11 +186,17 @@ export function PredictionDiffChart({
     const lstmPred = lstmPredNext?.[idx];
     const kalE = kalErr[idx];
     const lstmE = lstmErr[idx];
+    const currentPrice = prices[idx]!;
+    const kalDiff = isFiniteNumber(kalPred) ? kalPred - currentPrice : null;
+    const lstmDiff = isFiniteNumber(lstmPred) ? lstmPred - currentPrice : null;
     return {
       idx,
+      currentPrice,
       actualNext,
       kalPred: isFiniteNumber(kalPred) ? kalPred : null,
       lstmPred: isFiniteNumber(lstmPred) ? lstmPred : null,
+      kalDiff,
+      lstmDiff,
       kalErr: isFiniteNumber(kalE) ? kalE : null,
       lstmErr: isFiniteNumber(lstmE) ? lstmE : null,
     };
@@ -248,25 +263,59 @@ export function PredictionDiffChart({
               <span className="badge">{mode === "pct" ? "percent" : "absolute"}</span>
             </div>
             <div className="btTooltipRow">
-              <div className="k">next close</div>
+              <div className="k">current close</div>
+              <div className="v">{fmt(hover.currentPrice, 6)}</div>
+            </div>
+            <div className="btTooltipRow">
+              <div className="k">next close (actual)</div>
               <div className="v">{fmt(hover.actualNext, 6)}</div>
             </div>
             <div className="btTooltipRow">
-              <div className="k">kalman pred</div>
+              <div className="k">kalman pred (next)</div>
               <div className="v">{hover.kalPred === null ? "—" : fmt(hover.kalPred, 6)}</div>
             </div>
+            {hover.kalDiff !== null ? (
+              <div className="btTooltipRow">
+                <div className="k">kalman diff from current</div>
+                <div className="v">{fmt(hover.kalDiff, 6)} ({pct(hover.kalDiff / hover.currentPrice, 2)})</div>
+              </div>
+            ) : null}
             <div className="btTooltipRow">
               <div className="k">kalman err</div>
               <div className="v">{hover.kalErr === null ? "—" : mode === "pct" ? pct(hover.kalErr, 3) : fmt(hover.kalErr, 6)}</div>
             </div>
             <div className="btTooltipRow">
-              <div className="k">lstm pred</div>
+              <div className="k">lstm pred (next)</div>
               <div className="v">{hover.lstmPred === null ? "—" : fmt(hover.lstmPred, 6)}</div>
             </div>
+            {hover.lstmDiff !== null ? (
+              <div className="btTooltipRow">
+                <div className="k">lstm diff from current</div>
+                <div className="v">{fmt(hover.lstmDiff, 6)} ({pct(hover.lstmDiff / hover.currentPrice, 2)})</div>
+              </div>
+            ) : null}
             <div className="btTooltipRow">
               <div className="k">lstm err</div>
               <div className="v">{hover.lstmErr === null ? "—" : mode === "pct" ? pct(hover.lstmErr, 3) : fmt(hover.lstmErr, 6)}</div>
             </div>
+            {typeof openThreshold === "number" || typeof closeThreshold === "number" ? (
+              <>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", marginTop: 6, paddingTop: 6 }}>
+                  {typeof openThreshold === "number" ? (
+                    <div className="btTooltipRow">
+                      <div className="k">open threshold</div>
+                      <div className="v">{fmt(openThreshold, 6)} ({pct(openThreshold, 2)})</div>
+                    </div>
+                  ) : null}
+                  {typeof closeThreshold === "number" ? (
+                    <div className="btTooltipRow">
+                      <div className="k">close threshold</div>
+                      <div className="v">{fmt(closeThreshold, 6)} ({pct(closeThreshold, 2)})</div>
+                    </div>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
           </div>
         ) : null}
 
@@ -341,14 +390,14 @@ export function PredictionDiffChart({
             ) : null}
 
             <g>
-              <rect x={pad.l} y={pad.t - 12} width={440} height={28} rx={8} fill="rgba(0,0,0,0.35)" />
+              <rect x={pad.l} y={pad.t - 12} width={500} height={28} rx={8} fill="rgba(0,0,0,0.35)" />
               <circle cx={pad.l + 12} cy={pad.t + 2} r={4} fill="rgba(14, 165, 233, 0.85)" />
               <text x={pad.l + 22} y={pad.t + 6} fill="rgba(255,255,255,0.78)" fontSize="12" fontFamily="monospace">
-                Kalman error
+                Kalman {mode === "pct" ? "% error" : "error"}
               </text>
-              <circle cx={pad.l + 128} cy={pad.t + 2} r={4} fill="rgba(124, 58, 237, 0.9)" />
-              <text x={pad.l + 138} y={pad.t + 6} fill="rgba(255,255,255,0.78)" fontSize="12" fontFamily="monospace">
-                LSTM error {mode === "pct" ? "(pred_next - next_close) / next_close" : "(pred_next - next_close)"}
+              <circle cx={pad.l + 160} cy={pad.t + 2} r={4} fill="rgba(124, 58, 237, 0.9)" />
+              <text x={pad.l + 170} y={pad.t + 6} fill="rgba(255,255,255,0.78)" fontSize="12" fontFamily="monospace">
+                LSTM {mode === "pct" ? "% error" : "error"}
               </text>
             </g>
           </svg>
