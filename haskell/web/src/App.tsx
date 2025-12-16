@@ -3100,7 +3100,7 @@ export function App() {
 
 	                  <div style={{ marginTop: 10 }}>
 	                    <div className="hint" style={{ marginBottom: 8 }}>
-	                      Prediction error vs next close (hover for details)
+	                      Prediction values vs thresholds (hover for details)
 	                    </div>
 	                    <PredictionDiffChart
 	                      prices={bot.status.prices}
@@ -3108,6 +3108,8 @@ export function App() {
 	                      lstmPredNext={bot.status.lstmPredNext}
 	                      startIndex={bot.status.startIndex}
 	                      height={140}
+	                      openThreshold={bot.status.openThreshold ?? bot.status.threshold}
+	                      closeThreshold={bot.status.closeThreshold ?? bot.status.openThreshold ?? bot.status.threshold}
 	                    />
 	                  </div>
 
