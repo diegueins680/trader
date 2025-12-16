@@ -7,7 +7,7 @@ type Trade = {
   exitEquity: number;
   return: number;
   holdingPeriods: number;
-  exitReason?: string;
+  exitReason?: string | null;
 };
 
 type Operation = {

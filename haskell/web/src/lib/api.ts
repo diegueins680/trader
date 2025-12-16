@@ -181,7 +181,10 @@ async function runAsyncJob<T>(
   const startedAt = Date.now();
   const overallTimeoutMs = opts?.timeoutMs ?? 30_000;
   const perRequestTimeoutMs = Math.min(55_000, overallTimeoutMs);
+  const notFoundGraceMs = Math.min(2 * 60_000, Math.max(10_000, Math.round(overallTimeoutMs * 0.5)));
   let lastTransientError: unknown = null;
+  let sawJob = false;
+  let notFoundSinceMs: number | null = null;
 
   const start = await fetchJson<AsyncStartResponse>(
     baseUrl,
@@ -274,14 +277,25 @@ async function runAsyncJob<T>(
       if (status.status === "error") {
         const msg = status.error || "Async job failed";
         if (msg.trim().toLowerCase() === "not found") {
-          throw new Error(
-            "Async job not found (server restarted or behind a non-sticky load balancer). Please retry; for multi-instance deployments, enable shared async job storage (TRADER_API_ASYNC_DIR) or run single-instance.",
-          );
+          lastTransientError = new Error("Async job not found");
+          if (!sawJob) {
+            if (notFoundSinceMs == null) notFoundSinceMs = Date.now();
+            if (Date.now() - notFoundSinceMs > notFoundGraceMs) {
+              throw new Error(
+                "Async job not found (server restarted or behind a non-sticky load balancer). Please retry; for multi-instance deployments, enable shared async job storage (TRADER_API_ASYNC_DIR) or run single-instance.",
+              );
+            }
+          }
+          await sleep(Math.min(backoffMs, remaining), opts?.signal);
+          backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+          continue;
         }
         throw new Error(msg);
       }
       if (status.status !== "running") throw new Error(`Unexpected async status: ${String(status.status)}`);
 
+      sawJob = true;
+      notFoundSinceMs = null;
       await sleep(Math.min(backoffMs, remaining), opts?.signal);
       backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
     }

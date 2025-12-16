@@ -204,6 +204,9 @@ Endpoints:
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
 
+Optional async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
+- Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it).
+
 Examples:
 ```
 curl -s http://127.0.0.1:8080/health
@@ -259,6 +262,8 @@ Assumptions:
 Deploy to AWS
 -------------
 See `deploy/aws/README.md`.
+
+Note: `/bot/*` is stateful, and async endpoints keep job state in-memory unless you configure shared persistence (`TRADER_API_ASYNC_DIR`). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you’ve enabled shared async storage.
 
 Web UI
 ------

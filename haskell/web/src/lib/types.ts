@@ -33,7 +33,9 @@ export type ApiParams = {
   kalmanDt?: number;
   kalmanProcessVar?: number;
   kalmanMeasurementVar?: number;
-  threshold?: number;
+  threshold?: number; // legacy (maps to open/close)
+  openThreshold?: number;
+  closeThreshold?: number;
   method?: Method;
   positioning?: Positioning;
   optimizeOperations?: boolean;
@@ -79,6 +81,8 @@ export type LatestSignal = {
   method: Method;
   currentPrice: number;
   threshold: number;
+  openThreshold?: number;
+  closeThreshold?: number;
   kalmanNext: number | null;
   kalmanReturn?: number | null;
   kalmanStd?: number | null;
@@ -141,7 +145,7 @@ export type Trade = {
   exitEquity: number;
   return: number;
   holdingPeriods: number;
-  exitReason?: string;
+  exitReason?: string | null;
 };
 
 export type BacktestResponse = {
@@ -157,6 +161,8 @@ export type BacktestResponse = {
   };
   method: Method;
   threshold: number;
+  openThreshold?: number;
+  closeThreshold?: number;
   metrics: {
     finalEquity: number;
     totalReturn: number;
@@ -208,6 +214,8 @@ export type BotStatus =
       market?: Market;
       method?: Method;
       threshold?: number;
+      openThreshold?: number;
+      closeThreshold?: number;
       startedAtMs?: number;
       error?: string;
     }
@@ -218,6 +226,8 @@ export type BotStatus =
       market: Market;
       method: Method;
       threshold: number;
+      openThreshold?: number;
+      closeThreshold?: number;
       halted: boolean;
       peakEquity: number;
       dayStartEquity: number;

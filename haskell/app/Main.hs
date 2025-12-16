@@ -22,6 +22,7 @@ import Data.Sequence (Seq)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Word (Word64)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
@@ -44,6 +45,7 @@ import System.Exit (die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.IO (IOMode(ReadMode), hGetLine, hIsEOF, hPutStrLn, stderr, withFile)
 import System.IO.Error (ioeGetErrorString, isUserError)
+import System.Random (randomIO)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
 
@@ -2495,7 +2497,9 @@ newJobStore prefix maxRunning mAsyncDir = do
           Just baseDir -> Just (baseDir </> T.unpack prefix)
   case mDir of
     Nothing -> pure ()
-    Just dir -> createDirectoryIfMissing True dir
+    Just dir -> do
+      createDirectoryIfMissing True dir
+      validateWritableDir dir
   pure
     JobStore
       { jsPrefix = prefix
@@ -2507,6 +2511,24 @@ newJobStore prefix maxRunning mAsyncDir = do
       , jsMaxRunning = max 1 maxRunning
       , jsDir = mDir
       }
+
+validateWritableDir :: FilePath -> IO ()
+validateWritableDir dir = do
+  now <- getTimestampMs
+  r <- (randomIO :: IO Word64)
+  let probe = dir </> (".probe-" ++ show now ++ "-" ++ printf "%016x" r)
+  e <- try (BS.writeFile probe (BS.pack "ok")) :: IO (Either SomeException ())
+  case e of
+    Left ex ->
+      die
+        ( "TRADER_API_ASYNC_DIR is set but not writable ("
+            ++ dir
+            ++ "): "
+            ++ show ex
+        )
+    Right _ -> do
+      _ <- try (removeFile probe) :: IO (Either SomeException ())
+      pure ()
 
 pruneJobStore :: JobStore a -> Int64 -> IO ()
 pruneJobStore store now =
@@ -2580,7 +2602,7 @@ writeJobFile store jobId payload =
     Nothing -> pure ()
     Just path -> do
       let tmp = path ++ ".tmp"
-      _ <-
+      e <-
         try
           ( do
               createDirectoryIfMissing True (takeDirectory path)
@@ -2588,7 +2610,9 @@ writeJobFile store jobId payload =
               renameFile tmp path
           )
           :: IO (Either SomeException ())
-      pure ()
+      case e of
+        Left ex -> hPutStrLn stderr (printf "WARN: failed to persist async job %s (%s): %s" (T.unpack jobId) path (show ex))
+        Right _ -> pure ()
 
 readJobFile :: JobStore a -> Text -> IO (Maybe Aeson.Value)
 readJobFile store jobId =
@@ -2671,7 +2695,15 @@ startJob store action = do
     then pure (Left "Too many requests. Try again in a moment.")
     else do
       n <- atomicModifyIORef' (jsCounter store) (\x -> let y = x + 1 in (y, y))
-      let jobId = jsPrefix store <> "-" <> T.pack (show now) <> "-" <> T.pack (show n)
+      r <- (randomIO :: IO Word64)
+      let jobId =
+            jsPrefix store
+              <> "-"
+              <> T.pack (show now)
+              <> "-"
+              <> T.pack (show n)
+              <> "-"
+              <> T.pack (printf "%016x" r)
       out <- newEmptyMVar
       writeJobFile store jobId (object ["status" .= ("running" :: String), "createdAtMs" .= now])
       tid <-
