@@ -92,6 +92,8 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 - Data source
   - `--data PATH` (default: none) CSV file containing prices
   - `--price-column close` CSV column name for price
+  - `--high-column high` CSV column name for high (requires `--low-column`; enables intrabar stop-loss/take-profit/trailing-stop realism)
+  - `--low-column low` CSV column name for low (requires `--high-column`)
 
 - Bars & lookback (defaults: `--interval 5m`, `--lookback-window 24h` → 288 bars, `--bars auto`)
   - `--interval 5m` (alias `--binance-interval`) bar interval / Binance kline interval
@@ -196,6 +198,8 @@ Endpoints:
 - `POST /backtest` → runs a backtest and returns summary metrics
 - `POST /backtest/async` → starts an async backtest job
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
+- `POST /optimizer/run` → runs the optimizer script and returns the last JSONL record
+- `GET /optimizer/combos` → returns `top-combos.json` (UI helper)
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints
 - `POST /binance/listenKey` → creates a Binance user-data listenKey (returns WebSocket URL)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)

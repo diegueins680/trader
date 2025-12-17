@@ -1,6 +1,6 @@
 import React from "react";
 import type { IntrabarFill, Method, Normalization, Positioning } from "../lib/types";
-import { fmtRatio } from "../lib/format";
+import { fmtPct, fmtRatio } from "../lib/format";
 
 export type OptimizationComboParams = {
   interval: string;
@@ -39,7 +39,16 @@ export type OptimizationComboParams = {
 
 export type OptimizationCombo = {
   id: number;
+  rank?: number | null;
   finalEquity: number;
+  objective?: string | null;
+  score?: number | null;
+  metrics?: {
+    sharpe?: number | null;
+    maxDrawdown?: number | null;
+    turnover?: number | null;
+    roundTrips?: number | null;
+  } | null;
   openThreshold: number | null;
   closeThreshold: number | null;
   params: OptimizationComboParams;
@@ -81,6 +90,25 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
         const barsLabel = combo.params.bars <= 0 ? "auto" : combo.params.bars.toString();
         const sourceLabel = combo.source === "binance" ? "Binance" : combo.source === "csv" ? "CSV" : "Unknown";
         const barWidth = Math.max(1, (combo.finalEquity / maxEq) * 100);
+        const objectiveLabel = typeof combo.objective === "string" && combo.objective ? combo.objective : null;
+        const scoreLabel =
+          typeof combo.score === "number" && Number.isFinite(combo.score) ? combo.score.toFixed(4) : null;
+        const sharpeLabel =
+          typeof combo.metrics?.sharpe === "number" && Number.isFinite(combo.metrics.sharpe)
+            ? combo.metrics.sharpe.toFixed(2)
+            : null;
+        const maxDdLabel =
+          typeof combo.metrics?.maxDrawdown === "number" && Number.isFinite(combo.metrics.maxDrawdown)
+            ? fmtPct(combo.metrics.maxDrawdown, 1)
+            : null;
+        const turnoverLabel =
+          typeof combo.metrics?.turnover === "number" && Number.isFinite(combo.metrics.turnover)
+            ? combo.metrics.turnover.toFixed(3)
+            : null;
+        const roundTripsLabel =
+          typeof combo.metrics?.roundTrips === "number" && Number.isFinite(combo.metrics.roundTrips)
+            ? Math.trunc(combo.metrics.roundTrips).toString()
+            : null;
         const openLabel = combo.openThreshold != null ? fmtRatio(combo.openThreshold, 4) : "—";
         const closeLabel =
           combo.closeThreshold != null
@@ -98,7 +126,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
             <div className="comboRowHeader">
               <div>
                 <div className="comboTitle">
-                  #{combo.id} · {sourceLabel} · {combo.params.interval} · bars={barsLabel}
+                  #{combo.rank ?? combo.id} · {sourceLabel} · {combo.params.interval} · bars={barsLabel}
                 </div>
                 <div className="comboDetail">
                   {(() => {
@@ -132,6 +160,12 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
               <div className="comboBar" style={{ width: `${barWidth}%` }} />
             </div>
             <div className="comboDetailRow">
+              {objectiveLabel ? <span className="badge">Obj {objectiveLabel}</span> : null}
+              {scoreLabel ? <span className="badge">Score {scoreLabel}</span> : null}
+              {sharpeLabel ? <span className="badge">Sharpe {sharpeLabel}</span> : null}
+              {maxDdLabel ? <span className="badge">MaxDD {maxDdLabel}</span> : null}
+              {turnoverLabel ? <span className="badge">Turn {turnoverLabel}</span> : null}
+              {roundTripsLabel ? <span className="badge">RT {roundTripsLabel}</span> : null}
               <span className="badge">Open {openLabel}</span>
               <span className="badge">Close {closeLabel}</span>
             </div>

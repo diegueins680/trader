@@ -1734,12 +1734,37 @@ export function App() {
           const minPositionSizeRaw =
             typeof params.minPositionSize === "number" && Number.isFinite(params.minPositionSize) ? clamp(params.minPositionSize, 0, 1) : null;
           const minPositionSize = minPositionSizeRaw != null && minPositionSizeRaw > 0 ? minPositionSizeRaw : null;
+          const rankRaw = typeof rawRec.rank === "number" && Number.isFinite(rawRec.rank) ? Math.trunc(rawRec.rank) : null;
+          const rank = rankRaw != null && rankRaw >= 1 ? rankRaw : null;
+          const objective = typeof rawRec.objective === "string" && rawRec.objective ? rawRec.objective : null;
+          const score = typeof rawRec.score === "number" && Number.isFinite(rawRec.score) ? rawRec.score : null;
+          const metricsRec = (rawRec.metrics as Record<string, unknown> | null | undefined) ?? {};
+          const sharpe =
+            typeof metricsRec["sharpe"] === "number" && Number.isFinite(metricsRec["sharpe"]) ? (metricsRec["sharpe"] as number) : null;
+          const maxDrawdown =
+            typeof metricsRec["maxDrawdown"] === "number" && Number.isFinite(metricsRec["maxDrawdown"])
+              ? (metricsRec["maxDrawdown"] as number)
+              : null;
+          const turnover =
+            typeof metricsRec["turnover"] === "number" && Number.isFinite(metricsRec["turnover"]) ? (metricsRec["turnover"] as number) : null;
+          const roundTrips =
+            typeof metricsRec["roundTrips"] === "number" && Number.isFinite(metricsRec["roundTrips"])
+              ? Math.trunc(metricsRec["roundTrips"] as number)
+              : null;
+          const metrics =
+            sharpe != null || maxDrawdown != null || turnover != null || roundTrips != null
+              ? { sharpe, maxDrawdown, turnover, roundTrips }
+              : null;
           const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
           const source: OptimizationCombo["source"] =
             rawSource === "binance" ? "binance" : rawSource === "csv" ? "csv" : null;
           return {
-            id: typeof rawRec.rank === "number" ? rawRec.rank : index + 1,
-            finalEquity: typeof rawRec.finalEquity === "number" ? rawRec.finalEquity : 0,
+            id: rank ?? index + 1,
+            rank,
+            objective,
+            score,
+            metrics,
+            finalEquity: typeof rawRec.finalEquity === "number" && Number.isFinite(rawRec.finalEquity) ? rawRec.finalEquity : 0,
             openThreshold: typeof rawRec.openThreshold === "number" ? rawRec.openThreshold : null,
             closeThreshold: typeof rawRec.closeThreshold === "number" ? rawRec.closeThreshold : null,
             source,
@@ -1781,6 +1806,19 @@ export function App() {
           };
         });
         sanitized.sort((a, b) => {
+          const ar = typeof a.rank === "number" && Number.isFinite(a.rank) ? a.rank : null;
+          const br = typeof b.rank === "number" && Number.isFinite(b.rank) ? b.rank : null;
+          if (ar != null && br != null) return ar - br;
+          if (ar != null) return -1;
+          if (br != null) return 1;
+
+          const sa = typeof a.score === "number" && Number.isFinite(a.score) ? a.score : null;
+          const sb = typeof b.score === "number" && Number.isFinite(b.score) ? b.score : null;
+          if (sa != null || sb != null) {
+            const diff = (sb ?? Number.NEGATIVE_INFINITY) - (sa ?? Number.NEGATIVE_INFINITY);
+            if (diff !== 0) return diff;
+          }
+
           const eq = b.finalEquity - a.finalEquity;
           if (eq !== 0) return eq;
           return a.id - b.id;

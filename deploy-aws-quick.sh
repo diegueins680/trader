@@ -20,6 +20,9 @@ APP_RUNNER_ECR_ACCESS_ROLE_NAME="${APP_RUNNER_ECR_ACCESS_ROLE_NAME:-AppRunnerECR
 
 echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
 
+ECR_URI=""
+APP_RUNNER_SERVICE_URL=""
+
 # Check prerequisites
 check_prerequisites() {
   echo "Checking prerequisites..."
@@ -51,6 +54,40 @@ get_account_id() {
   aws sts get-caller-identity --query Account --output text
 }
 
+wait_for_apprunner_running() {
+  local service_arn="$1"
+  local max_attempts="${2:-90}"
+  local attempt=0
+  local status=""
+
+  while [[ $attempt -lt $max_attempts ]]; do
+    status="$(
+      aws apprunner describe-service \
+        --service-arn "$service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.Status' \
+        --output text 2>/dev/null || echo ""
+    )"
+
+    if [[ "$status" == "RUNNING" ]]; then
+      echo -e "${GREEN}✓ Service is RUNNING${NC}" >&2
+      return 0
+    fi
+    if [[ "$status" == "CREATE_FAILED" || "$status" == "DELETE_FAILED" ]]; then
+      echo -e "${RED}✗ Service status: ${status}${NC}" >&2
+      echo "Check App Runner events/logs in the AWS Console for details." >&2
+      return 1
+    fi
+
+    echo -n "." >&2
+    sleep 5
+    attempt=$((attempt + 1))
+  done
+  echo "" >&2
+  echo "Timed out waiting for App Runner service to be RUNNING." >&2
+  return 1
+}
+
 # Create ECR repository
 create_ecr_repo() {
   set -euo pipefail
@@ -69,7 +106,7 @@ create_ecr_repo() {
     echo -e "${GREEN}✓ ECR repository created${NC}" >&2
   fi
   
-  echo "$ecr_uri"
+  ECR_URI="$ecr_uri"
 }
 
 # Build and push Docker image
@@ -147,6 +184,9 @@ EOF
     echo -e "${YELLOW}✓ App Runner service already exists (${APP_RUNNER_SERVICE_NAME})${NC}" >&2
     service_arn="$existing_service_arn"
 
+    echo "Waiting for any in-progress operation to finish..." >&2
+    wait_for_apprunner_running "$service_arn" >/dev/null
+
     echo "Updating service configuration..." >&2
     aws apprunner update-service \
       --region "$AWS_REGION" \
@@ -156,8 +196,8 @@ EOF
       --health-check-configuration "$health_cfg" \
       >/dev/null
 
-    echo "Starting a new deployment..." >&2
-    aws apprunner start-deployment --region "$AWS_REGION" --service-arn "$service_arn" >/dev/null || true
+    echo "Waiting for update deployment to complete..." >&2
+    wait_for_apprunner_running "$service_arn" >/dev/null
   else
     echo "Creating service..." >&2
     service_arn="$(aws apprunner create-service \
@@ -170,6 +210,9 @@ EOF
       --query 'Service.ServiceArn' \
       --output text)"
     echo -e "${GREEN}✓ App Runner service created${NC}" >&2
+
+    echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
+    wait_for_apprunner_running "$service_arn" >/dev/null
   fi
 
   rm -f "$src_cfg"
@@ -179,41 +222,14 @@ EOF
   echo -e "${GREEN}✓ Scaling updated${NC}" >&2
 
   echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
-  local max_attempts=90
-  local attempt=0
-  local status=""
-
-  while [[ $attempt -lt $max_attempts ]]; do
-    status="$(
-      aws apprunner describe-service \
-        --service-arn "$service_arn" \
-        --region "$AWS_REGION" \
-        --query 'Service.Status' \
-        --output text 2>/dev/null || echo ""
-    )"
-
-    if [[ "$status" == "RUNNING" ]]; then
-      echo -e "${GREEN}✓ Service is RUNNING${NC}" >&2
-      break
-    fi
-    if [[ "$status" == "CREATE_FAILED" || "$status" == "DELETE_FAILED" ]]; then
-      echo -e "${RED}✗ Service status: ${status}${NC}" >&2
-      echo "Check App Runner events/logs in the AWS Console for details." >&2
-      exit 1
-    fi
-
-    echo -n "." >&2
-    sleep 5
-    ((attempt++))
-  done
-  echo "" >&2
+  wait_for_apprunner_running "$service_arn" >/dev/null
 
   local service_host
   service_host="$(aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.ServiceUrl' --output text)"
   if [[ "$service_host" == http* ]]; then
-    echo "$service_host"
+    APP_RUNNER_SERVICE_URL="$service_host"
   else
-    echo "https://${service_host}"
+    APP_RUNNER_SERVICE_URL="https://${service_host}"
   fi
 }
 
@@ -283,13 +299,15 @@ main() {
   echo ""
   
   # Create ECR repo
-  local ecr_uri=$(create_ecr_repo)
+  create_ecr_repo
+  local ecr_uri="$ECR_URI"
   
   # Build and push image
   build_and_push "$ecr_uri"
   
   # Create App Runner service and get URL
-  local service_url=$(create_app_runner "$ecr_uri")
+  create_app_runner "$ecr_uri"
+  local service_url="$APP_RUNNER_SERVICE_URL"
   
   echo -e "${GREEN}=== Deployment Complete ===${NC}\n"
   echo "API URL: ${service_url}"
