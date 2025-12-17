@@ -36,7 +36,7 @@ import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException)
 import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status429, status500, status502)
-import Network.HTTP.Types.Header (hAuthorization)
+import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
@@ -3336,6 +3336,29 @@ newApiCache maxEntries ttlMs = do
 cacheEnabled :: ApiCache -> Bool
 cacheEnabled c = acTtlMs c > 0 && acMaxEntries c > 0
 
+requestWantsNoCache :: Wai.Request -> Bool
+requestWantsNoCache req =
+  let qs = Wai.queryString req
+      nocacheQs =
+        case lookup "nocache" qs of
+          Nothing -> False
+          Just Nothing -> True
+          Just (Just raw) ->
+            let s = map toLower (BS.unpack raw)
+             in s == "1" || s == "true" || s == "yes" || s == "on"
+
+      hasNoCacheDirective raw =
+        let v = BS.map toLower raw
+         in "no-cache" `BS.isInfixOf` v || "no-store" `BS.isInfixOf` v
+
+      hdrs = Wai.requestHeaders req
+      cc = lookup hCacheControl hdrs
+      pragma = lookup hPragma hdrs
+      nocacheHdr =
+        maybe False hasNoCacheDirective cc
+          || maybe False hasNoCacheDirective pragma
+   in nocacheQs || nocacheHdr
+
 argsCacheJson :: Args -> Aeson.Value
 argsCacheJson args =
   let market = marketCode (argBinanceMarket args)
@@ -3515,31 +3538,37 @@ apiCacheClear cache = do
 
 computeLatestSignalFromArgsCached :: ApiCache -> Args -> IO LatestSignal
 computeLatestSignalFromArgsCached cache args = do
-  let key = cacheKeyFor "signal" args
-  mHit <- cacheLookup cache (acSignals cache) key
-  case mHit of
-    Just v -> do
-      incCounter (acSignalHits cache)
-      pure v
-    Nothing -> do
-      incCounter (acSignalMisses cache)
-      v <- computeLatestSignalFromArgs args
-      cacheInsert cache (acSignals cache) key v
-      pure v
+  if not (cacheEnabled cache)
+    then computeLatestSignalFromArgs args
+    else do
+      let key = cacheKeyFor "signal" args
+      mHit <- cacheLookup cache (acSignals cache) key
+      case mHit of
+        Just v -> do
+          incCounter (acSignalHits cache)
+          pure v
+        Nothing -> do
+          incCounter (acSignalMisses cache)
+          v <- computeLatestSignalFromArgs args
+          cacheInsert cache (acSignals cache) key v
+          pure v
 
 computeBacktestFromArgsCached :: ApiCache -> Args -> IO Aeson.Value
 computeBacktestFromArgsCached cache args = do
-  let key = cacheKeyFor "backtest" args
-  mHit <- cacheLookup cache (acBacktests cache) key
-  case mHit of
-    Just v -> do
-      incCounter (acBacktestHits cache)
-      pure v
-    Nothing -> do
-      incCounter (acBacktestMisses cache)
-      v <- computeBacktestFromArgs args
-      cacheInsert cache (acBacktests cache) key v
-      pure v
+  if not (cacheEnabled cache)
+    then computeBacktestFromArgs args
+    else do
+      let key = cacheKeyFor "backtest" args
+      mHit <- cacheLookup cache (acBacktests cache) key
+      case mHit of
+        Just v -> do
+          incCounter (acBacktestHits cache)
+          pure v
+        Nothing -> do
+          incCounter (acBacktestMisses cache)
+          v <- computeBacktestFromArgs args
+          cacheInsert cache (acBacktests cache) key v
+          pure v
 
 data JobStore a = JobStore
   { jsPrefix :: !Text
@@ -4516,7 +4545,14 @@ handleSignal apiCache mOps limits baseArgs req respond = do
           case validateApiComputeLimits limits args of
             Left e -> respond (jsonError status400 e)
             Right argsOk -> do
-              r <- try (computeLatestSignalFromArgsCached apiCache argsOk) :: IO (Either SomeException LatestSignal)
+              let noCache = requestWantsNoCache req
+              r <-
+                try
+                  ( if noCache
+                      then computeLatestSignalFromArgs argsOk
+                      else computeLatestSignalFromArgsCached apiCache argsOk
+                  )
+                  :: IO (Either SomeException LatestSignal)
               case r of
                 Left ex ->
                   let (st, msg) = exceptionToHttp ex
@@ -4552,9 +4588,13 @@ handleSignalAsync apiCache mOps limits store baseArgs req respond = do
             Right argsOk -> do
               let paramsJson = Just (toJSON (sanitizeApiParams params))
                   argsJson = Just (argsPublicJson argsOk)
+                  noCache = requestWantsNoCache req
               r <-
                 startJob store $ do
-                  sig <- computeLatestSignalFromArgsCached apiCache argsOk
+                  sig <-
+                    if noCache
+                      then computeLatestSignalFromArgs argsOk
+                      else computeLatestSignalFromArgsCached apiCache argsOk
                   opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing
                   pure sig
               case r of
@@ -4684,7 +4724,14 @@ handleBacktest apiCache mOps limits baseArgs req respond = do
           case validateApiComputeLimits limits args of
             Left e -> respond (jsonError status400 e)
             Right argsOk -> do
-              r <- try (computeBacktestFromArgsCached apiCache argsOk) :: IO (Either SomeException Aeson.Value)
+              let noCache = requestWantsNoCache req
+              r <-
+                try
+                  ( if noCache
+                      then computeBacktestFromArgs argsOk
+                      else computeBacktestFromArgsCached apiCache argsOk
+                  )
+                  :: IO (Either SomeException Aeson.Value)
               case r of
                 Left ex ->
                   let (st, msg) = exceptionToHttp ex
@@ -4721,9 +4768,13 @@ handleBacktestAsync apiCache mOps limits store baseArgs req respond = do
             Right argsOk -> do
               let paramsJson = Just (toJSON (sanitizeApiParams params))
                   argsJson = Just (argsPublicJson argsOk)
+                  noCache = requestWantsNoCache req
               r <-
                 startJob store $ do
-                  out <- computeBacktestFromArgsCached apiCache argsOk
+                  out <-
+                    if noCache
+                      then computeBacktestFromArgs argsOk
+                      else computeBacktestFromArgsCached apiCache argsOk
                   opsAppendMaybe mOps "backtest" paramsJson argsJson (Just out) (extractBacktestFinalEquity out)
                   pure out
               case r of

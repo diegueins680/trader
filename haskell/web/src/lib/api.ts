@@ -38,6 +38,17 @@ export type HealthResponse = {
   asyncJobs?: { maxRunning: number; ttlMs: number; persistence: boolean };
   cache?: { enabled: boolean; ttlMs: number; maxEntries: number };
 };
+
+export type CacheStatsResponse = {
+  enabled: boolean;
+  ttlMs: number;
+  maxEntries: number;
+  signals: { entries: number; hits: number; misses: number };
+  backtests: { entries: number; hits: number; misses: number };
+  atMs: number;
+};
+
+export type CacheClearResponse = { ok: boolean; atMs: number };
 type AsyncJobOptions = FetchJsonOptions & { onJobId?: (jobId: string) => void };
 
 function resolveUrl(baseUrl: string, path: string): string {
@@ -334,6 +345,14 @@ export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<
     asyncJobs: out.asyncJobs,
     cache: out.cache,
   };
+}
+
+export async function cacheStats(baseUrl: string, opts?: FetchJsonOptions): Promise<CacheStatsResponse> {
+  return fetchJson<CacheStatsResponse>(baseUrl, "/cache", { method: "GET" }, opts);
+}
+
+export async function cacheClear(baseUrl: string, opts?: FetchJsonOptions): Promise<CacheClearResponse> {
+  return fetchJson<CacheClearResponse>(baseUrl, "/cache/clear", { method: "POST" }, opts);
 }
 
 export async function signal(baseUrl: string, params: ApiParams, opts?: AsyncJobOptions): Promise<LatestSignal> {

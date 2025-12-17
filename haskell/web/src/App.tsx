@@ -24,6 +24,8 @@ import {
   botStart,
   botStatus,
   botStop,
+  cacheClear,
+  cacheStats,
   health,
   signal,
   trade,
@@ -71,11 +73,30 @@ type BotUiState = {
   status: BotStatus;
 };
 
+type BotRtEvent = {
+  atMs: number;
+  message: string;
+};
+
+type BotRtUiState = {
+  lastFetchAtMs: number | null;
+  lastFetchDurationMs: number | null;
+  lastNewKlines: number;
+  lastNewKlinesAtMs: number | null;
+  feed: BotRtEvent[];
+};
+
 type KeysUiState = {
   loading: boolean;
   error: string | null;
   status: BinanceKeysStatus | null;
   checkedAtMs: number | null;
+};
+
+type CacheUiState = {
+  loading: boolean;
+  error: string | null;
+  stats: Awaited<ReturnType<typeof cacheStats>> | null;
 };
 
 type ListenKeyUiState = {
@@ -156,6 +177,7 @@ type FormState = {
   idempotencyKey: string;
   binanceLive: boolean;
   tradeArmed: boolean;
+  bypassCache: boolean;
   autoRefresh: boolean;
   autoRefreshSec: number;
 
@@ -388,6 +410,7 @@ const defaultForm: FormState = {
   idempotencyKey: "",
   binanceLive: false,
   tradeArmed: false,
+  bypassCache: false,
   autoRefresh: false,
   autoRefreshSec: 20,
 
@@ -488,6 +511,7 @@ function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
     confirmConformal: normalizeBool(rawRec.confirmConformal ?? merged.confirmConformal, defaultForm.confirmConformal),
     confirmQuantiles: normalizeBool(rawRec.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
     confidenceSizing: normalizeBool(rawRec.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
+    bypassCache: normalizeBool(rawRec.bypassCache ?? merged.bypassCache, defaultForm.bypassCache),
     learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1),
     valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
     patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
@@ -532,6 +556,22 @@ function fmtTimeMs(ms: number): string {
   } catch {
     return String(ms);
   }
+}
+
+function fmtDurationMs(ms: number | null | undefined): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "—";
+  const sign = ms < 0 ? "-" : "";
+  const abs = Math.abs(ms);
+  if (abs < 1000) return `${sign}${Math.round(abs)}ms`;
+  if (abs < 60_000) return `${sign}${(abs / 1000).toFixed(abs < 10_000 ? 2 : 1)}s`;
+  if (abs < 3_600_000) return `${sign}${(abs / 60_000).toFixed(abs < 600_000 ? 2 : 1)}m`;
+  return `${sign}${(abs / 3_600_000).toFixed(abs < 36_000_000 ? 2 : 1)}h`;
+}
+
+function fmtEtaMs(ms: number | null | undefined): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "—";
+  if (ms >= 0) return `in ${fmtDurationMs(ms)}`;
+  return `${fmtDurationMs(-ms)} ago`;
 }
 
 function fmtProfitFactor(pf: number | null | undefined, grossProfit: number, grossLoss: number): string {
@@ -678,12 +718,28 @@ export function App() {
     status: { running: false },
   });
 
+  const [botRt, setBotRt] = useState<BotRtUiState>({
+    lastFetchAtMs: null,
+    lastFetchDurationMs: null,
+    lastNewKlines: 0,
+    lastNewKlinesAtMs: null,
+    feed: [],
+  });
+  const botRtRef = useRef<{ botKey: string | null; lastOpenTimeMs: number | null; lastError: string | null; lastHalted: boolean | null }>({
+    botKey: null,
+    lastOpenTimeMs: null,
+    lastError: null,
+    lastHalted: null,
+  });
+
   const [keys, setKeys] = useState<KeysUiState>({
     loading: false,
     error: null,
     status: null,
     checkedAtMs: null,
   });
+
+  const [cacheUi, setCacheUi] = useState<CacheUiState>({ loading: false, error: null, stats: null });
 
   const [listenKeyUi, setListenKeyUi] = useState<ListenKeyUiState>({
     loading: false,
@@ -1041,7 +1097,47 @@ export function App() {
     }
   }, [apiBase, apiToken, authHeaders, showToast]);
 
-	  const commonParams: ApiParams = useMemo(() => {
+  const refreshCacheStats = useCallback(async () => {
+    setCacheUi((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const v = await cacheStats(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      setCacheUi({ loading: false, error: null, stats: v });
+    } catch (e) {
+      if (isAbortError(e)) return;
+      if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check TRADER_API_TOKEN)." }));
+        return;
+      }
+      setCacheUi((s) => ({
+        ...s,
+        loading: false,
+        error: isTimeoutError(e) ? "Request timed out" : "Failed to load cache stats",
+      }));
+    }
+  }, [apiBase, authHeaders]);
+
+  const clearCacheUi = useCallback(async () => {
+    setCacheUi((s) => ({ ...s, loading: true, error: null }));
+    try {
+      await cacheClear(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      showToast("Cache cleared");
+      const v = await cacheStats(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      setCacheUi({ loading: false, error: null, stats: v });
+    } catch (e) {
+      if (isAbortError(e)) return;
+      if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check TRADER_API_TOKEN)." }));
+        return;
+      }
+      setCacheUi((s) => ({
+        ...s,
+        loading: false,
+        error: isTimeoutError(e) ? "Request timed out" : "Failed to clear cache",
+      }));
+    }
+  }, [apiBase, authHeaders, showToast]);
+
+  const commonParams: ApiParams = useMemo(() => {
     const interval = form.interval.trim();
     const intervalOk = BINANCE_INTERVAL_SET.has(interval);
     const barsRaw = Math.trunc(form.bars);
@@ -1056,15 +1152,15 @@ export function App() {
       openThreshold: Math.max(0, form.openThreshold),
       closeThreshold: Math.max(0, form.closeThreshold),
       fee: Math.max(0, form.fee),
-	      ...(form.slippage > 0 ? { slippage: clamp(form.slippage, 0, 0.999999) } : {}),
-	      ...(form.spread > 0 ? { spread: clamp(form.spread, 0, 0.999999) } : {}),
-	      ...(form.intrabarFill !== "stop-first" ? { intrabarFill: form.intrabarFill } : {}),
-	      ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
-	      ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
-	      ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
-	      ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
-	      ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
-	      ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
+      ...(form.slippage > 0 ? { slippage: clamp(form.slippage, 0, 0.999999) } : {}),
+      ...(form.spread > 0 ? { spread: clamp(form.spread, 0, 0.999999) } : {}),
+      ...(form.intrabarFill !== "stop-first" ? { intrabarFill: form.intrabarFill } : {}),
+      ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
+      ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
+      ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
+      ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
+      ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
+      ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       tuneRatio: clamp(form.tuneRatio, 0, 0.99),
       tuneObjective: form.tuneObjective,
@@ -1078,27 +1174,27 @@ export function App() {
       valRatio: clamp(form.valRatio, 0, 1),
       patience: clamp(Math.trunc(form.patience), 0, 1000),
       ...(form.gradClip > 0 ? { gradClip: clamp(form.gradClip, 0, 100) } : {}),
-	      kalmanZMin: Math.max(0, form.kalmanZMin),
-	      kalmanZMax: Math.max(Math.max(0, form.kalmanZMin), form.kalmanZMax),
-	      binanceTestnet: form.binanceTestnet,
-	    };
+      kalmanZMin: Math.max(0, form.kalmanZMin),
+      kalmanZMax: Math.max(Math.max(0, form.kalmanZMin), form.kalmanZMax),
+      binanceTestnet: form.binanceTestnet,
+    };
 
     if (form.lookbackBars >= 2) base.lookbackBars = Math.trunc(form.lookbackBars);
     else if (form.lookbackWindow.trim()) base.lookbackWindow = form.lookbackWindow.trim();
 
-	    if (form.optimizeOperations) base.optimizeOperations = true;
-	    if (form.sweepThreshold) base.sweepThreshold = true;
+    if (form.optimizeOperations) base.optimizeOperations = true;
+    if (form.sweepThreshold) base.sweepThreshold = true;
 
-	    if (form.maxHighVolProb > 0) base.maxHighVolProb = clamp(form.maxHighVolProb, 0, 1);
-	    if (form.maxConformalWidth > 0) base.maxConformalWidth = Math.max(0, form.maxConformalWidth);
-	    if (form.maxQuantileWidth > 0) base.maxQuantileWidth = Math.max(0, form.maxQuantileWidth);
-	    if (form.confirmConformal) base.confirmConformal = true;
-	    if (form.confirmQuantiles) base.confirmQuantiles = true;
-	    if (form.confidenceSizing) base.confidenceSizing = true;
-	    if (form.minPositionSize > 0) base.minPositionSize = clamp(form.minPositionSize, 0, 1);
+    if (form.maxHighVolProb > 0) base.maxHighVolProb = clamp(form.maxHighVolProb, 0, 1);
+    if (form.maxConformalWidth > 0) base.maxConformalWidth = Math.max(0, form.maxConformalWidth);
+    if (form.maxQuantileWidth > 0) base.maxQuantileWidth = Math.max(0, form.maxQuantileWidth);
+    if (form.confirmConformal) base.confirmConformal = true;
+    if (form.confirmQuantiles) base.confirmQuantiles = true;
+    if (form.confidenceSizing) base.confidenceSizing = true;
+    if (form.minPositionSize > 0) base.minPositionSize = clamp(form.minPositionSize, 0, 1);
 
-	    return base;
-	  }, [form]);
+    return base;
+  }, [form]);
 
   const estimatedCosts = useMemo(() => {
     const fee = Math.max(0, form.fee);
@@ -1227,6 +1323,11 @@ export function App() {
     return rows.length ? rows.join("\n") : "No live operations yet.";
   }, [bot.status, botOrdersView.shown]);
 
+  const botRtFeedText = useMemo(() => {
+    if (botRt.feed.length === 0) return "No realtime events yet.";
+    return botRt.feed.map((e) => `${fmtTimeMs(e.atMs)} | ${e.message}`).join("\n");
+  }, [botRt.feed]);
+
   const botRisk = useMemo(() => {
     const st = bot.status;
     if (!st.running) return null;
@@ -1236,6 +1337,23 @@ export function App() {
     const dd = peak > 0 ? Math.max(0, 1 - lastEq / peak) : 0;
     const dl = dayStart > 0 ? Math.max(0, 1 - lastEq / dayStart) : 0;
     return { lastEq, dd, dl };
+  }, [bot.status]);
+
+  const botRealtime = useMemo(() => {
+    const st = bot.status;
+    if (!st.running) return null;
+    const now = Date.now();
+    const lastOpenTime = st.openTimes[st.openTimes.length - 1] ?? null;
+    const intervalSec = binanceIntervalSeconds(st.interval) ?? parseDurationSeconds(st.interval);
+    const intervalMs = typeof intervalSec === "number" && Number.isFinite(intervalSec) && intervalSec > 0 ? intervalSec * 1000 : null;
+    const expectedCloseMs = lastOpenTime !== null && intervalMs !== null ? lastOpenTime + intervalMs : null;
+    const closeEtaMs = expectedCloseMs !== null ? expectedCloseMs - now : null;
+    const statusAgeMs = typeof st.updatedAtMs === "number" && Number.isFinite(st.updatedAtMs) ? now - st.updatedAtMs : null;
+    const klineAgeMs = lastOpenTime !== null ? now - lastOpenTime : null;
+    const procLagMs = lastOpenTime !== null ? st.updatedAtMs - lastOpenTime : null;
+    const closeLagMs = expectedCloseMs !== null ? st.updatedAtMs - expectedCloseMs : null;
+    const lastBarIndex = st.startIndex + Math.max(0, st.prices.length - 1);
+    return { now, lastOpenTime, expectedCloseMs, closeEtaMs, statusAgeMs, klineAgeMs, procLagMs, closeLagMs, lastBarIndex };
   }, [bot.status]);
 
   const scrollToResult = useCallback((kind: RequestKind) => {
@@ -1261,11 +1379,12 @@ export function App() {
         const p = overrideParams ?? (kind === "trade" ? tradeParams : commonParams);
         if (!p.binanceSymbol) throw new Error("binanceSymbol is required.");
         if (!p.interval) throw new Error("interval is required.");
+        const requestHeaders = form.bypassCache ? { ...(authHeaders ?? {}), "Cache-Control": "no-cache" } : authHeaders;
 
         if (kind === "signal") {
           const out = await signal(apiBase, p, {
             signal: controller.signal,
-            headers: authHeaders,
+            headers: requestHeaders,
             timeoutMs: SIGNAL_TIMEOUT_MS,
             onJobId: (jobId) => {
               if (requestId !== requestSeqRef.current) return;
@@ -1293,7 +1412,7 @@ export function App() {
         } else if (kind === "backtest") {
           const out = await backtest(apiBase, p, {
             signal: controller.signal,
-            headers: authHeaders,
+            headers: requestHeaders,
             timeoutMs: BACKTEST_TIMEOUT_MS,
             onJobId: (jobId) => {
               if (requestId !== requestSeqRef.current) return;
@@ -1319,7 +1438,7 @@ export function App() {
           if (!form.tradeArmed) throw new Error("Trading is locked. Enable “Arm trading” to call /trade.");
           const out = await trade(apiBase, withBinanceKeys(p), {
             signal: controller.signal,
-            headers: authHeaders,
+            headers: requestHeaders,
             timeoutMs: TRADE_TIMEOUT_MS,
             onJobId: (jobId) => {
               if (requestId !== requestSeqRef.current) return;
@@ -1386,7 +1505,7 @@ export function App() {
         }
       }
     },
-    [apiBase, authHeaders, commonParams, form.tradeArmed, scrollToResult, showToast, tradeParams, withBinanceKeys],
+    [apiBase, authHeaders, commonParams, form.bypassCache, form.tradeArmed, scrollToResult, showToast, tradeParams, withBinanceKeys],
   );
 
   const cancelActiveRequest = useCallback(() => {
@@ -1566,6 +1685,7 @@ export function App() {
   const refreshBot = useCallback(
     async (opts?: RunOptions) => {
       const requestId = ++botRequestSeqRef.current;
+      const startedAtMs = Date.now();
       botAbortRef.current?.abort();
       const controller = new AbortController();
       botAbortRef.current = controller;
@@ -1578,7 +1698,68 @@ export function App() {
           { signal: controller.signal, headers: authHeaders, timeoutMs: BOT_STATUS_TIMEOUT_MS },
           BOT_STATUS_TAIL_POINTS,
         );
+        const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
+        setBotRt((prev) => {
+          const base: BotRtUiState = {
+            ...prev,
+            lastFetchAtMs: finishedAtMs,
+            lastFetchDurationMs: Math.max(0, finishedAtMs - startedAtMs),
+            lastNewKlines: 0,
+          };
+
+          const rt = botRtRef.current;
+
+          if (!out.running) {
+            botRtRef.current = { botKey: null, lastOpenTimeMs: null, lastError: null, lastHalted: null };
+            return { ...base, lastNewKlines: 0, lastNewKlinesAtMs: null, feed: [] };
+          }
+
+          const botKey = `${out.market}:${out.symbol}:${out.interval}`;
+          let feed = base.feed;
+          if (rt.botKey !== botKey) {
+            feed = [];
+            rt.botKey = botKey;
+            rt.lastOpenTimeMs = null;
+            rt.lastError = null;
+            rt.lastHalted = null;
+          }
+
+          const openTimes = out.openTimes;
+          const lastOpen = openTimes[openTimes.length - 1] ?? null;
+          const prevLastOpen = rt.lastOpenTimeMs;
+          const newTimes = typeof prevLastOpen === "number" ? openTimes.filter((t) => t > prevLastOpen) : [];
+          const newCount = newTimes.length;
+
+          let lastNewKlinesAtMs: number | null = prev.lastNewKlinesAtMs;
+          if (newCount > 0) {
+            lastNewKlinesAtMs = finishedAtMs;
+            const lastNew = newTimes[newTimes.length - 1]!;
+            const idx = openTimes.lastIndexOf(lastNew);
+            const closePx = idx >= 0 ? out.prices[idx] : null;
+            const action = out.latestSignal.action;
+            const msg =
+              `kline +${newCount}: open ${fmtTimeMs(lastNew)}` +
+              (typeof closePx === "number" && Number.isFinite(closePx) ? ` close ${fmtMoney(closePx, 4)}` : "") +
+              (action ? ` • action ${action}` : "");
+            feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+          }
+
+          const err = out.error ?? null;
+          if (err && err !== rt.lastError) {
+            feed = [{ atMs: finishedAtMs, message: `error: ${err}` }, ...feed].slice(0, 50);
+          }
+
+          if (rt.lastHalted !== null && rt.lastHalted !== out.halted) {
+            feed = [{ atMs: finishedAtMs, message: out.halted ? `halted: ${out.haltReason ?? "true"}` : "resumed" }, ...feed].slice(0, 50);
+          }
+
+          rt.lastOpenTimeMs = lastOpen;
+          rt.lastError = err;
+          rt.lastHalted = out.halted;
+
+          return { ...base, lastNewKlines: newCount, lastNewKlinesAtMs, feed };
+        });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         setApiOk("ok");
       } catch (e) {
@@ -2148,6 +2329,36 @@ export function App() {
                           healthInfo.cache.maxEntries
                         }).`
                       : ""}
+                  </div>
+                ) : null}
+                {healthInfo?.cache ? (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="actions" style={{ marginTop: 0 }}>
+                      <button className="btn" type="button" onClick={() => void refreshCacheStats()} disabled={cacheUi.loading || apiOk !== "ok"}>
+                        {cacheUi.loading ? "Loading…" : "Refresh cache stats"}
+                      </button>
+                      <button
+                        className="btn"
+                        type="button"
+                        onClick={() => void clearCacheUi()}
+                        disabled={cacheUi.loading || apiOk !== "ok" || healthInfo.cache.enabled === false}
+                      >
+                        Clear cache
+                      </button>
+                      <span className="hint">Disable via `TRADER_API_CACHE_TTL_MS=0` if you never want cached results.</span>
+                    </div>
+                    {cacheUi.error ? (
+                      <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: 8 }}>
+                        {cacheUi.error}
+                      </pre>
+                    ) : null}
+                    {cacheUi.stats ? (
+                      <div className="hint" style={{ marginTop: 8 }}>
+                        Signals: {cacheUi.stats.signals.entries} entries ({cacheUi.stats.signals.hits} hit / {cacheUi.stats.signals.misses} miss) • Backtests:{" "}
+                        {cacheUi.stats.backtests.entries} entries ({cacheUi.stats.backtests.hits} hit / {cacheUi.stats.backtests.misses} miss) • Updated{" "}
+                        {fmtTimeMs(cacheUi.stats.atMs)}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -2983,6 +3194,14 @@ export function App() {
                     />
                     Auto-refresh
                   </label>
+                  <label className="pill">
+                    <input
+                      type="checkbox"
+                      checked={form.bypassCache}
+                      onChange={(e) => setForm((f) => ({ ...f, bypassCache: e.target.checked }))}
+                    />
+                    Bypass cache
+                  </label>
                 </div>
                 <div className="hint">
                   Auto-refresh every{" "}
@@ -2995,7 +3214,7 @@ export function App() {
                     value={form.autoRefreshSec}
                     onChange={(e) => setForm((f) => ({ ...f, autoRefreshSec: numFromInput(e.target.value, f.autoRefreshSec) }))}
                   />{" "}
-                  seconds.
+                  seconds. {form.bypassCache ? "Bypass cache adds Cache-Control: no-cache." : ""}
                 </div>
               </div>
             </div>
@@ -3506,10 +3725,10 @@ export function App() {
 	                    height={360}
 	                  />
 
-	                  <div style={{ marginTop: 10 }}>
-	                    <div className="hint" style={{ marginBottom: 8 }}>
-	                      Prediction values vs thresholds (hover for details)
-	                    </div>
+                  <div style={{ marginTop: 10 }}>
+                    <div className="hint" style={{ marginBottom: 8 }}>
+                      Prediction values vs thresholds (hover for details)
+                    </div>
 	                    <PredictionDiffChart
 	                      prices={bot.status.prices}
 	                      kalmanPredNext={bot.status.kalmanPredNext}
@@ -3518,13 +3737,57 @@ export function App() {
 	                      height={140}
 	                      openThreshold={bot.status.openThreshold ?? bot.status.threshold}
 	                      closeThreshold={bot.status.closeThreshold ?? bot.status.openThreshold ?? bot.status.threshold}
-	                    />
-	                  </div>
+                    />
+                  </div>
 
-		                  <div className="kv" style={{ marginTop: 12 }}>
-		                    <div className="k">Equity / Position</div>
-			                    <div className="v">
-			                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
+                  <div className="kv" style={{ marginTop: 12 }}>
+                    <div className="k">Realtime</div>
+                    <div className="v">
+                      <span className="badge" style={{ marginRight: 8 }}>
+                        poll {fmtDurationMs(botRt.lastFetchDurationMs)}
+                      </span>
+                      <span className="badge" style={{ marginRight: 8 }}>
+                        status {fmtDurationMs(botRealtime?.statusAgeMs)}
+                      </span>
+                      <span className={botRt.lastNewKlines > 0 ? "badge badgeStrong badgeLong" : "badge"} style={{ marginRight: 8 }}>
+                        +{botRt.lastNewKlines} kline{botRt.lastNewKlines === 1 ? "" : "s"}
+                      </span>
+                      {botRt.lastNewKlinesAtMs ? (
+                        <span className="badge">last {fmtTimeMs(botRt.lastNewKlinesAtMs)}</span>
+                      ) : (
+                        <span className="badge">last —</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Latest kline</div>
+                    <div className="v">
+                      {botRealtime?.lastOpenTime ? (
+                        <>
+                          {fmtTimeMs(botRealtime.lastOpenTime)} • age {fmtDurationMs(botRealtime.klineAgeMs)} • bar {botRealtime.lastBarIndex}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Candle close</div>
+                    <div className="v">
+                      {botRealtime?.expectedCloseMs ? (
+                        <>
+                          {fmtTimeMs(botRealtime.expectedCloseMs)} • {fmtEtaMs(botRealtime.closeEtaMs)} • closeΔ {fmtDurationMs(botRealtime.closeLagMs)}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="kv" style={{ marginTop: 12 }}>
+                    <div className="k">Equity / Position</div>
+                    <div className="v">
+                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
 		                      {(() => {
 		                        const p = bot.status.positions[bot.status.positions.length - 1] ?? 0;
 		                        if (p > 0) return `LONG${Math.abs(p) < 0.9999 ? ` (${fmtPct(Math.abs(p), 1)})` : ""}`;
@@ -3557,20 +3820,105 @@ export function App() {
 	                      <div className="v">{fmtTimeMs(bot.status.haltedAtMs)}</div>
 	                    </div>
 	                  ) : null}
-	                  <div className="kv">
-	                    <div className="k">Order errors</div>
-	                    <div className="v">{bot.status.consecutiveOrderErrors}</div>
-	                  </div>
-	                  <div className="kv">
-	                    <div className="k">Last action</div>
-	                    <div className="v">{bot.status.latestSignal.action}</div>
-	                  </div>
-		                  {bot.status.lastOrder ? (
-		                    <div className="kv">
-		                      <div className="k">Last order</div>
-		                      <div className="v">{bot.status.lastOrder.message}</div>
-		                    </div>
-		                  ) : null}
+                  <div className="kv">
+                    <div className="k">Order errors</div>
+                    <div className="v">{bot.status.consecutiveOrderErrors}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Latest signal</div>
+                    <div className="v">{bot.status.latestSignal.action}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Current price</div>
+                    <div className="v">{fmtMoney(bot.status.latestSignal.currentPrice, 4)}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Kalman</div>
+                    <div className="v">
+                      {(() => {
+                        const cur = bot.status.latestSignal.currentPrice;
+                        const next = bot.status.latestSignal.kalmanNext;
+                        const ret = bot.status.latestSignal.kalmanReturn;
+                        const z = bot.status.latestSignal.kalmanZ;
+                        const ret2 =
+                          typeof ret === "number" && Number.isFinite(ret)
+                            ? ret
+                            : typeof next === "number" && Number.isFinite(next) && cur !== 0
+                              ? (next - cur) / cur
+                              : null;
+                        const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
+                        const retTxt = typeof ret2 === "number" && Number.isFinite(ret2) ? fmtPct(ret2, 3) : "—";
+                        const zTxt = typeof z === "number" && Number.isFinite(z) ? fmtNum(z, 3) : "—";
+                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${bot.status.latestSignal.kalmanDirection ?? "—"}`;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">LSTM</div>
+                    <div className="v">
+                      {(() => {
+                        const cur = bot.status.latestSignal.currentPrice;
+                        const next = bot.status.latestSignal.lstmNext;
+                        const ret =
+                          typeof next === "number" && Number.isFinite(next) && cur !== 0 ? (next - cur) / cur : null;
+                        const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
+                        const retTxt = typeof ret === "number" && Number.isFinite(ret) ? fmtPct(ret, 3) : "—";
+                        return `${nextTxt} (${retTxt}) • ${bot.status.latestSignal.lstmDirection ?? "—"}`;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Chosen</div>
+                    <div className="v">{bot.status.latestSignal.chosenDirection ?? "—"}</div>
+                  </div>
+                  {typeof bot.status.latestSignal.confidence === "number" && Number.isFinite(bot.status.latestSignal.confidence) ? (
+                    <div className="kv">
+                      <div className="k">Confidence / Size</div>
+                      <div className="v">
+                        {fmtPct(bot.status.latestSignal.confidence, 1)}
+                        {typeof bot.status.latestSignal.positionSize === "number" && Number.isFinite(bot.status.latestSignal.positionSize)
+                          ? ` • ${fmtPct(bot.status.latestSignal.positionSize, 1)}`
+                          : ""}
+                      </div>
+                    </div>
+                  ) : null}
+                  {bot.status.lastOrder ? (
+                    <div className="kv">
+                      <div className="k">Last order</div>
+                      <div className="v">{bot.status.lastOrder.message}</div>
+                    </div>
+                  ) : null}
+
+                  <details className="details" style={{ marginTop: 12 }}>
+                    <summary>Realtime feed</summary>
+                    <div className="actions" style={{ marginTop: 10 }}>
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={botRt.feed.length === 0}
+                        onClick={() => {
+                          void copyText(botRtFeedText);
+                          showToast("Copied realtime feed");
+                        }}
+                      >
+                        Copy
+                      </button>
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={botRt.feed.length === 0}
+                        onClick={() => {
+                          setBotRt((s) => ({ ...s, feed: [] }));
+                          showToast("Cleared realtime feed");
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <pre className="code" style={{ marginTop: 10 }}>
+                      {botRtFeedText}
+                    </pre>
+                  </details>
 
 		                  <div style={{ marginTop: 12 }}>
 		                    <div className="btChartHeader" style={{ marginBottom: 10 }}>
