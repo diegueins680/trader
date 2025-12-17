@@ -2143,6 +2143,11 @@ export function App() {
                           healthInfo.asyncJobs.ttlMs / 60000,
                         )}m, persistence ${healthInfo.asyncJobs.persistence ? "on" : "off"}.`
                       : ""}
+                    {healthInfo.cache
+                      ? ` Cache: ${healthInfo.cache.enabled ? "on" : "off"} (TTL ${Math.round(healthInfo.cache.ttlMs / 1000)}s, max ${
+                          healthInfo.cache.maxEntries
+                        }).`
+                      : ""}
                   </div>
                 ) : null}
               </div>

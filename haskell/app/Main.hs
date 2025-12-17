@@ -30,7 +30,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
-import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
@@ -3307,13 +3307,31 @@ data ApiCache = ApiCache
   , acMaxEntries :: !Int
   , acSignals :: !(MVar (HM.HashMap Text (CacheEntry LatestSignal)))
   , acBacktests :: !(MVar (HM.HashMap Text (CacheEntry Aeson.Value)))
+  , acSignalHits :: !(IORef Int64)
+  , acSignalMisses :: !(IORef Int64)
+  , acBacktestHits :: !(IORef Int64)
+  , acBacktestMisses :: !(IORef Int64)
   }
 
 newApiCache :: Int -> Int64 -> IO ApiCache
 newApiCache maxEntries ttlMs = do
   sig <- newMVar HM.empty
   bt <- newMVar HM.empty
-  pure ApiCache { acTtlMs = ttlMs, acMaxEntries = maxEntries, acSignals = sig, acBacktests = bt }
+  sigHits <- newIORef 0
+  sigMiss <- newIORef 0
+  btHits <- newIORef 0
+  btMiss <- newIORef 0
+  pure
+    ApiCache
+      { acTtlMs = ttlMs
+      , acMaxEntries = maxEntries
+      , acSignals = sig
+      , acBacktests = bt
+      , acSignalHits = sigHits
+      , acSignalMisses = sigMiss
+      , acBacktestHits = btHits
+      , acBacktestMisses = btMiss
+      }
 
 cacheEnabled :: ApiCache -> Bool
 cacheEnabled c = acTtlMs c > 0 && acMaxEntries c > 0
@@ -3444,13 +3462,67 @@ cacheInsert cache store key val =
             hm' = HM.insert key e hmFresh
         pure (evictLRU (acMaxEntries cache) hm')
 
+cachePruneSize :: ApiCache -> MVar (HM.HashMap Text (CacheEntry a)) -> IO Int
+cachePruneSize cache store =
+  if not (cacheEnabled cache)
+    then pure 0
+    else
+      modifyMVar store $ \hm -> do
+        now <- getTimestampMs
+        let ttl = acTtlMs cache
+            fresh e = now - ceCreatedAtMs e <= ttl
+            hmFresh = HM.filter fresh hm
+        pure (hmFresh, HM.size hmFresh)
+
+apiCacheStatsJson :: ApiCache -> IO Aeson.Value
+apiCacheStatsJson cache = do
+  now <- getTimestampMs
+  sigEntries <- cachePruneSize cache (acSignals cache)
+  btEntries <- cachePruneSize cache (acBacktests cache)
+  sigHits <- readIORef (acSignalHits cache)
+  sigMiss <- readIORef (acSignalMisses cache)
+  btHits <- readIORef (acBacktestHits cache)
+  btMiss <- readIORef (acBacktestMisses cache)
+  pure
+    ( object
+        [ "enabled" .= cacheEnabled cache
+        , "ttlMs" .= acTtlMs cache
+        , "maxEntries" .= acMaxEntries cache
+        , "signals"
+            .= object
+              [ "entries" .= sigEntries
+              , "hits" .= sigHits
+              , "misses" .= sigMiss
+              ]
+        , "backtests"
+            .= object
+              [ "entries" .= btEntries
+              , "hits" .= btHits
+              , "misses" .= btMiss
+              ]
+        , "atMs" .= now
+        ]
+    )
+
+apiCacheClear :: ApiCache -> IO ()
+apiCacheClear cache = do
+  modifyMVar_ (acSignals cache) (const (pure HM.empty))
+  modifyMVar_ (acBacktests cache) (const (pure HM.empty))
+  writeIORef (acSignalHits cache) 0
+  writeIORef (acSignalMisses cache) 0
+  writeIORef (acBacktestHits cache) 0
+  writeIORef (acBacktestMisses cache) 0
+
 computeLatestSignalFromArgsCached :: ApiCache -> Args -> IO LatestSignal
 computeLatestSignalFromArgsCached cache args = do
   let key = cacheKeyFor "signal" args
   mHit <- cacheLookup cache (acSignals cache) key
   case mHit of
-    Just v -> pure v
+    Just v -> do
+      incCounter (acSignalHits cache)
+      pure v
     Nothing -> do
+      incCounter (acSignalMisses cache)
       v <- computeLatestSignalFromArgs args
       cacheInsert cache (acSignals cache) key v
       pure v
@@ -3460,8 +3532,11 @@ computeBacktestFromArgsCached cache args = do
   let key = cacheKeyFor "backtest" args
   mHit <- cacheLookup cache (acBacktests cache) key
   case mHit of
-    Just v -> pure v
+    Just v -> do
+      incCounter (acBacktestHits cache)
+      pure v
     Nothing -> do
+      incCounter (acBacktestMisses cache)
       v <- computeBacktestFromArgs args
       cacheInsert cache (acBacktests cache) key v
       pure v
@@ -3841,6 +3916,8 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache asyncStor
                                 .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
                                    , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
                                    , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/cache" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/cache/clear" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
                                    , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
@@ -3891,6 +3968,12 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache asyncStor
                                             , "ttlMs" .= jsTtlMs asyncCfg
                                             , "persistence" .= isJust (jsDir asyncCfg)
                                             ]
+                                       , "cache"
+                                          .= object
+                                            [ "enabled" .= cacheEnabled apiCache
+                                            , "ttlMs" .= acTtlMs apiCache
+                                            , "maxEntries" .= acMaxEntries apiCache
+                                            ]
                                        ]
                                 )
                             )
@@ -3903,6 +3986,19 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache asyncStor
             ["ops"] ->
               case Wai.requestMethod req of
                 "GET" -> handleOps mOps req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["cache"] ->
+              case Wai.requestMethod req of
+                "GET" -> do
+                  v <- apiCacheStatsJson apiCache
+                  respondCors (jsonValue status200 v)
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["cache", "clear"] ->
+              case Wai.requestMethod req of
+                "POST" -> do
+                  apiCacheClear apiCache
+                  now <- getTimestampMs
+                  respondCors (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["signal"] ->
               case Wai.requestMethod req of

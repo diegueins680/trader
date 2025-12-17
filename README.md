@@ -195,6 +195,8 @@ Endpoints:
 - `GET /` → basic endpoint list
 - `GET /health`
 - `GET /metrics`
+- `GET /cache` → in-memory cache stats (entries + hit/miss)
+- `POST /cache/clear` → clears the in-memory cache
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /signal/async` → starts an async signal job
 - `GET /signal/async/:jobId` → polls an async signal job (also accepts `POST` for proxy compatibility)

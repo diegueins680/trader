@@ -36,6 +36,7 @@ export type HealthResponse = {
   authOk?: boolean;
   computeLimits?: { maxBarsLstm: number; maxEpochs: number; maxHiddenSize: number };
   asyncJobs?: { maxRunning: number; ttlMs: number; persistence: boolean };
+  cache?: { enabled: boolean; ttlMs: number; maxEntries: number };
 };
 type AsyncJobOptions = FetchJsonOptions & { onJobId?: (jobId: string) => void };
 
@@ -322,9 +323,17 @@ export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<
     authOk?: boolean;
     computeLimits?: { maxBarsLstm: number; maxEpochs: number; maxHiddenSize: number };
     asyncJobs?: { maxRunning: number; ttlMs: number; persistence: boolean };
+    cache?: { enabled: boolean; ttlMs: number; maxEntries: number };
   }>(baseUrl, "/health", { method: "GET" }, opts);
   if (out.status !== "ok") throw new Error("Unexpected /health response");
-  return { status: "ok", authRequired: out.authRequired, authOk: out.authOk, computeLimits: out.computeLimits, asyncJobs: out.asyncJobs };
+  return {
+    status: "ok",
+    authRequired: out.authRequired,
+    authOk: out.authOk,
+    computeLimits: out.computeLimits,
+    asyncJobs: out.asyncJobs,
+    cache: out.cache,
+  };
 }
 
 export async function signal(baseUrl: string, params: ApiParams, opts?: AsyncJobOptions): Promise<LatestSignal> {
