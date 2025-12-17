@@ -23,6 +23,20 @@ echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
 ECR_URI=""
 APP_RUNNER_SERVICE_URL=""
 
+mask_token() {
+  local tok="${1:-}"
+  if [[ -z "$tok" ]]; then
+    echo "(not set)"
+    return 0
+  fi
+  local n=${#tok}
+  if [[ $n -le 12 ]]; then
+    echo "${tok:0:2}…${tok:n-2:2}"
+    return 0
+  fi
+  echo "${tok:0:6}…${tok:n-4:4}"
+}
+
 # Check prerequisites
 check_prerequisites() {
   echo "Checking prerequisites..."
@@ -146,6 +160,24 @@ create_app_runner() {
   )"
   if [[ "$existing_service_arn" == "None" ]]; then
     existing_service_arn=""
+  fi
+
+  if [[ -z "$TRADER_API_TOKEN" && -n "$existing_service_arn" ]]; then
+    local existing_token=""
+    existing_token="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_API_TOKEN' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_token" == "None" ]]; then
+      existing_token=""
+    fi
+    if [[ -n "$existing_token" ]]; then
+      TRADER_API_TOKEN="$existing_token"
+      echo -e "${YELLOW}✓ Reusing existing TRADER_API_TOKEN from service${NC}" >&2
+    fi
   fi
 
   echo "Ensuring App Runner ECR access role..." >&2
@@ -295,7 +327,7 @@ main() {
   
   echo "Configuration:"
   echo "  Region: $AWS_REGION"
-  echo "  API Token: ${TRADER_API_TOKEN:-(not set)}"
+  echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
   echo ""
   
   # Create ECR repo
@@ -324,7 +356,7 @@ main() {
   if [[ -z "$TRADER_API_TOKEN" ]]; then
     echo -e "${YELLOW}⚠ No API token set. For security, set TRADER_API_TOKEN in App Runner environment.${NC}"
   else
-    echo "3. Use this token in the UI: ${TRADER_API_TOKEN}"
+    echo "3. Use the API token in the UI: $(mask_token "$TRADER_API_TOKEN")"
   fi
 }
 
