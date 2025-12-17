@@ -8,10 +8,12 @@
 ## Option 1: Automated Deployment (Recommended)
 
 ```bash
-cd /Users/diegosaa/GitHub/trader
+cd /path/to/trader
 
 # Generate a random API token
 API_TOKEN=$(openssl rand -hex 32)
+
+# Save this token somewhere safe (you'll need it for the web UI).
 
 # Run the automated deployment script
 bash deploy-aws-quick.sh ap-northeast-1 "$API_TOKEN"
@@ -78,13 +80,13 @@ docker push "${ECR_URI}:latest"
 ## Test the API
 
 ```bash
-export API_URL=https://xxxx.ap-northeast-1.apprunner.amazonaws.com
+export API_URL=https://xxxx.ap-northeast-1.awsapprunner.com
 export TRADER_API_TOKEN=<your-token>
 
 # No auth needed
 curl -s "${API_URL}/health"
 
-# With auth
+# With auth (verifies token wiring; /health is always public)
 curl -s -H "Authorization: Bearer ${TRADER_API_TOKEN}" "${API_URL}/health"
 ```
 
@@ -102,10 +104,20 @@ TRADER_API_TARGET="${API_URL}" npm run build
 export S3_BUCKET=trader-ui-$(date +%s)
 aws s3 mb "s3://${S3_BUCKET}" --region ap-northeast-1
 
+# Enable static website hosting (SPA-friendly)
+aws s3 website "s3://${S3_BUCKET}" \
+  --index-document index.html \
+  --error-document index.html
+
 # Upload UI
 aws s3 sync dist/ "s3://${S3_BUCKET}/" --delete
 
-# Make public (optional)
+# Make public (optional, if you aren't using CloudFront/OAC)
+aws s3api put-public-access-block \
+  --bucket "$S3_BUCKET" \
+  --public-access-block-configuration BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false \
+  --region ap-northeast-1 || true
+
 aws s3api put-bucket-policy --bucket "$S3_BUCKET" --policy '{
   "Version": "2012-10-17",
   "Statement": [{

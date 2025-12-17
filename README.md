@@ -264,7 +264,7 @@ Assumptions:
 
 Deploy to AWS
 -------------
-See `deploy/aws/README.md`.
+See `DEPLOY_AWS_QUICKSTART.md`, `DEPLOY_AWS.md`, and `deploy/aws/README.md`.
 
 Note: `/bot/*` is stateful, and async endpoints keep job state in-memory unless you configure shared persistence (`TRADER_API_ASYNC_DIR`). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you’ve enabled shared async storage.
 

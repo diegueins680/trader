@@ -12,10 +12,10 @@ import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as AT
 import Data.ByteArray (convert)
-import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
+import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (toList)
 import Data.Int (Int64)
-import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn)
+import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, listToMaybe)
 import Data.Maybe (isJust, listToMaybe, mapMaybe)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
@@ -39,13 +39,15 @@ import Network.HTTP.Types.Header (hAuthorization)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
-import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, listDirectory, removeFile, renameFile)
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, getCurrentDirectory, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.Exit (die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.IO (IOMode(ReadMode), hGetLine, hIsEOF, hPutStrLn, stderr, withFile)
 import System.IO.Error (ioeGetErrorString, isUserError)
+import System.Process (CreateProcess(..), proc, readCreateProcessWithExitCode)
 import System.Random (randomIO)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
 
@@ -827,6 +829,56 @@ data ApiParams = ApiParams
   , apConfidenceSizing :: Maybe Bool
   , apMinPositionSize :: Maybe Double
   } deriving (Eq, Show, Generic)
+
+data OptimizerSource
+  = OptimizerSourceBinance
+  | OptimizerSourceCsv
+  deriving (Eq, Show)
+
+instance FromJSON OptimizerSource where
+  parseJSON =
+    AT.withText "OptimizerSource" $ \txt ->
+      case T.toLower txt of
+        "csv" -> pure OptimizerSourceCsv
+        "binance" -> pure OptimizerSourceBinance
+        _ -> fail "Invalid optimizer source (expected binance or csv)"
+
+data ApiOptimizerRunRequest = ApiOptimizerRunRequest
+  { arrSource :: !(Maybe OptimizerSource)
+  , arrBinanceSymbol :: !(Maybe String)
+  , arrData :: !(Maybe FilePath)
+  , arrPriceColumn :: !(Maybe String)
+  , arrIntervals :: !(Maybe String)
+  , arrLookbackWindow :: !(Maybe String)
+  , arrBarsMin :: !(Maybe Int)
+  , arrBarsMax :: !(Maybe Int)
+  , arrEpochsMin :: !(Maybe Int)
+  , arrEpochsMax :: !(Maybe Int)
+  , arrHiddenSizeMin :: !(Maybe Int)
+  , arrHiddenSizeMax :: !(Maybe Int)
+  , arrTrials :: !(Maybe Int)
+  , arrTimeoutSec :: !(Maybe Double)
+  , arrSeed :: !(Maybe Int)
+  , arrSlippageMax :: !(Maybe Double)
+  , arrSpreadMax :: !(Maybe Double)
+  , arrNormalizations :: !(Maybe String)
+  , arrBacktestRatio :: !(Maybe Double)
+  , arrTuneRatio :: !(Maybe Double)
+  , arrDisableLstmPersistence :: !(Maybe Bool)
+  , arrNoSweepThreshold :: !(Maybe Bool)
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON ApiOptimizerRunRequest where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 3)
+
+data ApiOptimizerRunResponse = ApiOptimizerRunResponse
+  { arrLastRecord :: !Value
+  , arrStdout :: !String
+  , arrStderr :: !String
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiOptimizerRunResponse where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
 
 instance FromJSON ApiParams where
   parseJSON = Aeson.genericParseJSON (jsonOptions 2)
@@ -2464,6 +2516,11 @@ runRestApi baseArgs = do
         (aclMaxEpochs limits)
         (aclMaxHiddenSize limits)
     )
+  projectRoot <- getCurrentDirectory
+  let tmpRoot = projectRoot </> ".tmp"
+  createDirectoryIfMissing True tmpRoot
+  let optimizerTmp = tmpRoot </> "optimizer"
+  createDirectoryIfMissing True optimizerTmp
   metrics <- newMetrics
   mJournal <- newJournalFromEnv
   mOps <- newOpsStoreFromEnv
@@ -2483,7 +2540,7 @@ runRestApi baseArgs = do
   asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
   asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
   asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
-  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal mOps limits (AsyncStores asyncSignal asyncBacktest asyncTrade))
+  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal mOps limits (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)
 
 corsHeaders :: ResponseHeaders
 corsHeaders =
@@ -2820,8 +2877,19 @@ validateApiComputeLimits limits args =
 
       Right args
 
-apiApp :: Args -> Maybe BS.ByteString -> BotController -> Metrics -> Maybe Journal -> Maybe OpsStore -> ApiComputeLimits -> AsyncStores -> Wai.Application
-apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req respond = do
+apiApp ::
+  Args ->
+  Maybe BS.ByteString ->
+  BotController ->
+  Metrics ->
+  Maybe Journal ->
+  Maybe OpsStore ->
+  ApiComputeLimits ->
+  AsyncStores ->
+  FilePath ->
+  FilePath ->
+  Wai.Application
+apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores projectRoot optimizerTmp req respond = do
   let rawPath = Wai.pathInfo req
       path =
         case rawPath of
@@ -2836,6 +2904,9 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
           ["signal", "async", _] -> "signal/async/:jobId"
           ["backtest", "async", _] -> "backtest/async/:jobId"
           ["trade", "async", _] -> "trade/async/:jobId"
+
+          ["optimizer", "run"] -> "optimizer/run"
+          ["optimizer", "combos"] -> "optimizer/combos"
           _ ->
             let go xs =
                   case xs of
@@ -2883,6 +2954,8 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
                                    , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
                                    , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
                                    , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
+                                   , object ["method" .= ("POST" :: String), "path" .= ("/optimizer/run" :: String)]
+                                   , object ["method" .= ("GET" :: String), "path" .= ("/optimizer/combos" :: String)]
                                    ]
                             ]
                         )
@@ -3003,6 +3076,14 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores req re
             ["bot", "status"] ->
               case Wai.requestMethod req of
                 "GET" -> handleBotStatus botCtrl req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["optimizer", "run"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleOptimizerRun projectRoot optimizerTmp req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["optimizer", "combos"] ->
+              case Wai.requestMethod req of
+                "GET" -> handleOptimizerCombos projectRoot optimizerTmp respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             _ -> respondCors (jsonError status404 "Not found")
 

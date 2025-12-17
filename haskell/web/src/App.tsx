@@ -1661,15 +1661,17 @@ export function App() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
-      .then((payload) => {
+      .then((payload: unknown) => {
         if (isCancelled) return;
-        const rawCombos = Array.isArray(payload?.combos) ? payload.combos : [];
+        const payloadRec = (payload as Record<string, unknown> | null | undefined) ?? {};
+        const rawCombos: unknown[] = Array.isArray(payloadRec.combos) ? (payloadRec.combos as unknown[]) : [];
         const methods: Method[] = ["11", "10", "01"];
         const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
         const positionings: Positioning[] = ["long-flat", "long-short"];
         const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
         const sanitized: OptimizationCombo[] = rawCombos.map((raw, index) => {
-          const params = raw.params ?? {};
+          const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
+          const params = (rawRec.params as Record<string, unknown> | null | undefined) ?? {};
           const method =
             typeof params.method === "string" && methods.includes(params.method as Method)
               ? (params.method as Method)
@@ -1732,11 +1734,15 @@ export function App() {
           const minPositionSizeRaw =
             typeof params.minPositionSize === "number" && Number.isFinite(params.minPositionSize) ? clamp(params.minPositionSize, 0, 1) : null;
           const minPositionSize = minPositionSizeRaw != null && minPositionSizeRaw > 0 ? minPositionSizeRaw : null;
+          const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
+          const source: OptimizationCombo["source"] =
+            rawSource === "binance" ? "binance" : rawSource === "csv" ? "csv" : null;
           return {
-            id: typeof raw.rank === "number" ? raw.rank : index + 1,
-            finalEquity: typeof raw.finalEquity === "number" ? raw.finalEquity : 0,
-            openThreshold: typeof raw.openThreshold === "number" ? raw.openThreshold : null,
-            closeThreshold: typeof raw.closeThreshold === "number" ? raw.closeThreshold : null,
+            id: typeof rawRec.rank === "number" ? rawRec.rank : index + 1,
+            finalEquity: typeof rawRec.finalEquity === "number" ? rawRec.finalEquity : 0,
+            openThreshold: typeof rawRec.openThreshold === "number" ? rawRec.openThreshold : null,
+            closeThreshold: typeof rawRec.closeThreshold === "number" ? rawRec.closeThreshold : null,
+            source,
             params: {
               interval,
               bars,
@@ -1779,7 +1785,8 @@ export function App() {
           if (eq !== 0) return eq;
           return a.id - b.id;
         });
-        setTopCombos(sanitized);
+        const binanceCombos = sanitized.filter((combo) => combo.source === "binance");
+        setTopCombos(binanceCombos.slice(0, 5));
         setTopCombosError(null);
       })
       .catch((err) => {

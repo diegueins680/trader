@@ -24,7 +24,7 @@ EXISTING DEPLOYMENT FILES:
 
 2. Deploy everything automatically:
    
-   cd /Users/diegosaa/GitHub/trader
+   cd /path/to/trader
    
    # Generate random API token
    API_TOKEN=$(openssl rand -hex 32)
@@ -64,7 +64,7 @@ Your deployment will consist of:
 │                                                                   │
 │  2. App Runner                                                   │
 │     └─ Runs your API from ECR image                             │
-│     └─ Public URL: https://xxxx.ap-northeast-1.apprunner...    │
+│     └─ Public URL: https://xxxx.ap-northeast-1.awsapprunner.com │
 │     └─ Port: 8080                                               │
 │     └─ Health check: /health                                    │
 │                                                                   │
@@ -228,4 +228,3 @@ For AWS deployment specifics, see:
   1. DEPLOY_AWS_QUICKSTART.md (start here!)
   2. DEPLOY_AWS.md (detailed guide)
   3. deploy/aws/README.md (original docs)
-

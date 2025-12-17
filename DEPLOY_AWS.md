@@ -21,7 +21,7 @@ This guide walks you through deploying the Trader API and UI to AWS using App Ru
 
 4. **Repository cloned** locally
    ```bash
-   cd /Users/diegosaa/GitHub/trader
+   cd /path/to/trader
    ```
 
 ---
@@ -190,22 +190,29 @@ The service will redeploy.
 Once the service is deployed and running:
 
 ```bash
-export APP_RUNNER_URL=https://xxxx.ap-northeast-1.apprunner.amazonaws.com
+export APP_RUNNER_URL=https://xxxx.ap-northeast-1.awsapprunner.com
 export TRADER_API_TOKEN=<your-token>
 
 # Test health endpoint (no auth needed)
 curl -s "${APP_RUNNER_URL}/health" | jq .
 
-# Test a protected endpoint (requires token)
+# Verify token wiring (/health is always public)
 curl -s -H "Authorization: Bearer ${TRADER_API_TOKEN}" \
   "${APP_RUNNER_URL}/health" | jq .
 ```
 
-Expected response:
+Expected response notes:
+- `authRequired` is `true` when `TRADER_API_TOKEN` is configured on the service.
+- `authOk` is `false` without the auth header, and `true` when you pass the correct token.
+
+Example response:
 ```json
 {
-  "healthy": true,
-  "computeLimits": { ... }
+  "status": "ok",
+  "authRequired": true,
+  "authOk": true,
+  "computeLimits": { ... },
+  "asyncJobs": { ... }
 }
 ```
 
@@ -218,7 +225,7 @@ The web UI is a static React app. Build it pointing at your deployed API:
 ```bash
 cd haskell/web
 
-export TRADER_API_TARGET="https://xxxx.ap-northeast-1.apprunner.amazonaws.com"
+export TRADER_API_TARGET="https://xxxx.ap-northeast-1.awsapprunner.com"
 
 # Install dependencies (if needed)
 npm install
@@ -252,6 +259,14 @@ aws s3 website "s3://${S3_BUCKET}" \
 aws s3 sync dist/ "s3://${S3_BUCKET}/" --delete
 
 # Make objects public (optional, if you don't use CloudFront)
+#
+# Note: new buckets default to "Block Public Access", which will prevent public bucket policies.
+# Only do this if you intentionally want a public website bucket.
+aws s3api put-public-access-block \
+  --bucket "$S3_BUCKET" \
+  --public-access-block-configuration BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false \
+  --region "$AWS_REGION" || true
+
 aws s3api put-bucket-policy --bucket "$S3_BUCKET" --policy '{
   "Version": "2012-10-17",
   "Statement": [{

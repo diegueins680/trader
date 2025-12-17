@@ -43,6 +43,7 @@ export type OptimizationCombo = {
   openThreshold: number | null;
   closeThreshold: number | null;
   params: OptimizationComboParams;
+  source: "binance" | "csv" | null;
 };
 
 type Props = {

@@ -2,6 +2,8 @@
 
 This project exposes a REST API when run with `--serve` (default port `8080`).
 
+Quick start: see `DEPLOY_AWS_QUICKSTART.md` and `DEPLOY_AWS.md` in the repo root.
+
 ## Build & Run Locally (Docker)
 
 ```bash

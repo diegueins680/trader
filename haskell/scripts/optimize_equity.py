@@ -1065,6 +1065,7 @@ def main(argv: List[str]) -> int:
     if args.top_json:
         successful = [tr for tr in records if tr.ok and tr.final_equity is not None]
         successful_sorted = sorted(successful, key=lambda tr: tr.final_equity or 0, reverse=True)
+        source = "binance" if args.binance_symbol else "csv"
         combos = []
         for rank, tr in enumerate(successful_sorted[:10], start=1):
             combos.append(
@@ -1073,6 +1074,7 @@ def main(argv: List[str]) -> int:
                     "finalEquity": tr.final_equity,
                     "openThreshold": tr.open_threshold,
                     "closeThreshold": tr.close_threshold,
+                    "source": source,
                     "params": {
                         "interval": tr.params.interval,
                         "bars": tr.params.bars,
