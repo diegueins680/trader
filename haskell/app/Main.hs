@@ -15,8 +15,8 @@ import Data.ByteArray (convert)
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (toList)
 import Data.Int (Int64)
-import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, listToMaybe)
-import Data.Maybe (isJust, listToMaybe, mapMaybe)
+import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Text (Text)
@@ -41,7 +41,7 @@ import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, getCurrentDirectory, listDirectory, removeFile, renameFile)
 import System.Environment (lookupEnv)
-import System.Exit (die, exitFailure)
+import System.Exit (ExitCode(..), die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.IO (IOMode(ReadMode), hGetLine, hIsEOF, hPutStrLn, stderr, withFile)
 import System.IO.Error (ioeGetErrorString, isUserError)
@@ -872,7 +872,7 @@ instance FromJSON ApiOptimizerRunRequest where
   parseJSON = Aeson.genericParseJSON (jsonOptions 3)
 
 data ApiOptimizerRunResponse = ApiOptimizerRunResponse
-  { arrLastRecord :: !Value
+  { arrLastRecord :: !Aeson.Value
   , arrStdout :: !String
   , arrStderr :: !String
   } deriving (Eq, Show, Generic)
@@ -3125,6 +3125,203 @@ textValue st body =
     st
     ([("Content-Type", "text/plain; version=0.0.4")] ++ noCacheHeaders)
     body
+
+defaultOptimizerIntervals :: String
+defaultOptimizerIntervals = "1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1M"
+
+defaultOptimizerNormalizations :: String
+defaultOptimizerNormalizations = "none,minmax,standard,log"
+
+pickDefaultString :: String -> Maybe String -> String
+pickDefaultString def mb =
+  case fmap trim mb of
+    Just v | not (null v) -> v
+    _ -> def
+
+clamp01 :: Double -> Double
+clamp01 x = max 0 (min 1 x)
+
+maybeIntArg :: String -> Maybe Int -> [String]
+maybeIntArg _ Nothing = []
+maybeIntArg flag (Just n) = [flag, show (max 0 n)]
+
+prepareOptimizerArgs :: FilePath -> FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
+prepareOptimizerArgs outputPath topJsonPath req = do
+  let source = fromMaybe OptimizerSourceBinance (arrSource req)
+  sourceArgsResult <-
+    case source of
+      OptimizerSourceBinance ->
+        case fmap (trim . map toUpper) (arrBinanceSymbol req) of
+          Just sym | not (null sym) -> pure (Right ["--binance-symbol", sym])
+          _ -> pure (Left "binanceSymbol is required when using Binance data")
+      OptimizerSourceCsv ->
+        case fmap trim (arrData req) of
+          Just raw | not (null raw) -> do
+            resolved <- (try (canonicalizePath raw) :: IO (Either SomeException FilePath))
+            case resolved of
+              Left e -> pure (Left ("Failed to resolve CSV path: " ++ show e))
+              Right path -> do
+                exists <- doesFileExist path
+                if exists
+                  then pure (Right ["--data", path])
+                  else pure (Left ("CSV path not found: " ++ path))
+          _ -> pure (Left "CSV path is required when using csv source")
+  case sourceArgsResult of
+    Left err -> pure (Left err)
+    Right sourceArgs -> do
+      let priceColumnArgs =
+            case source of
+              OptimizerSourceCsv -> ["--price-column", pickDefaultString "close" (arrPriceColumn req)]
+              OptimizerSourceBinance -> []
+          intervalsVal = pickDefaultString defaultOptimizerIntervals (arrIntervals req)
+          lookbackVal = pickDefaultString "24h" (arrLookbackWindow req)
+          backtestRatioVal = clamp01 (fromMaybe 0.2 (arrBacktestRatio req))
+          tuneRatioVal = clamp01 (fromMaybe 0.2 (arrTuneRatio req))
+          trialsVal = max 1 (fromMaybe 50 (arrTrials req))
+          timeoutVal = max 1 (fromMaybe 60 (arrTimeoutSec req))
+          seedVal = max 0 (fromMaybe 42 (arrSeed req))
+          slippageVal = max 0 (fromMaybe 0.001 (arrSlippageMax req))
+          spreadVal = max 0 (fromMaybe 0.001 (arrSpreadMax req))
+          epochsMinRaw = fmap (max 0) (arrEpochsMin req)
+          epochsMaxRaw = fmap (max 0) (arrEpochsMax req)
+          epochsMaxNorm =
+            case (epochsMinRaw, epochsMaxRaw) of
+              (Just mn, Just mx) -> Just (max mn mx)
+              (_, Just mx) -> Just mx
+              _ -> Nothing
+          hiddenMinRaw = fmap (max 1) (arrHiddenSizeMin req)
+          hiddenMaxRaw =
+            case (hiddenMinRaw, arrHiddenSizeMax req) of
+              (Just mn, Just mx) -> Just (max mn (max 1 mx))
+              (_, Just mx) -> Just (max 1 mx)
+              _ -> Nothing
+          barsMinRaw = fmap (max 0) (arrBarsMin req)
+          barsMaxRaw =
+            case (barsMinRaw, arrBarsMax req) of
+              (Just mn, Just mx) -> Just (max mn (max 0 mx))
+              (_, Just mx) -> Just (max 0 mx)
+              _ -> Nothing
+          normalizationsVal = pickDefaultString defaultOptimizerNormalizations (arrNormalizations req)
+          boolArg flag val = if val then [flag] else []
+          disableLstm = fromMaybe False (arrDisableLstmPersistence req)
+          noSweep = fromMaybe False (arrNoSweepThreshold req)
+          epochArgs =
+            maybeIntArg "--epochs-min" epochsMinRaw
+              ++ maybeIntArg "--epochs-max" epochsMaxNorm
+          hiddenArgs =
+            maybeIntArg "--hidden-size-min" hiddenMinRaw
+              ++ maybeIntArg "--hidden-size-max" hiddenMaxRaw
+          barsArgs =
+            maybeIntArg "--bars-min" barsMinRaw
+              ++ maybeIntArg "--bars-max" barsMaxRaw
+          tuneArgs =
+            [ "--intervals", intervalsVal
+            , "--lookback-window", lookbackVal
+            , "--backtest-ratio", show backtestRatioVal
+            , "--tune-ratio", show tuneRatioVal
+            , "--trials", show trialsVal
+            , "--timeout-sec", show timeoutVal
+            , "--seed", show seedVal
+            , "--slippage-max", show slippageVal
+            , "--spread-max", show spreadVal
+            , "--normalizations", normalizationsVal
+            , "--output", outputPath
+            , "--top-json", topJsonPath
+            ]
+      pure
+        ( Right
+            ( sourceArgs
+                ++ priceColumnArgs
+                ++ tuneArgs
+                ++ barsArgs
+                ++ epochArgs
+                ++ hiddenArgs
+                ++ boolArg "--disable-lstm-persistence" disableLstm
+                ++ boolArg "--no-sweep-threshold" noSweep
+            )
+        )
+
+runOptimizerProcess ::
+  FilePath ->
+  FilePath ->
+  [String] ->
+  IO (Either (String, String, String) ApiOptimizerRunResponse)
+runOptimizerProcess projectRoot outputPath cliArgs = do
+  let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
+      proc' = (proc "python3" (scriptPath : cliArgs)) {cwd = Just projectRoot}
+  (exitCode, out, err) <- readCreateProcessWithExitCode proc' ""
+  case exitCode of
+    ExitSuccess -> do
+      recordOrErr <- readLastOptimizerRecord outputPath
+      case recordOrErr of
+        Left msg -> pure (Left (msg, out, err))
+        Right val -> pure (Right (ApiOptimizerRunResponse val out err))
+    ExitFailure code -> pure (Left (printf "Optimizer script failed (exit %d)" code, out, err))
+
+readLastOptimizerRecord :: FilePath -> IO (Either String Aeson.Value)
+readLastOptimizerRecord path = do
+  exists <- doesFileExist path
+  if not exists
+    then pure (Left "Optimizer did not emit any records.")
+    else do
+      contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+      case contentsOrErr of
+        Left e -> pure (Left ("Failed to read optimizer records: " ++ show e))
+        Right contents ->
+          let nonEmpty = filter (not . BS.null) (BS.lines (BL.toStrict contents))
+           in case listToMaybe (reverse nonEmpty) of
+                Nothing -> pure (Left "Optimizer records file was empty.")
+                Just lastLine ->
+                  case Aeson.eitherDecodeStrict' lastLine of
+                    Left err -> pure (Left ("Failed to parse optimizer record: " ++ err))
+                    Right val -> pure (Right val)
+
+handleOptimizerRun ::
+  FilePath ->
+  FilePath ->
+  Wai.Request ->
+  (Wai.Response -> IO Wai.ResponseReceived) ->
+  IO Wai.ResponseReceived
+handleOptimizerRun projectRoot optimizerTmp req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left err -> respond (jsonError status400 ("Invalid optimizer payload: " ++ err))
+    Right payload -> do
+      ts <- fmap (floor . (* 1000)) getPOSIXTime
+      randId <- randomIO :: IO Word64
+      let recordsPath = optimizerTmp </> printf "optimizer-%d-%016x.jsonl" (ts :: Integer) randId
+          topJsonPath = optimizerTmp </> "top-combos.json"
+      argsOrErr <- prepareOptimizerArgs recordsPath topJsonPath payload
+      case argsOrErr of
+        Left msg -> respond (jsonError status400 msg)
+        Right args -> do
+          runResult <- runOptimizerProcess projectRoot recordsPath args
+          case runResult of
+            Left (msg, out, err) ->
+              respond (jsonValue status500 (object ["error" .= msg, "stdout" .= out, "stderr" .= err]))
+            Right resp -> respond (jsonValue status200 resp)
+
+handleOptimizerCombos ::
+  FilePath ->
+  FilePath ->
+  (Wai.Response -> IO Wai.ResponseReceived) ->
+  IO Wai.ResponseReceived
+handleOptimizerCombos projectRoot optimizerTmp respond = do
+  let tmpPath = optimizerTmp </> "top-combos.json"
+      fallbackPath = projectRoot </> "web" </> "public" </> "top-combos.json"
+  tmpExists <- doesFileExist tmpPath
+  let pathToUse = if tmpExists then tmpPath else fallbackPath
+  exists <- doesFileExist pathToUse
+  if not exists
+    then respond (jsonError status404 "Optimizer combos not available yet.")
+    else do
+      contentsOrErr <- (try (BL.readFile pathToUse) :: IO (Either SomeException BL.ByteString))
+      case contentsOrErr of
+        Left e -> respond (jsonError status500 ("Failed to read optimizer combos: " ++ show e))
+        Right contents ->
+          case (Aeson.eitherDecode' contents :: Either String Aeson.Value) of
+            Left err -> respond (jsonError status500 ("Invalid optimizer combos JSON: " ++ err))
+            Right val -> respond (jsonValue status200 val)
 
 handleMetrics :: Metrics -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleMetrics metrics botCtrl respond = do

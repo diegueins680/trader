@@ -50,6 +50,7 @@ executable trader-hs
                      , unordered-containers
                      , optparse-applicative >=0.17
                      , random >=1.2
+                     , process
                      , ad >=4.4
                      , text
                      , time
@@ -100,6 +101,7 @@ test-suite trader-tests
                      , unordered-containers
                      , optparse-applicative >=0.17
                      , random >=1.2
+                     , process
                      , ad >=4.4
                      , text
                      , time
