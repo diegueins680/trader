@@ -225,6 +225,7 @@ Optional async-job persistence (recommended if you run multiple instances behind
 Optional in-memory caching (recommended for the Web UI’s repeated calls):
 - `TRADER_API_CACHE_TTL_MS` (default: `30000`) cache TTL in milliseconds (`0` disables)
 - `TRADER_API_CACHE_MAX_ENTRIES` (default: `64`) max cached entries (`0` disables)
+  - To bypass cache for a single request, send `Cache-Control: no-cache` or add `?nocache=1`.
 
 Optional LSTM weight persistence (recommended for faster repeated backtests):
 - `TRADER_LSTM_WEIGHTS_DIR` (default: `.tmp/lstm`) directory to persist LSTM weights between runs (set to an empty string to disable)
