@@ -2434,7 +2434,7 @@ runRestApi baseArgs = do
           , aclMaxEpochs =
               case maxEpochsEnv >>= readMaybe of
                 Just n | n >= 1 -> n
-                _ -> 60
+                _ -> 100
           , aclMaxHiddenSize =
               case maxHiddenSizeEnv >>= readMaybe of
                 Just n | n >= 1 -> n
