@@ -102,6 +102,8 @@ def _load_combos_from_jsonl(path: Path) -> List[Dict[str, Any]]:
         final_equity = _coerce_float(rec.get("finalEquity"))
         if final_equity is None:
             continue
+        source_raw = rec.get("source")
+        source = source_raw if isinstance(source_raw, str) else None
         params = rec.get("params")
         if not isinstance(params, dict):
             params = {}
@@ -110,6 +112,7 @@ def _load_combos_from_jsonl(path: Path) -> List[Dict[str, Any]]:
                 "finalEquity": final_equity,
                 "openThreshold": _coerce_float(rec.get("openThreshold")),
                 "closeThreshold": _coerce_float(rec.get("closeThreshold")),
+                "source": source,
                 "params": params,
             }
         )
@@ -120,6 +123,10 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     final_equity = _coerce_float(combo.get("finalEquity"))
     if final_equity is None:
         return None
+
+    source_raw = combo.get("source")
+    source_s = source_raw.strip().lower() if isinstance(source_raw, str) else ""
+    source = "binance" if source_s == "binance" else "csv" if source_s == "csv" else None
 
     params_raw = combo.get("params")
     if not isinstance(params_raw, dict):
@@ -205,6 +212,7 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "finalEquity": final_equity,
         "openThreshold": _coerce_float(combo.get("openThreshold")),
         "closeThreshold": _coerce_float(combo.get("closeThreshold")),
+        "source": source,
         "params": normalized_params,
     }
 
@@ -216,6 +224,7 @@ def _signature(combo: Dict[str, Any]) -> Tuple[Any, ...]:
         return params.get(name)
 
     return (
+        combo.get("source"),
         p("interval"),
         p("bars"),
         p("method"),
@@ -290,6 +299,7 @@ def _write_top_json(path: Path, combos: List[Dict[str, Any]], max_items: int) ->
                 "finalEquity": combo["finalEquity"],
                 "openThreshold": combo.get("openThreshold"),
                 "closeThreshold": combo.get("closeThreshold"),
+                "source": combo.get("source"),
                 "params": combo.get("params", {}),
             }
         )

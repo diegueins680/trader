@@ -181,7 +181,11 @@ def build_command(
     cmd = [str(trader_bin)]
     cmd += base_args
     cmd += ["--interval", params.interval]
-    cmd += ["--bars", str(params.bars)]
+    is_binance = "--binance-symbol" in base_args
+    if params.bars <= 0:
+        cmd += ["--bars", "auto" if is_binance else "0"]
+    else:
+        cmd += ["--bars", str(params.bars)]
     cmd += ["--positioning", params.positioning]
     cmd += ["--method", params.method]
     cmd += ["--normalization", params.normalization]
@@ -422,6 +426,7 @@ def pick_intervals(
 def sample_params(
     rng: random.Random,
     intervals: List[str],
+    p_auto_bars: float,
     bars_min: int,
     bars_max: int,
     open_threshold_min: float,
@@ -485,7 +490,7 @@ def sample_params(
 
     def sample_bars() -> int:
         # 0 means auto/all; otherwise explicit number within the configured range.
-        if rng.random() < 0.25:
+        if rng.random() < clamp(p_auto_bars, 0.0, 1.0):
             return 0
         return rng.randint(bars_min, bars_max)
 
@@ -626,12 +631,20 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--seed", type=int, default=42, help="RNG seed (default: 42).")
     parser.add_argument("--timeout-sec", type=float, default=60.0, help="Per-trial timeout in seconds (default: 60).")
     parser.add_argument("--output", type=str, default="", help="Write JSONL trial records to this path.")
+    parser.add_argument("--append", action="store_true", help="Append to --output instead of overwriting it.")
     parser.add_argument("--binary", type=str, default="", help="Path to trader-hs binary (auto-discovered via cabal if omitted).")
     parser.add_argument("--no-sweep-threshold", action="store_true", help="Disable internal threshold sweep (not recommended).")
     parser.add_argument("--disable-lstm-persistence", action="store_true", help="Disable LSTM weight caching (more reproducible).")
     parser.add_argument("--top-json", type=str, default="", help="Write the top-performing combos (JSON) for the UI chart.")
 
-    parser.add_argument("--intervals", type=str, default=",".join(BINANCE_INTERVALS), help="Comma-separated intervals to sample.")
+    interval_group = parser.add_mutually_exclusive_group()
+    interval_group.add_argument("--interval", type=str, default="", help="Single interval to sample (alias for --intervals).")
+    interval_group.add_argument(
+        "--intervals",
+        type=str,
+        default=",".join(BINANCE_INTERVALS),
+        help="Comma-separated intervals to sample.",
+    )
     parser.add_argument("--bars-min", type=int, default=0, help="Min bars when sampling explicit bars (default: 0=auto).")
     parser.add_argument("--bars-max", type=int, default=0, help="Max bars when sampling explicit bars (default: 0=auto-detect for CSV).")
     parser.add_argument("--epochs-min", type=int, default=0, help="Min epochs (default: 0).")
@@ -780,7 +793,10 @@ def main(argv: List[str]) -> int:
 
     trader_bin = Path(args.binary).expanduser() if args.binary else discover_trader_bin(haskell_dir)
 
-    intervals_in = [s.strip() for s in str(args.intervals).split(",") if s.strip()]
+    if str(args.interval).strip():
+        intervals_in = [str(args.interval).strip()]
+    else:
+        intervals_in = [s.strip() for s in str(args.intervals).split(",") if s.strip()]
     if not intervals_in:
         print("No intervals provided.", file=sys.stderr)
         return 2
@@ -804,15 +820,46 @@ def main(argv: List[str]) -> int:
         )
         return 2
 
+    use_sweep_threshold = not bool(args.no_sweep_threshold)
+
     bars_max = int(args.bars_max)
     if bars_max <= 0:
         bars_max = max_bars_cap
     bars_min = int(args.bars_min)
     if bars_min <= 0:
-        # Ensure we can at least run splitTrainBacktest for the worst-case feasible interval.
+        # Ensure we can at least run:
+        # - splitTrainBacktest (needs lookback+3 prices)
+        # - the fit/tune split when --sweep-threshold is enabled.
         # (Still allow bars=0 = auto/all, handled separately.)
         worst_lb = max(lookback_bars(itv, args.lookback_window) for itv in intervals)
-        bars_min = min(bars_max, max(10, worst_lb + 5))
+        min_required = worst_lb + 3
+        if use_sweep_threshold:
+            br = float(args.backtest_ratio)
+            tr = float(args.tune_ratio)
+            if not (0.0 < br < 1.0):
+                print("--backtest-ratio must be between 0 and 1.", file=sys.stderr)
+                return 2
+            if not (0.0 < tr < 1.0):
+                print("--tune-ratio must be between 0 and 1 when sweep-threshold is enabled.", file=sys.stderr)
+                return 2
+
+            denom = max(1e-12, (1.0 - br) * (1.0 - tr))
+            min_required = max(min_required, int(math.ceil((worst_lb + 1) / denom)) + 2)
+
+            min_train = int(math.ceil(2.0 / tr))
+            min_required = max(min_required, int(math.ceil(min_train / max(1e-12, (1.0 - br)))) + 2)
+
+            auto_bars = 500 if args.binance_symbol else max_bars_cap
+            if min_required > max(bars_max, auto_bars):
+                print(
+                    f"Not enough bars for lookback={worst_lb} with backtest-ratio={br} and tune-ratio={tr}. "
+                    f"Need bars >= {min_required}. Increase --bars-max, reduce --tune-ratio/--backtest-ratio, "
+                    "reduce --lookback-window, or pass --no-sweep-threshold.",
+                    file=sys.stderr,
+                )
+                return 2
+
+        bars_min = min(bars_max, max(10, min_required))
     bars_min = max(2, min(bars_min, bars_max))
 
     epochs_min = max(0, int(args.epochs_min))
@@ -894,16 +941,16 @@ def main(argv: List[str]) -> int:
     base_args += ["--seed", str(int(args.seed))]
 
     rng = random.Random(int(args.seed))
+    data_source = "csv" if args.data else "binance"
 
     out_path = Path(args.output).expanduser() if args.output else None
     out_fh = None
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_fh = out_path.open("w", encoding="utf-8")
+        out_fh = out_path.open("a" if bool(args.append) else "w", encoding="utf-8")
 
     best: Optional[TrialResult] = None
 
-    use_sweep_threshold = not bool(args.no_sweep_threshold)
     disable_lstm_persistence = bool(args.disable_lstm_persistence)
 
     trials = int(args.trials)
@@ -912,6 +959,7 @@ def main(argv: List[str]) -> int:
         params = sample_params(
             rng=rng,
             intervals=intervals,
+            p_auto_bars=0.25,
             bars_min=bars_min,
             bars_max=bars_max,
             open_threshold_min=open_threshold_min,
@@ -983,7 +1031,9 @@ def main(argv: List[str]) -> int:
         )
 
         if out_fh is not None:
-            out_fh.write(json.dumps(trial_to_record(tr), sort_keys=True) + "\n")
+            rec = trial_to_record(tr)
+            rec["source"] = data_source
+            out_fh.write(json.dumps(rec, sort_keys=True) + "\n")
             out_fh.flush()
 
         records.append(tr)

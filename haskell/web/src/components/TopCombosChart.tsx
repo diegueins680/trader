@@ -79,6 +79,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
     <div className="topCombosChart">
       {combos.map((combo) => {
         const barsLabel = combo.params.bars <= 0 ? "auto" : combo.params.bars.toString();
+        const sourceLabel = combo.source === "binance" ? "Binance" : combo.source === "csv" ? "CSV" : "Unknown";
         const barWidth = Math.max(1, (combo.finalEquity / maxEq) * 100);
         const openLabel = combo.openThreshold != null ? fmtRatio(combo.openThreshold, 4) : "—";
         const closeLabel =
@@ -97,16 +98,20 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
             <div className="comboRowHeader">
               <div>
                 <div className="comboTitle">
-                  #{combo.id} · {combo.params.interval} · bars={barsLabel}
+                  #{combo.id} · {sourceLabel} · {combo.params.interval} · bars={barsLabel}
                 </div>
                 <div className="comboDetail">
                   {(() => {
-                    const lrLabel = Number.isFinite(combo.params.learningRate)
-                      ? combo.params.learningRate.toExponential(2)
-                      : "—";
-                    const valLabel = Number.isFinite(combo.params.valRatio)
-                      ? combo.params.valRatio.toFixed(2)
-                      : "—";
+                    const lrValue = combo.params.learningRate;
+                    const lrLabel =
+                      typeof lrValue === "number" && Number.isFinite(lrValue)
+                        ? lrValue.toExponential(2)
+                        : "—";
+                    const valValue = combo.params.valRatio;
+                    const valLabel =
+                      typeof valValue === "number" && Number.isFinite(valValue)
+                        ? valValue.toFixed(2)
+                        : "—";
                     const gradClipLabel =
                       typeof combo.params.gradClip === "number" && Number.isFinite(combo.params.gradClip)
                         ? ` · GradClip ${combo.params.gradClip.toFixed(4)}`

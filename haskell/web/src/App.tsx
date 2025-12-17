@@ -1786,7 +1786,8 @@ export function App() {
           return a.id - b.id;
         });
         const binanceCombos = sanitized.filter((combo) => combo.source === "binance");
-        setTopCombos(binanceCombos.slice(0, 5));
+        const preferredCombos = binanceCombos.length > 0 ? binanceCombos : sanitized;
+        setTopCombos(preferredCombos.slice(0, 5));
         setTopCombosError(null);
       })
       .catch((err) => {

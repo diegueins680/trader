@@ -7,6 +7,7 @@
       "finalEquity": 1.005793926650595,
       "openThreshold": 0.002262369952027532,
       "closeThreshold": 0.0007864725889324743,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 862,
@@ -50,6 +51,7 @@
       "finalEquity": 1.0057719908811555,
       "openThreshold": 0.002416624459326977,
       "closeThreshold": 0.0009743375607445871,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 808,
@@ -93,6 +95,7 @@
       "finalEquity": 1.0051362303049556,
       "openThreshold": 0.0004649705337608002,
       "closeThreshold": 0.0006259598996004368,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 754,
@@ -136,6 +139,7 @@
       "finalEquity": 1.0045671827782598,
       "openThreshold": 0.001457079009504847,
       "closeThreshold": 0.0006188471112330341,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 701,
@@ -179,6 +183,7 @@
       "finalEquity": 1.0036890268418732,
       "openThreshold": 0.00042262859655393123,
       "closeThreshold": 9.371832278537523e-06,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 715,
@@ -222,6 +227,7 @@
       "finalEquity": 1.0018180134988535,
       "openThreshold": 0.0025834762399324696,
       "closeThreshold": 0.0015244945743067896,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 967,
@@ -265,6 +271,7 @@
       "finalEquity": 1.0008832060685777,
       "openThreshold": 0.0008007972315634327,
       "closeThreshold": 2.42713835591e-05,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 747,
@@ -308,6 +315,7 @@
       "finalEquity": 1.0,
       "openThreshold": 0.00377979072302157,
       "closeThreshold": 0.0009710934452139331,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 862,
@@ -351,6 +359,7 @@
       "finalEquity": 1.0,
       "openThreshold": 0.0028417398814005513,
       "closeThreshold": 0.0007375457692079036,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 843,
@@ -394,6 +403,7 @@
       "finalEquity": 1.0,
       "openThreshold": 0.0011022193731434538,
       "closeThreshold": 0.0013871720599497373,
+      "source": "binance",
       "params": {
         "interval": "5m",
         "bars": 945,
