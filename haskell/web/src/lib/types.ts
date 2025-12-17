@@ -252,6 +252,14 @@ export type BotOrderEvent = {
   order: ApiOrderResult;
 };
 
+export type BotKline = {
+  openTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
 export type BotStatus =
   | {
       running: false;
@@ -284,6 +292,10 @@ export type BotStatus =
       startIndex: number;
       startedAtMs: number;
       updatedAtMs: number;
+      polledAtMs?: number;
+      pollLatencyMs?: number;
+      fetchedKlines?: number;
+      fetchedLastKline?: BotKline;
       prices: number[];
       openTimes: number[];
       kalmanPredNext: Array<number | null>;

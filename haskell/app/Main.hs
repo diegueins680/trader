@@ -1595,6 +1595,10 @@ data BotState = BotState
   , botStartIndex :: !Int
   , botStartedAtMs :: !Int64
   , botUpdatedAtMs :: !Int64
+  , botPolledAtMs :: !Int64
+  , botPollLatencyMs :: !Int
+  , botFetchedKlines :: !Int
+  , botFetchedLastKline :: !(Maybe Kline)
   , botError :: !(Maybe String)
   }
 
@@ -1636,6 +1640,15 @@ botStatusJson st =
         if isNaN x || isInfinite x
           then Nothing
           else Just x
+
+      klineJson k =
+        object
+          [ "openTime" .= kOpenTime k
+          , "open" .= kOpen k
+          , "high" .= kHigh k
+          , "low" .= kLow k
+          , "close" .= kClose k
+          ]
    in
   object $
     [ "running" .= True
@@ -1649,6 +1662,9 @@ botStatusJson st =
     , "startIndex" .= botStartIndex st
     , "startedAtMs" .= botStartedAtMs st
     , "updatedAtMs" .= botUpdatedAtMs st
+    , "polledAtMs" .= botPolledAtMs st
+    , "pollLatencyMs" .= botPollLatencyMs st
+    , "fetchedKlines" .= botFetchedKlines st
     , "halted" .= isJust (botHaltReason st)
     , "peakEquity" .= botPeakEquity st
     , "dayStartEquity" .= botDayStartEquity st
@@ -1665,6 +1681,7 @@ botStatusJson st =
     , "latestSignal" .= botLatestSignal st
     ]
       ++ maybe [] (\o -> ["lastOrder" .= o]) (botLastOrder st)
+      ++ maybe [] (\k -> ["fetchedLastKline" .= klineJson k]) (botFetchedLastKline st)
       ++ maybe [] (\r -> ["haltReason" .= r]) (botHaltReason st)
       ++ maybe [] (\t -> ["haltedAtMs" .= t]) (botHaltedAtMs st)
       ++ maybe [] (\e -> ["error" .= e]) (botError st)
@@ -2085,6 +2102,13 @@ initBotState args settings sym = do
           , botStartIndex = startIndex2
           , botStartedAtMs = now
           , botUpdatedAtMs = now
+          , botPolledAtMs = now
+          , botPollLatencyMs = 0
+          , botFetchedKlines = length ks
+          , botFetchedLastKline =
+              if null ks
+                then Nothing
+                else Just (last ks)
           , botError = Nothing
           }
 
@@ -2705,23 +2729,44 @@ botLoop mOps metrics mJournal ctrl stVar stopSig mOptimizerPending = do
             let env = botEnv st
                 sym = botSymbol st
                 pollSec = bsPollSeconds (botSettings st)
+            t0 <- getTimestampMs
             r <- try (fetchKlines env sym (argInterval (botArgs st)) 10) :: IO (Either SomeException [Kline])
+            t1 <- getTimestampMs
+            let latMs = max 0 (fromIntegral (t1 - t0) :: Int)
             case r of
               Left ex -> do
-                now <- getTimestampMs
-                let st' = st { botError = Just (show ex), botUpdatedAtMs = now }
+                let st' =
+                      st
+                        { botError = Just (show ex)
+                        , botUpdatedAtMs = t1
+                        , botPolledAtMs = t1
+                        , botPollLatencyMs = latMs
+                        }
                 _ <- swapMVar stVar st'
                 sleepSec pollSec
                 loop
               Right ks -> do
-                let lastSeen = botLastOpenTime st
+                let fetchedLast =
+                      if null ks
+                        then Nothing
+                        else Just (last ks)
+                    stPolled =
+                      st
+                        { botError = Nothing
+                        , botPolledAtMs = t1
+                        , botPollLatencyMs = latMs
+                        , botFetchedKlines = length ks
+                        , botFetchedLastKline = fetchedLast
+                        }
+                    lastSeen = botLastOpenTime stPolled
                     newKs = filter (\k -> kOpenTime k > lastSeen) ks
                 if null newKs
                   then do
+                    _ <- swapMVar stVar stPolled
                     sleepSec pollSec
                     loop
                   else do
-                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal s0 k) (pure st) newKs
+                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal s0 k) (pure stPolled) newKs
                     _ <- swapMVar stVar st1
                     loop
 
@@ -6100,7 +6145,7 @@ computeTradeOnlySignal args lookback prices = do
                 , lcGradClip = argGradClip args
                 , lcSeed = argSeed args
                 }
-            (lstmModel, _) = trainLSTM lstmCfg obsAll
+        (lstmModel, _) <- trainLstmWithPersistence args lookback lstmCfg obsAll
         pure (Just (normState, obsAll, lstmModel))
 
   mKalmanCtx <-

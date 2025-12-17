@@ -81,8 +81,10 @@ type BotRtEvent = {
 type BotRtUiState = {
   lastFetchAtMs: number | null;
   lastFetchDurationMs: number | null;
-  lastNewKlines: number;
-  lastNewKlinesAtMs: number | null;
+  lastNewCandles: number;
+  lastNewCandlesAtMs: number | null;
+  lastKlineUpdates: number;
+  lastKlineUpdatesAtMs: number | null;
   feed: BotRtEvent[];
 };
 
@@ -721,15 +723,26 @@ export function App() {
   const [botRt, setBotRt] = useState<BotRtUiState>({
     lastFetchAtMs: null,
     lastFetchDurationMs: null,
-    lastNewKlines: 0,
-    lastNewKlinesAtMs: null,
+    lastNewCandles: 0,
+    lastNewCandlesAtMs: null,
+    lastKlineUpdates: 0,
+    lastKlineUpdatesAtMs: null,
     feed: [],
   });
-  const botRtRef = useRef<{ botKey: string | null; lastOpenTimeMs: number | null; lastError: string | null; lastHalted: boolean | null }>({
+  const botRtRef = useRef<{
+    botKey: string | null;
+    lastOpenTimeMs: number | null;
+    lastError: string | null;
+    lastHalted: boolean | null;
+    lastFetchedOpenTimeMs: number | null;
+    lastFetchedClose: number | null;
+  }>({
     botKey: null,
     lastOpenTimeMs: null,
     lastError: null,
     lastHalted: null,
+    lastFetchedOpenTimeMs: null,
+    lastFetchedClose: null,
   });
 
   const [keys, setKeys] = useState<KeysUiState>({
@@ -1343,17 +1356,52 @@ export function App() {
     const st = bot.status;
     if (!st.running) return null;
     const now = Date.now();
-    const lastOpenTime = st.openTimes[st.openTimes.length - 1] ?? null;
+    const processedOpenTime = st.openTimes[st.openTimes.length - 1] ?? null;
+    const fetchedLast = st.fetchedLastKline ?? null;
+    const fetchedOpenTime = fetchedLast?.openTime ?? null;
+    const candleOpenTime = fetchedOpenTime ?? processedOpenTime;
     const intervalSec = binanceIntervalSeconds(st.interval) ?? parseDurationSeconds(st.interval);
     const intervalMs = typeof intervalSec === "number" && Number.isFinite(intervalSec) && intervalSec > 0 ? intervalSec * 1000 : null;
-    const expectedCloseMs = lastOpenTime !== null && intervalMs !== null ? lastOpenTime + intervalMs : null;
+    const expectedCloseMs = candleOpenTime !== null && intervalMs !== null ? candleOpenTime + intervalMs : null;
     const closeEtaMs = expectedCloseMs !== null ? expectedCloseMs - now : null;
     const statusAgeMs = typeof st.updatedAtMs === "number" && Number.isFinite(st.updatedAtMs) ? now - st.updatedAtMs : null;
-    const klineAgeMs = lastOpenTime !== null ? now - lastOpenTime : null;
-    const procLagMs = lastOpenTime !== null ? st.updatedAtMs - lastOpenTime : null;
+    const polledAtMs = typeof st.polledAtMs === "number" && Number.isFinite(st.polledAtMs) ? st.polledAtMs : null;
+    const pollLatencyMs = typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? st.pollLatencyMs : null;
+    const pollAgeMs = polledAtMs !== null ? now - polledAtMs : null;
+    const fetchedKlines = typeof st.fetchedKlines === "number" && Number.isFinite(st.fetchedKlines) ? st.fetchedKlines : null;
+    const candleAgeMs = candleOpenTime !== null ? now - candleOpenTime : null;
+    const procLagMs = processedOpenTime !== null ? st.updatedAtMs - processedOpenTime : null;
     const closeLagMs = expectedCloseMs !== null ? st.updatedAtMs - expectedCloseMs : null;
+    const pollCloseLagMs = polledAtMs !== null && expectedCloseMs !== null ? polledAtMs - expectedCloseMs : null;
     const lastBarIndex = st.startIndex + Math.max(0, st.prices.length - 1);
-    return { now, lastOpenTime, expectedCloseMs, closeEtaMs, statusAgeMs, klineAgeMs, procLagMs, closeLagMs, lastBarIndex };
+    const processedClose = st.prices[st.prices.length - 1] ?? null;
+    const fetchedClose = typeof fetchedLast?.close === "number" && Number.isFinite(fetchedLast.close) ? fetchedLast.close : null;
+    const closeDelta = typeof processedClose === "number" && Number.isFinite(processedClose) && typeof fetchedClose === "number" ? fetchedClose - processedClose : null;
+    const closeDeltaPct =
+      closeDelta !== null && typeof processedClose === "number" && Number.isFinite(processedClose) && processedClose !== 0 ? closeDelta / processedClose : null;
+    return {
+      now,
+      processedOpenTime,
+      fetchedOpenTime,
+      candleOpenTime,
+      expectedCloseMs,
+      closeEtaMs,
+      statusAgeMs,
+      polledAtMs,
+      pollLatencyMs,
+      pollAgeMs,
+      fetchedKlines,
+      candleAgeMs,
+      procLagMs,
+      closeLagMs,
+      pollCloseLagMs,
+      lastBarIndex,
+      processedClose,
+      fetchedClose,
+      closeDelta,
+      closeDeltaPct,
+      fetchedLast,
+    };
   }, [bot.status]);
 
   const scrollToResult = useCallback((kind: RequestKind) => {
@@ -1705,14 +1753,22 @@ export function App() {
             ...prev,
             lastFetchAtMs: finishedAtMs,
             lastFetchDurationMs: Math.max(0, finishedAtMs - startedAtMs),
-            lastNewKlines: 0,
+            lastNewCandles: 0,
+            lastKlineUpdates: 0,
           };
 
           const rt = botRtRef.current;
 
           if (!out.running) {
-            botRtRef.current = { botKey: null, lastOpenTimeMs: null, lastError: null, lastHalted: null };
-            return { ...base, lastNewKlines: 0, lastNewKlinesAtMs: null, feed: [] };
+            botRtRef.current = {
+              botKey: null,
+              lastOpenTimeMs: null,
+              lastError: null,
+              lastHalted: null,
+              lastFetchedOpenTimeMs: null,
+              lastFetchedClose: null,
+            };
+            return { ...base, lastNewCandles: 0, lastNewCandlesAtMs: null, lastKlineUpdates: 0, lastKlineUpdatesAtMs: null, feed: [] };
           }
 
           const botKey = `${out.market}:${out.symbol}:${out.interval}`;
@@ -1723,6 +1779,8 @@ export function App() {
             rt.lastOpenTimeMs = null;
             rt.lastError = null;
             rt.lastHalted = null;
+            rt.lastFetchedOpenTimeMs = null;
+            rt.lastFetchedClose = null;
           }
 
           const openTimes = out.openTimes;
@@ -1731,18 +1789,39 @@ export function App() {
           const newTimes = typeof prevLastOpen === "number" ? openTimes.filter((t) => t > prevLastOpen) : [];
           const newCount = newTimes.length;
 
-          let lastNewKlinesAtMs: number | null = prev.lastNewKlinesAtMs;
+          let lastNewCandlesAtMs: number | null = prev.lastNewCandlesAtMs;
           if (newCount > 0) {
-            lastNewKlinesAtMs = finishedAtMs;
+            lastNewCandlesAtMs = finishedAtMs;
             const lastNew = newTimes[newTimes.length - 1]!;
             const idx = openTimes.lastIndexOf(lastNew);
             const closePx = idx >= 0 ? out.prices[idx] : null;
             const action = out.latestSignal.action;
             const msg =
-              `kline +${newCount}: open ${fmtTimeMs(lastNew)}` +
+              `candle +${newCount}: open ${fmtTimeMs(lastNew)}` +
               (typeof closePx === "number" && Number.isFinite(closePx) ? ` close ${fmtMoney(closePx, 4)}` : "") +
               (action ? ` • action ${action}` : "");
             feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+          }
+
+          let lastKlineUpdatesAtMs: number | null = prev.lastKlineUpdatesAtMs;
+          let klineUpdates = 0;
+          const fetchedLast = out.fetchedLastKline;
+          if (fetchedLast && typeof fetchedLast.openTime === "number" && Number.isFinite(fetchedLast.openTime)) {
+            const openTime = fetchedLast.openTime;
+            const close = fetchedLast.close;
+            if (typeof close === "number" && Number.isFinite(close)) {
+              const prevFetchedOpen = rt.lastFetchedOpenTimeMs;
+              const prevFetchedClose = rt.lastFetchedClose;
+              if (newCount === 0 && prevFetchedOpen === openTime && typeof prevFetchedClose === "number" && Number.isFinite(prevFetchedClose) && close !== prevFetchedClose) {
+                klineUpdates = 1;
+                lastKlineUpdatesAtMs = finishedAtMs;
+                const d = prevFetchedClose !== 0 ? (close - prevFetchedClose) / prevFetchedClose : null;
+                const msg = `kline update: close ${fmtMoney(close, 4)}${d !== null ? ` (Δ ${fmtPct(d, 2)})` : ""}`;
+                feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+              }
+              rt.lastFetchedOpenTimeMs = openTime;
+              rt.lastFetchedClose = close;
+            }
           }
 
           const err = out.error ?? null;
@@ -1758,7 +1837,7 @@ export function App() {
           rt.lastError = err;
           rt.lastHalted = out.halted;
 
-          return { ...base, lastNewKlines: newCount, lastNewKlinesAtMs, feed };
+          return { ...base, lastNewCandles: newCount, lastNewCandlesAtMs, lastKlineUpdates: klineUpdates, lastKlineUpdatesAtMs, feed };
         });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         setApiOk("ok");
@@ -3740,49 +3819,92 @@ export function App() {
                     />
                   </div>
 
-                  <div className="kv" style={{ marginTop: 12 }}>
-                    <div className="k">Realtime</div>
-                    <div className="v">
-                      <span className="badge" style={{ marginRight: 8 }}>
-                        poll {fmtDurationMs(botRt.lastFetchDurationMs)}
-                      </span>
-                      <span className="badge" style={{ marginRight: 8 }}>
-                        status {fmtDurationMs(botRealtime?.statusAgeMs)}
-                      </span>
-                      <span className={botRt.lastNewKlines > 0 ? "badge badgeStrong badgeLong" : "badge"} style={{ marginRight: 8 }}>
-                        +{botRt.lastNewKlines} kline{botRt.lastNewKlines === 1 ? "" : "s"}
-                      </span>
-                      {botRt.lastNewKlinesAtMs ? (
-                        <span className="badge">last {fmtTimeMs(botRt.lastNewKlinesAtMs)}</span>
-                      ) : (
-                        <span className="badge">last —</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="kv">
-                    <div className="k">Latest kline</div>
-                    <div className="v">
-                      {botRealtime?.lastOpenTime ? (
-                        <>
-                          {fmtTimeMs(botRealtime.lastOpenTime)} • age {fmtDurationMs(botRealtime.klineAgeMs)} • bar {botRealtime.lastBarIndex}
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </div>
-                  </div>
-                  <div className="kv">
-                    <div className="k">Candle close</div>
-                    <div className="v">
-                      {botRealtime?.expectedCloseMs ? (
-                        <>
-                          {fmtTimeMs(botRealtime.expectedCloseMs)} • {fmtEtaMs(botRealtime.closeEtaMs)} • closeΔ {fmtDurationMs(botRealtime.closeLagMs)}
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </div>
-                  </div>
+	                  <div className="kv" style={{ marginTop: 12 }}>
+	                    <div className="k">Realtime</div>
+	                    <div className="v">
+	                      <span className="badge" style={{ marginRight: 8 }}>
+	                        ui {fmtDurationMs(botRt.lastFetchDurationMs)}
+	                      </span>
+	                      <span className="badge" style={{ marginRight: 8 }}>
+	                        binance {fmtDurationMs(botRealtime?.pollLatencyMs)} • age {fmtDurationMs(botRealtime?.pollAgeMs)}
+	                      </span>
+	                      <span className="badge" style={{ marginRight: 8 }}>
+	                        state {fmtDurationMs(botRealtime?.statusAgeMs)}
+	                      </span>
+	                      <span
+	                        className={botRt.lastNewCandles > 0 ? "badge badgeStrong badgeLong" : "badge"}
+	                        style={{ marginRight: 8 }}
+	                      >
+	                        +{botRt.lastNewCandles} candle{botRt.lastNewCandles === 1 ? "" : "s"}
+	                      </span>
+	                      <span className={botRt.lastKlineUpdates > 0 ? "badge badgeStrong" : "badge"}>
+	                        +{botRt.lastKlineUpdates} update{botRt.lastKlineUpdates === 1 ? "" : "s"}
+	                      </span>
+	                    </div>
+	                  </div>
+	                  <div className="kv">
+	                    <div className="k">Binance poll</div>
+	                    <div className="v">
+	                      {botRealtime?.polledAtMs ? (
+	                        <>
+	                          {fmtTimeMs(botRealtime.polledAtMs)} • {fmtDurationMs(botRealtime.pollLatencyMs)} • klines{" "}
+	                          {typeof botRealtime.fetchedKlines === "number" ? botRealtime.fetchedKlines : "—"}
+	                        </>
+	                      ) : (
+	                        "—"
+	                      )}
+	                    </div>
+	                  </div>
+	                  <div className="kv">
+	                    <div className="k">Processed candle</div>
+	                    <div className="v">
+	                      {botRealtime?.processedOpenTime ? (
+	                        <>
+	                          {fmtTimeMs(botRealtime.processedOpenTime)} • close{" "}
+	                          {typeof botRealtime.processedClose === "number" ? fmtMoney(botRealtime.processedClose, 4) : "—"} • bar{" "}
+	                          {botRealtime.lastBarIndex}
+	                        </>
+	                      ) : (
+	                        "—"
+	                      )}
+	                    </div>
+	                  </div>
+	                  <div className="kv">
+	                    <div className="k">Fetched candle</div>
+	                    <div className="v">
+	                      {botRealtime?.fetchedLast ? (
+	                        <>
+	                          {fmtTimeMs(botRealtime.fetchedLast.openTime)} • O {fmtMoney(botRealtime.fetchedLast.open, 4)} H{" "}
+	                          {fmtMoney(botRealtime.fetchedLast.high, 4)} L {fmtMoney(botRealtime.fetchedLast.low, 4)} C{" "}
+	                          {fmtMoney(botRealtime.fetchedLast.close, 4)}
+	                          {typeof botRealtime.closeDelta === "number" && Number.isFinite(botRealtime.closeDelta) ? (
+	                            <>
+	                              {" "}
+	                              • Δ {fmtMoney(botRealtime.closeDelta, 4)}
+	                              {typeof botRealtime.closeDeltaPct === "number" && Number.isFinite(botRealtime.closeDeltaPct)
+	                                ? ` (${fmtPct(botRealtime.closeDeltaPct, 2)})`
+	                                : ""}
+	                            </>
+	                          ) : null}
+	                        </>
+	                      ) : (
+	                        "—"
+	                      )}
+	                    </div>
+	                  </div>
+	                  <div className="kv">
+	                    <div className="k">Candle close</div>
+	                    <div className="v">
+	                      {botRealtime?.expectedCloseMs ? (
+	                        <>
+	                          {fmtTimeMs(botRealtime.expectedCloseMs)} • {fmtEtaMs(botRealtime.closeEtaMs)} • pollΔ{" "}
+	                          {fmtDurationMs(botRealtime.pollCloseLagMs)}
+	                        </>
+	                      ) : (
+	                        "—"
+	                      )}
+	                    </div>
+	                  </div>
 
                   <div className="kv" style={{ marginTop: 12 }}>
                     <div className="k">Equity / Position</div>
@@ -3871,21 +3993,88 @@ export function App() {
                     <div className="k">Chosen</div>
                     <div className="v">{bot.status.latestSignal.chosenDirection ?? "—"}</div>
                   </div>
-                  {typeof bot.status.latestSignal.confidence === "number" && Number.isFinite(bot.status.latestSignal.confidence) ? (
-                    <div className="kv">
-                      <div className="k">Confidence / Size</div>
-                      <div className="v">
-                        {fmtPct(bot.status.latestSignal.confidence, 1)}
-                        {typeof bot.status.latestSignal.positionSize === "number" && Number.isFinite(bot.status.latestSignal.positionSize)
-                          ? ` • ${fmtPct(bot.status.latestSignal.positionSize, 1)}`
-                          : ""}
-                      </div>
-                    </div>
-                  ) : null}
-                  {bot.status.lastOrder ? (
-                    <div className="kv">
-                      <div className="k">Last order</div>
-                      <div className="v">{bot.status.lastOrder.message}</div>
+	                  {typeof bot.status.latestSignal.confidence === "number" && Number.isFinite(bot.status.latestSignal.confidence) ? (
+	                    <div className="kv">
+	                      <div className="k">Confidence / Size</div>
+	                      <div className="v">
+	                        {fmtPct(bot.status.latestSignal.confidence, 1)}
+	                        {typeof bot.status.latestSignal.positionSize === "number" && Number.isFinite(bot.status.latestSignal.positionSize)
+	                          ? ` • ${fmtPct(bot.status.latestSignal.positionSize, 1)}`
+	                          : ""}
+	                      </div>
+	                    </div>
+	                  ) : null}
+
+	                  <details className="details" style={{ marginTop: 12 }}>
+	                    <summary>Signal details</summary>
+	                    <div style={{ marginTop: 10 }}>
+	                      {(() => {
+	                        const sig = bot.status.latestSignal;
+	                        const r = sig.regimes;
+	                        if (!r) return null;
+	                        const trend = typeof r.trend === "number" && Number.isFinite(r.trend) ? fmtPct(r.trend, 1) : "—";
+	                        const mr = typeof r.mr === "number" && Number.isFinite(r.mr) ? fmtPct(r.mr, 1) : "—";
+	                        const hv = typeof r.highVol === "number" && Number.isFinite(r.highVol) ? fmtPct(r.highVol, 1) : "—";
+	                        return (
+	                          <div className="kv">
+	                            <div className="k">Regimes</div>
+	                            <div className="v">
+	                              trend {trend} • mr {mr} • high vol {hv}
+	                            </div>
+	                          </div>
+	                        );
+	                      })()}
+
+	                      {(() => {
+	                        const q = bot.status.latestSignal.quantiles;
+	                        if (!q) return null;
+	                        const q10 = typeof q.q10 === "number" && Number.isFinite(q.q10) ? fmtPct(q.q10, 3) : "—";
+	                        const q50 = typeof q.q50 === "number" && Number.isFinite(q.q50) ? fmtPct(q.q50, 3) : "—";
+	                        const q90 = typeof q.q90 === "number" && Number.isFinite(q.q90) ? fmtPct(q.q90, 3) : "—";
+	                        const w = typeof q.width === "number" && Number.isFinite(q.width) ? fmtPct(q.width, 3) : "—";
+	                        return (
+	                          <div className="kv">
+	                            <div className="k">Quantiles</div>
+	                            <div className="v">
+	                              q10 {q10} • q50 {q50} • q90 {q90} • width {w}
+	                            </div>
+	                          </div>
+	                        );
+	                      })()}
+
+	                      {(() => {
+	                        const i = bot.status.latestSignal.conformalInterval;
+	                        if (!i) return null;
+	                        const lo = typeof i.lo === "number" && Number.isFinite(i.lo) ? fmtPct(i.lo, 3) : "—";
+	                        const hi = typeof i.hi === "number" && Number.isFinite(i.hi) ? fmtPct(i.hi, 3) : "—";
+	                        const w = typeof i.width === "number" && Number.isFinite(i.width) ? fmtPct(i.width, 3) : "—";
+	                        return (
+	                          <div className="kv">
+	                            <div className="k">Conformal</div>
+	                            <div className="v">
+	                              lo {lo} • hi {hi} • width {w}
+	                            </div>
+	                          </div>
+	                        );
+	                      })()}
+
+	                      {(() => {
+	                        const std = bot.status.latestSignal.kalmanStd;
+	                        if (typeof std !== "number" || !Number.isFinite(std)) return null;
+	                        return (
+	                          <div className="kv">
+	                            <div className="k">Kalman σ</div>
+	                            <div className="v">{fmtPct(std, 3)}</div>
+	                          </div>
+	                        );
+	                      })()}
+	                    </div>
+	                  </details>
+
+	                  {bot.status.lastOrder ? (
+	                    <div className="kv">
+	                      <div className="k">Last order</div>
+	                      <div className="v">{bot.status.lastOrder.message}</div>
                     </div>
                   ) : null}
 
