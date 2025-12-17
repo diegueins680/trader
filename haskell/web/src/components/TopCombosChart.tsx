@@ -85,8 +85,25 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
                   #{combo.id} · {combo.params.interval} · bars={barsLabel}
                 </div>
                 <div className="comboDetail">
-                  Method {combo.params.method} · Norm {combo.params.normalization} · Epochs {combo.params.epochs} · Hidden {combo.params.hiddenSize} · LR {combo.params.learningRate.toExponential(2)} · Val {combo.params.valRatio.toFixed(2)} · Patience {combo.params.patience}
-                  {combo.params.gradClip ? ` · GradClip ${combo.params.gradClip.toFixed(4)}` : ""}
+                  {(() => {
+                    const lrLabel = Number.isFinite(combo.params.learningRate)
+                      ? combo.params.learningRate.toExponential(2)
+                      : "—";
+                    const valLabel = Number.isFinite(combo.params.valRatio)
+                      ? combo.params.valRatio.toFixed(2)
+                      : "—";
+                    const gradClipLabel =
+                      typeof combo.params.gradClip === "number" && Number.isFinite(combo.params.gradClip)
+                        ? ` · GradClip ${combo.params.gradClip.toFixed(4)}`
+                        : "";
+                    return (
+                      <>
+                        Method {combo.params.method} · Norm {combo.params.normalization} · Epochs {combo.params.epochs} · Hidden{" "}
+                        {combo.params.hiddenSize} · LR {lrLabel} · Val {valLabel} · Patience {combo.params.patience}
+                        {gradClipLabel}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
               <div className="comboEquity">{fmtRatio(combo.finalEquity, 4)}</div>
