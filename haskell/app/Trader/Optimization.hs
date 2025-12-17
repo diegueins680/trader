@@ -6,7 +6,9 @@ module Trader.Optimization
   , sweepThresholdWithHL
   ) where
 
-import Data.List (foldl', group, sort)
+import Data.List (foldl', sort)
+import Data.List.NonEmpty (NonEmpty((:|)))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Vector as V
 
 import Trader.Method (Method(..))
@@ -18,23 +20,23 @@ bestFinalEquity br =
     [] -> 1.0
     xs -> last xs
 
-optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Method, Double, Double, BacktestResult)
+optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Method, Double, Double, BacktestResult)
 optimizeOperations baseCfg prices kalPred lstmPred mMeta =
   optimizeOperationsWithHL baseCfg prices prices prices kalPred lstmPred mMeta
 
-optimizeOperationsWithHL :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Method, Double, Double, BacktestResult)
-optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred mMeta =
+optimizeOperationsWithHL :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Method, Double, Double, BacktestResult)
+optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred mMeta = do
   let eps = 1e-12
       methodRank m =
         case m of
           MethodBoth -> 2 :: Int
           MethodKalmanOnly -> 1
           MethodLstmOnly -> 0
-      eval m =
-        let (openThr, closeThr, bt) = sweepThresholdWithHL m baseCfg closes highs lows kalPred lstmPred mMeta
-            eq = bestFinalEquity bt
-         in (eq, m, openThr, closeThr, bt)
-      candidates = map eval [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
+      eval m = do
+        (openThr, closeThr, bt) <- sweepThresholdWithHL m baseCfg closes highs lows kalPred lstmPred mMeta
+        let eq = bestFinalEquity bt
+        pure (eq, m, openThr, closeThr, bt)
+
       pick (bestEq, bestM, bestOpenThr, bestCloseThr, bestBt) (eq, m, openThr, closeThr, bt) =
         if eq > bestEq + eps
           then (eq, m, openThr, closeThr, bt)
@@ -46,16 +48,20 @@ optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred mMeta =
                     then (eq, m, openThr, closeThr, bt)
                     else (bestEq, bestM, bestOpenThr, bestCloseThr, bestBt)
             else (bestEq, bestM, bestOpenThr, bestCloseThr, bestBt)
-      (c : cs) = candidates
-      (_, bestM, bestOpenThr, bestCloseThr, bestBt) = foldl' pick c cs
-  in (bestM, bestOpenThr, bestCloseThr, bestBt)
 
-sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Double, Double, BacktestResult)
+  candidates <- traverse eval [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
+  case NE.nonEmpty candidates of
+    Nothing -> Left "No optimization candidates produced."
+    Just (c :| cs) ->
+      let (_, bestM, bestOpenThr, bestCloseThr, bestBt) = foldl' pick c cs
+       in Right (bestM, bestOpenThr, bestCloseThr, bestBt)
+
+sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Double, Double, BacktestResult)
 sweepThreshold method baseCfg prices kalPred lstmPred mMeta =
   sweepThresholdWithHL method baseCfg prices prices prices kalPred lstmPred mMeta
 
-sweepThresholdWithHL :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> (Double, Double, BacktestResult)
-sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
+sweepThresholdWithHL :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Double, Double, BacktestResult)
+sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta = do
   let pricesV = V.fromList closes
       highsV = V.fromList highs
       lowsV = V.fromList lows
@@ -82,41 +88,28 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
       lstmV = V.fromList lstmPred
 
       metaV = V.fromList <$> mMeta
-      metaUsed =
-        case method of
-          MethodLstmOnly -> Nothing
-          _ -> metaV
 
-      (kalUsedV, lstmUsedV) =
+      buildContext =
         case method of
-          MethodBoth -> (kalV, lstmV)
-          MethodKalmanOnly -> (kalV, kalV)
-          MethodLstmOnly -> (lstmV, lstmV)
+          MethodBoth
+            | V.length kalV < stepCount -> Left "kalPred too short for sweepThreshold"
+            | V.length lstmV < stepCount -> Left "lstmPred too short for sweepThreshold"
+            | otherwise ->
+                Right
+                  ( [kalV, lstmV]
+                  , (kalV, lstmV)
+                  , metaV
+                  )
+          MethodKalmanOnly
+            | V.length kalV < stepCount -> Left "kalPred too short for sweepThreshold"
+            | otherwise -> Right ([kalV], (kalV, kalV), metaV)
+          MethodLstmOnly
+            | V.length lstmV < stepCount -> Left "lstmPred too short for sweepThreshold"
+            | otherwise -> Right ([lstmV], (lstmV, lstmV), Nothing)
 
-      predSources =
-        case method of
-          MethodBoth -> [kalV, lstmV]
-          MethodKalmanOnly -> [kalV]
-          MethodLstmOnly -> [lstmV]
+  (predSources, (kalUsedV, lstmUsedV), metaUsed) <- buildContext
 
-      () =
-        case method of
-          MethodBoth ->
-            if V.length kalV < stepCount
-              then error "kalPred too short for sweepThreshold"
-              else if V.length lstmV < stepCount
-                then error "lstmPred too short for sweepThreshold"
-                else ()
-          MethodKalmanOnly ->
-            if V.length kalV < stepCount
-              then error "kalPred too short for sweepThreshold"
-              else ()
-          MethodLstmOnly ->
-            if V.length lstmV < stepCount
-              then error "lstmPred too short for sweepThreshold"
-              else ()
-
-      mags =
+  let mags =
         [ v
         | t <- [0 .. stepCount - 1]
         , let prev = pricesV V.! t
@@ -128,7 +121,10 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
         , not (isInfinite v)
         ]
 
-      uniqueSorted = map head . group . sort
+      uniqueSorted xs =
+        case sort xs of
+          [] -> []
+          y : ys -> map NE.head (NE.group (y :| ys))
       candidates0 = uniqueSorted (0 : map (\v -> max 0 (v - eps)) mags)
       candidates =
         uniqueSorted
@@ -153,4 +149,5 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
 
       foldClose acc openThr = foldl' (\acc0 closeThr -> pick acc0 (openThr, closeThr)) acc candidates
       (_, bestOpenThr, bestCloseThr, bestBt) = foldl' foldClose (baseEq, baseOpenThr, baseCloseThr, baseBt) candidates
-   in (bestOpenThr, bestCloseThr, bestBt)
+
+  pure (bestOpenThr, bestCloseThr, bestBt)

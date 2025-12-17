@@ -1947,23 +1947,27 @@ botOptimizeAfterOperation st = do
                   , ecConfidenceSizing = argConfidenceSizing args
                   , ecMinPositionSize = argMinPositionSize args
                   }
-              hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
-              (newMethod, newOpenThr, newCloseThr) =
-                if optimizeOps && hasBothCtx
-                  then
-                    let (m, openThr, closeThr, _) = optimizeOperations baseCfg prices kalPred lstmPred Nothing
-                     in (m, openThr, closeThr)
-                  else
-                    let (openThr, closeThr, _) = sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred Nothing
-                     in (argMethod args, openThr, closeThr)
-              args' =
-                args
-                  { argMethod = newMethod
-                  , argOpenThreshold = newOpenThr
-                  , argCloseThreshold = newCloseThr
-                  }
-              latest' = computeLatestSignal args' lookback pricesV (botLstmCtx st) (botKalmanCtx st)
-          pure st { botArgs = args', botLatestSignal = latest' }
+          hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
+          thresholdResult =
+            if optimizeOps && hasBothCtx
+              then fmap (\(m, openThr, closeThr, _) -> (m, openThr, closeThr)) $
+                optimizeOperations baseCfg prices kalPred lstmPred Nothing
+              else fmap (\(openThr, closeThr, _) -> (argMethod args, openThr, closeThr)) $
+                sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred Nothing
+      (newMethod, newOpenThr, newCloseThr) <-
+        case thresholdResult of
+          Right res -> pure res
+          Left err -> do
+            hPutStrLn stderr ("Threshold tuning skipped: " ++ err)
+            pure (argMethod args, baseOpenThr, baseCloseThr)
+      let args' =
+            args
+              { argMethod = newMethod
+              , argOpenThreshold = newOpenThr
+              , argCloseThreshold = newCloseThr
+              }
+          latest' = computeLatestSignal args' lookback pricesV (botLstmCtx st) (botKalmanCtx st)
+      pure st { botArgs = args', botLatestSignal = latest' }
 
 makeBinanceEnv :: Args -> IO BinanceEnv
 makeBinanceEnv args = do
@@ -4919,18 +4923,20 @@ computeBacktestSummary args lookback series = do
       metaBacktest = fmap (drop offsetBacktestPred) mMetaAll
       metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
 
-      (methodUsed, bestOpenThr, bestCloseThr) =
-        if argOptimizeOperations args
-          then
-            let (m, openThr, closeThr, _btTune) =
-                  optimizeOperationsWithHL baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
-             in (m, openThr, closeThr)
-          else if argSweepThreshold args
-            then
-              let (openThr, closeThr, _btTune) =
-                    sweepThresholdWithHL methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
-               in (methodRequested, openThr, closeThr)
-            else (methodRequested, argOpenThreshold args, argCloseThreshold args)
+  tuneOutcome <-
+    if argOptimizeOperations args
+      then
+        either (die . ("optimizeOperations: " ++)) pure $
+          fmap (\(m, openThr, closeThr, _btTune) -> (m, openThr, closeThr)) $
+            optimizeOperationsWithHL baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
+      else if argSweepThreshold args
+        then
+          either (die . ("sweepThreshold: " ++)) pure $
+            fmap (\(openThr, closeThr, _btTune) -> (methodRequested, openThr, closeThr)) $
+              sweepThresholdWithHL methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
+        else pure (methodRequested, argOpenThreshold args, argCloseThreshold args)
+
+  let (methodUsed, bestOpenThr, bestCloseThr) = tuneOutcome
 
       backtestCfg = baseCfg { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
       (kalPredUsedBacktest, lstmPredUsedBacktest) = selectPredictions methodUsed kalPredBacktest lstmPredBacktest
