@@ -126,6 +126,10 @@ type FormState = {
   maxOrderErrors: number;
   backtestRatio: number;
   tuneRatio: number;
+  tuneObjective: string;
+  tunePenaltyMaxDrawdown: number;
+  tunePenaltyTurnover: number;
+  walkForwardFolds: number;
   normalization: Normalization;
   epochs: number;
   learningRate: number;
@@ -354,6 +358,10 @@ const defaultForm: FormState = {
   maxOrderErrors: 0,
   backtestRatio: 0.2,
   tuneRatio: 0.2,
+  tuneObjective: "equity-dd-turnover",
+  tunePenaltyMaxDrawdown: 1.0,
+  tunePenaltyTurnover: 0.1,
+  walkForwardFolds: 5,
   normalization: "standard",
   epochs: 30,
   learningRate: 0.001,
@@ -426,6 +434,16 @@ function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFi
   return fallback;
 }
 
+const TUNE_OBJECTIVES = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"] as const;
+const TUNE_OBJECTIVE_SET = new Set<string>(TUNE_OBJECTIVES);
+
+function normalizeTuneObjective(raw: unknown, fallback: string): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (s && TUNE_OBJECTIVE_SET.has(s)) return s;
+  if (TUNE_OBJECTIVE_SET.has(fallback)) return fallback;
+  return "equity-dd-turnover";
+}
+
 function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
   const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
@@ -458,6 +476,10 @@ function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
     spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
     intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
     tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
+    tuneObjective: normalizeTuneObjective(rawRec.tuneObjective ?? merged.tuneObjective, defaultForm.tuneObjective),
+    tunePenaltyMaxDrawdown: normalizeFiniteNumber(rawRec.tunePenaltyMaxDrawdown ?? merged.tunePenaltyMaxDrawdown, defaultForm.tunePenaltyMaxDrawdown, 0, 1e9),
+    tunePenaltyTurnover: normalizeFiniteNumber(rawRec.tunePenaltyTurnover ?? merged.tunePenaltyTurnover, defaultForm.tunePenaltyTurnover, 0, 1e9),
+    walkForwardFolds: normalizeFiniteNumber(rawRec.walkForwardFolds ?? merged.walkForwardFolds, defaultForm.walkForwardFolds, 1, 1000),
     kalmanZMin,
     kalmanZMax,
     maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
@@ -1045,6 +1067,10 @@ export function App() {
 	      ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       tuneRatio: clamp(form.tuneRatio, 0, 0.99),
+      tuneObjective: form.tuneObjective,
+      tunePenaltyMaxDrawdown: Math.max(0, form.tunePenaltyMaxDrawdown),
+      tunePenaltyTurnover: Math.max(0, form.tunePenaltyTurnover),
+      walkForwardFolds: clamp(Math.trunc(form.walkForwardFolds), 1, 1000),
       normalization: form.normalization,
       epochs: clamp(Math.trunc(form.epochs), 0, 5000),
       hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
@@ -1073,6 +1099,15 @@ export function App() {
 
 	    return base;
 	  }, [form]);
+
+  const estimatedCosts = useMemo(() => {
+    const fee = Math.max(0, form.fee);
+    const slippage = Math.max(0, form.slippage);
+    const spread = Math.max(0, form.spread);
+    const perSide = Math.min(0.999999, fee + slippage + spread / 2);
+    const roundTrip = Math.min(0.999999, perSide * 2);
+    return { perSide, roundTrip };
+  }, [form.fee, form.slippage, form.spread]);
 
   const tradeParams: ApiParams = useMemo(() => {
     const base: ApiParams = { ...commonParams };
@@ -1656,11 +1691,22 @@ export function App() {
   useEffect(() => {
     let isCancelled = false;
     setTopCombosLoading(true);
-    void fetch("/top-combos.json")
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
+    const fetchPayload = async (): Promise<unknown> => {
+      if (apiOk === "ok") {
+        try {
+          const url = `${apiBase.replace(/\/+$/, "")}/optimizer/combos`;
+          const res = await fetch(url, { headers: authHeaders });
+          if (res.ok) return res.json();
+          throw new Error(`HTTP ${res.status}`);
+        } catch {
+          // Fall back to the static UI bundle.
+        }
+      }
+      const res = await fetch("/top-combos.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    };
+    void fetchPayload()
       .then((payload: unknown) => {
         if (isCancelled) return;
         const payloadRec = (payload as Record<string, unknown> | null | undefined) ?? {};
@@ -1839,7 +1885,7 @@ export function App() {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [apiBase, apiOk, authHeaders]);
 
   const statusDotClass =
     apiOk === "ok" ? "dot dotOk" : apiOk === "down" ? "dot dotBad" : "dot dotWarn";
@@ -2517,14 +2563,19 @@ export function App() {
                 </label>
                 <input
                   id="openThreshold"
-                  className="input"
+                  className={estimatedCosts.roundTrip > 0 && form.openThreshold < estimatedCosts.roundTrip ? "input inputError" : "input"}
                   type="number"
                   step="0.0001"
                   min={0}
                   value={form.openThreshold}
                   onChange={(e) => setForm((f) => ({ ...f, openThreshold: numFromInput(e.target.value, f.openThreshold) }))}
                 />
-                <div className="hint">Entry deadband. Default 0.001 = 0.1%.</div>
+                <div className="hint">
+                  Entry deadband. Default 0.001 = 0.1%. Estimated round-trip cost ≈ {fmtPct(estimatedCosts.roundTrip, 3)} (fee + slippage + spread).
+                  {estimatedCosts.roundTrip > 0 && form.openThreshold < estimatedCosts.roundTrip
+                    ? " Consider increasing open threshold to avoid churn after costs."
+                    : null}
+                </div>
               </div>
               <div className="field">
                 <label className="label" htmlFor="closeThreshold">
@@ -2532,7 +2583,7 @@ export function App() {
                 </label>
                 <input
                   id="closeThreshold"
-                  className="input"
+                  className={estimatedCosts.roundTrip > 0 && form.closeThreshold < estimatedCosts.roundTrip ? "input inputError" : "input"}
                   type="number"
                   step="0.0001"
                   min={0}
@@ -2835,7 +2886,72 @@ export function App() {
                     Optimize operations (method + thresholds)
                   </label>
                 </div>
-	                <div className="hint">Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.</div>
+                <div className="hint">Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.</div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="tuneObjective">
+                      Tune objective
+                    </label>
+                    <select
+                      id="tuneObjective"
+                      className="select"
+                      value={form.tuneObjective}
+                      onChange={(e) => setForm((f) => ({ ...f, tuneObjective: e.target.value }))}
+                    >
+                      {TUNE_OBJECTIVES.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="hint">Used by “Optimize thresholds/operations”.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="tunePenaltyMaxDrawdown">
+                      DD penalty
+                    </label>
+                    <input
+                      id="tunePenaltyMaxDrawdown"
+                      className="input"
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={form.tunePenaltyMaxDrawdown}
+                      onChange={(e) => setForm((f) => ({ ...f, tunePenaltyMaxDrawdown: numFromInput(e.target.value, f.tunePenaltyMaxDrawdown) }))}
+                    />
+                    <div className="hint">Applied when objective includes drawdown.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="tunePenaltyTurnover">
+                      Turnover penalty
+                    </label>
+                    <input
+                      id="tunePenaltyTurnover"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={form.tunePenaltyTurnover}
+                      onChange={(e) => setForm((f) => ({ ...f, tunePenaltyTurnover: numFromInput(e.target.value, f.tunePenaltyTurnover) }))}
+                    />
+                    <div className="hint">Applied when objective includes turnover.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="walkForwardFolds">
+                      Walk-forward folds
+                    </label>
+                    <input
+                      id="walkForwardFolds"
+                      className="input"
+                      type="number"
+                      step="1"
+                      min={1}
+                      value={form.walkForwardFolds}
+                      onChange={(e) => setForm((f) => ({ ...f, walkForwardFolds: numFromInput(e.target.value, f.walkForwardFolds) }))}
+                    />
+                    <div className="hint">Used for tune scoring + backtest variability.</div>
+                  </div>
+                </div>
               </div>
               <div className="field">
                 <label className="label">Options</label>
@@ -3736,6 +3852,30 @@ export function App() {
                       })()}
                     </div>
                   </div>
+                  {state.backtest.costs ? (
+                    <div className="kv">
+                      <div className="k">Break-even (round trip)</div>
+                      <div className="v">
+                        {(() => {
+                          const openThr = state.backtest.openThreshold ?? state.backtest.threshold;
+                          const be = state.backtest.costs?.breakEvenThreshold ?? 0;
+                          const note = openThr < be && be > 0 ? " (open threshold below break-even)" : "";
+                          return `${fmtNum(be, 6)} (${fmtPct(be, 3)})${note}`;
+                        })()}
+                      </div>
+                    </div>
+                  ) : null}
+                  {state.backtest.tuning && state.backtest.split.tune > 0 ? (
+                    <div className="kv">
+                      <div className="k">Tune objective</div>
+                      <div className="v">
+                        {state.backtest.tuning.objective}
+                        {state.backtest.tuning.tuneStats
+                          ? ` • folds=${state.backtest.tuning.tuneStats.folds} score=${fmtNum(state.backtest.tuning.tuneStats.meanScore, 4)}±${fmtNum(state.backtest.tuning.tuneStats.stdScore, 4)}`
+                          : ""}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="kv">
                     <div className="k">Final equity</div>
                     <div className="v">{fmtRatio(state.backtest.metrics.finalEquity, 4)}</div>
@@ -3802,6 +3942,46 @@ export function App() {
                       </div>
                     </div>
                   </details>
+
+                  {state.backtest.walkForward ? (
+                    <details className="details" style={{ marginTop: 12 }}>
+                      <summary>Walk-forward</summary>
+                      <div style={{ marginTop: 10 }}>
+                        <div className="kv">
+                          <div className="k">Folds</div>
+                          <div className="v">{state.backtest.walkForward.foldCount}</div>
+                        </div>
+                        <div className="kv">
+                          <div className="k">Final equity (mean ± std)</div>
+                          <div className="v">
+                            {fmtRatio(state.backtest.walkForward.summary.finalEquityMean, 4)} ±{" "}
+                            {fmtRatio(state.backtest.walkForward.summary.finalEquityStd, 4)}
+                          </div>
+                        </div>
+                        <div className="kv">
+                          <div className="k">Sharpe (mean ± std)</div>
+                          <div className="v">
+                            {fmtNum(state.backtest.walkForward.summary.sharpeMean, 3)} ±{" "}
+                            {fmtNum(state.backtest.walkForward.summary.sharpeStd, 3)}
+                          </div>
+                        </div>
+                        <div className="kv">
+                          <div className="k">Max DD (mean ± std)</div>
+                          <div className="v">
+                            {fmtPct(state.backtest.walkForward.summary.maxDrawdownMean, 2)} ±{" "}
+                            {fmtPct(state.backtest.walkForward.summary.maxDrawdownStd, 2)}
+                          </div>
+                        </div>
+                        <div className="kv">
+                          <div className="k">Turnover (mean ± std)</div>
+                          <div className="v">
+                            {fmtNum(state.backtest.walkForward.summary.turnoverMean, 4)} ±{" "}
+                            {fmtNum(state.backtest.walkForward.summary.turnoverStd, 4)}
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+                  ) : null}
                 </>
               ) : (
                 <div className="hint">No backtest yet.</div>

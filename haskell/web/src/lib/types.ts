@@ -27,6 +27,10 @@ export type ApiParams = {
   valRatio?: number;
   backtestRatio?: number;
   tuneRatio?: number;
+  tuneObjective?: string;
+  tunePenaltyMaxDrawdown?: number;
+  tunePenaltyTurnover?: number;
+  walkForwardFolds?: number;
   patience?: number;
   gradClip?: number;
   seed?: number;
@@ -148,6 +152,26 @@ export type BinanceListenKeyResponse = {
 
 export type BinanceListenKeyKeepAliveResponse = { ok: boolean; atMs: number };
 
+export type BacktestMetrics = {
+  finalEquity: number;
+  totalReturn: number;
+  annualizedReturn: number;
+  annualizedVolatility: number;
+  sharpe: number;
+  maxDrawdown: number;
+  tradeCount: number;
+  roundTrips: number;
+  winRate: number;
+  grossProfit: number;
+  grossLoss: number;
+  profitFactor: number | null;
+  avgTradeReturn: number;
+  avgHoldingPeriods: number;
+  exposure: number;
+  agreementRate: number;
+  turnover: number;
+};
+
 export type Trade = {
   entryIndex: number;
   exitIndex: number;
@@ -173,25 +197,38 @@ export type BacktestResponse = {
   threshold: number;
   openThreshold?: number;
   closeThreshold?: number;
-  metrics: {
-    finalEquity: number;
-    totalReturn: number;
-    annualizedReturn: number;
-    annualizedVolatility: number;
-    sharpe: number;
-    maxDrawdown: number;
-    tradeCount: number;
-    roundTrips: number;
-    winRate: number;
-    grossProfit: number;
-    grossLoss: number;
-    profitFactor: number | null;
-    avgTradeReturn: number;
-    avgHoldingPeriods: number;
-    exposure: number;
-    agreementRate: number;
-    turnover: number;
+  tuning?: {
+    objective: string;
+    penaltyMaxDrawdown: number;
+    penaltyTurnover: number;
+    walkForwardFolds: number;
+    tuneStats?: { folds: number; scores: number[]; meanScore: number; stdScore: number } | null;
   };
+  costs?: {
+    fee: number;
+    slippage: number;
+    spread: number;
+    perSideCost: number;
+    roundTripCost: number;
+    breakEvenThreshold: number;
+  };
+  walkForward?: {
+    foldCount: number;
+    folds: { startIndex: number; endIndex: number; metrics: BacktestMetrics }[];
+    summary: {
+      finalEquityMean: number;
+      finalEquityStd: number;
+      annualizedReturnMean: number;
+      annualizedReturnStd: number;
+      sharpeMean: number;
+      sharpeStd: number;
+      maxDrawdownMean: number;
+      maxDrawdownStd: number;
+      turnoverMean: number;
+      turnoverStd: number;
+    };
+  } | null;
+  metrics: BacktestMetrics;
   latestSignal: LatestSignal;
   equityCurve: number[];
   prices: number[];

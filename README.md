@@ -144,8 +144,14 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--positioning long-flat` (default) or `--positioning long-short` (allows short positions in backtests; if trading, requires `--futures`; live bot is long-flat only)
   - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
+  - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
+    - `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
+  - `--tune-penalty-max-drawdown 1.0` penalty weight for max drawdown (used by `equity-dd*` objectives)
+  - `--tune-penalty-turnover 0.1` penalty weight for turnover (used by `equity-dd-turnover`)
+  - `--walk-forward-folds 5` number of folds used to score the tune split and report backtest variability (`1` disables)
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
   - `--fee 0.0005` fee applied when switching position
+  - The CLI also prints an estimated **round-trip cost** (fee + slippage + spread) and warns when thresholds are below it.
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
   - `--take-profit F` optional synthetic take profit (`0 < F < 1`)
   - `--trailing-stop F` optional synthetic trailing stop (`0 < F < 1`)
@@ -213,6 +219,14 @@ Optional journaling:
 
 Optional async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
 - Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it).
+
+Optional in-memory caching (recommended for the Web UI’s repeated calls):
+- `TRADER_API_CACHE_TTL_MS` (default: `30000`) cache TTL in milliseconds (`0` disables)
+- `TRADER_API_CACHE_MAX_ENTRIES` (default: `64`) max cached entries (`0` disables)
+
+Optional LSTM weight persistence (recommended for faster repeated backtests):
+- `TRADER_LSTM_WEIGHTS_DIR` (default: `.tmp/lstm`) directory to persist LSTM weights between runs (set to an empty string to disable)
+  - The persisted seed is only used when it was trained on **≤** the current training window (prevents lookahead leakage when you change tune/backtest splits).
 
 Examples:
 ```

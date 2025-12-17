@@ -10,6 +10,7 @@ import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import Data.ByteArray (convert)
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
@@ -40,7 +41,7 @@ import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, getCurrentDirectory, listDirectory, removeFile, renameFile)
-import System.Environment (lookupEnv)
+import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode(..), die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.IO (IOMode(ReadMode), hGetLine, hIsEOF, hPutStrLn, stderr, withFile)
@@ -109,7 +110,17 @@ import Trader.Predictors
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.Symbol (splitSymbol)
 import Trader.Method (Method(..), methodCode, parseMethod, selectPredictions)
-import Trader.Optimization (optimizeOperations, optimizeOperationsWithHL, sweepThreshold, sweepThresholdWithHL)
+import Trader.Optimization
+  ( TuneConfig(..)
+  , TuneObjective(..)
+  , TuneStats(..)
+  , tuneObjectiveCode
+  , parseTuneObjective
+  , optimizeOperationsWith
+  , optimizeOperationsWithHLWith
+  , sweepThresholdWith
+  , sweepThresholdWithHLWith
+  )
 import Trader.Split (Split(..), splitTrainBacktest)
 import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), StepMeta(..), Trade(..), simulateEnsembleLongFlat, simulateEnsembleLongFlatWithHL)
 
@@ -317,12 +328,23 @@ data BacktestSummary = BacktestSummary
   , bsFitSize :: !Int
   , bsTuneSize :: !Int
   , bsTuneRatio :: !Double
+  , bsTuneObjective :: !TuneObjective
+  , bsTunePenaltyMaxDrawdown :: !Double
+  , bsTunePenaltyTurnover :: !Double
+  , bsWalkForwardFolds :: !Int
+  , bsTuneStats :: !(Maybe TuneStats)
   , bsBacktestSize :: !Int
   , bsBacktestRatio :: !Double
   , bsMethodUsed :: !Method
   , bsBestOpenThreshold :: !Double
   , bsBestCloseThreshold :: !Double
+  , bsFee :: !Double
+  , bsSlippage :: !Double
+  , bsSpread :: !Double
+  , bsEstimatedPerSideCost :: !Double
+  , bsEstimatedRoundTripCost :: !Double
   , bsMetrics :: !BacktestMetrics
+  , bsWalkForward :: !(Maybe WalkForwardReport)
   , bsLstmHistory :: !(Maybe [EpochStats])
   , bsLatestSignal :: !LatestSignal
   , bsEquityCurve :: ![Double]
@@ -330,6 +352,31 @@ data BacktestSummary = BacktestSummary
   , bsPositions :: ![Double]
   , bsAgreementOk :: ![Bool]
   , bsTrades :: ![Trade]
+  } deriving (Eq, Show)
+
+data WalkForwardFold = WalkForwardFold
+  { wffStartIndex :: !Int
+  , wffEndIndex :: !Int
+  , wffMetrics :: !BacktestMetrics
+  } deriving (Eq, Show)
+
+data WalkForwardSummary = WalkForwardSummary
+  { wfsFinalEquityMean :: !Double
+  , wfsFinalEquityStd :: !Double
+  , wfsAnnualizedReturnMean :: !Double
+  , wfsAnnualizedReturnStd :: !Double
+  , wfsSharpeMean :: !Double
+  , wfsSharpeStd :: !Double
+  , wfsMaxDrawdownMean :: !Double
+  , wfsMaxDrawdownStd :: !Double
+  , wfsTurnoverMean :: !Double
+  , wfsTurnoverStd :: !Double
+  } deriving (Eq, Show)
+
+data WalkForwardReport = WalkForwardReport
+  { wfrFoldCount :: !Int
+  , wfrFolds :: ![WalkForwardFold]
+  , wfrSummary :: !WalkForwardSummary
   } deriving (Eq, Show)
 
 -- CLI
@@ -363,6 +410,10 @@ data Args = Args
   , argValRatio :: Double
   , argBacktestRatio :: Double
   , argTuneRatio :: Double
+  , argTuneObjective :: TuneObjective
+  , argTunePenaltyMaxDrawdown :: Double
+  , argTunePenaltyTurnover :: Double
+  , argWalkForwardFolds :: Int
   , argPatience :: Int
   , argGradClip :: Maybe Double
   , argSeed :: Int
@@ -509,6 +560,16 @@ opts =
     <*> option auto (long "val-ratio" <> value 0.2 <> help "Validation split ratio (within training set)")
     <*> option auto (long "backtest-ratio" <> value 0.2 <> help "Backtest holdout ratio (last portion of series)")
     <*> option auto (long "tune-ratio" <> value 0.2 <> help "When optimizing operations/threshold: tune on the last portion of the training split (avoids lookahead on the backtest split)")
+    <*> option
+          (eitherReader parseTuneObjective)
+          ( long "tune-objective"
+              <> value TuneEquityDdTurnover
+              <> showDefaultWith tuneObjectiveCode
+              <> help "Objective for --optimize-operations/--sweep-threshold: final-equity|sharpe|calmar|equity-dd|equity-dd-turnover"
+          )
+    <*> option auto (long "tune-penalty-max-drawdown" <> value 1.0 <> help "Penalty weight for max drawdown (used by equity-dd objectives)")
+    <*> option auto (long "tune-penalty-turnover" <> value 0.1 <> help "Penalty weight for turnover (used by equity-dd-turnover)")
+    <*> option auto (long "walk-forward-folds" <> value 5 <> help "Compute fold stats on tune/backtest windows (1 disables)")
     <*> option auto (long "patience" <> value 10 <> help "Early stopping patience (0 disables)")
     <*> optional (option auto (long "grad-clip" <> help "Gradient clipping max L2 norm"))
     <*> option auto (long "seed" <> value 42 <> help "Random seed for LSTM init")
@@ -696,6 +757,9 @@ validateArgs args0 = do
   ensure "--val-ratio must be >= 0 and < 1" (argValRatio args >= 0 && argValRatio args < 1)
   ensure "--backtest-ratio must be between 0 and 1" (argBacktestRatio args > 0 && argBacktestRatio args < 1)
   ensure "--tune-ratio must be >= 0 and < 1" (argTuneRatio args >= 0 && argTuneRatio args < 1)
+  ensure "--tune-penalty-max-drawdown must be >= 0" (argTunePenaltyMaxDrawdown args >= 0)
+  ensure "--tune-penalty-turnover must be >= 0" (argTunePenaltyTurnover args >= 0)
+  ensure "--walk-forward-folds must be >= 1" (argWalkForwardFolds args >= 1)
   ensure "--patience must be >= 0" (argPatience args >= 0)
   case argGradClip args of
     Nothing -> pure ()
@@ -833,6 +897,10 @@ data ApiParams = ApiParams
   , apValRatio :: Maybe Double
   , apBacktestRatio :: Maybe Double
   , apTuneRatio :: Maybe Double
+  , apTuneObjective :: Maybe String
+  , apTunePenaltyMaxDrawdown :: Maybe Double
+  , apTunePenaltyTurnover :: Maybe Double
+  , apWalkForwardFolds :: Maybe Int
   , apPatience :: Maybe Int
   , apGradClip :: Maybe Double
   , apSeed :: Maybe Int
@@ -1449,7 +1517,53 @@ data BotRuntime = BotRuntime
   { brThreadId :: ThreadId
   , brStateVar :: MVar BotState
   , brStopSignal :: MVar ()
+  , brOptimizer :: Maybe BotOptimizerRuntime
   }
+
+data BotOptimizerRuntime = BotOptimizerRuntime
+  { borThreadId :: !ThreadId
+  , borStopSignal :: !(MVar ())
+  , borPendingUpdate :: !(MVar (Maybe BotOptimizerUpdate))
+  }
+
+data BotOptimizerUpdate = BotOptimizerUpdate
+  { bouArgs :: !Args
+  , bouLookback :: !Int
+  , bouLstmCtx :: !(Maybe LstmCtx)
+  , bouKalmanCtx :: !(Maybe KalmanCtx)
+  , bouFinalEquity :: !(Maybe Double)
+  , bouObjective :: !(Maybe String)
+  , bouScore :: !(Maybe Double)
+  }
+
+data TopCombosExport = TopCombosExport
+  { tceCombos :: ![TopCombo]
+  }
+
+data TopCombo = TopCombo
+  { tcRank :: !(Maybe Int)
+  , tcFinalEquity :: !(Maybe Double)
+  , tcObjectiveLabel :: !(Maybe String)
+  , tcScore :: !(Maybe Double)
+  , tcOpenThreshold :: !(Maybe Double)
+  , tcCloseThreshold :: !(Maybe Double)
+  , tcParams :: !Aeson.Object
+  }
+
+instance FromJSON TopCombosExport where
+  parseJSON = AT.withObject "TopCombosExport" $ \o -> TopCombosExport <$> o Aeson..: "combos"
+
+instance FromJSON TopCombo where
+  parseJSON = AT.withObject "TopCombo" $ \o -> do
+    params <- o Aeson..: "params"
+    TopCombo
+      <$> o Aeson..:? "rank"
+      <*> o Aeson..:? "finalEquity"
+      <*> o Aeson..:? "objective"
+      <*> o Aeson..:? "score"
+      <*> o Aeson..:? "openThreshold"
+      <*> o Aeson..:? "closeThreshold"
+      <*> pure params
 
 data BotState = BotState
   { botArgs :: !Args
@@ -1701,14 +1815,26 @@ botStartWorker mOps metrics mJournal ctrl args settings sym stopSig = do
         (Just (object ["symbol" .= botSymbol st0, "market" .= marketCode (argBinanceMarket (botArgs st0)), "interval" .= argInterval (botArgs st0)]))
         (Just eq0)
       stVar <- newMVar st0
+      optimizerStopSig <- newEmptyMVar
+      optimizerPending <- newMVar Nothing
+      optimizerTid <- forkIO (botOptimizerLoop mOps metrics mJournal stVar optimizerStopSig optimizerPending)
+      let optimizerRt =
+            BotOptimizerRuntime
+              { borThreadId = optimizerTid
+              , borStopSignal = optimizerStopSig
+              , borPendingUpdate = optimizerPending
+              }
       startOk <-
         modifyMVar (bcRuntime ctrl) $ \mrt ->
           case mrt of
-            Just (BotStarting rt) | bsrThreadId rt == tid -> pure (Just (BotRunning (BotRuntime tid stVar stopSig)), True)
+            Just (BotStarting rt) | bsrThreadId rt == tid ->
+              pure (Just (BotRunning (BotRuntime tid stVar stopSig (Just optimizerRt))), True)
             _ -> pure (mrt, False)
       if startOk
-        then botLoop mOps metrics mJournal ctrl stVar stopSig
-        else pure ()
+        then botLoop mOps metrics mJournal ctrl stVar stopSig (Just optimizerPending)
+        else do
+          _ <- tryPutMVar optimizerStopSig ()
+          killThread optimizerTid
 
 botStop :: BotController -> IO Bool
 botStop ctrl =
@@ -1720,6 +1846,11 @@ botStop ctrl =
         killThread (bsrThreadId rt)
         pure (Nothing, True)
       Just (BotRunning rt) -> do
+        case brOptimizer rt of
+          Nothing -> pure ()
+          Just optRt -> do
+            _ <- tryPutMVar (borStopSignal optRt) ()
+            killThread (borThreadId optRt)
         _ <- tryPutMVar (brStopSignal rt) ()
         killThread (brThreadId rt)
         pure (Nothing, True)
@@ -2005,16 +2136,25 @@ botOptimizeAfterOperation st = do
                   , ecMinPositionSize = argMinPositionSize args
                   }
               hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
+              ppy = periodsPerYear args
+              tuneCfg =
+                TuneConfig
+                  { tcObjective = argTuneObjective args
+                  , tcPenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
+                  , tcPenaltyTurnover = argTunePenaltyTurnover args
+                  , tcPeriodsPerYear = ppy
+                  , tcWalkForwardFolds = argWalkForwardFolds args
+                  }
               (newMethod, newOpenThr, newCloseThr) =
                 if optimizeOps && hasBothCtx
                   then
-                    case optimizeOperations baseCfg prices kalPred lstmPred Nothing of
+                    case optimizeOperationsWith tuneCfg baseCfg prices kalPred lstmPred Nothing of
                       Left _ -> (argMethod args, baseOpenThr, baseCloseThr)
-                      Right (m, openThr, closeThr, _) -> (m, openThr, closeThr)
+                      Right (m, openThr, closeThr, _, _stats) -> (m, openThr, closeThr)
                   else
-                    case sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred Nothing of
+                    case sweepThresholdWith tuneCfg (argMethod args) baseCfg prices kalPred lstmPred Nothing of
                       Left _ -> (argMethod args, baseOpenThr, baseCloseThr)
-                      Right (openThr, closeThr, _) -> (argMethod args, openThr, closeThr)
+                      Right (openThr, closeThr, _, _stats) -> (argMethod args, openThr, closeThr)
               args' =
                 args
                   { argMethod = newMethod
@@ -2023,6 +2163,508 @@ botOptimizeAfterOperation st = do
                   }
               latest' = computeLatestSignal args' lookback pricesV (botLstmCtx st) (botKalmanCtx st)
           pure st { botArgs = args', botLatestSignal = latest' }
+
+argLookbackEither :: Args -> Either String Int
+argLookbackEither args =
+  case argLookbackBars args of
+    Just n ->
+      if n < 2
+        then Left "--lookback-bars must be >= 2"
+        else Right n
+    Nothing ->
+      case lookbackBarsFrom (argInterval args) (argLookbackWindow args) of
+        Left err -> Left err
+        Right n ->
+          if n < 2
+            then
+              Left
+                ( "Lookback window too small: "
+                    ++ show (argLookbackWindow args)
+                    ++ " at interval "
+                    ++ show (argInterval args)
+                    ++ " yields "
+                    ++ show n
+                    ++ " bars; need at least 2 bars."
+                )
+            else Right n
+
+botApplyOptimizerUpdate :: BotState -> BotOptimizerUpdate -> IO BotState
+botApplyOptimizerUpdate st upd = do
+  now <- getTimestampMs
+  let args' =
+        (bouArgs upd)
+          { argOptimizeOperations = False
+          , argSweepThreshold = False
+          , argPositioning = LongFlat
+          }
+      lookback' = max 2 (bouLookback upd)
+      pricesV = botPrices st
+      n = V.length pricesV
+      mLstmCtx' = bouLstmCtx upd <|> botLstmCtx st
+      mKalmanCtx' = bouKalmanCtx upd <|> botKalmanCtx st
+      method = argMethod args'
+      ctxOk =
+        case method of
+          MethodBoth -> isJust mLstmCtx' && isJust mKalmanCtx'
+          MethodKalmanOnly -> isJust mKalmanCtx'
+          MethodLstmOnly -> isJust mLstmCtx'
+      hasLstmWindow = method /= MethodKalmanOnly && n >= lookback'
+
+  if not ctxOk
+    then pure st { botError = Just "Optimizer update skipped: missing model context.", botUpdatedAtMs = now }
+    else
+      if not hasLstmWindow
+        then pure st { botError = Just "Optimizer update skipped: not enough data for lookback.", botUpdatedAtMs = now }
+        else do
+          let latest = computeLatestSignal args' lookback' pricesV mLstmCtx' mKalmanCtx'
+          pure
+            st
+              { botArgs = args'
+              , botLookback = lookback'
+              , botLstmCtx = mLstmCtx'
+              , botKalmanCtx = mKalmanCtx'
+              , botLatestSignal = latest
+              , botUpdatedAtMs = now
+              , botError = Nothing
+              }
+
+rebuildLstmCtx :: Args -> Int -> V.Vector Double -> Either String LstmCtx
+rebuildLstmCtx args lookback pricesV =
+  let closes = V.toList pricesV
+      n = length closes
+   in if n <= lookback
+        then Left "Not enough bars to rebuild LSTM context."
+        else
+          let normState = fitNorm (argNormalization args) closes
+              obsAll = forwardSeries normState closes
+              lstmCfg =
+                LSTMConfig
+                  { lcLookback = lookback
+                  , lcHiddenSize = argHiddenSize args
+                  , lcEpochs = argEpochs args
+                  , lcLearningRate = argLr args
+                  , lcValRatio = argValRatio args
+                  , lcPatience = argPatience args
+                  , lcGradClip = argGradClip args
+                  , lcSeed = argSeed args
+                  }
+              (lstmModel, _) = trainLSTM lstmCfg obsAll
+           in Right (normState, obsAll, lstmModel)
+
+rebuildKalmanCtx :: Args -> Int -> V.Vector Double -> Either String KalmanCtx
+rebuildKalmanCtx args lookback pricesV =
+  let n = V.length pricesV
+   in if n < 2
+        then Left "Not enough bars to rebuild Kalman context."
+        else
+          let predictors = trainPredictors lookback pricesV
+              hmm0 = initHMMFilter predictors []
+              kal0 =
+                initKalman1
+                  0
+                  (max 1e-12 (argKalmanMeasurementVar args))
+                  (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+              sv0 = emptySensorVar
+
+              step (kal, hmm, sv) t =
+                let priceT = pricesV V.! t
+                    nextP = pricesV V.! (t + 1)
+                    realizedR = if priceT == 0 then 0 else nextP / priceT - 1
+                    (sensorOuts, predState) = predictSensors predictors pricesV hmm t
+                    meas = mapMaybe (toMeasurement args sv) sensorOuts
+                    kal' = stepMulti meas kal
+                    sv' =
+                      foldl'
+                        (\acc (sid, out) -> updateResidual sid (realizedR - soMu out) acc)
+                        sv
+                        sensorOuts
+                    hmm' = updateHMM predictors predState realizedR
+                 in (kal', hmm', sv')
+
+              (kalPrev, hmmPrev, svPrev) = foldl' step (kal0, hmm0, sv0) [0 .. n - 2]
+           in Right (predictors, kalPrev, hmmPrev, svPrev)
+
+parseTopComboToArgs :: Args -> TopCombo -> Either String Args
+parseTopComboToArgs base combo = do
+  let params = tcParams combo
+      getStr k = KM.lookup k params >>= AT.parseMaybe parseJSON
+      getInt k = KM.lookup k params >>= AT.parseMaybe parseJSON
+      getDbl k = KM.lookup k params >>= AT.parseMaybe parseJSON
+      getBool k = KM.lookup k params >>= AT.parseMaybe parseJSON
+      getMaybeDbl k =
+        case KM.lookup k params of
+          Nothing -> Nothing
+          Just Aeson.Null -> Just Nothing
+          Just v ->
+            case AT.parseMaybe parseJSON v of
+              Nothing -> Nothing
+              Just d -> Just (Just d)
+
+      methodRaw = getStr "method"
+      normRaw = getStr "normalization"
+      positioningRaw = getStr "positioning"
+      intrabarFillRaw = getStr "intrabarFill"
+
+  method <-
+    case methodRaw of
+      Nothing -> Right (argMethod base)
+      Just v -> parseMethod v
+  let normalization =
+        case normRaw >>= parseNormType of
+          Just n -> n
+          Nothing -> argNormalization base
+  _positioning <-
+    case positioningRaw of
+      Nothing -> Right (argPositioning base)
+      Just v -> parsePositioning v
+  intrabarFill <-
+    case intrabarFillRaw of
+      Nothing -> Right (argIntrabarFill base)
+      Just v -> parseIntrabarFill v
+
+  let openThr = max 0 (fromMaybe (argOpenThreshold base) (tcOpenThreshold combo))
+      closeThr = max 0 (fromMaybe (argCloseThreshold base) (tcCloseThreshold combo <|> tcOpenThreshold combo))
+
+      clamp01 x = max 0 (min 1 x)
+
+      readMaybeInt = fmap (max 0) . getInt
+      readMaybeDouble = fmap (\x -> if isNaN x || isInfinite x then 0 else x) . getDbl
+
+      pickMaybeMaybeDbl k current =
+        case getMaybeDbl k of
+          Nothing -> current
+          Just v -> v
+
+      pickMaybeMaybeInt k current =
+        case KM.lookup k params of
+          Nothing -> current
+          Just Aeson.Null -> Nothing
+          Just v ->
+            case AT.parseMaybe parseJSON v of
+              Nothing -> current
+              Just n -> Just (max 0 n)
+
+      pickBool k current =
+        case getBool k of
+          Nothing -> current
+          Just b -> b
+
+      pickD k current =
+        case readMaybeDouble k of
+          Nothing -> current
+          Just v -> v
+
+      pickI k current =
+        case readMaybeInt k of
+          Nothing -> current
+          Just v -> v
+
+      gradClip =
+        case getMaybeDbl "gradClip" of
+          Nothing -> argGradClip base
+          Just Nothing -> Nothing
+          Just (Just v) -> Just (max 0 v)
+
+      fee = max 0 (pickD "fee" (argFee base))
+      slippage = max 0 (pickD "slippage" (argSlippage base))
+      spread = max 0 (pickD "spread" (argSpread base))
+
+      kalZMin = max 0 (pickD "kalmanZMin" (argKalmanZMin base))
+      kalZMaxRaw = max 0 (pickD "kalmanZMax" (argKalmanZMax base))
+      kalZMax = max kalZMin kalZMaxRaw
+
+      maxHighVolProb = pickMaybeMaybeDbl "maxHighVolProb" (argMaxHighVolProb base)
+      maxConformalWidth = pickMaybeMaybeDbl "maxConformalWidth" (argMaxConformalWidth base)
+      maxQuantileWidth = pickMaybeMaybeDbl "maxQuantileWidth" (argMaxQuantileWidth base)
+
+      maxDD = pickMaybeMaybeDbl "maxDrawdown" (argMaxDrawdown base)
+      maxDL = pickMaybeMaybeDbl "maxDailyLoss" (argMaxDailyLoss base)
+      maxOE = pickMaybeMaybeInt "maxOrderErrors" (argMaxOrderErrors base)
+
+      stopLoss = pickMaybeMaybeDbl "stopLoss" (argStopLoss base)
+      takeProfit = pickMaybeMaybeDbl "takeProfit" (argTakeProfit base)
+      trailingStop = pickMaybeMaybeDbl "trailingStop" (argTrailingStop base)
+
+      confidenceSizing = pickBool "confidenceSizing" (argConfidenceSizing base)
+      confirmConformal = pickBool "confirmConformal" (argConfirmConformal base)
+      confirmQuantiles = pickBool "confirmQuantiles" (argConfirmQuantiles base)
+
+      minPositionSize =
+        case readMaybeDouble "minPositionSize" of
+          Nothing -> argMinPositionSize base
+          Just v -> clamp01 v
+
+      out =
+        base
+          { argMethod = method
+          , argNormalization = normalization
+          , argOpenThreshold = openThr
+          , argCloseThreshold = closeThr
+          , argFee = fee
+          , argEpochs = max 1 (pickI "epochs" (argEpochs base))
+          , argHiddenSize = max 1 (pickI "hiddenSize" (argHiddenSize base))
+          , argLr = max 1e-12 (pickD "learningRate" (argLr base))
+          , argValRatio = clamp01 (pickD "valRatio" (argValRatio base))
+          , argPatience = max 0 (pickI "patience" (argPatience base))
+          , argGradClip = gradClip
+          , argSlippage = slippage
+          , argSpread = spread
+          , argIntrabarFill = intrabarFill
+          , argStopLoss = stopLoss
+          , argTakeProfit = takeProfit
+          , argTrailingStop = trailingStop
+          , argMaxDrawdown = maxDD
+          , argMaxDailyLoss = maxDL
+          , argMaxOrderErrors = maxOE
+          , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
+          , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
+          , argKalmanMeasurementVar = max 1e-12 (pickD "kalmanMeasurementVar" (argKalmanMeasurementVar base))
+          , argKalmanZMin = kalZMin
+          , argKalmanZMax = kalZMax
+          , argMaxHighVolProb = maxHighVolProb
+          , argMaxConformalWidth = maxConformalWidth
+          , argMaxQuantileWidth = maxQuantileWidth
+          , argConfirmConformal = confirmConformal
+          , argConfirmQuantiles = confirmQuantiles
+          , argConfidenceSizing = confidenceSizing
+          , argMinPositionSize = minPositionSize
+          , argPositioning = LongFlat
+          , argOptimizeOperations = False
+          , argSweepThreshold = False
+          }
+
+  pure out
+
+buildOptimizerUpdate :: BotState -> TopCombo -> IO (Either String BotOptimizerUpdate)
+buildOptimizerUpdate st combo = do
+  let curArgs = botArgs st
+  case parseTopComboToArgs curArgs combo of
+    Left e -> pure (Left e)
+    Right args0 ->
+      case argLookbackEither args0 of
+        Left e -> pure (Left e)
+        Right lookback -> do
+          let pricesV = botPrices st
+              n = V.length pricesV
+              hasLstmCtx = isJust (botLstmCtx st)
+              hasKalmanCtx = isJust (botKalmanCtx st)
+              needsLstm' =
+                argMethod args0 /= MethodKalmanOnly
+                  && ( not hasLstmCtx
+                        || argHiddenSize args0 /= argHiddenSize curArgs
+                        || argNormalization args0 /= argNormalization curArgs
+                        || lookback /= botLookback st
+                     )
+              needsKalman' =
+                argMethod args0 /= MethodLstmOnly
+                  && ( not hasKalmanCtx
+                        || argKalmanDt args0 /= argKalmanDt curArgs
+                        || argKalmanProcessVar args0 /= argKalmanProcessVar curArgs
+                        || argKalmanMeasurementVar args0 /= argKalmanMeasurementVar curArgs
+                        || lookback /= botLookback st
+                     )
+
+          if n < max 3 (lookback + 1)
+            then pure (Left "Not enough bars to apply optimizer update.")
+            else do
+              let mLstmE = if needsLstm' then Just (rebuildLstmCtx args0 lookback pricesV) else Nothing
+                  mKalE = if needsKalman' then Just (rebuildKalmanCtx args0 lookback pricesV) else Nothing
+                  collect =
+                    case (mLstmE, mKalE) of
+                      (Just (Left e), _) -> Left e
+                      (_, Just (Left e)) -> Left e
+                      (Just (Right l), Just (Right k)) -> Right (Just l, Just k)
+                      (Just (Right l), Nothing) -> Right (Just l, Nothing)
+                      (Nothing, Just (Right k)) -> Right (Nothing, Just k)
+                      (Nothing, Nothing) -> Right (Nothing, Nothing)
+              pure $
+                case collect of
+                  Left e -> Left e
+                  Right (mLstm, mKal) ->
+                    Right
+                      BotOptimizerUpdate
+                        { bouArgs = args0
+                        , bouLookback = lookback
+                        , bouLstmCtx = mLstm
+                        , bouKalmanCtx = mKal
+                        , bouFinalEquity = tcFinalEquity combo
+                        , bouObjective = tcObjectiveLabel combo
+                        , bouScore = tcScore combo
+                        }
+
+sanitizeFileComponent :: String -> String
+sanitizeFileComponent raw =
+  let go c = if isAlphaNum c || c == '-' || c == '_' then c else '-'
+   in map go raw
+
+botOptimizerLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> MVar BotState -> MVar () -> MVar (Maybe BotOptimizerUpdate) -> IO ()
+botOptimizerLoop mOps metrics mJournal stVar stopSig pending = do
+  projectRoot <- getCurrentDirectory
+  exePath <- getExecutablePath
+  let tmpRoot = projectRoot </> ".tmp"
+      optimizerTmp = tmpRoot </> "optimizer"
+  createDirectoryIfMissing True optimizerTmp
+  let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
+  scriptExists <- doesFileExist scriptPath
+  if not scriptExists
+    then do
+      now <- getTimestampMs
+      journalWriteMaybe mJournal (object ["type" .= ("bot.optimizer.missing_script" :: String), "atMs" .= now, "script" .= scriptPath])
+      opsAppendMaybe mOps "bot.optimizer.missing_script" Nothing Nothing (Just (object ["script" .= scriptPath])) Nothing
+    else do
+      everySecEnv <- lookupEnv "TRADER_BOT_OPTIMIZER_EVERY_SEC"
+      trialsEnv <- lookupEnv "TRADER_BOT_OPTIMIZER_TRIALS"
+      timeoutEnv <- lookupEnv "TRADER_BOT_OPTIMIZER_TIMEOUT_SEC"
+      objectiveEnv <- lookupEnv "TRADER_BOT_OPTIMIZER_OBJECTIVE"
+      let everySec =
+            case everySecEnv >>= readMaybe of
+              Just n | n >= 5 -> n
+              _ -> 300
+          trials =
+            case trialsEnv >>= readMaybe of
+              Just n | n >= 1 -> n
+              _ -> 20
+          timeoutSec =
+            case timeoutEnv >>= readMaybe of
+              Just n | n >= 1 -> n
+              _ -> 45
+          objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
+          objectiveRaw = fmap (map toLower . trim) objectiveEnv
+          objective =
+            case objectiveRaw of
+              Just v | v `elem` objectiveAllowed -> v
+              _ -> "final-equity"
+
+      let sleepSec s = threadDelay (max 1 s * 1000000)
+
+          loop = do
+            stopReq <- isJust <$> tryReadMVar stopSig
+            if stopReq
+              then pure ()
+              else do
+                st <- readMVar stVar
+                let args = botArgs st
+                    env = botEnv st
+                    sym = botSymbol st
+                    interval = argInterval args
+                    limit = clampInt 2 1000 (max 2 (bsMaxPoints (botSettings st)))
+                    csvPath = optimizerTmp </> ("live-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
+                    topJsonPath = optimizerTmp </> "top-combos.json"
+
+                ksOrErr <- try (fetchKlines env sym interval limit) :: IO (Either SomeException [Kline])
+                case ksOrErr of
+                  Left ex -> do
+                    now <- getTimestampMs
+                    journalWriteMaybe mJournal (object ["type" .= ("bot.optimizer.fetch_failed" :: String), "atMs" .= now, "error" .= show ex])
+                    sleepSec everySec
+                    loop
+                  Right ks -> do
+                    if length ks < 2
+                      then do
+                        sleepSec everySec
+                        loop
+                      else do
+                        writeKlinesCsv csvPath ks
+                        ts <- fmap (floor . (* 1000)) getPOSIXTime
+                        randId <- randomIO :: IO Word64
+                        seedId <- randomIO :: IO Word64
+                        let recordsPath = optimizerTmp </> printf "bot-optimizer-%d-%016x.jsonl" (ts :: Integer) randId
+                            seed = fromIntegral (seedId `mod` 2000000000)
+                            cliArgs =
+                              [ "--data"
+                              , csvPath
+                              , "--price-column"
+                              , "close"
+                              , "--high-column"
+                              , "high"
+                              , "--low-column"
+                              , "low"
+                              , "--interval"
+                              , interval
+                              , "--lookback-window"
+                              , argLookbackWindow args
+                              , "--backtest-ratio"
+                              , show (max 0 (min 1 (argBacktestRatio args)))
+                              , "--tune-ratio"
+                              , show (max 0 (min 1 (argTuneRatio args)))
+                              , "--trials"
+                              , show trials
+                              , "--timeout-sec"
+                              , show (timeoutSec :: Int)
+                              , "--seed"
+                              , show (seed :: Int)
+                              , "--output"
+                              , recordsPath
+                              , "--top-json"
+                              , topJsonPath
+                              , "--objective"
+                              , objective
+                              , "--p-long-short"
+                              , "0"
+                              , "--bars-min"
+                              , "0"
+                              , "--bars-max"
+                              , "0"
+                              , "--binary"
+                              , exePath
+                              , "--disable-lstm-persistence"
+                              ]
+
+                        runResult <- runOptimizerProcess projectRoot recordsPath cliArgs
+                        case runResult of
+                          Left (msg, out, err) -> do
+                            now <- getTimestampMs
+                            journalWriteMaybe
+                              mJournal
+                              ( object
+                                  [ "type" .= ("bot.optimizer.run_failed" :: String)
+                                  , "atMs" .= now
+                                  , "error" .= msg
+                                  , "stdout" .= out
+                                  , "stderr" .= err
+                                  ]
+                              )
+                            sleepSec everySec
+                            loop
+                          Right _ -> do
+                            topOrErr <- readTopCombosExport topJsonPath
+                            case topOrErr >>= maybe (Left "Top combos JSON had no combos.") Right . bestTopCombo of
+                              Left e -> do
+                                now <- getTimestampMs
+                                journalWriteMaybe mJournal (object ["type" .= ("bot.optimizer.parse_failed" :: String), "atMs" .= now, "error" .= e])
+                              Right bestCombo -> do
+                                updOrErr <- buildOptimizerUpdate st bestCombo
+                                case updOrErr of
+                                  Left e -> do
+                                    now <- getTimestampMs
+                                    journalWriteMaybe mJournal (object ["type" .= ("bot.optimizer.apply_failed" :: String), "atMs" .= now, "error" .= e])
+                                  Right upd -> do
+                                    let argsChanged = bouArgs upd /= botArgs st || bouLookback upd /= botLookback st
+                                        ctxChanged = isJust (bouLstmCtx upd) || isJust (bouKalmanCtx upd)
+                                        shouldApply = argsChanged || ctxChanged
+                                    if shouldApply
+                                      then do
+                                        _ <- swapMVar pending (Just upd)
+                                        now <- getTimestampMs
+                                        opsAppendMaybe
+                                          mOps
+                                          "bot.optimizer.best"
+                                          Nothing
+                                          (Just (argsPublicJson (botArgs st)))
+                                          ( Just
+                                              ( object
+                                                  [ "finalEquity" .= bouFinalEquity upd
+                                                  , "objective" .= bouObjective upd
+                                                  , "score" .= bouScore upd
+                                                  ]
+                                              )
+                                          )
+                                          (bouFinalEquity upd)
+                                      else pure ()
+                            sleepSec everySec
+                            loop
+
+      loop
 
 makeBinanceEnv :: Args -> IO BinanceEnv
 makeBinanceEnv args = do
@@ -2038,8 +2680,8 @@ makeBinanceEnv args = do
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
   newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
 
-botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> BotController -> MVar BotState -> MVar () -> IO ()
-botLoop mOps metrics mJournal ctrl stVar stopSig = do
+botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> BotController -> MVar BotState -> MVar () -> Maybe (MVar (Maybe BotOptimizerUpdate)) -> IO ()
+botLoop mOps metrics mJournal ctrl stVar stopSig mOptimizerPending = do
   tid <- myThreadId
   let sleepSec s = threadDelay (max 1 s * 1000000)
 
@@ -2048,6 +2690,17 @@ botLoop mOps metrics mJournal ctrl stVar stopSig = do
         if stopReq
           then pure ()
           else do
+            case mOptimizerPending of
+              Nothing -> pure ()
+              Just pending -> do
+                mUpd <- modifyMVar pending $ \v -> pure (Nothing, v)
+                case mUpd of
+                  Nothing -> pure ()
+                  Just upd -> do
+                    st0 <- readMVar stVar
+                    st1 <- botApplyOptimizerUpdate st0 upd
+                    _ <- swapMVar stVar st1
+                    pure ()
             st <- readMVar stVar
             let env = botEnv st
                 sym = botSymbol st
@@ -2075,7 +2728,13 @@ botLoop mOps metrics mJournal ctrl stVar stopSig = do
       cleanup = do
         modifyMVar_ (bcRuntime ctrl) $ \mrt ->
           case mrt of
-            Just (BotRunning rt) | brThreadId rt == tid -> pure Nothing
+            Just (BotRunning rt) | brThreadId rt == tid -> do
+              case brOptimizer rt of
+                Nothing -> pure ()
+                Just optRt -> do
+                  _ <- tryPutMVar (borStopSignal optRt) ()
+                  killThread (borThreadId optRt)
+              pure Nothing
             other -> pure other
 
   loop `finally` cleanup
@@ -2525,6 +3184,8 @@ runRestApi baseArgs = do
   apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
   timeoutEnv <- lookupEnv "TRADER_API_TIMEOUT_SEC"
   maxAsyncRunningEnv <- lookupEnv "TRADER_API_MAX_ASYNC_RUNNING"
+  cacheTtlEnv <- lookupEnv "TRADER_API_CACHE_TTL_MS"
+  cacheMaxEnv <- lookupEnv "TRADER_API_CACHE_MAX_ENTRIES"
   maxBarsLstmEnv <- lookupEnv "TRADER_API_MAX_BARS_LSTM"
   maxEpochsEnv <- lookupEnv "TRADER_API_MAX_EPOCHS"
   maxHiddenSizeEnv <- lookupEnv "TRADER_API_MAX_HIDDEN_SIZE"
@@ -2551,6 +3212,14 @@ runRestApi baseArgs = do
                 Just n | n >= 1 -> n
                 _ -> 32
           }
+      cacheTtlMs =
+        case cacheTtlEnv >>= readMaybe of
+          Just n | n >= 0 -> n
+          _ -> 30000 :: Int64
+      cacheMaxEntries =
+        case cacheMaxEnv >>= readMaybe of
+          Just n | n >= 0 -> n
+          _ -> 64 :: Int
   -- With 1 vCPU (common in small ECS/Fargate tasks), long-running pure compute can starve the
   -- Warp accept loop and make even quick "poll" endpoints appear to hang.
   -- Ensure at least 2 capabilities so the server stays responsive while background work runs.
@@ -2574,6 +3243,13 @@ runRestApi baseArgs = do
         (aclMaxBarsLstm limits)
         (aclMaxEpochs limits)
         (aclMaxHiddenSize limits)
+    )
+  apiCache <- newApiCache cacheMaxEntries cacheTtlMs
+  putStrLn
+    ( printf
+        "API cache: ttlMs=%d maxEntries=%d"
+        cacheTtlMs
+        cacheMaxEntries
     )
   projectRoot <- getCurrentDirectory
   let tmpRoot = projectRoot </> ".tmp"
@@ -2599,7 +3275,7 @@ runRestApi baseArgs = do
   asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
   asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
   asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
-  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal mOps limits (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)
+  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal mOps limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)
 
 corsHeaders :: ResponseHeaders
 corsHeaders =
@@ -2619,6 +3295,176 @@ noCacheHeaders =
 
 withCors :: Wai.Response -> Wai.Response
 withCors = Wai.mapResponseHeaders (\hs -> corsHeaders ++ hs)
+
+data CacheEntry a = CacheEntry
+  { ceCreatedAtMs :: !Int64
+  , ceLastAccessAtMs :: !Int64
+  , ceValue :: !a
+  }
+
+data ApiCache = ApiCache
+  { acTtlMs :: !Int64
+  , acMaxEntries :: !Int
+  , acSignals :: !(MVar (HM.HashMap Text (CacheEntry LatestSignal)))
+  , acBacktests :: !(MVar (HM.HashMap Text (CacheEntry Aeson.Value)))
+  }
+
+newApiCache :: Int -> Int64 -> IO ApiCache
+newApiCache maxEntries ttlMs = do
+  sig <- newMVar HM.empty
+  bt <- newMVar HM.empty
+  pure ApiCache { acTtlMs = ttlMs, acMaxEntries = maxEntries, acSignals = sig, acBacktests = bt }
+
+cacheEnabled :: ApiCache -> Bool
+cacheEnabled c = acTtlMs c > 0 && acMaxEntries c > 0
+
+argsCacheJson :: Args -> Aeson.Value
+argsCacheJson args =
+  let market = marketCode (argBinanceMarket args)
+      barsResolved =
+        case (argBinanceSymbol args, argData args) of
+          (Just _, _) -> resolveBarsForBinance args
+          (_, Just _) -> resolveBarsForCsv args
+          _ -> argBars args
+      lookbackResolved = argLookback args
+   in
+    object
+      [ "data" .= argData args
+      , "priceColumn" .= argPriceCol args
+      , "highColumn" .= argHighCol args
+      , "lowColumn" .= argLowCol args
+      , "binanceSymbol" .= argBinanceSymbol args
+      , "market" .= market
+      , "interval" .= argInterval args
+      , "bars" .= argBars args
+      , "barsResolved" .= barsResolved
+      , "lookbackWindow" .= argLookbackWindow args
+      , "lookbackBars" .= argLookbackBars args
+      , "lookbackBarsResolved" .= lookbackResolved
+      , "binanceTestnet" .= argBinanceTestnet args
+      , "normalization" .= show (argNormalization args)
+      , "hiddenSize" .= argHiddenSize args
+      , "epochs" .= argEpochs args
+      , "lr" .= argLr args
+      , "valRatio" .= argValRatio args
+      , "patience" .= argPatience args
+      , "gradClip" .= argGradClip args
+      , "seed" .= argSeed args
+      , "kalmanDt" .= argKalmanDt args
+      , "kalmanProcessVar" .= argKalmanProcessVar args
+      , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+      , "openThreshold" .= argOpenThreshold args
+      , "closeThreshold" .= argCloseThreshold args
+      , "method" .= methodCode (argMethod args)
+      , "positioning" .= positioningCode (argPositioning args)
+      , "tradeOnly" .= argTradeOnly args
+      , "backtestRatio" .= argBacktestRatio args
+      , "tuneRatio" .= argTuneRatio args
+      , "tuneObjective" .= tuneObjectiveCode (argTuneObjective args)
+      , "tunePenaltyMaxDrawdown" .= argTunePenaltyMaxDrawdown args
+      , "tunePenaltyTurnover" .= argTunePenaltyTurnover args
+      , "walkForwardFolds" .= argWalkForwardFolds args
+      , "optimizeOperations" .= argOptimizeOperations args
+      , "sweepThreshold" .= argSweepThreshold args
+      , "fee" .= argFee args
+      , "slippage" .= argSlippage args
+      , "spread" .= argSpread args
+      , "intrabarFill" .= intrabarFillCode (argIntrabarFill args)
+      , "stopLoss" .= argStopLoss args
+      , "takeProfit" .= argTakeProfit args
+      , "trailingStop" .= argTrailingStop args
+      , "kalmanZMin" .= argKalmanZMin args
+      , "kalmanZMax" .= argKalmanZMax args
+      , "maxHighVolProb" .= argMaxHighVolProb args
+      , "maxConformalWidth" .= argMaxConformalWidth args
+      , "maxQuantileWidth" .= argMaxQuantileWidth args
+      , "confirmConformal" .= argConfirmConformal args
+      , "confirmQuantiles" .= argConfirmQuantiles args
+      , "confidenceSizing" .= argConfidenceSizing args
+      , "minPositionSize" .= argMinPositionSize args
+      , "periodsPerYear" .= argPeriodsPerYear args
+      ]
+
+cacheKeyFor :: Text -> Args -> Text
+cacheKeyFor prefix args =
+  let payload = encode (argsCacheJson args)
+      hex = hashBytesHex payload
+   in prefix <> ":" <> T.pack hex
+
+evictLRU :: Int -> HM.HashMap Text (CacheEntry a) -> HM.HashMap Text (CacheEntry a)
+evictLRU maxN hm =
+  let n = HM.size hm
+   in if maxN <= 0 || n <= maxN
+        then hm
+        else
+          let pickOldest :: [(Text, CacheEntry a)] -> Maybe Text
+              pickOldest xs =
+                case xs of
+                  [] -> Nothing
+                  (k, e) : rest ->
+                    let (_, bestK) =
+                          foldl'
+                            (\(bestT, bestKey) (k2, e2) -> if ceLastAccessAtMs e2 < bestT then (ceLastAccessAtMs e2, k2) else (bestT, bestKey))
+                            (ceLastAccessAtMs e, k)
+                            rest
+                     in Just bestK
+              hm1 =
+                case pickOldest (HM.toList hm) of
+                  Nothing -> hm
+                  Just k -> HM.delete k hm
+           in evictLRU maxN hm1
+
+cacheLookup :: ApiCache -> MVar (HM.HashMap Text (CacheEntry a)) -> Text -> IO (Maybe a)
+cacheLookup cache store key =
+  if not (cacheEnabled cache)
+    then pure Nothing
+    else
+      modifyMVar store $ \hm -> do
+        now <- getTimestampMs
+        let ttl = acTtlMs cache
+            fresh e = now - ceCreatedAtMs e <= ttl
+            hmFresh = HM.filter fresh hm
+        case HM.lookup key hmFresh of
+          Nothing -> pure (hmFresh, Nothing)
+          Just e ->
+            let e' = e { ceLastAccessAtMs = now }
+             in pure (HM.insert key e' hmFresh, Just (ceValue e))
+
+cacheInsert :: ApiCache -> MVar (HM.HashMap Text (CacheEntry a)) -> Text -> a -> IO ()
+cacheInsert cache store key val =
+  if not (cacheEnabled cache)
+    then pure ()
+    else
+      modifyMVar_ store $ \hm -> do
+        now <- getTimestampMs
+        let ttl = acTtlMs cache
+            fresh e = now - ceCreatedAtMs e <= ttl
+            hmFresh = HM.filter fresh hm
+            e = CacheEntry { ceCreatedAtMs = now, ceLastAccessAtMs = now, ceValue = val }
+            hm' = HM.insert key e hmFresh
+        pure (evictLRU (acMaxEntries cache) hm')
+
+computeLatestSignalFromArgsCached :: ApiCache -> Args -> IO LatestSignal
+computeLatestSignalFromArgsCached cache args = do
+  let key = cacheKeyFor "signal" args
+  mHit <- cacheLookup cache (acSignals cache) key
+  case mHit of
+    Just v -> pure v
+    Nothing -> do
+      v <- computeLatestSignalFromArgs args
+      cacheInsert cache (acSignals cache) key v
+      pure v
+
+computeBacktestFromArgsCached :: ApiCache -> Args -> IO Aeson.Value
+computeBacktestFromArgsCached cache args = do
+  let key = cacheKeyFor "backtest" args
+  mHit <- cacheLookup cache (acBacktests cache) key
+  case mHit of
+    Just v -> pure v
+    Nothing -> do
+      v <- computeBacktestFromArgs args
+      cacheInsert cache (acBacktests cache) key v
+      pure v
 
 data JobStore a = JobStore
   { jsPrefix :: !Text
@@ -2944,11 +3790,12 @@ apiApp ::
   Maybe Journal ->
   Maybe OpsStore ->
   ApiComputeLimits ->
+  ApiCache ->
   AsyncStores ->
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores projectRoot optimizerTmp req respond = do
+apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache asyncStores projectRoot optimizerTmp req respond = do
   let rawPath = Wai.pathInfo req
       path =
         case rawPath of
@@ -3059,11 +3906,11 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores projec
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["signal"] ->
               case Wai.requestMethod req of
-                "POST" -> handleSignal mOps limits baseArgs req respondCors
+                "POST" -> handleSignal apiCache mOps limits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["signal", "async"] ->
               case Wai.requestMethod req of
-                "POST" -> handleSignalAsync mOps limits (asSignal asyncStores) baseArgs req respondCors
+                "POST" -> handleSignalAsync apiCache mOps limits (asSignal asyncStores) baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["signal", "async", jobId] ->
               case Wai.requestMethod req of
@@ -3093,11 +3940,11 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits asyncStores projec
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBacktest mOps limits baseArgs req respondCors
+                "POST" -> handleBacktest apiCache mOps limits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest", "async"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBacktestAsync mOps limits (asBacktest asyncStores) baseArgs req respondCors
+                "POST" -> handleBacktestAsync apiCache mOps limits (asBacktest asyncStores) baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest", "async", jobId] ->
               case Wai.requestMethod req of
@@ -3206,6 +4053,7 @@ maybeIntArg flag (Just n) = [flag, show (max 0 n)]
 
 prepareOptimizerArgs :: FilePath -> FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
 prepareOptimizerArgs outputPath topJsonPath req = do
+  exePath <- getExecutablePath
   let source = fromMaybe OptimizerSourceBinance (arrSource req)
   sourceArgsResult <-
     case source of
@@ -3348,6 +4196,7 @@ prepareOptimizerArgs outputPath topJsonPath req = do
                       ++ barsArgs
                       ++ epochArgs
                       ++ hiddenArgs
+                      ++ ["--binary", exePath]
                       ++ boolArg "--disable-lstm-persistence" disableLstm
                       ++ boolArg "--no-sweep-threshold" noSweep
                   )
@@ -3387,6 +4236,47 @@ readLastOptimizerRecord path = do
                     Left err -> pure (Left ("Failed to parse optimizer record: " ++ err))
                     Right val -> pure (Right val)
 
+writeKlinesCsv :: FilePath -> [Kline] -> IO ()
+writeKlinesCsv path ks = do
+  let header = "openTime,close,high,low\n"
+      row k =
+        intercalate
+          ","
+          [ show (kOpenTime k)
+          , show (kClose k)
+          , show (kHigh k)
+          , show (kLow k)
+          ]
+          ++ "\n"
+      body = header ++ concatMap row ks
+  writeFile path body
+
+readTopCombosExport :: FilePath -> IO (Either String TopCombosExport)
+readTopCombosExport path = do
+  exists <- doesFileExist path
+  if not exists
+    then pure (Left "Top combos JSON not found.")
+    else do
+      contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+      case contentsOrErr of
+        Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
+        Right contents ->
+          case Aeson.eitherDecode' contents of
+            Left err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
+            Right val -> pure (Right val)
+
+bestTopCombo :: TopCombosExport -> Maybe TopCombo
+bestTopCombo export =
+  case sortOn key (tceCombos export) of
+    [] -> Nothing
+    (c : _) -> Just c
+  where
+    key c =
+      let rank = fromMaybe (maxBound :: Int) (tcRank c)
+          score = fromMaybe (negate (1 / 0)) (tcScore c)
+          eq = fromMaybe 0 (tcFinalEquity c)
+       in (rank, negate score, negate eq)
+
 handleOptimizerRun ::
   FilePath ->
   FilePath ->
@@ -3420,19 +4310,71 @@ handleOptimizerCombos ::
 handleOptimizerCombos projectRoot optimizerTmp respond = do
   let tmpPath = optimizerTmp </> "top-combos.json"
       fallbackPath = projectRoot </> "web" </> "public" </> "top-combos.json"
-  tmpExists <- doesFileExist tmpPath
-  let pathToUse = if tmpExists then tmpPath else fallbackPath
-  exists <- doesFileExist pathToUse
-  if not exists
+  tmpValOrErr <- readTopCombos tmpPath
+  fallbackValOrErr <- readTopCombos fallbackPath
+  now <- getTimestampMs
+
+  let combos =
+        concat
+          [ either (const []) extractCombos tmpValOrErr
+          , either (const []) extractCombos fallbackValOrErr
+          ]
+  if null combos
     then respond (jsonError status404 "Optimizer combos not available yet.")
     else do
-      contentsOrErr <- (try (BL.readFile pathToUse) :: IO (Either SomeException BL.ByteString))
-      case contentsOrErr of
-        Left e -> respond (jsonError status500 ("Failed to read optimizer combos: " ++ show e))
-        Right contents ->
-          case (Aeson.eitherDecode' contents :: Either String Aeson.Value) of
-            Left err -> respond (jsonError status500 ("Invalid optimizer combos JSON: " ++ err))
-            Right val -> respond (jsonValue status200 val)
+      let combosSorted = sortOn comboKey combos
+          combosRanked = zipWith addRank [1 ..] combosSorted
+          out =
+            object
+              [ "generatedAtMs" .= now
+              , "source" .= ("optimizer/combos" :: String)
+              , "combos" .= combosRanked
+              ]
+      respond (jsonValue status200 out)
+  where
+    readTopCombos :: FilePath -> IO (Either String Aeson.Value)
+    readTopCombos path = do
+      exists <- doesFileExist path
+      if not exists
+        then pure (Left "missing")
+        else do
+          contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+          case contentsOrErr of
+            Left e -> pure (Left ("read_failed:" ++ show e))
+            Right contents ->
+              case (Aeson.eitherDecode' contents :: Either String Aeson.Value) of
+                Left err -> pure (Left ("decode_failed:" ++ err))
+                Right val -> pure (Right val)
+
+    extractCombos :: Aeson.Value -> [Aeson.Value]
+    extractCombos val =
+      case val of
+        Aeson.Object o ->
+          case KM.lookup "combos" o of
+            Just (Aeson.Array arr) -> V.toList arr
+            _ -> []
+        _ -> []
+
+    comboMetric key val =
+      case val of
+        Aeson.Object o -> KM.lookup key o >>= AT.parseMaybe parseJSON
+        _ -> Nothing
+
+    comboKey :: Aeson.Value -> (Double, Double, Int)
+    comboKey v =
+      let eq = fromMaybe 0 (comboMetric "finalEquity" v)
+          score = fromMaybe (negate (1 / 0)) (comboMetric "score" v)
+          rank =
+            case v of
+              Aeson.Object o -> fromMaybe maxBound (KM.lookup "rank" o >>= AT.parseMaybe parseJSON)
+              _ -> maxBound
+       in (negate eq, negate score, rank)
+
+    addRank :: Int -> Aeson.Value -> Aeson.Value
+    addRank rank val =
+      case val of
+        Aeson.Object o -> Aeson.Object (KM.insert "rank" (toJSON rank) o)
+        other -> other
 
 handleMetrics :: Metrics -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleMetrics metrics botCtrl respond = do
@@ -3459,8 +4401,8 @@ handleOps mOps req respond =
       latestId <- readIORef (osNextId store)
       respond (jsonValue status200 (object ["enabled" .= True, "latestId" .= latestId, "maxInMemory" .= osMaxInMemory store, "ops" .= ops]))
 
-handleSignal :: Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleSignal mOps limits baseArgs req respond = do
+handleSignal :: ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleSignal apiCache mOps limits baseArgs req respond = do
   body <- Wai.strictRequestBody req
   case eitherDecode body of
     Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
@@ -3478,7 +4420,7 @@ handleSignal mOps limits baseArgs req respond = do
           case validateApiComputeLimits limits args of
             Left e -> respond (jsonError status400 e)
             Right argsOk -> do
-              r <- try (computeLatestSignalFromArgs argsOk) :: IO (Either SomeException LatestSignal)
+              r <- try (computeLatestSignalFromArgsCached apiCache argsOk) :: IO (Either SomeException LatestSignal)
               case r of
                 Left ex ->
                   let (st, msg) = exceptionToHttp ex
@@ -3493,8 +4435,8 @@ handleSignal mOps limits baseArgs req respond = do
                     Nothing
                   respond (jsonValue status200 sig)
 
-handleSignalAsync :: Maybe OpsStore -> ApiComputeLimits -> JobStore LatestSignal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleSignalAsync mOps limits store baseArgs req respond = do
+handleSignalAsync :: ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore LatestSignal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleSignalAsync apiCache mOps limits store baseArgs req respond = do
   body <- Wai.strictRequestBody req
   case eitherDecode body of
     Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
@@ -3516,7 +4458,7 @@ handleSignalAsync mOps limits store baseArgs req respond = do
                   argsJson = Just (argsPublicJson argsOk)
               r <-
                 startJob store $ do
-                  sig <- computeLatestSignalFromArgs argsOk
+                  sig <- computeLatestSignalFromArgsCached apiCache argsOk
                   opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing
                   pure sig
               case r of
@@ -3626,8 +4568,8 @@ extractBacktestFinalEquity =
       m <- o AT..: "metrics"
       m AT..: "finalEquity"
 
-handleBacktest :: Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBacktest mOps limits baseArgs req respond = do
+handleBacktest :: ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBacktest apiCache mOps limits baseArgs req respond = do
   body <- Wai.strictRequestBody req
   case eitherDecode body of
     Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
@@ -3646,7 +4588,7 @@ handleBacktest mOps limits baseArgs req respond = do
           case validateApiComputeLimits limits args of
             Left e -> respond (jsonError status400 e)
             Right argsOk -> do
-              r <- try (computeBacktestFromArgs argsOk) :: IO (Either SomeException Aeson.Value)
+              r <- try (computeBacktestFromArgsCached apiCache argsOk) :: IO (Either SomeException Aeson.Value)
               case r of
                 Left ex ->
                   let (st, msg) = exceptionToHttp ex
@@ -3661,8 +4603,8 @@ handleBacktest mOps limits baseArgs req respond = do
                     (extractBacktestFinalEquity out)
                   respond (jsonValue status200 out)
 
-handleBacktestAsync :: Maybe OpsStore -> ApiComputeLimits -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBacktestAsync mOps limits store baseArgs req respond = do
+handleBacktestAsync :: ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBacktestAsync apiCache mOps limits store baseArgs req respond = do
   body <- Wai.strictRequestBody req
   case eitherDecode body of
     Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
@@ -3685,7 +4627,7 @@ handleBacktestAsync mOps limits store baseArgs req respond = do
                   argsJson = Just (argsPublicJson argsOk)
               r <-
                 startJob store $ do
-                  out <- computeBacktestFromArgs argsOk
+                  out <- computeBacktestFromArgsCached apiCache argsOk
                   opsAppendMaybe mOps "backtest" paramsJson argsJson (Just out) (extractBacktestFinalEquity out)
                   pure out
               case r of
@@ -4007,6 +4949,11 @@ argsFromApi baseArgs p = do
           Just n -> Right n
           Nothing -> Left ("Invalid normalization: " ++ show raw ++ " (expected none|minmax|standard|log)")
 
+  tuneObjective <-
+    case apTuneObjective p of
+      Nothing -> Right (argTuneObjective baseArgs)
+      Just raw -> parseTuneObjective raw
+
   (futuresFlag, marginFlag) <-
     case apMarket p of
       Nothing -> Right (argBinanceFutures baseArgs, argBinanceMargin baseArgs)
@@ -4061,6 +5008,10 @@ argsFromApi baseArgs p = do
           , argValRatio = pick (apValRatio p) (argValRatio baseArgs)
           , argBacktestRatio = pick (apBacktestRatio p) (argBacktestRatio baseArgs)
           , argTuneRatio = pick (apTuneRatio p) (argTuneRatio baseArgs)
+          , argTuneObjective = tuneObjective
+          , argTunePenaltyMaxDrawdown = pick (apTunePenaltyMaxDrawdown p) (argTunePenaltyMaxDrawdown baseArgs)
+          , argTunePenaltyTurnover = pick (apTunePenaltyTurnover p) (argTunePenaltyTurnover baseArgs)
+          , argWalkForwardFolds = pick (apWalkForwardFolds p) (argWalkForwardFolds baseArgs)
           , argPatience = pick (apPatience p) (argPatience baseArgs)
           , argGradClip =
               case apGradClip p of
@@ -4585,7 +5536,10 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
           if not alreadyLong
             then pure baseResult { aorMessage = "No order: already flat." }
             else do
-              let qRaw = maybe baseBal id qtyArg
+              let qRaw =
+                    case qtyArg of
+                      Just q -> min q baseBal
+                      Nothing -> baseBal
               case mSf of
                 Nothing ->
                   if qRaw <= 0
@@ -4687,6 +5641,61 @@ computeBacktestFromArgs args = do
 
 backtestSummaryJson :: BacktestSummary -> Aeson.Value
 backtestSummaryJson summary =
+  let tuneStatsJson =
+        case bsTuneStats summary of
+          Nothing -> Nothing
+          Just st ->
+            Just
+              ( object
+                  [ "folds" .= tsFoldCount st
+                  , "scores" .= tsFoldScores st
+                  , "meanScore" .= tsMeanScore st
+                  , "stdScore" .= tsStdScore st
+                  ]
+              )
+      tuningJson =
+        object
+          [ "objective" .= tuneObjectiveCode (bsTuneObjective summary)
+          , "penaltyMaxDrawdown" .= bsTunePenaltyMaxDrawdown summary
+          , "penaltyTurnover" .= bsTunePenaltyTurnover summary
+          , "walkForwardFolds" .= bsWalkForwardFolds summary
+          , "tuneStats" .= tuneStatsJson
+          ]
+      costsJson =
+        object
+          [ "fee" .= bsFee summary
+          , "slippage" .= bsSlippage summary
+          , "spread" .= bsSpread summary
+          , "perSideCost" .= bsEstimatedPerSideCost summary
+          , "roundTripCost" .= bsEstimatedRoundTripCost summary
+          , "breakEvenThreshold" .= bsEstimatedRoundTripCost summary
+          ]
+      walkForwardJson =
+        case bsWalkForward summary of
+          Nothing -> Nothing
+          Just wf ->
+            let foldJson f =
+                  object
+                    [ "startIndex" .= wffStartIndex f
+                    , "endIndex" .= wffEndIndex f
+                    , "metrics" .= metricsToJson (wffMetrics f)
+                    ]
+                s = wfrSummary wf
+                summaryJson =
+                  object
+                    [ "finalEquityMean" .= wfsFinalEquityMean s
+                    , "finalEquityStd" .= wfsFinalEquityStd s
+                    , "annualizedReturnMean" .= wfsAnnualizedReturnMean s
+                    , "annualizedReturnStd" .= wfsAnnualizedReturnStd s
+                    , "sharpeMean" .= wfsSharpeMean s
+                    , "sharpeStd" .= wfsSharpeStd s
+                    , "maxDrawdownMean" .= wfsMaxDrawdownMean s
+                    , "maxDrawdownStd" .= wfsMaxDrawdownStd s
+                    , "turnoverMean" .= wfsTurnoverMean s
+                    , "turnoverStd" .= wfsTurnoverStd s
+                    ]
+             in Just (object ["foldCount" .= wfrFoldCount wf, "folds" .= map foldJson (wfrFolds wf), "summary" .= summaryJson])
+   in
   object
     [ "split"
         .= object
@@ -4703,6 +5712,9 @@ backtestSummaryJson summary =
     , "threshold" .= bsBestOpenThreshold summary
     , "openThreshold" .= bsBestOpenThreshold summary
     , "closeThreshold" .= bsBestCloseThreshold summary
+    , "tuning" .= tuningJson
+    , "costs" .= costsJson
+    , "walkForward" .= walkForwardJson
     , "metrics" .= metricsToJson (bsMetrics summary)
     , "latestSignal" .= bsLatestSignal summary
     , "equityCurve" .= bsEquityCurve summary
@@ -4762,6 +5774,9 @@ runTradeOnly args lookback prices mBinanceEnv = do
         else printJsonStdout (object ["mode" .= ("signal" :: String), "signal" .= signal])
     else do
       printLatestSignalSummary signal
+      let perSide = estimatedPerSideCost (argFee args) (argSlippage args) (argSpread args)
+          roundTrip = estimatedRoundTripCost (argFee args) (argSlippage args) (argSpread args)
+      printCostGuidance (argOpenThreshold args) (argCloseThreshold args) perSide roundTrip
       maybeSendBinanceOrder args mBinanceEnv signal
 
 runBacktestPipeline :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
@@ -4822,7 +5837,8 @@ runBacktestPipeline args lookback series mBinanceEnv = do
         then
           putStrLn
             ( printf
-                "Optimized on tune split: method=%s open=%.6f (%.3f%%) close=%.6f (%.3f%%)"
+                "Optimized on tune split (objective=%s): method=%s open=%.6f (%.3f%%) close=%.6f (%.3f%%)"
+                (tuneObjectiveCode (bsTuneObjective summary))
                 (methodCode (bsMethodUsed summary))
                 (bsBestOpenThreshold summary)
                 (bsBestOpenThreshold summary * 100)
@@ -4833,13 +5849,36 @@ runBacktestPipeline args lookback series mBinanceEnv = do
           then
             putStrLn
               ( printf
-                  "Best thresholds on tune split (by final equity): open=%.6f (%.3f%%) close=%.6f (%.3f%%)"
+                  "Best thresholds on tune split (objective=%s): open=%.6f (%.3f%%) close=%.6f (%.3f%%)"
+                  (tuneObjectiveCode (bsTuneObjective summary))
                   (bsBestOpenThreshold summary)
                   (bsBestOpenThreshold summary * 100)
                   (bsBestCloseThreshold summary)
                   (bsBestCloseThreshold summary * 100)
               )
           else pure ()
+
+      case bsTuneStats summary of
+        Nothing -> pure ()
+        Just st ->
+          if bsTuneSize summary > 0
+            then
+              putStrLn
+                ( printf
+                    "Tune objective stats: folds=%d mean=%.6f std=%.6f (ddPenalty=%.3f, turnoverPenalty=%.3f)"
+                    (tsFoldCount st)
+                    (tsMeanScore st)
+                    (tsStdScore st)
+                    (bsTunePenaltyMaxDrawdown summary)
+                    (bsTunePenaltyTurnover summary)
+                )
+            else pure ()
+
+      printCostGuidance
+        (bsBestOpenThreshold summary)
+        (bsBestCloseThreshold summary)
+        (bsEstimatedPerSideCost summary)
+        (bsEstimatedRoundTripCost summary)
 
       putStrLn $
         case bsMethodUsed summary of
@@ -4852,6 +5891,26 @@ runBacktestPipeline args lookback series mBinanceEnv = do
         Just history -> printLstmSummary history
 
       printMetrics (bsMethodUsed summary) (bsMetrics summary)
+
+      case bsWalkForward summary of
+        Nothing -> pure ()
+        Just wf -> do
+          let s = wfrSummary wf
+          putStrLn ""
+          putStrLn "**Walk-forward backtest**"
+          putStrLn
+            ( printf
+                "Folds=%d finalEq=%.4fx±%.4fx sharpe=%.3f±%.3f maxDD=%.2f%%±%.2f%% turnover=%.4f±%.4f"
+                (wfrFoldCount wf)
+                (wfsFinalEquityMean s)
+                (wfsFinalEquityStd s)
+                (wfsSharpeMean s)
+                (wfsSharpeStd s)
+                (wfsMaxDrawdownMean s * 100)
+                (wfsMaxDrawdownStd s * 100)
+                (wfsTurnoverMean s)
+                (wfsTurnoverStd s)
+            )
 
       printLatestSignalSummary (bsLatestSignal summary)
       maybeSendBinanceOrder args mBinanceEnv (bsLatestSignal summary)
@@ -4935,6 +5994,7 @@ computeTradeOnlySignal args lookback prices = do
 data PersistedLstmModel = PersistedLstmModel
   { plmVersion :: !Int
   , plmHiddenSize :: !Int
+  , plmTrainBars :: !Int
   , plmParams :: ![Double]
   } deriving (Eq, Show, Generic)
 
@@ -4987,6 +6047,12 @@ hashKeyHex s =
       digest = hash (TE.encodeUtf8 (T.pack s))
    in BS.unpack (B16.encode (convert digest))
 
+hashBytesHex :: BL.ByteString -> String
+hashBytesHex bs =
+  let digest :: Digest SHA256
+      digest = hash (BL.toStrict bs)
+   in BS.unpack (B16.encode (convert digest))
+
 lstmWeightsPath :: Args -> Int -> IO (Maybe FilePath)
 lstmWeightsPath args lookback = do
   mDir <- resolveLstmWeightsDir
@@ -4997,8 +6063,8 @@ lstmWeightsPath args lookback = do
       let file = "lstm-" ++ hashKeyHex key ++ ".json"
       pure (Just (dir </> file))
 
-loadPersistedLstmModel :: FilePath -> Int -> IO (Maybe LSTMModel)
-loadPersistedLstmModel path hidden = do
+loadPersistedLstmModel :: FilePath -> Int -> Int -> IO (Maybe LSTMModel)
+loadPersistedLstmModel path hidden trainBars = do
   exists <- doesFileExist path
   if not exists
     then pure Nothing
@@ -5011,15 +6077,16 @@ loadPersistedLstmModel path hidden = do
             Left _ -> pure Nothing
             Right plm ->
               let ok =
-                    plmVersion plm == 1
+                    plmVersion plm == 2
                       && plmHiddenSize plm == hidden
+                      && plmTrainBars plm <= max 0 trainBars
                       && length (plmParams plm) == paramCount hidden
                in if ok
                     then pure (Just (LSTMModel (plmHiddenSize plm) (plmParams plm)))
                     else pure Nothing
 
-savePersistedLstmModelMaybe :: Maybe FilePath -> LSTMModel -> IO ()
-savePersistedLstmModelMaybe mPath model =
+savePersistedLstmModelMaybe :: Maybe FilePath -> Int -> LSTMModel -> IO ()
+savePersistedLstmModelMaybe mPath trainBars model =
   case mPath of
     Nothing -> pure ()
     Just path -> do
@@ -5029,8 +6096,9 @@ savePersistedLstmModelMaybe mPath model =
               createDirectoryIfMissing True (takeDirectory path)
               let plm =
                     PersistedLstmModel
-                      { plmVersion = 1
+                      { plmVersion = 2
                       , plmHiddenSize = lmHiddenSize model
+                      , plmTrainBars = max 0 trainBars
                       , plmParams = lmParams model
                       }
               BL.writeFile path (encode plm)
@@ -5040,16 +6108,17 @@ savePersistedLstmModelMaybe mPath model =
 
 trainLstmWithPersistence :: Args -> Int -> LSTMConfig -> [Double] -> IO (LSTMModel, [EpochStats])
 trainLstmWithPersistence args lookback cfg series = do
+  let trainBars = length series
   mPath <- lstmWeightsPath args lookback
   mSeed <-
     case mPath of
       Nothing -> pure Nothing
-      Just path -> loadPersistedLstmModel path (lcHiddenSize cfg)
+      Just path -> loadPersistedLstmModel path (lcHiddenSize cfg) trainBars
   let (model, hist) =
         case mSeed of
           Just seedModel -> fineTuneLSTM cfg seedModel series
           Nothing -> trainLSTM cfg series
-  savePersistedLstmModelMaybe mPath model
+  savePersistedLstmModelMaybe mPath trainBars model
   pure (model, hist)
 
 computeBacktestSummary :: Args -> Int -> PriceSeries -> IO BacktestSummary
@@ -5221,6 +6290,12 @@ computeBacktestSummary args lookback series = do
           , ecMinPositionSize = argMinPositionSize args
           }
 
+      feeUsed = max 0 (argFee args)
+      slippageUsed = max 0 (argSlippage args)
+      spreadUsed = max 0 (argSpread args)
+      perSideCost = min 0.999999 (feeUsed + slippageUsed + spreadUsed / 2)
+      roundTripCost = min 0.999999 (2 * perSideCost)
+
       offsetBacktestPred = max 0 (trainEnd - predStart)
       kalPredBacktest = drop offsetBacktestPred kalPredAll
       lstmPredBacktest = drop offsetBacktestPred lstmPredAll
@@ -5229,18 +6304,28 @@ computeBacktestSummary args lookback series = do
       metaBacktest = fmap (drop offsetBacktestPred) mMetaAll
       metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
 
-      (methodUsed, bestOpenThr, bestCloseThr) =
+      ppy = periodsPerYear args
+      tuneCfg =
+        TuneConfig
+          { tcObjective = argTuneObjective args
+          , tcPenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
+          , tcPenaltyTurnover = argTunePenaltyTurnover args
+          , tcPeriodsPerYear = ppy
+          , tcWalkForwardFolds = argWalkForwardFolds args
+          }
+
+      (methodUsed, bestOpenThr, bestCloseThr, mTuneStats) =
         if argOptimizeOperations args
           then
-            case optimizeOperationsWithHL baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
+            case optimizeOperationsWithHLWith tuneCfg baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
               Left e -> error e
-              Right (m, openThr, closeThr, _btTune) -> (m, openThr, closeThr)
+              Right (m, openThr, closeThr, _btTune, stats) -> (m, openThr, closeThr, Just stats)
           else if argSweepThreshold args
             then
-              case sweepThresholdWithHL methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
+              case sweepThresholdWithHLWith tuneCfg methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
                 Left e -> error e
-                Right (openThr, closeThr, _btTune) -> (methodRequested, openThr, closeThr)
-            else (methodRequested, argOpenThreshold args, argCloseThreshold args)
+                Right (openThr, closeThr, _btTune, stats) -> (methodRequested, openThr, closeThr, Just stats)
+            else (methodRequested, argOpenThreshold args, argCloseThreshold args, Nothing)
 
       backtestCfg = baseCfg { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
       (kalPredUsedBacktest, lstmPredUsedBacktest) = selectPredictions methodUsed kalPredBacktest lstmPredBacktest
@@ -5259,8 +6344,82 @@ computeBacktestSummary args lookback series = do
           lstmPredUsedBacktest
           metaUsedBacktest
 
-      ppy = periodsPerYear args
       metrics = computeMetrics ppy backtest
+
+      walkForward =
+        let wfReq = max 1 (argWalkForwardFolds args)
+            stepsAll = max 0 (length backtestPrices - 1)
+
+            foldRangesSteps :: Int -> Int -> [(Int, Int)]
+            foldRangesSteps steps0 k0 =
+              let steps = max 0 steps0
+                  k = max 1 (min steps (max 1 k0))
+                  base = if k <= 0 then 0 else steps `div` k
+                  extra = if k <= 0 then 0 else steps `mod` k
+                  go i start =
+                    if i >= k
+                      then []
+                      else
+                        let len = base + if i < extra then 1 else 0
+                            end = start + len - 1
+                         in if len <= 0 then [] else (start, end) : go (i + 1) (end + 1)
+               in go 0 0
+
+            bad x = isNaN x || isInfinite x
+            meanD xs =
+              let ys = filter (not . bad) xs
+               in if null ys then 0 else sum ys / fromIntegral (length ys)
+            stdD xs =
+              let ys = filter (not . bad) xs
+               in case ys of
+                    [] -> 0
+                    [_] -> 0
+                    _ ->
+                      let m = meanD ys
+                          var = sum (map (\x -> (x - m) ** 2) ys) / fromIntegral (length ys - 1)
+                       in sqrt var
+
+            mkFold (t0, t1) =
+              let steps = t1 - t0 + 1
+                  pricesF = take (steps + 1) (drop t0 backtestPrices)
+                  highsF = take (steps + 1) (drop t0 backtestHighs)
+                  lowsF = take (steps + 1) (drop t0 backtestLows)
+                  kalF = take steps (drop t0 kalPredUsedBacktest)
+                  lstmF = take steps (drop t0 lstmPredUsedBacktest)
+                  metaF = fmap (take steps . drop t0) metaUsedBacktest
+                  btFold = simulateEnsembleLongFlatWithHL backtestCfg 1 pricesF highsF lowsF kalF lstmF metaF
+                  mFold = computeMetrics ppy btFold
+               in WalkForwardFold { wffStartIndex = trainEnd + t0, wffEndIndex = trainEnd + t1 + 1, wffMetrics = mFold }
+
+            folds =
+              [ mkFold r
+              | r@(t0, t1) <- foldRangesSteps stepsAll wfReq
+              , t1 >= t0
+              ]
+         in
+          if wfReq <= 1 || stepsAll <= 1
+            then Nothing
+            else
+              let ms = map wffMetrics folds
+                  finalEqs = map bmFinalEquity ms
+                  annRets = map bmAnnualizedReturn ms
+                  sharpes = map bmSharpe ms
+                  maxDds = map bmMaxDrawdown ms
+                  turns = map bmTurnover ms
+                  summary =
+                    WalkForwardSummary
+                      { wfsFinalEquityMean = meanD finalEqs
+                      , wfsFinalEquityStd = stdD finalEqs
+                      , wfsAnnualizedReturnMean = meanD annRets
+                      , wfsAnnualizedReturnStd = stdD annRets
+                      , wfsSharpeMean = meanD sharpes
+                      , wfsSharpeStd = stdD sharpes
+                      , wfsMaxDrawdownMean = meanD maxDds
+                      , wfsMaxDrawdownStd = stdD maxDds
+                      , wfsTurnoverMean = meanD turns
+                      , wfsTurnoverStd = stdD turns
+                      }
+               in Just (WalkForwardReport { wfrFoldCount = length folds, wfrFolds = folds, wfrSummary = summary })
 
       argsForSignal =
         if argOptimizeOperations args
@@ -5279,12 +6438,23 @@ computeBacktestSummary args lookback series = do
       , bsFitSize = fitSize
       , bsTuneSize = tuneSize
       , bsTuneRatio = tuneRatioUsed
+      , bsTuneObjective = argTuneObjective args
+      , bsTunePenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
+      , bsTunePenaltyTurnover = argTunePenaltyTurnover args
+      , bsWalkForwardFolds = argWalkForwardFolds args
+      , bsTuneStats = mTuneStats
       , bsBacktestSize = length backtestPrices
       , bsBacktestRatio = backtestRatio
       , bsMethodUsed = methodUsed
       , bsBestOpenThreshold = bestOpenThr
       , bsBestCloseThreshold = bestCloseThr
+      , bsFee = feeUsed
+      , bsSlippage = slippageUsed
+      , bsSpread = spreadUsed
+      , bsEstimatedPerSideCost = perSideCost
+      , bsEstimatedRoundTripCost = roundTripCost
       , bsMetrics = metrics
+      , bsWalkForward = walkForward
       , bsLstmHistory = mHistory
       , bsLatestSignal = latestSignal
       , bsEquityCurve = brEquityCurve backtest
@@ -5605,6 +6775,44 @@ printLatestSignalSummary sig = do
   putStrLn (printf "Open threshold:  %.3f%%" (lsOpenThreshold sig * 100))
   putStrLn (printf "Close threshold: %.3f%%" (lsCloseThreshold sig * 100))
   putStrLn (printf "Action: %s" (lsAction sig))
+
+estimatedPerSideCost :: Double -> Double -> Double -> Double
+estimatedPerSideCost fee slippage spread =
+  let fee' = max 0 fee
+      slip' = max 0 slippage
+      spr' = max 0 spread
+      c = fee' + slip' + spr' / 2
+   in min 0.999999 (max 0 c)
+
+estimatedRoundTripCost :: Double -> Double -> Double -> Double
+estimatedRoundTripCost fee slippage spread =
+  let perSide = estimatedPerSideCost fee slippage spread
+   in min 0.999999 (2 * perSide)
+
+printCostGuidance :: Double -> Double -> Double -> Double -> IO ()
+printCostGuidance openThr closeThr perSide roundTrip = do
+  putStrLn ""
+  putStrLn "**Estimated Costs**"
+  putStrLn (printf "Per side:  %.3f%%" (perSide * 100))
+  putStrLn (printf "Round trip: %.3f%%" (roundTrip * 100))
+  if openThr < roundTrip
+    then
+      putStrLn
+        ( printf
+            "Warning: openThreshold %.3f%% is below estimated round-trip cost %.3f%% (may churn after costs)."
+            (openThr * 100)
+            (roundTrip * 100)
+        )
+    else pure ()
+  if closeThr < roundTrip
+    then
+      putStrLn
+        ( printf
+            "Note: closeThreshold %.3f%% is below estimated round-trip cost %.3f%%."
+            (closeThr * 100)
+            (roundTrip * 100)
+        )
+    else pure ()
 
 maybeSendBinanceOrder :: Args -> Maybe BinanceEnv -> LatestSignal -> IO ()
 maybeSendBinanceOrder args mEnv sig =

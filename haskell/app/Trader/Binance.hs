@@ -40,7 +40,7 @@ import qualified Data.ByteString.Base16 as B16
 import Data.Char (isSpace)
 import Data.Int (Int64)
 import Data.List (foldl')
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -663,7 +663,36 @@ ensure2xx label resp =
   let code = statusCode (responseStatus resp)
    in if code >= 200 && code < 300
         then pure ()
-        else throwIO (userError (label ++ " HTTP " ++ show code ++ ": " ++ BS.unpack (BS.take 300 (BL.toStrict (responseBody resp)))))
+        else
+          let body = responseBody resp
+              retryAfter =
+                case lookup "Retry-After" (responseHeaders resp) of
+                  Nothing -> ""
+                  Just v ->
+                    let s = trim (BS.unpack v)
+                     in if null s then "" else " (Retry-After: " ++ s ++ ")"
+              details =
+                case eitherDecode body :: Either String BinanceErrorBody of
+                  Right be ->
+                    let msg = fromMaybe "" (bebMsg be)
+                        codeLabel =
+                          case bebCode be of
+                            Nothing -> ""
+                            Just c -> "Binance code " ++ show c ++ ": "
+                     in codeLabel ++ msg
+                  Left _ -> BS.unpack (BS.take 300 (BL.toStrict body))
+           in throwIO (userError (label ++ " HTTP " ++ show code ++ retryAfter ++ ": " ++ details))
+
+data BinanceErrorBody = BinanceErrorBody
+  { bebCode :: !(Maybe Int)
+  , bebMsg :: !(Maybe String)
+  } deriving (Eq, Show)
+
+instance FromJSON BinanceErrorBody where
+  parseJSON = withObject "BinanceErrorBody" $ \o -> do
+    code <- o Aeson..:? "code"
+    msg <- o Aeson..:? "msg"
+    pure BinanceErrorBody { bebCode = code, bebMsg = msg }
 
 data ListenKeyResponse = ListenKeyResponse { lkrListenKey :: String }
 
