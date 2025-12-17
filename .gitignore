@@ -7,6 +7,8 @@
 
 # Python
 .venv/
+__pycache__/
+*.py[cod]
 
 # Node / Web
 node_modules/

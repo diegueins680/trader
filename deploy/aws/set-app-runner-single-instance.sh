@@ -68,8 +68,22 @@ if [[ -n "${AWS_REGION:-}" ]]; then
   aws_args+=(--region "$AWS_REGION")
 fi
 
-ts="$(date -u +%Y%m%dT%H%M%SZ)"
+ts="$(date -u +%y%m%d%H%M)"
 cfg_name="${name_prefix}-${min_size}-${max_size}-${ts}"
+max_len=32
+if (( ${#cfg_name} > max_len )); then
+  suffix_len=$(( ${#min_size} + ${#max_size} + ${#ts} + 3 ))
+  allowed_prefix_len=$(( max_len - suffix_len ))
+
+  if (( allowed_prefix_len < 1 )); then
+    echo "Error: --name-prefix is too long to form a valid App Runner auto-scaling configuration name." >&2
+    echo "Try a shorter --name-prefix (max allowed here: ${allowed_prefix_len})." >&2
+    exit 2
+  fi
+
+  name_prefix="${name_prefix:0:${allowed_prefix_len}}"
+  cfg_name="${name_prefix}-${min_size}-${max_size}-${ts}"
+fi
 
 cfg_arn="$(
   aws "${aws_args[@]}" apprunner create-auto-scaling-configuration \
@@ -92,4 +106,3 @@ aws "${aws_args[@]}" apprunner describe-service \
   --service-arn "$service_arn" \
   --query 'Service.AutoScalingConfigurationSummary' \
   --output json
-

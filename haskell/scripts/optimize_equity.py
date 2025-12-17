@@ -108,7 +108,11 @@ class TrialParams:
     interval: str
     bars: int  # 0 = auto/full; otherwise explicit bar count
     method: str  # "11" | "10" | "01"
+    positioning: str  # "long-flat" | "long-short"
     normalization: str
+    base_open_threshold: float
+    base_close_threshold: float
+    fee: float
     epochs: int
     hidden_size: int
     learning_rate: float
@@ -117,12 +121,25 @@ class TrialParams:
     grad_clip: Optional[float]
     slippage: float
     spread: float
+    intrabar_fill: str  # "stop-first" | "take-profit-first"
     stop_loss: Optional[float]
     take_profit: Optional[float]
     trailing_stop: Optional[float]
     max_drawdown: Optional[float]
     max_daily_loss: Optional[float]
     max_order_errors: Optional[int]
+    kalman_dt: float
+    kalman_process_var: float
+    kalman_measurement_var: float
+    kalman_z_min: float
+    kalman_z_max: float
+    max_high_vol_prob: Optional[float]
+    max_conformal_width: Optional[float]
+    max_quantile_width: Optional[float]
+    confirm_conformal: bool
+    confirm_quantiles: bool
+    confidence_sizing: bool
+    min_position_size: float
 
 
 @dataclass(frozen=True)
@@ -165,8 +182,12 @@ def build_command(
     cmd += base_args
     cmd += ["--interval", params.interval]
     cmd += ["--bars", str(params.bars)]
+    cmd += ["--positioning", params.positioning]
     cmd += ["--method", params.method]
     cmd += ["--normalization", params.normalization]
+    cmd += ["--open-threshold", f"{max(0.0, params.base_open_threshold):.12g}"]
+    cmd += ["--close-threshold", f"{max(0.0, params.base_close_threshold):.12g}"]
+    cmd += ["--fee", f"{max(0.0, params.fee):.12g}"]
     cmd += ["--epochs", str(params.epochs)]
     cmd += ["--hidden-size", str(params.hidden_size)]
     cmd += ["--lr", f"{params.learning_rate:.8f}"]
@@ -176,6 +197,7 @@ def build_command(
         cmd += ["--grad-clip", f"{params.grad_clip:.8f}"]
     cmd += ["--slippage", f"{params.slippage:.8f}"]
     cmd += ["--spread", f"{params.spread:.8f}"]
+    cmd += ["--intrabar-fill", params.intrabar_fill]
     if params.stop_loss is not None:
         cmd += ["--stop-loss", f"{params.stop_loss:.8f}"]
     if params.take_profit is not None:
@@ -188,6 +210,24 @@ def build_command(
         cmd += ["--max-daily-loss", f"{params.max_daily_loss:.8f}"]
     if params.max_order_errors is not None:
         cmd += ["--max-order-errors", str(params.max_order_errors)]
+    cmd += ["--kalman-dt", f"{max(1e-12, params.kalman_dt):.12g}"]
+    cmd += ["--kalman-process-var", f"{max(1e-12, params.kalman_process_var):.12g}"]
+    cmd += ["--kalman-measurement-var", f"{max(1e-12, params.kalman_measurement_var):.12g}"]
+    cmd += ["--kalman-z-min", f"{max(0.0, params.kalman_z_min):.12g}"]
+    cmd += ["--kalman-z-max", f"{max(max(0.0, params.kalman_z_min), params.kalman_z_max):.12g}"]
+    if params.max_high_vol_prob is not None:
+        cmd += ["--max-high-vol-prob", f"{clamp(float(params.max_high_vol_prob), 0.0, 1.0):.12g}"]
+    if params.max_conformal_width is not None:
+        cmd += ["--max-conformal-width", f"{max(0.0, float(params.max_conformal_width)):.12g}"]
+    if params.max_quantile_width is not None:
+        cmd += ["--max-quantile-width", f"{max(0.0, float(params.max_quantile_width)):.12g}"]
+    if params.confirm_conformal:
+        cmd += ["--confirm-conformal"]
+    if params.confirm_quantiles:
+        cmd += ["--confirm-quantiles"]
+    if params.confidence_sizing:
+        cmd += ["--confidence-sizing"]
+    cmd += ["--min-position-size", f"{clamp(float(params.min_position_size), 0.0, 1.0):.12g}"]
     if use_sweep_threshold:
         cmd += ["--sweep-threshold", "--tune-ratio", f"{tune_ratio:.6f}"]
     cmd += ["--json"]
@@ -324,7 +364,11 @@ def trial_to_record(tr: TrialResult) -> Dict[str, Any]:
             "interval": tr.params.interval,
             "bars": tr.params.bars,
             "method": tr.params.method,
+            "positioning": tr.params.positioning,
             "normalization": tr.params.normalization,
+            "baseOpenThreshold": tr.params.base_open_threshold,
+            "baseCloseThreshold": tr.params.base_close_threshold,
+            "fee": tr.params.fee,
             "epochs": tr.params.epochs,
             "hiddenSize": tr.params.hidden_size,
             "learningRate": tr.params.learning_rate,
@@ -333,12 +377,25 @@ def trial_to_record(tr: TrialResult) -> Dict[str, Any]:
             "gradClip": tr.params.grad_clip,
             "slippage": tr.params.slippage,
             "spread": tr.params.spread,
+            "intrabarFill": tr.params.intrabar_fill,
             "stopLoss": tr.params.stop_loss,
             "takeProfit": tr.params.take_profit,
             "trailingStop": tr.params.trailing_stop,
             "maxDrawdown": tr.params.max_drawdown,
             "maxDailyLoss": tr.params.max_daily_loss,
             "maxOrderErrors": tr.params.max_order_errors,
+            "kalmanDt": tr.params.kalman_dt,
+            "kalmanProcessVar": tr.params.kalman_process_var,
+            "kalmanMeasurementVar": tr.params.kalman_measurement_var,
+            "kalmanZMin": tr.params.kalman_z_min,
+            "kalmanZMax": tr.params.kalman_z_max,
+            "maxHighVolProb": tr.params.max_high_vol_prob,
+            "maxConformalWidth": tr.params.max_conformal_width,
+            "maxQuantileWidth": tr.params.max_quantile_width,
+            "confirmConformal": tr.params.confirm_conformal,
+            "confirmQuantiles": tr.params.confirm_quantiles,
+            "confidenceSizing": tr.params.confidence_sizing,
+            "minPositionSize": tr.params.min_position_size,
         },
     }
     if tr.metrics is not None:
@@ -367,6 +424,14 @@ def sample_params(
     intervals: List[str],
     bars_min: int,
     bars_max: int,
+    open_threshold_min: float,
+    open_threshold_max: float,
+    close_threshold_min: float,
+    close_threshold_max: float,
+    fee_min: float,
+    fee_max: float,
+    p_long_short: float,
+    p_intrabar_take_profit_first: float,
     epochs_min: int,
     epochs_max: int,
     hidden_min: int,
@@ -380,6 +445,26 @@ def sample_params(
     grad_clip_max: float,
     slippage_max: float,
     spread_max: float,
+    kalman_dt_min: float,
+    kalman_dt_max: float,
+    kalman_process_var_min: float,
+    kalman_process_var_max: float,
+    kalman_measurement_var_min: float,
+    kalman_measurement_var_max: float,
+    kalman_z_min_min: float,
+    kalman_z_min_max: float,
+    kalman_z_max_min: float,
+    kalman_z_max_max: float,
+    p_disable_max_high_vol_prob: float,
+    max_high_vol_prob_range: Tuple[float, float],
+    p_disable_max_conformal_width: float,
+    max_conformal_width_range: Tuple[float, float],
+    p_disable_max_quantile_width: float,
+    max_quantile_width_range: Tuple[float, float],
+    p_confirm_conformal: float,
+    p_confirm_quantiles: float,
+    p_confidence_sizing: float,
+    min_position_size_range: Tuple[float, float],
     stop_range: Tuple[float, float],
     take_range: Tuple[float, float],
     trail_range: Tuple[float, float],
@@ -421,6 +506,9 @@ def sample_params(
                 break
 
     normalization = rng.choice(normalization_choices)
+    base_open_threshold = log_uniform(rng, max(1e-12, open_threshold_min), max(1e-12, open_threshold_max))
+    base_close_threshold = log_uniform(rng, max(1e-12, close_threshold_min), max(1e-12, close_threshold_max))
+    fee = rng.uniform(max(0.0, fee_min), max(0.0, fee_max))
     epochs = rng.randint(epochs_min, epochs_max)
     hidden_size = rng.randint(hidden_min, hidden_max)
     learning_rate = log_uniform(rng, lr_min, lr_max)
@@ -430,6 +518,48 @@ def sample_params(
 
     slippage = rng.uniform(0.0, max(0.0, slippage_max))
     spread = rng.uniform(0.0, max(0.0, spread_max))
+
+    positioning = "long-short" if rng.random() < clamp(p_long_short, 0.0, 1.0) else "long-flat"
+    intrabar_fill = (
+        "take-profit-first" if rng.random() < clamp(p_intrabar_take_profit_first, 0.0, 1.0) else "stop-first"
+    )
+
+    kalman_dt = rng.uniform(max(1e-12, kalman_dt_min), max(1e-12, kalman_dt_max))
+    kalman_process_var = log_uniform(rng, max(1e-12, kalman_process_var_min), max(1e-12, kalman_process_var_max))
+    kalman_measurement_var = log_uniform(
+        rng, max(1e-12, kalman_measurement_var_min), max(1e-12, kalman_measurement_var_max)
+    )
+    kalman_z_min = rng.uniform(max(0.0, kalman_z_min_min), max(0.0, kalman_z_min_max))
+    kalman_z_max_lo = max(kalman_z_min, max(0.0, kalman_z_max_min))
+    kalman_z_max = rng.uniform(kalman_z_max_lo, max(kalman_z_max_lo, kalman_z_max_max))
+
+    hv_lo, hv_hi = max_high_vol_prob_range
+    hv_lo, hv_hi = (min(hv_lo, hv_hi), max(hv_lo, hv_hi))
+    max_high_vol_prob = maybe(
+        rng,
+        p_disable_max_high_vol_prob,
+        lambda: clamp(rng.uniform(hv_lo, hv_hi), 0.0, 1.0),
+    )
+    cw_lo, cw_hi = max_conformal_width_range
+    cw_lo, cw_hi = (min(cw_lo, cw_hi), max(cw_lo, cw_hi))
+    max_conformal_width = maybe(
+        rng,
+        p_disable_max_conformal_width,
+        lambda: log_uniform(rng, max(1e-12, cw_lo), max(1e-12, cw_hi)),
+    )
+    qw_lo, qw_hi = max_quantile_width_range
+    qw_lo, qw_hi = (min(qw_lo, qw_hi), max(qw_lo, qw_hi))
+    max_quantile_width = maybe(
+        rng,
+        p_disable_max_quantile_width,
+        lambda: log_uniform(rng, max(1e-12, qw_lo), max(1e-12, qw_hi)),
+    )
+    confirm_conformal = rng.random() < clamp(p_confirm_conformal, 0.0, 1.0)
+    confirm_quantiles = rng.random() < clamp(p_confirm_quantiles, 0.0, 1.0)
+    confidence_sizing = rng.random() < clamp(p_confidence_sizing, 0.0, 1.0)
+    mps_lo, mps_hi = min_position_size_range
+    mps_lo, mps_hi = (min(mps_lo, mps_hi), max(mps_lo, mps_hi))
+    min_position_size = clamp(rng.uniform(mps_lo, mps_hi), 0.0, 1.0) if confidence_sizing else 0.0
 
     stop_loss = maybe(rng, p_disable_stop, lambda: log_uniform(rng, stop_range[0], stop_range[1]))
     take_profit = maybe(rng, p_disable_tp, lambda: log_uniform(rng, take_range[0], take_range[1]))
@@ -448,10 +578,15 @@ def sample_params(
         interval=interval,
         bars=sample_bars(),
         method=method,
+        positioning=positioning,
         normalization=normalization,
+        base_open_threshold=base_open_threshold,
+        base_close_threshold=base_close_threshold,
+        fee=fee,
         epochs=epochs,
         slippage=slippage,
         spread=spread,
+        intrabar_fill=intrabar_fill,
         stop_loss=stop_loss,
         take_profit=take_profit,
         trailing_stop=trailing_stop,
@@ -463,6 +598,18 @@ def sample_params(
         val_ratio=val_ratio,
         patience=patience,
         grad_clip=grad_clip,
+        kalman_dt=kalman_dt,
+        kalman_process_var=kalman_process_var,
+        kalman_measurement_var=kalman_measurement_var,
+        kalman_z_min=kalman_z_min,
+        kalman_z_max=kalman_z_max,
+        max_high_vol_prob=max_high_vol_prob,
+        max_conformal_width=max_conformal_width,
+        max_quantile_width=max_quantile_width,
+        confirm_conformal=confirm_conformal,
+        confirm_quantiles=confirm_quantiles,
+        confidence_sizing=confidence_sizing,
+        min_position_size=min_position_size,
     )
 
 
@@ -491,6 +638,98 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--epochs-max", type=int, default=10, help="Max epochs (default: 10).")
     parser.add_argument("--slippage-max", type=float, default=0.001, help="Max slippage per side (default: 0.001).")
     parser.add_argument("--spread-max", type=float, default=0.001, help="Max total spread (default: 0.001).")
+    parser.add_argument("--fee-min", type=float, default=0.0, help="Min fee when sampling (default: 0).")
+    parser.add_argument("--fee-max", type=float, default=0.001, help="Max fee when sampling (default: 0.001).")
+
+    parser.add_argument(
+        "--open-threshold-min",
+        type=float,
+        default=1e-5,
+        help="Min open-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 1e-5).",
+    )
+    parser.add_argument(
+        "--open-threshold-max",
+        type=float,
+        default=1e-2,
+        help="Max open-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 1e-2).",
+    )
+    parser.add_argument(
+        "--close-threshold-min",
+        type=float,
+        default=1e-5,
+        help="Min close-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 1e-5).",
+    )
+    parser.add_argument(
+        "--close-threshold-max",
+        type=float,
+        default=1e-2,
+        help="Max close-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 1e-2).",
+    )
+
+    parser.add_argument("--p-long-short", type=float, default=0.2, help="Probability of long-short positioning (default: 0.2).")
+    parser.add_argument(
+        "--p-intrabar-take-profit-first",
+        type=float,
+        default=0.2,
+        help="Probability intrabar-fill is take-profit-first (default: 0.2).",
+    )
+
+    parser.add_argument("--kalman-dt-min", type=float, default=0.5, help="Min kalman-dt (default: 0.5).")
+    parser.add_argument("--kalman-dt-max", type=float, default=2.0, help="Max kalman-dt (default: 2.0).")
+    parser.add_argument("--kalman-process-var-min", type=float, default=1e-7, help="Min kalman-process-var (default: 1e-7).")
+    parser.add_argument("--kalman-process-var-max", type=float, default=1e-3, help="Max kalman-process-var (default: 1e-3).")
+    parser.add_argument(
+        "--kalman-measurement-var-min", type=float, default=1e-6, help="Min kalman-measurement-var (default: 1e-6)."
+    )
+    parser.add_argument(
+        "--kalman-measurement-var-max", type=float, default=1e-1, help="Max kalman-measurement-var (default: 1e-1)."
+    )
+
+    parser.add_argument("--kalman-z-min-min", type=float, default=0.0, help="Min kalman-z-min (default: 0).")
+    parser.add_argument("--kalman-z-min-max", type=float, default=2.0, help="Max kalman-z-min (default: 2).")
+    parser.add_argument("--kalman-z-max-min", type=float, default=0.0, help="Min kalman-z-max (default: 0).")
+    parser.add_argument("--kalman-z-max-max", type=float, default=6.0, help="Max kalman-z-max (default: 6).")
+
+    parser.add_argument(
+        "--p-disable-max-high-vol-prob",
+        type=float,
+        default=0.9,
+        help="Probability max-high-vol-prob is disabled (default: 0.9).",
+    )
+    parser.add_argument("--max-high-vol-prob-min", type=float, default=0.2, help="Min max-high-vol-prob when enabled (default: 0.2).")
+    parser.add_argument("--max-high-vol-prob-max", type=float, default=0.95, help="Max max-high-vol-prob when enabled (default: 0.95).")
+
+    parser.add_argument(
+        "--p-disable-max-conformal-width",
+        type=float,
+        default=0.95,
+        help="Probability max-conformal-width is disabled (default: 0.95).",
+    )
+    parser.add_argument(
+        "--max-conformal-width-min", type=float, default=0.002, help="Min max-conformal-width when enabled (default: 0.002)."
+    )
+    parser.add_argument(
+        "--max-conformal-width-max", type=float, default=0.20, help="Max max-conformal-width when enabled (default: 0.20)."
+    )
+
+    parser.add_argument(
+        "--p-disable-max-quantile-width",
+        type=float,
+        default=0.95,
+        help="Probability max-quantile-width is disabled (default: 0.95).",
+    )
+    parser.add_argument(
+        "--max-quantile-width-min", type=float, default=0.002, help="Min max-quantile-width when enabled (default: 0.002)."
+    )
+    parser.add_argument(
+        "--max-quantile-width-max", type=float, default=0.20, help="Max max-quantile-width when enabled (default: 0.20)."
+    )
+
+    parser.add_argument("--p-confirm-conformal", type=float, default=0.1, help="Probability confirm-conformal is enabled (default: 0.1).")
+    parser.add_argument("--p-confirm-quantiles", type=float, default=0.1, help="Probability confirm-quantiles is enabled (default: 0.1).")
+    parser.add_argument("--p-confidence-sizing", type=float, default=0.15, help="Probability confidence-sizing is enabled (default: 0.15).")
+    parser.add_argument("--min-position-size-min", type=float, default=0.0, help="Min min-position-size when enabled (default: 0).")
+    parser.add_argument("--min-position-size-max", type=float, default=0.5, help="Max min-position-size when enabled (default: 0.5).")
 
     parser.add_argument("--stop-min", type=float, default=0.002, help="Min stop-loss when enabled (default: 0.002).")
     parser.add_argument("--stop-max", type=float, default=0.20, help="Max stop-loss when enabled (default: 0.20).")
@@ -596,6 +835,41 @@ def main(argv: List[str]) -> int:
     trail_min = float(args.trail_min)
     trail_max = float(args.trail_max)
 
+    fee_min = max(0.0, float(args.fee_min))
+    fee_max = max(fee_min, float(args.fee_max))
+
+    open_threshold_min = max(1e-12, float(args.open_threshold_min))
+    open_threshold_max = max(open_threshold_min, float(args.open_threshold_max))
+    close_threshold_min = max(1e-12, float(args.close_threshold_min))
+    close_threshold_max = max(close_threshold_min, float(args.close_threshold_max))
+
+    p_long_short = clamp(float(args.p_long_short), 0.0, 1.0)
+    p_intrabar_take_profit_first = clamp(float(args.p_intrabar_take_profit_first), 0.0, 1.0)
+
+    kalman_dt_min = max(1e-12, float(args.kalman_dt_min))
+    kalman_dt_max = max(kalman_dt_min, float(args.kalman_dt_max))
+    kalman_process_var_min = max(1e-12, float(args.kalman_process_var_min))
+    kalman_process_var_max = max(kalman_process_var_min, float(args.kalman_process_var_max))
+    kalman_measurement_var_min = max(1e-12, float(args.kalman_measurement_var_min))
+    kalman_measurement_var_max = max(kalman_measurement_var_min, float(args.kalman_measurement_var_max))
+
+    kalman_z_min_min = max(0.0, float(args.kalman_z_min_min))
+    kalman_z_min_max = max(kalman_z_min_min, float(args.kalman_z_min_max))
+    kalman_z_max_min = max(0.0, float(args.kalman_z_max_min))
+    kalman_z_max_max = max(kalman_z_max_min, float(args.kalman_z_max_max))
+
+    p_disable_max_high_vol_prob = clamp(float(args.p_disable_max_high_vol_prob), 0.0, 1.0)
+    max_high_vol_prob_range = (float(args.max_high_vol_prob_min), float(args.max_high_vol_prob_max))
+    p_disable_max_conformal_width = clamp(float(args.p_disable_max_conformal_width), 0.0, 1.0)
+    max_conformal_width_range = (float(args.max_conformal_width_min), float(args.max_conformal_width_max))
+    p_disable_max_quantile_width = clamp(float(args.p_disable_max_quantile_width), 0.0, 1.0)
+    max_quantile_width_range = (float(args.max_quantile_width_min), float(args.max_quantile_width_max))
+
+    p_confirm_conformal = clamp(float(args.p_confirm_conformal), 0.0, 1.0)
+    p_confirm_quantiles = clamp(float(args.p_confirm_quantiles), 0.0, 1.0)
+    p_confidence_sizing = clamp(float(args.p_confidence_sizing), 0.0, 1.0)
+    min_position_size_range = (float(args.min_position_size_min), float(args.min_position_size_max))
+
     method_weights = {
         "11": float(args.method_weight_11),
         "10": float(args.method_weight_10),
@@ -640,6 +914,14 @@ def main(argv: List[str]) -> int:
             intervals=intervals,
             bars_min=bars_min,
             bars_max=bars_max,
+            open_threshold_min=open_threshold_min,
+            open_threshold_max=open_threshold_max,
+            close_threshold_min=close_threshold_min,
+            close_threshold_max=close_threshold_max,
+            fee_min=fee_min,
+            fee_max=fee_max,
+            p_long_short=p_long_short,
+            p_intrabar_take_profit_first=p_intrabar_take_profit_first,
             epochs_min=epochs_min,
             epochs_max=epochs_max,
             hidden_min=hidden_min,
@@ -653,6 +935,26 @@ def main(argv: List[str]) -> int:
             grad_clip_max=grad_clip_max,
             slippage_max=float(args.slippage_max),
             spread_max=float(args.spread_max),
+            kalman_dt_min=kalman_dt_min,
+            kalman_dt_max=kalman_dt_max,
+            kalman_process_var_min=kalman_process_var_min,
+            kalman_process_var_max=kalman_process_var_max,
+            kalman_measurement_var_min=kalman_measurement_var_min,
+            kalman_measurement_var_max=kalman_measurement_var_max,
+            kalman_z_min_min=kalman_z_min_min,
+            kalman_z_min_max=kalman_z_min_max,
+            kalman_z_max_min=kalman_z_max_min,
+            kalman_z_max_max=kalman_z_max_max,
+            p_disable_max_high_vol_prob=p_disable_max_high_vol_prob,
+            max_high_vol_prob_range=max_high_vol_prob_range,
+            p_disable_max_conformal_width=p_disable_max_conformal_width,
+            max_conformal_width_range=max_conformal_width_range,
+            p_disable_max_quantile_width=p_disable_max_quantile_width,
+            max_quantile_width_range=max_quantile_width_range,
+            p_confirm_conformal=p_confirm_conformal,
+            p_confirm_quantiles=p_confirm_quantiles,
+            p_confidence_sizing=p_confidence_sizing,
+            min_position_size_range=min_position_size_range,
             stop_range=(stop_min, stop_max),
             take_range=(tp_min, tp_max),
             trail_range=(trail_min, trail_max),
@@ -717,17 +1019,38 @@ def main(argv: List[str]) -> int:
     print(f"  interval:    {b.params.interval}")
     print(f"  bars:        {b.params.bars}")
     print(f"  method:      {b.params.method}")
+    print(f"  positioning: {b.params.positioning}")
     print(f"  thresholds:  open={b.open_threshold} close={b.close_threshold} (from sweep)")
+    print(f"  base thresholds: open={b.params.base_open_threshold} close={b.params.base_close_threshold}")
     print(f"  normalization: {b.params.normalization}")
     print(f"  epochs:        {b.params.epochs}")
+    print(f"  hiddenSize:    {b.params.hidden_size}")
+    print(f"  lr:            {b.params.learning_rate}")
+    print(f"  valRatio:      {b.params.val_ratio}")
+    print(f"  patience:      {b.params.patience}")
+    print(f"  gradClip:      {b.params.grad_clip}")
+    print(f"  fee:           {b.params.fee}")
     print(f"  slippage:      {b.params.slippage}")
     print(f"  spread:        {b.params.spread}")
+    print(f"  intrabarFill:  {b.params.intrabar_fill}")
     print(f"  stopLoss:      {b.params.stop_loss}")
     print(f"  takeProfit:    {b.params.take_profit}")
     print(f"  trailingStop:  {b.params.trailing_stop}")
     print(f"  maxDrawdown:   {b.params.max_drawdown}")
     print(f"  maxDailyLoss:  {b.params.max_daily_loss}")
     print(f"  maxOrderErrors:{b.params.max_order_errors}")
+    print(f"  kalmanDt:            {b.params.kalman_dt}")
+    print(f"  kalmanProcessVar:    {b.params.kalman_process_var}")
+    print(f"  kalmanMeasurementVar:{b.params.kalman_measurement_var}")
+    print(f"  kalmanZMin:          {b.params.kalman_z_min}")
+    print(f"  kalmanZMax:          {b.params.kalman_z_max}")
+    print(f"  maxHighVolProb:      {b.params.max_high_vol_prob}")
+    print(f"  maxConformalWidth:   {b.params.max_conformal_width}")
+    print(f"  maxQuantileWidth:    {b.params.max_quantile_width}")
+    print(f"  confirmConformal:    {b.params.confirm_conformal}")
+    print(f"  confirmQuantiles:    {b.params.confirm_quantiles}")
+    print(f"  confidenceSizing:    {b.params.confidence_sizing}")
+    print(f"  minPositionSize:     {b.params.min_position_size}")
 
     print("\nRepro command:")
     env_prefix = "TRADER_LSTM_WEIGHTS_DIR='' " if disable_lstm_persistence else ""
@@ -745,30 +1068,47 @@ def main(argv: List[str]) -> int:
         combos = []
         for rank, tr in enumerate(successful_sorted[:10], start=1):
             combos.append(
-            {
-                "rank": rank,
-                "finalEquity": tr.final_equity,
-                "openThreshold": tr.open_threshold,
-                "closeThreshold": tr.close_threshold,
-                "params": {
-                    "interval": tr.params.interval,
-                    "bars": tr.params.bars,
-                    "method": tr.params.method,
-                    "normalization": tr.params.normalization,
-                    "epochs": tr.params.epochs,
-                    "hiddenSize": tr.params.hidden_size,
-                    "learningRate": tr.params.learning_rate,
-                    "valRatio": tr.params.val_ratio,
-                    "patience": tr.params.patience,
-                    "gradClip": tr.params.grad_clip,
-                    "slippage": tr.params.slippage,
+                {
+                    "rank": rank,
+                    "finalEquity": tr.final_equity,
+                    "openThreshold": tr.open_threshold,
+                    "closeThreshold": tr.close_threshold,
+                    "params": {
+                        "interval": tr.params.interval,
+                        "bars": tr.params.bars,
+                        "method": tr.params.method,
+                        "positioning": tr.params.positioning,
+                        "normalization": tr.params.normalization,
+                        "baseOpenThreshold": tr.params.base_open_threshold,
+                        "baseCloseThreshold": tr.params.base_close_threshold,
+                        "fee": tr.params.fee,
+                        "epochs": tr.params.epochs,
+                        "hiddenSize": tr.params.hidden_size,
+                        "learningRate": tr.params.learning_rate,
+                        "valRatio": tr.params.val_ratio,
+                        "patience": tr.params.patience,
+                        "gradClip": tr.params.grad_clip,
+                        "slippage": tr.params.slippage,
                         "spread": tr.params.spread,
+                        "intrabarFill": tr.params.intrabar_fill,
                         "stopLoss": tr.params.stop_loss,
                         "takeProfit": tr.params.take_profit,
                         "trailingStop": tr.params.trailing_stop,
                         "maxDrawdown": tr.params.max_drawdown,
                         "maxDailyLoss": tr.params.max_daily_loss,
                         "maxOrderErrors": tr.params.max_order_errors,
+                        "kalmanDt": tr.params.kalman_dt,
+                        "kalmanProcessVar": tr.params.kalman_process_var,
+                        "kalmanMeasurementVar": tr.params.kalman_measurement_var,
+                        "kalmanZMin": tr.params.kalman_z_min,
+                        "kalmanZMax": tr.params.kalman_z_max,
+                        "maxHighVolProb": tr.params.max_high_vol_prob,
+                        "maxConformalWidth": tr.params.max_conformal_width,
+                        "maxQuantileWidth": tr.params.max_quantile_width,
+                        "confirmConformal": tr.params.confirm_conformal,
+                        "confirmQuantiles": tr.params.confirm_quantiles,
+                        "confidenceSizing": tr.params.confidence_sizing,
+                        "minPositionSize": tr.params.min_position_size,
                     },
                 }
             )

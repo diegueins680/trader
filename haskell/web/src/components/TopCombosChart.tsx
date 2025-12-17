@@ -1,12 +1,16 @@
 import React from "react";
-import type { Method, Normalization } from "../lib/types";
+import type { IntrabarFill, Method, Normalization, Positioning } from "../lib/types";
 import { fmtRatio } from "../lib/format";
 
 export type OptimizationComboParams = {
   interval: string;
   bars: number;
   method: Method;
+  positioning?: Positioning;
   normalization: Normalization;
+  baseOpenThreshold?: number | null;
+  baseCloseThreshold?: number | null;
+  fee?: number;
   epochs: number;
   hiddenSize: number;
   learningRate: number;
@@ -15,12 +19,22 @@ export type OptimizationComboParams = {
   gradClip?: number | null;
   slippage: number;
   spread: number;
+  intrabarFill?: IntrabarFill;
   stopLoss?: number | null;
   takeProfit?: number | null;
   trailingStop?: number | null;
   maxDrawdown?: number | null;
   maxDailyLoss?: number | null;
   maxOrderErrors?: number | null;
+  kalmanZMin?: number | null;
+  kalmanZMax?: number | null;
+  maxHighVolProb?: number | null;
+  maxConformalWidth?: number | null;
+  maxQuantileWidth?: number | null;
+  confirmConformal?: boolean;
+  confirmQuantiles?: boolean;
+  confidenceSizing?: boolean;
+  minPositionSize?: number | null;
 };
 
 export type OptimizationCombo = {

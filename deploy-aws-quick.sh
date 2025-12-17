@@ -53,19 +53,20 @@ get_account_id() {
 
 # Create ECR repository
 create_ecr_repo() {
-  echo "Creating ECR repository..."
+  set -euo pipefail
+  echo "Creating ECR repository..." >&2
   
   local account_id=$(get_account_id)
   local ecr_uri="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}"
   
   if aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$AWS_REGION" >/dev/null 2>&1; then
-    echo -e "${YELLOW}✓ ECR repository already exists${NC}"
+    echo -e "${YELLOW}✓ ECR repository already exists${NC}" >&2
   else
     aws ecr create-repository \
       --repository-name "$ECR_REPO" \
       --image-scanning-configuration scanOnPush=true \
       --region "$AWS_REGION" >/dev/null
-    echo -e "${GREEN}✓ ECR repository created${NC}"
+    echo -e "${GREEN}✓ ECR repository created${NC}" >&2
   fi
   
   echo "$ecr_uri"
@@ -92,10 +93,11 @@ build_and_push() {
 
 # Create App Runner service
 create_app_runner() {
+  set -euo pipefail
   local ecr_uri="$1"
   local image_identifier="${ecr_uri}:latest"
   
-  echo "Creating App Runner service..."
+  echo "Creating App Runner service..." >&2
   
   # Find existing service (if any)
   local existing_service_arn=""
@@ -109,10 +111,10 @@ create_app_runner() {
     existing_service_arn=""
   fi
 
-  echo "Ensuring App Runner ECR access role..."
+  echo "Ensuring App Runner ECR access role..." >&2
   local access_role_arn=""
   access_role_arn="$(ensure_apprunner_ecr_access_role)"
-  echo -e "${GREEN}✓ Using ECR access role: ${access_role_arn}${NC}"
+  echo -e "${GREEN}✓ Using ECR access role: ${access_role_arn}${NC}" >&2
 
   # Create source-configuration JSON (file:// is the most reliable for AWS CLI JSON input)
   local src_cfg
@@ -142,10 +144,10 @@ EOF
 
   local service_arn=""
   if [[ -n "$existing_service_arn" ]]; then
-    echo -e "${YELLOW}✓ App Runner service already exists (${APP_RUNNER_SERVICE_NAME})${NC}"
+    echo -e "${YELLOW}✓ App Runner service already exists (${APP_RUNNER_SERVICE_NAME})${NC}" >&2
     service_arn="$existing_service_arn"
 
-    echo "Updating service configuration..."
+    echo "Updating service configuration..." >&2
     aws apprunner update-service \
       --region "$AWS_REGION" \
       --service-arn "$service_arn" \
@@ -154,10 +156,10 @@ EOF
       --health-check-configuration "$health_cfg" \
       >/dev/null
 
-    echo "Starting a new deployment..."
+    echo "Starting a new deployment..." >&2
     aws apprunner start-deployment --region "$AWS_REGION" --service-arn "$service_arn" >/dev/null || true
   else
-    echo "Creating service..."
+    echo "Creating service..." >&2
     service_arn="$(aws apprunner create-service \
       --region "$AWS_REGION" \
       --service-name "$APP_RUNNER_SERVICE_NAME" \
@@ -167,16 +169,16 @@ EOF
       --tags Key=Name,Value=trader-api \
       --query 'Service.ServiceArn' \
       --output text)"
-    echo -e "${GREEN}✓ App Runner service created${NC}"
+    echo -e "${GREEN}✓ App Runner service created${NC}" >&2
   fi
 
   rm -f "$src_cfg"
 
-  echo "Setting single-instance scaling (min=1, max=1)..."
+  echo "Setting single-instance scaling (min=1, max=1)..." >&2
   AWS_REGION="$AWS_REGION" bash deploy/aws/set-app-runner-single-instance.sh --service-arn "$service_arn" --min 1 --max 1 >/dev/null
-  echo -e "${GREEN}✓ Scaling updated${NC}"
+  echo -e "${GREEN}✓ Scaling updated${NC}" >&2
 
-  echo "Waiting for service to be RUNNING (this may take a few minutes)..."
+  echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
   local max_attempts=90
   local attempt=0
   local status=""
@@ -191,20 +193,20 @@ EOF
     )"
 
     if [[ "$status" == "RUNNING" ]]; then
-      echo -e "${GREEN}✓ Service is RUNNING${NC}"
+      echo -e "${GREEN}✓ Service is RUNNING${NC}" >&2
       break
     fi
     if [[ "$status" == "CREATE_FAILED" || "$status" == "DELETE_FAILED" ]]; then
-      echo -e "${RED}✗ Service status: ${status}${NC}"
-      echo "Check App Runner events/logs in the AWS Console for details."
+      echo -e "${RED}✗ Service status: ${status}${NC}" >&2
+      echo "Check App Runner events/logs in the AWS Console for details." >&2
       exit 1
     fi
 
-    echo -n "."
+    echo -n "." >&2
     sleep 5
     ((attempt++))
   done
-  echo ""
+  echo "" >&2
 
   local service_host
   service_host="$(aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.ServiceUrl' --output text)"
@@ -218,6 +220,7 @@ EOF
 # Ensure an IAM role exists for App Runner to pull from private ECR.
 # https://docs.aws.amazon.com/apprunner/latest/dg/security_iam_service-role.html
 ensure_apprunner_ecr_access_role() {
+  set -euo pipefail
   local role_name="$APP_RUNNER_ECR_ACCESS_ROLE_NAME"
   local policy_arn="arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess"
 
@@ -229,7 +232,7 @@ ensure_apprunner_ecr_access_role() {
     return 0
   fi
 
-  echo "Creating IAM role: ${role_name}"
+  echo "Creating IAM role: ${role_name}" >&2
 
   local trust_doc
   trust_doc="$(mktemp)"

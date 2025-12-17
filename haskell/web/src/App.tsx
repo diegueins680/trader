@@ -794,25 +794,38 @@ export function App() {
       setForm((prev) => {
         const openThr = combo.openThreshold ?? prev.openThreshold;
         const closeThr = combo.closeThreshold ?? openThr ?? prev.closeThreshold;
-          return {
-            ...prev,
-            interval: combo.params.interval,
-            bars: combo.params.bars,
-            method: combo.params.method,
-            normalization: combo.params.normalization,
-            epochs: Math.max(0, Math.trunc(combo.params.epochs)),
-            slippage: combo.params.slippage,
-            spread: combo.params.spread,
-            learningRate: combo.params.learningRate,
-            valRatio: combo.params.valRatio,
-            patience: combo.params.patience,
-            gradClip: combo.params.gradClip ?? 0,
-            stopLoss: combo.params.stopLoss ?? 0,
-            takeProfit: combo.params.takeProfit ?? 0,
+        return {
+          ...prev,
+          interval: combo.params.interval,
+          bars: combo.params.bars,
+          method: combo.params.method,
+          positioning: combo.params.positioning ?? prev.positioning,
+          normalization: combo.params.normalization,
+          fee: combo.params.fee ?? prev.fee,
+          epochs: Math.max(0, Math.trunc(combo.params.epochs)),
+          hiddenSize: Math.max(1, Math.trunc(combo.params.hiddenSize)),
+          learningRate: combo.params.learningRate,
+          valRatio: combo.params.valRatio,
+          patience: combo.params.patience,
+          gradClip: combo.params.gradClip ?? 0,
+          slippage: combo.params.slippage,
+          spread: combo.params.spread,
+          intrabarFill: combo.params.intrabarFill ?? prev.intrabarFill,
+          stopLoss: combo.params.stopLoss ?? 0,
+          takeProfit: combo.params.takeProfit ?? 0,
           trailingStop: combo.params.trailingStop ?? 0,
           maxDrawdown: combo.params.maxDrawdown ?? 0,
           maxDailyLoss: combo.params.maxDailyLoss ?? 0,
           maxOrderErrors: combo.params.maxOrderErrors ?? 0,
+          kalmanZMin: combo.params.kalmanZMin ?? prev.kalmanZMin,
+          kalmanZMax: combo.params.kalmanZMax ?? prev.kalmanZMax,
+          maxHighVolProb: combo.params.maxHighVolProb ?? 0,
+          maxConformalWidth: combo.params.maxConformalWidth ?? 0,
+          maxQuantileWidth: combo.params.maxQuantileWidth ?? 0,
+          confirmConformal: combo.params.confirmConformal ?? prev.confirmConformal,
+          confirmQuantiles: combo.params.confirmQuantiles ?? prev.confirmQuantiles,
+          confidenceSizing: combo.params.confidenceSizing ?? prev.confidenceSizing,
+          minPositionSize: combo.params.minPositionSize ?? 0,
           openThreshold: openThr,
           closeThreshold: closeThr,
         };
@@ -1653,6 +1666,8 @@ export function App() {
         const rawCombos = Array.isArray(payload?.combos) ? payload.combos : [];
         const methods: Method[] = ["11", "10", "01"];
         const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
+        const positionings: Positioning[] = ["long-flat", "long-short"];
+        const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
         const sanitized: OptimizationCombo[] = rawCombos.map((raw, index) => {
           const params = raw.params ?? {};
           const method =
@@ -1665,6 +1680,19 @@ export function App() {
               : defaultForm.normalization;
           const interval = typeof params.interval === "string" && params.interval ? params.interval : defaultForm.interval;
           const bars = typeof params.bars === "number" && Number.isFinite(params.bars) ? Math.trunc(params.bars) : Math.trunc(defaultForm.bars);
+          const positioning =
+            typeof params.positioning === "string" && positionings.includes(params.positioning as Positioning)
+              ? (params.positioning as Positioning)
+              : defaultForm.positioning;
+          const baseOpenThreshold =
+            typeof params.baseOpenThreshold === "number" && Number.isFinite(params.baseOpenThreshold)
+              ? Math.max(0, params.baseOpenThreshold)
+              : null;
+          const baseCloseThreshold =
+            typeof params.baseCloseThreshold === "number" && Number.isFinite(params.baseCloseThreshold)
+              ? Math.max(0, params.baseCloseThreshold)
+              : null;
+          const fee = typeof params.fee === "number" && Number.isFinite(params.fee) ? Math.max(0, params.fee) : defaultForm.fee;
           const hiddenSize =
             typeof params.hiddenSize === "number" && Number.isFinite(params.hiddenSize) ? Math.max(1, Math.trunc(params.hiddenSize)) : Math.trunc(defaultForm.hiddenSize);
           const learningRate =
@@ -1680,6 +1708,30 @@ export function App() {
           const epochs = typeof params.epochs === "number" && Number.isFinite(params.epochs) ? Math.max(0, Math.trunc(params.epochs)) : Math.trunc(defaultForm.epochs);
           const slippage = typeof params.slippage === "number" && Number.isFinite(params.slippage) ? params.slippage : defaultForm.slippage;
           const spread = typeof params.spread === "number" && Number.isFinite(params.spread) ? params.spread : defaultForm.spread;
+          const intrabarFill =
+            typeof params.intrabarFill === "string" && intrabarFills.includes(params.intrabarFill as IntrabarFill)
+              ? (params.intrabarFill as IntrabarFill)
+              : defaultForm.intrabarFill;
+          const kalmanZMin =
+            typeof params.kalmanZMin === "number" && Number.isFinite(params.kalmanZMin) ? Math.max(0, params.kalmanZMin) : defaultForm.kalmanZMin;
+          const kalmanZMaxRaw =
+            typeof params.kalmanZMax === "number" && Number.isFinite(params.kalmanZMax) ? Math.max(0, params.kalmanZMax) : defaultForm.kalmanZMax;
+          const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
+          const maxHighVolProbRaw =
+            typeof params.maxHighVolProb === "number" && Number.isFinite(params.maxHighVolProb) ? clamp(params.maxHighVolProb, 0, 1) : null;
+          const maxConformalWidthRaw =
+            typeof params.maxConformalWidth === "number" && Number.isFinite(params.maxConformalWidth) ? Math.max(0, params.maxConformalWidth) : null;
+          const maxQuantileWidthRaw =
+            typeof params.maxQuantileWidth === "number" && Number.isFinite(params.maxQuantileWidth) ? Math.max(0, params.maxQuantileWidth) : null;
+          const maxHighVolProb = maxHighVolProbRaw != null && maxHighVolProbRaw > 0 ? maxHighVolProbRaw : null;
+          const maxConformalWidth = maxConformalWidthRaw != null && maxConformalWidthRaw > 0 ? maxConformalWidthRaw : null;
+          const maxQuantileWidth = maxQuantileWidthRaw != null && maxQuantileWidthRaw > 0 ? maxQuantileWidthRaw : null;
+          const confirmConformal = typeof params.confirmConformal === "boolean" ? params.confirmConformal : defaultForm.confirmConformal;
+          const confirmQuantiles = typeof params.confirmQuantiles === "boolean" ? params.confirmQuantiles : defaultForm.confirmQuantiles;
+          const confidenceSizing = typeof params.confidenceSizing === "boolean" ? params.confidenceSizing : defaultForm.confidenceSizing;
+          const minPositionSizeRaw =
+            typeof params.minPositionSize === "number" && Number.isFinite(params.minPositionSize) ? clamp(params.minPositionSize, 0, 1) : null;
+          const minPositionSize = minPositionSizeRaw != null && minPositionSizeRaw > 0 ? minPositionSizeRaw : null;
           return {
             id: typeof raw.rank === "number" ? raw.rank : index + 1,
             finalEquity: typeof raw.finalEquity === "number" ? raw.finalEquity : 0,
@@ -1689,10 +1741,20 @@ export function App() {
               interval,
               bars,
               method,
+              positioning,
               normalization,
+              baseOpenThreshold,
+              baseCloseThreshold,
+              fee,
               epochs,
+              hiddenSize,
+              learningRate,
+              valRatio,
+              patience,
+              gradClip,
               slippage,
               spread,
+              intrabarFill,
               stopLoss: typeof params.stopLoss === "number" && Number.isFinite(params.stopLoss) ? params.stopLoss : null,
               takeProfit: typeof params.takeProfit === "number" && Number.isFinite(params.takeProfit) ? params.takeProfit : null,
               trailingStop: typeof params.trailingStop === "number" && Number.isFinite(params.trailingStop) ? params.trailingStop : null,
@@ -1700,8 +1762,22 @@ export function App() {
               maxDailyLoss: typeof params.maxDailyLoss === "number" && Number.isFinite(params.maxDailyLoss) ? params.maxDailyLoss : null,
               maxOrderErrors:
                 typeof params.maxOrderErrors === "number" && Number.isFinite(params.maxOrderErrors) ? Math.max(1, Math.trunc(params.maxOrderErrors)) : null,
+              kalmanZMin,
+              kalmanZMax,
+              maxHighVolProb,
+              maxConformalWidth,
+              maxQuantileWidth,
+              confirmConformal,
+              confirmQuantiles,
+              confidenceSizing,
+              minPositionSize,
             },
           };
+        });
+        sanitized.sort((a, b) => {
+          const eq = b.finalEquity - a.finalEquity;
+          if (eq !== 0) return eq;
+          return a.id - b.id;
         });
         setTopCombos(sanitized);
         setTopCombosError(null);
