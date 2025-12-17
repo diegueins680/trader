@@ -398,7 +398,10 @@ testSweepThreshold = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      (openThr, closeThr, bt) = sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred Nothing
+  (openThr, closeThr, bt) <-
+    case sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred Nothing of
+      Left e -> error e
+      Right v -> pure v
   assert "open thr close to 10%" (openThr > 0.099999 && openThr < 0.1)
   assert "close thr close to 10%" (closeThr > 0.099999 && closeThr < 0.1)
   assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
@@ -430,7 +433,10 @@ testOptimizeOperations = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      (m, openThr, closeThr, bt) = optimizeOperations cfg prices kalPred lstmPred Nothing
+  (m, openThr, closeThr, bt) <-
+    case optimizeOperations cfg prices kalPred lstmPred Nothing of
+      Left e -> error e
+      Right v -> pure v
   assert "picked kalman-only" (m == MethodKalmanOnly)
   assert "open thr close to 10%" (openThr > 0.099999 && openThr < 0.1)
   assert "close thr close to 10%" (closeThr > 0.099999 && closeThr < 0.1)

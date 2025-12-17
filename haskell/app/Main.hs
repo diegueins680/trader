@@ -2008,11 +2008,13 @@ botOptimizeAfterOperation st = do
               (newMethod, newOpenThr, newCloseThr) =
                 if optimizeOps && hasBothCtx
                   then
-                    let (m, openThr, closeThr, _) = optimizeOperations baseCfg prices kalPred lstmPred Nothing
-                     in (m, openThr, closeThr)
+                    case optimizeOperations baseCfg prices kalPred lstmPred Nothing of
+                      Left _ -> (argMethod args, baseOpenThr, baseCloseThr)
+                      Right (m, openThr, closeThr, _) -> (m, openThr, closeThr)
                   else
-                    let (openThr, closeThr, _) = sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred Nothing
-                     in (argMethod args, openThr, closeThr)
+                    case sweepThreshold (argMethod args) baseCfg prices kalPred lstmPred Nothing of
+                      Left _ -> (argMethod args, baseOpenThr, baseCloseThr)
+                      Right (openThr, closeThr, _) -> (argMethod args, openThr, closeThr)
               args' =
                 args
                   { argMethod = newMethod
@@ -5230,14 +5232,14 @@ computeBacktestSummary args lookback series = do
       (methodUsed, bestOpenThr, bestCloseThr) =
         if argOptimizeOperations args
           then
-            let (m, openThr, closeThr, _btTune) =
-                  optimizeOperationsWithHL baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
-             in (m, openThr, closeThr)
+            case optimizeOperationsWithHL baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
+              Left e -> error e
+              Right (m, openThr, closeThr, _btTune) -> (m, openThr, closeThr)
           else if argSweepThreshold args
             then
-              let (openThr, closeThr, _btTune) =
-                    sweepThresholdWithHL methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune
-               in (methodRequested, openThr, closeThr)
+              case sweepThresholdWithHL methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
+                Left e -> error e
+                Right (openThr, closeThr, _btTune) -> (methodRequested, openThr, closeThr)
             else (methodRequested, argOpenThreshold args, argCloseThreshold args)
 
       backtestCfg = baseCfg { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
