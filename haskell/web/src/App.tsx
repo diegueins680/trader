@@ -35,6 +35,7 @@ import { readJson, readLocalString, readSessionString, removeLocalKey, removeSes
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { BacktestChart } from "./components/BacktestChart";
 import { PredictionDiffChart } from "./components/PredictionDiffChart";
+import { TelemetryChart } from "./components/TelemetryChart";
 import { TopCombosChart, type OptimizationCombo } from "./components/TopCombosChart";
 
 type RequestKind = "signal" | "backtest" | "trade";
@@ -78,6 +79,12 @@ type BotRtEvent = {
   message: string;
 };
 
+type BotTelemetryPoint = {
+  atMs: number;
+  pollLatencyMs: number | null;
+  driftBps: number | null;
+};
+
 type BotRtUiState = {
   lastFetchAtMs: number | null;
   lastFetchDurationMs: number | null;
@@ -85,6 +92,7 @@ type BotRtUiState = {
   lastNewCandlesAtMs: number | null;
   lastKlineUpdates: number;
   lastKlineUpdatesAtMs: number | null;
+  telemetry: BotTelemetryPoint[];
   feed: BotRtEvent[];
 };
 
@@ -144,6 +152,8 @@ type FormState = {
   stopLoss: number;
   takeProfit: number;
   trailingStop: number;
+  minHoldBars: number;
+  cooldownBars: number;
   maxDrawdown: number;
   maxDailyLoss: number;
   maxOrderErrors: number;
@@ -205,6 +215,7 @@ const TRADE_TIMEOUT_MS = 5 * 60_000;
 const BOT_START_TIMEOUT_MS = 10 * 60_000;
 const BOT_STATUS_TIMEOUT_MS = 30_000;
 const BOT_STATUS_TAIL_POINTS = 5000;
+const BOT_TELEMETRY_POINTS = 240;
 
 const BINANCE_INTERVALS = [
   "1m",
@@ -377,6 +388,8 @@ const defaultForm: FormState = {
   stopLoss: 0,
   takeProfit: 0,
   trailingStop: 0,
+  minHoldBars: 0,
+  cooldownBars: 0,
   maxDrawdown: 0,
   maxDailyLoss: 0,
   maxOrderErrors: 0,
@@ -500,6 +513,8 @@ function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
     slippage: normalizeFiniteNumber(rawRec.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
     spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
     intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
+    minHoldBars: normalizeFiniteNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1e9),
+    cooldownBars: normalizeFiniteNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1e9),
     tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
     tuneObjective: normalizeTuneObjective(rawRec.tuneObjective ?? merged.tuneObjective, defaultForm.tuneObjective),
     tunePenaltyMaxDrawdown: normalizeFiniteNumber(rawRec.tunePenaltyMaxDrawdown ?? merged.tunePenaltyMaxDrawdown, defaultForm.tunePenaltyMaxDrawdown, 0, 1e9),
@@ -727,6 +742,7 @@ export function App() {
     lastNewCandlesAtMs: null,
     lastKlineUpdates: 0,
     lastKlineUpdatesAtMs: null,
+    telemetry: [],
     feed: [],
   });
   const botRtRef = useRef<{
@@ -740,6 +756,7 @@ export function App() {
     lastOpenThreshold: number | null;
     lastCloseThreshold: number | null;
     lastTradeEnabled: boolean | null;
+    lastTelemetryPolledAtMs: number | null;
   }>({
     botKey: null,
     lastOpenTimeMs: null,
@@ -751,6 +768,7 @@ export function App() {
     lastOpenThreshold: null,
     lastCloseThreshold: null,
     lastTradeEnabled: null,
+    lastTelemetryPolledAtMs: null,
   });
 
   const [keys, setKeys] = useState<KeysUiState>({
@@ -913,6 +931,8 @@ export function App() {
           stopLoss: combo.params.stopLoss ?? 0,
           takeProfit: combo.params.takeProfit ?? 0,
           trailingStop: combo.params.trailingStop ?? 0,
+          minHoldBars: combo.params.minHoldBars ?? prev.minHoldBars,
+          cooldownBars: combo.params.cooldownBars ?? prev.cooldownBars,
           maxDrawdown: combo.params.maxDrawdown ?? 0,
           maxDailyLoss: combo.params.maxDailyLoss ?? 0,
           maxOrderErrors: combo.params.maxOrderErrors ?? 0,
@@ -1179,6 +1199,8 @@ export function App() {
       ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
       ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
       ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
+      ...(form.minHoldBars > 0 ? { minHoldBars: clamp(Math.trunc(form.minHoldBars), 0, 1_000_000) } : {}),
+      ...(form.cooldownBars > 0 ? { cooldownBars: clamp(Math.trunc(form.cooldownBars), 0, 1_000_000) } : {}),
       ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
       ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
       ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
@@ -1223,7 +1245,9 @@ export function App() {
     const spread = Math.max(0, form.spread);
     const perSide = Math.min(0.999999, fee + slippage + spread / 2);
     const roundTrip = Math.min(0.999999, perSide * 2);
-    return { perSide, roundTrip };
+    const denom = Math.max(1e-12, (1 - perSide) * (1 - perSide));
+    const breakEven = Math.max(0, 1 / denom - 1);
+    return { perSide, roundTrip, breakEven };
   }, [form.fee, form.slippage, form.spread]);
 
   const tradeParams: ApiParams = useMemo(() => {
@@ -1787,37 +1811,49 @@ export function App() {
 
           const rt = botRtRef.current;
 
-	          if (!out.running) {
-	            botRtRef.current = {
-	              botKey: null,
-	              lastOpenTimeMs: null,
-	              lastError: null,
-	              lastHalted: null,
-	              lastFetchedOpenTimeMs: null,
-	              lastFetchedClose: null,
-	              lastMethod: null,
-	              lastOpenThreshold: null,
-	              lastCloseThreshold: null,
-	              lastTradeEnabled: null,
-	            };
-	            return { ...base, lastNewCandles: 0, lastNewCandlesAtMs: null, lastKlineUpdates: 0, lastKlineUpdatesAtMs: null, feed: [] };
-	          }
+          if (!out.running) {
+            botRtRef.current = {
+              botKey: null,
+              lastOpenTimeMs: null,
+              lastError: null,
+              lastHalted: null,
+              lastFetchedOpenTimeMs: null,
+              lastFetchedClose: null,
+              lastMethod: null,
+              lastOpenThreshold: null,
+              lastCloseThreshold: null,
+              lastTradeEnabled: null,
+              lastTelemetryPolledAtMs: null,
+            };
+            return {
+              ...base,
+              lastNewCandles: 0,
+              lastNewCandlesAtMs: null,
+              lastKlineUpdates: 0,
+              lastKlineUpdatesAtMs: null,
+              telemetry: [],
+              feed: [],
+            };
+          }
 
           const botKey = `${out.market}:${out.symbol}:${out.interval}`;
           let feed = base.feed;
-	          if (rt.botKey !== botKey) {
-	            feed = [];
-	            rt.botKey = botKey;
-	            rt.lastOpenTimeMs = null;
-	            rt.lastError = null;
-	            rt.lastHalted = null;
-	            rt.lastFetchedOpenTimeMs = null;
-	            rt.lastFetchedClose = null;
-	            rt.lastMethod = null;
-	            rt.lastOpenThreshold = null;
-	            rt.lastCloseThreshold = null;
-	            rt.lastTradeEnabled = null;
-	          }
+          let telemetry = base.telemetry;
+          if (rt.botKey !== botKey) {
+            feed = [];
+            telemetry = [];
+            rt.botKey = botKey;
+            rt.lastOpenTimeMs = null;
+            rt.lastError = null;
+            rt.lastHalted = null;
+            rt.lastFetchedOpenTimeMs = null;
+            rt.lastFetchedClose = null;
+            rt.lastMethod = null;
+            rt.lastOpenThreshold = null;
+            rt.lastCloseThreshold = null;
+            rt.lastTradeEnabled = null;
+            rt.lastTelemetryPolledAtMs = null;
+          }
 
           const openTimes = out.openTimes;
           const lastOpen = openTimes[openTimes.length - 1] ?? null;
@@ -1849,22 +1885,44 @@ export function App() {
           let lastKlineUpdatesAtMs: number | null = prev.lastKlineUpdatesAtMs;
           let klineUpdates = 0;
           const fetchedLast = out.fetchedLastKline;
-          if (fetchedLast && typeof fetchedLast.openTime === "number" && Number.isFinite(fetchedLast.openTime)) {
-            const openTime = fetchedLast.openTime;
-            const close = fetchedLast.close;
-            if (typeof close === "number" && Number.isFinite(close)) {
-              const prevFetchedOpen = rt.lastFetchedOpenTimeMs;
-              const prevFetchedClose = rt.lastFetchedClose;
-              if (newCount === 0 && prevFetchedOpen === openTime && typeof prevFetchedClose === "number" && Number.isFinite(prevFetchedClose) && close !== prevFetchedClose) {
-                klineUpdates = 1;
-                lastKlineUpdatesAtMs = finishedAtMs;
-                const d = prevFetchedClose !== 0 ? (close - prevFetchedClose) / prevFetchedClose : null;
-                const msg = `kline update: close ${fmtMoney(close, 4)}${d !== null ? ` (Δ ${fmtPct(d, 2)})` : ""}`;
-                feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
-              }
-              rt.lastFetchedOpenTimeMs = openTime;
+	          if (fetchedLast && typeof fetchedLast.openTime === "number" && Number.isFinite(fetchedLast.openTime)) {
+	            const openTime = fetchedLast.openTime;
+	            const close = fetchedLast.close;
+	            if (typeof close === "number" && Number.isFinite(close)) {
+	              const prevFetchedOpen = rt.lastFetchedOpenTimeMs;
+	              const prevFetchedClose = rt.lastFetchedClose;
+	              if (newCount === 0 && prevFetchedOpen === openTime && typeof prevFetchedClose === "number" && Number.isFinite(prevFetchedClose) && close !== prevFetchedClose) {
+	                klineUpdates = 1;
+	                lastKlineUpdatesAtMs = finishedAtMs;
+	                const d = prevFetchedClose !== 0 ? (close - prevFetchedClose) / prevFetchedClose : null;
+	                const msg = `kline update: close ${fmtMoney(close, 4)}${d !== null ? ` (Δ ${fmtPct(d, 2)})` : ""}`;
+	                feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+	              }
+	              rt.lastFetchedOpenTimeMs = openTime;
 	              rt.lastFetchedClose = close;
 	            }
+	          }
+
+	          const polledAtMs = typeof out.polledAtMs === "number" && Number.isFinite(out.polledAtMs) ? out.polledAtMs : null;
+	          if (polledAtMs !== null && polledAtMs !== rt.lastTelemetryPolledAtMs) {
+	            rt.lastTelemetryPolledAtMs = polledAtMs;
+	            const pollLatencyMs = typeof out.pollLatencyMs === "number" && Number.isFinite(out.pollLatencyMs) ? out.pollLatencyMs : null;
+	            const processedOpenTime = out.openTimes[out.openTimes.length - 1] ?? null;
+	            const processedClose = out.prices[out.prices.length - 1] ?? null;
+	            const driftBps =
+	              fetchedLast &&
+	              typeof fetchedLast.openTime === "number" &&
+	              Number.isFinite(fetchedLast.openTime) &&
+	              processedOpenTime === fetchedLast.openTime &&
+	              typeof fetchedLast.close === "number" &&
+	              Number.isFinite(fetchedLast.close) &&
+	              typeof processedClose === "number" &&
+	              Number.isFinite(processedClose) &&
+	              processedClose !== 0
+	                ? ((fetchedLast.close - processedClose) / processedClose) * 10000
+	                : null;
+	            const point: BotTelemetryPoint = { atMs: polledAtMs, pollLatencyMs, driftBps };
+	            telemetry = [...telemetry, point].slice(-BOT_TELEMETRY_POINTS);
 	          }
 
 	          const openThr = out.openThreshold ?? out.threshold;
@@ -1901,7 +1959,7 @@ export function App() {
 	          rt.lastCloseThreshold = closeThr;
 	          rt.lastTradeEnabled = typeof tradeEnabled === "boolean" ? tradeEnabled : null;
 
-	          return { ...base, lastNewCandles: newCount, lastNewCandlesAtMs, lastKlineUpdates: klineUpdates, lastKlineUpdatesAtMs, feed };
+	          return { ...base, lastNewCandles: newCount, lastNewCandlesAtMs, lastKlineUpdates: klineUpdates, lastKlineUpdatesAtMs, telemetry, feed };
 	        });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         setApiOk("ok");
@@ -2923,7 +2981,7 @@ export function App() {
                 </label>
                 <input
                   id="openThreshold"
-                  className={estimatedCosts.roundTrip > 0 && form.openThreshold < estimatedCosts.roundTrip ? "input inputError" : "input"}
+                  className={estimatedCosts.breakEven > 0 && form.openThreshold < estimatedCosts.breakEven ? "input inputError" : "input"}
                   type="number"
                   step="0.0001"
                   min={0}
@@ -2931,10 +2989,24 @@ export function App() {
                   onChange={(e) => setForm((f) => ({ ...f, openThreshold: numFromInput(e.target.value, f.openThreshold) }))}
                 />
                 <div className="hint">
-                  Entry deadband. Default 0.001 = 0.1%. Estimated round-trip cost ≈ {fmtPct(estimatedCosts.roundTrip, 3)} (fee + slippage + spread).
-                  {estimatedCosts.roundTrip > 0 && form.openThreshold < estimatedCosts.roundTrip
+                  Entry deadband. Default 0.001 = 0.1%. Break-even ≈ {fmtPct(estimatedCosts.breakEven, 3)} (round-trip cost ≈ {fmtPct(estimatedCosts.roundTrip, 3)}).
+                  {estimatedCosts.breakEven > 0 && form.openThreshold < estimatedCosts.breakEven
                     ? " Consider increasing open threshold to avoid churn after costs."
                     : null}
+                </div>
+                <div className="pillRow" style={{ marginTop: 10 }}>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    disabled={!(estimatedCosts.breakEven > 0)}
+                    onClick={() => {
+                      const v = Number(estimatedCosts.breakEven.toFixed(6));
+                      setForm((f) => ({ ...f, openThreshold: v, closeThreshold: v }));
+                      showToast("Set thresholds to break-even");
+                    }}
+                  >
+                    Set open/close to break-even
+                  </button>
                 </div>
               </div>
               <div className="field">
@@ -2943,14 +3015,17 @@ export function App() {
                 </label>
                 <input
                   id="closeThreshold"
-                  className={estimatedCosts.roundTrip > 0 && form.closeThreshold < estimatedCosts.roundTrip ? "input inputError" : "input"}
+                  className={estimatedCosts.breakEven > 0 && form.closeThreshold < estimatedCosts.breakEven ? "input inputError" : "input"}
                   type="number"
                   step="0.0001"
                   min={0}
                   value={form.closeThreshold}
                   onChange={(e) => setForm((f) => ({ ...f, closeThreshold: numFromInput(e.target.value, f.closeThreshold) }))}
                 />
-                <div className="hint">Exit deadband. Often smaller than open threshold to reduce churn.</div>
+                <div className="hint">
+                  Exit deadband. Often smaller than open threshold to reduce churn.
+                  {estimatedCosts.breakEven > 0 && form.closeThreshold < estimatedCosts.breakEven ? " Below break-even (may churn after costs)." : null}
+                </div>
               </div>
             </div>
 
@@ -3115,6 +3190,49 @@ export function App() {
 	                <div className="hint">Optional bracket exits (uses OHLC high/low when available; otherwise close-only). Example: 0.02 = 2%.</div>
 	              </div>
 	            </div>
+
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
+              <div className="field">
+                <label className="label">Trade pacing (bars)</label>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="minHoldBars">
+                      Min hold
+                    </label>
+                    <input
+                      id="minHoldBars"
+                      className="input"
+                      type="number"
+                      step={1}
+                      min={0}
+                      value={form.minHoldBars}
+                      onChange={(e) => setForm((f) => ({ ...f, minHoldBars: numFromInput(e.target.value, f.minHoldBars) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">
+                      {form.minHoldBars > 0 ? `${Math.trunc(Math.max(0, form.minHoldBars))} bars` : "0 disables"} • blocks signal exits, not bracket exits
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="cooldownBars">
+                      Cooldown
+                    </label>
+                    <input
+                      id="cooldownBars"
+                      className="input"
+                      type="number"
+                      step={1}
+                      min={0}
+                      value={form.cooldownBars}
+                      onChange={(e) => setForm((f) => ({ ...f, cooldownBars: numFromInput(e.target.value, f.cooldownBars) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">{form.cooldownBars > 0 ? `${Math.trunc(Math.max(0, form.cooldownBars))} bars` : "0 disables"} • after exiting</div>
+                  </div>
+                </div>
+                <div className="hint">Helps reduce churn in noisy markets (applies to backtests + live bot; stateless signals/trades ignore state).</div>
+              </div>
+            </div>
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
               <div className="field">
@@ -3869,26 +3987,33 @@ export function App() {
 	                    height={360}
 	                  />
 
-                  <div style={{ marginTop: 10 }}>
-                    <div className="hint" style={{ marginBottom: 8 }}>
-                      Prediction values vs thresholds (hover for details)
-                    </div>
-	                    <PredictionDiffChart
-	                      prices={bot.status.prices}
-	                      kalmanPredNext={bot.status.kalmanPredNext}
-	                      lstmPredNext={bot.status.lstmPredNext}
-	                      startIndex={bot.status.startIndex}
-	                      height={140}
-	                      openThreshold={bot.status.openThreshold ?? bot.status.threshold}
-	                      closeThreshold={bot.status.closeThreshold ?? bot.status.openThreshold ?? bot.status.threshold}
-                    />
-                  </div>
+		                  <div style={{ marginTop: 10 }}>
+		                    <div className="hint" style={{ marginBottom: 8 }}>
+		                      Prediction values vs thresholds (hover for details)
+		                    </div>
+		                    <PredictionDiffChart
+		                      prices={bot.status.prices}
+		                      kalmanPredNext={bot.status.kalmanPredNext}
+		                      lstmPredNext={bot.status.lstmPredNext}
+		                      startIndex={bot.status.startIndex}
+		                      height={140}
+		                      openThreshold={bot.status.openThreshold ?? bot.status.threshold}
+		                      closeThreshold={bot.status.closeThreshold ?? bot.status.openThreshold ?? bot.status.threshold}
+		                    />
+		                  </div>
 
-	                  <div className="kv" style={{ marginTop: 12 }}>
-	                    <div className="k">Realtime</div>
-	                    <div className="v">
-	                      <span className="badge" style={{ marginRight: 8 }}>
-	                        ui {fmtDurationMs(botRt.lastFetchDurationMs)}
+		                  <div style={{ marginTop: 10 }}>
+		                    <div className="hint" style={{ marginBottom: 8 }}>
+		                      Telemetry (Binance poll latency + close drift; hover for details)
+		                    </div>
+		                    <TelemetryChart points={botRt.telemetry} height={120} label="Live bot telemetry chart" />
+		                  </div>
+
+		                  <div className="kv" style={{ marginTop: 12 }}>
+		                    <div className="k">Realtime</div>
+		                    <div className="v">
+		                      <span className="badge" style={{ marginRight: 8 }}>
+		                        ui {fmtDurationMs(botRt.lastFetchDurationMs)}
 	                      </span>
 	                      <span className="badge" style={{ marginRight: 8 }}>
 	                        binance {fmtDurationMs(botRealtime?.pollLatencyMs)} • age {fmtDurationMs(botRealtime?.pollAgeMs)}
@@ -4052,6 +4177,12 @@ export function App() {
                     <div className="k">Order errors</div>
                     <div className="v">{bot.status.consecutiveOrderErrors}</div>
                   </div>
+                  {typeof bot.status.cooldownLeft === "number" && Number.isFinite(bot.status.cooldownLeft) && bot.status.cooldownLeft > 0 ? (
+                    <div className="kv">
+                      <div className="k">Cooldown</div>
+                      <div className="v">{Math.max(0, Math.trunc(bot.status.cooldownLeft))} bar(s) remaining</div>
+                    </div>
+                  ) : null}
                   <div className="kv">
                     <div className="k">Latest signal</div>
                     <div className="v">{bot.status.latestSignal.action}</div>
@@ -4500,18 +4631,47 @@ export function App() {
                       })()}
                     </div>
                   </div>
-                  {state.backtest.costs ? (
-                    <div className="kv">
-                      <div className="k">Break-even (round trip)</div>
-                      <div className="v">
-                        {(() => {
-                          const openThr = state.backtest.openThreshold ?? state.backtest.threshold;
-                          const be = state.backtest.costs?.breakEvenThreshold ?? 0;
-                          const note = openThr < be && be > 0 ? " (open threshold below break-even)" : "";
-                          return `${fmtNum(be, 6)} (${fmtPct(be, 3)})${note}`;
-                        })()}
+                  {(() => {
+                    const minHold = state.backtest.minHoldBars ?? 0;
+                    const cooldown = state.backtest.cooldownBars ?? 0;
+                    const minHoldN = typeof minHold === "number" && Number.isFinite(minHold) ? Math.max(0, Math.trunc(minHold)) : 0;
+                    const cooldownN = typeof cooldown === "number" && Number.isFinite(cooldown) ? Math.max(0, Math.trunc(cooldown)) : 0;
+                    if (minHoldN <= 0 && cooldownN <= 0) return null;
+                    return (
+                      <div className="kv">
+                        <div className="k">Min hold / Cooldown</div>
+                        <div className="v">
+                          {minHoldN} / {cooldownN} bars
+                        </div>
                       </div>
-                    </div>
+                    );
+                  })()}
+                  {state.backtest.costs ? (
+                    <>
+                      <div className="kv">
+                        <div className="k">Per-side cost (est.)</div>
+                        <div className="v">
+                          {fmtNum(state.backtest.costs.perSideCost, 6)} ({fmtPct(state.backtest.costs.perSideCost, 3)})
+                        </div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">Round-trip cost (approx)</div>
+                        <div className="v">
+                          {fmtNum(state.backtest.costs.roundTripCost, 6)} ({fmtPct(state.backtest.costs.roundTripCost, 3)})
+                        </div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">Break-even (round trip)</div>
+                        <div className="v">
+                          {(() => {
+                            const openThr = state.backtest.openThreshold ?? state.backtest.threshold;
+                            const be = state.backtest.costs?.breakEvenThreshold ?? 0;
+                            const note = openThr < be && be > 0 ? " (open threshold below break-even)" : "";
+                            return `${fmtNum(be, 6)} (${fmtPct(be, 3)})${note}`;
+                          })()}
+                        </div>
+                      </div>
+                    </>
                   ) : null}
                   {state.backtest.tuning && state.backtest.split.tune > 0 ? (
                     <div className="kv">

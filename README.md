@@ -155,6 +155,8 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
   - `--take-profit F` optional synthetic take profit (`0 < F < 1`)
   - `--trailing-stop F` optional synthetic trailing stop (`0 < F < 1`)
+  - `--min-hold-bars N` optional: minimum holding periods before allowing a signal-based exit (`0` disables; bracket exits still apply)
+  - `--cooldown-bars N` optional: after an exit to flat, wait `N` bars before allowing a new entry (`0` disables)
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day)
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures

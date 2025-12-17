@@ -51,6 +51,8 @@ export type ApiParams = {
   stopLoss?: number;
   takeProfit?: number;
   trailingStop?: number;
+  minHoldBars?: number;
+  cooldownBars?: number;
   maxDrawdown?: number;
   maxDailyLoss?: number;
   maxOrderErrors?: number;
@@ -197,6 +199,8 @@ export type BacktestResponse = {
   threshold: number;
   openThreshold?: number;
   closeThreshold?: number;
+  minHoldBars?: number;
+  cooldownBars?: number;
   tuning?: {
     objective: string;
     penaltyMaxDrawdown: number;
@@ -288,6 +292,7 @@ export type BotStatus =
       peakEquity: number;
       dayStartEquity: number;
       consecutiveOrderErrors: number;
+      cooldownLeft?: number;
       haltReason?: string;
       haltedAtMs?: number;
       startIndex: number;

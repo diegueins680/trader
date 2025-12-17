@@ -51,6 +51,8 @@ main = do
     , run "forward return sign" testForwardReturnSign
     , run "lstm training improves loss" testLstmImprovesLoss
     , run "ensemble agreement gate" testAgreementGate
+    , run "min-hold blocks exit" testMinHoldBars
+    , run "cooldown blocks re-entry" testCooldownBars
     , run "long-short down move" testLongShortDownMove
     , run "liquidation clamps equity" testLiquidationClamp
     , run "metrics max drawdown" testMetricsMaxDrawdown
@@ -211,6 +213,8 @@ testAgreementGate = do
           , ecStopLoss = Nothing
           , ecTakeProfit = Nothing
           , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -225,6 +229,70 @@ testAgreementGate = do
           }
       res = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred Nothing
   assert "expected two position changes (enter + exit)" (brPositionChanges res == 2)
+
+testMinHoldBars :: IO ()
+testMinHoldBars = do
+  let prices = replicate 5 100
+      lookback = 1
+      preds = [101, 99, 99, 99] -- enter, then exit signals
+      cfg =
+        EnsembleConfig
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecMinHoldBars = 2
+          , ecCooldownBars = 0
+          , ecPositioning = LongFlat
+          , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
+          }
+      bt = simulateEnsembleLongFlat cfg lookback prices preds preds Nothing
+  assert "min-hold keeps position through bar 2" (brPositions bt == [1, 1, 0, 0])
+
+testCooldownBars :: IO ()
+testCooldownBars = do
+  let prices = replicate 5 100
+      lookback = 1
+      preds = [101, 99, 101, 101] -- enter, exit, re-enter attempts
+      cfg =
+        EnsembleConfig
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 1
+          , ecPositioning = LongFlat
+          , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
+          }
+      bt = simulateEnsembleLongFlat cfg lookback prices preds preds Nothing
+  assert "cooldown blocks entry for 1 bar after exit" (brPositions bt == [1, 0, 0, 1])
 
 testLongShortDownMove :: IO ()
 testLongShortDownMove = do
@@ -242,6 +310,8 @@ testLongShortDownMove = do
           , ecStopLoss = Nothing
           , ecTakeProfit = Nothing
           , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -277,6 +347,8 @@ testLiquidationClamp = do
           , ecStopLoss = Nothing
           , ecTakeProfit = Nothing
           , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
           , ecPositioning = LongShort
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -386,6 +458,8 @@ testSweepThreshold = do
           , ecStopLoss = Nothing
           , ecTakeProfit = Nothing
           , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -421,6 +495,8 @@ testOptimizeOperations = do
           , ecStopLoss = Nothing
           , ecTakeProfit = Nothing
           , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0

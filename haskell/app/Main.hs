@@ -338,6 +338,8 @@ data BacktestSummary = BacktestSummary
   , bsMethodUsed :: !Method
   , bsBestOpenThreshold :: !Double
   , bsBestCloseThreshold :: !Double
+  , bsMinHoldBars :: !Int
+  , bsCooldownBars :: !Int
   , bsFee :: !Double
   , bsSlippage :: !Double
   , bsSpread :: !Double
@@ -434,6 +436,8 @@ data Args = Args
   , argStopLoss :: Maybe Double
   , argTakeProfit :: Maybe Double
   , argTrailingStop :: Maybe Double
+  , argMinHoldBars :: Int
+  , argCooldownBars :: Int
   , argMaxDrawdown :: Maybe Double
   , argMaxDailyLoss :: Maybe Double
   , argMaxOrderErrors :: Maybe Int
@@ -614,6 +618,8 @@ opts =
     <*> optional (option auto (long "stop-loss" <> help "Stop loss fraction for a bracket exit (e.g., 0.02 for 2%)"))
     <*> optional (option auto (long "take-profit" <> help "Take profit fraction for a bracket exit (e.g., 0.03 for 3%)"))
     <*> optional (option auto (long "trailing-stop" <> help "Trailing stop fraction for a bracket exit (e.g., 0.01 for 1%)"))
+    <*> option auto (long "min-hold-bars" <> value 0 <> help "Minimum holding periods (bars) before allowing a signal-based exit (0 disables)")
+    <*> option auto (long "cooldown-bars" <> value 0 <> help "When flat after an exit, wait this many bars before allowing a new entry (0 disables)")
     <*> optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
     <*> optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
     <*> optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
@@ -781,6 +787,8 @@ validateArgs args0 = do
   case argTrailingStop args of
     Nothing -> pure ()
     Just v -> ensure "--trailing-stop must be > 0 and < 1" (v > 0 && v < 1)
+  ensure "--min-hold-bars must be >= 0" (argMinHoldBars args >= 0)
+  ensure "--cooldown-bars must be >= 0" (argCooldownBars args >= 0)
   case argMaxDrawdown args of
     Nothing -> pure ()
     Just v -> ensure "--max-drawdown must be > 0 and < 1" (v > 0 && v < 1)
@@ -921,6 +929,8 @@ data ApiParams = ApiParams
   , apStopLoss :: Maybe Double
   , apTakeProfit :: Maybe Double
   , apTrailingStop :: Maybe Double
+  , apMinHoldBars :: Maybe Int
+  , apCooldownBars :: Maybe Int
   , apMaxDrawdown :: Maybe Double
   , apMaxDailyLoss :: Maybe Double
   , apMaxOrderErrors :: Maybe Int
@@ -1381,6 +1391,8 @@ argsPublicJson args =
       , "stopLoss" .= argStopLoss args
       , "takeProfit" .= argTakeProfit args
       , "trailingStop" .= argTrailingStop args
+      , "minHoldBars" .= argMinHoldBars args
+      , "cooldownBars" .= argCooldownBars args
       , "maxDrawdown" .= argMaxDrawdown args
       , "maxDailyLoss" .= argMaxDailyLoss args
       , "maxOrderErrors" .= argMaxOrderErrors args
@@ -1581,6 +1593,7 @@ data BotState = BotState
   , botOrders :: ![BotOrderEvent]
   , botTrades :: ![Trade]
   , botOpenTrade :: !(Maybe (Int, Double, Int, Double, Double)) -- (entryIdx, entryEq, holdingPeriods, entryPrice, trailHigh)
+  , botCooldownLeft :: !Int
   , botLatestSignal :: !LatestSignal
   , botLastOrder :: !(Maybe ApiOrderResult)
   , botHaltReason :: !(Maybe String)
@@ -1683,6 +1696,7 @@ botStatusJson st =
     , "peakEquity" .= botPeakEquity st
     , "dayStartEquity" .= botDayStartEquity st
     , "consecutiveOrderErrors" .= botConsecutiveOrderErrors st
+    , "cooldownLeft" .= botCooldownLeft st
     , "prices" .= V.toList (botPrices st)
     , "openTimes" .= V.toList (botOpenTimes st)
     , "kalmanPredNext" .= map finiteMaybe (V.toList (botKalmanPredNext st))
@@ -2102,6 +2116,7 @@ initBotState args settings sym = do
           , botOrders = orders2
           , botTrades = []
           , botOpenTrade = openTrade2
+          , botCooldownLeft = 0
           , botLatestSignal = latest
           , botLastOrder = mOrder
           , botHaltReason = haltReason0
@@ -2164,6 +2179,8 @@ botOptimizeAfterOperation st = do
                   , ecStopLoss = argStopLoss args
                   , ecTakeProfit = argTakeProfit args
                   , ecTrailingStop = argTrailingStop args
+                  , ecMinHoldBars = argMinHoldBars args
+                  , ecCooldownBars = argCooldownBars args
                   , ecPositioning = LongFlat
                   , ecIntrabarFill = argIntrabarFill args
                   , ecKalmanZMin = argKalmanZMin args
@@ -2978,7 +2995,7 @@ botApplyKline mOps metrics mJournal st k = do
                     else Nothing
              in (latest0, desiredPosSignal, exitReason)
 
-      (latest, desiredPosWanted, mExitReason) =
+      (latest0b, desiredPosWanted0b, mExitReason0b) =
         if halted
           then
             let why = haltReason1
@@ -2993,6 +3010,26 @@ botApplyKline mOps metrics mJournal st k = do
                     else mExitReasonPre
              in (latestHalt, 0, exitReason)
           else (latestPre, desiredPosPre, mExitReasonPre)
+
+      holdBars =
+        case openTrade1 of
+          Nothing -> 0
+          Just (_ei, _eq0, hold, _entryPx, _trailHigh) -> hold
+
+      minHoldBars = max 0 (argMinHoldBars args)
+      cooldownBars = max 0 (argCooldownBars args)
+      cooldownLeft0 = max 0 (botCooldownLeft st)
+      cooldownBlocked = prevPos == 0 && cooldownLeft0 > 0
+
+      (latest1, desiredPosWanted1, mExitReason1) =
+        if prevPos == 1 && desiredPosWanted0b == 0 && mExitReason0b == Just "SIGNAL" && holdBars < minHoldBars
+          then (latest0b { lsAction = "HOLD_MIN_HOLD" }, 1, Nothing)
+          else (latest0b, desiredPosWanted0b, mExitReason0b)
+
+      (latest, desiredPosWanted, mExitReason) =
+        if prevPos == 0 && desiredPosWanted1 == 1 && cooldownBlocked
+          then (latest1 { lsAction = "HOLD_COOLDOWN" }, 0, Nothing)
+          else (latest1, desiredPosWanted1, mExitReason1)
 
       wantSwitch = desiredPosWanted /= prevPos
 
@@ -3143,7 +3180,15 @@ botApplyKline mOps metrics mJournal st k = do
         (Just eqFinal)
     _ -> pure ()
 
-  let eqV1 = V.snoc (botEquityCurve st) eqFinal
+  let cooldownDec =
+        if prevPos == 0
+          then max 0 (cooldownLeft0 - 1)
+          else 0
+      cooldownLeftNext =
+        if posFinal == 0
+          then if prevPos == 1 then cooldownBars else cooldownDec
+          else 0
+      eqV1 = V.snoc (botEquityCurve st) eqFinal
       posV1 = V.snoc (botPositions st) posFinal
 
       maxPoints = max (lookback + 3) (bsMaxPoints settings)
@@ -3212,6 +3257,7 @@ botApplyKline mOps metrics mJournal st k = do
           , botOrders = orders2
           , botTrades = trades2
           , botOpenTrade = openTrade2
+          , botCooldownLeft = cooldownLeftNext
           , botLatestSignal = latest
           , botLastOrder = mOrder <|> botLastOrder st
           , botHaltReason = haltReason2
@@ -3434,14 +3480,17 @@ requestWantsNoCache req =
           || maybe False hasNoCacheDirective pragma
    in nocacheQs || nocacheHdr
 
-argsCacheJson :: Args -> Aeson.Value
-argsCacheJson args =
+barsResolvedForCache :: Args -> Int
+barsResolvedForCache args =
+  case (argBinanceSymbol args, argData args) of
+    (Just _, _) -> resolveBarsForBinance args
+    (_, Just _) -> resolveBarsForCsv args
+    _ -> argBars args
+
+argsCacheJsonSignal :: Args -> Aeson.Value
+argsCacheJsonSignal args =
   let market = marketCode (argBinanceMarket args)
-      barsResolved =
-        case (argBinanceSymbol args, argData args) of
-          (Just _, _) -> resolveBarsForBinance args
-          (_, Just _) -> resolveBarsForCsv args
-          _ -> argBars args
+      barsResolved = barsResolvedForCache args
       lookbackResolved = argLookback args
    in
     object
@@ -3452,11 +3501,8 @@ argsCacheJson args =
       , "binanceSymbol" .= argBinanceSymbol args
       , "market" .= market
       , "interval" .= argInterval args
-      , "bars" .= argBars args
-      , "barsResolved" .= barsResolved
-      , "lookbackWindow" .= argLookbackWindow args
-      , "lookbackBars" .= argLookbackBars args
-      , "lookbackBarsResolved" .= lookbackResolved
+      , "bars" .= barsResolved
+      , "lookbackBars" .= lookbackResolved
       , "binanceTestnet" .= argBinanceTestnet args
       , "normalization" .= show (argNormalization args)
       , "hiddenSize" .= argHiddenSize args
@@ -3473,7 +3519,49 @@ argsCacheJson args =
       , "closeThreshold" .= argCloseThreshold args
       , "method" .= methodCode (argMethod args)
       , "positioning" .= positioningCode (argPositioning args)
-      , "tradeOnly" .= argTradeOnly args
+      , "kalmanZMin" .= argKalmanZMin args
+      , "kalmanZMax" .= argKalmanZMax args
+      , "maxHighVolProb" .= argMaxHighVolProb args
+      , "maxConformalWidth" .= argMaxConformalWidth args
+      , "maxQuantileWidth" .= argMaxQuantileWidth args
+      , "confirmConformal" .= argConfirmConformal args
+      , "confirmQuantiles" .= argConfirmQuantiles args
+      , "confidenceSizing" .= argConfidenceSizing args
+      , "minPositionSize" .= argMinPositionSize args
+      ]
+
+argsCacheJsonBacktest :: Args -> Aeson.Value
+argsCacheJsonBacktest args =
+  let market = marketCode (argBinanceMarket args)
+      barsResolved = barsResolvedForCache args
+      lookbackResolved = argLookback args
+   in
+    object
+      [ "data" .= argData args
+      , "priceColumn" .= argPriceCol args
+      , "highColumn" .= argHighCol args
+      , "lowColumn" .= argLowCol args
+      , "binanceSymbol" .= argBinanceSymbol args
+      , "market" .= market
+      , "interval" .= argInterval args
+      , "bars" .= barsResolved
+      , "lookbackBars" .= lookbackResolved
+      , "binanceTestnet" .= argBinanceTestnet args
+      , "normalization" .= show (argNormalization args)
+      , "hiddenSize" .= argHiddenSize args
+      , "epochs" .= argEpochs args
+      , "lr" .= argLr args
+      , "valRatio" .= argValRatio args
+      , "patience" .= argPatience args
+      , "gradClip" .= argGradClip args
+      , "seed" .= argSeed args
+      , "kalmanDt" .= argKalmanDt args
+      , "kalmanProcessVar" .= argKalmanProcessVar args
+      , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+      , "openThreshold" .= argOpenThreshold args
+      , "closeThreshold" .= argCloseThreshold args
+      , "method" .= methodCode (argMethod args)
+      , "positioning" .= positioningCode (argPositioning args)
       , "backtestRatio" .= argBacktestRatio args
       , "tuneRatio" .= argTuneRatio args
       , "tuneObjective" .= tuneObjectiveCode (argTuneObjective args)
@@ -3489,6 +3577,12 @@ argsCacheJson args =
       , "stopLoss" .= argStopLoss args
       , "takeProfit" .= argTakeProfit args
       , "trailingStop" .= argTrailingStop args
+      , "minHoldBars" .= argMinHoldBars args
+      , "cooldownBars" .= argCooldownBars args
+      , "maxDrawdown" .= argMaxDrawdown args
+      , "maxDailyLoss" .= argMaxDailyLoss args
+      , "maxOrderErrors" .= argMaxOrderErrors args
+      , "periodsPerYear" .= argPeriodsPerYear args
       , "kalmanZMin" .= argKalmanZMin args
       , "kalmanZMax" .= argKalmanZMax args
       , "maxHighVolProb" .= argMaxHighVolProb args
@@ -3498,12 +3592,11 @@ argsCacheJson args =
       , "confirmQuantiles" .= argConfirmQuantiles args
       , "confidenceSizing" .= argConfidenceSizing args
       , "minPositionSize" .= argMinPositionSize args
-      , "periodsPerYear" .= argPeriodsPerYear args
       ]
 
-cacheKeyFor :: Text -> Args -> Text
-cacheKeyFor prefix args =
-  let payload = encode (argsCacheJson args)
+cacheKeyForArgs :: Text -> (Args -> Aeson.Value) -> Args -> Text
+cacheKeyForArgs prefix toVal args =
+  let payload = encode (toVal args)
       hex = hashBytesHex payload
    in prefix <> ":" <> T.pack hex
 
@@ -3616,7 +3709,7 @@ computeLatestSignalFromArgsCached cache args = do
   if not (cacheEnabled cache)
     then computeLatestSignalFromArgs args
     else do
-      let key = cacheKeyFor "signal" args
+      let key = cacheKeyForArgs "signal" argsCacheJsonSignal args
       mHit <- cacheLookup cache (acSignals cache) key
       case mHit of
         Just v -> do
@@ -3633,7 +3726,7 @@ computeBacktestFromArgsCached cache args = do
   if not (cacheEnabled cache)
     then computeBacktestFromArgs args
     else do
-      let key = cacheKeyFor "backtest" args
+      let key = cacheKeyForArgs "backtest" argsCacheJsonBacktest args
       mHit <- cacheLookup cache (acBacktests cache) key
       case mHit of
         Just v -> do
@@ -5256,6 +5349,8 @@ argsFromApi baseArgs p = do
           , argStopLoss = pickMaybe (apStopLoss p) (argStopLoss baseArgs)
           , argTakeProfit = pickMaybe (apTakeProfit p) (argTakeProfit baseArgs)
           , argTrailingStop = pickMaybe (apTrailingStop p) (argTrailingStop baseArgs)
+          , argMinHoldBars = pick (apMinHoldBars p) (argMinHoldBars baseArgs)
+          , argCooldownBars = pick (apCooldownBars p) (argCooldownBars baseArgs)
           , argMaxDrawdown = pickMaybe (apMaxDrawdown p) (argMaxDrawdown baseArgs)
           , argMaxDailyLoss = pickMaybe (apMaxDailyLoss p) (argMaxDailyLoss baseArgs)
           , argMaxOrderErrors = pickMaybe (apMaxOrderErrors p) (argMaxOrderErrors baseArgs)
@@ -5890,7 +5985,7 @@ backtestSummaryJson summary =
           , "spread" .= bsSpread summary
           , "perSideCost" .= bsEstimatedPerSideCost summary
           , "roundTripCost" .= bsEstimatedRoundTripCost summary
-          , "breakEvenThreshold" .= bsEstimatedRoundTripCost summary
+          , "breakEvenThreshold" .= breakEvenThresholdFromPerSideCost (bsEstimatedPerSideCost summary)
           ]
       walkForwardJson =
         case bsWalkForward summary of
@@ -5934,6 +6029,8 @@ backtestSummaryJson summary =
     , "threshold" .= bsBestOpenThreshold summary
     , "openThreshold" .= bsBestOpenThreshold summary
     , "closeThreshold" .= bsBestCloseThreshold summary
+    , "minHoldBars" .= bsMinHoldBars summary
+    , "cooldownBars" .= bsCooldownBars summary
     , "tuning" .= tuningJson
     , "costs" .= costsJson
     , "walkForward" .= walkForwardJson
@@ -6509,6 +6606,8 @@ computeBacktestSummary args lookback series = do
           , ecStopLoss = argStopLoss args
           , ecTakeProfit = argTakeProfit args
           , ecTrailingStop = argTrailingStop args
+          , ecMinHoldBars = argMinHoldBars args
+          , ecCooldownBars = argCooldownBars args
           , ecPositioning = argPositioning args
           , ecIntrabarFill = argIntrabarFill args
           , ecKalmanZMin = argKalmanZMin args
@@ -6525,8 +6624,8 @@ computeBacktestSummary args lookback series = do
       feeUsed = max 0 (argFee args)
       slippageUsed = max 0 (argSlippage args)
       spreadUsed = max 0 (argSpread args)
-      perSideCost = min 0.999999 (feeUsed + slippageUsed + spreadUsed / 2)
-      roundTripCost = min 0.999999 (2 * perSideCost)
+      perSideCost = estimatedPerSideCost feeUsed slippageUsed spreadUsed
+      roundTripCost = estimatedRoundTripCost feeUsed slippageUsed spreadUsed
 
       offsetBacktestPred = max 0 (trainEnd - predStart)
       kalPredBacktest = drop offsetBacktestPred kalPredAll
@@ -6680,6 +6779,8 @@ computeBacktestSummary args lookback series = do
       , bsMethodUsed = methodUsed
       , bsBestOpenThreshold = bestOpenThr
       , bsBestCloseThreshold = bestCloseThr
+      , bsMinHoldBars = argMinHoldBars args
+      , bsCooldownBars = argCooldownBars args
       , bsFee = feeUsed
       , bsSlippage = slippageUsed
       , bsSpread = spreadUsed
@@ -7021,28 +7122,42 @@ estimatedRoundTripCost fee slippage spread =
   let perSide = estimatedPerSideCost fee slippage spread
    in min 0.999999 (2 * perSide)
 
+breakEvenThresholdFromPerSideCost :: Double -> Double
+breakEvenThresholdFromPerSideCost perSide0 =
+  let perSide = min 0.999999 (max 0 perSide0)
+      denom = max 1e-12 ((1 - perSide) * (1 - perSide))
+      be = 1 / denom - 1
+   in max 0 be
+
+estimatedBreakEvenThreshold :: Double -> Double -> Double -> Double
+estimatedBreakEvenThreshold fee slippage spread =
+  let perSide = estimatedPerSideCost fee slippage spread
+   in breakEvenThresholdFromPerSideCost perSide
+
 printCostGuidance :: Double -> Double -> Double -> Double -> IO ()
 printCostGuidance openThr closeThr perSide roundTrip = do
+  let breakEven = breakEvenThresholdFromPerSideCost perSide
   putStrLn ""
   putStrLn "**Estimated Costs**"
   putStrLn (printf "Per side:  %.3f%%" (perSide * 100))
-  putStrLn (printf "Round trip: %.3f%%" (roundTrip * 100))
-  if openThr < roundTrip
+  putStrLn (printf "Round trip (approx): %.3f%%" (roundTrip * 100))
+  putStrLn (printf "Break-even threshold: %.3f%%" (breakEven * 100))
+  if openThr < breakEven
     then
       putStrLn
         ( printf
-            "Warning: openThreshold %.3f%% is below estimated round-trip cost %.3f%% (may churn after costs)."
+            "Warning: openThreshold %.3f%% is below break-even threshold %.3f%% (may churn after costs)."
             (openThr * 100)
-            (roundTrip * 100)
+            (breakEven * 100)
         )
     else pure ()
-  if closeThr < roundTrip
+  if closeThr < breakEven
     then
       putStrLn
         ( printf
-            "Note: closeThreshold %.3f%% is below estimated round-trip cost %.3f%%."
+            "Note: closeThreshold %.3f%% is below break-even threshold %.3f%%."
             (closeThr * 100)
-            (roundTrip * 100)
+            (breakEven * 100)
         )
     else pure ()
 

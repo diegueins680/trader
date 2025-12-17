@@ -28,6 +28,8 @@ data EnsembleConfig = EnsembleConfig
   , ecStopLoss :: !(Maybe Double)      -- fractional, e.g. 0.02
   , ecTakeProfit :: !(Maybe Double)    -- fractional, e.g. 0.03
   , ecTrailingStop :: !(Maybe Double)  -- fractional, e.g. 0.01
+  , ecMinHoldBars :: !Int              -- bars; 0 disables (signal exits allowed immediately)
+  , ecCooldownBars :: !Int             -- bars; 0 disables (wait after exiting before re-entering)
   , ecPositioning :: !Positioning
   , ecIntrabarFill :: !IntrabarFill
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
@@ -151,6 +153,8 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
           let startT = max 0 (lookback - 1)
               openThr = max 0 (ecOpenThreshold cfg)
               closeThr = max 0 (ecCloseThreshold cfg)
+              minHoldBars = max 0 (ecMinHoldBars cfg)
+              cooldownBars = max 0 (ecCooldownBars cfg)
               direction thr prev pred =
                 let upEdge = prev * (1 + thr)
                     downEdge = prev * (1 - thr)
@@ -350,7 +354,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                     then (Nothing, 0)
                                     else (Just dir, if ecConfidenceSizing cfg then size0 else 1)
 
-              stepFn (posDir, posSize, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc, dead) t =
+              stepFn (posDir, posSize, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc, dead, cooldownLeft) t =
                 if dead
                   then
                     ( 0
@@ -363,6 +367,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                     , Nothing
                     , tradesAcc
                     , True
+                    , 0
                     )
                   else
                     let prev = pricesV V.! t
@@ -370,6 +375,12 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                         hi = barHigh (t + 1)
                         lo = barLow (t + 1)
                         openTrade0 = if posDir == 0 then Nothing else openTrade
+                        holdBars =
+                          case openTrade0 of
+                            Nothing -> 0
+                            Just ot -> otHoldingPeriods ot
+                        cooldownActive = posDir == 0 && cooldownLeft > 0
+                        cooldownNext0 = if posDir == 0 then max 0 (cooldownLeft - 1) else 0
                         (agreeOk, desiredDirRaw, desiredSizeRaw) =
                           if t < startT
                             then (False, posDir, posSize)
@@ -418,6 +429,21 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                         desiredDir =
                           if desiredSize <= 0 then 0 else desiredDirRaw
 
+                        desiredDirHoldAdjusted =
+                          if posDir /= 0 && desiredDir /= posDir && holdBars < minHoldBars
+                            then posDir
+                            else desiredDir
+
+                        desiredSizeHoldAdjusted =
+                          if desiredDirHoldAdjusted == posDir
+                            then posSize
+                            else desiredSize
+
+                        (desiredDirFinal, desiredSizeFinal) =
+                          if cooldownActive
+                            then (0, 0)
+                            else (desiredDirHoldAdjusted, desiredSizeHoldAdjusted)
+
                         closeTradeAt exitIndex why eqExit ot =
                           Trade
                             { trEntryIndex = otEntryIndex ot
@@ -440,10 +466,10 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             }
 
                         (posAfterSwitch, posSizeAfterSwitch, equityAfterSwitch, changes', openTrade', tradesAcc') =
-                          if desiredDir == posDir
+                          if desiredDirFinal == posDir
                             then (posDir, posSize, equity, changes, openTrade0, tradesAcc)
                             else
-                              if desiredDir == 0
+                              if desiredDirFinal == 0
                                 then
                                   let eqExit = applyCost equity posSize
                                       tradesAcc1 =
@@ -453,16 +479,16 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                    in (0, 0, eqExit, changes + 1, Nothing, tradesAcc1)
                                 else if posDir == 0
                                   then
-                                    let eqEntry = applyCost equity desiredSize
-                                     in (desiredDir, desiredSize, eqEntry, changes + 1, Just (openTradeFor desiredDir eqEntry), tradesAcc)
+                                    let eqEntry = applyCost equity desiredSizeFinal
+                                     in (desiredDirFinal, desiredSizeFinal, eqEntry, changes + 1, Just (openTradeFor desiredDirFinal eqEntry), tradesAcc)
                                   else
                                     let eqExit = applyCost equity posSize
                                         tradesAcc1 =
                                           case openTrade0 of
                                             Nothing -> tradesAcc
                                             Just ot -> closeTradeAt t "SIGNAL" eqExit ot : tradesAcc
-                                        eqEntry = applyCost eqExit desiredSize
-                                     in (desiredDir, desiredSize, eqEntry, changes + 1, Just (openTradeFor desiredDir eqEntry), tradesAcc1)
+                                        eqEntry = applyCost eqExit desiredSizeFinal
+                                     in (desiredDirFinal, desiredSizeFinal, eqEntry, changes + 1, Just (openTradeFor desiredDirFinal eqEntry), tradesAcc1)
 
                         equityAtClose =
                           if posAfterSwitch /= 0 && posSizeAfterSwitch > 0
@@ -627,22 +653,32 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                          in (tr : tradesFinal, changesFinal + 1)
                                in (0, 0, exitEq, changesOut, Nothing, tradesOut, True)
                             else (posFinal, posSizeFinal, equityFinal, changesFinal, openTradeFinal, tradesFinal, False)
-                     in ( posFinal2
-                        , posSizeFinal2
-                        , equityFinal2
-                        , equityFinal2 : eqAcc
-                        , (fromIntegral posAfterSwitch * posSizeAfterSwitch) : posAcc
-                        , agreeOk : agreeAcc
-                        , changesFinal2
-                        , openTradeFinal2
-                        , tradesFinal2
-                        , dead2
-                        )
 
-              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev, _deadFinal) =
+                        exitedToFlat =
+                          posFinal2 == 0 && (posAfterSwitch /= 0 || posDir /= 0)
+
+                        cooldownNext =
+                          if posFinal2 == 0
+                            then if exitedToFlat then cooldownBars else cooldownNext0
+                            else 0
+                     in
+                      ( posFinal2
+                      , posSizeFinal2
+                      , equityFinal2
+                      , equityFinal2 : eqAcc
+                      , (fromIntegral posAfterSwitch * posSizeAfterSwitch) : posAcc
+                      , agreeOk : agreeAcc
+                      , changesFinal2
+                      , openTradeFinal2
+                      , tradesFinal2
+                      , dead2
+                      , cooldownNext
+                      )
+
+              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev, _deadFinal, _cooldownFinal) =
                 foldl'
                   stepFn
-                  (0 :: Int, 0 :: Double, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe OpenTrade, [], False)
+                  (0 :: Int, 0 :: Double, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe OpenTrade, [], False, 0 :: Int)
                   [0 .. stepCount - 1]
 
               (eqRev', tradesRev') =

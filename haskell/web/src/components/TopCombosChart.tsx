@@ -23,6 +23,8 @@ export type OptimizationComboParams = {
   stopLoss?: number | null;
   takeProfit?: number | null;
   trailingStop?: number | null;
+  minHoldBars?: number | null;
+  cooldownBars?: number | null;
   maxDrawdown?: number | null;
   maxDailyLoss?: number | null;
   maxOrderErrors?: number | null;
