@@ -471,7 +471,7 @@ resolveBarsForCsv args =
 resolveBarsForBinance :: Args -> Int
 resolveBarsForBinance args =
   case argBars args of
-    n | n == autoBarsSentinel -> defaultBinanceBars
+    n | n == autoBarsSentinel || n == 0 -> defaultBinanceBars
     n -> n
 
 parseBarsArg :: String -> Either String Int
@@ -539,7 +539,7 @@ opts =
               <> metavar "N|auto"
               <> value autoBarsSentinel
               <> showDefaultWith (\n -> if n == autoBarsSentinel then "auto" else show n)
-              <> help "Number of bars/klines to use (auto=all CSV, Binance=500; CSV also supports 0=all; Binance requires 2..1000)"
+              <> help "Number of bars/klines to use (auto/0=all CSV, Binance=500; Binance also supports 2..1000)"
           )
     <*> strOption (long "lookback-window" <> value "24h" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
     <*> optional (option auto (long "lookback-bars" <> long "lookback" <> help "Override lookback bars (disables --lookback-window conversion)"))
@@ -1599,6 +1599,9 @@ data BotState = BotState
   , botPollLatencyMs :: !Int
   , botFetchedKlines :: !Int
   , botFetchedLastKline :: !(Maybe Kline)
+  , botLastBatchAtMs :: !Int64
+  , botLastBatchSize :: !Int
+  , botLastBatchMs :: !Int
   , botError :: !(Maybe String)
   }
 
@@ -1649,7 +1652,7 @@ botStatusJson st =
           , "low" .= kLow k
           , "close" .= kClose k
           ]
-   in
+    in
   object $
     [ "running" .= True
     , "symbol" .= botSymbol st
@@ -1659,12 +1662,23 @@ botStatusJson st =
     , "threshold" .= argOpenThreshold (botArgs st)
     , "openThreshold" .= argOpenThreshold (botArgs st)
     , "closeThreshold" .= argCloseThreshold (botArgs st)
+    , "settings"
+        .= object
+          [ "pollSeconds" .= bsPollSeconds (botSettings st)
+          , "onlineEpochs" .= bsOnlineEpochs (botSettings st)
+          , "trainBars" .= bsTrainBars (botSettings st)
+          , "maxPoints" .= bsMaxPoints (botSettings st)
+          , "tradeEnabled" .= bsTradeEnabled (botSettings st)
+          ]
     , "startIndex" .= botStartIndex st
     , "startedAtMs" .= botStartedAtMs st
     , "updatedAtMs" .= botUpdatedAtMs st
     , "polledAtMs" .= botPolledAtMs st
     , "pollLatencyMs" .= botPollLatencyMs st
     , "fetchedKlines" .= botFetchedKlines st
+    , "lastBatchAtMs" .= botLastBatchAtMs st
+    , "lastBatchSize" .= botLastBatchSize st
+    , "lastBatchMs" .= botLastBatchMs st
     , "halted" .= isJust (botHaltReason st)
     , "peakEquity" .= botPeakEquity st
     , "dayStartEquity" .= botDayStartEquity st
@@ -1915,7 +1929,7 @@ initBotState args settings sym = do
                 , lcGradClip = argGradClip args
                 , lcSeed = argSeed args
                 }
-            (lstmModel, _) = trainLSTM lstmCfg obsAll
+        (lstmModel, _) <- trainLstmWithPersistence args lookback lstmCfg obsAll
         pure (Just (normState, obsAll, lstmModel))
 
   (mKalmanCtx, kalPred0) <-
@@ -2109,6 +2123,9 @@ initBotState args settings sym = do
               if null ks
                 then Nothing
                 else Just (last ks)
+          , botLastBatchAtMs = now
+          , botLastBatchSize = length ks
+          , botLastBatchMs = 0
           , botError = Nothing
           }
 
@@ -2252,28 +2269,29 @@ botApplyOptimizerUpdate st upd = do
               , botError = Nothing
               }
 
-rebuildLstmCtx :: Args -> Int -> V.Vector Double -> Either String LstmCtx
+rebuildLstmCtx :: Args -> Int -> V.Vector Double -> IO (Either String LstmCtx)
 rebuildLstmCtx args lookback pricesV =
   let closes = V.toList pricesV
       n = length closes
-   in if n <= lookback
-        then Left "Not enough bars to rebuild LSTM context."
-        else
-          let normState = fitNorm (argNormalization args) closes
-              obsAll = forwardSeries normState closes
-              lstmCfg =
-                LSTMConfig
-                  { lcLookback = lookback
-                  , lcHiddenSize = argHiddenSize args
-                  , lcEpochs = argEpochs args
-                  , lcLearningRate = argLr args
-                  , lcValRatio = argValRatio args
-                  , lcPatience = argPatience args
-                  , lcGradClip = argGradClip args
-                  , lcSeed = argSeed args
-                  }
-              (lstmModel, _) = trainLSTM lstmCfg obsAll
-           in Right (normState, obsAll, lstmModel)
+   in
+    if n <= lookback
+      then pure (Left "Not enough bars to rebuild LSTM context.")
+      else do
+        let normState = fitNorm (argNormalization args) closes
+            obsAll = forwardSeries normState closes
+            lstmCfg =
+              LSTMConfig
+                { lcLookback = lookback
+                , lcHiddenSize = argHiddenSize args
+                , lcEpochs = argEpochs args
+                , lcLearningRate = argLr args
+                , lcValRatio = argValRatio args
+                , lcPatience = argPatience args
+                , lcGradClip = argGradClip args
+                , lcSeed = argSeed args
+                }
+        (lstmModel, _) <- trainLstmWithPersistence args lookback lstmCfg obsAll
+        pure (Right (normState, obsAll, lstmModel))
 
 rebuildKalmanCtx :: Args -> Int -> V.Vector Double -> Either String KalmanCtx
 rebuildKalmanCtx args lookback pricesV =
@@ -2491,8 +2509,8 @@ buildOptimizerUpdate st combo = do
           if n < max 3 (lookback + 1)
             then pure (Left "Not enough bars to apply optimizer update.")
             else do
-              let mLstmE = if needsLstm' then Just (rebuildLstmCtx args0 lookback pricesV) else Nothing
-                  mKalE = if needsKalman' then Just (rebuildKalmanCtx args0 lookback pricesV) else Nothing
+              mLstmE <- if needsLstm' then Just <$> rebuildLstmCtx args0 lookback pricesV else pure Nothing
+              let mKalE = if needsKalman' then Just (rebuildKalmanCtx args0 lookback pricesV) else Nothing
                   collect =
                     case (mLstmE, mKalE) of
                       (Just (Left e), _) -> Left e
@@ -2766,8 +2784,18 @@ botLoop mOps metrics mJournal ctrl stVar stopSig mOptimizerPending = do
                     sleepSec pollSec
                     loop
                   else do
+                    tProc0 <- getTimestampMs
                     st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal s0 k) (pure stPolled) newKs
-                    _ <- swapMVar stVar st1
+                    tProc1 <- getTimestampMs
+                    let batchMs = max 0 (fromIntegral (tProc1 - tProc0) :: Int)
+                        batchSize = length newKs
+                        st1' =
+                          st1
+                            { botLastBatchAtMs = tProc1
+                            , botLastBatchSize = batchSize
+                            , botLastBatchMs = batchMs
+                            }
+                    _ <- swapMVar stVar st1'
                     loop
 
       cleanup = do
@@ -2891,6 +2919,8 @@ botApplyKline mOps metrics mJournal st k = do
               if epochs <= 0
                 then (lstmModel0, [])
                 else fineTuneLSTM cfg lstmModel0 obsTrain
+        mPath <- lstmWeightsPath args lookback
+        savePersistedLstmModelMaybe mPath (length obsTrain) lstmModel1
         pure (Just (normState, obsAll', lstmModel1))
 
   let latest0 = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1
@@ -6293,7 +6323,17 @@ savePersistedLstmModelMaybe mPath trainBars model =
                       , plmTrainBars = max 0 trainBars
                       , plmParams = lmParams model
                       }
-              BL.writeFile path (encode plm)
+              randId <- randomIO :: IO Word64
+              let tmpPath = path ++ ".tmp-" ++ show randId
+              BL.writeFile tmpPath (encode plm)
+              -- Atomic on POSIX when within the same filesystem; on Windows, fall back to replace.
+              r1 <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+              case r1 of
+                Right _ -> pure ()
+                Left _ -> do
+                  _ <- try (removeFile path) :: IO (Either SomeException ())
+                  _ <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+                  pure ()
           )
           :: IO (Either SomeException ())
       pure ()

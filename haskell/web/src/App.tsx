@@ -736,6 +736,10 @@ export function App() {
     lastHalted: boolean | null;
     lastFetchedOpenTimeMs: number | null;
     lastFetchedClose: number | null;
+    lastMethod: Method | null;
+    lastOpenThreshold: number | null;
+    lastCloseThreshold: number | null;
+    lastTradeEnabled: boolean | null;
   }>({
     botKey: null,
     lastOpenTimeMs: null,
@@ -743,6 +747,10 @@ export function App() {
     lastHalted: null,
     lastFetchedOpenTimeMs: null,
     lastFetchedClose: null,
+    lastMethod: null,
+    lastOpenThreshold: null,
+    lastCloseThreshold: null,
+    lastTradeEnabled: null,
   });
 
   const [keys, setKeys] = useState<KeysUiState>({
@@ -1369,16 +1377,28 @@ export function App() {
     const pollLatencyMs = typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? st.pollLatencyMs : null;
     const pollAgeMs = polledAtMs !== null ? now - polledAtMs : null;
     const fetchedKlines = typeof st.fetchedKlines === "number" && Number.isFinite(st.fetchedKlines) ? st.fetchedKlines : null;
+    const pollSeconds =
+      typeof st.settings?.pollSeconds === "number" && Number.isFinite(st.settings.pollSeconds) ? Math.max(0, st.settings.pollSeconds) : null;
+    const nextPollEtaMs = polledAtMs !== null && pollSeconds !== null ? polledAtMs + pollSeconds * 1000 - now : null;
     const candleAgeMs = candleOpenTime !== null ? now - candleOpenTime : null;
     const procLagMs = processedOpenTime !== null ? st.updatedAtMs - processedOpenTime : null;
     const closeLagMs = expectedCloseMs !== null ? st.updatedAtMs - expectedCloseMs : null;
     const pollCloseLagMs = polledAtMs !== null && expectedCloseMs !== null ? polledAtMs - expectedCloseMs : null;
+    const lastBatchAtMs = typeof st.lastBatchAtMs === "number" && Number.isFinite(st.lastBatchAtMs) ? st.lastBatchAtMs : null;
+    const lastBatchSize = typeof st.lastBatchSize === "number" && Number.isFinite(st.lastBatchSize) ? st.lastBatchSize : null;
+    const lastBatchMs = typeof st.lastBatchMs === "number" && Number.isFinite(st.lastBatchMs) ? st.lastBatchMs : null;
+    const batchAgeMs = lastBatchAtMs !== null ? now - lastBatchAtMs : null;
+    const batchPerBarMs = lastBatchMs !== null && lastBatchSize && lastBatchSize > 0 ? lastBatchMs / lastBatchSize : null;
     const lastBarIndex = st.startIndex + Math.max(0, st.prices.length - 1);
     const processedClose = st.prices[st.prices.length - 1] ?? null;
     const fetchedClose = typeof fetchedLast?.close === "number" && Number.isFinite(fetchedLast.close) ? fetchedLast.close : null;
     const closeDelta = typeof processedClose === "number" && Number.isFinite(processedClose) && typeof fetchedClose === "number" ? fetchedClose - processedClose : null;
     const closeDeltaPct =
       closeDelta !== null && typeof processedClose === "number" && Number.isFinite(processedClose) && processedClose !== 0 ? closeDelta / processedClose : null;
+    const behindCandles =
+      fetchedOpenTime !== null && processedOpenTime !== null && intervalMs !== null
+        ? Math.max(0, Math.round((fetchedOpenTime - processedOpenTime) / intervalMs))
+        : null;
     return {
       now,
       processedOpenTime,
@@ -1391,15 +1411,23 @@ export function App() {
       pollLatencyMs,
       pollAgeMs,
       fetchedKlines,
+      pollSeconds,
+      nextPollEtaMs,
       candleAgeMs,
       procLagMs,
       closeLagMs,
       pollCloseLagMs,
+      lastBatchAtMs,
+      lastBatchSize,
+      lastBatchMs,
+      batchAgeMs,
+      batchPerBarMs,
       lastBarIndex,
       processedClose,
       fetchedClose,
       closeDelta,
       closeDeltaPct,
+      behindCandles,
       fetchedLast,
     };
   }, [bot.status]);
@@ -1759,29 +1787,37 @@ export function App() {
 
           const rt = botRtRef.current;
 
-          if (!out.running) {
-            botRtRef.current = {
-              botKey: null,
-              lastOpenTimeMs: null,
-              lastError: null,
-              lastHalted: null,
-              lastFetchedOpenTimeMs: null,
-              lastFetchedClose: null,
-            };
-            return { ...base, lastNewCandles: 0, lastNewCandlesAtMs: null, lastKlineUpdates: 0, lastKlineUpdatesAtMs: null, feed: [] };
-          }
+	          if (!out.running) {
+	            botRtRef.current = {
+	              botKey: null,
+	              lastOpenTimeMs: null,
+	              lastError: null,
+	              lastHalted: null,
+	              lastFetchedOpenTimeMs: null,
+	              lastFetchedClose: null,
+	              lastMethod: null,
+	              lastOpenThreshold: null,
+	              lastCloseThreshold: null,
+	              lastTradeEnabled: null,
+	            };
+	            return { ...base, lastNewCandles: 0, lastNewCandlesAtMs: null, lastKlineUpdates: 0, lastKlineUpdatesAtMs: null, feed: [] };
+	          }
 
           const botKey = `${out.market}:${out.symbol}:${out.interval}`;
           let feed = base.feed;
-          if (rt.botKey !== botKey) {
-            feed = [];
-            rt.botKey = botKey;
-            rt.lastOpenTimeMs = null;
-            rt.lastError = null;
-            rt.lastHalted = null;
-            rt.lastFetchedOpenTimeMs = null;
-            rt.lastFetchedClose = null;
-          }
+	          if (rt.botKey !== botKey) {
+	            feed = [];
+	            rt.botKey = botKey;
+	            rt.lastOpenTimeMs = null;
+	            rt.lastError = null;
+	            rt.lastHalted = null;
+	            rt.lastFetchedOpenTimeMs = null;
+	            rt.lastFetchedClose = null;
+	            rt.lastMethod = null;
+	            rt.lastOpenThreshold = null;
+	            rt.lastCloseThreshold = null;
+	            rt.lastTradeEnabled = null;
+	          }
 
           const openTimes = out.openTimes;
           const lastOpen = openTimes[openTimes.length - 1] ?? null;
@@ -1789,19 +1825,26 @@ export function App() {
           const newTimes = typeof prevLastOpen === "number" ? openTimes.filter((t) => t > prevLastOpen) : [];
           const newCount = newTimes.length;
 
-          let lastNewCandlesAtMs: number | null = prev.lastNewCandlesAtMs;
-          if (newCount > 0) {
-            lastNewCandlesAtMs = finishedAtMs;
-            const lastNew = newTimes[newTimes.length - 1]!;
-            const idx = openTimes.lastIndexOf(lastNew);
-            const closePx = idx >= 0 ? out.prices[idx] : null;
-            const action = out.latestSignal.action;
-            const msg =
-              `candle +${newCount}: open ${fmtTimeMs(lastNew)}` +
-              (typeof closePx === "number" && Number.isFinite(closePx) ? ` close ${fmtMoney(closePx, 4)}` : "") +
-              (action ? ` • action ${action}` : "");
-            feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
-          }
+	          let lastNewCandlesAtMs: number | null = prev.lastNewCandlesAtMs;
+	          if (newCount > 0) {
+	            lastNewCandlesAtMs = finishedAtMs;
+	            const lastNew = newTimes[newTimes.length - 1]!;
+	            const idx = openTimes.lastIndexOf(lastNew);
+	            const closePx = idx >= 0 ? out.prices[idx] : null;
+	            const action = out.latestSignal.action;
+	            const pollMs = typeof out.pollLatencyMs === "number" && Number.isFinite(out.pollLatencyMs) ? Math.max(0, Math.round(out.pollLatencyMs)) : null;
+	            const batchMs = typeof out.lastBatchMs === "number" && Number.isFinite(out.lastBatchMs) ? Math.max(0, Math.round(out.lastBatchMs)) : null;
+	            const batchSize =
+	              typeof out.lastBatchSize === "number" && Number.isFinite(out.lastBatchSize) ? Math.max(0, Math.round(out.lastBatchSize)) : null;
+	            const perBarMs = batchMs !== null && batchSize && batchSize > 0 ? batchMs / batchSize : null;
+	            const msg =
+	              `candle +${newCount}: open ${fmtTimeMs(lastNew)}` +
+	              (typeof closePx === "number" && Number.isFinite(closePx) ? ` close ${fmtMoney(closePx, 4)}` : "") +
+	              (action ? ` • action ${action}` : "") +
+	              (pollMs !== null ? ` • poll ${pollMs}ms` : "") +
+	              (batchMs !== null ? ` • proc ${batchMs}ms${perBarMs !== null ? ` (${fmtNum(perBarMs, 1)}ms/bar)` : ""}` : "");
+	            feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+	          }
 
           let lastKlineUpdatesAtMs: number | null = prev.lastKlineUpdatesAtMs;
           let klineUpdates = 0;
@@ -1820,25 +1863,46 @@ export function App() {
                 feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
               }
               rt.lastFetchedOpenTimeMs = openTime;
-              rt.lastFetchedClose = close;
-            }
-          }
+	              rt.lastFetchedClose = close;
+	            }
+	          }
 
-          const err = out.error ?? null;
-          if (err && err !== rt.lastError) {
-            feed = [{ atMs: finishedAtMs, message: `error: ${err}` }, ...feed].slice(0, 50);
-          }
+	          const openThr = out.openThreshold ?? out.threshold;
+	          const closeThr = out.closeThreshold ?? out.openThreshold ?? out.threshold;
+	          const tradeEnabled = out.settings?.tradeEnabled ?? null;
+
+	          if (rt.lastMethod !== null && (out.method !== rt.lastMethod || openThr !== rt.lastOpenThreshold || closeThr !== rt.lastCloseThreshold)) {
+	            const msg =
+	              `params: ${methodLabel(out.method)}` +
+	              ` • open ${fmtPct(openThr, 3)}` +
+	              ` • close ${fmtPct(closeThr, 3)}` +
+	              (typeof tradeEnabled === "boolean" ? ` • trade ${tradeEnabled ? "ON" : "OFF"}` : "");
+	            feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+	          }
+
+	          if (typeof tradeEnabled === "boolean" && rt.lastTradeEnabled !== null && tradeEnabled !== rt.lastTradeEnabled) {
+	            feed = [{ atMs: finishedAtMs, message: `trade ${tradeEnabled ? "enabled" : "disabled"}` }, ...feed].slice(0, 50);
+	          }
+
+	          const err = out.error ?? null;
+	          if (err && err !== rt.lastError) {
+	            feed = [{ atMs: finishedAtMs, message: `error: ${err}` }, ...feed].slice(0, 50);
+	          }
 
           if (rt.lastHalted !== null && rt.lastHalted !== out.halted) {
             feed = [{ atMs: finishedAtMs, message: out.halted ? `halted: ${out.haltReason ?? "true"}` : "resumed" }, ...feed].slice(0, 50);
           }
 
-          rt.lastOpenTimeMs = lastOpen;
-          rt.lastError = err;
-          rt.lastHalted = out.halted;
+	          rt.lastOpenTimeMs = lastOpen;
+	          rt.lastError = err;
+	          rt.lastHalted = out.halted;
+	          rt.lastMethod = out.method;
+	          rt.lastOpenThreshold = openThr;
+	          rt.lastCloseThreshold = closeThr;
+	          rt.lastTradeEnabled = typeof tradeEnabled === "boolean" ? tradeEnabled : null;
 
-          return { ...base, lastNewCandles: newCount, lastNewCandlesAtMs, lastKlineUpdates: klineUpdates, lastKlineUpdatesAtMs, feed };
-        });
+	          return { ...base, lastNewCandles: newCount, lastNewCandlesAtMs, lastKlineUpdates: klineUpdates, lastKlineUpdatesAtMs, feed };
+	        });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         setApiOk("ok");
       } catch (e) {
@@ -2230,8 +2294,9 @@ export function App() {
   const apiComputeLimits = healthInfo?.computeLimits ?? null;
   const apiLstmEnabled = form.method !== "10";
   const barsRawForLimits = Math.trunc(form.bars);
+  const barsEffectiveForLimits = barsRawForLimits <= 0 ? 500 : barsRawForLimits;
   const barsExceedsApi = Boolean(
-    apiComputeLimits && apiLstmEnabled && barsRawForLimits > 0 && barsRawForLimits > apiComputeLimits.maxBarsLstm,
+    apiComputeLimits && apiLstmEnabled && barsEffectiveForLimits > apiComputeLimits.maxBarsLstm,
   );
   const epochsExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.epochs > apiComputeLimits.maxEpochs);
   const hiddenSizeExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.hiddenSize > apiComputeLimits.maxHiddenSize);
@@ -2746,7 +2811,7 @@ export function App() {
                 <div className="hint" style={barsExceedsApi ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
                   {barsExceedsApi
                     ? `API limit: max ${apiComputeLimits?.maxBarsLstm ?? "?"} bars for LSTM methods. Reduce bars or use method=10 (Kalman-only).`
-                    : "0 uses all CSV data. For Binance, keep values between 2–1000 (default 500). Larger values take longer."
+                    : "0=auto (Binance uses 500; CSV uses all). For Binance, 2–1000 is allowed. Larger values take longer."
                   }
                 </div>
               </div>
@@ -3842,43 +3907,84 @@ export function App() {
 	                      </span>
 	                    </div>
 	                  </div>
-	                  <div className="kv">
-	                    <div className="k">Binance poll</div>
-	                    <div className="v">
-	                      {botRealtime?.polledAtMs ? (
-	                        <>
-	                          {fmtTimeMs(botRealtime.polledAtMs)} • {fmtDurationMs(botRealtime.pollLatencyMs)} • klines{" "}
-	                          {typeof botRealtime.fetchedKlines === "number" ? botRealtime.fetchedKlines : "—"}
-	                        </>
-	                      ) : (
-	                        "—"
-	                      )}
-	                    </div>
-	                  </div>
-	                  <div className="kv">
-	                    <div className="k">Processed candle</div>
-	                    <div className="v">
-	                      {botRealtime?.processedOpenTime ? (
-	                        <>
-	                          {fmtTimeMs(botRealtime.processedOpenTime)} • close{" "}
-	                          {typeof botRealtime.processedClose === "number" ? fmtMoney(botRealtime.processedClose, 4) : "—"} • bar{" "}
-	                          {botRealtime.lastBarIndex}
-	                        </>
-	                      ) : (
-	                        "—"
-	                      )}
-	                    </div>
-	                  </div>
-	                  <div className="kv">
-	                    <div className="k">Fetched candle</div>
-	                    <div className="v">
-	                      {botRealtime?.fetchedLast ? (
-	                        <>
-	                          {fmtTimeMs(botRealtime.fetchedLast.openTime)} • O {fmtMoney(botRealtime.fetchedLast.open, 4)} H{" "}
-	                          {fmtMoney(botRealtime.fetchedLast.high, 4)} L {fmtMoney(botRealtime.fetchedLast.low, 4)} C{" "}
-	                          {fmtMoney(botRealtime.fetchedLast.close, 4)}
-	                          {typeof botRealtime.closeDelta === "number" && Number.isFinite(botRealtime.closeDelta) ? (
-	                            <>
+		                  <div className="kv">
+		                    <div className="k">Binance poll</div>
+		                    <div className="v">
+		                      {botRealtime?.polledAtMs ? (
+		                        <>
+		                          {fmtTimeMs(botRealtime.polledAtMs)} • {fmtDurationMs(botRealtime.pollLatencyMs)} • klines{" "}
+		                          {typeof botRealtime.fetchedKlines === "number" ? botRealtime.fetchedKlines : "—"} • next {fmtEtaMs(botRealtime.nextPollEtaMs)}
+		                        </>
+		                      ) : (
+		                        "—"
+		                      )}
+		                    </div>
+		                  </div>
+		                  <div className="kv">
+		                    <div className="k">Batch</div>
+		                    <div className="v">
+		                      {botRealtime?.lastBatchAtMs ? (
+		                        <>
+		                          {fmtTimeMs(botRealtime.lastBatchAtMs)} •{" "}
+		                          {typeof botRealtime.lastBatchSize === "number"
+		                            ? `${botRealtime.lastBatchSize} candle${botRealtime.lastBatchSize === 1 ? "" : "s"}`
+		                            : "—"}{" "}
+		                          • {fmtDurationMs(botRealtime.lastBatchMs)}
+		                          {typeof botRealtime.batchPerBarMs === "number" && Number.isFinite(botRealtime.batchPerBarMs)
+		                            ? ` (${fmtNum(botRealtime.batchPerBarMs, 1)}ms/bar)`
+		                            : ""}
+		                          {" • "}age {fmtDurationMs(botRealtime.batchAgeMs)}
+		                        </>
+		                      ) : (
+		                        "—"
+		                      )}
+		                    </div>
+		                  </div>
+		                  <div className="kv">
+		                    <div className="k">Settings</div>
+		                    <div className="v">
+		                      {bot.status.settings ? (
+		                        <>
+		                          poll {bot.status.settings.pollSeconds}s • online epochs {bot.status.settings.onlineEpochs} • train bars{" "}
+		                          {bot.status.settings.trainBars} • max points {bot.status.settings.maxPoints} • trade{" "}
+		                          {bot.status.settings.tradeEnabled ? "ON" : "OFF"}
+		                        </>
+		                      ) : (
+		                        "—"
+		                      )}
+		                    </div>
+		                  </div>
+		                  <div className="kv">
+		                    <div className="k">Processed candle</div>
+		                    <div className="v">
+		                      {botRealtime?.processedOpenTime ? (
+		                        <>
+		                          {fmtTimeMs(botRealtime.processedOpenTime)} • close{" "}
+		                          {typeof botRealtime.processedClose === "number" ? fmtMoney(botRealtime.processedClose, 4) : "—"} • bar{" "}
+		                          {botRealtime.lastBarIndex}
+		                          {typeof botRealtime.behindCandles === "number" && botRealtime.behindCandles > 0
+		                            ? ` • behind ${botRealtime.behindCandles}`
+		                            : ""}
+		                        </>
+		                      ) : (
+		                        "—"
+		                      )}
+		                    </div>
+		                  </div>
+		                  <div className="kv">
+		                    <div className="k">Fetched candle</div>
+		                    <div className="v">
+		                      {botRealtime?.fetchedLast ? (
+		                        <>
+		                          {fmtTimeMs(botRealtime.fetchedLast.openTime)}
+		                          {typeof botRealtime.behindCandles === "number" && botRealtime.behindCandles > 0
+		                            ? ` • ahead +${botRealtime.behindCandles}`
+		                            : ""}{" "}
+		                          • O {fmtMoney(botRealtime.fetchedLast.open, 4)} H{" "}
+		                          {fmtMoney(botRealtime.fetchedLast.high, 4)} L {fmtMoney(botRealtime.fetchedLast.low, 4)} C{" "}
+		                          {fmtMoney(botRealtime.fetchedLast.close, 4)}
+		                          {typeof botRealtime.closeDelta === "number" && Number.isFinite(botRealtime.closeDelta) ? (
+		                            <>
 	                              {" "}
 	                              • Δ {fmtMoney(botRealtime.closeDelta, 4)}
 	                              {typeof botRealtime.closeDeltaPct === "number" && Number.isFinite(botRealtime.closeDeltaPct)

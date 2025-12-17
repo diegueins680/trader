@@ -283,6 +283,7 @@ export type BotStatus =
       threshold: number;
       openThreshold?: number;
       closeThreshold?: number;
+      settings?: { pollSeconds: number; onlineEpochs: number; trainBars: number; maxPoints: number; tradeEnabled: boolean };
       halted: boolean;
       peakEquity: number;
       dayStartEquity: number;
@@ -296,6 +297,9 @@ export type BotStatus =
       pollLatencyMs?: number;
       fetchedKlines?: number;
       fetchedLastKline?: BotKline;
+      lastBatchAtMs?: number;
+      lastBatchSize?: number;
+      lastBatchMs?: number;
       prices: number[];
       openTimes: number[];
       kalmanPredNext: Array<number | null>;
