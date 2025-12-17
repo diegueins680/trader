@@ -115,60 +115,100 @@ import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..),
 
 -- CSV loading
 
-loadPricesCsv :: FilePath -> String -> IO [Double]
-loadPricesCsv path priceCol = do
-  bs <- BL.readFile path
-  case Csv.decodeByName bs of
-    Left err -> error ("CSV decode failed (" ++ path ++ "): " ++ err)
-    Right (hdr, rows) -> do
-      let wanted = trim priceCol
-          wantedLower = map toLower wanted
-          wantedNorm = normalizeKey wanted
-          hdrList = V.toList hdr
-          rowsList0 = V.toList rows
-          wantedBs = BS.pack wanted
-          mKeyExact =
-            if wantedBs `elem` hdrList then Just wantedBs else Nothing
-          mKeyNorm =
-            case filter (\h -> normalizeKey (BS.unpack h) == wantedNorm) hdrList of
-              (h:_) -> Just h
-              [] -> Nothing
-          mKey =
-            case mKeyExact of
-              Just k -> Just k
-              Nothing ->
-                case filter (\h -> map toLower (BS.unpack h) == wantedLower) hdrList of
-                  (h:_) -> Just h
-                  [] -> mKeyNorm
-          available = BS.unpack (BS.intercalate ", " hdrList)
-          suggestions =
-            let commonPrefixLen :: String -> String -> Int
-                commonPrefixLen a b = length (takeWhile id (zipWith (==) a b))
-                score hn =
-                  let pref = commonPrefixLen wantedNorm hn
-                      contains = if wantedNorm `isInfixOf` hn then 100 else 0
-                   in contains + pref
-                scored =
-                  [ (negate s, h)
-                  | h <- hdrList
-                  , let hn = normalizeKey (BS.unpack h)
-                  , let s = score hn
-                  , s > 0
-                  ]
-             in take 5 (map snd (sortOn fst scored))
-
-      if null wanted then error "--price-column cannot be empty" else pure ()
-      key <-
+resolveCsvColumnKey :: FilePath -> String -> [BS.ByteString] -> String -> BS.ByteString
+resolveCsvColumnKey path flagName hdrList raw =
+  let wanted = trim raw
+      wantedLower = map toLower wanted
+      wantedNorm = normalizeKey wanted
+      wantedBs = BS.pack wanted
+      mKeyExact =
+        if wantedBs `elem` hdrList then Just wantedBs else Nothing
+      mKeyNorm =
+        case filter (\h -> normalizeKey (BS.unpack h) == wantedNorm) hdrList of
+          (h : _) -> Just h
+          [] -> Nothing
+      mKey =
+        case mKeyExact of
+          Just k -> Just k
+          Nothing ->
+            case filter (\h -> map toLower (BS.unpack h) == wantedLower) hdrList of
+              (h : _) -> Just h
+              [] -> mKeyNorm
+      available = BS.unpack (BS.intercalate ", " hdrList)
+      suggestions =
+        let commonPrefixLen :: String -> String -> Int
+            commonPrefixLen a b = length (takeWhile id (zipWith (==) a b))
+            score hn =
+              let pref = commonPrefixLen wantedNorm hn
+                  contains = if wantedNorm `isInfixOf` hn then 100 else 0
+               in contains + pref
+            scored =
+              [ (negate s, h)
+              | h <- hdrList
+              , let hn = normalizeKey (BS.unpack h)
+              , let s = score hn
+              , s > 0
+              ]
+         in take 5 (map snd (sortOn fst scored))
+   in
+    if null wanted
+      then error (flagName ++ " cannot be empty")
+      else
         case mKey of
-          Just k -> pure k
+          Just k -> k
           Nothing ->
             let hint =
                   if null suggestions
                     then ""
                     else " Suggestions: " ++ BS.unpack (BS.intercalate ", " suggestions) ++ "."
-             in error ("Column not found: " ++ wanted ++ " (file: " ++ path ++ "). Available columns: " ++ available ++ "." ++ hint)
-      let rowsList = maybe rowsList0 (\tk -> sortCsvRowsByTime tk rowsList0) (csvTimeKey hdrList)
-      pure $ zipWith (\i row -> extractPriceAt i key row) [1 :: Int ..] rowsList
+             in
+              error
+                ( "Column not found for "
+                    ++ flagName
+                    ++ ": "
+                    ++ wanted
+                    ++ " (file: "
+                    ++ path
+                    ++ "). Available columns: "
+                    ++ available
+                    ++ "."
+                    ++ hint
+                )
+
+extractCellDoubleAt :: Int -> BS.ByteString -> Csv.NamedRecord -> Double
+extractCellDoubleAt rowIndex key rec =
+  case HM.lookup key rec of
+    Nothing -> error ("Column not found: " ++ BS.unpack key)
+    Just raw ->
+      let s = trim (BS.unpack raw)
+       in case readMaybe s of
+            Just d -> d
+            Nothing ->
+              error
+                ( "Failed to parse value at row "
+                    ++ show rowIndex
+                    ++ " ("
+                    ++ BS.unpack key
+                    ++ "): "
+                    ++ s
+                )
+
+loadCsvPriceSeries :: FilePath -> String -> Maybe String -> Maybe String -> IO ([Double], Maybe [Double], Maybe [Double])
+loadCsvPriceSeries path closeCol mHighCol mLowCol = do
+  bs <- BL.readFile path
+  case Csv.decodeByName bs of
+    Left err -> error ("CSV decode failed (" ++ path ++ "): " ++ err)
+    Right (hdr, rows) -> do
+      let hdrList = V.toList hdr
+          rowsList0 = V.toList rows
+          rowsList = maybe rowsList0 (\tk -> sortCsvRowsByTime tk rowsList0) (csvTimeKey hdrList)
+          closeKey = resolveCsvColumnKey path "--price-column" hdrList closeCol
+          mHighKey = fmap (resolveCsvColumnKey path "--high-column" hdrList) mHighCol
+          mLowKey = fmap (resolveCsvColumnKey path "--low-column" hdrList) mLowCol
+          closeSeries = zipWith (\i row -> extractCellDoubleAt i closeKey row) [1 :: Int ..] rowsList
+          highSeries = fmap (\k -> zipWith (\i row -> extractCellDoubleAt i k row) [1 :: Int ..] rowsList) mHighKey
+          lowSeries = fmap (\k -> zipWith (\i row -> extractCellDoubleAt i k row) [1 :: Int ..] rowsList) mLowKey
+      pure (closeSeries, highSeries, lowSeries)
 
 csvTimeKey :: [BS.ByteString] -> Maybe BS.ByteString
 csvTimeKey hdrList =
@@ -239,24 +279,6 @@ firstJust xs =
         Just _ -> y
         Nothing -> firstJust ys
 
-extractPriceAt :: Int -> BS.ByteString -> Csv.NamedRecord -> Double
-extractPriceAt rowIndex key rec =
-  case HM.lookup key rec of
-    Nothing -> error ("Column not found: " ++ BS.unpack key)
-    Just raw ->
-      let s = trim (BS.unpack raw)
-       in case readMaybe s of
-            Just d -> d
-            Nothing ->
-              error
-                ( "Failed to parse price at row "
-                    ++ show rowIndex
-                    ++ " ("
-                    ++ BS.unpack key
-                    ++ "): "
-                    ++ s
-                )
-
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
 
@@ -315,6 +337,8 @@ data BacktestSummary = BacktestSummary
 data Args = Args
   { argData :: Maybe FilePath
   , argPriceCol :: String
+  , argHighCol :: Maybe String
+  , argLowCol :: Maybe String
   , argBinanceSymbol :: Maybe String
   , argBinanceFutures :: Bool
   , argBinanceMargin :: Bool
@@ -451,6 +475,8 @@ opts =
   Args
     <$> optional (strOption (long "data" <> metavar "PATH" <> help "CSV file containing prices"))
     <*> strOption (long "price-column" <> value "close" <> help "CSV column name for price (case-insensitive; prints suggestions on error)")
+    <*> optional (strOption (long "high-column" <> help "CSV column name for high (requires --low-column; enables intrabar stops/TP/trailing)"))
+    <*> optional (strOption (long "low-column" <> help "CSV column name for low (requires --high-column; enables intrabar stops/TP/trailing)"))
     <*> optional (strOption (long "binance-symbol" <> metavar "SYMBOL" <> help "Fetch klines from Binance (e.g., BTCUSDT)"))
     <*> switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders")
     <*> switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance")
@@ -578,14 +604,35 @@ argLookback args =
 
 validateArgs :: Args -> Either String Args
 validateArgs args0 = do
-  let args =
+  let args1 =
         if argCloseThreshold args0 == closeThresholdSentinel
           then args0 { argCloseThreshold = argOpenThreshold args0 }
           else args0
+      args =
+        args1
+          { argData = fmap trim (argData args1)
+          , argPriceCol = trim (argPriceCol args1)
+          , argHighCol = fmap trim (argHighCol args1)
+          , argLowCol = fmap trim (argLowCol args1)
+          }
   ensure "Provide only one of --data or --binance-symbol" (not (isJust (argData args) && isJust (argBinanceSymbol args)))
   ensure "--json cannot be used with --serve" (not (argJson args && argServe args))
   ensure "--positioning long-short is not supported with --serve (live bot is long-flat only)" (not (argServe args && argPositioning args == LongShort))
   ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
+
+  case argHighCol args of
+    Nothing -> pure ()
+    Just "" -> Left "--high-column cannot be empty"
+    Just _ -> pure ()
+  case argLowCol args of
+    Nothing -> pure ()
+    Just "" -> Left "--low-column cannot be empty"
+    Just _ -> pure ()
+  case (argHighCol args, argLowCol args) of
+    (Nothing, Nothing) -> pure ()
+    (Just _, Just _) ->
+      ensure "--high-column/--low-column require --data" (isJust (argData args))
+    _ -> Left "Provide both --high-column and --low-column (or omit both)."
 
   let intervalStr = trim (argInterval args)
   ensure "--interval is required" (not (null intervalStr))
@@ -768,6 +815,8 @@ main = do
 data ApiParams = ApiParams
   { apData :: Maybe FilePath
   , apPriceColumn :: Maybe String
+  , apHighColumn :: Maybe String
+  , apLowColumn :: Maybe String
   , apBinanceSymbol :: Maybe String
   , apMarket :: Maybe String -- "spot" | "margin" | "futures"
   , apInterval :: Maybe String
@@ -848,6 +897,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrBinanceSymbol :: !(Maybe String)
   , arrData :: !(Maybe FilePath)
   , arrPriceColumn :: !(Maybe String)
+  , arrHighColumn :: !(Maybe String)
+  , arrLowColumn :: !(Maybe String)
   , arrIntervals :: !(Maybe String)
   , arrLookbackWindow :: !(Maybe String)
   , arrBarsMin :: !(Maybe Int)
@@ -864,6 +915,10 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrNormalizations :: !(Maybe String)
   , arrBacktestRatio :: !(Maybe Double)
   , arrTuneRatio :: !(Maybe Double)
+  , arrObjective :: !(Maybe String)
+  , arrPenaltyMaxDrawdown :: !(Maybe Double)
+  , arrPenaltyTurnover :: !(Maybe Double)
+  , arrMinRoundTrips :: !(Maybe Int)
   , arrDisableLstmPersistence :: !(Maybe Bool)
   , arrNoSweepThreshold :: !(Maybe Bool)
   } deriving (Eq, Show, Generic)
@@ -1214,6 +1269,8 @@ argsPublicJson args =
     object
       [ "data" .= argData args
       , "priceColumn" .= argPriceCol args
+      , "highColumn" .= argHighCol args
+      , "lowColumn" .= argLowCol args
       , "binanceSymbol" .= argBinanceSymbol args
       , "market" .= market
       , "interval" .= argInterval args
@@ -3173,6 +3230,50 @@ prepareOptimizerArgs outputPath topJsonPath req = do
             case source of
               OptimizerSourceCsv -> ["--price-column", pickDefaultString "close" (arrPriceColumn req)]
               OptimizerSourceBinance -> []
+          highCol = case fmap trim (arrHighColumn req) of
+            Just v | not (null v) -> Just v
+            _ -> Nothing
+          lowCol = case fmap trim (arrLowColumn req) of
+            Just v | not (null v) -> Just v
+            _ -> Nothing
+          ohlcArgsResult =
+            case source of
+              OptimizerSourceBinance ->
+                if isJust highCol || isJust lowCol
+                  then Left "highColumn/lowColumn are only supported for csv source"
+                  else Right []
+              OptimizerSourceCsv ->
+                case (highCol, lowCol) of
+                  (Nothing, Nothing) -> Right []
+                  (Just h, Just l) -> Right ["--high-column", h, "--low-column", l]
+                  _ -> Left "Provide both highColumn and lowColumn (or omit both)."
+          objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
+          objectiveRaw = fmap (map toLower . trim) (arrObjective req)
+          objectiveArgsResult =
+            case objectiveRaw of
+              Nothing -> Right []
+              Just v | null v -> Right []
+              Just v | v `elem` objectiveAllowed -> Right ["--objective", v]
+              Just v ->
+                Left
+                  ( "Invalid objective: "
+                      ++ show v
+                      ++ " (expected one of: "
+                      ++ intercalate ", " objectiveAllowed
+                      ++ ")"
+                  )
+          penaltyMaxDdArgs =
+            case arrPenaltyMaxDrawdown req of
+              Nothing -> []
+              Just w -> ["--penalty-max-drawdown", show (max 0 w)]
+          penaltyTurnoverArgs =
+            case arrPenaltyTurnover req of
+              Nothing -> []
+              Just w -> ["--penalty-turnover", show (max 0 w)]
+          minRoundTripsArgs =
+            case arrMinRoundTrips req of
+              Nothing -> []
+              Just n -> ["--min-round-trips", show (max 0 n)]
           intervalsVal = pickDefaultString defaultOptimizerIntervals (arrIntervals req)
           lookbackVal = pickDefaultString "24h" (arrLookbackWindow req)
           backtestRatioVal = clamp01 (fromMaybe 0.2 (arrBacktestRatio req))
@@ -3214,7 +3315,7 @@ prepareOptimizerArgs outputPath topJsonPath req = do
           barsArgs =
             maybeIntArg "--bars-min" barsMinRaw
               ++ maybeIntArg "--bars-max" barsMaxRaw
-          tuneArgs =
+          tuneArgsBase =
             [ "--intervals", intervalsVal
             , "--lookback-window", lookbackVal
             , "--backtest-ratio", show backtestRatioVal
@@ -3225,21 +3326,29 @@ prepareOptimizerArgs outputPath topJsonPath req = do
             , "--slippage-max", show slippageVal
             , "--spread-max", show spreadVal
             , "--normalizations", normalizationsVal
-            , "--output", outputPath
-            , "--top-json", topJsonPath
             ]
-      pure
-        ( Right
-            ( sourceArgs
-                ++ priceColumnArgs
-                ++ tuneArgs
-                ++ barsArgs
-                ++ epochArgs
-                ++ hiddenArgs
-                ++ boolArg "--disable-lstm-persistence" disableLstm
-                ++ boolArg "--no-sweep-threshold" noSweep
-            )
-        )
+          tuneArgsSuffix =
+            penaltyMaxDdArgs
+              ++ penaltyTurnoverArgs
+              ++ minRoundTripsArgs
+              ++ ["--output", outputPath, "--top-json", topJsonPath]
+      pure $
+        case (ohlcArgsResult, objectiveArgsResult) of
+          (Left e, _) -> Left e
+          (_, Left e) -> Left e
+          (Right ohlcArgs, Right objectiveArgs) ->
+            let tuneArgs = tuneArgsBase ++ objectiveArgs ++ tuneArgsSuffix
+             in Right
+                  ( sourceArgs
+                      ++ priceColumnArgs
+                      ++ ohlcArgs
+                      ++ tuneArgs
+                      ++ barsArgs
+                      ++ epochArgs
+                      ++ hiddenArgs
+                      ++ boolArg "--disable-lstm-persistence" disableLstm
+                      ++ boolArg "--no-sweep-threshold" noSweep
+                  )
 
 runOptimizerProcess ::
   FilePath ->
@@ -3931,6 +4040,8 @@ argsFromApi baseArgs p = do
         baseArgs
           { argData = pickMaybe (apData p) (argData baseArgs)
           , argPriceCol = pick (apPriceColumn p) (argPriceCol baseArgs)
+          , argHighCol = pickMaybe (apHighColumn p) (argHighCol baseArgs)
+          , argLowCol = pickMaybe (apLowColumn p) (argLowCol baseArgs)
           , argBinanceSymbol = pickMaybe (apBinanceSymbol p) (argBinanceSymbol baseArgs)
           , argBinanceFutures = futuresFlag
           , argBinanceMargin = marginFlag
@@ -5513,13 +5624,21 @@ loadPrices :: Args -> IO (PriceSeries, Maybe BinanceEnv)
 loadPrices args =
   case (argData args, argBinanceSymbol args) of
     (Just path, Nothing) -> do
-      closes <- loadPricesCsv path (argPriceCol args)
+      (closes, mHighs, mLows) <- loadCsvPriceSeries path (argPriceCol args) (argHighCol args) (argLowCol args)
       let bars = resolveBarsForCsv args
       let closes' =
             if bars > 0
               then takeLast bars closes
               else closes
-      pure (PriceSeries closes' Nothing Nothing, Nothing)
+          highs' =
+            if bars > 0
+              then fmap (takeLast bars) mHighs
+              else mHighs
+          lows' =
+            if bars > 0
+              then fmap (takeLast bars) mLows
+              else mLows
+      pure (PriceSeries closes' highs' lows', Nothing)
     (Nothing, Just sym) -> do
       (env, series) <- loadPricesBinance args sym
       pure (series, Just env)

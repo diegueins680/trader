@@ -680,6 +680,18 @@ def main(argv: List[str]) -> int:
     src.add_argument("--data", type=str, help="CSV path for backtest (recommended for optimization).")
     src.add_argument("--binance-symbol", type=str, help="Binance symbol (requires network; slower).")
     parser.add_argument("--price-column", type=str, default="close", help="CSV column name for price (default: close).")
+    parser.add_argument(
+        "--high-column",
+        type=str,
+        default="",
+        help="CSV column name for high (optional; requires --low-column; enables intrabar stops/TP/trailing).",
+    )
+    parser.add_argument(
+        "--low-column",
+        type=str,
+        default="",
+        help="CSV column name for low (optional; requires --high-column; enables intrabar stops/TP/trailing).",
+    )
     parser.add_argument("--lookback-window", type=str, default="24h", help="Lookback window (default: 24h).")
     parser.add_argument("--backtest-ratio", type=float, default=0.2, help="Backtest holdout ratio (default: 0.2).")
     parser.add_argument("--tune-ratio", type=float, default=0.2, help="Tune ratio for --sweep-threshold (default: 0.2).")
@@ -1013,6 +1025,13 @@ def main(argv: List[str]) -> int:
         data_path = Path(args.data).expanduser().resolve()
         base_args += ["--data", str(data_path)]
         base_args += ["--price-column", args.price_column]
+        high_col = (args.high_column or "").strip()
+        low_col = (args.low_column or "").strip()
+        if bool(high_col) != bool(low_col):
+            print("When using --high-column/--low-column, you must provide both.", file=sys.stderr)
+            return 2
+        if high_col and low_col:
+            base_args += ["--high-column", high_col, "--low-column", low_col]
     else:
         base_args += ["--binance-symbol", args.binance_symbol]
 
