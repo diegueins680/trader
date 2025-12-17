@@ -35,7 +35,9 @@ computeMetrics periodsPerYear br =
       finalEq =
         case eq of
           [] -> 1.0
-          xs -> last xs
+          xs ->
+            let v = last xs
+             in if isNaN v || isInfinite v || v < 0 then 0 else v
       totalRet = finalEq - 1
       rets = returnsFromEquity eq
       meanR = mean rets
@@ -104,7 +106,13 @@ returnsFromEquity eq =
   case eq of
     [] -> []
     [_] -> []
-    _ -> zipWith (\a b -> b / a - 1) eq (tail eq)
+    _ -> zipWith ret eq (tail eq)
+  where
+    bad x = isNaN x || isInfinite x
+    ret a b =
+      if bad a || bad b || a <= 0
+        then 0
+        else b / a - 1
 
 mean :: [Double] -> Double
 mean xs =

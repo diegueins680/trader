@@ -36,7 +36,7 @@ import Trader.Predictors
   , initHMMFilter
   , predictSensors
   )
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), simulateEnsembleLongFlat)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), Trade(..), simulateEnsembleLongFlat)
 import Trader.Split (Split(..), splitTrainBacktest)
 
 main :: IO ()
@@ -52,6 +52,7 @@ main = do
     , run "lstm training improves loss" testLstmImprovesLoss
     , run "ensemble agreement gate" testAgreementGate
     , run "long-short down move" testLongShortDownMove
+    , run "liquidation clamps equity" testLiquidationClamp
     , run "metrics max drawdown" testMetricsMaxDrawdown
     , run "binance signature length" testBinanceSignatureLength
     , run "binance kline json parsing" testBinanceKlineParsing
@@ -259,6 +260,41 @@ testLongShortDownMove = do
   assertApprox "flat final equity" 1e-12 (last (brEquityCurve btFlat)) 1.0
   assertApprox "short final equity" 1e-12 (last (brEquityCurve btShort)) 1.1
   assert "short position opened" (brPositions btShort == [-1])
+
+testLiquidationClamp :: IO ()
+testLiquidationClamp = do
+  let prices = [100, 250]
+      lookback = 1
+      kalPred = [50]
+      lstmPred = [50]
+      cfg =
+        EnsembleConfig
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecPositioning = LongShort
+          , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
+          }
+      bt = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred Nothing
+      finalEq = last (brEquityCurve bt)
+      trades = brTrades bt
+  assertApprox "equity clamped at 0" 1e-12 finalEq 0.0
+  assert "positions cleared after liquidation" (brPositions bt == [-1])
+  assert "liquidation trade recorded" (case trades of { [t] -> trExitReason t == Just "LIQUIDATION"; _ -> False })
 
 testMetricsMaxDrawdown :: IO ()
 testMetricsMaxDrawdown = do

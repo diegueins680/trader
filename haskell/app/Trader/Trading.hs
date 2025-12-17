@@ -227,6 +227,9 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                       (-1) -> 2 - px / basePx
                       _ -> 1
 
+              isBad :: Double -> Bool
+              isBad x = isNaN x || isInfinite x
+
               clamp01 :: Double -> Double
               clamp01 x = max 0 (min 1 x)
 
@@ -347,255 +350,299 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                     then (Nothing, 0)
                                     else (Just dir, if ecConfidenceSizing cfg then size0 else 1)
 
-              stepFn (posDir, posSize, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc) t =
-                let prev = pricesV V.! t
-                    nextClose = pricesV V.! (t + 1)
-                    hi = barHigh (t + 1)
-                    lo = barLow (t + 1)
-                    (agreeOk, desiredDirRaw, desiredSizeRaw) =
-                      if t < startT
-                        then (False, posDir, posSize)
-                        else
-                          let kp = kalPredNextV V.! t
-                              lp = lstmPredNextV V.! (t - startT)
-                              kalOpenDirRaw = direction openThr prev kp
-                              kalCloseDirRaw = direction closeThr prev kp
-                              (kalOpenDir, kalSize) =
-                                case metaAt t of
-                                  Nothing -> (kalOpenDirRaw, if kalOpenDirRaw == Nothing then 0 else 1)
-                                  Just m ->
-                                    let confScore = confidenceScoreKalman m
-                                     in gateKalmanDir m confScore kalOpenDirRaw
-                              lstmOpenDir = direction openThr prev lp
-                              lstmCloseDir = direction closeThr prev lp
-                              openAgreeDir =
-                                if kalOpenDir == lstmOpenDir
-                                  then kalOpenDir
-                                  else Nothing
-                              closeAgreeDir =
-                                if kalCloseDirRaw == lstmCloseDir
-                                  then kalCloseDirRaw
-                                  else Nothing
+              stepFn (posDir, posSize, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc, dead) t =
+                if dead
+                  then
+                    ( 0
+                    , 0
+                    , equity
+                    , equity : eqAcc
+                    , 0 : posAcc
+                    , False : agreeAcc
+                    , changes
+                    , Nothing
+                    , tradesAcc
+                    , True
+                    )
+                  else
+                    let prev = pricesV V.! t
+                        nextClose = pricesV V.! (t + 1)
+                        hi = barHigh (t + 1)
+                        lo = barLow (t + 1)
+                        openTrade0 = if posDir == 0 then Nothing else openTrade
+                        (agreeOk, desiredDirRaw, desiredSizeRaw) =
+                          if t < startT
+                            then (False, posDir, posSize)
+                            else
+                              let kp = kalPredNextV V.! t
+                                  lp = lstmPredNextV V.! (t - startT)
+                                  kalOpenDirRaw = direction openThr prev kp
+                                  kalCloseDirRaw = direction closeThr prev kp
+                                  (kalOpenDir, kalSize) =
+                                    case metaAt t of
+                                      Nothing -> (kalOpenDirRaw, if kalOpenDirRaw == Nothing then 0 else 1)
+                                      Just m ->
+                                        let confScore = confidenceScoreKalman m
+                                         in gateKalmanDir m confScore kalOpenDirRaw
+                                  lstmOpenDir = direction openThr prev lp
+                                  lstmCloseDir = direction closeThr prev lp
+                                  openAgreeDir =
+                                    if kalOpenDir == lstmOpenDir
+                                      then kalOpenDir
+                                      else Nothing
+                                  closeAgreeDir =
+                                    if kalCloseDirRaw == lstmCloseDir
+                                      then kalCloseDirRaw
+                                      else Nothing
 
-                              desiredFromOpen dir =
-                                let d = desiredPosFromDir dir
-                                 in (d, if d == 0 then 0 else kalSize)
+                                  desiredFromOpen dir =
+                                    let d = desiredPosFromDir dir
+                                     in (d, if d == 0 then 0 else kalSize)
 
-                              (desiredDir', desiredSize') =
-                                case openAgreeDir of
-                                  Just dir -> desiredFromOpen dir
-                                  Nothing ->
-                                    case posDir of
-                                      0 -> (0, 0)
-                                      1 -> if closeAgreeDir == Just 1 then (1, posSize) else (0, 0)
-                                      (-1) -> if closeAgreeDir == Just (-1) then ((-1), posSize) else (0, 0)
-                                      _ -> (0, 0)
-                           in (openAgreeDir == Just 1 || openAgreeDir == Just (-1), desiredDir', desiredSize')
+                                  (desiredDir', desiredSize') =
+                                    case openAgreeDir of
+                                      Just dir -> desiredFromOpen dir
+                                      Nothing ->
+                                        case posDir of
+                                          0 -> (0, 0)
+                                          1 -> if closeAgreeDir == Just 1 then (1, posSize) else (0, 0)
+                                          (-1) -> if closeAgreeDir == Just (-1) then ((-1), posSize) else (0, 0)
+                                          _ -> (0, 0)
+                               in (openAgreeDir == Just 1 || openAgreeDir == Just (-1), desiredDir', desiredSize')
 
-                    desiredSize =
-                      if desiredDirRaw == 0
-                        then 0
-                        else min 1 (max 0 desiredSizeRaw)
+                        desiredSize =
+                          if desiredDirRaw == 0
+                            then 0
+                            else min 1 (max 0 desiredSizeRaw)
 
-                    (posAfterSwitch, posSizeAfterSwitch, equityAfterSwitch, changes', openTrade', tradesAcc') =
-                      if desiredDirRaw /= posDir
-                        then
-                          let closeTradeAt exitIndex why eqExit ot =
-                                Trade
-                                  { trEntryIndex = otEntryIndex ot
-                                  , trExitIndex = exitIndex
-                                  , trEntryEquity = otEntryEquity ot
-                                  , trExitEquity = eqExit
-                                  , trReturn = eqExit / otEntryEquity ot - 1
-                                  , trHoldingPeriods = otHoldingPeriods ot
-                                  , trExitReason = Just why
-                                  }
-                              openTradeFor dir eqEntry =
-                                OpenTrade
-                                  { otEntryIndex = t
-                                  , otEntryEquity = eqEntry
-                                  , otHoldingPeriods = 0
-                                      , otEntryPrice = prev
-                                      , otTrail = prev
-                                      , otDir = dir
-                                      }
-                           in case (posDir, desiredDirRaw, openTrade) of
-                                (0, dir, Nothing) | dir /= 0 && desiredSize > 0 ->
-                                  let eq1 = applyCost equity desiredSize
-                                   in (dir, desiredSize, eq1, changes + 1, Just (openTradeFor dir eq1), tradesAcc)
-                                (dir0, 0, Just ot) | dir0 /= 0 ->
-                                  let eq1 = applyCost equity posSize
-                                      tr = closeTradeAt t "SIGNAL" eq1 ot
-                                   in (0, 0, eq1, changes + 1, Nothing, tr : tradesAcc)
-                                (dir0, dir1, Just ot) | dir0 /= 0 && dir1 /= 0 && dir0 /= dir1 && desiredSize > 0 ->
+                        desiredDir =
+                          if desiredSize <= 0 then 0 else desiredDirRaw
+
+                        closeTradeAt exitIndex why eqExit ot =
+                          Trade
+                            { trEntryIndex = otEntryIndex ot
+                            , trExitIndex = exitIndex
+                            , trEntryEquity = otEntryEquity ot
+                            , trExitEquity = eqExit
+                            , trReturn = eqExit / otEntryEquity ot - 1
+                            , trHoldingPeriods = otHoldingPeriods ot
+                            , trExitReason = Just why
+                            }
+
+                        openTradeFor dir eqEntry =
+                          OpenTrade
+                            { otEntryIndex = t
+                            , otEntryEquity = eqEntry
+                            , otHoldingPeriods = 0
+                            , otEntryPrice = prev
+                            , otTrail = prev
+                            , otDir = dir
+                            }
+
+                        (posAfterSwitch, posSizeAfterSwitch, equityAfterSwitch, changes', openTrade', tradesAcc') =
+                          if desiredDir == posDir
+                            then (posDir, posSize, equity, changes, openTrade0, tradesAcc)
+                            else
+                              if desiredDir == 0
+                                then
                                   let eqExit = applyCost equity posSize
-                                      tr = closeTradeAt t "SIGNAL" eqExit ot
-                                      eqEntry = applyCost eqExit desiredSize
-                                   in (dir1, desiredSize, eqEntry, changes + 1, Just (openTradeFor dir1 eqEntry), tr : tradesAcc)
-                                (dir0, dir1, Nothing) | dir0 /= 0 && dir1 /= 0 && dir0 /= dir1 && desiredSize > 0 ->
-                                  let eqExit = applyCost equity posSize
-                                      eqEntry = applyCost eqExit desiredSize
-                                   in (dir1, desiredSize, eqEntry, changes + 1, Just (openTradeFor dir1 eqEntry), tradesAcc)
-                                _ ->
-                                  let eq1 = applyCost equity posSize
-                                   in (desiredDirRaw, posSize, eq1, changes + 1, openTrade, tradesAcc)
-                        else (posDir, posSize, equity, changes, openTrade, tradesAcc)
+                                      tradesAcc1 =
+                                        case openTrade0 of
+                                          Nothing -> tradesAcc
+                                          Just ot -> closeTradeAt t "SIGNAL" eqExit ot : tradesAcc
+                                   in (0, 0, eqExit, changes + 1, Nothing, tradesAcc1)
+                                else if posDir == 0
+                                  then
+                                    let eqEntry = applyCost equity desiredSize
+                                     in (desiredDir, desiredSize, eqEntry, changes + 1, Just (openTradeFor desiredDir eqEntry), tradesAcc)
+                                  else
+                                    let eqExit = applyCost equity posSize
+                                        tradesAcc1 =
+                                          case openTrade0 of
+                                            Nothing -> tradesAcc
+                                            Just ot -> closeTradeAt t "SIGNAL" eqExit ot : tradesAcc
+                                        eqEntry = applyCost eqExit desiredSize
+                                     in (desiredDir, desiredSize, eqEntry, changes + 1, Just (openTradeFor desiredDir eqEntry), tradesAcc1)
 
-                    equityAtClose =
-                      if posAfterSwitch /= 0 && posSizeAfterSwitch > 0
-                        then
-                          let factor = markToMarket posAfterSwitch prev nextClose
-                           in equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
-                        else equityAfterSwitch
+                        equityAtClose =
+                          if posAfterSwitch /= 0 && posSizeAfterSwitch > 0
+                            then
+                              let factor = markToMarket posAfterSwitch prev nextClose
+                                  eq1 = equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
+                               in if isBad eq1 then equityAfterSwitch else eq1
+                            else equityAfterSwitch
 
-                    (posFinal, posSizeFinal, equityFinal, changesFinal, openTradeFinal, tradesFinal) =
-                      case (posAfterSwitch, openTrade') of
-                        (1, Just ot0) ->
-                          let otHeld = ot0 { otHoldingPeriods = otHoldingPeriods ot0 + 1 }
-                              entryPx = otEntryPrice ot0
-                              trail0 = otTrail ot0
-                              mTp =
-                                case ecTakeProfit cfg of
-                                  Just tp | tp > 0 -> Just (entryPx * (1 + tp))
-                                  _ -> Nothing
-                              mSl =
-                                case ecStopLoss cfg of
-                                  Just sl | sl > 0 -> Just (entryPx * (1 - sl))
-                                  _ -> Nothing
-                              stopPx trail =
-                                let mTs =
-                                      case ecTrailingStop cfg of
-                                        Just ts | ts > 0 -> Just (trail * (1 - ts))
-                                        _ -> Nothing
-                                 in case (mSl, mTs) of
-                                      (Nothing, Nothing) -> (Nothing, Nothing)
-                                      (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
-                                      (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
-                                      (Just slPx, Just tsPx) ->
-                                        if tsPx > slPx
-                                          then (Just tsPx, Just "TRAILING_STOP")
-                                          else (Just slPx, Just "STOP_LOSS")
-                              tpHit = maybe False (\tpPx -> hi >= tpPx) mTp
-                              exitOrTrail =
-                                case ecIntrabarFill cfg of
-                                  StopFirst ->
-                                    let (mStop, stopWhy) = stopPx trail0
-                                        stopHit = maybe False (\stPx -> lo <= stPx) mStop
-                                     in if stopHit
-                                          then (Just (maybe nextClose id mStop, stopWhy), trail0)
-                                          else if tpHit
-                                            then (Just (maybe nextClose id mTp, Just "TAKE_PROFIT"), trail0)
-                                            else (Nothing, max trail0 hi)
-                                  TakeProfitFirst ->
-                                    if tpHit
-                                      then (Just (maybe nextClose id mTp, Just "TAKE_PROFIT"), trail0)
-                                      else
-                                        let trail1 = max trail0 hi
-                                            (mStop, stopWhy) = stopPx trail1
+                        (posFinal, posSizeFinal, equityFinal, changesFinal, openTradeFinal, tradesFinal) =
+                          case (posAfterSwitch, openTrade') of
+                            (1, Just ot0) ->
+                              let otHeld = ot0 { otHoldingPeriods = otHoldingPeriods ot0 + 1 }
+                                  entryPx = otEntryPrice ot0
+                                  trail0 = otTrail ot0
+                                  mTp =
+                                    case ecTakeProfit cfg of
+                                      Just tp | tp > 0 -> Just (entryPx * (1 + tp))
+                                      _ -> Nothing
+                                  mSl =
+                                    case ecStopLoss cfg of
+                                      Just sl | sl > 0 -> Just (entryPx * (1 - sl))
+                                      _ -> Nothing
+                                  stopPx trail =
+                                    let mTs =
+                                          case ecTrailingStop cfg of
+                                            Just ts | ts > 0 -> Just (trail * (1 - ts))
+                                            _ -> Nothing
+                                     in case (mSl, mTs) of
+                                          (Nothing, Nothing) -> (Nothing, Nothing)
+                                          (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                                          (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                                          (Just slPx, Just tsPx) ->
+                                            if tsPx > slPx
+                                              then (Just tsPx, Just "TRAILING_STOP")
+                                              else (Just slPx, Just "STOP_LOSS")
+                                  tpHit = maybe False (\tpPx -> hi >= tpPx) mTp
+                                  exitOrTrail =
+                                    case ecIntrabarFill cfg of
+                                      StopFirst ->
+                                        let (mStop, stopWhy) = stopPx trail0
                                             stopHit = maybe False (\stPx -> lo <= stPx) mStop
                                          in if stopHit
-                                              then (Just (maybe nextClose id mStop, stopWhy), trail1)
-                                              else (Nothing, trail1)
-                           in case exitOrTrail of
-                                (Just (exitPx, reason), _trailUsed) ->
-                                  let factor = markToMarket 1 prev exitPx
-                                      exitEq0 = equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
-                                      exitEq = applyCost exitEq0 posSizeAfterSwitch
-                                      tr =
-                                        Trade
-                                          { trEntryIndex = otEntryIndex otHeld
-                                          , trExitIndex = t + 1
-                                          , trEntryEquity = otEntryEquity otHeld
-                                          , trExitEquity = exitEq
-                                          , trReturn = exitEq / otEntryEquity otHeld - 1
-                                          , trHoldingPeriods = otHoldingPeriods otHeld
-                                          , trExitReason = reason
-                                          }
-                                   in (0, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
-                                (Nothing, trail1) ->
-                                  let otCont = otHeld { otTrail = trail1 }
-                                   in (1, posSizeAfterSwitch, equityAtClose, changes', Just otCont, tradesAcc')
-                        ((-1), Just ot0) ->
-                          let otHeld = ot0 { otHoldingPeriods = otHoldingPeriods ot0 + 1 }
-                              entryPx = otEntryPrice ot0
-                              trail0 = otTrail ot0
-                              mTp =
-                                case ecTakeProfit cfg of
-                                  Just tp | tp > 0 -> Just (entryPx * (1 - tp))
-                                  _ -> Nothing
-                              mSl =
-                                case ecStopLoss cfg of
-                                  Just sl | sl > 0 -> Just (entryPx * (1 + sl))
-                                  _ -> Nothing
-                              stopPx trail =
-                                let mTs =
-                                      case ecTrailingStop cfg of
-                                        Just ts | ts > 0 -> Just (trail * (1 + ts))
-                                        _ -> Nothing
-                                 in case (mSl, mTs) of
-                                      (Nothing, Nothing) -> (Nothing, Nothing)
-                                      (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
-                                      (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
-                                      (Just slPx, Just tsPx) ->
-                                        if tsPx < slPx
-                                          then (Just tsPx, Just "TRAILING_STOP")
-                                          else (Just slPx, Just "STOP_LOSS")
-                              tpHit = maybe False (\tpPx -> lo <= tpPx) mTp
-                              exitOrTrail =
-                                case ecIntrabarFill cfg of
-                                  StopFirst ->
-                                    let (mStop, stopWhy) = stopPx trail0
-                                        stopHit = maybe False (\stPx -> hi >= stPx) mStop
-                                     in if stopHit
-                                          then (Just (maybe nextClose id mStop, stopWhy), trail0)
-                                          else if tpHit
-                                            then (Just (maybe nextClose id mTp, Just "TAKE_PROFIT"), trail0)
-                                            else (Nothing, min trail0 lo)
-                                  TakeProfitFirst ->
-                                    if tpHit
-                                      then (Just (maybe nextClose id mTp, Just "TAKE_PROFIT"), trail0)
-                                      else
-                                        let trail1 = min trail0 lo
-                                            (mStop, stopWhy) = stopPx trail1
+                                              then (Just (maybe nextClose id mStop, stopWhy), trail0)
+                                              else if tpHit
+                                                then (Just (maybe nextClose id mTp, Just "TAKE_PROFIT"), trail0)
+                                                else (Nothing, max trail0 hi)
+                                      TakeProfitFirst ->
+                                        if tpHit
+                                          then (Just (maybe nextClose id mTp, Just "TAKE_PROFIT"), trail0)
+                                          else
+                                            let trail1 = max trail0 hi
+                                                (mStop, stopWhy) = stopPx trail1
+                                                stopHit = maybe False (\stPx -> lo <= stPx) mStop
+                                             in if stopHit
+                                                  then (Just (maybe nextClose id mStop, stopWhy), trail1)
+                                                  else (Nothing, trail1)
+                               in case exitOrTrail of
+                                    (Just (exitPx, reason), _trailUsed) ->
+                                      let factor = markToMarket 1 prev exitPx
+                                          exitEq0 = equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
+                                          exitEq = applyCost exitEq0 posSizeAfterSwitch
+                                          tr =
+                                            Trade
+                                              { trEntryIndex = otEntryIndex otHeld
+                                              , trExitIndex = t + 1
+                                              , trEntryEquity = otEntryEquity otHeld
+                                              , trExitEquity = exitEq
+                                              , trReturn = exitEq / otEntryEquity otHeld - 1
+                                              , trHoldingPeriods = otHoldingPeriods otHeld
+                                              , trExitReason = reason
+                                              }
+                                       in (0, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
+                                    (Nothing, trail1) ->
+                                      let otCont = otHeld { otTrail = trail1 }
+                                       in (1, posSizeAfterSwitch, equityAtClose, changes', Just otCont, tradesAcc')
+                            ((-1), Just ot0) ->
+                              let otHeld = ot0 { otHoldingPeriods = otHoldingPeriods ot0 + 1 }
+                                  entryPx = otEntryPrice ot0
+                                  trail0 = otTrail ot0
+                                  mTp =
+                                    case ecTakeProfit cfg of
+                                      Just tp | tp > 0 -> Just (entryPx * (1 - tp))
+                                      _ -> Nothing
+                                  mSl =
+                                    case ecStopLoss cfg of
+                                      Just sl | sl > 0 -> Just (entryPx * (1 + sl))
+                                      _ -> Nothing
+                                  stopPx trail =
+                                    let mTs =
+                                          case ecTrailingStop cfg of
+                                            Just ts | ts > 0 -> Just (trail * (1 + ts))
+                                            _ -> Nothing
+                                     in case (mSl, mTs) of
+                                          (Nothing, Nothing) -> (Nothing, Nothing)
+                                          (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                                          (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                                          (Just slPx, Just tsPx) ->
+                                            if tsPx < slPx
+                                              then (Just tsPx, Just "TRAILING_STOP")
+                                              else (Just slPx, Just "STOP_LOSS")
+                                  tpHit = maybe False (\tpPx -> lo <= tpPx) mTp
+                                  exitOrTrail =
+                                    case ecIntrabarFill cfg of
+                                      StopFirst ->
+                                        let (mStop, stopWhy) = stopPx trail0
                                             stopHit = maybe False (\stPx -> hi >= stPx) mStop
                                          in if stopHit
-                                              then (Just (maybe nextClose id mStop, stopWhy), trail1)
-                                              else (Nothing, trail1)
-                           in case exitOrTrail of
-                                (Just (exitPx, reason), _trailUsed) ->
-                                  let factor = markToMarket (-1) prev exitPx
-                                      exitEq0 = equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
-                                      exitEq = applyCost exitEq0 posSizeAfterSwitch
-                                      tr =
-                                        Trade
-                                          { trEntryIndex = otEntryIndex otHeld
-                                          , trExitIndex = t + 1
-                                          , trEntryEquity = otEntryEquity otHeld
-                                          , trExitEquity = exitEq
-                                          , trReturn = exitEq / otEntryEquity otHeld - 1
-                                          , trHoldingPeriods = otHoldingPeriods otHeld
-                                          , trExitReason = reason
-                                          }
-                                   in (0, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
-                                (Nothing, trail1) ->
-                                  let otCont = otHeld { otTrail = trail1 }
-                                   in ((-1), posSizeAfterSwitch, equityAtClose, changes', Just otCont, tradesAcc')
-                        _ -> (posAfterSwitch, posSizeAfterSwitch, equityAtClose, changes', openTrade', tradesAcc')
-                 in ( posFinal
-                    , posSizeFinal
-                    , equityFinal
-                    , equityFinal : eqAcc
-                    , (fromIntegral posAfterSwitch * posSizeAfterSwitch) : posAcc
-                    , agreeOk : agreeAcc
-                    , changesFinal
-                    , openTradeFinal
-                    , tradesFinal
-                    )
+                                              then (Just (maybe nextClose id mStop, stopWhy), trail0)
+                                              else if tpHit
+                                                then (Just (maybe nextClose id mTp, Just "TAKE_PROFIT"), trail0)
+                                                else (Nothing, min trail0 lo)
+                                      TakeProfitFirst ->
+                                        if tpHit
+                                          then (Just (maybe nextClose id mTp, Just "TAKE_PROFIT"), trail0)
+                                          else
+                                            let trail1 = min trail0 lo
+                                                (mStop, stopWhy) = stopPx trail1
+                                                stopHit = maybe False (\stPx -> hi >= stPx) mStop
+                                             in if stopHit
+                                                  then (Just (maybe nextClose id mStop, stopWhy), trail1)
+                                                  else (Nothing, trail1)
+                               in case exitOrTrail of
+                                    (Just (exitPx, reason), _trailUsed) ->
+                                      let factor = markToMarket (-1) prev exitPx
+                                          exitEq0 = equityAfterSwitch * (1 + posSizeAfterSwitch * (factor - 1))
+                                          exitEq = applyCost exitEq0 posSizeAfterSwitch
+                                          tr =
+                                            Trade
+                                              { trEntryIndex = otEntryIndex otHeld
+                                              , trExitIndex = t + 1
+                                              , trEntryEquity = otEntryEquity otHeld
+                                              , trExitEquity = exitEq
+                                              , trReturn = exitEq / otEntryEquity otHeld - 1
+                                              , trHoldingPeriods = otHoldingPeriods otHeld
+                                              , trExitReason = reason
+                                              }
+                                       in (0, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
+                                    (Nothing, trail1) ->
+                                      let otCont = otHeld { otTrail = trail1 }
+                                       in ((-1), posSizeAfterSwitch, equityAtClose, changes', Just otCont, tradesAcc')
+                            _ -> (posAfterSwitch, posSizeAfterSwitch, equityAtClose, changes', openTrade', tradesAcc')
 
-              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev) =
+                        (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, dead2) =
+                          if isBad equityFinal || equityFinal <= 0
+                            then
+                              let exitEq = if isBad equityFinal then 0 else max 0 equityFinal
+                                  (tradesOut, changesOut) =
+                                    case openTradeFinal of
+                                      Nothing -> (tradesFinal, changesFinal)
+                                      Just otHeld ->
+                                        let tr =
+                                              Trade
+                                                { trEntryIndex = otEntryIndex otHeld
+                                                , trExitIndex = t + 1
+                                                , trEntryEquity = otEntryEquity otHeld
+                                                , trExitEquity = exitEq
+                                                , trReturn = exitEq / otEntryEquity otHeld - 1
+                                                , trHoldingPeriods = otHoldingPeriods otHeld
+                                                , trExitReason = Just "LIQUIDATION"
+                                                }
+                                         in (tr : tradesFinal, changesFinal + 1)
+                               in (0, 0, exitEq, changesOut, Nothing, tradesOut, True)
+                            else (posFinal, posSizeFinal, equityFinal, changesFinal, openTradeFinal, tradesFinal, False)
+                     in ( posFinal2
+                        , posSizeFinal2
+                        , equityFinal2
+                        , equityFinal2 : eqAcc
+                        , (fromIntegral posAfterSwitch * posSizeAfterSwitch) : posAcc
+                        , agreeOk : agreeAcc
+                        , changesFinal2
+                        , openTradeFinal2
+                        , tradesFinal2
+                        , dead2
+                        )
+
+              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev, _deadFinal) =
                 foldl'
                   stepFn
-                  (0 :: Int, 0 :: Double, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe OpenTrade, [])
+                  (0 :: Int, 0 :: Double, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe OpenTrade, [], False)
                   [0 .. stepCount - 1]
 
               (eqRev', tradesRev') =
