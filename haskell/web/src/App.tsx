@@ -34,6 +34,47 @@ import { copyText } from "./lib/clipboard";
 import { TRADER_UI_CONFIG } from "./lib/deployConfig";
 import { readJson, readLocalString, readSessionString, removeLocalKey, removeSessionKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
+import { API_PORT, API_TARGET } from "./app/apiTarget";
+import {
+  BACKTEST_TIMEOUT_MS,
+  BINANCE_INTERVALS,
+  BINANCE_INTERVAL_SET,
+  BOT_START_TIMEOUT_MS,
+  BOT_STATUS_TAIL_POINTS,
+  BOT_STATUS_TIMEOUT_MS,
+  BOT_TELEMETRY_POINTS,
+  DATA_LOG_COLLAPSED_MAX_LINES,
+  SESSION_BINANCE_KEY_KEY,
+  SESSION_BINANCE_SECRET_KEY,
+  SIGNAL_TIMEOUT_MS,
+  STORAGE_KEY,
+  STORAGE_ORDER_LOG_PREFS_KEY,
+  STORAGE_PERSIST_SECRETS_KEY,
+  STORAGE_PROFILES_KEY,
+  TRADE_TIMEOUT_MS,
+  TUNE_OBJECTIVES,
+} from "./app/constants";
+import { binanceIntervalSeconds, defaultForm, normalizeFormState, parseDurationSeconds, type FormState, type FormStateJson } from "./app/formState";
+import {
+  actionBadgeClass,
+  clamp,
+  escapeSingleQuotes,
+  firstReason,
+  fmtDurationMs,
+  fmtEtaMs,
+  fmtProfitFactor,
+  fmtTimeMs,
+  generateIdempotencyKey,
+  indexTopLevelPrimitiveArrays,
+  isAbortError,
+  isLikelyOrderError,
+  isLocalHostname,
+  isTimeoutError,
+  marketLabel,
+  methodLabel,
+  normalizeApiBaseUrlInput,
+  numFromInput,
+} from "./app/utils";
 import { BacktestChart } from "./components/BacktestChart";
 import { PredictionDiffChart } from "./components/PredictionDiffChart";
 import { TelemetryChart } from "./components/TelemetryChart";
@@ -50,15 +91,6 @@ type ActiveAsyncJob = {
   jobId: string | null;
   startedAtMs: number;
 };
-
-const API_TARGET = (__TRADER_API_TARGET__ || "http://127.0.0.1:8080").replace(/\/+$/, "");
-const API_PORT = (() => {
-  try {
-    return new URL(API_TARGET).port || "8080";
-  } catch {
-    return "8080";
-  }
-})();
 
 type UiState = {
   loading: boolean;
@@ -135,580 +167,13 @@ type OrderLogPrefs = {
   showClientOrderId: boolean;
 };
 
-type FormState = {
-  binanceSymbol: string;
-  market: Market;
-  interval: string;
-  bars: number;
-  lookbackWindow: string;
-  lookbackBars: number;
-  method: Method;
-  positioning: Positioning;
-  openThreshold: number;
-  closeThreshold: number;
-  fee: number;
-  slippage: number;
-  spread: number;
-  intrabarFill: IntrabarFill;
-  stopLoss: number;
-  takeProfit: number;
-  trailingStop: number;
-  minHoldBars: number;
-  cooldownBars: number;
-  maxDrawdown: number;
-  maxDailyLoss: number;
-  maxOrderErrors: number;
-  backtestRatio: number;
-  tuneRatio: number;
-  tuneObjective: string;
-  tunePenaltyMaxDrawdown: number;
-  tunePenaltyTurnover: number;
-  walkForwardFolds: number;
-  normalization: Normalization;
-  epochs: number;
-  learningRate: number;
-  valRatio: number;
-  patience: number;
-  gradClip: number;
-  hiddenSize: number;
-  kalmanZMin: number;
-  kalmanZMax: number;
-  maxHighVolProb: number;
-  maxConformalWidth: number;
-  maxQuantileWidth: number;
-  confirmConformal: boolean;
-  confirmQuantiles: boolean;
-  confidenceSizing: boolean;
-  minPositionSize: number;
-  optimizeOperations: boolean;
-  sweepThreshold: boolean;
-  binanceTestnet: boolean;
-  orderQuote: number;
-  orderQuantity: number;
-  orderQuoteFraction: number;
-  maxOrderQuote: number;
-  idempotencyKey: string;
-  binanceLive: boolean;
-  tradeArmed: boolean;
-  bypassCache: boolean;
-  autoRefresh: boolean;
-  autoRefreshSec: number;
-
-  // Live bot (advanced)
-  botPollSeconds: number;
-  botOnlineEpochs: number;
-  botTrainBars: number;
-  botMaxPoints: number;
-};
-
-const STORAGE_KEY = "trader.ui.form.v1";
-const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
-const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
-const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
-const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
-const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";
-
-const SIGNAL_TIMEOUT_MS = 5 * 60_000;
-const BACKTEST_TIMEOUT_MS = 10 * 60_000;
-const TRADE_TIMEOUT_MS = 5 * 60_000;
-const BOT_START_TIMEOUT_MS = 10 * 60_000;
-const BOT_STATUS_TIMEOUT_MS = 30_000;
-const BOT_STATUS_TAIL_POINTS = 5000;
-const BOT_TELEMETRY_POINTS = 240;
-
-const BINANCE_INTERVALS = [
-  "1m",
-  "3m",
-  "5m",
-  "15m",
-  "30m",
-  "1h",
-  "2h",
-  "4h",
-  "6h",
-  "8h",
-  "12h",
-  "1d",
-  "3d",
-  "1w",
-  "1M",
-] as const;
-
-const BINANCE_INTERVAL_SET = new Set<string>(BINANCE_INTERVALS);
-
-const BINANCE_INTERVAL_SECONDS: Record<string, number> = {
-  "1m": 60,
-  "3m": 3 * 60,
-  "5m": 5 * 60,
-  "15m": 15 * 60,
-  "30m": 30 * 60,
-  "1h": 60 * 60,
-  "2h": 2 * 60 * 60,
-  "4h": 4 * 60 * 60,
-  "6h": 6 * 60 * 60,
-  "8h": 8 * 60 * 60,
-  "12h": 12 * 60 * 60,
-  "1d": 24 * 60 * 60,
-  "3d": 3 * 24 * 60 * 60,
-  "1w": 7 * 24 * 60 * 60,
-  "1M": 30 * 24 * 60 * 60,
-};
-
-function binanceIntervalSeconds(interval: string): number | null {
-  const sec = BINANCE_INTERVAL_SECONDS[interval];
-  return typeof sec === "number" && Number.isFinite(sec) ? sec : null;
-}
-
-function parseDurationSeconds(raw: string): number | null {
-  const s = raw.trim();
-  const m = /^(\d+)([A-Za-z])$/.exec(s);
-  if (!m) return null;
-
-  const n = Number(m[1]);
-  if (!Number.isFinite(n)) return null;
-  const unitRaw = m[2] ?? "";
-  const unit = unitRaw === "M" ? "M" : unitRaw.toLowerCase();
-
-  const mult =
-    unit === "s"
-      ? 1
-      : unit === "m"
-        ? 60
-        : unit === "h"
-          ? 60 * 60
-          : unit === "d"
-            ? 24 * 60 * 60
-            : unit === "w"
-              ? 7 * 24 * 60 * 60
-              : unit === "M"
-                ? 30 * 24 * 60 * 60
-                : null;
-  if (!mult) return null;
-  return n * mult;
-}
-
-function normalizeBinanceInterval(raw: unknown, fallback: string): string {
-  if (typeof raw !== "string") return fallback;
-  const value = raw.trim();
-  return BINANCE_INTERVAL_SET.has(value) ? value : fallback;
-}
-
-function normalizeLookbackWindow(raw: unknown, fallback: string): string {
-  if (typeof raw !== "string") return fallback;
-  const value = raw.trim();
-  const sec = parseDurationSeconds(value);
-  return sec && sec > 0 ? value : fallback;
-}
-
-function normalizeLookbackBars(raw: unknown, fallback: number): number {
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    const n = Math.trunc(raw);
-    return n >= 2 ? n : 0;
-  }
-  if (typeof raw === "string") {
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return fallback;
-    const i = Math.trunc(n);
-    return i >= 2 ? i : 0;
-  }
-  return fallback;
-}
-
-function normalizeApiBaseUrlInput(raw: string): string {
-  const v = raw.trim();
-  if (!v) return "";
-  if (v.startsWith("/") || /^https?:\/\//i.test(v)) return v;
-  if (v.includes("://")) return v;
-
-  const looksLikeHost = v === "localhost" || v.startsWith("localhost:") || v.includes(".") || v.includes(":");
-  if (!looksLikeHost) return `/${v}`;
-
-  const slashIdx = v.indexOf("/");
-  const authority = slashIdx === -1 ? v : v.slice(0, slashIdx);
-  const rest = slashIdx === -1 ? "" : v.slice(slashIdx);
-
-  const lowerAuthority = authority.toLowerCase();
-  const isLocal =
-    lowerAuthority === "localhost" ||
-    lowerAuthority.startsWith("localhost:") ||
-    lowerAuthority === "127.0.0.1" ||
-    lowerAuthority.startsWith("127.0.0.1:") ||
-    lowerAuthority === "0.0.0.0" ||
-    lowerAuthority.startsWith("0.0.0.0:") ||
-    lowerAuthority === "::1" ||
-    lowerAuthority.startsWith("::1:") ||
-    lowerAuthority === "[::1]" ||
-    lowerAuthority.startsWith("[::1]:");
-
-  const portFromAuthority = () => {
-    if (authority.startsWith("[")) {
-      const m = authority.match(/^\[[^\]]+\]:(\d{1,5})$/);
-      return m ? m[1] : null;
-    }
-    // For bare IPv6 (multiple ':'), treat as "no port"; port must be provided via brackets.
-    if (authority.split(":").length > 2) return null;
-    const m = authority.match(/:([0-9]{1,5})$/);
-    return m ? m[1] : null;
-  };
-
-  const port = portFromAuthority();
-  const normalizeAuthority = () => {
-    if (authority.startsWith("[")) return authority;
-    const parts = authority.split(":");
-    if (parts.length <= 2) return authority;
-
-    // Likely IPv6 without brackets; bracketize. If a port was detected (bracketed form), keep it.
-    if (port) {
-      const host = parts.slice(0, -1).join(":");
-      return `[${host}]:${port}`;
-    }
-    return `[${authority}]`;
-  };
-
-  const scheme = isLocal ? "http" : port && port !== "443" ? "http" : "https";
-  return `${scheme}://${normalizeAuthority()}${rest}`;
-}
-
-const defaultForm: FormState = {
-  binanceSymbol: "BTCUSDT",
-  market: "spot",
-  interval: "1h",
-  bars: 200,
-  lookbackWindow: "24h",
-  lookbackBars: 0,
-  method: "11",
-  positioning: "long-flat",
-  openThreshold: 0.001,
-  closeThreshold: 0.001,
-  fee: 0.0005,
-  slippage: 0,
-  spread: 0,
-  intrabarFill: "stop-first",
-  stopLoss: 0,
-  takeProfit: 0,
-  trailingStop: 0,
-  minHoldBars: 0,
-  cooldownBars: 0,
-  maxDrawdown: 0,
-  maxDailyLoss: 0,
-  maxOrderErrors: 0,
-  backtestRatio: 0.2,
-  tuneRatio: 0.2,
-  tuneObjective: "equity-dd-turnover",
-  tunePenaltyMaxDrawdown: 1.0,
-  tunePenaltyTurnover: 0.1,
-  walkForwardFolds: 5,
-  normalization: "standard",
-  epochs: 30,
-  learningRate: 0.001,
-  valRatio: 0.2,
-  patience: 10,
-  gradClip: 0,
-  hiddenSize: 16,
-  kalmanZMin: 0,
-  kalmanZMax: 3,
-  maxHighVolProb: 0,
-  maxConformalWidth: 0,
-  maxQuantileWidth: 0,
-  confirmConformal: false,
-  confirmQuantiles: false,
-  confidenceSizing: false,
-  minPositionSize: 0,
-  optimizeOperations: false,
-  sweepThreshold: false,
-  binanceTestnet: false,
-  orderQuote: 20,
-  orderQuantity: 0,
-  orderQuoteFraction: 0,
-  maxOrderQuote: 0,
-  idempotencyKey: "",
-  binanceLive: false,
-  tradeArmed: false,
-  bypassCache: false,
-  autoRefresh: false,
-  autoRefreshSec: 20,
-
-  botPollSeconds: 0,
-  botOnlineEpochs: 1,
-  botTrainBars: 800,
-  botMaxPoints: 2000,
-};
-
 type SavedProfiles = Record<string, FormState>;
-
-type FormStateJson = Partial<FormState> & {
-  threshold?: unknown; // legacy field (maps to openThreshold/closeThreshold)
-  interval?: unknown;
-  positioning?: unknown;
-  intrabarFill?: unknown;
-  lookbackWindow?: unknown;
-  lookbackBars?: unknown;
-};
-
-function normalizeBool(raw: unknown, fallback: boolean): boolean {
-  if (typeof raw === "boolean") return raw;
-  if (raw === 1 || raw === "1" || raw === "true") return true;
-  if (raw === 0 || raw === "0" || raw === "false") return false;
-  return fallback;
-}
-
-function normalizeFiniteNumber(raw: unknown, fallback: number, lo: number, hi: number): number {
-  if (typeof raw === "number" && Number.isFinite(raw)) return clamp(raw, lo, hi);
-  if (typeof raw === "string") {
-    const n = Number(raw);
-    if (Number.isFinite(n)) return clamp(n, lo, hi);
-  }
-  return fallback;
-}
-
-function normalizePositioning(raw: unknown, fallback: Positioning): Positioning {
-  if (raw === "long-flat" || raw === "long-short") return raw;
-  return fallback;
-}
-
-function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFill {
-  if (raw === "stop-first" || raw === "take-profit-first") return raw;
-  return fallback;
-}
-
-const TUNE_OBJECTIVES = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"] as const;
-const TUNE_OBJECTIVE_SET = new Set<string>(TUNE_OBJECTIVES);
-
-function normalizeTuneObjective(raw: unknown, fallback: string): string {
-  const s = typeof raw === "string" ? raw.trim() : "";
-  if (s && TUNE_OBJECTIVE_SET.has(s)) return s;
-  if (TUNE_OBJECTIVE_SET.has(fallback)) return fallback;
-  return "equity-dd-turnover";
-}
-
-function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
-  const merged = { ...defaultForm, ...(raw ?? {}) };
-  const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
-  const legacyThreshold = rawRec.threshold;
-  const openThreshold = normalizeFiniteNumber(rawRec.openThreshold ?? legacyThreshold ?? merged.openThreshold, defaultForm.openThreshold, 0, 1e9);
-  const closeThreshold = normalizeFiniteNumber(
-    rawRec.closeThreshold ?? legacyThreshold ?? (rawRec.openThreshold != null ? openThreshold : merged.closeThreshold),
-    defaultForm.closeThreshold,
-    0,
-    1e9,
-  );
-  const kalmanZMin = normalizeFiniteNumber(rawRec.kalmanZMin ?? merged.kalmanZMin, defaultForm.kalmanZMin, 0, 1e9);
-  const kalmanZMaxRaw = normalizeFiniteNumber(
-    rawRec.kalmanZMax ?? merged.kalmanZMax,
-    defaultForm.kalmanZMax,
-    0,
-    1e9,
-  );
-  const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
-  const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
-  return {
-    ...mergedNoLegacy,
-    interval: normalizeBinanceInterval(raw?.interval ?? merged.interval, defaultForm.interval),
-    positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
-    lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
-    lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
-    openThreshold,
-    closeThreshold,
-    slippage: normalizeFiniteNumber(rawRec.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
-    spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
-    intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
-    minHoldBars: normalizeFiniteNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1e9),
-    cooldownBars: normalizeFiniteNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1e9),
-    tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
-    tuneObjective: normalizeTuneObjective(rawRec.tuneObjective ?? merged.tuneObjective, defaultForm.tuneObjective),
-    tunePenaltyMaxDrawdown: normalizeFiniteNumber(rawRec.tunePenaltyMaxDrawdown ?? merged.tunePenaltyMaxDrawdown, defaultForm.tunePenaltyMaxDrawdown, 0, 1e9),
-    tunePenaltyTurnover: normalizeFiniteNumber(rawRec.tunePenaltyTurnover ?? merged.tunePenaltyTurnover, defaultForm.tunePenaltyTurnover, 0, 1e9),
-    walkForwardFolds: normalizeFiniteNumber(rawRec.walkForwardFolds ?? merged.walkForwardFolds, defaultForm.walkForwardFolds, 1, 1000),
-    kalmanZMin,
-    kalmanZMax,
-    maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
-    maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
-    maxQuantileWidth: normalizeFiniteNumber(rawRec.maxQuantileWidth ?? merged.maxQuantileWidth, 0, 0, 1e9),
-    confirmConformal: normalizeBool(rawRec.confirmConformal ?? merged.confirmConformal, defaultForm.confirmConformal),
-    confirmQuantiles: normalizeBool(rawRec.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
-    confidenceSizing: normalizeBool(rawRec.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
-    bypassCache: normalizeBool(rawRec.bypassCache ?? merged.bypassCache, defaultForm.bypassCache),
-    learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1),
-    valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
-    patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
-    gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
-    minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
-  };
-}
 
 type PendingProfileLoad = {
   name: string;
   profile: FormState;
   reasons: string[];
 };
-
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, n));
-}
-
-function numFromInput(raw: string, fallback: number): number {
-  if (raw.trim() === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function escapeSingleQuotes(raw: string): string {
-  return raw.replaceAll("'", "'\\''");
-}
-
-function firstReason(...reasons: Array<string | null | undefined>): string | null {
-  for (const r of reasons) if (r) return r;
-  return null;
-}
-
-function isLocalHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-}
-
-function fmtTimeMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "—";
-  try {
-    return new Date(ms).toLocaleString();
-  } catch {
-    return String(ms);
-  }
-}
-
-function fmtDurationMs(ms: number | null | undefined): string {
-  if (typeof ms !== "number" || !Number.isFinite(ms)) return "—";
-  const sign = ms < 0 ? "-" : "";
-  const abs = Math.abs(ms);
-  if (abs < 1000) return `${sign}${Math.round(abs)}ms`;
-  if (abs < 60_000) return `${sign}${(abs / 1000).toFixed(abs < 10_000 ? 2 : 1)}s`;
-  if (abs < 3_600_000) return `${sign}${(abs / 60_000).toFixed(abs < 600_000 ? 2 : 1)}m`;
-  return `${sign}${(abs / 3_600_000).toFixed(abs < 36_000_000 ? 2 : 1)}h`;
-}
-
-function fmtEtaMs(ms: number | null | undefined): string {
-  if (typeof ms !== "number" || !Number.isFinite(ms)) return "—";
-  if (ms >= 0) return `in ${fmtDurationMs(ms)}`;
-  return `${fmtDurationMs(-ms)} ago`;
-}
-
-function fmtProfitFactor(pf: number | null | undefined, grossProfit: number, grossLoss: number): string {
-  if (typeof pf === "number" && Number.isFinite(pf)) return fmtNum(pf, 3);
-  if (grossLoss === 0 && grossProfit > 0) return "∞";
-  if (grossLoss === 0 && grossProfit === 0) return "0";
-  return "—";
-}
-
-const DATA_LOG_COLLAPSED_MAX_LINES = 50;
-const DATA_LOG_BAR_SERIES_KEYS = new Set(["prices", "positions", "equityCurve", "agreementOk"]);
-
-function isJsonPrimitive(v: unknown): v is string | number | boolean | null {
-  return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function getBacktestStartIndex(data: unknown): number | null {
-  if (!isRecord(data)) return null;
-  const split = data.split;
-  if (!isRecord(split)) return null;
-  const raw = split.backtestStartIndex;
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
-}
-
-function indexTopLevelPrimitiveArrays(data: unknown): unknown {
-  if (!isRecord(data)) return data;
-  const barIndexBase = getBacktestStartIndex(data);
-  const out: Record<string, unknown> = { ...data };
-
-  for (const [k, v] of Object.entries(out)) {
-    if (!Array.isArray(v) || !v.every(isJsonPrimitive)) continue;
-
-    const isBarSeries = barIndexBase !== null && DATA_LOG_BAR_SERIES_KEYS.has(k);
-    out[k] = v.map((item, i) => (isBarSeries ? { i, bar: barIndexBase + i, v: item } : { i, v: item }));
-  }
-
-  return out;
-}
-
-function errorName(err: unknown): string {
-  if (!err || typeof err !== "object" || !("name" in err)) return "";
-  return String((err as { name: unknown }).name);
-}
-
-function isAbortError(err: unknown): boolean {
-  const name = errorName(err);
-  if (name === "AbortError") return true;
-  if (!(err instanceof Error)) return false;
-  return err.message.toLowerCase().includes("aborted");
-}
-
-function isTimeoutError(err: unknown): boolean {
-  return errorName(err) === "TimeoutError";
-}
-
-function actionBadgeClass(action: string): string {
-  const a = action.toUpperCase();
-  if (a.includes("LONG")) return "badge badgeStrong badgeLong";
-  if (a.includes("FLAT")) return "badge badgeStrong badgeFlat";
-  return "badge badgeStrong badgeHold";
-}
-
-function methodLabel(method: Method): string {
-  switch (method) {
-    case "11":
-      return "Both (agreement gated)";
-    case "10":
-      return "Kalman only";
-    case "01":
-      return "LSTM only";
-  }
-}
-
-function marketLabel(m: Market): string {
-  switch (m) {
-    case "spot":
-      return "Spot";
-    case "margin":
-      return "Margin";
-    case "futures":
-      return "Futures";
-  }
-}
-
-function generateIdempotencyKey(): string {
-  try {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-      return crypto.randomUUID();
-    }
-  } catch {
-    // ignore
-  }
-  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
-  const bytes = new Uint8Array(24);
-  try {
-    crypto.getRandomValues(bytes);
-  } catch {
-    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
-  }
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 1) out += alphabet[bytes[i]! % alphabet.length];
-  return out;
-}
-
-function isLikelyOrderError(message: string | null | undefined, sent: boolean | null | undefined, status: string | null | undefined): boolean {
-  if (sent === false) return true;
-  const s = `${status ?? ""} ${message ?? ""}`.toLowerCase();
-  return (
-    s.includes("error") ||
-    s.includes("fail") ||
-    s.includes("rejected") ||
-    s.includes("insufficient") ||
-    s.includes("no order") ||
-    s.includes("halt") ||
-    s.includes("denied")
-  );
-}
 
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
@@ -1222,6 +687,7 @@ export function App() {
       tuneObjective: form.tuneObjective,
       tunePenaltyMaxDrawdown: Math.max(0, form.tunePenaltyMaxDrawdown),
       tunePenaltyTurnover: Math.max(0, form.tunePenaltyTurnover),
+      minRoundTrips: clamp(Math.trunc(form.minRoundTrips), 0, 1_000_000),
       walkForwardFolds: clamp(Math.trunc(form.walkForwardFolds), 1, 1000),
       normalization: form.normalization,
       epochs: clamp(Math.trunc(form.epochs), 0, 5000),
@@ -2525,6 +1991,16 @@ export function App() {
                 ) : null}
                 {healthInfo?.computeLimits ? (
                   <div className="hint" style={{ marginTop: 6 }}>
+                    {healthInfo.version ? (
+                      <>
+                        API build:{" "}
+                        <span className="tdMono">
+                          {healthInfo.version}
+                          {healthInfo.commit ? ` (${healthInfo.commit.slice(0, 12)})` : ""}
+                        </span>
+                        .{" "}
+                      </>
+                    ) : null}
                     API limits: max LSTM bars {healthInfo.computeLimits.maxBarsLstm}, epochs {healthInfo.computeLimits.maxEpochs}, hidden{" "}
                     {healthInfo.computeLimits.maxHiddenSize}.
                     {healthInfo.asyncJobs
@@ -2974,12 +2450,36 @@ export function App() {
                     type="button"
                     disabled={!(estimatedCosts.breakEven > 0)}
                     onClick={() => {
+                      const be = estimatedCosts.breakEven;
+                      const open = Number((be * 2).toFixed(6));
+                      const close = Number(be.toFixed(6));
+                      setForm((f) => ({ ...f, openThreshold: open, closeThreshold: close }));
+                      showToast("Set thresholds to conservative (2× break-even)");
+                    }}
+                  >
+                    Conservative (2× BE)
+                  </button>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    disabled={!(estimatedCosts.breakEven > 0)}
+                    onClick={() => {
                       const v = Number(estimatedCosts.breakEven.toFixed(6));
                       setForm((f) => ({ ...f, openThreshold: v, closeThreshold: v }));
                       showToast("Set thresholds to break-even");
                     }}
                   >
                     Set open/close to break-even
+                  </button>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    onClick={() => {
+                      setForm((f) => ({ ...f, openThreshold: defaultForm.openThreshold, closeThreshold: defaultForm.closeThreshold }));
+                      showToast("Reset thresholds to defaults");
+                    }}
+                  >
+                    Reset thresholds
                   </button>
                 </div>
               </div>
@@ -3339,7 +2839,41 @@ export function App() {
                   </label>
                 </div>
                 <div className="hint">Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.</div>
-                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+                <div className="pillRow" style={{ marginTop: 10 }}>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    onClick={() => {
+                      setForm((f) => ({
+                        ...f,
+                        optimizeOperations: true,
+                        sweepThreshold: false,
+                        minRoundTrips: Math.max(5, Math.trunc(f.minRoundTrips)),
+                        walkForwardFolds: Math.max(5, Math.trunc(f.walkForwardFolds)),
+                      }));
+                      showToast("Preset: safe optimize (min round trips + folds)");
+                    }}
+                  >
+                    Preset: Safe optimize
+                  </button>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    onClick={() => {
+                      setForm((f) => ({
+                        ...f,
+                        sweepThreshold: true,
+                        optimizeOperations: false,
+                        minRoundTrips: Math.max(3, Math.trunc(f.minRoundTrips)),
+                        walkForwardFolds: Math.max(3, Math.trunc(f.walkForwardFolds)),
+                      }));
+                      showToast("Preset: fast sweep (min round trips + folds)");
+                    }}
+                  >
+                    Preset: Fast sweep
+                  </button>
+                </div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
                   <div className="field">
                     <label className="label" htmlFor="tuneObjective">
                       Tune objective
@@ -3387,6 +2921,21 @@ export function App() {
                       onChange={(e) => setForm((f) => ({ ...f, tunePenaltyTurnover: numFromInput(e.target.value, f.tunePenaltyTurnover) }))}
                     />
                     <div className="hint">Applied when objective includes turnover.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="minRoundTrips">
+                      Min round trips
+                    </label>
+                    <input
+                      id="minRoundTrips"
+                      className="input"
+                      type="number"
+                      step="1"
+                      min={0}
+                      value={form.minRoundTrips}
+                      onChange={(e) => setForm((f) => ({ ...f, minRoundTrips: numFromInput(e.target.value, f.minRoundTrips) }))}
+                    />
+                    <div className="hint">Only used when optimizing/sweeping. 0 disables.</div>
                   </div>
                   <div className="field">
                     <label className="label" htmlFor="walkForwardFolds">
@@ -4561,15 +4110,15 @@ export function App() {
             <div className="cardBody">
               {state.backtest ? (
                 <>
-	                  <BacktestChart
-	                    prices={state.backtest.prices}
-	                    equityCurve={state.backtest.equityCurve}
-	                    positions={state.backtest.positions}
-	                    agreementOk={state.backtest.entryAgreementOk ?? state.backtest.agreementOk}
-	                    trades={state.backtest.trades}
-	                    backtestStartIndex={state.backtest.split.backtestStartIndex}
-	                    height={360}
-		                  />
+		                  <BacktestChart
+			                    prices={state.backtest.prices}
+			                    equityCurve={state.backtest.equityCurve}
+			                    positions={state.backtest.positions}
+			                    agreementOk={state.backtest.agreementOk}
+			                    trades={state.backtest.trades}
+			                    backtestStartIndex={state.backtest.split.backtestStartIndex}
+			                    height={360}
+			                  />
 		                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
 		                    {state.backtest.split.tune > 0 ? (
 		                      <>
@@ -4652,6 +4201,9 @@ export function App() {
                       <div className="k">Tune objective</div>
                       <div className="v">
                         {state.backtest.tuning.objective}
+                        {state.backtest.tuning.minRoundTrips && state.backtest.tuning.minRoundTrips > 0
+                          ? ` • min-round-trips=${state.backtest.tuning.minRoundTrips}`
+                          : ""}
                         {state.backtest.tuning.tuneStats
                           ? ` • folds=${state.backtest.tuning.tuneStats.folds} score=${fmtNum(state.backtest.tuning.tuneStats.meanScore, 4)}±${fmtNum(state.backtest.tuning.tuneStats.stdScore, 4)}`
                           : ""}
@@ -4683,11 +4235,34 @@ export function App() {
                     </div>
                   </div>
                   <div className="kv">
-                    <div className="k">Trades / Win rate</div>
+                    <div className="k">Trades / Round trips / Win rate</div>
                     <div className="v">
-                      {state.backtest.metrics.roundTrips} / {fmtPct(state.backtest.metrics.winRate, 1)}
+                      {state.backtest.metrics.tradeCount} / {state.backtest.metrics.roundTrips} / {fmtPct(state.backtest.metrics.winRate, 1)}
+                      {state.backtest.metrics.roundTrips < 3 ? " • low sample" : ""}
                     </div>
                   </div>
+
+                  {state.backtest.baselines && state.backtest.baselines.length > 0 ? (
+                    <details className="details" style={{ marginTop: 12 }}>
+                      <summary>Baselines</summary>
+                      <div style={{ marginTop: 10 }}>
+                        {state.backtest.baselines.map((b) => {
+                          const baseEq = b.metrics.finalEquity;
+                          const modelEq = state.backtest?.metrics.finalEquity ?? 1;
+                          const delta = baseEq > 0 ? modelEq / baseEq - 1 : null;
+                          return (
+                            <div key={b.name} className="kv">
+                              <div className="k">{b.name}</div>
+                              <div className="v">
+                                {fmtRatio(baseEq, 4)} ({fmtPct(b.metrics.totalReturn, 2)})
+                                {delta != null && Number.isFinite(delta) ? ` • model: ${fmtPct(delta, 2)}` : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  ) : null}
 
                   <details className="details" style={{ marginTop: 12 }}>
                     <summary>More metrics</summary>
@@ -4718,12 +4293,12 @@ export function App() {
 	                          {fmtPct(state.backtest.metrics.avgTradeReturn, 2)} / {fmtNum(state.backtest.metrics.avgHoldingPeriods, 2)} bars
 	                        </div>
 	                      </div>
-                      <div className="kv">
-                        <div className="k">Entry agreement rate</div>
-                        <div className="v">
-                          {fmtPct(state.backtest.metrics.entryAgreementRate ?? state.backtest.metrics.agreementRate, 1)}
-                        </div>
-                      </div>
+	                      <div className="kv">
+	                        <div className="k">Agreement rate</div>
+	                        <div className="v">
+	                          {fmtPct(state.backtest.metrics.agreementRate, 1)}
+	                        </div>
+	                      </div>
                     </div>
                   </details>
 

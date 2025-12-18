@@ -92,7 +92,7 @@ docker push "${ECR_URI}:latest"
   - Optional safety limits (to avoid OOM / timeouts on small instances):
     - `TRADER_API_MAX_ASYNC_RUNNING` (default: `1`)
     - `TRADER_API_MAX_BARS_LSTM` (default: `300`)
-    - `TRADER_API_MAX_EPOCHS` (default: `60`)
+    - `TRADER_API_MAX_EPOCHS` (default: `100`)
     - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`)
   - Async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
     - `TRADER_API_ASYNC_DIR` (e.g. an EFS-mounted path). Docker image default: `/var/lib/trader/async`.

@@ -21,7 +21,7 @@ import Text.Read (readMaybe)
 import Options.Applicative
 
 import Trader.Binance (BinanceMarket(..))
-import Trader.BinanceIntervals (binanceIntervals, isBinanceInterval)
+import Trader.BinanceIntervals (binanceIntervalsCsv, isBinanceInterval)
 import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
 import Trader.Method (Method(..), methodCode, parseMethod)
 import Trader.Normalization (NormType(..), parseNormType)
@@ -61,6 +61,7 @@ data Args = Args
   , argTuneObjective :: TuneObjective
   , argTunePenaltyMaxDrawdown :: Double
   , argTunePenaltyTurnover :: Double
+  , argMinRoundTrips :: Int
   , argWalkForwardFolds :: Int
   , argPatience :: Int
   , argGradClip :: Maybe Double
@@ -195,7 +196,7 @@ opts = do
   argBinanceLive <- switch (long "binance-live" <> help "If set, send LIVE orders (otherwise uses /order/test)")
   argOrderQuote <- optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
   argOrderQuantity <- optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
-  argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0..1) when --order-quote/--order-quantity not set"))
+  argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0 < F <= 1) when --order-quote/--order-quantity not set"))
   argMaxOrderQuote <- optional (option auto (long "max-order-quote" <> help "Cap the computed quote amount when using --order-quote-fraction"))
   argIdempotencyKey <- optional (strOption (long "idempotency-key" <> metavar "ID" <> help "Optional Binance newClientOrderId for idempotent orders"))
   argNormalization <- option (maybeReader parseNormType) (long "normalization" <> value NormStandard <> help "none|minmax|standard|log")
@@ -215,6 +216,13 @@ opts = do
       )
   argTunePenaltyMaxDrawdown <- option auto (long "tune-penalty-max-drawdown" <> value 1.0 <> help "Penalty weight for max drawdown (used by equity-dd objectives)")
   argTunePenaltyTurnover <- option auto (long "tune-penalty-turnover" <> value 0.1 <> help "Penalty weight for turnover (used by equity-dd-turnover)")
+  argMinRoundTrips <-
+    option
+      auto
+      ( long "min-round-trips"
+          <> value 0
+          <> help "When optimizing/sweeping, require at least N round trips in the tune split (0 disables; helps avoid 'no-trade' winners)"
+      )
   argWalkForwardFolds <- option auto (long "walk-forward-folds" <> value 5 <> help "Compute fold stats on tune/backtest windows (1 disables)")
   argPatience <- option auto (long "patience" <> value 10 <> help "Early stopping patience (0 disables)")
   argGradClip <- optional (option auto (long "grad-clip" <> help "Gradient clipping max L2 norm"))
@@ -333,6 +341,7 @@ validateArgs args0 = do
   ensure "--json cannot be used with --serve" (not (argJson args && argServe args))
   ensure "--positioning long-short is not supported with --serve (live bot is long-flat only)" (not (argServe args && argPositioning args == LongShort))
   ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
+  ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)
 
   case argHighCol args of
     Nothing -> pure ()
@@ -358,7 +367,7 @@ validateArgs args0 = do
     Nothing -> pure ()
     Just _ ->
       ensure
-        ("--interval must be a Binance interval: " ++ unwords binanceIntervals)
+        ("--interval must be a Binance interval: " ++ binanceIntervalsCsv)
         (isBinanceInterval intervalStr)
 
   let barsRaw = argBars args

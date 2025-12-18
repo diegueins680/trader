@@ -6,7 +6,7 @@ module Main where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
-import Control.Exception (SomeException, finally, fromException, throwIO, try)
+import Control.Exception (IOException, SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
@@ -47,7 +47,8 @@ import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExi
 import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode(..), die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
-import System.IO (IOMode(ReadMode), hGetLine, hIsEOF, hPutStrLn, stderr, withFile)
+import System.Exit (exitFailure)
+import System.IO (IOMode(ReadMode), hFlush, hGetLine, hIsEOF, hPutStrLn, stderr, stdout, withFile)
 import System.IO.Error (ioeGetErrorString, isUserError)
 import System.Process (CreateProcess(..), proc, readCreateProcessWithExitCode)
 import System.Random (randomIO)
@@ -96,6 +97,7 @@ import Trader.LSTM
   , predictSeriesNext
   )
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
+import Trader.BinanceIntervals (binanceIntervalsCsv)
 import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
 import Trader.Normalization (NormState, NormType(..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Predictors
@@ -356,6 +358,7 @@ data BacktestSummary = BacktestSummary
   , bsTuneObjective :: !TuneObjective
   , bsTunePenaltyMaxDrawdown :: !Double
   , bsTunePenaltyTurnover :: !Double
+  , bsMinRoundTrips :: !Int
   , bsWalkForwardFolds :: !Int
   , bsTuneStats :: !(Maybe TuneStats)
   , bsBacktestSize :: !Int
@@ -371,6 +374,7 @@ data BacktestSummary = BacktestSummary
   , bsEstimatedPerSideCost :: !Double
   , bsEstimatedRoundTripCost :: !Double
   , bsMetrics :: !BacktestMetrics
+  , bsBaselines :: ![Baseline]
   , bsWalkForward :: !(Maybe WalkForwardReport)
   , bsLstmHistory :: !(Maybe [EpochStats])
   , bsLatestSignal :: !LatestSignal
@@ -379,6 +383,11 @@ data BacktestSummary = BacktestSummary
   , bsPositions :: ![Double]
   , bsAgreementOk :: ![Bool]
   , bsTrades :: ![Trade]
+  } deriving (Eq, Show)
+
+data Baseline = Baseline
+  { blName :: !String
+  , blMetrics :: !BacktestMetrics
   } deriving (Eq, Show)
 
 data WalkForwardFold = WalkForwardFold
@@ -410,9 +419,29 @@ data WalkForwardReport = WalkForwardReport
 
 -- (moved to Trader.App.Args)
 
+traderVersion :: String
+traderVersion = showVersion Paths.version
+
+data BuildInfo = BuildInfo
+  { biVersion :: !String
+  , biCommit :: !(Maybe String)
+  } deriving (Eq, Show)
+
+getBuildCommit :: IO (Maybe String)
+getBuildCommit = do
+  let keys = ["TRADER_GIT_COMMIT", "TRADER_COMMIT", "GIT_COMMIT", "COMMIT_SHA"]
+  m <- firstJust <$> mapM lookupEnv keys
+  case fmap trim m of
+    Just s | not (null s) -> pure (Just s)
+    _ -> pure Nothing
+
 main :: IO ()
 main = do
-  args <- execParser (info (opts <**> helper) fullDesc)
+  let versionOption =
+        infoOption
+          ("trader-hs " ++ traderVersion)
+          (long "version" <> short 'V' <> help "Show version")
+  args <- execParser (info (opts <**> helper <**> versionOption) fullDesc)
   args' <-
     case validateArgs args of
       Left e -> die (e ++ "\n\nRun with --help for usage.")
@@ -463,6 +492,7 @@ data ApiParams = ApiParams
   , apTuneObjective :: Maybe String
   , apTunePenaltyMaxDrawdown :: Maybe Double
   , apTunePenaltyTurnover :: Maybe Double
+  , apMinRoundTrips :: Maybe Int
   , apWalkForwardFolds :: Maybe Int
   , apPatience :: Maybe Int
   , apGradClip :: Maybe Double
@@ -1757,6 +1787,7 @@ botOptimizeAfterOperation st = do
                   , tcPenaltyTurnover = argTunePenaltyTurnover args
                   , tcPeriodsPerYear = ppy
                   , tcWalkForwardFolds = argWalkForwardFolds args
+                  , tcMinRoundTrips = argMinRoundTrips args
                   }
               (newMethod, newOpenThr, newCloseThr) =
                 if optimizeOps && hasBothCtx
@@ -2495,16 +2526,51 @@ botApplyKline mOps metrics mJournal st k = do
         savePersistedLstmModelMaybe mPath (length obsTrain) lstmModel1
         pure (Just (normState, obsAll', lstmModel1))
 
-  let latest0 = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1
+  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1
       nan = 0 / 0 :: Double
-      kalPred1 = V.snoc (botKalmanPredNext st) (maybe nan id (lsKalmanNext latest0))
-      lstmPred1 = V.snoc (botLstmPredNext st) (maybe nan id (lsLstmNext latest0))
+      kalPred1 = V.snoc (botKalmanPredNext st) (maybe nan id (lsKalmanNext latest0Raw))
+      lstmPred1 = V.snoc (botLstmPredNext st) (maybe nan id (lsLstmNext latest0Raw))
+
+      -- Stateful decision:
+      -- - Entry uses openThreshold (direction-agreement gated).
+      -- - Exit/hold uses closeThreshold (hysteresis), matching backtest logic.
+      currentPrice = lsCurrentPrice latest0Raw
+      closeThr = max 0 (argCloseThreshold args)
+
+      directionAt thr pred =
+        let upEdge = currentPrice * (1 + thr)
+            downEdge = currentPrice * (1 - thr)
+         in if pred > upEdge
+              then Just (1 :: Int)
+              else if pred < downEdge then Just (-1) else Nothing
+
+      kalCloseDirRaw = lsKalmanNext latest0Raw >>= directionAt closeThr
+      lstmCloseDir = lsLstmNext latest0Raw >>= directionAt closeThr
+      closeAgreeDir =
+        if kalCloseDirRaw == lstmCloseDir
+          then kalCloseDirRaw
+          else Nothing
+
+      wantLongClose =
+        case argMethod args of
+          MethodBoth -> closeAgreeDir == Just 1
+          MethodKalmanOnly -> kalCloseDirRaw == Just 1
+          MethodLstmOnly -> lstmCloseDir == Just 1
 
       desiredPosSignal =
-        case lsChosenDir latest0 of
-          Just 1 -> 1
-          Just (-1) -> 0
-          _ -> prevPos
+        if prevPos == 1
+          then if wantLongClose then 1 else 0
+          else
+            case lsChosenDir latest0Raw of
+              Just 1 -> 1
+              _ -> 0
+
+      -- If we decide to exit based on closeThreshold (even if openThreshold signal is neutral),
+      -- force chosenDir=-1 so a SELL can actually be placed when trade is enabled.
+      latest0 =
+        if prevPos == 1 && desiredPosSignal == 0 && lsChosenDir latest0Raw /= Just (-1)
+          then latest0Raw { lsChosenDir = Just (-1), lsAction = "FLAT (close)" }
+          else latest0Raw
 
       bracketExitReason entryPx trailHigh =
         let mTpPx =
@@ -2857,6 +2923,8 @@ placeIfEnabled args settings sig env sym =
 
 runRestApi :: Args -> IO ()
 runRestApi baseArgs = do
+  mCommit <- getBuildCommit
+  let buildInfo = BuildInfo traderVersion mCommit
   apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
   timeoutEnv <- lookupEnv "TRADER_API_TIMEOUT_SEC"
   maxAsyncRunningEnv <- lookupEnv "TRADER_API_MAX_ASYNC_RUNNING"
@@ -2906,12 +2974,15 @@ runRestApi baseArgs = do
       putStrLn "Increased GHC capabilities to 2 (to keep the API responsive during heavy compute)."
     else pure ()
 
-  let port = max 1 (argPort baseArgs)
+  let bindHost = "0.0.0.0" :: String
+      displayHost = "127.0.0.1" :: String
+      port = max 1 (argPort baseArgs)
       settings =
-        Warp.setHost "0.0.0.0" $
+        Warp.setHost bindHost $
           Warp.setTimeout timeoutSec $
           Warp.setPort port Warp.defaultSettings
-  putStrLn (printf "REST API listening on http://0.0.0.0:%d" port)
+  putStrLn (printf "Build: %s%s" (biVersion buildInfo) (maybe "" (\c -> " (" ++ take 12 c ++ ")") (biCommit buildInfo)))
+  putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHost port)
   putStrLn
     ( printf
         "API limits: maxAsyncRunning=%d, maxBarsLstm=%d, maxEpochs=%d, maxHiddenSize=%d"
@@ -2951,7 +3022,14 @@ runRestApi baseArgs = do
   asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
   asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
   asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
-  Warp.runSettings settings (apiApp baseArgs apiToken bot metrics mJournal mOps limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)
+  hFlush stdout
+  res <- try (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp))
+  case res of
+    Right () -> pure ()
+    Left e -> do
+      hPutStrLn stderr (printf "Failed to start REST API on %s:%d: %s" bindHost port (ioeGetErrorString e))
+      hPutStrLn stderr "Try a different --port (or check permissions / sandbox restrictions)."
+      exitFailure
 
 corsHeaders :: ResponseHeaders
 corsHeaders =
@@ -3122,6 +3200,7 @@ argsCacheJsonBacktest args =
       , "tuneObjective" .= tuneObjectiveCode (argTuneObjective args)
       , "tunePenaltyMaxDrawdown" .= argTunePenaltyMaxDrawdown args
       , "tunePenaltyTurnover" .= argTunePenaltyTurnover args
+      , "minRoundTrips" .= argMinRoundTrips args
       , "walkForwardFolds" .= argWalkForwardFolds args
       , "optimizeOperations" .= argOptimizeOperations args
       , "sweepThreshold" .= argSweepThreshold args
@@ -3611,6 +3690,7 @@ validateApiComputeLimits limits args =
       Right args
 
 apiApp ::
+  BuildInfo ->
   Args ->
   Maybe BS.ByteString ->
   BotController ->
@@ -3623,7 +3703,7 @@ apiApp ::
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache asyncStores projectRoot optimizerTmp req respond = do
   let rawPath = Wai.pathInfo req
       path =
         case rawPath of
@@ -3660,42 +3740,45 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache asyncStor
             [] ->
               case Wai.requestMethod req of
                 "GET" ->
-                  respondCors
-                    ( jsonValue
-                        status200
-                        ( object
-                            [ "name" .= ("trader-hs" :: String)
-                            , "endpoints"
-                                .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/cache" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/cache/clear" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/signal/async/:jobId/cancel" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/trade/async/:jobId/cancel" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/close" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
-                                   , object ["method" .= ("POST" :: String), "path" .= ("/optimizer/run" :: String)]
-                                   , object ["method" .= ("GET" :: String), "path" .= ("/optimizer/combos" :: String)]
-                                   ]
+                  respondCors $
+                    jsonValue
+                      status200
+                      ( object
+                          ( [ "name" .= ("trader-hs" :: String)
+                            , "version" .= biVersion buildInfo
                             ]
-                        )
-                    )
+                              ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
+                              ++ [ "endpoints"
+                                    .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
+                                       , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
+                                       , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
+                                       , object ["method" .= ("GET" :: String), "path" .= ("/cache" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/cache/clear" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
+                                       , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/signal/async/:jobId/cancel" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
+                                       , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/trade/async/:jobId/cancel" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
+                                       , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/close" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
+                                       , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/optimizer/run" :: String)]
+                                       , object ["method" .= ("GET" :: String), "path" .= ("/optimizer/combos" :: String)]
+                                       ]
+                                 ]
+                          )
+                      )
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["health"] ->
               case Wai.requestMethod req of
@@ -3703,34 +3786,30 @@ apiApp baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache asyncStor
                   let authRequired = isJust apiToken
                       authOk = authorized apiToken req
                       asyncCfg = asBacktest asyncStores
-                   in respondCors
-                        ( jsonValue
-                            status200
-                            ( object
-                                ( ["status" .= ("ok" :: String)]
-                                    ++ (if authRequired then ["authRequired" .= True, "authOk" .= authOk] else [])
-                                    ++ [ "computeLimits"
-                                          .= object
-                                            [ "maxBarsLstm" .= aclMaxBarsLstm limits
-                                            , "maxEpochs" .= aclMaxEpochs limits
-                                            , "maxHiddenSize" .= aclMaxHiddenSize limits
-                                            ]
-                                       , "asyncJobs"
-                                          .= object
-                                            [ "maxRunning" .= jsMaxRunning asyncCfg
-                                            , "ttlMs" .= jsTtlMs asyncCfg
-                                            , "persistence" .= isJust (jsDir asyncCfg)
-                                            ]
-                                       , "cache"
-                                          .= object
-                                            [ "enabled" .= cacheEnabled apiCache
-                                            , "ttlMs" .= acTtlMs apiCache
-                                            , "maxEntries" .= acMaxEntries apiCache
-                                            ]
-                                       ]
-                                )
-                            )
-                        )
+                      pairs =
+                        ["status" .= ("ok" :: String), "version" .= biVersion buildInfo]
+                          ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
+                          ++ (if authRequired then ["authRequired" .= True, "authOk" .= authOk] else [])
+                          ++ [ "computeLimits"
+                                .= object
+                                  [ "maxBarsLstm" .= aclMaxBarsLstm limits
+                                  , "maxEpochs" .= aclMaxEpochs limits
+                                  , "maxHiddenSize" .= aclMaxHiddenSize limits
+                                  ]
+                             , "asyncJobs"
+                                .= object
+                                  [ "maxRunning" .= jsMaxRunning asyncCfg
+                                  , "ttlMs" .= jsTtlMs asyncCfg
+                                  , "persistence" .= isJust (jsDir asyncCfg)
+                                  ]
+                             , "cache"
+                                .= object
+                                  [ "enabled" .= cacheEnabled apiCache
+                                  , "ttlMs" .= acTtlMs apiCache
+                                  , "maxEntries" .= acMaxEntries apiCache
+                                  ]
+                             ]
+                   in respondCors (jsonValue status200 (object pairs))
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["metrics"] ->
               case Wai.requestMethod req of
@@ -3864,7 +3943,13 @@ jsonError st msg = jsonValue st (ApiError msg)
 exceptionToHttp :: SomeException -> (Status, String)
 exceptionToHttp ex =
   case fromException ex of
-    Just (ErrorCall msg) -> (status400, msg)
+    Just (ErrorCall msg) ->
+      if "Internal:" `isPrefixOf` msg
+        then
+          let msg' = dropWhile isSpace (drop (length ("Internal:" :: String)) msg)
+              suffix = if null msg' then "" else ": " ++ msg'
+           in (status500, "Internal server error" ++ suffix)
+        else (status400, msg)
     Nothing ->
       case fromException ex of
         Just io
@@ -3882,7 +3967,7 @@ textValue st body =
     body
 
 defaultOptimizerIntervals :: String
-defaultOptimizerIntervals = "1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1M"
+defaultOptimizerIntervals = binanceIntervalsCsv
 
 defaultOptimizerNormalizations :: String
 defaultOptimizerNormalizations = "none,minmax,standard,log"
@@ -4892,6 +4977,7 @@ argsFromApi baseArgs p = do
           , argTuneObjective = tuneObjective
           , argTunePenaltyMaxDrawdown = pick (apTunePenaltyMaxDrawdown p) (argTunePenaltyMaxDrawdown baseArgs)
           , argTunePenaltyTurnover = pick (apTunePenaltyTurnover p) (argTunePenaltyTurnover baseArgs)
+          , argMinRoundTrips = pick (apMinRoundTrips p) (argMinRoundTrips baseArgs)
           , argWalkForwardFolds = pick (apWalkForwardFolds p) (argWalkForwardFolds baseArgs)
           , argPatience = pick (apPatience p) (argPatience baseArgs)
           , argGradClip =
@@ -5541,6 +5627,7 @@ backtestSummaryJson summary =
           [ "objective" .= tuneObjectiveCode (bsTuneObjective summary)
           , "penaltyMaxDrawdown" .= bsTunePenaltyMaxDrawdown summary
           , "penaltyTurnover" .= bsTunePenaltyTurnover summary
+          , "minRoundTrips" .= bsMinRoundTrips summary
           , "walkForwardFolds" .= bsWalkForwardFolds summary
           , "tuneStats" .= tuneStatsJson
           ]
@@ -5601,12 +5688,12 @@ backtestSummaryJson summary =
     , "costs" .= costsJson
     , "walkForward" .= walkForwardJson
     , "metrics" .= metricsToJson (bsMetrics summary)
+    , "baselines" .= map baselineToJson (bsBaselines summary)
     , "latestSignal" .= bsLatestSignal summary
     , "equityCurve" .= bsEquityCurve summary
     , "prices" .= bsBacktestPrices summary
     , "positions" .= bsPositions summary
     , "agreementOk" .= bsAgreementOk summary
-    , "entryAgreementOk" .= bsAgreementOk summary
     , "trades" .= map tradeToJson (bsTrades summary)
     ]
 
@@ -5620,6 +5707,13 @@ tradeToJson tr =
     , "return" .= trReturn tr
     , "holdingPeriods" .= trHoldingPeriods tr
     , "exitReason" .= trExitReason tr
+    ]
+
+baselineToJson :: Baseline -> Aeson.Value
+baselineToJson b =
+  object
+    [ "name" .= blName b
+    , "metrics" .= metricsToJson (blMetrics b)
     ]
 
 metricsToJson :: BacktestMetrics -> Aeson.Value
@@ -5642,7 +5736,6 @@ metricsToJson m =
     , "avgHoldingPeriods" .= bmAvgHoldingPeriods m
     , "exposure" .= bmExposure m
     , "agreementRate" .= bmAgreementRate m
-    , "entryAgreementRate" .= bmAgreementRate m
     , "turnover" .= bmTurnover m
     ]
 
@@ -6212,6 +6305,7 @@ computeBacktestSummary args lookback series = do
           , tcPenaltyTurnover = argTunePenaltyTurnover args
           , tcPeriodsPerYear = ppy
           , tcWalkForwardFolds = argWalkForwardFolds args
+          , tcMinRoundTrips = argMinRoundTrips args
           }
 
       (methodUsed, bestOpenThr, bestCloseThr, mTuneStats) =
@@ -6245,6 +6339,7 @@ computeBacktestSummary args lookback series = do
           metaUsedBacktest
 
       metrics = computeMetrics ppy backtest
+      baselines = computeBaselines ppy perSideCost backtestPrices
 
       walkForward =
         let wfReq = max 1 (argWalkForwardFolds args)
@@ -6341,6 +6436,7 @@ computeBacktestSummary args lookback series = do
       , bsTuneObjective = argTuneObjective args
       , bsTunePenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
       , bsTunePenaltyTurnover = argTunePenaltyTurnover args
+      , bsMinRoundTrips = argMinRoundTrips args
       , bsWalkForwardFolds = argWalkForwardFolds args
       , bsTuneStats = mTuneStats
       , bsBacktestSize = length backtestPrices
@@ -6356,6 +6452,7 @@ computeBacktestSummary args lookback series = do
       , bsEstimatedPerSideCost = perSideCost
       , bsEstimatedRoundTripCost = roundTripCost
       , bsMetrics = metrics
+      , bsBaselines = baselines
       , bsWalkForward = walkForward
       , bsLstmHistory = mHistory
       , bsLatestSignal = latestSignal
@@ -6365,6 +6462,132 @@ computeBacktestSummary args lookback series = do
       , bsAgreementOk = brAgreementOk backtest
       , bsTrades = brTrades backtest
       }
+
+computeBaselines :: Double -> Double -> [Double] -> [Baseline]
+computeBaselines periodsPerYear perSideCost prices =
+  let ppy = max 1e-12 periodsPerYear
+      perSide = min 0.999999 (max 0 perSideCost)
+      n = length prices
+      steps = max 0 (n - 1)
+      buyHoldBt = baselineSimLongFlat perSide prices (replicate steps True)
+      buyHold = Baseline { blName = "buy-hold", blMetrics = computeMetrics ppy buyHoldBt }
+
+      pricesV = V.fromList prices
+      prefix = V.scanl (+) 0 pricesV
+      smaAt w i =
+        if w <= 0 || i < 0
+          then Nothing
+          else
+            let w' = max 1 w
+                i1 = i + 1
+             in if i1 < w'
+                  then Nothing
+                  else
+                    let s = (prefix V.! i1) - (prefix V.! (i1 - w'))
+                     in Just (s / fromIntegral w')
+
+      longW0 = max 10 (min 60 (n `div` 5))
+      longW = min (max 2 longW0) (max 2 (n - 1))
+      shortW = max 2 (min (longW - 1) (max 2 (longW `div` 2)))
+
+      smaCrossBaseline =
+        if n < 3 || shortW >= longW || longW >= n
+          then Nothing
+          else
+            let wantLong =
+                  [ case (smaAt shortW t, smaAt longW t) of
+                      (Just s, Just l) -> s > l
+                      _ -> False
+                  | t <- [0 .. steps - 1]
+                  ]
+                bt = baselineSimLongFlat perSide prices wantLong
+                name = printf "sma-cross(%d/%d)" shortW longW
+             in Just (Baseline { blName = name, blMetrics = computeMetrics ppy bt })
+   in buyHold : maybe [] (:[]) smaCrossBaseline
+
+baselineSimLongFlat :: Double -> [Double] -> [Bool] -> BacktestResult
+baselineSimLongFlat perSideCost prices wantLong =
+  let perSide = min 0.999999 (max 0 perSideCost)
+      pricesV = V.fromList prices
+      n = V.length pricesV
+      stepCount = max 0 (n - 1)
+      wantV = V.fromList (take stepCount wantLong <> replicate (max 0 (stepCount - length wantLong)) False)
+
+      applyCost eq size =
+        let s = min 1 (max 0 (abs size))
+         in eq * (1 - perSide * s)
+
+      isBad x = isNaN x || isInfinite x
+
+      closeTrade exitIndex eqExit (entryIndex, entryEquity, holdingPeriods) =
+        Trade
+          { trEntryIndex = entryIndex
+          , trExitIndex = exitIndex
+          , trEntryEquity = entryEquity
+          , trExitEquity = eqExit
+          , trReturn = if entryEquity == 0 then 0 else eqExit / entryEquity - 1
+          , trHoldingPeriods = holdingPeriods
+          , trExitReason = Nothing
+          }
+
+      stepFn (posSize, equity, eqAcc, posAcc, changes, mOpen, tradesAcc) t =
+        let prev = pricesV V.! t
+            next = pricesV V.! (t + 1)
+            desired = if wantV V.! t then 1 else 0
+
+            (pos1, eq1, changes1, mOpen1, tradesAcc1) =
+              if desired == posSize
+                then (posSize, equity, changes, mOpen, tradesAcc)
+                else
+                  if desired == 0 && posSize > 0
+                    then
+                      let eqExit = applyCost equity posSize
+                          tradesAcc' =
+                            case mOpen of
+                              Nothing -> tradesAcc
+                              Just ot -> closeTrade t eqExit ot : tradesAcc
+                       in (0, eqExit, changes + 1, Nothing, tradesAcc')
+                    else
+                      if desired > 0 && posSize == 0
+                        then
+                          let eqEntry = applyCost equity desired
+                           in (desired, eqEntry, changes + 1, Just (t, eqEntry, 0 :: Int), tradesAcc)
+                        else (posSize, equity, changes, mOpen, tradesAcc)
+
+            factor = if prev == 0 then 1 else next / prev
+            eqClose0 = eq1 * (1 + pos1 * (factor - 1))
+            eqClose = if isBad eqClose0 then eq1 else eqClose0
+
+            mOpen2 =
+              case mOpen1 of
+                Nothing -> Nothing
+                Just (entryIndex, entryEq, holding) -> Just (entryIndex, entryEq, holding + 1)
+         in (pos1, eqClose, eqClose : eqAcc, pos1 : posAcc, changes1, mOpen2, tradesAcc1)
+
+      (posFinal, eqFinal, eqRev, posRev, changesFinal, mOpenFinal, tradesRev) =
+        foldl'
+          stepFn
+          (0 :: Double, 1.0 :: Double, [1.0], [], 0 :: Int, Nothing :: Maybe (Int, Double, Int), [])
+          [0 .. stepCount - 1]
+
+      (eqRev', changesFinal', tradesRev') =
+        case (posFinal, mOpenFinal) of
+          (p, Just ot) | p > 0 ->
+            let eqExit = applyCost eqFinal p
+                eqRev1 =
+                  case eqRev of
+                    [] -> [eqExit]
+                    (_ : rest) -> eqExit : rest
+                tr = closeTrade stepCount eqExit ot
+             in (eqRev1, changesFinal + 1, tr : tradesRev)
+          _ -> (eqRev, changesFinal, tradesRev)
+   in BacktestResult
+        { brEquityCurve = reverse eqRev'
+        , brPositions = reverse posRev
+        , brAgreementOk = replicate stepCount True
+        , brPositionChanges = changesFinal'
+        , brTrades = reverse tradesRev'
+        }
 
 computeLatestSignal
   :: Args

@@ -71,6 +71,7 @@ data TuneConfig = TuneConfig
   , tcPenaltyTurnover :: !Double
   , tcPeriodsPerYear :: !Double
   , tcWalkForwardFolds :: !Int
+  , tcMinRoundTrips :: !Int
   } deriving (Eq, Show)
 
 data TuneStats = TuneStats
@@ -88,6 +89,7 @@ defaultTuneConfig periodsPerYear =
     , tcPenaltyTurnover = 0.0
     , tcPeriodsPerYear = max 1e-12 periodsPerYear
     , tcWalkForwardFolds = 1
+    , tcMinRoundTrips = 0
     }
 
 scoreBacktest :: TuneConfig -> BacktestResult -> Double
@@ -233,6 +235,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
       baseOpenThreshold = max 0 (ecOpenThreshold baseCfg)
       baseCloseThreshold = max 0 (ecCloseThreshold baseCfg)
       maxCandidates = 60 :: Int
+      minRoundTripsReq = max 0 (tcMinRoundTrips cfg)
+      ineligibleScore = -1e18 :: Double
 
       downsample :: Int -> [Double] -> [Double]
       downsample k xs
@@ -288,27 +292,38 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
               : downsample maxCandidates candidates0
           )
 
+      eligibleTune bt =
+        if minRoundTripsReq <= 0
+          then True
+          else
+            let m = computeMetrics (max 1e-12 (tcPeriodsPerYear cfg)) bt
+             in bmRoundTrips m >= minRoundTripsReq
+
       eval openThr closeThr =
         let btCfg = baseCfg { ecOpenThreshold = openThr, ecCloseThreshold = closeThr }
             btFull = simulateEnsembleVWithHL btCfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
+            eligible = eligibleTune btFull
             foldsReq = max 1 (tcWalkForwardFolds cfg)
             foldRs = foldRanges stepCount foldsReq
             foldScores =
-              if length foldRs <= 1
-                then [scoreBacktest cfg btFull]
+              if not eligible
+                then [ineligibleScore]
                 else
-                  [ let steps = t1 - t0 + 1
-                        pricesF = V.slice t0 (steps + 1) pricesV
-                        highsF = V.slice t0 (steps + 1) highsV
-                        lowsF = V.slice t0 (steps + 1) lowsV
-                        kalF = V.slice t0 steps kalUsedV
-                        lstmF = V.slice t0 steps lstmUsedV
-                        metaF = fmap (\mv -> V.slice t0 steps mv) metaUsed
-                        btFold = simulateEnsembleVWithHL btCfg 1 pricesF highsF lowsF kalF lstmF metaF
-                     in scoreBacktest cfg btFold
-                  | (t0, t1) <- foldRs
-                  , t1 >= t0
-                  ]
+                  if length foldRs <= 1
+                    then [scoreBacktest cfg btFull]
+                    else
+                      [ let steps = t1 - t0 + 1
+                            pricesF = V.slice t0 (steps + 1) pricesV
+                            highsF = V.slice t0 (steps + 1) highsV
+                            lowsF = V.slice t0 (steps + 1) lowsV
+                            kalF = V.slice t0 steps kalUsedV
+                            lstmF = V.slice t0 steps lstmUsedV
+                            metaF = fmap (\mv -> V.slice t0 steps mv) metaUsed
+                            btFold = simulateEnsembleVWithHL btCfg 1 pricesF highsF lowsF kalF lstmF metaF
+                         in scoreBacktest cfg btFold
+                      | (t0, t1) <- foldRs
+                      , t1 >= t0
+                      ]
             m = mean foldScores
             s = stddev foldScores
             stats =
@@ -318,26 +333,30 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 , tsMeanScore = m
                 , tsStdScore = s
                 }
-         in (m, s, openThr, closeThr, btFull, stats)
+         in (eligible, m, s, openThr, closeThr, btFull, stats)
 
-      (baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats) = eval baseOpenThreshold baseCloseThreshold
+      (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats) = eval baseOpenThreshold baseCloseThreshold
       eqEps = 1e-12
-      pick (bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats) (openThr, closeThr) =
-        let (m, s, openThr', closeThr', bt, stats) = eval openThr closeThr
-         in
-          if m > bestMean + eqEps
-            then (m, s, openThr', closeThr', bt, stats)
-            else if abs (m - bestMean) <= eqEps
-              then
-                if s < bestStd - eqEps
-                  then (m, s, openThr', closeThr', bt, stats)
-                  else if abs (s - bestStd) <= eqEps && (openThr', closeThr') > (bestOpenThr, bestCloseThr)
-                    then (m, s, openThr', closeThr', bt, stats)
-                    else (bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats)
-              else (bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats)
+      pick (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats) (openThr, closeThr) =
+        let (eligible, m, s, openThr', closeThr', bt, stats) = eval openThr closeThr
+         in case (bestEligible, eligible) of
+              (False, True) -> (True, m, s, openThr', closeThr', bt, stats)
+              (True, False) -> (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats)
+              _ ->
+                if m > bestMean + eqEps
+                  then (eligible, m, s, openThr', closeThr', bt, stats)
+                  else if abs (m - bestMean) <= eqEps
+                    then
+                      if s < bestStd - eqEps
+                        then (eligible, m, s, openThr', closeThr', bt, stats)
+                        else if abs (s - bestStd) <= eqEps && (openThr', closeThr') > (bestOpenThr, bestCloseThr)
+                          then (eligible, m, s, openThr', closeThr', bt, stats)
+                          else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats)
+                    else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats)
 
       foldClose acc openThr = foldl' (\acc0 closeThr -> pick acc0 (openThr, closeThr)) acc candidates
-      (_, _, bestOpenThr, bestCloseThr, bestBt, bestStats) = foldl' foldClose (baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats) candidates
+      (bestEligible, _, _, bestOpenThr, bestCloseThr, bestBt, bestStats) =
+        foldl' foldClose (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats) candidates
 
       result = (bestOpenThr, bestCloseThr, bestBt, bestStats)
    in
@@ -347,15 +366,17 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         then Left "sweepThreshold: high/low series must match closes length"
         else if maybe False (\mv -> V.length mv < stepCount) metaUsed
           then Left "sweepThreshold: meta vector too short"
-          else
-            case method of
-              MethodBoth
-                | V.length kalV < stepCount -> Left "sweepThreshold: kalPred too short"
-                | V.length lstmV < stepCount -> Left "sweepThreshold: lstmPred too short"
-                | otherwise -> Right result
-              MethodKalmanOnly
-                | V.length kalV < stepCount -> Left "sweepThreshold: kalPred too short"
-                | otherwise -> Right result
-              MethodLstmOnly
-                | V.length lstmV < stepCount -> Left "sweepThreshold: lstmPred too short"
-                | otherwise -> Right result
+          else if minRoundTripsReq > 0 && not bestEligible
+            then Left ("sweepThreshold: no eligible candidates (minRoundTrips=" ++ show minRoundTripsReq ++ ")")
+            else
+              case method of
+                MethodBoth
+                  | V.length kalV < stepCount -> Left "sweepThreshold: kalPred too short"
+                  | V.length lstmV < stepCount -> Left "sweepThreshold: lstmPred too short"
+                  | otherwise -> Right result
+                MethodKalmanOnly
+                  | V.length kalV < stepCount -> Left "sweepThreshold: kalPred too short"
+                  | otherwise -> Right result
+                MethodLstmOnly
+                  | V.length lstmV < stepCount -> Left "sweepThreshold: lstmPred too short"
+                  | otherwise -> Right result

@@ -1,7 +1,10 @@
 module Trader.BinanceIntervals
   ( binanceIntervals
+  , binanceIntervalsCsv
   , isBinanceInterval
   ) where
+
+import Data.List (intercalate)
 
 binanceIntervals :: [String]
 binanceIntervals =
@@ -21,6 +24,9 @@ binanceIntervals =
   , "1w"
   , "1M"
   ]
+
+binanceIntervalsCsv :: String
+binanceIntervalsCsv = intercalate "," binanceIntervals
 
 isBinanceInterval :: String -> Bool
 isBinanceInterval s = s `elem` binanceIntervals

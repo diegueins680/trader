@@ -32,6 +32,8 @@ type AsyncStartResponse = { jobId: string };
 type AsyncPollResponse<T> = { status: "running" | "done" | "error"; result?: T; error?: string };
 export type HealthResponse = {
   status: "ok";
+  version?: string;
+  commit?: string;
   authRequired?: boolean;
   authOk?: boolean;
   computeLimits?: { maxBarsLstm: number; maxEpochs: number; maxHiddenSize: number };

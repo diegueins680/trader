@@ -30,6 +30,7 @@ export type ApiParams = {
   tuneObjective?: string;
   tunePenaltyMaxDrawdown?: number;
   tunePenaltyTurnover?: number;
+  minRoundTrips?: number;
   walkForwardFolds?: number;
   patience?: number;
   gradClip?: number;
@@ -172,7 +173,6 @@ export type BacktestMetrics = {
   avgHoldingPeriods: number;
   exposure: number;
   agreementRate: number;
-  entryAgreementRate?: number;
   turnover: number;
 };
 
@@ -207,6 +207,7 @@ export type BacktestResponse = {
     objective: string;
     penaltyMaxDrawdown: number;
     penaltyTurnover: number;
+    minRoundTrips?: number;
     walkForwardFolds: number;
     tuneStats?: { folds: number; scores: number[]; meanScore: number; stdScore: number } | null;
   };
@@ -234,13 +235,13 @@ export type BacktestResponse = {
       turnoverStd: number;
     };
   } | null;
+  baselines?: { name: string; metrics: BacktestMetrics }[];
   metrics: BacktestMetrics;
   latestSignal: LatestSignal;
   equityCurve: number[];
   prices: number[];
   positions: number[];
   agreementOk: boolean[];
-  entryAgreementOk?: boolean[];
   trades: Trade[];
 };
 
