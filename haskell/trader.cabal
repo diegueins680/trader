@@ -9,6 +9,7 @@ executable trader-hs
   hs-source-dirs:      app
   main-is:             Main.hs
   other-modules:       Trader.Binance
+                     , Trader.App.Args
                      , Trader.BinanceIntervals
                      , Trader.Duration
                      , Trader.KalmanFusion
@@ -64,6 +65,7 @@ test-suite trader-tests
   hs-source-dirs:      test, app
   main-is:             TestMain.hs
   other-modules:       Trader.Binance
+                     , Trader.App.Args
                      , Trader.BinanceIntervals
                      , Trader.Duration
                      , Trader.KalmanFusion
