@@ -82,6 +82,7 @@ export type ApiParams = {
   botTrainBars?: number;
   botMaxPoints?: number;
   botTrade?: boolean;
+  botAdoptExistingPosition?: boolean;
 };
 
 export type LatestSignal = {

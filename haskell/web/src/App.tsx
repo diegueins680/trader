@@ -738,8 +738,8 @@ export function App() {
 
     if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
     else if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
-    else if (form.orderQuoteFraction > 0) {
-      base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
+    else if (form.orderQuoteFraction > 0 && form.orderQuoteFraction <= 1) {
+      base.orderQuoteFraction = form.orderQuoteFraction;
       if (form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
     }
 
@@ -781,8 +781,8 @@ export function App() {
 
     if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
     else if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
-    else if (form.orderQuoteFraction > 0) {
-      base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
+    else if (form.orderQuoteFraction > 0 && form.orderQuoteFraction <= 1) {
+      base.orderQuoteFraction = form.orderQuoteFraction;
       if (form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
     }
 
@@ -1467,6 +1467,7 @@ export function App() {
       const payload: ApiParams = {
         ...tradeParams,
         botTrade: form.tradeArmed,
+        botAdoptExistingPosition: form.botAdoptExistingPosition,
         ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
         botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
         botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
@@ -1493,6 +1494,7 @@ export function App() {
     apiBase,
     authHeaders,
     form.botMaxPoints,
+    form.botAdoptExistingPosition,
     form.botOnlineEpochs,
     form.botPollSeconds,
     form.botTrainBars,
@@ -1852,8 +1854,20 @@ export function App() {
     apiLimitsReason,
   );
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
+  const orderQuoteFractionError = useMemo(() => {
+    const f = form.orderQuoteFraction;
+    if (!Number.isFinite(f)) return "Order quote fraction must be a number.";
+    if (f <= 0) return null;
+    if (f > 1) return "Order quote fraction must be <= 1 (use 0 to disable).";
+    return null;
+  }, [form.orderQuoteFraction]);
+  const tradeOrderSizingError = useMemo(() => {
+    if (form.orderQuantity > 0 || form.orderQuote > 0) return null;
+    return orderQuoteFractionError;
+  }, [form.orderQuantity, form.orderQuote, orderQuoteFractionError]);
   const tradeDisabledReason = firstReason(
     requestDisabledReason,
+    tradeOrderSizingError,
     form.positioning === "long-short" && form.market !== "futures" ? "Long/Short trading requires Futures market." : null,
   );
 
@@ -1879,7 +1893,7 @@ export function App() {
         : effective === "orderQuote"
           ? `orderQuote = ${fmtMoney(form.orderQuote, 2)} (quote units)`
           : effective === "orderQuoteFraction"
-            ? `orderQuoteFraction = ${fmtPct(clamp(form.orderQuoteFraction, 0, 1), 2)}${form.maxOrderQuote > 0 ? ` (cap ${fmtMoney(form.maxOrderQuote, 2)})` : ""}`
+            ? `orderQuoteFraction = ${fmtPct(form.orderQuoteFraction, 2)}${form.maxOrderQuote > 0 ? ` (cap ${fmtMoney(form.maxOrderQuote, 2)})` : ""}`
             : "none";
 
     const hint =
@@ -2001,6 +2015,12 @@ export function App() {
                         .{" "}
                       </>
                     ) : null}
+                    {typeof healthInfo.authRequired === "boolean" ? (
+                      <>
+                        Auth:{" "}
+                        {healthInfo.authRequired ? (healthInfo.authOk ? "required (ok)" : "required (failed)") : "not required"}.
+                      </>
+                    ) : null}{" "}
                     API limits: max LSTM bars {healthInfo.computeLimits.maxBarsLstm}, epochs {healthInfo.computeLimits.maxEpochs}, hidden{" "}
                     {healthInfo.computeLimits.maxHiddenSize}.
                     {healthInfo.asyncJobs
@@ -3131,6 +3151,22 @@ export function App() {
                     </div>
                     <div className="row" style={{ marginTop: 12 }}>
                       <div className="field">
+                        <label className="label">Startup position</label>
+                        <div className="pillRow">
+                          <label className="pill">
+                            <input
+                              type="checkbox"
+                              checked={form.botAdoptExistingPosition}
+                              onChange={(e) => setForm((f) => ({ ...f, botAdoptExistingPosition: e.target.checked }))}
+                            />
+                            Adopt existing long position
+                          </label>
+                        </div>
+                        <div className="hint">If trading is enabled, allow starting while already long (resume management instead of refusing to start).</div>
+                      </div>
+                    </div>
+                    <div className="row" style={{ marginTop: 12 }}>
+                      <div className="field">
                         <label className="label" htmlFor="botTrainBars">
                           Train bars (rolling)
                         </label>
@@ -3171,6 +3207,7 @@ export function App() {
                             botOnlineEpochs: defaultForm.botOnlineEpochs,
                             botTrainBars: defaultForm.botTrainBars,
                             botMaxPoints: defaultForm.botMaxPoints,
+                            botAdoptExistingPosition: defaultForm.botAdoptExistingPosition,
                           }))
                         }
                       >
@@ -3345,11 +3382,11 @@ export function App() {
                   <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 10 }}>
                     <div className="field">
                       <label className="label" htmlFor="orderQuoteFraction">
-                        Order quote fraction (0..1)
+                        Order quote fraction (0 &lt; F ≤ 1; 0 disables)
                       </label>
                       <input
                         id="orderQuoteFraction"
-                        className="input"
+                        className={orderQuoteFractionError ? "input inputError" : "input"}
                         type="number"
                         step="0.01"
                         min={0}
@@ -3363,7 +3400,9 @@ export function App() {
                         }
                         placeholder="0.10 (10%)"
                       />
-                      <div className="hint">Applies to BUYs: uses a fraction of your available quote balance.</div>
+                      <div className="hint" style={orderQuoteFractionError ? { color: "rgba(239, 68, 68, 0.9)" } : undefined}>
+                        {orderQuoteFractionError ?? "Applies to BUYs: uses a fraction of your available quote balance."}
+                      </div>
                     </div>
                     <div className="field">
                       <label className="label" htmlFor="maxOrderQuote">

@@ -56,10 +56,11 @@ computeMetrics periodsPerYear br =
 
       trades = brTrades br
       tradeReturns = map trReturn trades
+      tradePnL = map (\t -> trExitEquity t - trEntryEquity t) trades
       wins = length (filter (> 0) tradeReturns)
       winRate = if null tradeReturns then 0 else fromIntegral wins / fromIntegral (length tradeReturns)
-      grossProfits = sum (filter (> 0) tradeReturns)
-      grossLosses = abs (sum (filter (< 0) tradeReturns))
+      grossProfits = sum (filter (> 0) tradePnL)
+      grossLosses = abs (sum (filter (< 0) tradePnL))
       profitFactor =
         if grossLosses > 0
           then Just (grossProfits / grossLosses)

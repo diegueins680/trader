@@ -30,6 +30,12 @@ cd haskell
 cabal run trader-hs -- --data ../data/sample_prices.csv --price-column close
 ```
 
+Print the CLI version:
+```
+cd haskell
+cabal run trader-hs -- --version
+```
+
 Example backtest with tighter model settings:
 ```
 cd haskell
@@ -148,6 +154,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
     - `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
   - `--tune-penalty-max-drawdown 1.0` penalty weight for max drawdown (used by `equity-dd*` objectives)
   - `--tune-penalty-turnover 0.1` penalty weight for turnover (used by `equity-dd-turnover`)
+  - `--min-round-trips N` (default: `0`) when optimizing/sweeping, require at least `N` round trips in the tune split (helps avoid picking "no-trade" configs)
   - `--walk-forward-folds 5` number of folds used to score the tune split and report backtest variability (`1` disables)
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
   - `--fee 0.0005` fee applied when switching position
@@ -166,9 +173,10 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--periods-per-year N` (default: inferred from `--interval`)
 
 - Output
+  - `--version` (or `-V`) print `trader-hs` version
   - `--json` machine-readable JSON to stdout:
     - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
-    - Backtest: `{ "mode": "backtest", "backtest": ... }` (and includes `"trade"` if `--binance-trade` is set)
+    - Backtest: `{ "mode": "backtest", "backtest": ... }` (includes `"baselines"` like `buy-hold` / `sma-cross(...)`, and `"trade"` if `--binance-trade` is set)
 
 Tests
 -----
@@ -192,6 +200,9 @@ Optional auth (recommended for any deployment):
 - Set `TRADER_API_TOKEN` to require a token on all endpoints except `/health`
 - Send either `Authorization: Bearer <token>` or `X-API-Key: <token>`
 - `/health` stays public, and reports `authRequired`/`authOk` when `TRADER_API_TOKEN` is set (useful for quickly checking auth wiring)
+
+Build info:
+- `GET /` and `GET /health` include `version` and optional `commit` (from env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA`).
 
 Endpoints:
 - `GET /` → basic endpoint list
@@ -274,6 +285,10 @@ curl -s -X POST http://127.0.0.1:8080/bot/start \
   -H 'Content-Type: application/json' \
   -d '{"binanceSymbol":"BTCUSDT","interval":"5m","bars":500,"method":"11","openThreshold":0.001,"closeThreshold":0.001,"fee":0.0005,"botOnlineEpochs":1,"botTrade":false}'
 ```
+
+Live safety (startup position):
+- When `botTrade=true`, `/bot/start` refuses to start if it detects an existing long position for the symbol (to avoid running “flat” while the account is already long).
+- To allow restarts to resume managing an existing long, set `"botAdoptExistingPosition": true`.
 
 Auto-optimize after each buy/sell operation:
 - Thresholds only: add `"sweepThreshold": true`

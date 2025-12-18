@@ -24,7 +24,7 @@ import Trader.KalmanFusion (Kalman1(..), initKalman1, updateMulti)
 import Trader.Kalman3 (Vec3(..), Kalman3(..), constantAcceleration1D, step, forecastNextConstantAcceleration1D, runConstantAcceleration1D, KalmanRun(..))
 import Trader.LSTM (LSTMConfig(..), LSTMModel(..), trainLSTM, buildSequences, evaluateLoss)
 import Trader.Method (Method(..), parseMethod, selectPredictions)
-import Trader.Metrics (computeMetrics, bmMaxDrawdown, bmTotalReturn)
+import Trader.Metrics (computeMetrics, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn)
 import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
 import Trader.Predictors
   ( SensorId(..)
@@ -56,6 +56,7 @@ main = do
     , run "long-short down move" testLongShortDownMove
     , run "liquidation clamps equity" testLiquidationClamp
     , run "metrics max drawdown" testMetricsMaxDrawdown
+    , run "metrics profit factor pnl" testMetricsProfitFactorPnL
     , run "binance signature length" testBinanceSignatureLength
     , run "binance kline json parsing" testBinanceKlineParsing
     , run "method parsing" testMethodParsing
@@ -215,6 +216,9 @@ testAgreementGate = do
           , ecTrailingStop = Nothing
           , ecMinHoldBars = 0
           , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -247,6 +251,9 @@ testMinHoldBars = do
           , ecTrailingStop = Nothing
           , ecMinHoldBars = 2
           , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -279,6 +286,9 @@ testCooldownBars = do
           , ecTrailingStop = Nothing
           , ecMinHoldBars = 0
           , ecCooldownBars = 1
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -312,6 +322,9 @@ testLongShortDownMove = do
           , ecTrailingStop = Nothing
           , ecMinHoldBars = 0
           , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -349,6 +362,9 @@ testLiquidationClamp = do
           , ecTrailingStop = Nothing
           , ecMinHoldBars = 0
           , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongShort
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -381,6 +397,42 @@ testMetricsMaxDrawdown = do
       m = computeMetrics 365 br
   assertApprox "total return" 1e-12 (bmTotalReturn m) 0.0
   assertApprox "max drawdown" 1e-6 (bmMaxDrawdown m) (0.1 / 1.1)
+
+testMetricsProfitFactorPnL :: IO ()
+testMetricsProfitFactorPnL = do
+  let tr1 =
+        Trade
+          { trEntryIndex = 0
+          , trExitIndex = 1
+          , trEntryEquity = 1.0
+          , trExitEquity = 2.0
+          , trReturn = 1.0
+          , trHoldingPeriods = 1
+          , trExitReason = Just ExitSignal
+          }
+      tr2 =
+        Trade
+          { trEntryIndex = 1
+          , trExitIndex = 2
+          , trEntryEquity = 2.0
+          , trExitEquity = 1.0
+          , trReturn = -0.5
+          , trHoldingPeriods = 1
+          , trExitReason = Just ExitSignal
+          }
+      br =
+        BacktestResult
+          { brEquityCurve = [1.0, 2.0, 1.0]
+          , brPositions = [1.0, 0.0]
+          , brAgreementOk = [True, True]
+          , brPositionChanges = 2
+          , brTrades = [tr1, tr2]
+          }
+      m = computeMetrics 365 br
+
+  assertApprox "gross profit (PnL)" 1e-12 (bmGrossProfit m) 1.0
+  assertApprox "gross loss (PnL)" 1e-12 (bmGrossLoss m) 1.0
+  assertApprox "profit factor" 1e-12 (maybe 0 id (bmProfitFactor m)) 1.0
 
 testBinanceSignatureLength :: IO ()
 testBinanceSignatureLength = do
@@ -460,6 +512,9 @@ testSweepThreshold = do
           , ecTrailingStop = Nothing
           , ecMinHoldBars = 0
           , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -497,6 +552,9 @@ testOptimizeOperations = do
           , ecTrailingStop = Nothing
           , ecMinHoldBars = 0
           , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0

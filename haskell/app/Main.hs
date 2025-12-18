@@ -452,7 +452,7 @@ main = do
       else do
         (series, mBinanceEnv) <- loadPrices args'
         let prices = psClose series
-        if length prices < 2 then error "Need at least 2 price rows" else pure ()
+        ensureMinPriceRows args' 2 prices
 
         let lookback = argLookback args'
         if argTradeOnly args'
@@ -530,6 +530,7 @@ data ApiParams = ApiParams
   , apBotTrainBars :: Maybe Int
   , apBotMaxPoints :: Maybe Int
   , apBotTrade :: Maybe Bool
+  , apBotAdoptExistingPosition :: Maybe Bool
   , apKalmanZMin :: Maybe Double
   , apKalmanZMax :: Maybe Double
   , apMaxHighVolProb :: Maybe Double
@@ -1090,6 +1091,7 @@ data BotSettings = BotSettings
   , bsTrainBars :: !Int
   , bsMaxPoints :: !Int
   , bsTradeEnabled :: !Bool
+  , bsAdoptExistingPosition :: !Bool
   } deriving (Eq, Show)
 
 data BotController = BotController
@@ -1223,13 +1225,22 @@ botSettingsFromApi args p = do
       trainBars = maybe 800 id (apBotTrainBars p)
       maxPoints = maybe 2000 id (apBotMaxPoints p)
       tradeEnabled = maybe False id (apBotTrade p)
+      adoptExistingPosition = maybe False id (apBotAdoptExistingPosition p)
 
   ensure "botPollSeconds must be between 1 and 3600" (poll >= 1 && poll <= 3600)
   ensure "botOnlineEpochs must be between 0 and 50" (onlineEpochs >= 0 && onlineEpochs <= 50)
   ensure "botTrainBars must be >= 10" (trainBars >= 10)
   ensure "botMaxPoints must be between 100 and 100000" (maxPoints >= 100 && maxPoints <= 100000)
 
-  pure BotSettings { bsPollSeconds = poll, bsOnlineEpochs = onlineEpochs, bsTrainBars = trainBars, bsMaxPoints = maxPoints, bsTradeEnabled = tradeEnabled }
+  pure
+    BotSettings
+      { bsPollSeconds = poll
+      , bsOnlineEpochs = onlineEpochs
+      , bsTrainBars = trainBars
+      , bsMaxPoints = maxPoints
+      , bsTradeEnabled = tradeEnabled
+      , bsAdoptExistingPosition = adoptExistingPosition
+      }
   where
     ensure :: String -> Bool -> Either String ()
     ensure msg cond = if cond then Right () else Left msg
@@ -1266,6 +1277,7 @@ botStatusJson st =
           , "trainBars" .= bsTrainBars (botSettings st)
           , "maxPoints" .= bsMaxPoints (botSettings st)
           , "tradeEnabled" .= bsTradeEnabled (botSettings st)
+          , "adoptExistingPosition" .= bsAdoptExistingPosition (botSettings st)
           ]
     , "startIndex" .= botStartIndex st
     , "startedAtMs" .= botStartedAtMs st
@@ -1388,6 +1400,70 @@ marketCode m =
     MarketMargin -> "margin"
     MarketFutures -> "futures"
 
+ensureBinanceKeysPresent :: BinanceEnv -> IO ()
+ensureBinanceKeysPresent env =
+  let missingKey = maybe True BS.null (beApiKey env)
+      missingSecret = maybe True BS.null (beApiSecret env)
+   in
+    if missingKey || missingSecret
+      then throwIO (userError "botTrade=true requires BINANCE_API_KEY and BINANCE_API_SECRET (or pass binanceApiKey/binanceApiSecret in request)")
+      else pure ()
+
+fetchLongFlatAccountPos :: Args -> BinanceEnv -> String -> IO Int
+fetchLongFlatAccountPos args env sym =
+  case argBinanceMarket args of
+    MarketFutures -> do
+      posAmt <- fetchFuturesPositionAmt env sym
+      if posAmt < 0
+        then throwIO (userError ("bot/start positioning=long-flat cannot start with a short futures positionAmt=" ++ show posAmt))
+        else pure (if posAmt > 0 then 1 else 0)
+    _ -> do
+      let (baseAsset, _quoteAsset) = splitSymbol sym
+      mSf <- tryFetchFilters
+      baseBal <- fetchFreeBalance env baseAsset
+      pure (if isLongSpotBalance mSf baseBal then 1 else 0)
+  where
+    tryFetchFilters :: IO (Maybe SymbolFilters)
+    tryFetchFilters = do
+      r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
+      pure $
+        case r of
+          Left _ -> Nothing
+          Right sf -> Just sf
+
+    effectiveMinQty sf = sfMarketMinQty sf <|> sfLotMinQty sf
+
+    isLongSpotBalance :: Maybe SymbolFilters -> Double -> Bool
+    isLongSpotBalance mSf baseBal =
+      case mSf >>= effectiveMinQty of
+        Nothing -> baseBal > 0
+        Just minQ -> baseBal >= minQ
+
+preflightBotStart :: Args -> BotSettings -> String -> IO (Either String ())
+preflightBotStart args settings sym =
+  if not (bsTradeEnabled settings)
+    then pure (Right ())
+    else do
+      r <- try $ do
+        env <- makeBinanceEnv args
+        ensureBinanceKeysPresent env
+        pos <- fetchLongFlatAccountPos args env sym
+        if pos == 1 && not (bsAdoptExistingPosition settings)
+          then
+            pure
+              ( Left
+                  ( "Refusing to start: existing long position detected for "
+                      ++ sym
+                      ++ " ("
+                      ++ marketCode (argBinanceMarket args)
+                      ++ "). Flatten first, or set botAdoptExistingPosition=true."
+                  )
+              )
+          else pure (Right ())
+      case r of
+        Left ex -> pure (Left (snd (exceptionToHttp ex)))
+        Right out -> pure out
+
 botStart :: Maybe OpsStore -> Metrics -> Maybe Journal -> BotController -> Args -> ApiParams -> IO (Either String BotStartRuntime)
 botStart mOps metrics mJournal ctrl args p =
   case argData args of
@@ -1405,18 +1481,22 @@ botStart mOps metrics mJournal ctrl args p =
                   Just (BotRunning _) -> pure (mrt, Left "Bot is already running")
                   Just (BotStarting _) -> pure (mrt, Left "Bot is starting")
                   Nothing -> do
-                    stopSig <- newEmptyMVar
-                    tid <- forkIO (botStartWorker mOps metrics mJournal ctrl args settings sym stopSig)
-                    let rt =
-                          BotStartRuntime
-                            { bsrThreadId = tid
-                            , bsrStopSignal = stopSig
-                            , bsrArgs = args
-                            , bsrSettings = settings
-                            , bsrSymbol = sym
-                            , bsrRequestedAtMs = now
-                            }
-                    pure (Just (BotStarting rt), Right rt)
+                    preflight <- preflightBotStart args settings sym
+                    case preflight of
+                      Left e -> pure (Nothing, Left e)
+                      Right () -> do
+                        stopSig <- newEmptyMVar
+                        tid <- forkIO (botStartWorker mOps metrics mJournal ctrl args settings sym stopSig)
+                        let rt =
+                              BotStartRuntime
+                                { bsrThreadId = tid
+                                , bsrStopSignal = stopSig
+                                , bsrArgs = args
+                                , bsrSettings = settings
+                                , bsrSymbol = sym
+                                , bsrRequestedAtMs = now
+                                }
+                        pure (Just (BotStarting rt), Right rt)
 
 botStartWorker :: Maybe OpsStore -> Metrics -> Maybe Journal -> BotController -> Args -> BotSettings -> String -> MVar () -> IO ()
 botStartWorker mOps metrics mJournal ctrl args settings sym stopSig = do
@@ -1497,6 +1577,25 @@ initBotState args settings sym = do
   let lookback = argLookback args
   now <- getTimestampMs
   env <- makeBinanceEnv args
+  let tradeEnabled = bsTradeEnabled settings
+  startPos0 <-
+    if tradeEnabled
+      then do
+        ensureBinanceKeysPresent env
+        pos <- fetchLongFlatAccountPos args env sym
+        if pos == 1 && not (bsAdoptExistingPosition settings)
+          then
+            throwIO
+              ( userError
+                  ( "Refusing to start: existing long position detected for "
+                      ++ sym
+                      ++ " ("
+                      ++ marketCode (argBinanceMarket args)
+                      ++ "). Flatten first, or set botAdoptExistingPosition=true."
+                  )
+              )
+          else pure pos
+      else pure 0
   let initBars = clampInt 2 1000 (max 2 (resolveBarsForBinance args))
   ks <- fetchKlines env sym (argInterval args) initBars
   if length ks < 2 then error "Not enough klines to start bot" else pure ()
@@ -1571,27 +1670,80 @@ initBotState args settings sym = do
 
         pure (Just (predictors, kalPrev, hmmPrev, svPrev), kalPred)
 
-  let latest = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx
+  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx
+
+      -- Startup decision:
+      -- - If we adopt an existing long, use closeThreshold (hysteresis) to decide hold/exit.
+      -- - Otherwise, entry uses openThreshold via lsChosenDir.
+      currentPrice = lsCurrentPrice latest0Raw
+      closeThr = max 0 (argCloseThreshold args)
+
+      directionAt thr pred =
+        let upEdge = currentPrice * (1 + thr)
+            downEdge = currentPrice * (1 - thr)
+         in if pred > upEdge
+              then Just (1 :: Int)
+              else if pred < downEdge then Just (-1) else Nothing
+
+      kalCloseDirRaw = lsKalmanNext latest0Raw >>= directionAt closeThr
+      lstmCloseDir = lsLstmNext latest0Raw >>= directionAt closeThr
+      closeAgreeDir =
+        if kalCloseDirRaw == lstmCloseDir
+          then kalCloseDirRaw
+          else Nothing
+
+      wantLongClose =
+        case argMethod args of
+          MethodBoth -> closeAgreeDir == Just 1
+          MethodKalmanOnly -> kalCloseDirRaw == Just 1
+          MethodLstmOnly -> lstmCloseDir == Just 1
+
       desiredPosSignal =
-        case lsChosenDir latest of
-          Just 1 -> 1
-          Just (-1) -> 0
-          _ -> 0
+        if startPos0 == 1
+          then if wantLongClose then 1 else 0
+          else
+            case lsChosenDir latest0Raw of
+              Just 1 -> 1
+              _ -> 0
+
+      latest =
+        if startPos0 == 1 && desiredPosSignal == 0 && lsChosenDir latest0Raw /= Just (-1)
+          then latest0Raw { lsChosenDir = Just (-1), lsAction = "FLAT (close)" }
+          else latest0Raw
+
       baseEq = 1.0
       eq0 = V.replicate n baseEq
       pos0 = V.replicate n 0
       lastOt = V.last openV
+      wantSwitch = desiredPosSignal /= startPos0
+      opSide =
+        if startPos0 == 0 && desiredPosSignal == 1
+          then "BUY"
+          else "SELL"
 
   mOrder <-
-    if desiredPosSignal == 1
+    if wantSwitch
       then Just <$> placeIfEnabled args settings latest env sym
       else pure Nothing
 
-  let tradeEnabled = bsTradeEnabled settings
-      orderSent = maybe False aorSent mOrder
-      appliedEntry = desiredPosSignal == 1 && (not tradeEnabled || orderSent)
-      desiredPos = if appliedEntry then 1 else 0
-      didTradeNow = desiredPos == 1 && (not tradeEnabled || orderSent)
+  let orderSent = maybe False aorSent mOrder
+      alreadyMsg =
+        case mOrder of
+          Nothing -> False
+          Just o -> aorMessage o == "No order: already long." || aorMessage o == "No order: already flat."
+      appliedSwitch =
+        if not tradeEnabled
+          then True
+          else orderSent || alreadyMsg
+      feeApplied =
+        if not tradeEnabled
+          then True
+          else orderSent
+      desiredPos =
+        if not wantSwitch
+          then startPos0
+          else if appliedSwitch then desiredPosSignal else startPos0
+      didTradeNow = wantSwitch && appliedSwitch && feeApplied
 
       eq1 =
         if didTradeNow
@@ -1605,13 +1757,13 @@ initBotState args settings sym = do
              in Just (n - 1, eq1 V.! (n - 1), 0, px, px)
           else Nothing
       ops =
-        if desiredPos == 1
-          then [BotOp (n - 1) "BUY" (V.last pricesV)]
+        if wantSwitch && appliedSwitch
+          then [BotOp (n - 1) opSide (V.last pricesV)]
           else []
 
       orders =
-        case (desiredPosSignal, mOrder) of
-          (1, Just o) -> [BotOrderEvent (n - 1) "BUY" (V.last pricesV) lastOt now o]
+        case (wantSwitch, mOrder) of
+          (True, Just o) -> [BotOrderEvent (n - 1) opSide (V.last pricesV) lastOt now o]
           _ -> []
 
       lstmPred0 =
@@ -1675,7 +1827,7 @@ initBotState args settings sym = do
       dayKey = V.last openV2 `div` dayMs
       dayStartEq = V.last eq2
       initOrderErrors =
-        if tradeEnabled && desiredPosSignal == 1 && not orderSent
+        if tradeEnabled && wantSwitch && not appliedSwitch
           then 1
           else 0
       (haltReason0, haltedAt0) =
@@ -1728,7 +1880,9 @@ initBotState args settings sym = do
           , botError = Nothing
           }
 
-  if desiredPos == 1 then botOptimizeAfterOperation st0 else pure st0
+  if wantSwitch && appliedSwitch && desiredPos == 1
+    then botOptimizeAfterOperation st0
+    else pure st0
 
 botOptimizeAfterOperation :: BotState -> IO BotState
 botOptimizeAfterOperation st = do
@@ -1765,6 +1919,9 @@ botOptimizeAfterOperation st = do
                   , ecTrailingStop = argTrailingStop args
                   , ecMinHoldBars = argMinHoldBars args
                   , ecCooldownBars = argCooldownBars args
+                  , ecMaxDrawdown = argMaxDrawdown args
+                  , ecMaxDailyLoss = argMaxDailyLoss args
+                  , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
                   , ecPositioning = LongFlat
                   , ecIntrabarFill = argIntrabarFill args
                   , ecKalmanZMin = argKalmanZMin args
@@ -2918,7 +3075,7 @@ placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String ->
 placeIfEnabled args settings sig env sym =
   if not (bsTradeEnabled settings)
     then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
-    else placeOrderForSignal args sym sig env
+    else placeOrderForSignalBot args sym sig env
 
 runRestApi :: Args -> IO ()
 runRestApi baseArgs = do
@@ -3744,7 +3901,7 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache
     _ -> do
       metricsIncEndpoint metrics label
       if path /= ["health"] && not (authorized apiToken req)
-        then respondCors (jsonError status401 "Unauthorized")
+        then respondCors (jsonError status401 "Unauthorized (send Authorization: Bearer <token> or X-API-Key)")
         else
           case path of
             [] ->
@@ -3797,9 +3954,8 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache
                       authOk = authorized apiToken req
                       asyncCfg = asBacktest asyncStores
                       pairs =
-                        ["status" .= ("ok" :: String), "version" .= biVersion buildInfo]
+                        ["status" .= ("ok" :: String), "version" .= biVersion buildInfo, "authRequired" .= authRequired, "authOk" .= authOk]
                           ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
-                          ++ (if authRequired then ["authRequired" .= True, "authOk" .= authOk] else [])
                           ++ [ "computeLimits"
                                 .= object
                                   [ "maxBarsLstm" .= aclMaxBarsLstm limits
@@ -4867,6 +5023,7 @@ handleBotStart mOps limits metrics mJournal baseArgs botCtrl req respond = do
                                 , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
                                 , "interval" .= argInterval (bsrArgs rt)
                                 , "tradeEnabled" .= bsTradeEnabled settings
+                                , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
                                 , "botPollSeconds" .= bsPollSeconds settings
                                 , "botOnlineEpochs" .= bsOnlineEpochs settings
                                 , "botTrainBars" .= bsTrainBars settings
@@ -5052,7 +5209,7 @@ computeLatestSignalFromArgs :: Args -> IO LatestSignal
 computeLatestSignalFromArgs args = do
   (series, _) <- loadPrices args
   let prices = psClose series
-  if length prices < 2 then error "Need at least 2 price rows" else pure ()
+  ensureMinPriceRows args 2 prices
   let lookback = argLookback args
   computeTradeOnlySignal args lookback prices
 
@@ -5060,7 +5217,7 @@ computeTradeFromArgs :: Args -> IO ApiTradeResponse
 computeTradeFromArgs args = do
   (series, mBinanceEnv) <- loadPrices args
   let prices = psClose series
-  if length prices < 2 then error "Need at least 2 price rows" else pure ()
+  ensureMinPriceRows args 2 prices
   let lookback = argLookback args
   sig <- computeTradeOnlySignal args lookback prices
   order <-
@@ -5311,6 +5468,10 @@ placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrd
 placeOrderForSignal args sym sig env =
   placeOrderForSignalEx args sym sig env Nothing
 
+placeOrderForSignalBot :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
+placeOrderForSignalBot args sym sig env =
+  placeOrderForSignalEx args sym sig env Nothing
+
 placeOrderForSignalEx :: Args -> String -> LatestSignal -> BinanceEnv -> Maybe String -> IO ApiOrderResult
 placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
   case (beApiKey env, beApiSecret env) of
@@ -5536,6 +5697,79 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
     placeFutures :: Maybe SymbolFilters -> String -> Int -> IO ApiOrderResult
     placeFutures mSf quoteAsset dir = do
       posAmt <- fetchFuturesPositionAmt env sym
+      let protectPrefix = "trader_prot_"
+          stopLoss0 =
+            case argStopLoss args of
+              Just v | v > 0 -> Just v
+              _ -> Nothing
+          takeProfit0 =
+            case argTakeProfit args of
+              Just v | v > 0 -> Just v
+              _ -> Nothing
+          protectionManaged = enableProtectionOrders && mode == OrderLive
+          protectionEnabled = protectionManaged && (isJust stopLoss0 || isJust takeProfit0)
+          normalizeStopPrice px =
+            case mSf >>= sfTickSize of
+              Nothing -> px
+              Just st -> quantizeDown st (max 0 px)
+
+          cancelProtectionOrders :: IO ()
+          cancelProtectionOrders =
+            if not protectionManaged
+              then pure ()
+              else do
+                _ <- try (cancelFuturesOpenOrdersByClientPrefix env sym protectPrefix) :: IO (Either SomeException Int)
+                pure ()
+
+          placeProtectionOrders :: Int -> Double -> IO (Either String ())
+          placeProtectionOrders protectDir entryPrice =
+            if not protectionEnabled
+              then pure (Right ())
+              else do
+                ts <- getTimestampMs
+                let mkCid suffix =
+                      let raw = protectPrefix ++ show ts ++ "_" ++ suffix
+                       in if length raw <= 36 then raw else take 36 raw
+
+                    place1 :: OrderSide -> String -> Double -> String -> IO (Either String ())
+                    place1 side orderType px suffix = do
+                      let cid = mkCid suffix
+                          px1 = normalizeStopPrice px
+                      r <- try (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
+                      pure $
+                        case r of
+                          Left ex -> Left (take 240 (show ex))
+                          Right _ -> Right ()
+
+                    (slSide, mSlPx, tpSide, mTpPx) =
+                      if protectDir < 0
+                        then
+                          ( Buy
+                          , (\sl -> entryPrice * (1 + sl)) <$> stopLoss0
+                          , Buy
+                          , (\tp -> entryPrice * (1 - tp)) <$> takeProfit0
+                          )
+                        else
+                          ( Sell
+                          , (\sl -> entryPrice * (1 - sl)) <$> stopLoss0
+                          , Sell
+                          , (\tp -> entryPrice * (1 + tp)) <$> takeProfit0
+                          )
+
+                rSl <-
+                  case mSlPx of
+                    Nothing -> pure (Right ())
+                    Just px -> place1 slSide "STOP_MARKET" px "sl"
+                rTp <-
+                  case mTpPx of
+                    Nothing -> pure (Right ())
+                    Just px -> place1 tpSide "TAKE_PROFIT_MARKET" px "tp"
+                pure $
+                  case (rSl, rTp) of
+                    (Left e, _) -> Left ("Protection order failed: " ++ e)
+                    (_, Left e) -> Left ("Protection order failed: " ++ e)
+                    _ -> Right ()
+
       mQuoteFromFraction <-
         case (argOrderQuantity args, argOrderQuote args, argOrderQuoteFraction args) of
           (Nothing, Nothing, Just f) | f > 0 -> do
@@ -5554,7 +5788,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
               Just q | q > 0 -> Just (q * entryScale)
               Just _ -> Nothing
               Nothing ->
-                case ((fmap (* entryScale) (argOrderQuote args)) <|> mQuoteFromFraction) of
+                case (fmap (* entryScale) (argOrderQuote args) <|> mQuoteFromFraction) of
                   Just qq | qq > 0 && currentPrice > 0 -> Just (qq / currentPrice)
                   _ -> Nothing
 
@@ -5563,45 +5797,103 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
               Nothing -> Right qRaw
               Just sf -> normalizeQty sf currentPrice qRaw
 
-          closeOrder sideLabel side qtyRaw = do
+          closeOrder sideLabel side qtyRaw =
             case normalizeFuturesQty qtyRaw of
               Left e -> pure baseResult { aorMessage = "No order: " ++ e }
               Right q ->
-                if q <= 0 then pure baseResult { aorMessage = "No order: quantity is 0." } else sendMarketOrder sideLabel side (Just q) Nothing (Just True)
+                if q <= 0
+                  then pure baseResult { aorMessage = "No order: quantity is 0." }
+                  else sendMarketOrder sideLabel side (Just q) Nothing (Just True)
 
       case dir of
         1 ->
           if posAmt > 0
-            then pure baseResult { aorMessage = "No order: already long." }
+            then
+              if protectionEnabled
+                then do
+                  cancelProtectionOrders
+                  r <- placeProtectionOrders 1 currentPrice
+                  pure $
+                    case r of
+                      Left e -> baseResult { aorMessage = "No market order: already long. " ++ e }
+                      Right () -> baseResult { aorMessage = "No market order: already long. Protection orders refreshed." }
+                else pure baseResult { aorMessage = "No order: already long." }
             else
               case mDesiredQtyRaw of
                 Nothing -> pure baseResult { aorMessage = "No order: futures requires orderQuantity or orderQuote." }
                 Just q0 -> do
+                  cancelProtectionOrders
                   let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
                   case normalizeFuturesQty qtyToBuyRaw of
                     Left e -> pure baseResult { aorMessage = "No order: " ++ e }
                     Right q ->
-                      if q <= 0 then pure baseResult { aorMessage = "No order: quantity is 0." } else sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
+                      if q <= 0
+                        then pure baseResult { aorMessage = "No order: quantity is 0." }
+                        else do
+                          out <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
+                          if aorSent out && protectionEnabled
+                            then do
+                              let fillPx =
+                                    case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                      (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                      _ -> currentPrice
+                              r <- placeProtectionOrders 1 fillPx
+                              pure $
+                                case r of
+                                  Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
+                                  Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
+                            else pure out
         (-1) ->
           case argPositioning args of
             LongShort ->
               if posAmt < 0
-                then pure baseResult { aorMessage = "No order: already short." }
+                then
+                  if protectionEnabled
+                    then do
+                      cancelProtectionOrders
+                      r <- placeProtectionOrders (-1) currentPrice
+                      pure $
+                        case r of
+                          Left e -> baseResult { aorMessage = "No market order: already short. " ++ e }
+                          Right () -> baseResult { aorMessage = "No market order: already short. Protection orders refreshed." }
+                    else pure baseResult { aorMessage = "No order: already short." }
                 else
                   case mDesiredQtyRaw of
                     Nothing -> pure baseResult { aorMessage = "No order: futures requires orderQuantity or orderQuote." }
                     Just q0 -> do
+                      cancelProtectionOrders
                       let qtyToSellRaw = if posAmt > 0 then posAmt + q0 else q0
                       case normalizeFuturesQty qtyToSellRaw of
                         Left e -> pure baseResult { aorMessage = "No order: " ++ e }
                         Right q ->
-                          if q <= 0 then pure baseResult { aorMessage = "No order: quantity is 0." } else sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
+                          if q <= 0
+                            then pure baseResult { aorMessage = "No order: quantity is 0." }
+                            else do
+                              out <- sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
+                              if aorSent out && protectionEnabled
+                                then do
+                                  let fillPx =
+                                        case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                          (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                          _ -> currentPrice
+                                  r <- placeProtectionOrders (-1) fillPx
+                                  pure $
+                                    case r of
+                                      Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
+                                      Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
+                                else pure out
             LongFlat ->
               if posAmt == 0
-                then pure baseResult { aorMessage = "No order: already flat." }
+                then do
+                  cancelProtectionOrders
+                  pure baseResult { aorMessage = "No order: already flat." }
                 else if posAmt > 0
-                  then closeOrder "SELL" Sell (abs posAmt)
-                  else closeOrder "BUY" Buy (abs posAmt)
+                  then do
+                    cancelProtectionOrders
+                    closeOrder "SELL" Sell (abs posAmt)
+                  else do
+                    cancelProtectionOrders
+                    closeOrder "BUY" Buy (abs posAmt)
         _ -> pure baseResult { aorMessage = neutralMsg }
 
     modeLabel m =
@@ -5613,7 +5905,7 @@ computeBacktestFromArgs :: Args -> IO Aeson.Value
 computeBacktestFromArgs args = do
   (series, _) <- loadPrices args
   let prices = psClose series
-  if length prices < 2 then error "Need at least 2 price rows" else pure ()
+  ensureMinPriceRows args 2 prices
   let lookback = argLookback args
   summary <- computeBacktestSummary args lookback series
   pure (backtestSummaryJson summary)
@@ -6280,6 +6572,9 @@ computeBacktestSummary args lookback series = do
           , ecTrailingStop = argTrailingStop args
           , ecMinHoldBars = argMinHoldBars args
           , ecCooldownBars = argCooldownBars args
+          , ecMaxDrawdown = argMaxDrawdown args
+          , ecMaxDailyLoss = argMaxDailyLoss args
+          , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
           , ecPositioning = argPositioning args
           , ecIntrabarFill = argIntrabarFill args
           , ecKalmanZMin = argKalmanZMin args
@@ -6625,7 +6920,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
     compute =
       let n = V.length pricesV
        in if n < 1
-            then error "Need at least 1 price to compute latest signal"
+            then error ("Need at least 1 price to compute latest signal (got " ++ show n ++ ")")
             else
               let t = n - 1
                   currentPrice = pricesV V.! t
@@ -6978,6 +7273,30 @@ data PriceSeries = PriceSeries
   , psHigh :: !(Maybe [Double])
   , psLow :: !(Maybe [Double])
   } deriving (Eq, Show)
+
+priceSourceLabel :: Args -> String
+priceSourceLabel args =
+  case (argBinanceSymbol args, argData args) of
+    (Just sym, _) ->
+      "Binance " ++ sym ++ " (" ++ argInterval args ++ ")"
+    (_, Just path) ->
+      "CSV " ++ path ++ " (column " ++ show (argPriceCol args) ++ ")"
+    _ ->
+      "data source"
+
+ensureMinPriceRows :: Args -> Int -> [Double] -> IO ()
+ensureMinPriceRows args minRows prices =
+  let n = length prices
+      hint =
+        case (argBinanceSymbol args, argData args) of
+          (Just _, _) ->
+            " Check symbol/interval and increase --bars (requested " ++ show (resolveBarsForBinance args) ++ ")."
+          (_, Just _) ->
+            " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header)."
+          _ -> ""
+   in if n < minRows
+        then error ("Need at least " ++ show minRows ++ " price rows (got " ++ show n ++ ") from " ++ priceSourceLabel args ++ "." ++ hint)
+        else pure ()
 
 loadPrices :: Args -> IO (PriceSeries, Maybe BinanceEnv)
 loadPrices args =

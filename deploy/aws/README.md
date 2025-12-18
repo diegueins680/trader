@@ -35,6 +35,9 @@ When `TRADER_API_TOKEN` is set, all endpoints except `/health` require either:
 
 The web UI (`haskell/web`) supports this via deploy-time config: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build).
 
+Build info:
+- `GET /` and `GET /health` include `version` and optional `commit` (from env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA`).
+
 ## Deploy to App Runner (ECR)
 
 ### 1) Create an ECR repository

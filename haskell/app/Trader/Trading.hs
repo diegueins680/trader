@@ -41,6 +41,9 @@ data EnsembleConfig = EnsembleConfig
   , ecTrailingStop :: !(Maybe Double)  -- fractional, e.g. 0.01
   , ecMinHoldBars :: !Int              -- bars; 0 disables (signal exits allowed immediately)
   , ecCooldownBars :: !Int             -- bars; 0 disables (wait after exiting before re-entering)
+  , ecMaxDrawdown :: !(Maybe Double)   -- fraction, e.g. 0.2 (20%); halts and exits to flat
+  , ecMaxDailyLoss :: !(Maybe Double)  -- fraction, e.g. 0.05 (5%); halts and exits to flat
+  , ecIntervalSeconds :: !(Maybe Int)  -- required for daily-loss; inferred from CLI interval
   , ecPositioning :: !Positioning
   , ecIntrabarFill :: !IntrabarFill
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
@@ -76,6 +79,8 @@ data ExitReason
   | ExitStopLoss
   | ExitTrailingStop
   | ExitTakeProfit
+  | ExitMaxDrawdown
+  | ExitMaxDailyLoss
   | ExitLiquidation
   | ExitEod
   | ExitOther !String
@@ -88,6 +93,8 @@ exitReasonCode why =
     ExitStopLoss -> "STOP_LOSS"
     ExitTrailingStop -> "TRAILING_STOP"
     ExitTakeProfit -> "TAKE_PROFIT"
+    ExitMaxDrawdown -> "MAX_DRAWDOWN"
+    ExitMaxDailyLoss -> "MAX_DAILY_LOSS"
     ExitLiquidation -> "LIQUIDATION"
     ExitEod -> "EOD"
     ExitOther s -> s
@@ -99,6 +106,8 @@ exitReasonFromCode code =
     "STOP_LOSS" -> ExitStopLoss
     "TRAILING_STOP" -> ExitTrailingStop
     "TAKE_PROFIT" -> ExitTakeProfit
+    "MAX_DRAWDOWN" -> ExitMaxDrawdown
+    "MAX_DAILY_LOSS" -> ExitMaxDailyLoss
     "LIQUIDATION" -> ExitLiquidation
     "EOD" -> ExitEod
     other -> ExitOther other
@@ -264,6 +273,25 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
               closeThr = max 0 (ecCloseThreshold cfg)
               minHoldBars = max 0 (ecMinHoldBars cfg)
               cooldownBars = max 0 (ecCooldownBars cfg)
+              maxDrawdownLim =
+                case ecMaxDrawdown cfg of
+                  Just v | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
+                  _ -> Nothing
+              intervalSeconds =
+                case ecIntervalSeconds cfg of
+                  Just s | s > 0 -> Just s
+                  _ -> Nothing
+              maxDailyLossLim =
+                case (ecMaxDailyLoss cfg, intervalSeconds) of
+                  (Just v, Just _) | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
+                  _ -> Nothing
+              dayKeyAt :: Int -> Int
+              dayKeyAt i =
+                case intervalSeconds of
+                  Nothing -> 0
+                  Just sec ->
+                    let tSec = fromIntegral i * fromIntegral sec :: Integer
+                     in fromIntegral (tSec `div` 86400)
               direction thr prev pred =
                 let upEdge = prev * (1 + thr)
                     downEdge = prev * (1 - thr)
@@ -462,7 +490,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                     then (Nothing, 0)
                                     else (Just side, if ecConfidenceSizing cfg then size0 else 1)
 
-              stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc, dead, cooldownLeft) t =
+              stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc, dead, cooldownLeft, riskState0) t =
                 if dead
                   then
                     ( Nothing
@@ -476,9 +504,40 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                     , tradesAcc
                     , True
                     , 0
+                    , riskState0
                     )
                   else
-                    let prev = pricesV V.! t
+                    let (peakEq0, dayKey0, dayStartEq0, haltReason0) = riskState0
+                        (dayKey1, dayStartEq1) =
+                          case intervalSeconds of
+                            Nothing -> (dayKey0, dayStartEq0)
+                            Just _ ->
+                              let dk = dayKeyAt t
+                               in if dk /= dayKey0 then (dk, equity) else (dayKey0, dayStartEq0)
+                        peakEq1 = max peakEq0 equity
+                        drawdown =
+                          if peakEq1 > 0
+                            then max 0 (1 - equity / peakEq1)
+                            else 0
+                        dailyLoss =
+                          if dayStartEq1 > 0
+                            then max 0 (1 - equity / dayStartEq1)
+                            else 0
+                        riskHaltReason =
+                          case haltReason0 of
+                            Just _ -> Nothing
+                            Nothing ->
+                              case () of
+                                _ | maybe False (\lim -> dailyLoss >= lim) maxDailyLossLim -> Just ExitMaxDailyLoss
+                                  | maybe False (\lim -> drawdown >= lim) maxDrawdownLim -> Just ExitMaxDrawdown
+                                  | otherwise -> Nothing
+                        haltReason1 =
+                          case haltReason0 of
+                            Just r -> Just r
+                            Nothing -> riskHaltReason
+                        halted = haltReason1 /= Nothing
+
+                        prev = pricesV V.! t
                         nextClose = pricesV V.! (t + 1)
                         hi = barHigh (t + 1)
                         lo = barLow (t + 1)
@@ -556,10 +615,20 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             then posSize
                             else desiredSize
 
-                        (desiredSideFinal, desiredSizeFinal) =
+                        (desiredSideFinal0, desiredSizeFinal0) =
                           if cooldownActive
                             then (Nothing, 0)
                             else (desiredSideHoldAdjusted, desiredSizeHoldAdjusted)
+
+                        (desiredSideFinal, desiredSizeFinal) =
+                          if halted
+                            then (Nothing, 0)
+                            else (desiredSideFinal0, desiredSizeFinal0)
+
+                        switchExitReason =
+                          case (halted, haltReason1, posSide, desiredSideRaw) of
+                            (True, Just r, Just _, dsRaw) | dsRaw == posSide -> r
+                            _ -> ExitSignal
 
                         closeTradeAt exitIndex why eqExit ot =
                           Trade
@@ -592,7 +661,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                       tradesAcc1 =
                                         case openTrade0 of
                                           Nothing -> tradesAcc
-                                          Just ot -> closeTradeAt t ExitSignal eqExit ot : tradesAcc
+                                          Just ot -> closeTradeAt t switchExitReason eqExit ot : tradesAcc
                                    in (Nothing, 0, eqExit, changes + 1, Nothing, tradesAcc1)
                                 Just desiredSideFinal' ->
                                   case posSide of
@@ -805,12 +874,25 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                       , tradesFinal2
                       , dead2
                       , cooldownNext
+                      , (max peakEq1 equityFinal2, dayKey1, dayStartEq1, haltReason1)
                       )
 
-              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev, _deadFinal, _cooldownFinal) =
+              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev, _deadFinal, _cooldownFinal, _riskFinal) =
                 foldl'
                   stepFn
-                  (Nothing :: Maybe PositionSide, 0 :: Double, 1.0, [1.0], [], [], 0 :: Int, Nothing :: Maybe OpenTrade, [], False, 0 :: Int)
+                  ( Nothing :: Maybe PositionSide
+                  , 0 :: Double
+                  , 1.0
+                  , [1.0]
+                  , []
+                  , []
+                  , 0 :: Int
+                  , Nothing :: Maybe OpenTrade
+                  , []
+                  , False
+                  , 0 :: Int
+                  , (1.0, dayKeyAt 0, 1.0, Nothing)
+                  )
                   [0 .. stepCount - 1]
 
               (eqRev', tradesRev') =
