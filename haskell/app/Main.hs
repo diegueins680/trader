@@ -70,20 +70,22 @@ import Trader.Binance
   , binanceFuturesBaseUrl
   , binanceFuturesTestnetBaseUrl
   , newBinanceEnv
-  , fetchKlines
-  , fetchCloses
-  , fetchFreeBalance
-  , fetchFuturesAvailableBalance
-  , fetchFuturesPositionAmt
-  , fetchSymbolFilters
-  , quantizeDown
-  , getTimestampMs
-  , placeMarketOrder
-  , fetchOrderByClientId
-  , createListenKey
-  , keepAliveListenKey
-  , closeListenKey
-  )
+	  , fetchKlines
+	  , fetchCloses
+	  , fetchFreeBalance
+	  , fetchFuturesAvailableBalance
+	  , fetchFuturesPositionAmt
+	  , cancelFuturesOpenOrdersByClientPrefix
+	  , fetchSymbolFilters
+	  , quantizeDown
+	  , getTimestampMs
+	  , placeMarketOrder
+	  , placeFuturesTriggerMarketOrder
+	  , fetchOrderByClientId
+	  , createListenKey
+	  , keepAliveListenKey
+	  , closeListenKey
+	  )
 import Trader.KalmanFusion (Kalman1(..), initKalman1, stepMulti)
 import Trader.LSTM
   ( LSTMConfig(..)
@@ -5466,14 +5468,14 @@ applyOrderInfo info r =
 
 placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
 placeOrderForSignal args sym sig env =
-  placeOrderForSignalEx args sym sig env Nothing
+  placeOrderForSignalEx args sym sig env Nothing True
 
 placeOrderForSignalBot :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
 placeOrderForSignalBot args sym sig env =
-  placeOrderForSignalEx args sym sig env Nothing
+  placeOrderForSignalEx args sym sig env Nothing False
 
-placeOrderForSignalEx :: Args -> String -> LatestSignal -> BinanceEnv -> Maybe String -> IO ApiOrderResult
-placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
+placeOrderForSignalEx :: Args -> String -> LatestSignal -> BinanceEnv -> Maybe String -> Bool -> IO ApiOrderResult
+placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOrders = do
   case (beApiKey env, beApiSecret env) of
     (Nothing, _) -> noOrder "No order: missing Binance API key."
     (_, Nothing) -> noOrder "No order: missing Binance API secret."
@@ -5797,18 +5799,23 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
               Nothing -> Right qRaw
               Just sf -> normalizeQty sf currentPrice qRaw
 
-          closeOrder sideLabel side qtyRaw =
-            case normalizeFuturesQty qtyRaw of
-              Left e -> pure baseResult { aorMessage = "No order: " ++ e }
-              Right q ->
-                if q <= 0
-                  then pure baseResult { aorMessage = "No order: quantity is 0." }
-                  else sendMarketOrder sideLabel side (Just q) Nothing (Just True)
+	          closeOrder sideLabel side qtyRaw =
+	            case normalizeFuturesQty qtyRaw of
+	              Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+	              Right q ->
+	                if q <= 0
+	                  then pure baseResult { aorMessage = "No order: quantity is 0." }
+	                  else sendMarketOrder sideLabel side (Just q) Nothing (Just True)
 
-      case dir of
-        1 ->
-          if posAmt > 0
-            then
+	          noFuturesSizingMsg =
+	            if maybe False (> 0) (argOrderQuoteFraction args)
+	              then "No order: computed quote is 0 (check futures balance / orderQuoteFraction / maxOrderQuote)."
+	              else "No order: futures requires orderQuantity or orderQuote."
+
+	      case dir of
+	        1 ->
+	          if posAmt > 0
+	            then
               if protectionEnabled
                 then do
                   cancelProtectionOrders
@@ -5818,13 +5825,13 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
                       Left e -> baseResult { aorMessage = "No market order: already long. " ++ e }
                       Right () -> baseResult { aorMessage = "No market order: already long. Protection orders refreshed." }
                 else pure baseResult { aorMessage = "No order: already long." }
-            else
-              case mDesiredQtyRaw of
-                Nothing -> pure baseResult { aorMessage = "No order: futures requires orderQuantity or orderQuote." }
-                Just q0 -> do
-                  cancelProtectionOrders
-                  let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
-                  case normalizeFuturesQty qtyToBuyRaw of
+	            else
+	              case mDesiredQtyRaw of
+	                Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
+	                Just q0 -> do
+	                  cancelProtectionOrders
+	                  let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
+	                  case normalizeFuturesQty qtyToBuyRaw of
                     Left e -> pure baseResult { aorMessage = "No order: " ++ e }
                     Right q ->
                       if q <= 0
@@ -5857,13 +5864,13 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride = do
                           Left e -> baseResult { aorMessage = "No market order: already short. " ++ e }
                           Right () -> baseResult { aorMessage = "No market order: already short. Protection orders refreshed." }
                     else pure baseResult { aorMessage = "No order: already short." }
-                else
-                  case mDesiredQtyRaw of
-                    Nothing -> pure baseResult { aorMessage = "No order: futures requires orderQuantity or orderQuote." }
-                    Just q0 -> do
-                      cancelProtectionOrders
-                      let qtyToSellRaw = if posAmt > 0 then posAmt + q0 else q0
-                      case normalizeFuturesQty qtyToSellRaw of
+	                else
+	                  case mDesiredQtyRaw of
+	                    Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
+	                    Just q0 -> do
+	                      cancelProtectionOrders
+	                      let qtyToSellRaw = if posAmt > 0 then posAmt + q0 else q0
+	                      case normalizeFuturesQty qtyToSellRaw of
                         Left e -> pure baseResult { aorMessage = "No order: " ++ e }
                         Right q ->
                           if q <= 0

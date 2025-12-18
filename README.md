@@ -67,6 +67,10 @@ Sending Binance orders (optional)
 By default, orders are sent to `/api/v3/order/test`. Add `--binance-live` to send live orders.
 For futures orders, add `--futures` (uses `/fapi` endpoints). For margin orders, add `--margin` (requires `--binance-live`).
 
+Futures protection orders (live, manual trades only):
+- When sending **LIVE futures** orders via the CLI (`--binance-trade`) or REST `/trade`, providing `--stop-loss` and/or `--take-profit` places exchange-native trigger orders (`STOP_MARKET` / `TAKE_PROFIT_MARKET`) with `closePosition=true`.
+- The continuous `/bot` loop does not place exchange-native protection orders to avoid bot/exchange state desync.
+
 Environment variables:
 - `BINANCE_API_KEY`
 - `BINANCE_API_SECRET`
