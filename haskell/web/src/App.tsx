@@ -4565,7 +4565,7 @@ export function App() {
 	                    prices={state.backtest.prices}
 	                    equityCurve={state.backtest.equityCurve}
 	                    positions={state.backtest.positions}
-	                    agreementOk={state.backtest.agreementOk}
+	                    agreementOk={state.backtest.entryAgreementOk ?? state.backtest.agreementOk}
 	                    trades={state.backtest.trades}
 	                    backtestStartIndex={state.backtest.split.backtestStartIndex}
 	                    height={360}
@@ -4694,7 +4694,7 @@ export function App() {
                     <div style={{ marginTop: 10 }}>
                       <div className="kv">
                         <div className="k">Operations (position changes)</div>
-                        <div className="v">{state.backtest.metrics.tradeCount}</div>
+                        <div className="v">{state.backtest.metrics.positionChanges}</div>
                       </div>
 	                      <div className="kv">
 	                        <div className="k">Annualized volatility</div>
@@ -4719,8 +4719,10 @@ export function App() {
 	                        </div>
 	                      </div>
                       <div className="kv">
-                        <div className="k">Agreement rate</div>
-                        <div className="v">{fmtPct(state.backtest.metrics.agreementRate, 1)}</div>
+                        <div className="k">Entry agreement rate</div>
+                        <div className="v">
+                          {fmtPct(state.backtest.metrics.entryAgreementRate ?? state.backtest.metrics.agreementRate, 1)}
+                        </div>
                       </div>
                     </div>
                   </details>
