@@ -1,3 +1,5 @@
+import { TRADER_UI_CONFIG } from "../lib/deployConfig";
+
 export const STORAGE_KEY = "trader.ui.form.v1";
 export const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
 export const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
@@ -5,11 +7,22 @@ export const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
 export const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
 export const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";
 
-export const SIGNAL_TIMEOUT_MS = 5 * 60_000;
-export const BACKTEST_TIMEOUT_MS = 10 * 60_000;
-export const TRADE_TIMEOUT_MS = 5 * 60_000;
-export const BOT_START_TIMEOUT_MS = 10 * 60_000;
-export const BOT_STATUS_TIMEOUT_MS = 30_000;
+const DEFAULT_SIGNAL_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_BACKTEST_TIMEOUT_MS = 20 * 60_000;
+const DEFAULT_TRADE_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_BOT_START_TIMEOUT_MS = 20 * 60_000;
+const DEFAULT_BOT_STATUS_TIMEOUT_MS = 60_000;
+
+function resolveTimeoutMs(key: "signalMs" | "backtestMs" | "tradeMs" | "botStartMs" | "botStatusMs", fallback: number): number {
+  const v = TRADER_UI_CONFIG.timeoutsMs?.[key];
+  return typeof v === "number" && Number.isFinite(v) && v >= 1000 ? v : fallback;
+}
+
+export const SIGNAL_TIMEOUT_MS = resolveTimeoutMs("signalMs", DEFAULT_SIGNAL_TIMEOUT_MS);
+export const BACKTEST_TIMEOUT_MS = resolveTimeoutMs("backtestMs", DEFAULT_BACKTEST_TIMEOUT_MS);
+export const TRADE_TIMEOUT_MS = resolveTimeoutMs("tradeMs", DEFAULT_TRADE_TIMEOUT_MS);
+export const BOT_START_TIMEOUT_MS = resolveTimeoutMs("botStartMs", DEFAULT_BOT_START_TIMEOUT_MS);
+export const BOT_STATUS_TIMEOUT_MS = resolveTimeoutMs("botStatusMs", DEFAULT_BOT_STATUS_TIMEOUT_MS);
 export const BOT_STATUS_TAIL_POINTS = 5000;
 export const BOT_TELEMETRY_POINTS = 240;
 

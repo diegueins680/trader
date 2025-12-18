@@ -1948,17 +1948,23 @@ botOptimizeAfterOperation st = do
                   , tcWalkForwardFolds = argWalkForwardFolds args
                   , tcMinRoundTrips = argMinRoundTrips args
                   }
-              (newMethod, newOpenThr, newCloseThr) =
+              thresholdResult =
                 if optimizeOps && hasBothCtx
                   then
-                    case optimizeOperationsWith tuneCfg baseCfg prices kalPred lstmPred Nothing of
-                      Left _ -> (argMethod args, baseOpenThr, baseCloseThr)
-                      Right (m, openThr, closeThr, _, _stats) -> (m, openThr, closeThr)
+                    fmap
+                      (\(m, openThr, closeThr, _bt, _stats) -> (m, openThr, closeThr))
+                      (optimizeOperationsWith tuneCfg baseCfg prices kalPred lstmPred Nothing)
                   else
-                    case sweepThresholdWith tuneCfg (argMethod args) baseCfg prices kalPred lstmPred Nothing of
-                      Left _ -> (argMethod args, baseOpenThr, baseCloseThr)
-                      Right (openThr, closeThr, _, _stats) -> (argMethod args, openThr, closeThr)
-              args' =
+                    fmap
+                      (\(openThr, closeThr, _bt, _stats) -> (argMethod args, openThr, closeThr))
+                      (sweepThresholdWith tuneCfg (argMethod args) baseCfg prices kalPred lstmPred Nothing)
+          (newMethod, newOpenThr, newCloseThr) <-
+            case thresholdResult of
+              Right res -> pure res
+              Left err -> do
+                hPutStrLn stderr ("Threshold tuning skipped: " ++ err)
+                pure (argMethod args, baseOpenThr, baseCloseThr)
+          let args' =
                 args
                   { argMethod = newMethod
                   , argOpenThreshold = newOpenThr
@@ -3095,7 +3101,7 @@ runRestApi baseArgs = do
   let timeoutSec =
         case timeoutEnv >>= readMaybe of
           Just n | n >= 0 -> n
-          _ -> 600
+          _ -> 1800
       maxAsyncRunning =
         case maxAsyncRunningEnv >>= readMaybe of
           Just n | n >= 1 -> n
@@ -6630,12 +6636,12 @@ computeBacktestSummary args lookback series = do
         if argOptimizeOperations args
           then
             case optimizeOperationsWithHLWith tuneCfg baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
-              Left e -> error e
+              Left e -> error ("optimizeOperations: " ++ e)
               Right (m, openThr, closeThr, btTune, stats) -> (m, openThr, closeThr, Just stats, Just (computeMetrics ppy btTune))
           else if argSweepThreshold args
             then
               case sweepThresholdWithHLWith tuneCfg methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
-                Left e -> error e
+                Left e -> error ("sweepThreshold: " ++ e)
                 Right (openThr, closeThr, btTune, stats) -> (methodRequested, openThr, closeThr, Just stats, Just (computeMetrics ppy btTune))
             else (methodRequested, argOpenThreshold args, argCloseThreshold args, Nothing, Nothing)
 
