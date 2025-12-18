@@ -1,3 +1,5 @@
+import { TRADER_UI_CONFIG } from "../lib/deployConfig";
+
 export const STORAGE_KEY = "trader.ui.form.v1";
 export const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
 export const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
@@ -5,11 +7,13 @@ export const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
 export const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
 export const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";
 
-export const SIGNAL_TIMEOUT_MS = 5 * 60_000;
-export const BACKTEST_TIMEOUT_MS = 10 * 60_000;
-export const TRADE_TIMEOUT_MS = 5 * 60_000;
-export const BOT_START_TIMEOUT_MS = 10 * 60_000;
-export const BOT_STATUS_TIMEOUT_MS = 30_000;
+const timeoutsMs = TRADER_UI_CONFIG.timeoutsMs;
+
+export const SIGNAL_TIMEOUT_MS = timeoutsMs?.signalMs ?? 10 * 60_000;
+export const BACKTEST_TIMEOUT_MS = timeoutsMs?.backtestMs ?? 20 * 60_000;
+export const TRADE_TIMEOUT_MS = timeoutsMs?.tradeMs ?? 10 * 60_000;
+export const BOT_START_TIMEOUT_MS = timeoutsMs?.botStartMs ?? 20 * 60_000;
+export const BOT_STATUS_TIMEOUT_MS = timeoutsMs?.botStatusMs ?? 60_000;
 export const BOT_STATUS_TAIL_POINTS = 5000;
 export const BOT_TELEMETRY_POINTS = 240;
 

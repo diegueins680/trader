@@ -9,6 +9,7 @@ import type {
   BotStatus,
   LatestSignal,
 } from "./types";
+import { TRADER_UI_CONFIG } from "./deployConfig";
 
 export class HttpError extends Error {
   readonly status: number;
@@ -139,7 +140,7 @@ async function readJsonOrText(res: Response): Promise<unknown> {
 }
 
 async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
-  const timeoutMs = opts?.timeoutMs ?? 30_000;
+  const timeoutMs = opts?.timeoutMs ?? TRADER_UI_CONFIG.timeoutsMs?.requestMs ?? 30_000;
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
     const url = resolveUrl(baseUrl, path);
@@ -243,6 +244,7 @@ async function runAsyncJob<T>(
       const elapsed = Date.now() - startedAt;
       const remaining = overallTimeoutMs - elapsed;
       if (remaining <= 0) {
+        await cancel();
         if (lastTransientError) throw new Error(describeAsyncTimeout(baseUrl, overallTimeoutMs, lastTransientError));
         throw timeoutError();
       }
@@ -324,7 +326,7 @@ async function runAsyncJob<T>(
       backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
     }
   } catch (err) {
-    if (isAbortError(err)) await cancel();
+    if (isAbortError(err) || isTimeoutError(err)) await cancel();
     throw err;
   }
 }

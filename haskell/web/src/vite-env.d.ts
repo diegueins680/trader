@@ -6,5 +6,13 @@ interface Window {
   __TRADER_CONFIG__?: {
     apiBaseUrl?: string;
     apiToken?: string;
+    timeoutsMs?: {
+      requestMs?: number;
+      signalMs?: number;
+      backtestMs?: number;
+      tradeMs?: number;
+      botStartMs?: number;
+      botStatusMs?: number;
+    };
   };
 }

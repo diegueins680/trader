@@ -6,10 +6,17 @@
 // globalThis.__TRADER_CONFIG__ = {
 //   apiBaseUrl: "https://your-api-host",
 //   apiToken: "TRADER_API_TOKEN",
+//   timeoutsMs: {
+//     requestMs: 30_000,
+//     signalMs: 10 * 60_000,
+//     backtestMs: 20 * 60_000,
+//     tradeMs: 10 * 60_000,
+//     botStartMs: 20 * 60_000,
+//     botStatusMs: 60_000,
+//   },
 // };
 (() => {
   const existing = globalThis.__TRADER_CONFIG__;
   if (existing && typeof existing === "object") return;
   globalThis.__TRADER_CONFIG__ = { apiBaseUrl: "", apiToken: "" };
 })();
-

@@ -3095,7 +3095,7 @@ runRestApi baseArgs = do
   let timeoutSec =
         case timeoutEnv >>= readMaybe of
           Just n | n >= 0 -> n
-          _ -> 600
+          _ -> 1800
       maxAsyncRunning =
         case maxAsyncRunningEnv >>= readMaybe of
           Just n | n >= 1 -> n
