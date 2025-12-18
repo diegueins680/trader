@@ -49,12 +49,10 @@ optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred mMeta = do
                     else (bestEq, bestM, bestOpenThr, bestCloseThr, bestBt)
             else (bestEq, bestM, bestOpenThr, bestCloseThr, bestBt)
 
-  candidates <- traverse eval [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
-  case NE.nonEmpty candidates of
-    Nothing -> Left "No optimization candidates produced."
-    Just (c :| cs) ->
-      let (_, bestM, bestOpenThr, bestCloseThr, bestBt) = foldl' pick c cs
-       in Right (bestM, bestOpenThr, bestCloseThr, bestBt)
+  candidates <- NE.fromList <$> traverse eval [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
+  let (c :| cs) = candidates
+      (_, bestM, bestOpenThr, bestCloseThr, bestBt) = foldl' pick c cs
+   in Right (bestM, bestOpenThr, bestCloseThr, bestBt)
 
 sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Double, Double, BacktestResult)
 sweepThreshold method baseCfg prices kalPred lstmPred mMeta =
@@ -92,8 +90,8 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta = d
       buildContext =
         case method of
           MethodBoth
-            | V.length kalV < stepCount -> Left "kalPred too short for sweepThreshold"
-            | V.length lstmV < stepCount -> Left "lstmPred too short for sweepThreshold"
+            | V.length kalV < stepCount -> Left ("kalPred has length " ++ show (V.length kalV) ++ " but needs at least " ++ show stepCount ++ " for sweepThreshold")
+            | V.length lstmV < stepCount -> Left ("lstmPred has length " ++ show (V.length lstmV) ++ " but needs at least " ++ show stepCount ++ " for sweepThreshold")
             | otherwise ->
                 Right
                   ( [kalV, lstmV]
@@ -101,10 +99,10 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta = d
                   , metaV
                   )
           MethodKalmanOnly
-            | V.length kalV < stepCount -> Left "kalPred too short for sweepThreshold"
+            | V.length kalV < stepCount -> Left ("kalPred has length " ++ show (V.length kalV) ++ " but needs at least " ++ show stepCount ++ " for sweepThreshold")
             | otherwise -> Right ([kalV], (kalV, kalV), metaV)
           MethodLstmOnly
-            | V.length lstmV < stepCount -> Left "lstmPred too short for sweepThreshold"
+            | V.length lstmV < stepCount -> Left ("lstmPred has length " ++ show (V.length lstmV) ++ " but needs at least " ++ show stepCount ++ " for sweepThreshold")
             | otherwise -> Right ([lstmV], (lstmV, lstmV), Nothing)
 
   (predSources, (kalUsedV, lstmUsedV), metaUsed) <- buildContext
