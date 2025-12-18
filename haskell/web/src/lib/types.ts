@@ -162,6 +162,7 @@ export type BacktestMetrics = {
   sharpe: number;
   maxDrawdown: number;
   tradeCount: number;
+  positionChanges: number;
   roundTrips: number;
   winRate: number;
   grossProfit: number;
@@ -171,6 +172,7 @@ export type BacktestMetrics = {
   avgHoldingPeriods: number;
   exposure: number;
   agreementRate: number;
+  entryAgreementRate?: number;
   turnover: number;
 };
 
@@ -238,6 +240,7 @@ export type BacktestResponse = {
   prices: number[];
   positions: number[];
   agreementOk: boolean[];
+  entryAgreementOk?: boolean[];
   trades: Trade[];
 };
 
