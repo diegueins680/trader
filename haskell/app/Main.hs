@@ -47,7 +47,6 @@ import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExi
 import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode(..), die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
-import System.Exit (exitFailure)
 import System.IO (IOMode(ReadMode), hFlush, hGetLine, hIsEOF, hPutStrLn, stderr, stdout, withFile)
 import System.IO.Error (ioeGetErrorString, isUserError)
 import System.Process (CreateProcess(..), proc, readCreateProcessWithExitCode)
@@ -3024,13 +3023,23 @@ runRestApi baseArgs = do
   asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
   asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
   hFlush stdout
-  res <- try (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp))
+  res <-
+    ( try
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        IO (Either IOException ())
+    )
   case res of
     Right () -> pure ()
-    Left e -> do
-      hPutStrLn stderr (printf "Failed to start REST API on %s:%d: %s" bindHostStr port (ioeGetErrorString e))
-      hPutStrLn stderr "Try a different --port (or check permissions / sandbox restrictions)."
-      exitFailure
+    Left e ->
+      ioError
+        ( userError
+            ( printf
+                "Failed to start REST API on %s:%d: %s\nTry a different --port (or check permissions / sandbox restrictions)."
+                bindHostStr
+                port
+                (show e)
+            )
+        )
 
 corsHeaders :: ResponseHeaders
 corsHeaders =
