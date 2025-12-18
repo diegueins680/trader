@@ -2509,7 +2509,13 @@ export function App() {
                 </label>
                 <input
                   id="closeThreshold"
-                  className={estimatedCosts.breakEven > 0 && form.closeThreshold < estimatedCosts.breakEven ? "input inputError" : "input"}
+                  className={
+                    estimatedCosts.breakEven > 0 && form.closeThreshold < estimatedCosts.breakEven
+                      ? "input inputError"
+                      : form.closeThreshold > form.openThreshold
+                        ? "input inputWarn"
+                        : "input"
+                  }
                   type="number"
                   step="0.0001"
                   min={0}
@@ -2520,6 +2526,11 @@ export function App() {
                   Exit deadband. Often smaller than open threshold to reduce churn.
                   {estimatedCosts.breakEven > 0 && form.closeThreshold < estimatedCosts.breakEven ? " Below break-even (may churn after costs)." : null}
                 </div>
+                {form.closeThreshold > form.openThreshold ? (
+                  <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
+                    Close threshold is above open threshold (inverted hysteresis). Usually close ≤ open.
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -4119,21 +4130,126 @@ export function App() {
                   <div className="kv">
                     <div className="k">Kalman</div>
                     <div className="v">
-                      {state.latestSignal.kalmanNext ? fmtMoney(state.latestSignal.kalmanNext, 4) : "disabled"}{" "}
-                      {state.latestSignal.kalmanDirection ? `(${state.latestSignal.kalmanDirection})` : ""}
+                      {(() => {
+                        const sig = state.latestSignal;
+                        const cur = sig.currentPrice;
+                        const next = sig.kalmanNext;
+                        if (typeof next !== "number" || !Number.isFinite(next)) return "disabled";
+                        const ret = sig.kalmanReturn;
+                        const z = sig.kalmanZ;
+                        const ret2 =
+                          typeof ret === "number" && Number.isFinite(ret)
+                            ? ret
+                            : cur !== 0
+                              ? (next - cur) / cur
+                              : null;
+                        const nextTxt = fmtMoney(next, 4);
+                        const retTxt = typeof ret2 === "number" && Number.isFinite(ret2) ? fmtPct(ret2, 3) : "—";
+                        const zTxt = typeof z === "number" && Number.isFinite(z) ? fmtNum(z, 3) : "—";
+                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${sig.kalmanDirection ?? "—"}`;
+                      })()}
                     </div>
                   </div>
                   <div className="kv">
                     <div className="k">LSTM</div>
                     <div className="v">
-                      {state.latestSignal.lstmNext ? fmtMoney(state.latestSignal.lstmNext, 4) : "disabled"}{" "}
-                      {state.latestSignal.lstmDirection ? `(${state.latestSignal.lstmDirection})` : ""}
+                      {(() => {
+                        const sig = state.latestSignal;
+                        const cur = sig.currentPrice;
+                        const next = sig.lstmNext;
+                        if (typeof next !== "number" || !Number.isFinite(next)) return "disabled";
+                        const ret = cur !== 0 ? (next - cur) / cur : null;
+                        const nextTxt = fmtMoney(next, 4);
+                        const retTxt = typeof ret === "number" && Number.isFinite(ret) ? fmtPct(ret, 3) : "—";
+                        return `${nextTxt} (${retTxt}) • ${sig.lstmDirection ?? "—"}`;
+                      })()}
                     </div>
                   </div>
                   <div className="kv">
                     <div className="k">Chosen</div>
                     <div className="v">{state.latestSignal.chosenDirection ?? "NEUTRAL"}</div>
                   </div>
+                  {typeof state.latestSignal.confidence === "number" && Number.isFinite(state.latestSignal.confidence) ? (
+                    <div className="kv">
+                      <div className="k">Confidence / Size</div>
+                      <div className="v">
+                        {fmtPct(state.latestSignal.confidence, 1)}
+                        {typeof state.latestSignal.positionSize === "number" && Number.isFinite(state.latestSignal.positionSize)
+                          ? ` • ${fmtPct(state.latestSignal.positionSize, 1)}`
+                          : ""}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {(() => {
+                    const sig = state.latestSignal;
+                    const std = sig.kalmanStd;
+                    const hasStd = typeof std === "number" && Number.isFinite(std);
+                    const hasDetails = Boolean(sig.regimes || sig.quantiles || sig.conformalInterval || hasStd);
+                    if (!hasDetails) return null;
+                    return (
+                      <details className="details" style={{ marginTop: 12 }}>
+                        <summary>Signal details</summary>
+                        <div style={{ marginTop: 10 }}>
+                          {(() => {
+                            const r = sig.regimes;
+                            if (!r) return null;
+                            const trend = typeof r.trend === "number" && Number.isFinite(r.trend) ? fmtPct(r.trend, 1) : "—";
+                            const mr = typeof r.mr === "number" && Number.isFinite(r.mr) ? fmtPct(r.mr, 1) : "—";
+                            const hv = typeof r.highVol === "number" && Number.isFinite(r.highVol) ? fmtPct(r.highVol, 1) : "—";
+                            return (
+                              <div className="kv">
+                                <div className="k">Regimes</div>
+                                <div className="v">
+                                  trend {trend} • mr {mr} • high vol {hv}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {(() => {
+                            const q = sig.quantiles;
+                            if (!q) return null;
+                            const q10 = typeof q.q10 === "number" && Number.isFinite(q.q10) ? fmtPct(q.q10, 3) : "—";
+                            const q50 = typeof q.q50 === "number" && Number.isFinite(q.q50) ? fmtPct(q.q50, 3) : "—";
+                            const q90 = typeof q.q90 === "number" && Number.isFinite(q.q90) ? fmtPct(q.q90, 3) : "—";
+                            const w = typeof q.width === "number" && Number.isFinite(q.width) ? fmtPct(q.width, 3) : "—";
+                            return (
+                              <div className="kv">
+                                <div className="k">Quantiles</div>
+                                <div className="v">
+                                  q10 {q10} • q50 {q50} • q90 {q90} • width {w}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {(() => {
+                            const i = sig.conformalInterval;
+                            if (!i) return null;
+                            const lo = typeof i.lo === "number" && Number.isFinite(i.lo) ? fmtPct(i.lo, 3) : "—";
+                            const hi = typeof i.hi === "number" && Number.isFinite(i.hi) ? fmtPct(i.hi, 3) : "—";
+                            const w = typeof i.width === "number" && Number.isFinite(i.width) ? fmtPct(i.width, 3) : "—";
+                            return (
+                              <div className="kv">
+                                <div className="k">Conformal</div>
+                                <div className="v">
+                                  lo {lo} • hi {hi} • width {w}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {hasStd ? (
+                            <div className="kv">
+                              <div className="k">Kalman σ</div>
+                              <div className="v">{fmtPct(std, 3)}</div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </details>
+                    );
+                  })()}
                 </>
               ) : (
                 <div className="hint">No signal yet.</div>
@@ -4246,6 +4362,23 @@ export function App() {
                         {state.backtest.tuning.tuneStats
                           ? ` • folds=${state.backtest.tuning.tuneStats.folds} score=${fmtNum(state.backtest.tuning.tuneStats.meanScore, 4)}±${fmtNum(state.backtest.tuning.tuneStats.stdScore, 4)}`
                           : ""}
+                      </div>
+                    </div>
+                  ) : null}
+                  {state.backtest.tuning?.tuneMetrics ? (
+                    <div className="kv">
+                      <div className="k">Tune vs backtest</div>
+                      <div className="v">
+                        {(() => {
+                          const tune = state.backtest?.tuning?.tuneMetrics;
+                          const bt = state.backtest?.metrics;
+                          if (!tune || !bt) return "—";
+                          const tuneEq = tune.finalEquity;
+                          const btEq = bt.finalEquity;
+                          const gap = tuneEq > 0 ? btEq / tuneEq - 1 : null;
+                          const gapTxt = gap != null && Number.isFinite(gap) ? ` • gap ${fmtPct(gap, 2)}` : "";
+                          return `tune ${fmtRatio(tuneEq, 4)} (${fmtPct(tune.totalReturn, 2)}) • holdout ${fmtRatio(btEq, 4)} (${fmtPct(bt.totalReturn, 2)})${gapTxt}`;
+                        })()}
                       </div>
                     </div>
                   ) : null}

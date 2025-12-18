@@ -362,6 +362,7 @@ data BacktestSummary = BacktestSummary
   , bsMinRoundTrips :: !Int
   , bsWalkForwardFolds :: !Int
   , bsTuneStats :: !(Maybe TuneStats)
+  , bsTuneMetrics :: !(Maybe BacktestMetrics)
   , bsBacktestSize :: !Int
   , bsBacktestRatio :: !Double
   , bsMethodUsed :: !Method
@@ -5931,6 +5932,10 @@ backtestSummaryJson summary =
                   , "stdScore" .= tsStdScore st
                   ]
               )
+      tuneMetricsJson =
+        case bsTuneMetrics summary of
+          Nothing -> Nothing
+          Just m -> Just (metricsToJson m)
       tuningJson =
         object
           [ "objective" .= tuneObjectiveCode (bsTuneObjective summary)
@@ -5939,6 +5944,7 @@ backtestSummaryJson summary =
           , "minRoundTrips" .= bsMinRoundTrips summary
           , "walkForwardFolds" .= bsWalkForwardFolds summary
           , "tuneStats" .= tuneStatsJson
+          , "tuneMetrics" .= tuneMetricsJson
           ]
       costsJson =
         object
@@ -6620,18 +6626,18 @@ computeBacktestSummary args lookback series = do
           , tcMinRoundTrips = argMinRoundTrips args
           }
 
-      (methodUsed, bestOpenThr, bestCloseThr, mTuneStats) =
+      (methodUsed, bestOpenThr, bestCloseThr, mTuneStats, mTuneMetrics) =
         if argOptimizeOperations args
           then
             case optimizeOperationsWithHLWith tuneCfg baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
               Left e -> error e
-              Right (m, openThr, closeThr, _btTune, stats) -> (m, openThr, closeThr, Just stats)
+              Right (m, openThr, closeThr, btTune, stats) -> (m, openThr, closeThr, Just stats, Just (computeMetrics ppy btTune))
           else if argSweepThreshold args
             then
               case sweepThresholdWithHLWith tuneCfg methodRequested baseCfg tunePrices tuneHighs tuneLows kalPredTune lstmPredTune metaTune of
                 Left e -> error e
-                Right (openThr, closeThr, _btTune, stats) -> (methodRequested, openThr, closeThr, Just stats)
-            else (methodRequested, argOpenThreshold args, argCloseThreshold args, Nothing)
+                Right (openThr, closeThr, btTune, stats) -> (methodRequested, openThr, closeThr, Just stats, Just (computeMetrics ppy btTune))
+            else (methodRequested, argOpenThreshold args, argCloseThreshold args, Nothing, Nothing)
 
       backtestCfg = baseCfg { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
       (kalPredUsedBacktest, lstmPredUsedBacktest) = selectPredictions methodUsed kalPredBacktest lstmPredBacktest
@@ -6751,6 +6757,7 @@ computeBacktestSummary args lookback series = do
       , bsMinRoundTrips = argMinRoundTrips args
       , bsWalkForwardFolds = argWalkForwardFolds args
       , bsTuneStats = mTuneStats
+      , bsTuneMetrics = mTuneMetrics
       , bsBacktestSize = length backtestPrices
       , bsBacktestRatio = backtestRatio
       , bsMethodUsed = methodUsed

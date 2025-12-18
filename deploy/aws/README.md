@@ -136,6 +136,28 @@ TRADER_API_TARGET="https://<your-api-host>" npm run build
 
 Then upload `haskell/web/dist` to your static hosting origin (S3/CloudFront).
 
+### UI deploy helper (S3 + optional CloudFront invalidation)
+
+If you already have an S3 bucket (and optionally a CloudFront distribution), you can deploy the UI and write `trader-config.js` in one step:
+
+```bash
+AWS_REGION=ap-northeast-1
+S3_BUCKET="trader-ui-..."
+APP_RUNNER_SERVICE_ARN="arn:aws:apprunner:..."
+CLOUDFRONT_DISTRIBUTION_ID="E123..."
+
+bash deploy/aws/deploy-ui.sh \
+  --region "$AWS_REGION" \
+  --bucket "$S3_BUCKET" \
+  --service-arn "$APP_RUNNER_SERVICE_ARN" \
+  --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID"
+```
+
+The script:
+- Builds `haskell/web`
+- Writes `haskell/web/dist/trader-config.js` (apiBaseUrl + apiToken)
+- Syncs `dist/` to S3 and (optionally) invalidates CloudFront
+
 ### What’s the “API host”?
 
 It’s the public base URL where your backend is reachable (the service running `trader-hs -- --serve`), for example:

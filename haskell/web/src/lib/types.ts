@@ -211,6 +211,7 @@ export type BacktestResponse = {
     minRoundTrips?: number;
     walkForwardFolds: number;
     tuneStats?: { folds: number; scores: number[]; meanScore: number; stdScore: number } | null;
+    tuneMetrics?: BacktestMetrics | null;
   };
   costs?: {
     fee: number;
