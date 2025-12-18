@@ -24,7 +24,7 @@ import Trader.KalmanFusion (Kalman1(..), initKalman1, updateMulti)
 import Trader.Kalman3 (Vec3(..), Kalman3(..), constantAcceleration1D, step, forecastNextConstantAcceleration1D, runConstantAcceleration1D, KalmanRun(..))
 import Trader.LSTM (LSTMConfig(..), LSTMModel(..), trainLSTM, buildSequences, evaluateLoss)
 import Trader.Method (Method(..), parseMethod, selectPredictions)
-import Trader.Metrics (computeMetrics, bmMaxDrawdown, bmTotalReturn)
+import Trader.Metrics (computeMetrics, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn)
 import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
 import Trader.Predictors
   ( SensorId(..)
@@ -36,7 +36,7 @@ import Trader.Predictors
   , initHMMFilter
   , predictSensors
   )
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), simulateEnsembleLongFlat)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), ExitReason(..), IntrabarFill(..), Positioning(..), Trade(..), simulateEnsemble)
 import Trader.Split (Split(..), splitTrainBacktest)
 
 main :: IO ()
@@ -51,8 +51,12 @@ main = do
     , run "forward return sign" testForwardReturnSign
     , run "lstm training improves loss" testLstmImprovesLoss
     , run "ensemble agreement gate" testAgreementGate
+    , run "min-hold blocks exit" testMinHoldBars
+    , run "cooldown blocks re-entry" testCooldownBars
     , run "long-short down move" testLongShortDownMove
+    , run "liquidation clamps equity" testLiquidationClamp
     , run "metrics max drawdown" testMetricsMaxDrawdown
+    , run "metrics profit factor pnl" testMetricsProfitFactorPnL
     , run "binance signature length" testBinanceSignatureLength
     , run "binance kline json parsing" testBinanceKlineParsing
     , run "method parsing" testMethodParsing
@@ -210,6 +214,11 @@ testAgreementGate = do
           , ecStopLoss = Nothing
           , ecTakeProfit = Nothing
           , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -222,8 +231,78 @@ testAgreementGate = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      res = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred Nothing
+      res = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
   assert "expected two position changes (enter + exit)" (brPositionChanges res == 2)
+
+testMinHoldBars :: IO ()
+testMinHoldBars = do
+  let prices = replicate 5 100
+      lookback = 1
+      preds = [101, 99, 99, 99] -- enter, then exit signals
+      cfg =
+        EnsembleConfig
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecMinHoldBars = 2
+          , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
+          , ecPositioning = LongFlat
+          , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
+          }
+      bt = simulateEnsemble cfg lookback prices preds preds Nothing
+  assert "min-hold keeps position through bar 2" (brPositions bt == [1, 1, 0, 0])
+
+testCooldownBars :: IO ()
+testCooldownBars = do
+  let prices = replicate 5 100
+      lookback = 1
+      preds = [101, 99, 101, 101] -- enter, exit, re-enter attempts
+      cfg =
+        EnsembleConfig
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 1
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
+          , ecPositioning = LongFlat
+          , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
+          }
+      bt = simulateEnsemble cfg lookback prices preds preds Nothing
+  assert "cooldown blocks entry for 1 bar after exit" (brPositions bt == [1, 0, 0, 1])
 
 testLongShortDownMove :: IO ()
 testLongShortDownMove = do
@@ -241,6 +320,11 @@ testLongShortDownMove = do
           , ecStopLoss = Nothing
           , ecTakeProfit = Nothing
           , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -253,12 +337,52 @@ testLongShortDownMove = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      btFlat = simulateEnsembleLongFlat baseCfg lookback prices kalPred lstmPred Nothing
-      btShort = simulateEnsembleLongFlat (baseCfg { ecPositioning = LongShort }) lookback prices kalPred lstmPred Nothing
+      btFlat = simulateEnsemble baseCfg lookback prices kalPred lstmPred Nothing
+      btShort = simulateEnsemble (baseCfg { ecPositioning = LongShort }) lookback prices kalPred lstmPred Nothing
 
   assertApprox "flat final equity" 1e-12 (last (brEquityCurve btFlat)) 1.0
   assertApprox "short final equity" 1e-12 (last (brEquityCurve btShort)) 1.1
   assert "short position opened" (brPositions btShort == [-1])
+
+testLiquidationClamp :: IO ()
+testLiquidationClamp = do
+  let prices = [100, 250]
+      lookback = 1
+      kalPred = [50]
+      lstmPred = [50]
+      cfg =
+        EnsembleConfig
+          { ecOpenThreshold = 0.0
+          , ecCloseThreshold = 0.0
+          , ecFee = 0.0
+          , ecSlippage = 0.0
+          , ecSpread = 0.0
+          , ecStopLoss = Nothing
+          , ecTakeProfit = Nothing
+          , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
+          , ecPositioning = LongShort
+          , ecIntrabarFill = StopFirst
+          , ecKalmanZMin = 0
+          , ecKalmanZMax = 3
+          , ecMaxHighVolProb = Nothing
+          , ecMaxConformalWidth = Nothing
+          , ecMaxQuantileWidth = Nothing
+          , ecConfirmConformal = False
+          , ecConfirmQuantiles = False
+          , ecConfidenceSizing = False
+          , ecMinPositionSize = 0
+          }
+      bt = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
+      finalEq = last (brEquityCurve bt)
+      trades = brTrades bt
+  assertApprox "equity clamped at 0" 1e-12 finalEq 0.0
+  assert "positions cleared after liquidation" (brPositions bt == [-1])
+  assert "liquidation trade recorded" (case trades of { [t] -> trExitReason t == Just ExitLiquidation; _ -> False })
 
 testMetricsMaxDrawdown :: IO ()
 testMetricsMaxDrawdown = do
@@ -273,6 +397,42 @@ testMetricsMaxDrawdown = do
       m = computeMetrics 365 br
   assertApprox "total return" 1e-12 (bmTotalReturn m) 0.0
   assertApprox "max drawdown" 1e-6 (bmMaxDrawdown m) (0.1 / 1.1)
+
+testMetricsProfitFactorPnL :: IO ()
+testMetricsProfitFactorPnL = do
+  let tr1 =
+        Trade
+          { trEntryIndex = 0
+          , trExitIndex = 1
+          , trEntryEquity = 1.0
+          , trExitEquity = 2.0
+          , trReturn = 1.0
+          , trHoldingPeriods = 1
+          , trExitReason = Just ExitSignal
+          }
+      tr2 =
+        Trade
+          { trEntryIndex = 1
+          , trExitIndex = 2
+          , trEntryEquity = 2.0
+          , trExitEquity = 1.0
+          , trReturn = -0.5
+          , trHoldingPeriods = 1
+          , trExitReason = Just ExitSignal
+          }
+      br =
+        BacktestResult
+          { brEquityCurve = [1.0, 2.0, 1.0]
+          , brPositions = [1.0, 0.0]
+          , brAgreementOk = [True, True]
+          , brPositionChanges = 2
+          , brTrades = [tr1, tr2]
+          }
+      m = computeMetrics 365 br
+
+  assertApprox "gross profit (PnL)" 1e-12 (bmGrossProfit m) 1.0
+  assertApprox "gross loss (PnL)" 1e-12 (bmGrossLoss m) 1.0
+  assertApprox "profit factor" 1e-12 (maybe 0 id (bmProfitFactor m)) 1.0
 
 testBinanceSignatureLength :: IO ()
 testBinanceSignatureLength = do
@@ -350,6 +510,11 @@ testSweepThreshold = do
           , ecStopLoss = Nothing
           , ecTakeProfit = Nothing
           , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -362,7 +527,10 @@ testSweepThreshold = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      (openThr, closeThr, bt) = sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred Nothing
+  (openThr, closeThr, bt) <-
+    case sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred Nothing of
+      Left e -> error e
+      Right v -> pure v
   assert "open thr close to 10%" (openThr > 0.099999 && openThr < 0.1)
   assert "close thr close to 10%" (closeThr > 0.099999 && closeThr < 0.1)
   assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1
@@ -382,6 +550,11 @@ testOptimizeOperations = do
           , ecStopLoss = Nothing
           , ecTakeProfit = Nothing
           , ecTrailingStop = Nothing
+          , ecMinHoldBars = 0
+          , ecCooldownBars = 0
+          , ecMaxDrawdown = Nothing
+          , ecMaxDailyLoss = Nothing
+          , ecIntervalSeconds = Nothing
           , ecPositioning = LongFlat
           , ecIntrabarFill = StopFirst
           , ecKalmanZMin = 0
@@ -394,7 +567,10 @@ testOptimizeOperations = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      (m, openThr, closeThr, bt) = optimizeOperations cfg prices kalPred lstmPred Nothing
+  (m, openThr, closeThr, bt) <-
+    case optimizeOperations cfg prices kalPred lstmPred Nothing of
+      Left e -> error e
+      Right v -> pure v
   assert "picked kalman-only" (m == MethodKalmanOnly)
   assert "open thr close to 10%" (openThr > 0.099999 && openThr < 0.1)
   assert "close thr close to 10%" (closeThr > 0.099999 && closeThr < 0.1)

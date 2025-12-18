@@ -9,7 +9,7 @@ import random
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -103,6 +103,54 @@ def maybe(rng: random.Random, p_none: float, sampler) -> Optional[Any]:
     return sampler()
 
 
+def metric_float(metrics: Optional[Dict[str, Any]], key: str, default: float = 0.0) -> float:
+    if not metrics:
+        return default
+    v = metrics.get(key)
+    if isinstance(v, (int, float)) and math.isfinite(float(v)):
+        return float(v)
+    return default
+
+
+def metric_int(metrics: Optional[Dict[str, Any]], key: str, default: int = 0) -> int:
+    if not metrics:
+        return default
+    v = metrics.get(key)
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, int):
+        return int(v)
+    if isinstance(v, float) and math.isfinite(v):
+        return int(v)
+    return default
+
+
+def objective_score(
+    metrics: Dict[str, Any],
+    objective: str,
+    penalty_max_drawdown: float,
+    penalty_turnover: float,
+) -> float:
+    final_eq = metric_float(metrics, "finalEquity", 0.0)
+    max_dd = metric_float(metrics, "maxDrawdown", 0.0)
+    sharpe = metric_float(metrics, "sharpe", 0.0)
+    ann_ret = metric_float(metrics, "annualizedReturn", 0.0)
+    turnover = metric_float(metrics, "turnover", 0.0)
+
+    obj = str(objective).strip().lower()
+    if obj in ("final-equity", "final_equity", "finalequity"):
+        return final_eq
+    if obj == "sharpe":
+        return sharpe
+    if obj == "calmar":
+        return ann_ret / max(1e-12, max_dd)
+    if obj in ("equity-dd", "equity_maxdd", "equity-dd-only"):
+        return final_eq - float(penalty_max_drawdown) * max_dd
+    if obj in ("equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"):
+        return final_eq - float(penalty_max_drawdown) * max_dd - float(penalty_turnover) * turnover
+    raise ValueError(f"unknown objective: {objective!r}")
+
+
 @dataclass(frozen=True)
 class TrialParams:
     interval: str
@@ -153,6 +201,10 @@ class TrialResult:
     open_threshold: Optional[float]
     close_threshold: Optional[float]
     stdout_json: Optional[Dict[str, Any]]
+    eligible: bool = False
+    filter_reason: Optional[str] = None
+    objective: str = "final-equity"
+    score: Optional[float] = None
 
 
 def discover_trader_bin(haskell_dir: Path) -> Path:
@@ -181,7 +233,11 @@ def build_command(
     cmd = [str(trader_bin)]
     cmd += base_args
     cmd += ["--interval", params.interval]
-    cmd += ["--bars", str(params.bars)]
+    is_binance = "--binance-symbol" in base_args
+    if params.bars <= 0:
+        cmd += ["--bars", "auto" if is_binance else "0"]
+    else:
+        cmd += ["--bars", str(params.bars)]
     cmd += ["--positioning", params.positioning]
     cmd += ["--method", params.method]
     cmd += ["--normalization", params.normalization]
@@ -355,6 +411,10 @@ def fmt_opt_int(v: Optional[int]) -> str:
 def trial_to_record(tr: TrialResult) -> Dict[str, Any]:
     r: Dict[str, Any] = {
         "ok": tr.ok,
+        "eligible": tr.eligible,
+        "objective": tr.objective,
+        "score": tr.score,
+        "filterReason": tr.filter_reason,
         "reason": tr.reason,
         "elapsedSec": tr.elapsed_sec,
         "finalEquity": tr.final_equity,
@@ -422,6 +482,7 @@ def pick_intervals(
 def sample_params(
     rng: random.Random,
     intervals: List[str],
+    p_auto_bars: float,
     bars_min: int,
     bars_max: int,
     open_threshold_min: float,
@@ -485,7 +546,7 @@ def sample_params(
 
     def sample_bars() -> int:
         # 0 means auto/all; otherwise explicit number within the configured range.
-        if rng.random() < 0.25:
+        if rng.random() < clamp(p_auto_bars, 0.0, 1.0):
             return 0
         return rng.randint(bars_min, bars_max)
 
@@ -619,6 +680,18 @@ def main(argv: List[str]) -> int:
     src.add_argument("--data", type=str, help="CSV path for backtest (recommended for optimization).")
     src.add_argument("--binance-symbol", type=str, help="Binance symbol (requires network; slower).")
     parser.add_argument("--price-column", type=str, default="close", help="CSV column name for price (default: close).")
+    parser.add_argument(
+        "--high-column",
+        type=str,
+        default="",
+        help="CSV column name for high (optional; requires --low-column; enables intrabar stops/TP/trailing).",
+    )
+    parser.add_argument(
+        "--low-column",
+        type=str,
+        default="",
+        help="CSV column name for low (optional; requires --high-column; enables intrabar stops/TP/trailing).",
+    )
     parser.add_argument("--lookback-window", type=str, default="24h", help="Lookback window (default: 24h).")
     parser.add_argument("--backtest-ratio", type=float, default=0.2, help="Backtest holdout ratio (default: 0.2).")
     parser.add_argument("--tune-ratio", type=float, default=0.2, help="Tune ratio for --sweep-threshold (default: 0.2).")
@@ -626,12 +699,45 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--seed", type=int, default=42, help="RNG seed (default: 42).")
     parser.add_argument("--timeout-sec", type=float, default=60.0, help="Per-trial timeout in seconds (default: 60).")
     parser.add_argument("--output", type=str, default="", help="Write JSONL trial records to this path.")
+    parser.add_argument("--append", action="store_true", help="Append to --output instead of overwriting it.")
     parser.add_argument("--binary", type=str, default="", help="Path to trader-hs binary (auto-discovered via cabal if omitted).")
     parser.add_argument("--no-sweep-threshold", action="store_true", help="Disable internal threshold sweep (not recommended).")
     parser.add_argument("--disable-lstm-persistence", action="store_true", help="Disable LSTM weight caching (more reproducible).")
     parser.add_argument("--top-json", type=str, default="", help="Write the top-performing combos (JSON) for the UI chart.")
+    parser.add_argument(
+        "--objective",
+        type=str,
+        default="final-equity",
+        choices=["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"],
+        help="Optimization objective used to select the best params/top-json (default: final-equity).",
+    )
+    parser.add_argument(
+        "--penalty-max-drawdown",
+        type=float,
+        default=1.0,
+        help="Penalty weight for maxDrawdown (used by equity-dd* objectives; default: 1.0).",
+    )
+    parser.add_argument(
+        "--penalty-turnover",
+        type=float,
+        default=0.0,
+        help="Penalty weight for turnover (used by equity-dd-turnover; default: 0.0).",
+    )
+    parser.add_argument(
+        "--min-round-trips",
+        type=int,
+        default=0,
+        help="Skip candidates with fewer than this many roundTrips (default: 0).",
+    )
 
-    parser.add_argument("--intervals", type=str, default=",".join(BINANCE_INTERVALS), help="Comma-separated intervals to sample.")
+    interval_group = parser.add_mutually_exclusive_group()
+    interval_group.add_argument("--interval", type=str, default="", help="Single interval to sample (alias for --intervals).")
+    interval_group.add_argument(
+        "--intervals",
+        type=str,
+        default=",".join(BINANCE_INTERVALS),
+        help="Comma-separated intervals to sample.",
+    )
     parser.add_argument("--bars-min", type=int, default=0, help="Min bars when sampling explicit bars (default: 0=auto).")
     parser.add_argument("--bars-max", type=int, default=0, help="Max bars when sampling explicit bars (default: 0=auto-detect for CSV).")
     parser.add_argument("--epochs-min", type=int, default=0, help="Min epochs (default: 0).")
@@ -780,7 +886,10 @@ def main(argv: List[str]) -> int:
 
     trader_bin = Path(args.binary).expanduser() if args.binary else discover_trader_bin(haskell_dir)
 
-    intervals_in = [s.strip() for s in str(args.intervals).split(",") if s.strip()]
+    if str(args.interval).strip():
+        intervals_in = [str(args.interval).strip()]
+    else:
+        intervals_in = [s.strip() for s in str(args.intervals).split(",") if s.strip()]
     if not intervals_in:
         print("No intervals provided.", file=sys.stderr)
         return 2
@@ -804,15 +913,46 @@ def main(argv: List[str]) -> int:
         )
         return 2
 
+    use_sweep_threshold = not bool(args.no_sweep_threshold)
+
     bars_max = int(args.bars_max)
     if bars_max <= 0:
         bars_max = max_bars_cap
     bars_min = int(args.bars_min)
     if bars_min <= 0:
-        # Ensure we can at least run splitTrainBacktest for the worst-case feasible interval.
+        # Ensure we can at least run:
+        # - splitTrainBacktest (needs lookback+3 prices)
+        # - the fit/tune split when --sweep-threshold is enabled.
         # (Still allow bars=0 = auto/all, handled separately.)
         worst_lb = max(lookback_bars(itv, args.lookback_window) for itv in intervals)
-        bars_min = min(bars_max, max(10, worst_lb + 5))
+        min_required = worst_lb + 3
+        if use_sweep_threshold:
+            br = float(args.backtest_ratio)
+            tr = float(args.tune_ratio)
+            if not (0.0 < br < 1.0):
+                print("--backtest-ratio must be between 0 and 1.", file=sys.stderr)
+                return 2
+            if not (0.0 < tr < 1.0):
+                print("--tune-ratio must be between 0 and 1 when sweep-threshold is enabled.", file=sys.stderr)
+                return 2
+
+            denom = max(1e-12, (1.0 - br) * (1.0 - tr))
+            min_required = max(min_required, int(math.ceil((worst_lb + 1) / denom)) + 2)
+
+            min_train = int(math.ceil(2.0 / tr))
+            min_required = max(min_required, int(math.ceil(min_train / max(1e-12, (1.0 - br)))) + 2)
+
+            auto_bars = 500 if args.binance_symbol else max_bars_cap
+            if min_required > max(bars_max, auto_bars):
+                print(
+                    f"Not enough bars for lookback={worst_lb} with backtest-ratio={br} and tune-ratio={tr}. "
+                    f"Need bars >= {min_required}. Increase --bars-max, reduce --tune-ratio/--backtest-ratio, "
+                    "reduce --lookback-window, or pass --no-sweep-threshold.",
+                    file=sys.stderr,
+                )
+                return 2
+
+        bars_min = min(bars_max, max(10, min_required))
     bars_min = max(2, min(bars_min, bars_max))
 
     epochs_min = max(0, int(args.epochs_min))
@@ -885,6 +1025,13 @@ def main(argv: List[str]) -> int:
         data_path = Path(args.data).expanduser().resolve()
         base_args += ["--data", str(data_path)]
         base_args += ["--price-column", args.price_column]
+        high_col = (args.high_column or "").strip()
+        low_col = (args.low_column or "").strip()
+        if bool(high_col) != bool(low_col):
+            print("When using --high-column/--low-column, you must provide both.", file=sys.stderr)
+            return 2
+        if high_col and low_col:
+            base_args += ["--high-column", high_col, "--low-column", low_col]
     else:
         base_args += ["--binance-symbol", args.binance_symbol]
 
@@ -894,16 +1041,16 @@ def main(argv: List[str]) -> int:
     base_args += ["--seed", str(int(args.seed))]
 
     rng = random.Random(int(args.seed))
+    data_source = "csv" if args.data else "binance"
 
     out_path = Path(args.output).expanduser() if args.output else None
     out_fh = None
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_fh = out_path.open("w", encoding="utf-8")
+        out_fh = out_path.open("a" if bool(args.append) else "w", encoding="utf-8")
 
     best: Optional[TrialResult] = None
 
-    use_sweep_threshold = not bool(args.no_sweep_threshold)
     disable_lstm_persistence = bool(args.disable_lstm_persistence)
 
     trials = int(args.trials)
@@ -912,6 +1059,7 @@ def main(argv: List[str]) -> int:
         params = sample_params(
             rng=rng,
             intervals=intervals,
+            p_auto_bars=0.25,
             bars_min=bars_min,
             bars_max=bars_max,
             open_threshold_min=open_threshold_min,
@@ -982,26 +1130,48 @@ def main(argv: List[str]) -> int:
             disable_lstm_persistence=disable_lstm_persistence,
         )
 
+        objective = str(args.objective)
+        eligible = tr.ok and tr.final_equity is not None and tr.metrics is not None
+        filter_reason: Optional[str] = None
+        score: Optional[float] = None
+        if eligible:
+            min_round_trips = max(0, int(args.min_round_trips))
+            rts = metric_int(tr.metrics, "roundTrips", 0)
+            if min_round_trips > 0 and rts < min_round_trips:
+                eligible = False
+                filter_reason = f"roundTrips<{min_round_trips}"
+            else:
+                score = objective_score(
+                    tr.metrics or {},
+                    objective=objective,
+                    penalty_max_drawdown=float(args.penalty_max_drawdown),
+                    penalty_turnover=float(args.penalty_turnover),
+                )
+        tr = replace(tr, eligible=eligible, filter_reason=filter_reason, objective=objective, score=score)
+
         if out_fh is not None:
-            out_fh.write(json.dumps(trial_to_record(tr), sort_keys=True) + "\n")
+            rec = trial_to_record(tr)
+            rec["source"] = data_source
+            out_fh.write(json.dumps(rec, sort_keys=True) + "\n")
             out_fh.flush()
 
         records.append(tr)
 
-        if tr.ok and tr.final_equity is not None:
-            if best is None or tr.final_equity > (best.final_equity or -1e18):
+        if tr.eligible and tr.score is not None:
+            if best is None or tr.score > (best.score if best.score is not None else -1e18):
                 best = tr
 
-        status = "OK" if tr.ok else "FAIL"
+        status = "OK" if tr.eligible else "SKIP" if tr.ok else "FAIL"
         eq = f"{tr.final_equity:.6f}x" if tr.final_equity is not None else "-"
+        scoreLabel = f"{tr.score:.6f}" if tr.score is not None else "-"
         print(
-            f"[{i:>4}/{trials}] {status} eq={eq} t={tr.elapsed_sec:.2f}s "
+            f"[{i:>4}/{trials}] {status} score={scoreLabel} eq={eq} t={tr.elapsed_sec:.2f}s "
             f"interval={params.interval} bars={params.bars} method={params.method} "
             f"norm={params.normalization} epochs={params.epochs} "
             f"slip={params.slippage:.6f} spr={params.spread:.6f} "
             f"sl={fmt_opt_float(params.stop_loss)} tp={fmt_opt_float(params.take_profit)} trail={fmt_opt_float(params.trailing_stop)} "
             f"maxDD={fmt_opt_float(params.max_drawdown)} maxDL={fmt_opt_float(params.max_daily_loss)} maxOE={fmt_opt_int(params.max_order_errors)}"
-            + (f" ({tr.reason})" if tr.reason else ""),
+            + (f" (filter: {tr.filter_reason})" if tr.filter_reason else (f" ({tr.reason})" if tr.reason else "")),
             flush=True,
         )
 
@@ -1009,12 +1179,17 @@ def main(argv: List[str]) -> int:
         out_fh.close()
 
     if best is None:
-        print("No successful trials.", file=sys.stderr)
+        msg = "No eligible trials."
+        if int(args.min_round_trips) > 0:
+            msg += " (Try lowering --min-round-trips.)"
+        print(msg, file=sys.stderr)
         return 1
 
     b = best
     assert b.final_equity is not None
     print("\nBest:")
+    if b.score is not None:
+        print(f"  objective:   {b.objective} (score={b.score:.8f})")
     print(f"  finalEquity: {b.final_equity:.8f}x")
     print(f"  interval:    {b.params.interval}")
     print(f"  bars:        {b.params.bars}")
@@ -1063,18 +1238,30 @@ def main(argv: List[str]) -> int:
     )
     print("  " + env_prefix + " ".join(cmd))
     if args.top_json:
-        successful = [tr for tr in records if tr.ok and tr.final_equity is not None]
-        successful_sorted = sorted(successful, key=lambda tr: tr.final_equity or 0, reverse=True)
+        successful = [tr for tr in records if tr.eligible and tr.final_equity is not None and tr.score is not None]
+        successful_sorted = sorted(successful, key=lambda tr: tr.score or 0, reverse=True)
         source = "binance" if args.binance_symbol else "csv"
         combos = []
         for rank, tr in enumerate(successful_sorted[:10], start=1):
+            sharpe = metric_float(tr.metrics, "sharpe", 0.0)
+            max_dd = metric_float(tr.metrics, "maxDrawdown", 0.0)
+            turnover = metric_float(tr.metrics, "turnover", 0.0)
+            round_trips = metric_int(tr.metrics, "roundTrips", 0)
             combos.append(
                 {
                     "rank": rank,
                     "finalEquity": tr.final_equity,
+                    "objective": tr.objective,
+                    "score": tr.score,
                     "openThreshold": tr.open_threshold,
                     "closeThreshold": tr.close_threshold,
                     "source": source,
+                    "metrics": {
+                        "sharpe": sharpe,
+                        "maxDrawdown": max_dd,
+                        "turnover": turnover,
+                        "roundTrips": round_trips,
+                    },
                     "params": {
                         "interval": tr.params.interval,
                         "bars": tr.params.bars,

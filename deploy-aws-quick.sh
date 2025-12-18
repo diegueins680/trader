@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Quick AWS deployment script for Trader
-# Usage: bash deploy-aws-quick.sh [region] [api-token]
-# Example: bash deploy-aws-quick.sh ap-northeast-1 $(openssl rand -hex 32)
+# Usage:
+#   bash deploy-aws-quick.sh [region] [api-token]
+#   TRADER_API_TOKEN=... bash deploy-aws-quick.sh [region]
+#
+# Notes:
+#   - If region is omitted, uses AWS_REGION/AWS_DEFAULT_REGION/aws-cli config, then ap-northeast-1.
+#   - If api-token is omitted, uses env TRADER_API_TOKEN (or reuses an existing App Runner token).
 
 set -euo pipefail
 
@@ -12,13 +17,30 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-AWS_REGION="${1:-ap-northeast-1}"
-TRADER_API_TOKEN="${2:-}"
+AWS_REGION="${1:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
+TRADER_API_TOKEN="${2:-${TRADER_API_TOKEN:-}}"
 ECR_REPO="trader-api"
 APP_RUNNER_SERVICE_NAME="${APP_RUNNER_SERVICE_NAME:-$ECR_REPO}"
 APP_RUNNER_ECR_ACCESS_ROLE_NAME="${APP_RUNNER_ECR_ACCESS_ROLE_NAME:-AppRunnerECRAccessRole}"
 
 echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
+
+ECR_URI=""
+APP_RUNNER_SERVICE_URL=""
+
+mask_token() {
+  local tok="${1:-}"
+  if [[ -z "$tok" ]]; then
+    echo "(not set)"
+    return 0
+  fi
+  local n=${#tok}
+  if [[ $n -le 12 ]]; then
+    echo "${tok:0:2}…${tok:n-2:2}"
+    return 0
+  fi
+  echo "${tok:0:6}…${tok:n-4:4}"
+}
 
 # Check prerequisites
 check_prerequisites() {
@@ -30,15 +52,33 @@ check_prerequisites() {
     exit 1
   fi
   echo -e "${GREEN}✓ AWS CLI found${NC}"
+
+  # Resolve region early so AWS CLI commands that require a region (including STS) work.
+  if [[ -z "${AWS_REGION:-}" ]]; then
+    AWS_REGION="$(aws configure get region 2>/dev/null || true)"
+  fi
+  AWS_REGION="${AWS_REGION:-ap-northeast-1}"
+  if [[ "$AWS_REGION" =~ [a-z]$ ]]; then
+    echo -e "${RED}✗ AWS_REGION '$AWS_REGION' looks like an Availability Zone (e.g. ap-northeast-1a). Use a region like ap-northeast-1.${NC}" >&2
+    exit 1
+  fi
   
   if ! command -v docker >/dev/null 2>&1; then
     echo -e "${RED}✗ Docker not found${NC}"
     exit 1
   fi
   echo -e "${GREEN}✓ Docker found${NC}"
+
+  # Check Docker daemon connectivity early (otherwise docker build/push errors are confusing).
+  if ! docker ps >/dev/null 2>&1; then
+    echo -e "${RED}✗ Docker daemon not reachable${NC}"
+    echo "Start Docker Desktop (or ensure dockerd is running) and retry."
+    exit 1
+  fi
+  echo -e "${GREEN}✓ Docker daemon reachable${NC}"
   
   # Check AWS credentials
-  if ! aws sts get-caller-identity >/dev/null 2>&1; then
+  if ! aws sts get-caller-identity --region "$AWS_REGION" >/dev/null 2>&1; then
     echo -e "${RED}✗ AWS credentials not configured${NC}"
     echo "Run: aws configure"
     exit 1
@@ -49,6 +89,40 @@ check_prerequisites() {
 # Get AWS account ID
 get_account_id() {
   aws sts get-caller-identity --query Account --output text
+}
+
+wait_for_apprunner_running() {
+  local service_arn="$1"
+  local max_attempts="${2:-90}"
+  local attempt=0
+  local status=""
+
+  while [[ $attempt -lt $max_attempts ]]; do
+    status="$(
+      aws apprunner describe-service \
+        --service-arn "$service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.Status' \
+        --output text 2>/dev/null || echo ""
+    )"
+
+    if [[ "$status" == "RUNNING" ]]; then
+      echo -e "${GREEN}✓ Service is RUNNING${NC}" >&2
+      return 0
+    fi
+    if [[ "$status" == "CREATE_FAILED" || "$status" == "DELETE_FAILED" ]]; then
+      echo -e "${RED}✗ Service status: ${status}${NC}" >&2
+      echo "Check App Runner events/logs in the AWS Console for details." >&2
+      return 1
+    fi
+
+    echo -n "." >&2
+    sleep 5
+    attempt=$((attempt + 1))
+  done
+  echo "" >&2
+  echo "Timed out waiting for App Runner service to be RUNNING." >&2
+  return 1
 }
 
 # Create ECR repository
@@ -69,7 +143,7 @@ create_ecr_repo() {
     echo -e "${GREEN}✓ ECR repository created${NC}" >&2
   fi
   
-  echo "$ecr_uri"
+  ECR_URI="$ecr_uri"
 }
 
 # Build and push Docker image
@@ -82,7 +156,7 @@ build_and_push() {
   
   echo "Logging in to ECR..."
   aws ecr get-login-password --region "$AWS_REGION" \
-    | docker login --username AWS --password-stdin "${ecr_uri%/*}" >/dev/null 2>&1
+    | docker login --username AWS --password-stdin "${ecr_uri%/*}" >/dev/null
   echo -e "${GREEN}✓ Logged in to ECR${NC}"
   
   echo "Tagging and pushing image..."
@@ -109,6 +183,24 @@ create_app_runner() {
   )"
   if [[ "$existing_service_arn" == "None" ]]; then
     existing_service_arn=""
+  fi
+
+  if [[ -z "$TRADER_API_TOKEN" && -n "$existing_service_arn" ]]; then
+    local existing_token=""
+    existing_token="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_API_TOKEN' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_token" == "None" ]]; then
+      existing_token=""
+    fi
+    if [[ -n "$existing_token" ]]; then
+      TRADER_API_TOKEN="$existing_token"
+      echo -e "${YELLOW}✓ Reusing existing TRADER_API_TOKEN from service${NC}" >&2
+    fi
   fi
 
   echo "Ensuring App Runner ECR access role..." >&2
@@ -147,6 +239,9 @@ EOF
     echo -e "${YELLOW}✓ App Runner service already exists (${APP_RUNNER_SERVICE_NAME})${NC}" >&2
     service_arn="$existing_service_arn"
 
+    echo "Waiting for any in-progress operation to finish..." >&2
+    wait_for_apprunner_running "$service_arn" >/dev/null
+
     echo "Updating service configuration..." >&2
     aws apprunner update-service \
       --region "$AWS_REGION" \
@@ -156,8 +251,8 @@ EOF
       --health-check-configuration "$health_cfg" \
       >/dev/null
 
-    echo "Starting a new deployment..." >&2
-    aws apprunner start-deployment --region "$AWS_REGION" --service-arn "$service_arn" >/dev/null || true
+    echo "Waiting for update deployment to complete..." >&2
+    wait_for_apprunner_running "$service_arn" >/dev/null
   else
     echo "Creating service..." >&2
     service_arn="$(aws apprunner create-service \
@@ -170,6 +265,9 @@ EOF
       --query 'Service.ServiceArn' \
       --output text)"
     echo -e "${GREEN}✓ App Runner service created${NC}" >&2
+
+    echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
+    wait_for_apprunner_running "$service_arn" >/dev/null
   fi
 
   rm -f "$src_cfg"
@@ -179,41 +277,14 @@ EOF
   echo -e "${GREEN}✓ Scaling updated${NC}" >&2
 
   echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
-  local max_attempts=90
-  local attempt=0
-  local status=""
-
-  while [[ $attempt -lt $max_attempts ]]; do
-    status="$(
-      aws apprunner describe-service \
-        --service-arn "$service_arn" \
-        --region "$AWS_REGION" \
-        --query 'Service.Status' \
-        --output text 2>/dev/null || echo ""
-    )"
-
-    if [[ "$status" == "RUNNING" ]]; then
-      echo -e "${GREEN}✓ Service is RUNNING${NC}" >&2
-      break
-    fi
-    if [[ "$status" == "CREATE_FAILED" || "$status" == "DELETE_FAILED" ]]; then
-      echo -e "${RED}✗ Service status: ${status}${NC}" >&2
-      echo "Check App Runner events/logs in the AWS Console for details." >&2
-      exit 1
-    fi
-
-    echo -n "." >&2
-    sleep 5
-    ((attempt++))
-  done
-  echo "" >&2
+  wait_for_apprunner_running "$service_arn" >/dev/null
 
   local service_host
   service_host="$(aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.ServiceUrl' --output text)"
   if [[ "$service_host" == http* ]]; then
-    echo "$service_host"
+    APP_RUNNER_SERVICE_URL="$service_host"
   else
-    echo "https://${service_host}"
+    APP_RUNNER_SERVICE_URL="https://${service_host}"
   fi
 }
 
@@ -276,20 +347,22 @@ EOF
 # Main execution
 main() {
   check_prerequisites
-  
+
   echo "Configuration:"
   echo "  Region: $AWS_REGION"
-  echo "  API Token: ${TRADER_API_TOKEN:-(not set)}"
+  echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
   echo ""
   
   # Create ECR repo
-  local ecr_uri=$(create_ecr_repo)
+  create_ecr_repo
+  local ecr_uri="$ECR_URI"
   
   # Build and push image
   build_and_push "$ecr_uri"
   
   # Create App Runner service and get URL
-  local service_url=$(create_app_runner "$ecr_uri")
+  create_app_runner "$ecr_uri"
+  local service_url="$APP_RUNNER_SERVICE_URL"
   
   echo -e "${GREEN}=== Deployment Complete ===${NC}\n"
   echo "API URL: ${service_url}"
@@ -301,12 +374,13 @@ main() {
   echo "2. Build and deploy the web UI:"
   echo "   cd haskell/web"
   echo "   TRADER_API_TARGET='${service_url}' npm run build"
+  echo "   # Edit dist/trader-config.js (apiBaseUrl/apiToken) before uploading to S3/CloudFront"
   echo "   # Then upload dist/ to S3 or CloudFront"
   echo ""
   if [[ -z "$TRADER_API_TOKEN" ]]; then
     echo -e "${YELLOW}⚠ No API token set. For security, set TRADER_API_TOKEN in App Runner environment.${NC}"
   else
-    echo "3. Use this token in the UI: ${TRADER_API_TOKEN}"
+    echo "3. Set apiToken in dist/trader-config.js: $(mask_token "$TRADER_API_TOKEN") (use full token value)"
   fi
 }
 

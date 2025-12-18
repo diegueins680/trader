@@ -24,6 +24,9 @@ pnpm-debug.log*
 dist/
 dist-newstyle/
 haskell/dist-newstyle/
+haskell/.stack-work/
+haskell/stack.yaml.lock
+haskell/.cabal-config
 .cabal-sandbox/
 cabal.sandbox.config
 .ghc.environment.*

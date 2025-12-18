@@ -9,6 +9,7 @@ import type {
   BotStatus,
   LatestSignal,
 } from "./types";
+import { TRADER_UI_CONFIG } from "./deployConfig";
 
 export class HttpError extends Error {
   readonly status: number;
@@ -32,11 +33,25 @@ type AsyncStartResponse = { jobId: string };
 type AsyncPollResponse<T> = { status: "running" | "done" | "error"; result?: T; error?: string };
 export type HealthResponse = {
   status: "ok";
+  version?: string;
+  commit?: string;
   authRequired?: boolean;
   authOk?: boolean;
   computeLimits?: { maxBarsLstm: number; maxEpochs: number; maxHiddenSize: number };
   asyncJobs?: { maxRunning: number; ttlMs: number; persistence: boolean };
+  cache?: { enabled: boolean; ttlMs: number; maxEntries: number };
 };
+
+export type CacheStatsResponse = {
+  enabled: boolean;
+  ttlMs: number;
+  maxEntries: number;
+  signals: { entries: number; hits: number; misses: number };
+  backtests: { entries: number; hits: number; misses: number };
+  atMs: number;
+};
+
+export type CacheClearResponse = { ok: boolean; atMs: number };
 type AsyncJobOptions = FetchJsonOptions & { onJobId?: (jobId: string) => void };
 
 function resolveUrl(baseUrl: string, path: string): string {
@@ -125,7 +140,7 @@ async function readJsonOrText(res: Response): Promise<unknown> {
 }
 
 async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
-  const timeoutMs = opts?.timeoutMs ?? 30_000;
+  const timeoutMs = opts?.timeoutMs ?? TRADER_UI_CONFIG.timeoutsMs?.requestMs ?? 30_000;
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
     const url = resolveUrl(baseUrl, path);
@@ -176,7 +191,7 @@ function describeAsyncTimeout(baseUrl: string, overallTimeoutMs: number, lastErr
         ? lastError.message
         : String(lastError);
   const hint = baseUrl.startsWith("/api")
-    ? " Check your CloudFront `/api/*` proxy (or set the UI “API base URL” to your API host)."
+    ? " Check your CloudFront `/api/*` proxy (or set apiBaseUrl in trader-config.js to your API host)."
     : " Check API connectivity and try again.";
   return `Async request timed out after ${seconds}s while retrying after errors (last error: ${last}).${hint}`;
 }
@@ -310,7 +325,7 @@ async function runAsyncJob<T>(
       backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
     }
   } catch (err) {
-    if (isAbortError(err)) await cancel();
+    if (isAbortError(err) || isTimeoutError(err)) await cancel();
     throw err;
   }
 }
@@ -322,9 +337,25 @@ export async function health(baseUrl: string, opts?: FetchJsonOptions): Promise<
     authOk?: boolean;
     computeLimits?: { maxBarsLstm: number; maxEpochs: number; maxHiddenSize: number };
     asyncJobs?: { maxRunning: number; ttlMs: number; persistence: boolean };
+    cache?: { enabled: boolean; ttlMs: number; maxEntries: number };
   }>(baseUrl, "/health", { method: "GET" }, opts);
   if (out.status !== "ok") throw new Error("Unexpected /health response");
-  return { status: "ok", authRequired: out.authRequired, authOk: out.authOk, computeLimits: out.computeLimits, asyncJobs: out.asyncJobs };
+  return {
+    status: "ok",
+    authRequired: out.authRequired,
+    authOk: out.authOk,
+    computeLimits: out.computeLimits,
+    asyncJobs: out.asyncJobs,
+    cache: out.cache,
+  };
+}
+
+export async function cacheStats(baseUrl: string, opts?: FetchJsonOptions): Promise<CacheStatsResponse> {
+  return fetchJson<CacheStatsResponse>(baseUrl, "/cache", { method: "GET" }, opts);
+}
+
+export async function cacheClear(baseUrl: string, opts?: FetchJsonOptions): Promise<CacheClearResponse> {
+  return fetchJson<CacheClearResponse>(baseUrl, "/cache/clear", { method: "POST" }, opts);
 }
 
 export async function signal(baseUrl: string, params: ApiParams, opts?: AsyncJobOptions): Promise<LatestSignal> {

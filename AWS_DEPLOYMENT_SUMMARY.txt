@@ -179,7 +179,7 @@ Deployment:
 Post-Deployment:
   [ ] Build web UI: TRADER_API_TARGET="<url>" npm run build
   [ ] Deploy to S3: aws s3 sync dist/ s3://<bucket>/
-  [ ] Update UI with API token
+  [ ] Configure web UI deploy config: dist/trader-config.js (apiBaseUrl, apiToken)
   [ ] Test end-to-end
 
 Cleanup (if needed):
