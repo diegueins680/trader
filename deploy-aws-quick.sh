@@ -351,12 +351,13 @@ main() {
   echo "2. Build and deploy the web UI:"
   echo "   cd haskell/web"
   echo "   TRADER_API_TARGET='${service_url}' npm run build"
+  echo "   # Edit dist/trader-config.js (apiBaseUrl/apiToken) before uploading to S3/CloudFront"
   echo "   # Then upload dist/ to S3 or CloudFront"
   echo ""
   if [[ -z "$TRADER_API_TOKEN" ]]; then
     echo -e "${YELLOW}⚠ No API token set. For security, set TRADER_API_TOKEN in App Runner environment.${NC}"
   else
-    echo "3. Use the API token in the UI: $(mask_token "$TRADER_API_TOKEN")"
+    echo "3. Set apiToken in dist/trader-config.js: $(mask_token "$TRADER_API_TOKEN") (use full token value)"
   fi
 }
 

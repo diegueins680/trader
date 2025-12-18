@@ -188,7 +188,7 @@ function describeAsyncTimeout(baseUrl: string, overallTimeoutMs: number, lastErr
         ? lastError.message
         : String(lastError);
   const hint = baseUrl.startsWith("/api")
-    ? " Check your CloudFront `/api/*` proxy (or set the UI “API base URL” to your API host)."
+    ? " Check your CloudFront `/api/*` proxy (or set apiBaseUrl in trader-config.js to your API host)."
     : " Check API connectivity and try again.";
   return `Async request timed out after ${seconds}s while retrying after errors (last error: ${last}).${hint}`;
 }

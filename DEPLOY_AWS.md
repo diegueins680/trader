@@ -305,12 +305,14 @@ After it's deployed (5-10 minutes):
 
 The UI can discover the API in two ways:
 
-**Option A: Built-in (already done in Step 6)**
-- The UI knows the API URL from the build: `TRADER_API_TARGET`
+**Option A: CloudFront `/api/*` proxy (recommended)**
+- Configure CloudFront to forward `/api/*` to your API origin (App Runner/ALB/etc)
+- The UI will use `/api` by default (no extra UI config needed)
 
-**Option B: Runtime Override (in the UI)**
-- Users can paste the API base URL into the "API base URL" field in the UI
-- This is stored in local storage and persists across sessions
+**Option B: Deploy-time config file**
+- Edit `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build) before uploading to S3:
+  - `apiBaseUrl`: `https://<your-api-host>` (or `/api`)
+  - `apiToken`: the same value as backend `TRADER_API_TOKEN` (optional)
 
 ---
 
@@ -362,7 +364,7 @@ aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
 - Ensure `TRADER_API_TOKEN` is set if you require auth
 
 **UI says "API unreachable":**
-- Verify the API URL in the UI's "API base URL" field
+- Verify `trader-config.js` (`apiBaseUrl`) and/or your CloudFront `/api/*` proxy
 - Ensure the API is publicly accessible (App Runner gives you a public URL by default)
 - Check CORS if using CloudFront (allow `Content-Type`, `Authorization`, `X-API-Key` headers)
 

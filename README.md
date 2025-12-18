@@ -317,7 +317,7 @@ Open `http://127.0.0.1:5173`.
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
-- Web UI: paste the token into the UI’s “API token” field (stored in session storage and sent as `Authorization: Bearer <token>`).
+- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
 The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (long-flat only).

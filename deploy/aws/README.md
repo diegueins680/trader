@@ -33,7 +33,7 @@ When `TRADER_API_TOKEN` is set, all endpoints except `/health` require either:
 - `Authorization: Bearer <token>` or
 - `X-API-Key: <token>`
 
-The web UI (`haskell/web`) supports this: paste the token into the UI’s “API token” field.
+The web UI (`haskell/web`) supports this via deploy-time config: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build).
 
 ## Deploy to App Runner (ECR)
 
@@ -154,7 +154,7 @@ Generate a random token locally (example):
 openssl rand -hex 32
 ```
 
-Then set it as `TRADER_API_TOKEN` on the backend and paste the same value into the UI’s “API token” field.
+Then set it as `TRADER_API_TOKEN` on the backend and set the same value in the UI’s deploy config (`haskell/web/public/trader-config.js` → `apiToken`).
 
 ### CloudFront `/api/*` proxy (optional)
 
@@ -167,7 +167,7 @@ If you prefer the UI calling `/api/*` on the same domain, configure a CloudFront
 - Cache: disable caching for `/api/*`
 
 Notes:
-- You can also override the API base at runtime from the UI (stored in local storage) via the “API base URL” field.
+- You can set the API base URL at deploy time via `haskell/web/public/trader-config.js` (`apiBaseUrl`). If you use the same-origin CloudFront `/api/*` behavior, leave it as `/api`.
 - If you run multiple backend instances, either keep it single-instance or ensure `TRADER_API_ASYNC_DIR` points to a shared writable directory (CloudFront itself is not sticky, so async jobs can return “Not found” when polling hits a different instance).
 - If you *do* prefer same-origin `/api/*` routing, see “CloudFront `/api/*` proxy (optional)” above.
 - After uploading a new UI build to S3, invalidate CloudFront so clients fetch the new hashed JS/CSS assets.

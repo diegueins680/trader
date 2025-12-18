@@ -13,7 +13,7 @@ cd /path/to/trader
 # Generate a random API token
 API_TOKEN=$(openssl rand -hex 32)
 
-# Save this token somewhere safe (you'll need it for the web UI).
+# Save this token somewhere safe (you'll need it for the web UI deploy config: `trader-config.js`).
 
 # Run the automated deployment script
 bash deploy-aws-quick.sh ap-northeast-1 "$API_TOKEN"
@@ -97,8 +97,16 @@ curl -s -H "Authorization: Bearer ${TRADER_API_TOKEN}" "${API_URL}/health"
 ```bash
 cd haskell/web
 
-# Build pointing at your API
+# Build the UI
 TRADER_API_TARGET="${API_URL}" npm run build
+
+# Configure deploy-time API settings (edit this file before uploading to S3)
+cat > dist/trader-config.js <<EOF
+globalThis.__TRADER_CONFIG__ = {
+  apiBaseUrl: "${API_URL}",
+  apiToken: "${TRADER_API_TOKEN}",
+};
+EOF
 
 # Create S3 bucket
 export S3_BUCKET=trader-ui-$(date +%s)

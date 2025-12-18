@@ -31,6 +31,7 @@ import {
   trade,
 } from "./lib/api";
 import { copyText } from "./lib/clipboard";
+import { TRADER_UI_CONFIG } from "./lib/deployConfig";
 import { readJson, readLocalString, readSessionString, removeLocalKey, removeSessionKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { BacktestChart } from "./components/BacktestChart";
@@ -202,9 +203,7 @@ type FormState = {
 
 const STORAGE_KEY = "trader.ui.form.v1";
 const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
-const STORAGE_API_BASE_KEY = "trader.ui.apiBaseUrl.v1";
 const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
-const SESSION_TOKEN_KEY = "trader.ui.apiToken.v1";
 const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
 const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
 const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";
@@ -683,12 +682,8 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [revealSecrets, setRevealSecrets] = useState(false);
   const [persistSecrets, setPersistSecrets] = useState<boolean>(() => readJson<boolean>(STORAGE_PERSIST_SECRETS_KEY) ?? false);
-  const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => normalizeApiBaseUrlInput(readJson<string>(STORAGE_API_BASE_KEY) ?? ""));
-  const [apiToken, setApiToken] = useState<string>(() => {
-    const persisted = readLocalString(SESSION_TOKEN_KEY) ?? "";
-    const session = readSessionString(SESSION_TOKEN_KEY) ?? "";
-    return persistSecrets ? persisted || session : session;
-  });
+  const deployApiBaseUrl = TRADER_UI_CONFIG.apiBaseUrl;
+  const apiToken = TRADER_UI_CONFIG.apiToken;
   const [binanceApiKey, setBinanceApiKey] = useState<string>(() => {
     const persisted = readLocalString(SESSION_BINANCE_KEY_KEY) ?? "";
     const session = readSessionString(SESSION_BINANCE_KEY_KEY) ?? "";
@@ -851,23 +846,6 @@ export function App() {
     orderShowStatus,
     orderSideFilter,
   ]);
-
-  useEffect(() => {
-    writeJson(STORAGE_API_BASE_KEY, apiBaseUrl.trim());
-  }, [apiBaseUrl]);
-
-  useEffect(() => {
-    const token = apiToken.trim();
-    if (persistSecrets) {
-      if (!token) removeLocalKey(SESSION_TOKEN_KEY);
-      else writeLocalString(SESSION_TOKEN_KEY, token);
-      removeSessionKey(SESSION_TOKEN_KEY);
-    } else {
-      if (!token) removeSessionKey(SESSION_TOKEN_KEY);
-      else writeSessionString(SESSION_TOKEN_KEY, token);
-      removeLocalKey(SESSION_TOKEN_KEY);
-    }
-  }, [apiToken, persistSecrets]);
 
   useEffect(() => {
     const v = binanceApiKey.trim();
@@ -1044,10 +1022,10 @@ export function App() {
     return { Authorization: `Bearer ${token}`, "X-API-Key": token };
   }, [apiToken]);
 
-  const apiBaseCandidate = useMemo(() => normalizeApiBaseUrlInput(apiBaseUrl), [apiBaseUrl]);
+  const apiBaseCandidate = useMemo(() => normalizeApiBaseUrlInput(deployApiBaseUrl), [deployApiBaseUrl]);
 
   const apiBaseError = useMemo(() => {
-    const raw = apiBaseUrl.trim();
+    const raw = deployApiBaseUrl.trim();
     if (!raw) return null;
     const candidate = apiBaseCandidate.trim();
     if (candidate.startsWith("/")) return null;
@@ -1057,11 +1035,11 @@ export function App() {
         new URL(candidate);
         return null;
       } catch {
-        return "API base must be a valid URL (e.g. https://your-api-host) or a path like /api";
+        return "Configured apiBaseUrl must be a valid URL (e.g. https://your-api-host) or a path like /api";
       }
     }
-    return "API base must start with http(s):// or /api";
-  }, [apiBaseCandidate, apiBaseUrl]);
+    return "Configured apiBaseUrl must start with http(s):// or /api";
+  }, [apiBaseCandidate, deployApiBaseUrl]);
 
   const apiBase = useMemo(() => {
     const raw = apiBaseCandidate.trim();
@@ -1146,7 +1124,7 @@ export function App() {
     } catch (e) {
       if (isAbortError(e)) return;
       if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
-        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check TRADER_API_TOKEN)." }));
+        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check apiToken / TRADER_API_TOKEN)." }));
         return;
       }
       setCacheUi((s) => ({
@@ -1167,7 +1145,7 @@ export function App() {
     } catch (e) {
       if (isAbortError(e)) return;
       if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
-        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check TRADER_API_TOKEN)." }));
+        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check apiToken / TRADER_API_TOKEN)." }));
         return;
       }
       setCacheUi((s) => ({
@@ -1576,7 +1554,7 @@ export function App() {
         }
         if (e instanceof HttpError && e.status === 504) {
           msg = apiBase.startsWith("/api")
-            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, or set “API base URL” to https://<your-api-host>."
+            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, or set apiBaseUrl in trader-config.js to https://<your-api-host>."
             : "API gateway timed out (504). Try again, or reduce bars/epochs, or scale the API.";
         }
 
@@ -2335,13 +2313,13 @@ export function App() {
     const tokenPresent = Boolean(apiToken.trim());
     const authMsg = authRequired
       ? tokenPresent
-        ? "API token rejected. Update TRADER_API_TOKEN above."
-        : "API auth required. Paste TRADER_API_TOKEN above."
+        ? "API token rejected. Update apiToken in trader-config.js."
+        : "API auth required. Set apiToken in trader-config.js."
       : null;
     const startCmd = `cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
     const downMsg = showLocalStartHelp
       ? `Backend unreachable. Start it with: ${startCmd}`
-      : "Backend unreachable. Set “API base URL” to your deployed API host (e.g., your App Runner URL) or configure CloudFront to forward `/api/*` to your API origin.";
+      : "Backend unreachable. Configure apiBaseUrl in trader-config.js (or configure CloudFront to forward `/api/*` to your API origin).";
     return firstReason(
       apiBaseError,
       apiOk === "down" ? downMsg : null,
@@ -2491,32 +2469,25 @@ export function App() {
           <div className="cardBody">
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
-                <label className="label" htmlFor="apiBaseUrl">
-                  API base URL (optional)
-                </label>
-                <div className="row" style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}>
-                  <input
-                    id="apiBaseUrl"
-                    className="input"
-                    type="text"
-                    value={apiBaseUrl}
-                    onChange={(e) => setApiBaseUrl(e.target.value)}
-                    onBlur={() => setApiBaseUrl((v) => normalizeApiBaseUrlInput(v))}
-                    placeholder="/api or https://your-api-host"
-                    spellCheck={false}
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    inputMode="url"
-                  />
-                  <button className="btn" type="button" onClick={() => setApiBaseUrl("")} disabled={!apiBaseUrl.trim()}>
-                    Clear
-                  </button>
+                <label className="label">API</label>
+                <div className="kv">
+                  <div className="k">Base URL</div>
+                  <div className="v">
+                    <span className="tdMono">{apiBase}</span>
+                  </div>
                 </div>
-                <div className="hint" style={apiBaseError ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
-                  {apiBaseError
-                    ? apiBaseError
-                    : "Leave blank to use /api. For CloudFront/S3 hosting, set this to your deployed API (HTTPS recommended)."}
+                <div className="kv">
+                  <div className="k">Token</div>
+                  <div className="v">{apiToken.trim() ? "configured" : "not set"}</div>
                 </div>
+                <div className="hint" style={{ marginTop: 6 }}>
+                  Configured at deploy time via <span style={{ fontFamily: "var(--mono)" }}>trader-config.js</span> (apiBaseUrl, apiToken).
+                </div>
+                {apiBaseError ? (
+                  <div className="hint" style={{ color: "rgba(239, 68, 68, 0.85)", marginTop: 6 }}>
+                    {apiBaseError}
+                  </div>
+                ) : null}
                 {healthInfo?.computeLimits ? (
                   <div className="hint" style={{ marginTop: 6 }}>
                     API limits: max LSTM bars {healthInfo.computeLimits.maxBarsLstm}, epochs {healthInfo.computeLimits.maxEpochs}, hidden{" "}
@@ -2566,48 +2537,6 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ gridTemplateColumns: "1fr" }}>
-              <div className="field">
-                <label className="label" htmlFor="apiToken">
-                  API token (optional)
-                </label>
-                <div className="row" style={{ gridTemplateColumns: "1fr auto auto", alignItems: "center" }}>
-                  <input
-                    id="apiToken"
-                    className="input"
-                    type={revealSecrets ? "text" : "password"}
-                    value={apiToken}
-                    onChange={(e) => setApiToken(e.target.value)}
-                    placeholder="TRADER_API_TOKEN"
-                    spellCheck={false}
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    inputMode="text"
-                  />
-                  <button className="btn" type="button" onClick={() => setRevealSecrets((v) => !v)}>
-                    {revealSecrets ? "Hide" : "Show"}
-                  </button>
-                  <button className="btn" type="button" onClick={() => setApiToken("")} disabled={!apiToken.trim()}>
-                    Clear
-                  </button>
-                </div>
-                <div className="hint">
-                  Only needed when the backend sets TRADER_API_TOKEN. Stored in {persistSecrets ? "local storage" : "session storage"} (not in the URL). For local
-                  dev, setting TRADER_API_TOKEN in your environment (or `haskell/web/.env.local`) makes the dev proxy attach it automatically.
-                </div>
-                <div className="pillRow" style={{ marginTop: 10 }}>
-                  <label className="pill">
-                    <input type="checkbox" checked={persistSecrets} onChange={(e) => setPersistSecrets(e.target.checked)} />
-                    Remember token & keys
-                  </label>
-                </div>
-                <div className="hint">
-                  When enabled, the token and Binance keys are stored in local storage so you can reopen the app later without re-entering them (not recommended on
-                  shared machines).
-                </div>
-              </div>
-            </div>
-
             {apiOk === "down" || apiOk === "auth" ? (
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
                 <div className="field">
@@ -2616,10 +2545,10 @@ export function App() {
                     {apiOk === "down"
                       ? showLocalStartHelp
                         ? `Backend unreachable.\n\nStart it with:\ncd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`
-                        : "Backend unreachable.\n\nSet “API base URL” to your deployed API host (e.g., your App Runner URL), or configure CloudFront to forward `/api/*` to your API origin."
+                        : "Backend unreachable.\n\nConfigure apiBaseUrl in trader-config.js, or configure CloudFront to forward `/api/*` to your API origin."
                       : apiToken.trim()
-                        ? "API auth failed.\n\nUpdate TRADER_API_TOKEN above (it must match the backend’s TRADER_API_TOKEN)."
-                        : "API auth required.\n\nPaste TRADER_API_TOKEN above (it must match the backend’s TRADER_API_TOKEN)."}
+                        ? "API auth failed.\n\nUpdate apiToken in trader-config.js (it must match the backend’s TRADER_API_TOKEN)."
+                        : "API auth required.\n\nSet apiToken in trader-config.js (it must match the backend’s TRADER_API_TOKEN)."}
                   </pre>
                   <div className="actions" style={{ marginTop: 0 }}>
                     {apiOk === "down" && showLocalStartHelp ? (
@@ -2686,6 +2615,16 @@ export function App() {
                 <div className="hint">
                   Used for /trade and “Check keys”. Stored in {persistSecrets ? "local storage" : "session storage"}. The request preview/curl omits it.
                 </div>
+                <div className="pillRow" style={{ marginTop: 10 }}>
+                  <label className="pill">
+                    <input type="checkbox" checked={persistSecrets} onChange={(e) => setPersistSecrets(e.target.checked)} />
+                    Remember Binance keys
+                  </label>
+                </div>
+                <div className="hint">
+                  When enabled, the Binance keys are stored in local storage so you can reopen the app later without re-entering them (not recommended on shared
+                  machines).
+                </div>
               </div>
             </div>
 
@@ -2720,7 +2659,7 @@ export function App() {
                     Delete
                   </button>
                 </div>
-                <div className="hint">Save/load named config presets. Does not include API token or Binance keys.</div>
+                <div className="hint">Save/load named config presets. Does not include Binance keys.</div>
 
                 {pendingProfileLoad ? (
                   <>
@@ -3933,8 +3872,8 @@ export function App() {
                 </>
               ) : (
                 <>
-                  When hosting the UI separately (CloudFront/S3), set “API base URL” above (or configure <span style={{ fontFamily: "var(--mono)" }}>/api/*</span>{" "}
-                  to route to your backend).
+                  When hosting the UI separately (CloudFront/S3), configure <span style={{ fontFamily: "var(--mono)" }}>trader-config.js</span> (apiBaseUrl,
+                  apiToken) and/or route <span style={{ fontFamily: "var(--mono)" }}>/api/*</span> to your backend.
                 </>
               )}
             </p>
