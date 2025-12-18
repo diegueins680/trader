@@ -2974,7 +2974,8 @@ runRestApi baseArgs = do
       putStrLn "Increased GHC capabilities to 2 (to keep the API responsive during heavy compute)."
     else pure ()
 
-  let bindHost = "0.0.0.0" :: String
+  let bindHostStr = "0.0.0.0" :: String
+      bindHost = ("0.0.0.0" :: Warp.HostPreference)
       displayHost = "127.0.0.1" :: String
       port = max 1 (argPort baseArgs)
       settings =
@@ -2982,7 +2983,7 @@ runRestApi baseArgs = do
           Warp.setTimeout timeoutSec $
           Warp.setPort port Warp.defaultSettings
   putStrLn (printf "Build: %s%s" (biVersion buildInfo) (maybe "" (\c -> " (" ++ take 12 c ++ ")") (biCommit buildInfo)))
-  putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHost port)
+  putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHostStr port)
   putStrLn
     ( printf
         "API limits: maxAsyncRunning=%d, maxBarsLstm=%d, maxEpochs=%d, maxHiddenSize=%d"
@@ -3027,7 +3028,7 @@ runRestApi baseArgs = do
   case res of
     Right () -> pure ()
     Left e -> do
-      hPutStrLn stderr (printf "Failed to start REST API on %s:%d: %s" bindHost port (ioeGetErrorString e))
+      hPutStrLn stderr (printf "Failed to start REST API on %s:%d: %s" bindHostStr port (ioeGetErrorString e))
       hPutStrLn stderr "Try a different --port (or check permissions / sandbox restrictions)."
       exitFailure
 
