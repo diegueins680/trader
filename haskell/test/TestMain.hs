@@ -36,7 +36,7 @@ import Trader.Predictors
   , initHMMFilter
   , predictSensors
   )
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), Trade(..), simulateEnsemble)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), ExitReason(..), IntrabarFill(..), Positioning(..), Trade(..), simulateEnsemble)
 import Trader.Split (Split(..), splitTrainBacktest)
 
 main :: IO ()
@@ -366,7 +366,7 @@ testLiquidationClamp = do
       trades = brTrades bt
   assertApprox "equity clamped at 0" 1e-12 finalEq 0.0
   assert "positions cleared after liquidation" (brPositions bt == [-1])
-  assert "liquidation trade recorded" (case trades of { [t] -> trExitReason t == Just "LIQUIDATION"; _ -> False })
+  assert "liquidation trade recorded" (case trades of { [t] -> trExitReason t == Just ExitLiquidation; _ -> False })
 
 testMetricsMaxDrawdown :: IO ()
 testMetricsMaxDrawdown = do

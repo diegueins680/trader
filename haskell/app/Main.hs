@@ -1,5 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 module Main where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
@@ -124,6 +126,19 @@ import Trader.Optimization
 import Trader.Split (Split(..), splitTrainBacktest)
 import Trader.BinanceIntervals (binanceIntervals, isBinanceInterval)
 import Trader.Text (normalizeKey, trim)
+import Trader.App.Args
+  ( Args(..)
+  , argBinanceMarket
+  , argLookback
+  , intrabarFillCode
+  , opts
+  , parseIntrabarFill
+  , parsePositioning
+  , positioningCode
+  , resolveBarsForBinance
+  , resolveBarsForCsv
+  , validateArgs
+  )
 import Trader.Trading
   ( BacktestResult(..)
   , EnsembleConfig(..)
@@ -131,7 +146,6 @@ import Trader.Trading
   , Positioning(..)
   , StepMeta(..)
   , Trade(..)
-  , exitReasonCode
   , exitReasonFromCode
   , simulateEnsemble
   , simulateEnsembleWithHL
@@ -396,7 +410,7 @@ data Args = Args
   , argBinanceFutures :: Bool
   , argBinanceMargin :: Bool
   , argInterval :: String
-  , argBars :: Int
+  , argBars :: Maybe Int
   , argLookbackWindow :: String
   , argLookbackBars :: Maybe Int
   , argBinanceTestnet :: Bool
@@ -461,35 +475,30 @@ data Args = Args
   , argMinPositionSize :: Double
   } deriving (Eq, Show)
 
-autoBarsSentinel :: Int
-autoBarsSentinel = -1
-
-closeThresholdSentinel :: Double
-closeThresholdSentinel = -1
-
 defaultBinanceBars :: Int
 defaultBinanceBars = 500
 
 resolveBarsForCsv :: Args -> Int
 resolveBarsForCsv args =
   case argBars args of
-    n | n == autoBarsSentinel -> 0
-    n -> n
+    Nothing -> 0
+    Just n -> n
 
 resolveBarsForBinance :: Args -> Int
 resolveBarsForBinance args =
   case argBars args of
-    n | n == autoBarsSentinel || n == 0 -> defaultBinanceBars
-    n -> n
+    Nothing -> defaultBinanceBars
+    Just 0 -> defaultBinanceBars
+    Just n -> n
 
-parseBarsArg :: String -> Either String Int
+parseBarsArg :: String -> Either String (Maybe Int)
 parseBarsArg raw =
   let s = map toLower (trim raw)
    in if s == "auto"
-        then Right autoBarsSentinel
+        then Right Nothing
         else
           case (readMaybe s :: Maybe Int) of
-            Just n -> Right n
+            Just n -> Right (Just n)
             Nothing -> Left "Expected an integer (e.g. 500) or 'auto'."
 
 positioningCode :: Positioning -> String
@@ -530,116 +539,116 @@ parseIntrabarFill raw =
     _ -> Left "Invalid intrabar fill (expected stop-first|take-profit-first)"
 
 opts :: Parser Args
-opts =
-  Args
-    <$> optional (strOption (long "data" <> metavar "PATH" <> help "CSV file containing prices"))
-    <*> strOption (long "price-column" <> value "close" <> help "CSV column name for price (case-insensitive; prints suggestions on error)")
-    <*> optional (strOption (long "high-column" <> help "CSV column name for high (requires --low-column; enables intrabar stops/TP/trailing)"))
-    <*> optional (strOption (long "low-column" <> help "CSV column name for low (requires --high-column; enables intrabar stops/TP/trailing)"))
-    <*> optional (strOption (long "binance-symbol" <> metavar "SYMBOL" <> help "Fetch klines from Binance (e.g., BTCUSDT)"))
-    <*> switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders")
-    <*> switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance")
-    <*> strOption (long "interval" <> long "binance-interval" <> value "5m" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)")
-    <*> option
-          (eitherReader parseBarsArg)
-          ( long "bars"
-              <> long "binance-limit"
-              <> metavar "N|auto"
-              <> value autoBarsSentinel
-              <> showDefaultWith (\n -> if n == autoBarsSentinel then "auto" else show n)
-              <> help "Number of bars/klines to use (auto/0=all CSV, Binance=500; Binance also supports 2..1000)"
-          )
-    <*> strOption (long "lookback-window" <> value "24h" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
-    <*> optional (option auto (long "lookback-bars" <> long "lookback" <> help "Override lookback bars (disables --lookback-window conversion)"))
-    <*> switch (long "binance-testnet" <> help "Use Binance testnet base URL (public + signed endpoints)")
-    <*> optional (strOption (long "binance-api-key" <> help "Binance API key (or env BINANCE_API_KEY)"))
-    <*> optional (strOption (long "binance-api-secret" <> help "Binance API secret (or env BINANCE_API_SECRET)"))
-    <*> switch (long "binance-trade" <> help "If set, place a market order for the latest signal")
-    <*> switch (long "binance-live" <> help "If set, send LIVE orders (otherwise uses /order/test)")
-    <*> optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
-    <*> optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
-    <*> optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0..1) when --order-quote/--order-quantity not set"))
-    <*> optional (option auto (long "max-order-quote" <> help "Cap the computed quote amount when using --order-quote-fraction"))
-    <*> optional (strOption (long "idempotency-key" <> metavar "ID" <> help "Optional Binance newClientOrderId for idempotent orders"))
-    <*> option (maybeReader parseNormType) (long "normalization" <> value NormStandard <> help "none|minmax|standard|log")
-    <*> option auto (long "hidden-size" <> value 16 <> help "LSTM hidden size")
-    <*> option auto (long "epochs" <> value 30 <> help "LSTM training epochs (Adam)")
-    <*> option auto (long "lr" <> value 1e-3 <> help "LSTM learning rate")
-    <*> option auto (long "val-ratio" <> value 0.2 <> help "Validation split ratio (within training set)")
-    <*> option auto (long "backtest-ratio" <> value 0.2 <> help "Backtest holdout ratio (last portion of series)")
-    <*> option auto (long "tune-ratio" <> value 0.2 <> help "When optimizing operations/threshold: tune on the last portion of the training split (avoids lookahead on the backtest split)")
-    <*> option
-          (eitherReader parseTuneObjective)
-          ( long "tune-objective"
-              <> value TuneEquityDdTurnover
-              <> showDefaultWith tuneObjectiveCode
-              <> help "Objective for --optimize-operations/--sweep-threshold: final-equity|sharpe|calmar|equity-dd|equity-dd-turnover"
-          )
-    <*> option auto (long "tune-penalty-max-drawdown" <> value 1.0 <> help "Penalty weight for max drawdown (used by equity-dd objectives)")
-    <*> option auto (long "tune-penalty-turnover" <> value 0.1 <> help "Penalty weight for turnover (used by equity-dd-turnover)")
-    <*> option auto (long "walk-forward-folds" <> value 5 <> help "Compute fold stats on tune/backtest windows (1 disables)")
-    <*> option auto (long "patience" <> value 10 <> help "Early stopping patience (0 disables)")
-    <*> optional (option auto (long "grad-clip" <> help "Gradient clipping max L2 norm"))
-    <*> option auto (long "seed" <> value 42 <> help "Random seed for LSTM init")
-    <*> option auto (long "kalman-dt" <> value 1.0 <> help "Kalman dt")
-    <*> option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
-    <*> option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
-    <*> option auto (long "open-threshold" <> long "threshold" <> value 0.001 <> help "Entry/open direction threshold (fractional deadband)")
-    <*> option
-          auto
-          ( long "close-threshold"
-              <> value closeThresholdSentinel
-              <> showDefaultWith (\t -> if t == closeThresholdSentinel then "same as open-threshold" else show t)
-              <> help "Exit/close threshold (fractional deadband; defaults to open-threshold when omitted)"
-          )
-    <*> option
-          (eitherReader parseMethod)
-          ( long "method"
-              <> value MethodBoth
-              <> showDefaultWith methodCode
-              <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), 10|kalman=Kalman only, 01|lstm=LSTM only"
-          )
-    <*> option
-          (eitherReader parsePositioning)
-          ( long "positioning"
-              <> value LongFlat
-              <> showDefaultWith positioningCode
-              <> help "Positioning: long-flat (default) or long-short (experimental; futures-only for live orders)"
-          )
-    <*> switch (long "optimize-operations" <> help "Optimize method (11/10/01), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
-    <*> switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
-    <*> switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
-    <*> option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
-    <*> option auto (long "slippage" <> value 0.0 <> help "Slippage per side (fractional, e.g. 0.0002)")
-    <*> option auto (long "spread" <> value 0.0 <> help "Bid-ask spread (fractional total; half applied per side)")
-    <*> option
-          (eitherReader parseIntrabarFill)
-          ( long "intrabar-fill"
-              <> value StopFirst
-              <> showDefaultWith intrabarFillCode
-              <> help "If take-profit and stop are both hit within a bar: stop-first (conservative) or take-profit-first"
-          )
-    <*> optional (option auto (long "stop-loss" <> help "Stop loss fraction for a bracket exit (e.g., 0.02 for 2%)"))
-    <*> optional (option auto (long "take-profit" <> help "Take profit fraction for a bracket exit (e.g., 0.03 for 3%)"))
-    <*> optional (option auto (long "trailing-stop" <> help "Trailing stop fraction for a bracket exit (e.g., 0.01 for 1%)"))
-    <*> option auto (long "min-hold-bars" <> value 0 <> help "Minimum holding periods (bars) before allowing a signal-based exit (0 disables)")
-    <*> option auto (long "cooldown-bars" <> value 0 <> help "When flat after an exit, wait this many bars before allowing a new entry (0 disables)")
-    <*> optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
-    <*> optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
-    <*> optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
-    <*> optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
-    <*> switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
-    <*> switch (long "serve" <> help "Run REST API server on localhost instead of running the CLI workflow")
-    <*> option auto (long "port" <> value 8080 <> help "REST API port (when --serve)")
-    <*> option auto (long "kalman-z-min" <> value 0 <> help "Min |Kalman mean|/std (z-score) required to treat Kalman as directional (0 disables)")
-    <*> option auto (long "kalman-z-max" <> value 3 <> help "Z-score mapped to position size=1 when --confidence-sizing is enabled")
-    <*> optional (option auto (long "max-high-vol-prob" <> help "If set, block trades when HMM high-vol regime prob exceeds this (0..1)"))
-    <*> optional (option auto (long "max-conformal-width" <> help "If set, block trades when conformal interval width exceeds this (return units)"))
-    <*> optional (option auto (long "max-quantile-width" <> help "If set, block trades when quantile (q90-q10) width exceeds this (return units)"))
-    <*> switch (long "confirm-conformal" <> help "Require conformal interval to agree with the chosen direction")
-    <*> switch (long "confirm-quantiles" <> help "Require quantiles to agree with the chosen direction")
-    <*> switch (long "confidence-sizing" <> help "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled")
-    <*> option auto (long "min-position-size" <> value 0 <> help "If confidence-sizing yields a size below this, skip the trade (0..1)")
+opts = do
+  argData <- optional (strOption (long "data" <> metavar "PATH" <> help "CSV file containing prices"))
+  argPriceCol <- strOption (long "price-column" <> value "close" <> help "CSV column name for price (case-insensitive; prints suggestions on error)")
+  argHighCol <- optional (strOption (long "high-column" <> help "CSV column name for high (requires --low-column; enables intrabar stops/TP/trailing)"))
+  argLowCol <- optional (strOption (long "low-column" <> help "CSV column name for low (requires --high-column; enables intrabar stops/TP/trailing)"))
+  argBinanceSymbol <- optional (strOption (long "binance-symbol" <> metavar "SYMBOL" <> help "Fetch klines from Binance (e.g., BTCUSDT)"))
+  argBinanceFutures <- switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders")
+  argBinanceMargin <- switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance")
+  argInterval <- strOption (long "interval" <> long "binance-interval" <> value "5m" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)")
+  argBars <-
+    option
+      (eitherReader parseBarsArg)
+      ( long "bars"
+          <> long "binance-limit"
+          <> metavar "N|auto"
+          <> value Nothing
+          <> showDefaultWith (\mb -> maybe "auto" show mb)
+          <> help "Number of bars/klines to use (auto/0=all CSV, Binance=500; Binance also supports 2..1000)"
+      )
+  argLookbackWindow <- strOption (long "lookback-window" <> value "24h" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
+  argLookbackBars <- optional (option auto (long "lookback-bars" <> long "lookback" <> help "Override lookback bars (disables --lookback-window conversion)"))
+  argBinanceTestnet <- switch (long "binance-testnet" <> help "Use Binance testnet base URL (public + signed endpoints)")
+  argBinanceApiKey <- optional (strOption (long "binance-api-key" <> help "Binance API key (or env BINANCE_API_KEY)"))
+  argBinanceApiSecret <- optional (strOption (long "binance-api-secret" <> help "Binance API secret (or env BINANCE_API_SECRET)"))
+  argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal")
+  argBinanceLive <- switch (long "binance-live" <> help "If set, send LIVE orders (otherwise uses /order/test)")
+  argOrderQuote <- optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
+  argOrderQuantity <- optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
+  argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0..1) when --order-quote/--order-quantity not set"))
+  argMaxOrderQuote <- optional (option auto (long "max-order-quote" <> help "Cap the computed quote amount when using --order-quote-fraction"))
+  argIdempotencyKey <- optional (strOption (long "idempotency-key" <> metavar "ID" <> help "Optional Binance newClientOrderId for idempotent orders"))
+  argNormalization <- option (maybeReader parseNormType) (long "normalization" <> value NormStandard <> help "none|minmax|standard|log")
+  argHiddenSize <- option auto (long "hidden-size" <> value 16 <> help "LSTM hidden size")
+  argEpochs <- option auto (long "epochs" <> value 30 <> help "LSTM training epochs (Adam)")
+  argLr <- option auto (long "lr" <> value 1e-3 <> help "LSTM learning rate")
+  argValRatio <- option auto (long "val-ratio" <> value 0.2 <> help "Validation split ratio (within training set)")
+  argBacktestRatio <- option auto (long "backtest-ratio" <> value 0.2 <> help "Backtest holdout ratio (last portion of series)")
+  argTuneRatio <- option auto (long "tune-ratio" <> value 0.2 <> help "When optimizing operations/threshold: tune on the last portion of the training split (avoids lookahead on the backtest split)")
+  argTuneObjective <-
+    option
+      (eitherReader parseTuneObjective)
+      ( long "tune-objective"
+          <> value TuneEquityDdTurnover
+          <> showDefaultWith tuneObjectiveCode
+          <> help "Objective for --optimize-operations/--sweep-threshold: final-equity|sharpe|calmar|equity-dd|equity-dd-turnover"
+      )
+  argTunePenaltyMaxDrawdown <- option auto (long "tune-penalty-max-drawdown" <> value 1.0 <> help "Penalty weight for max drawdown (used by equity-dd objectives)")
+  argTunePenaltyTurnover <- option auto (long "tune-penalty-turnover" <> value 0.1 <> help "Penalty weight for turnover (used by equity-dd-turnover)")
+  argWalkForwardFolds <- option auto (long "walk-forward-folds" <> value 5 <> help "Compute fold stats on tune/backtest windows (1 disables)")
+  argPatience <- option auto (long "patience" <> value 10 <> help "Early stopping patience (0 disables)")
+  argGradClip <- optional (option auto (long "grad-clip" <> help "Gradient clipping max L2 norm"))
+  argSeed <- option auto (long "seed" <> value 42 <> help "Random seed for LSTM init")
+  argKalmanDt <- option auto (long "kalman-dt" <> value 1.0 <> help "Kalman dt")
+  argKalmanProcessVar <- option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
+  argKalmanMeasurementVar <- option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
+  argOpenThreshold <- option auto (long "open-threshold" <> long "threshold" <> value 0.001 <> help "Entry/open direction threshold (fractional deadband)")
+  mCloseThreshold <- optional (option auto (long "close-threshold" <> help "Exit/close threshold (fractional deadband; defaults to open-threshold when omitted)"))
+  argMethod <-
+    option
+      (eitherReader parseMethod)
+      ( long "method"
+          <> value MethodBoth
+          <> showDefaultWith methodCode
+          <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), 10|kalman=Kalman only, 01|lstm=LSTM only"
+      )
+  argPositioning <-
+    option
+      (eitherReader parsePositioning)
+      ( long "positioning"
+          <> value LongFlat
+          <> showDefaultWith positioningCode
+          <> help "Positioning: long-flat (default) or long-short (experimental; futures-only for live orders)"
+      )
+  argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
+  argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
+  argTradeOnly <- switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
+  argFee <- option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
+  argSlippage <- option auto (long "slippage" <> value 0.0 <> help "Slippage per side (fractional, e.g. 0.0002)")
+  argSpread <- option auto (long "spread" <> value 0.0 <> help "Bid-ask spread (fractional total; half applied per side)")
+  argIntrabarFill <-
+    option
+      (eitherReader parseIntrabarFill)
+      ( long "intrabar-fill"
+          <> value StopFirst
+          <> showDefaultWith intrabarFillCode
+          <> help "If take-profit and stop are both hit within a bar: stop-first (conservative) or take-profit-first"
+      )
+  argStopLoss <- optional (option auto (long "stop-loss" <> help "Stop loss fraction for a bracket exit (e.g., 0.02 for 2%)"))
+  argTakeProfit <- optional (option auto (long "take-profit" <> help "Take profit fraction for a bracket exit (e.g., 0.03 for 3%)"))
+  argTrailingStop <- optional (option auto (long "trailing-stop" <> help "Trailing stop fraction for a bracket exit (e.g., 0.01 for 1%)"))
+  argMinHoldBars <- option auto (long "min-hold-bars" <> value 0 <> help "Minimum holding periods (bars) before allowing a signal-based exit (0 disables)")
+  argCooldownBars <- option auto (long "cooldown-bars" <> value 0 <> help "When flat after an exit, wait this many bars before allowing a new entry (0 disables)")
+  argMaxDrawdown <- optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
+  argMaxDailyLoss <- optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
+  argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
+  argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
+  argJson <- switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
+  argServe <- switch (long "serve" <> help "Run REST API server on localhost instead of running the CLI workflow")
+  argPort <- option auto (long "port" <> value 8080 <> help "REST API port (when --serve)")
+  argKalmanZMin <- option auto (long "kalman-z-min" <> value 0 <> help "Min |Kalman mean|/std (z-score) required to treat Kalman as directional (0 disables)")
+  argKalmanZMax <- option auto (long "kalman-z-max" <> value 3 <> help "Z-score mapped to position size=1 when --confidence-sizing is enabled")
+  argMaxHighVolProb <- optional (option auto (long "max-high-vol-prob" <> help "If set, block trades when HMM high-vol regime prob exceeds this (0..1)"))
+  argMaxConformalWidth <- optional (option auto (long "max-conformal-width" <> help "If set, block trades when conformal interval width exceeds this (return units)"))
+  argMaxQuantileWidth <- optional (option auto (long "max-quantile-width" <> help "If set, block trades when quantile (q90-q10) width exceeds this (return units)"))
+  argConfirmConformal <- switch (long "confirm-conformal" <> help "Require conformal interval to agree with the chosen direction")
+  argConfirmQuantiles <- switch (long "confirm-quantiles" <> help "Require quantiles to agree with the chosen direction")
+  argConfidenceSizing <- switch (long "confidence-sizing" <> help "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled")
+  argMinPositionSize <- option auto (long "min-position-size" <> value 0 <> help "If confidence-sizing yields a size below this, skip the trade (0..1)")
+
+  pure Args { argCloseThreshold = fromMaybe argOpenThreshold mCloseThreshold, .. }
 
 argBinanceMarket :: Args -> BinanceMarket
 argBinanceMarket args =
@@ -675,18 +684,14 @@ argLookback args =
 
 validateArgs :: Args -> Either String Args
 validateArgs args0 = do
-  let args1 =
-        if argCloseThreshold args0 == closeThresholdSentinel
-          then args0 { argCloseThreshold = argOpenThreshold args0 }
-          else args0
-      args =
-        args1
-          { argData = fmap trim (argData args1)
-          , argBinanceSymbol = fmap (map toUpper . trim) (argBinanceSymbol args1)
-          , argInterval = trim (argInterval args1)
-          , argPriceCol = trim (argPriceCol args1)
-          , argHighCol = fmap trim (argHighCol args1)
-          , argLowCol = fmap trim (argLowCol args1)
+  let args =
+        args0
+          { argData = fmap trim (argData args0)
+          , argBinanceSymbol = fmap (map toUpper . trim) (argBinanceSymbol args0)
+          , argInterval = trim (argInterval args0)
+          , argPriceCol = trim (argPriceCol args0)
+          , argHighCol = fmap trim (argHighCol args0)
+          , argLowCol = fmap trim (argLowCol args0)
           }
       present = maybe False (not . null)
   case argData args of
@@ -731,8 +736,13 @@ validateArgs args0 = do
   let barsRaw = argBars args
       barsCsv = resolveBarsForCsv args
       barsBinance = resolveBarsForBinance args
-  ensure "--bars must be auto, 0 (all CSV), or >= 2" (barsRaw == autoBarsSentinel || barsRaw == 0 || barsRaw >= 2)
-  ensure "--bars cannot be 1" (barsRaw /= 1)
+  ensure
+    "--bars must be auto, 0 (all CSV), or >= 2"
+    ( case barsRaw of
+        Nothing -> True
+        Just n -> n == 0 || n >= 2
+    )
+  ensure "--bars cannot be 1" (barsRaw /= Just 1)
   case argBinanceSymbol args of
     Nothing -> pure ()
     Just _ -> ensure "--bars must be between 2 and 1000 for Binance data" (barsBinance >= 2 && barsBinance <= 1000)
@@ -1346,7 +1356,7 @@ argsPublicJson args =
         case (argBinanceSymbol args, argData args) of
           (Just _, _) -> barsBinance
           (_, Just _) -> barsCsv
-          _ -> barsRaw
+          _ -> fromMaybe 0 barsRaw
       lookback =
         case argLookbackBars args of
           Just n -> n
@@ -3496,7 +3506,7 @@ barsResolvedForCache args =
   case (argBinanceSymbol args, argData args) of
     (Just _, _) -> resolveBarsForBinance args
     (_, Just _) -> resolveBarsForCsv args
-    _ -> argBars args
+    _ -> fromMaybe 0 (argBars args)
 
 argsCacheJsonSignal :: Args -> Aeson.Value
 argsCacheJsonSignal args =
@@ -4026,9 +4036,10 @@ validateApiComputeLimits limits args =
     _ -> do
       let maxBars = aclMaxBarsLstm limits
           bars =
-            case argBinanceSymbol args of
-              Just _ -> resolveBarsForBinance args
-              Nothing -> argBars args
+            case (argBinanceSymbol args, argData args) of
+              (Just _, _) -> resolveBarsForBinance args
+              (_, Just _) -> resolveBarsForCsv args
+              _ -> fromMaybe 0 (argBars args)
           barsLabel = "bars too high"
 
       case argBinanceSymbol args of
@@ -5331,7 +5342,7 @@ argsFromApi baseArgs p = do
           , argBinanceFutures = futuresFlag
           , argBinanceMargin = marginFlag
           , argInterval = pick (apInterval p) (argInterval baseArgs)
-          , argBars = pick (apBars p) (argBars baseArgs)
+          , argBars = pickMaybe (apBars p) (argBars baseArgs)
           , argLookbackWindow = pick (apLookbackWindow p) (argLookbackWindow baseArgs)
           , argLookbackBars = pickMaybe (apLookbackBars p) (argLookbackBars baseArgs)
           , argBinanceTestnet = pick (apBinanceTestnet p) (argBinanceTestnet baseArgs)
@@ -6074,7 +6085,7 @@ tradeToJson tr =
     , "exitEquity" .= trExitEquity tr
     , "return" .= trReturn tr
     , "holdingPeriods" .= trHoldingPeriods tr
-    , "exitReason" .= fmap exitReasonCode (trExitReason tr)
+    , "exitReason" .= trExitReason tr
     ]
 
 metricsToJson :: BacktestMetrics -> Aeson.Value

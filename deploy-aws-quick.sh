@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Quick AWS deployment script for Trader
-# Usage: bash deploy-aws-quick.sh [region] [api-token]
-# Example: bash deploy-aws-quick.sh ap-northeast-1 $(openssl rand -hex 32)
+# Usage:
+#   bash deploy-aws-quick.sh [region] [api-token]
+#   TRADER_API_TOKEN=... bash deploy-aws-quick.sh [region]
+#
+# Notes:
+#   - If region is omitted, uses AWS_REGION/AWS_DEFAULT_REGION/aws-cli config, then ap-northeast-1.
+#   - If api-token is omitted, uses env TRADER_API_TOKEN (or reuses an existing App Runner token).
 
 set -euo pipefail
 
@@ -12,8 +17,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-AWS_REGION="${1:-ap-northeast-1}"
-TRADER_API_TOKEN="${2:-}"
+AWS_REGION="${1:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
+TRADER_API_TOKEN="${2:-${TRADER_API_TOKEN:-}}"
 ECR_REPO="trader-api"
 APP_RUNNER_SERVICE_NAME="${APP_RUNNER_SERVICE_NAME:-$ECR_REPO}"
 APP_RUNNER_ECR_ACCESS_ROLE_NAME="${APP_RUNNER_ECR_ACCESS_ROLE_NAME:-AppRunnerECRAccessRole}"
@@ -47,15 +52,33 @@ check_prerequisites() {
     exit 1
   fi
   echo -e "${GREEN}✓ AWS CLI found${NC}"
+
+  # Resolve region early so AWS CLI commands that require a region (including STS) work.
+  if [[ -z "${AWS_REGION:-}" ]]; then
+    AWS_REGION="$(aws configure get region 2>/dev/null || true)"
+  fi
+  AWS_REGION="${AWS_REGION:-ap-northeast-1}"
+  if [[ "$AWS_REGION" =~ [a-z]$ ]]; then
+    echo -e "${RED}✗ AWS_REGION '$AWS_REGION' looks like an Availability Zone (e.g. ap-northeast-1a). Use a region like ap-northeast-1.${NC}" >&2
+    exit 1
+  fi
   
   if ! command -v docker >/dev/null 2>&1; then
     echo -e "${RED}✗ Docker not found${NC}"
     exit 1
   fi
   echo -e "${GREEN}✓ Docker found${NC}"
+
+  # Check Docker daemon connectivity early (otherwise docker build/push errors are confusing).
+  if ! docker ps >/dev/null 2>&1; then
+    echo -e "${RED}✗ Docker daemon not reachable${NC}"
+    echo "Start Docker Desktop (or ensure dockerd is running) and retry."
+    exit 1
+  fi
+  echo -e "${GREEN}✓ Docker daemon reachable${NC}"
   
   # Check AWS credentials
-  if ! aws sts get-caller-identity >/dev/null 2>&1; then
+  if ! aws sts get-caller-identity --region "$AWS_REGION" >/dev/null 2>&1; then
     echo -e "${RED}✗ AWS credentials not configured${NC}"
     echo "Run: aws configure"
     exit 1
@@ -133,7 +156,7 @@ build_and_push() {
   
   echo "Logging in to ECR..."
   aws ecr get-login-password --region "$AWS_REGION" \
-    | docker login --username AWS --password-stdin "${ecr_uri%/*}" >/dev/null 2>&1
+    | docker login --username AWS --password-stdin "${ecr_uri%/*}" >/dev/null
   echo -e "${GREEN}✓ Logged in to ECR${NC}"
   
   echo "Tagging and pushing image..."
@@ -324,7 +347,7 @@ EOF
 # Main execution
 main() {
   check_prerequisites
-  
+
   echo "Configuration:"
   echo "  Region: $AWS_REGION"
   echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
