@@ -673,6 +673,10 @@ textarea {
   background: linear-gradient(90deg, rgba(14, 165, 233, 0.95), rgba(124, 58, 237, 0.95) 55%, rgba(34, 197, 94, 0.9));
 }
 
+.btLegendKalman {
+  background: linear-gradient(90deg, rgba(250, 204, 21, 0.92), rgba(234, 179, 8, 0.72));
+}
+
 .btLegendEquity {
   background: linear-gradient(90deg, rgba(124, 58, 237, 0.85), rgba(255, 255, 255, 0.68));
 }
