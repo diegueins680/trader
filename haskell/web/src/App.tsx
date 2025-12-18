@@ -3553,6 +3553,7 @@ export function App() {
 	                  <BacktestChart
 	                    prices={bot.status.prices}
 	                    equityCurve={bot.status.equityCurve}
+	                    kalmanPredNext={bot.status.kalmanPredNext}
 	                    positions={bot.status.positions}
 	                    trades={bot.status.trades}
 	                    operations={bot.status.operations}
@@ -4268,6 +4269,7 @@ export function App() {
 		                  <BacktestChart
 			                    prices={state.backtest.prices}
 			                    equityCurve={state.backtest.equityCurve}
+			                    kalmanPredNext={state.backtest.kalmanPredNext}
 			                    positions={state.backtest.positions}
 			                    agreementOk={state.backtest.agreementOk}
 			                    trades={state.backtest.trades}

@@ -382,6 +382,8 @@ data BacktestSummary = BacktestSummary
   , bsLatestSignal :: !LatestSignal
   , bsEquityCurve :: ![Double]
   , bsBacktestPrices :: ![Double]
+  , bsKalmanPredNext :: ![Maybe Double]
+  , bsLstmPredNext :: ![Maybe Double]
   , bsPositions :: ![Double]
   , bsAgreementOk :: ![Bool]
   , bsTrades :: ![Trade]
@@ -6013,6 +6015,8 @@ backtestSummaryJson summary =
     , "latestSignal" .= bsLatestSignal summary
     , "equityCurve" .= bsEquityCurve summary
     , "prices" .= bsBacktestPrices summary
+    , "kalmanPredNext" .= bsKalmanPredNext summary
+    , "lstmPredNext" .= bsLstmPredNext summary
     , "positions" .= bsPositions summary
     , "agreementOk" .= bsAgreementOk summary
     , "trades" .= map tradeToJson (bsTrades summary)
@@ -6748,6 +6752,21 @@ computeBacktestSummary args lookback series = do
             else args
 
       latestSignal = computeLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx
+      finiteMaybe x =
+        if isNaN x || isInfinite x
+          then Nothing
+          else Just x
+      alignPred mCtx preds =
+        let n0 = length backtestPrices
+            aligned = Nothing : map finiteMaybe preds
+         in if n0 <= 0
+              then []
+              else
+                if isJust mCtx
+                  then take n0 (aligned ++ repeat Nothing)
+                  else replicate n0 Nothing
+      kalmanPredNext = alignPred mKalmanCtx kalPredBacktest
+      lstmPredNext = alignPred mLstmCtx lstmPredBacktest
 
   pure
     BacktestSummary
@@ -6783,6 +6802,8 @@ computeBacktestSummary args lookback series = do
       , bsLatestSignal = latestSignal
       , bsEquityCurve = brEquityCurve backtest
       , bsBacktestPrices = backtestPrices
+      , bsKalmanPredNext = kalmanPredNext
+      , bsLstmPredNext = lstmPredNext
       , bsPositions = brPositions backtest
       , bsAgreementOk = brAgreementOk backtest
       , bsTrades = brTrades backtest

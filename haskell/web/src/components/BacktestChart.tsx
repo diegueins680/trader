@@ -19,6 +19,8 @@ type Operation = {
 type Props = {
   prices: number[];
   equityCurve: number[];
+  kalmanPredNext?: Array<number | null>;
+  lstmPredNext?: Array<number | null>;
   positions: number[];
   agreementOk?: boolean[];
   trades: Trade[];
@@ -102,6 +104,8 @@ function findOp(ops: Operation[] | undefined, idx: number): Operation | null {
 export function BacktestChart({
   prices,
   equityCurve,
+  kalmanPredNext,
+  lstmPredNext,
   positions,
   agreementOk,
   trades,
@@ -132,6 +136,14 @@ export function BacktestChart({
     return [...positions, ...Array.from({ length: n - positions.length }, () => last)];
   }, [n, positions]);
 
+  const kalman = useMemo<Array<number | null> | null>(() => {
+    if (!kalmanPredNext) return null;
+    if (n === 0) return [];
+    const out = kalmanPredNext.slice(0, n).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null));
+    if (out.length >= n) return out;
+    return [...out, ...Array.from({ length: n - out.length }, () => null)];
+  }, [kalmanPredNext, n]);
+
   const agree = useMemo<boolean[] | null>(() => {
     if (!agreementOk) return null;
     if (n === 0) return [];
@@ -142,13 +154,15 @@ export function BacktestChart({
 
   const legend = useMemo(() => {
     const hasShort = pos.some((p) => p < 0);
+    const showKalman = Boolean(kalman && kalman.some((v) => typeof v === "number" && Number.isFinite(v)));
     return {
       showAgreement: agree !== null,
       showTrades: trades.length > 0,
       showOps: Boolean(operations && operations.length > 0),
+      showKalman,
       hasShort,
     };
-  }, [agree, operations, pos, trades.length]);
+  }, [agree, kalman, operations, pos, trades.length]);
 
   useEffect(() => {
     setView({ start: 0, end: Math.max(1, n - 1) });
@@ -250,10 +264,15 @@ export function BacktestChart({
 
     for (let i = start; i <= end; i += 1) {
       const p = prices[i]!;
+      const k = kalman?.[i];
       const e = equityCurve[i] ?? equityCurve[equityCurve.length - 1] ?? 1;
       if (Number.isFinite(p)) {
         pMin = Math.min(pMin, p);
         pMax = Math.max(pMax, p);
+      }
+      if (typeof k === "number" && Number.isFinite(k)) {
+        pMin = Math.min(pMin, k);
+        pMax = Math.max(pMax, k);
       }
       if (Number.isFinite(e)) {
         eMin = Math.min(eMin, e);
@@ -375,6 +394,34 @@ export function BacktestChart({
     }
     ctx.stroke();
 
+    // Kalman prediction (overlay)
+    if (legend.showKalman && kalman) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(250, 204, 21, 0.92)";
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+
+      let started = false;
+      for (let i = start; i <= end; i += 1) {
+        const v = kalman[i];
+        if (typeof v !== "number" || !Number.isFinite(v)) {
+          started = false;
+          continue;
+        }
+        const x = xFor(i);
+        const y = yScale(v, prNice, yPrice0, hPrice);
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // Equity line
     const eqGrad = ctx.createLinearGradient(marginL, 0, marginL + w, 0);
     eqGrad.addColorStop(0, "rgba(124, 58, 237, 0.85)");
@@ -488,19 +535,37 @@ export function BacktestChart({
       ctx.stroke();
       ctx.fillText(String(backtestStartIndex + idx), x, yBase + 7);
     }
-  }, [agree, backtestStartIndex, equityCurve, height, hoverIdx, n, operations, pos, prices, size.h, size.w, trades, view.end, view.start]);
+  }, [
+    agree,
+    backtestStartIndex,
+    equityCurve,
+    height,
+    hoverIdx,
+    kalman,
+    legend.showKalman,
+    n,
+    operations,
+    pos,
+    prices,
+    size.h,
+    size.w,
+    trades,
+    view.end,
+    view.start,
+  ]);
 
   const hover = useMemo(() => {
     if (hoverIdx === null || hoverIdx < 0 || hoverIdx >= n) return null;
     const price = prices[hoverIdx]!;
     const eq = equityCurve[hoverIdx] ?? equityCurve[equityCurve.length - 1] ?? 1;
+    const kalPred = legend.showKalman ? kalman?.[hoverIdx] ?? null : null;
     const position = pos[hoverIdx] ?? 0;
     const ok = agree ? (agree[hoverIdx] ?? false) : null;
     const trade = findTrade(trades, hoverIdx);
     const op = findOp(operations, hoverIdx);
     const bar = backtestStartIndex + hoverIdx;
-    return { idx: hoverIdx, bar, price, eq, position, ok, trade, op };
-  }, [agree, backtestStartIndex, equityCurve, hoverIdx, n, operations, pos, prices, trades]);
+    return { idx: hoverIdx, bar, price, kalPred, eq, position, ok, trade, op };
+  }, [agree, backtestStartIndex, equityCurve, hoverIdx, kalman, legend.showKalman, n, operations, pos, prices, trades]);
 
   const tooltipStyle = useMemo(() => {
     if (!pointer) return { display: "none" } as React.CSSProperties;
@@ -616,6 +681,12 @@ export function BacktestChart({
           <span className="btLegendSwatch btLegendPrice" aria-hidden="true" />
           Price
         </div>
+        {legend.showKalman ? (
+          <div className="btLegendItem" role="listitem">
+            <span className="btLegendSwatch btLegendKalman" aria-hidden="true" />
+            Kalman
+          </div>
+        ) : null}
         <div className="btLegendItem" role="listitem">
           <span className="btLegendSwatch btLegendEquity" aria-hidden="true" />
           Equity
@@ -689,6 +760,12 @@ export function BacktestChart({
                 <div className="k">Close</div>
                 <div className="v">{fmt(hover.price, 4)}</div>
               </div>
+              {legend.showKalman ? (
+                <div className="btTooltipRow">
+                  <div className="k">Kalman</div>
+                  <div className="v">{hover.kalPred === null ? "—" : fmt(hover.kalPred, 4)}</div>
+                </div>
+              ) : null}
               <div className="btTooltipRow">
                 <div className="k">Equity</div>
                 <div className="v">{fmt(hover.eq, 4)}x</div>
