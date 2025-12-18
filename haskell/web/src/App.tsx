@@ -597,6 +597,40 @@ function fmtProfitFactor(pf: number | null | undefined, grossProfit: number, gro
   return "—";
 }
 
+const DATA_LOG_COLLAPSED_MAX_LINES = 50;
+const DATA_LOG_BAR_SERIES_KEYS = new Set(["prices", "positions", "equityCurve", "agreementOk"]);
+
+function isJsonPrimitive(v: unknown): v is string | number | boolean | null {
+  return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function getBacktestStartIndex(data: unknown): number | null {
+  if (!isRecord(data)) return null;
+  const split = data.split;
+  if (!isRecord(split)) return null;
+  const raw = split.backtestStartIndex;
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function indexTopLevelPrimitiveArrays(data: unknown): unknown {
+  if (!isRecord(data)) return data;
+  const barIndexBase = getBacktestStartIndex(data);
+  const out: Record<string, unknown> = { ...data };
+
+  for (const [k, v] of Object.entries(out)) {
+    if (!Array.isArray(v) || !v.every(isJsonPrimitive)) continue;
+
+    const isBarSeries = barIndexBase !== null && DATA_LOG_BAR_SERIES_KEYS.has(k);
+    out[k] = v.map((item, i) => (isBarSeries ? { i, bar: barIndexBase + i, v: item } : { i, v: item }));
+  }
+
+  return out;
+}
+
 function errorName(err: unknown): string {
   if (!err || typeof err !== "object" || !("name" in err)) return "";
   return String((err as { name: unknown }).name);
@@ -800,6 +834,7 @@ export function App() {
 
   const [dataLog, setDataLog] = useState<Array<{ timestamp: number; label: string; data: unknown }>>([]);
   const [dataLogExpanded, setDataLogExpanded] = useState(false);
+  const [dataLogIndexArrays, setDataLogIndexArrays] = useState(true);
   const [topCombos, setTopCombos] = useState<OptimizationCombo[]>([]);
   const [topCombosLoading, setTopCombosLoading] = useState(true);
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
@@ -5005,26 +5040,34 @@ export function App() {
           <p className="cardSubtitle">All incoming API responses (last 100 entries)</p>
         </div>
         <div className="cardBody">
-          <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
-            <button
-              className="btn"
-              onClick={() => setDataLog([])}
-            >
-              Clear Log
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                const logText = dataLog
-                  .map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
-                  .join("\n\n");
-                copyText(logText);
-                showToast("Copied log to clipboard");
-              }}
-            >
-              Copy All
-            </button>
-          </div>
+	          <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
+	            <button
+	              className="btn"
+	              onClick={() => setDataLog([])}
+	            >
+	              Clear Log
+	            </button>
+	            <button
+	              className="btn"
+	              onClick={() => {
+	                const logText = dataLog
+	                  .map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
+	                  .join("\n\n");
+	                copyText(logText);
+	                showToast("Copied log to clipboard");
+	              }}
+	            >
+	              Copy All
+	            </button>
+              <label className="pill" style={{ userSelect: "none" }}>
+                <input type="checkbox" checked={dataLogExpanded} onChange={(e) => setDataLogExpanded(e.target.checked)} />
+                Expand
+              </label>
+              <label className="pill" style={{ userSelect: "none" }}>
+                <input type="checkbox" checked={dataLogIndexArrays} onChange={(e) => setDataLogIndexArrays(e.target.checked)} />
+                Index arrays
+              </label>
+	          </div>
           <div
             ref={dataLogRef}
             style={{
@@ -5048,17 +5091,20 @@ export function App() {
                 <div key={idx} style={{ marginBottom: "12px", paddingBottom: "12px", borderBottom: "1px solid #1f2937" }}>
                   <div style={{ color: "#60a5fa", marginBottom: "4px" }}>
                     [{new Date(entry.timestamp).toLocaleTimeString()}] <span style={{ color: "#34d399" }}>{entry.label}</span>
-                  </div>
-                  <div style={{ color: "#d1d5db", fontSize: "11px" }}>
-                    {JSON.stringify(entry.data, null, 2)
-                      .split("\n")
-                      .slice(0, 50)
-                      .join("\n")}
-                    {JSON.stringify(entry.data, null, 2).split("\n").length > 50 && "\n... (truncated)"}
-                  </div>
-                </div>
-              ))
-            )}
+	                  </div>
+	                  <div style={{ color: "#d1d5db", fontSize: "11px" }}>
+                      {(() => {
+                        const data = dataLogIndexArrays ? indexTopLevelPrimitiveArrays(entry.data) : entry.data;
+                        const json = JSON.stringify(data, null, 2);
+                        if (dataLogExpanded) return json;
+                        const lines = json.split("\n");
+                        const head = lines.slice(0, DATA_LOG_COLLAPSED_MAX_LINES).join("\n");
+                        return lines.length > DATA_LOG_COLLAPSED_MAX_LINES ? `${head}\n... (truncated)` : head;
+                      })()}
+	                  </div>
+	                </div>
+	              ))
+	            )}
           </div>
         </div>
       </section>
