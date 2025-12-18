@@ -5,6 +5,12 @@ module Trader.Trading
   , StepMeta(..)
   , Trade(..)
   , BacktestResult(..)
+  , exitReasonCode
+  , exitReasonFromCode
+  , simulateEnsemble
+  , simulateEnsembleV
+  , simulateEnsembleWithHL
+  , simulateEnsembleVWithHL
   , simulateEnsembleLongFlat
   , simulateEnsembleLongFlatV
   , simulateEnsembleLongFlatWithHL
@@ -13,6 +19,12 @@ module Trader.Trading
 
 import Data.List (foldl')
 import qualified Data.Vector as V
+
+exitReasonCode :: String -> String
+exitReasonCode = id
+
+exitReasonFromCode :: String -> String
+exitReasonFromCode = id
 
 data Positioning
   = LongFlat
@@ -85,6 +97,50 @@ data BacktestResult = BacktestResult
   , brPositionChanges :: !Int
   , brTrades :: [Trade]
   } deriving (Eq, Show)
+
+simulateEnsemble
+  :: EnsembleConfig
+  -> Int            -- lookback (for LSTM alignment)
+  -> [Double]       -- prices length n
+  -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
+  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
+  -> BacktestResult
+simulateEnsemble = simulateEnsembleLongFlat
+
+simulateEnsembleWithHL
+  :: EnsembleConfig
+  -> Int            -- lookback (for LSTM alignment)
+  -> [Double]       -- closes length n
+  -> [Double]       -- highs length n (aligned to closes; bar i high is for close[i-1]..close[i])
+  -> [Double]       -- lows length n
+  -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
+  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
+  -> BacktestResult
+simulateEnsembleWithHL = simulateEnsembleLongFlatWithHL
+
+simulateEnsembleV
+  :: EnsembleConfig
+  -> Int            -- lookback (for LSTM alignment)
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> Maybe (V.Vector StepMeta) -- optional per-step confidence meta
+  -> BacktestResult
+simulateEnsembleV = simulateEnsembleLongFlatV
+
+simulateEnsembleVWithHL
+  :: EnsembleConfig
+  -> Int            -- lookback (for LSTM alignment)
+  -> V.Vector Double -- closes
+  -> V.Vector Double -- highs
+  -> V.Vector Double -- lows
+  -> V.Vector Double
+  -> V.Vector Double
+  -> Maybe (V.Vector StepMeta) -- optional per-step confidence meta
+  -> BacktestResult
+simulateEnsembleVWithHL = simulateEnsembleLongFlatVWithHL
 
 simulateEnsembleLongFlat
   :: EnsembleConfig

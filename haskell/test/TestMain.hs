@@ -36,7 +36,7 @@ import Trader.Predictors
   , initHMMFilter
   , predictSensors
   )
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), Trade(..), simulateEnsembleLongFlat)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), Trade(..), simulateEnsemble)
 import Trader.Split (Split(..), splitTrainBacktest)
 
 main :: IO ()
@@ -227,7 +227,7 @@ testAgreementGate = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      res = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred Nothing
+      res = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
   assert "expected two position changes (enter + exit)" (brPositionChanges res == 2)
 
 testMinHoldBars :: IO ()
@@ -259,7 +259,7 @@ testMinHoldBars = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      bt = simulateEnsembleLongFlat cfg lookback prices preds preds Nothing
+      bt = simulateEnsemble cfg lookback prices preds preds Nothing
   assert "min-hold keeps position through bar 2" (brPositions bt == [1, 1, 0, 0])
 
 testCooldownBars :: IO ()
@@ -291,7 +291,7 @@ testCooldownBars = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      bt = simulateEnsembleLongFlat cfg lookback prices preds preds Nothing
+      bt = simulateEnsemble cfg lookback prices preds preds Nothing
   assert "cooldown blocks entry for 1 bar after exit" (brPositions bt == [1, 0, 0, 1])
 
 testLongShortDownMove :: IO ()
@@ -324,8 +324,8 @@ testLongShortDownMove = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      btFlat = simulateEnsembleLongFlat baseCfg lookback prices kalPred lstmPred Nothing
-      btShort = simulateEnsembleLongFlat (baseCfg { ecPositioning = LongShort }) lookback prices kalPred lstmPred Nothing
+      btFlat = simulateEnsemble baseCfg lookback prices kalPred lstmPred Nothing
+      btShort = simulateEnsemble (baseCfg { ecPositioning = LongShort }) lookback prices kalPred lstmPred Nothing
 
   assertApprox "flat final equity" 1e-12 (last (brEquityCurve btFlat)) 1.0
   assertApprox "short final equity" 1e-12 (last (brEquityCurve btShort)) 1.1
@@ -361,7 +361,7 @@ testLiquidationClamp = do
           , ecConfidenceSizing = False
           , ecMinPositionSize = 0
           }
-      bt = simulateEnsembleLongFlat cfg lookback prices kalPred lstmPred Nothing
+      bt = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
       finalEq = last (brEquityCurve bt)
       trades = brTrades bt
   assertApprox "equity clamped at 0" 1e-12 finalEq 0.0

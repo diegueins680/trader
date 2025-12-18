@@ -122,7 +122,20 @@ import Trader.Optimization
   , sweepThresholdWithHLWith
   )
 import Trader.Split (Split(..), splitTrainBacktest)
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), IntrabarFill(..), Positioning(..), StepMeta(..), Trade(..), simulateEnsembleLongFlat, simulateEnsembleLongFlatWithHL)
+import Trader.BinanceIntervals (binanceIntervals, isBinanceInterval)
+import Trader.Text (normalizeKey, trim)
+import Trader.Trading
+  ( BacktestResult(..)
+  , EnsembleConfig(..)
+  , IntrabarFill(..)
+  , Positioning(..)
+  , StepMeta(..)
+  , Trade(..)
+  , exitReasonCode
+  , exitReasonFromCode
+  , simulateEnsemble
+  , simulateEnsembleWithHL
+  )
 
 -- CSV loading
 
@@ -243,9 +256,6 @@ findHeaderKey hdrList wanted =
         (h:_) -> Just h
         [] -> Nothing
 
-normalizeKey :: String -> String
-normalizeKey = map toLower . filter isAlphaNum
-
 sortCsvRowsByTime :: BS.ByteString -> [Csv.NamedRecord] -> [Csv.NamedRecord]
 sortCsvRowsByTime timeKey rows =
   case traverse (lookupCell timeKey) rows of
@@ -289,12 +299,6 @@ firstJust xs =
       case y of
         Just _ -> y
         Nothing -> firstJust ys
-
-trim :: String -> String
-trim = dropWhileEnd isSpace . dropWhile isSpace
-
-dropWhileEnd :: (a -> Bool) -> [a] -> [a]
-dropWhileEnd p = reverse . dropWhile p . reverse
 
 type LstmCtx = (NormState, [Double], LSTMModel)
 
@@ -678,11 +682,21 @@ validateArgs args0 = do
       args =
         args1
           { argData = fmap trim (argData args1)
+          , argBinanceSymbol = fmap (map toUpper . trim) (argBinanceSymbol args1)
+          , argInterval = trim (argInterval args1)
           , argPriceCol = trim (argPriceCol args1)
           , argHighCol = fmap trim (argHighCol args1)
           , argLowCol = fmap trim (argLowCol args1)
           }
-  ensure "Provide only one of --data or --binance-symbol" (not (isJust (argData args) && isJust (argBinanceSymbol args)))
+      present = maybe False (not . null)
+  case argData args of
+    Just "" -> Left "--data cannot be empty"
+    _ -> pure ()
+  case argBinanceSymbol args of
+    Just "" -> Left "--binance-symbol cannot be empty"
+    _ -> pure ()
+  ensure "Provide only one of --data or --binance-symbol" (not (present (argData args) && present (argBinanceSymbol args)))
+  ensure "Provide a data source: --data or --binance-symbol (unless using --serve)" (argServe args || present (argData args) || present (argBinanceSymbol args))
   ensure "--json cannot be used with --serve" (not (argJson args && argServe args))
   ensure "--positioning long-short is not supported with --serve (live bot is long-flat only)" (not (argServe args && argPositioning args == LongShort))
   ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
@@ -701,19 +715,18 @@ validateArgs args0 = do
       ensure "--high-column/--low-column require --data" (isJust (argData args))
     _ -> Left "Provide both --high-column and --low-column (or omit both)."
 
-  let intervalStr = trim (argInterval args)
+  let intervalStr = argInterval args
   ensure "--interval is required" (not (null intervalStr))
   case parseIntervalSeconds intervalStr of
     Nothing -> Left ("Invalid interval: " ++ show intervalStr ++ " (expected like 5m, 1h, 1d)")
     Just sec -> ensure "--interval must be > 0" (sec > 0)
 
-  let binanceIntervals = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"]
   case argBinanceSymbol args of
     Nothing -> pure ()
     Just _ ->
       ensure
         ("--interval must be a Binance interval: " ++ unwords binanceIntervals)
-        (intervalStr `elem` binanceIntervals)
+        (isBinanceInterval intervalStr)
 
   let barsRaw = argBars args
       barsCsv = resolveBarsForCsv args
@@ -738,9 +751,7 @@ validateArgs args0 = do
               (n >= 2)
             pure n
 
-  let hasDataSource = case (argData args, argBinanceSymbol args) of
-        (Nothing, Nothing) -> False
-        _ -> True
+  let hasDataSource = present (argData args) || present (argBinanceSymbol args)
       barsForLookback =
         case argBinanceSymbol args of
           Just _ -> barsBinance
@@ -3095,7 +3106,7 @@ botApplyKline mOps metrics mJournal st k = do
                                   , trExitEquity = eqAfterFee
                                   , trReturn = eqAfterFee / entryEq - 1
                                   , trHoldingPeriods = hold
-                                  , trExitReason = mExitReason
+                                  , trExitReason = exitReasonFromCode <$> mExitReason
                                   }
                            in (Nothing, botTrades st ++ [tr])
                         Nothing -> (Nothing, botTrades st)
@@ -4678,7 +4689,17 @@ handleMetrics metrics botCtrl respond = do
 handleOps :: Maybe OpsStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleOps mOps req respond =
   case mOps of
-    Nothing -> respond (jsonValue status200 (object ["enabled" .= False, "ops" .= ([] :: [PersistedOperation])]))
+    Nothing ->
+      respond
+        ( jsonValue
+            status200
+            ( object
+                [ "enabled" .= False
+                , "hint" .= ("Set TRADER_OPS_DIR to enable ops persistence." :: String)
+                , "ops" .= ([] :: [PersistedOperation])
+                ]
+            )
+        )
     Just store -> do
       let q = Wai.queryString req
           lookupParam name =
@@ -6052,7 +6073,7 @@ tradeToJson tr =
     , "exitEquity" .= trExitEquity tr
     , "return" .= trReturn tr
     , "holdingPeriods" .= trHoldingPeriods tr
-    , "exitReason" .= trExitReason tr
+    , "exitReason" .= fmap exitReasonCode (trExitReason tr)
     ]
 
 metricsToJson :: BacktestMetrics -> Aeson.Value
@@ -6665,7 +6686,7 @@ computeBacktestSummary args lookback series = do
           MethodLstmOnly -> Nothing
           _ -> metaBacktest
       backtest =
-        simulateEnsembleLongFlatWithHL
+        simulateEnsembleWithHL
           backtestCfg
           1
           backtestPrices
@@ -6718,7 +6739,7 @@ computeBacktestSummary args lookback series = do
                   kalF = take steps (drop t0 kalPredUsedBacktest)
                   lstmF = take steps (drop t0 lstmPredUsedBacktest)
                   metaF = fmap (take steps . drop t0) metaUsedBacktest
-                  btFold = simulateEnsembleLongFlatWithHL backtestCfg 1 pricesF highsF lowsF kalF lstmF metaF
+                  btFold = simulateEnsembleWithHL backtestCfg 1 pricesF highsF lowsF kalF lstmF metaF
                   mFold = computeMetrics ppy btFold
                in WalkForwardFold { wffStartIndex = trainEnd + t0, wffEndIndex = trainEnd + t1 + 1, wffMetrics = mFold }
 

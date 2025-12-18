@@ -20,7 +20,7 @@ import Data.List (foldl', group, intercalate, sort)
 import qualified Data.Vector as V
 
 import Trader.Method (Method(..))
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), StepMeta(..), simulateEnsembleLongFlatVWithHL)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), StepMeta(..), simulateEnsembleVWithHL)
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
 
 data TuneObjective
@@ -290,7 +290,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
 
       eval openThr closeThr =
         let btCfg = baseCfg { ecOpenThreshold = openThr, ecCloseThreshold = closeThr }
-            btFull = simulateEnsembleLongFlatVWithHL btCfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
+            btFull = simulateEnsembleVWithHL btCfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
             foldsReq = max 1 (tcWalkForwardFolds cfg)
             foldRs = foldRanges stepCount foldsReq
             foldScores =
@@ -304,7 +304,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                         kalF = V.slice t0 steps kalUsedV
                         lstmF = V.slice t0 steps lstmUsedV
                         metaF = fmap (\mv -> V.slice t0 steps mv) metaUsed
-                        btFold = simulateEnsembleLongFlatVWithHL btCfg 1 pricesF highsF lowsF kalF lstmF metaF
+                        btFold = simulateEnsembleVWithHL btCfg 1 pricesF highsF lowsF kalF lstmF metaF
                      in scoreBacktest cfg btFold
                   | (t0, t1) <- foldRs
                   , t1 >= t0

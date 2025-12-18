@@ -197,6 +197,7 @@ Endpoints:
 - `GET /` → basic endpoint list
 - `GET /health`
 - `GET /metrics`
+- `GET /ops` → persisted operations feed (optional; enabled via `TRADER_OPS_DIR`)
 - `GET /cache` → in-memory cache stats (entries + hit/miss)
 - `POST /cache/clear` → clears the in-memory cache
 - `POST /signal` → returns the latest signal (no orders)
@@ -220,6 +221,14 @@ Endpoints:
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
+
+Optional ops persistence (powers `GET /ops` and the “operations” history):
+- Set `TRADER_OPS_DIR` to a writable directory (writes `ops.jsonl`)
+- `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`) max operations kept in memory per process
+- `GET /ops` query params:
+  - `limit` (default: `200`, max: `5000`)
+  - `since` (only return ops with `id > since`)
+  - `kind` (exact match on operation kind)
 
 Optional async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
 - Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it).
