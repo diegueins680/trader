@@ -15,6 +15,7 @@ data BacktestMetrics = BacktestMetrics
   , bmAnnualizedVolatility :: !Double
   , bmSharpe :: !Double
   , bmMaxDrawdown :: !Double
+  , bmPositionChanges :: !Int
   , bmTradeCount :: !Int
   , bmRoundTrips :: !Int
   , bmWinRate :: !Double
@@ -78,7 +79,8 @@ computeMetrics periodsPerYear br =
             total = length flags
          in if total == 0 then 0 else fromIntegral (length (filter id flags)) / fromIntegral total
 
-      turnover = if periods == 0 then 0 else fromIntegral (brPositionChanges br) / fromIntegral periods
+      positionChanges = brPositionChanges br
+      turnover = if periods == 0 then 0 else fromIntegral positionChanges / fromIntegral periods
       roundTrips = length (filter (\t -> trEntryIndex t < trExitIndex t) trades)
    in BacktestMetrics
         { bmPeriods = periods
@@ -88,7 +90,8 @@ computeMetrics periodsPerYear br =
         , bmAnnualizedVolatility = annVol
         , bmSharpe = sharpe
         , bmMaxDrawdown = maxDd
-        , bmTradeCount = brPositionChanges br
+        , bmPositionChanges = positionChanges
+        , bmTradeCount = length trades
         , bmRoundTrips = roundTrips
         , bmWinRate = winRate
         , bmGrossProfit = grossProfits

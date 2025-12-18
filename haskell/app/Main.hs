@@ -6061,6 +6061,7 @@ backtestSummaryJson summary =
     , "prices" .= bsBacktestPrices summary
     , "positions" .= bsPositions summary
     , "agreementOk" .= bsAgreementOk summary
+    , "entryAgreementOk" .= bsAgreementOk summary
     , "trades" .= map tradeToJson (bsTrades summary)
     ]
 
@@ -6086,6 +6087,7 @@ metricsToJson m =
     , "sharpe" .= bmSharpe m
     , "maxDrawdown" .= bmMaxDrawdown m
     , "tradeCount" .= bmTradeCount m
+    , "positionChanges" .= bmPositionChanges m
     , "roundTrips" .= bmRoundTrips m
     , "winRate" .= bmWinRate m
     , "grossProfit" .= bmGrossProfit m
@@ -6095,6 +6097,7 @@ metricsToJson m =
     , "avgHoldingPeriods" .= bmAvgHoldingPeriods m
     , "exposure" .= bmExposure m
     , "agreementRate" .= bmAgreementRate m
+    , "entryAgreementRate" .= bmAgreementRate m
     , "turnover" .= bmTurnover m
     ]
 
@@ -7426,7 +7429,8 @@ printMetrics method m = do
 
   putStrLn ""
   putStrLn "**Trade Execution**"
-  putStrLn (printf "Position changes: %d" (bmTradeCount m))
+  putStrLn (printf "Position changes: %d" (bmPositionChanges m))
+  putStrLn (printf "Trades: %d" (bmTradeCount m))
   putStrLn (printf "Round trips: %d" (bmRoundTrips m))
   putStrLn (printf "Win rate: %.1f%%" (bmWinRate m * 100))
   let profitFactorLabel :: String
