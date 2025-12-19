@@ -33,7 +33,10 @@ When `TRADER_API_TOKEN` is set, all endpoints except `/health` require either:
 - `Authorization: Bearer <token>` or
 - `X-API-Key: <token>`
 
-The web UI (`haskell/web`) supports this: paste the token into the UI’s “API token” field.
+The web UI (`haskell/web`) supports this via deploy-time config: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build).
+
+Build info:
+- `GET /` and `GET /health` include `version` and optional `commit` (from env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA`).
 
 ## Deploy to App Runner (ECR)
 
@@ -92,7 +95,7 @@ docker push "${ECR_URI}:latest"
   - Optional safety limits (to avoid OOM / timeouts on small instances):
     - `TRADER_API_MAX_ASYNC_RUNNING` (default: `1`)
     - `TRADER_API_MAX_BARS_LSTM` (default: `300`)
-    - `TRADER_API_MAX_EPOCHS` (default: `60`)
+    - `TRADER_API_MAX_EPOCHS` (default: `100`)
     - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`)
   - Async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
     - `TRADER_API_ASYNC_DIR` (e.g. an EFS-mounted path). Docker image default: `/var/lib/trader/async`.
@@ -133,6 +136,28 @@ TRADER_API_TARGET="https://<your-api-host>" npm run build
 
 Then upload `haskell/web/dist` to your static hosting origin (S3/CloudFront).
 
+### UI deploy helper (S3 + optional CloudFront invalidation)
+
+If you already have an S3 bucket (and optionally a CloudFront distribution), you can deploy the UI and write `trader-config.js` in one step:
+
+```bash
+AWS_REGION=ap-northeast-1
+S3_BUCKET="trader-ui-..."
+APP_RUNNER_SERVICE_ARN="arn:aws:apprunner:..."
+CLOUDFRONT_DISTRIBUTION_ID="E123..."
+
+bash deploy/aws/deploy-ui.sh \
+  --region "$AWS_REGION" \
+  --bucket "$S3_BUCKET" \
+  --service-arn "$APP_RUNNER_SERVICE_ARN" \
+  --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID"
+```
+
+The script:
+- Builds `haskell/web`
+- Writes `haskell/web/dist/trader-config.js` (apiBaseUrl + apiToken)
+- Syncs `dist/` to S3 and (optionally) invalidates CloudFront
+
 ### What’s the “API host”?
 
 It’s the public base URL where your backend is reachable (the service running `trader-hs -- --serve`), for example:
@@ -154,7 +179,7 @@ Generate a random token locally (example):
 openssl rand -hex 32
 ```
 
-Then set it as `TRADER_API_TOKEN` on the backend and paste the same value into the UI’s “API token” field.
+Then set it as `TRADER_API_TOKEN` on the backend and set the same value in the UI’s deploy config (`haskell/web/public/trader-config.js` → `apiToken`).
 
 ### CloudFront `/api/*` proxy (optional)
 
@@ -167,7 +192,7 @@ If you prefer the UI calling `/api/*` on the same domain, configure a CloudFront
 - Cache: disable caching for `/api/*`
 
 Notes:
-- You can also override the API base at runtime from the UI (stored in local storage) via the “API base URL” field.
+- You can set the API base URL at deploy time via `haskell/web/public/trader-config.js` (`apiBaseUrl`). If you use the same-origin CloudFront `/api/*` behavior, leave it as `/api`.
 - If you run multiple backend instances, either keep it single-instance or ensure `TRADER_API_ASYNC_DIR` points to a shared writable directory (CloudFront itself is not sticky, so async jobs can return “Not found” when polling hits a different instance).
 - If you *do* prefer same-origin `/api/*` routing, see “CloudFront `/api/*` proxy (optional)” above.
 - After uploading a new UI build to S3, invalidate CloudFront so clients fetch the new hashed JS/CSS assets.

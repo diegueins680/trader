@@ -27,6 +27,11 @@ export type ApiParams = {
   valRatio?: number;
   backtestRatio?: number;
   tuneRatio?: number;
+  tuneObjective?: string;
+  tunePenaltyMaxDrawdown?: number;
+  tunePenaltyTurnover?: number;
+  minRoundTrips?: number;
+  walkForwardFolds?: number;
   patience?: number;
   gradClip?: number;
   seed?: number;
@@ -47,6 +52,8 @@ export type ApiParams = {
   stopLoss?: number;
   takeProfit?: number;
   trailingStop?: number;
+  minHoldBars?: number;
+  cooldownBars?: number;
   maxDrawdown?: number;
   maxDailyLoss?: number;
   maxOrderErrors?: number;
@@ -75,6 +82,7 @@ export type ApiParams = {
   botTrainBars?: number;
   botMaxPoints?: number;
   botTrade?: boolean;
+  botAdoptExistingPosition?: boolean;
 };
 
 export type LatestSignal = {
@@ -148,6 +156,27 @@ export type BinanceListenKeyResponse = {
 
 export type BinanceListenKeyKeepAliveResponse = { ok: boolean; atMs: number };
 
+export type BacktestMetrics = {
+  finalEquity: number;
+  totalReturn: number;
+  annualizedReturn: number;
+  annualizedVolatility: number;
+  sharpe: number;
+  maxDrawdown: number;
+  tradeCount: number;
+  positionChanges: number;
+  roundTrips: number;
+  winRate: number;
+  grossProfit: number;
+  grossLoss: number;
+  profitFactor: number | null;
+  avgTradeReturn: number;
+  avgHoldingPeriods: number;
+  exposure: number;
+  agreementRate: number;
+  turnover: number;
+};
+
 export type Trade = {
   entryIndex: number;
   exitIndex: number;
@@ -173,28 +202,48 @@ export type BacktestResponse = {
   threshold: number;
   openThreshold?: number;
   closeThreshold?: number;
-  metrics: {
-    finalEquity: number;
-    totalReturn: number;
-    annualizedReturn: number;
-    annualizedVolatility: number;
-    sharpe: number;
-    maxDrawdown: number;
-    tradeCount: number;
-    roundTrips: number;
-    winRate: number;
-    grossProfit: number;
-    grossLoss: number;
-    profitFactor: number | null;
-    avgTradeReturn: number;
-    avgHoldingPeriods: number;
-    exposure: number;
-    agreementRate: number;
-    turnover: number;
+  minHoldBars?: number;
+  cooldownBars?: number;
+  tuning?: {
+    objective: string;
+    penaltyMaxDrawdown: number;
+    penaltyTurnover: number;
+    minRoundTrips?: number;
+    walkForwardFolds: number;
+    tuneStats?: { folds: number; scores: number[]; meanScore: number; stdScore: number } | null;
+    tuneMetrics?: BacktestMetrics | null;
   };
+  costs?: {
+    fee: number;
+    slippage: number;
+    spread: number;
+    perSideCost: number;
+    roundTripCost: number;
+    breakEvenThreshold: number;
+  };
+  walkForward?: {
+    foldCount: number;
+    folds: { startIndex: number; endIndex: number; metrics: BacktestMetrics }[];
+    summary: {
+      finalEquityMean: number;
+      finalEquityStd: number;
+      annualizedReturnMean: number;
+      annualizedReturnStd: number;
+      sharpeMean: number;
+      sharpeStd: number;
+      maxDrawdownMean: number;
+      maxDrawdownStd: number;
+      turnoverMean: number;
+      turnoverStd: number;
+    };
+  } | null;
+  baselines?: { name: string; metrics: BacktestMetrics }[];
+  metrics: BacktestMetrics;
   latestSignal: LatestSignal;
   equityCurve: number[];
   prices: number[];
+  kalmanPredNext: Array<number | null>;
+  lstmPredNext: Array<number | null>;
   positions: number[];
   agreementOk: boolean[];
   trades: Trade[];
@@ -213,6 +262,14 @@ export type BotOrderEvent = {
   openTime: number;
   atMs: number;
   order: ApiOrderResult;
+};
+
+export type BotKline = {
+  openTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 };
 
 export type BotStatus =
@@ -238,15 +295,24 @@ export type BotStatus =
       threshold: number;
       openThreshold?: number;
       closeThreshold?: number;
+      settings?: { pollSeconds: number; onlineEpochs: number; trainBars: number; maxPoints: number; tradeEnabled: boolean };
       halted: boolean;
       peakEquity: number;
       dayStartEquity: number;
       consecutiveOrderErrors: number;
+      cooldownLeft?: number;
       haltReason?: string;
       haltedAtMs?: number;
       startIndex: number;
       startedAtMs: number;
       updatedAtMs: number;
+      polledAtMs?: number;
+      pollLatencyMs?: number;
+      fetchedKlines?: number;
+      fetchedLastKline?: BotKline;
+      lastBatchAtMs?: number;
+      lastBatchSize?: number;
+      lastBatchMs?: number;
       prices: number[];
       openTimes: number[];
       kalmanPredNext: Array<number | null>;

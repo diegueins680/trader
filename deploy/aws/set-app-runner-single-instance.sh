@@ -58,6 +58,19 @@ if [[ -z "${service_arn}" ]]; then
   exit 2
 fi
 
+if ! [[ "$min_size" =~ ^[0-9]+$ && "$max_size" =~ ^[0-9]+$ ]]; then
+  echo "Error: --min and --max must be integers." >&2
+  exit 2
+fi
+if (( min_size < 1 || max_size < 1 )); then
+  echo "Error: --min and --max must be >= 1." >&2
+  exit 2
+fi
+if (( min_size > max_size )); then
+  echo "Error: --min cannot be greater than --max." >&2
+  exit 2
+fi
+
 if ! command -v aws >/dev/null 2>&1; then
   echo "aws CLI not found. Install it first: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html" >&2
   exit 127
@@ -68,7 +81,30 @@ if [[ -n "${AWS_REGION:-}" ]]; then
   aws_args+=(--region "$AWS_REGION")
 fi
 
-ts="$(date -u +%y%m%d%H%M)"
+current_min="$(
+  aws "${aws_args[@]}" apprunner describe-service \
+    --service-arn "$service_arn" \
+    --query 'Service.AutoScalingConfigurationSummary.MinSize' \
+    --output text 2>/dev/null || true
+)"
+current_max="$(
+  aws "${aws_args[@]}" apprunner describe-service \
+    --service-arn "$service_arn" \
+    --query 'Service.AutoScalingConfigurationSummary.MaxSize' \
+    --output text 2>/dev/null || true
+)"
+if [[ -n "$current_min" && -n "$current_max" && "$current_min" != "None" && "$current_max" != "None" ]]; then
+  if [[ "$current_min" == "$min_size" && "$current_max" == "$max_size" ]]; then
+    echo "Scaling already set (min=$min_size, max=$max_size)."
+    aws "${aws_args[@]}" apprunner describe-service \
+      --service-arn "$service_arn" \
+      --query 'Service.AutoScalingConfigurationSummary' \
+      --output json
+    exit 0
+  fi
+fi
+
+ts="$(date -u +%s)"
 cfg_name="${name_prefix}-${min_size}-${max_size}-${ts}"
 max_len=32
 if (( ${#cfg_name} > max_len )); then

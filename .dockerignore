@@ -1,8 +1,13 @@
 .git
 .DS_Store
+.tmp
+**/.tmp
 .venv
+**/__pycache__
 node_modules
-haskell/web
+haskell/web/*
+!haskell/web/public/
+!haskell/web/public/top-combos.json
 **/dist-newstyle
 **/.stack-work
 **/*.hi

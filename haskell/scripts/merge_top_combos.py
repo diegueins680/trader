@@ -102,14 +102,20 @@ def _load_combos_from_jsonl(path: Path) -> List[Dict[str, Any]]:
         final_equity = _coerce_float(rec.get("finalEquity"))
         if final_equity is None:
             continue
+        source_raw = rec.get("source")
+        source = source_raw if isinstance(source_raw, str) else None
         params = rec.get("params")
         if not isinstance(params, dict):
             params = {}
         out.append(
             {
                 "finalEquity": final_equity,
+                "objective": rec.get("objective") if isinstance(rec.get("objective"), str) else None,
+                "score": _coerce_float(rec.get("score")),
                 "openThreshold": _coerce_float(rec.get("openThreshold")),
                 "closeThreshold": _coerce_float(rec.get("closeThreshold")),
+                "source": source,
+                "metrics": rec.get("metrics") if isinstance(rec.get("metrics"), dict) else None,
                 "params": params,
             }
         )
@@ -121,9 +127,17 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if final_equity is None:
         return None
 
+    source_raw = combo.get("source")
+    source_s = source_raw.strip().lower() if isinstance(source_raw, str) else ""
+    source = "binance" if source_s == "binance" else "csv" if source_s == "csv" else None
+
     params_raw = combo.get("params")
     if not isinstance(params_raw, dict):
         params_raw = {}
+
+    objective = combo.get("objective") if isinstance(combo.get("objective"), str) else None
+    score = _coerce_float(combo.get("score"))
+    metrics = combo.get("metrics") if isinstance(combo.get("metrics"), dict) else None
 
     interval = params_raw.get("interval")
     interval_s = interval if isinstance(interval, str) else (str(interval) if interval is not None else "")
@@ -203,8 +217,12 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     return {
         "finalEquity": final_equity,
+        "objective": objective,
+        "score": score,
         "openThreshold": _coerce_float(combo.get("openThreshold")),
         "closeThreshold": _coerce_float(combo.get("closeThreshold")),
+        "source": source,
+        "metrics": metrics,
         "params": normalized_params,
     }
 
@@ -216,6 +234,7 @@ def _signature(combo: Dict[str, Any]) -> Tuple[Any, ...]:
         return params.get(name)
 
     return (
+        combo.get("source"),
         p("interval"),
         p("bars"),
         p("method"),
@@ -265,15 +284,29 @@ def _merge_combos(sources: Iterable[List[Dict[str, Any]]]) -> List[Dict[str, Any
                 continue
             key = _signature(norm)
             prev = best_by_key.get(key)
-            if prev is None or float(norm["finalEquity"]) > float(prev["finalEquity"]):
+            score = _coerce_float(norm.get("score"))
+            prev_score = _coerce_float(prev.get("score")) if prev else None
+            if prev is None:
+                best_by_key[key] = norm
+            elif score is not None or prev_score is not None:
+                if (score if score is not None else float("-inf")) > (prev_score if prev_score is not None else float("-inf")):
+                    best_by_key[key] = norm
+            elif float(norm["finalEquity"]) > float(prev["finalEquity"]):
                 best_by_key[key] = norm
     return list(best_by_key.values())
+
+
+def _combo_sort_key(combo: Dict[str, Any]) -> Tuple[int, float]:
+    score = _coerce_float(combo.get("score"))
+    if score is not None:
+        return (1, score)
+    return (0, _coerce_float(combo.get("finalEquity")) or 0.0)
 
 
 def _write_top_json(path: Path, combos: List[Dict[str, Any]], max_items: int) -> None:
     combos_sorted = sorted(
         combos,
-        key=lambda c: float(c.get("finalEquity") or 0.0),
+        key=_combo_sort_key,
         reverse=True,
     )[:max_items]
 
@@ -284,12 +317,18 @@ def _write_top_json(path: Path, combos: List[Dict[str, Any]], max_items: int) ->
     }
 
     for rank, combo in enumerate(combos_sorted, start=1):
+        metrics = combo.get("metrics")
+        metrics_out = metrics if isinstance(metrics, dict) else None
         export["combos"].append(
             {
                 "rank": rank,
                 "finalEquity": combo["finalEquity"],
+                "objective": combo.get("objective"),
+                "score": combo.get("score"),
                 "openThreshold": combo.get("openThreshold"),
                 "closeThreshold": combo.get("closeThreshold"),
+                "source": combo.get("source"),
+                "metrics": metrics_out,
                 "params": combo.get("params", {}),
             }
         )

@@ -24,15 +24,60 @@ import {
   botStart,
   botStatus,
   botStop,
+  cacheClear,
+  cacheStats,
   health,
   signal,
   trade,
 } from "./lib/api";
 import { copyText } from "./lib/clipboard";
+import { TRADER_UI_CONFIG } from "./lib/deployConfig";
 import { readJson, readLocalString, readSessionString, removeLocalKey, removeSessionKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
+import { API_PORT, API_TARGET } from "./app/apiTarget";
+import {
+  BACKTEST_TIMEOUT_MS,
+  BINANCE_INTERVALS,
+  BINANCE_INTERVAL_SET,
+  BOT_START_TIMEOUT_MS,
+  BOT_STATUS_TAIL_POINTS,
+  BOT_STATUS_TIMEOUT_MS,
+  BOT_TELEMETRY_POINTS,
+  DATA_LOG_COLLAPSED_MAX_LINES,
+  SESSION_BINANCE_KEY_KEY,
+  SESSION_BINANCE_SECRET_KEY,
+  SIGNAL_TIMEOUT_MS,
+  STORAGE_KEY,
+  STORAGE_ORDER_LOG_PREFS_KEY,
+  STORAGE_PERSIST_SECRETS_KEY,
+  STORAGE_PROFILES_KEY,
+  TRADE_TIMEOUT_MS,
+  TUNE_OBJECTIVES,
+} from "./app/constants";
+import { binanceIntervalSeconds, defaultForm, normalizeFormState, parseDurationSeconds, type FormState, type FormStateJson } from "./app/formState";
+import {
+  actionBadgeClass,
+  clamp,
+  escapeSingleQuotes,
+  firstReason,
+  fmtDurationMs,
+  fmtEtaMs,
+  fmtProfitFactor,
+  fmtTimeMs,
+  generateIdempotencyKey,
+  indexTopLevelPrimitiveArrays,
+  isAbortError,
+  isLikelyOrderError,
+  isLocalHostname,
+  isTimeoutError,
+  marketLabel,
+  methodLabel,
+  normalizeApiBaseUrlInput,
+  numFromInput,
+} from "./app/utils";
 import { BacktestChart } from "./components/BacktestChart";
 import { PredictionDiffChart } from "./components/PredictionDiffChart";
+import { TelemetryChart } from "./components/TelemetryChart";
 import { TopCombosChart, type OptimizationCombo } from "./components/TopCombosChart";
 
 type RequestKind = "signal" | "backtest" | "trade";
@@ -46,15 +91,6 @@ type ActiveAsyncJob = {
   jobId: string | null;
   startedAtMs: number;
 };
-
-const API_TARGET = (__TRADER_API_TARGET__ || "http://127.0.0.1:8080").replace(/\/+$/, "");
-const API_PORT = (() => {
-  try {
-    return new URL(API_TARGET).port || "8080";
-  } catch {
-    return "8080";
-  }
-})();
 
 type UiState = {
   loading: boolean;
@@ -71,11 +107,39 @@ type BotUiState = {
   status: BotStatus;
 };
 
+type BotRtEvent = {
+  atMs: number;
+  message: string;
+};
+
+type BotTelemetryPoint = {
+  atMs: number;
+  pollLatencyMs: number | null;
+  driftBps: number | null;
+};
+
+type BotRtUiState = {
+  lastFetchAtMs: number | null;
+  lastFetchDurationMs: number | null;
+  lastNewCandles: number;
+  lastNewCandlesAtMs: number | null;
+  lastKlineUpdates: number;
+  lastKlineUpdatesAtMs: number | null;
+  telemetry: BotTelemetryPoint[];
+  feed: BotRtEvent[];
+};
+
 type KeysUiState = {
   loading: boolean;
   error: string | null;
   status: BinanceKeysStatus | null;
   checkedAtMs: number | null;
+};
+
+type CacheUiState = {
+  loading: boolean;
+  error: string | null;
+  stats: Awaited<ReturnType<typeof cacheStats>> | null;
 };
 
 type ListenKeyUiState = {
@@ -103,376 +167,7 @@ type OrderLogPrefs = {
   showClientOrderId: boolean;
 };
 
-type FormState = {
-  binanceSymbol: string;
-  market: Market;
-  interval: string;
-  bars: number;
-  lookbackWindow: string;
-  lookbackBars: number;
-  method: Method;
-  positioning: Positioning;
-  openThreshold: number;
-  closeThreshold: number;
-  fee: number;
-  slippage: number;
-  spread: number;
-  intrabarFill: IntrabarFill;
-  stopLoss: number;
-  takeProfit: number;
-  trailingStop: number;
-  maxDrawdown: number;
-  maxDailyLoss: number;
-  maxOrderErrors: number;
-  backtestRatio: number;
-  tuneRatio: number;
-  normalization: Normalization;
-  epochs: number;
-  learningRate: number;
-  valRatio: number;
-  patience: number;
-  gradClip: number;
-  hiddenSize: number;
-  kalmanZMin: number;
-  kalmanZMax: number;
-  maxHighVolProb: number;
-  maxConformalWidth: number;
-  maxQuantileWidth: number;
-  confirmConformal: boolean;
-  confirmQuantiles: boolean;
-  confidenceSizing: boolean;
-  minPositionSize: number;
-  optimizeOperations: boolean;
-  sweepThreshold: boolean;
-  binanceTestnet: boolean;
-  orderQuote: number;
-  orderQuantity: number;
-  orderQuoteFraction: number;
-  maxOrderQuote: number;
-  idempotencyKey: string;
-  binanceLive: boolean;
-  tradeArmed: boolean;
-  autoRefresh: boolean;
-  autoRefreshSec: number;
-
-  // Live bot (advanced)
-  botPollSeconds: number;
-  botOnlineEpochs: number;
-  botTrainBars: number;
-  botMaxPoints: number;
-};
-
-const STORAGE_KEY = "trader.ui.form.v1";
-const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
-const STORAGE_API_BASE_KEY = "trader.ui.apiBaseUrl.v1";
-const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
-const SESSION_TOKEN_KEY = "trader.ui.apiToken.v1";
-const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
-const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
-const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";
-
-const SIGNAL_TIMEOUT_MS = 5 * 60_000;
-const BACKTEST_TIMEOUT_MS = 10 * 60_000;
-const TRADE_TIMEOUT_MS = 5 * 60_000;
-const BOT_START_TIMEOUT_MS = 10 * 60_000;
-const BOT_STATUS_TIMEOUT_MS = 30_000;
-const BOT_STATUS_TAIL_POINTS = 5000;
-
-const BINANCE_INTERVALS = [
-  "1m",
-  "3m",
-  "5m",
-  "15m",
-  "30m",
-  "1h",
-  "2h",
-  "4h",
-  "6h",
-  "8h",
-  "12h",
-  "1d",
-  "3d",
-  "1w",
-  "1M",
-] as const;
-
-const BINANCE_INTERVAL_SET = new Set<string>(BINANCE_INTERVALS);
-
-const BINANCE_INTERVAL_SECONDS: Record<string, number> = {
-  "1m": 60,
-  "3m": 3 * 60,
-  "5m": 5 * 60,
-  "15m": 15 * 60,
-  "30m": 30 * 60,
-  "1h": 60 * 60,
-  "2h": 2 * 60 * 60,
-  "4h": 4 * 60 * 60,
-  "6h": 6 * 60 * 60,
-  "8h": 8 * 60 * 60,
-  "12h": 12 * 60 * 60,
-  "1d": 24 * 60 * 60,
-  "3d": 3 * 24 * 60 * 60,
-  "1w": 7 * 24 * 60 * 60,
-  "1M": 30 * 24 * 60 * 60,
-};
-
-function binanceIntervalSeconds(interval: string): number | null {
-  const sec = BINANCE_INTERVAL_SECONDS[interval];
-  return typeof sec === "number" && Number.isFinite(sec) ? sec : null;
-}
-
-function parseDurationSeconds(raw: string): number | null {
-  const s = raw.trim();
-  const m = /^(\d+)([A-Za-z])$/.exec(s);
-  if (!m) return null;
-
-  const n = Number(m[1]);
-  if (!Number.isFinite(n)) return null;
-  const unitRaw = m[2] ?? "";
-  const unit = unitRaw === "M" ? "M" : unitRaw.toLowerCase();
-
-  const mult =
-    unit === "s"
-      ? 1
-      : unit === "m"
-        ? 60
-        : unit === "h"
-          ? 60 * 60
-          : unit === "d"
-            ? 24 * 60 * 60
-            : unit === "w"
-              ? 7 * 24 * 60 * 60
-              : unit === "M"
-                ? 30 * 24 * 60 * 60
-                : null;
-  if (!mult) return null;
-  return n * mult;
-}
-
-function normalizeBinanceInterval(raw: unknown, fallback: string): string {
-  if (typeof raw !== "string") return fallback;
-  const value = raw.trim();
-  return BINANCE_INTERVAL_SET.has(value) ? value : fallback;
-}
-
-function normalizeLookbackWindow(raw: unknown, fallback: string): string {
-  if (typeof raw !== "string") return fallback;
-  const value = raw.trim();
-  const sec = parseDurationSeconds(value);
-  return sec && sec > 0 ? value : fallback;
-}
-
-function normalizeLookbackBars(raw: unknown, fallback: number): number {
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    const n = Math.trunc(raw);
-    return n >= 2 ? n : 0;
-  }
-  if (typeof raw === "string") {
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return fallback;
-    const i = Math.trunc(n);
-    return i >= 2 ? i : 0;
-  }
-  return fallback;
-}
-
-function normalizeApiBaseUrlInput(raw: string): string {
-  const v = raw.trim();
-  if (!v) return "";
-  if (v.startsWith("/") || /^https?:\/\//i.test(v)) return v;
-  if (v.includes("://")) return v;
-
-  const looksLikeHost = v === "localhost" || v.startsWith("localhost:") || v.includes(".") || v.includes(":");
-  if (!looksLikeHost) return `/${v}`;
-
-  const slashIdx = v.indexOf("/");
-  const authority = slashIdx === -1 ? v : v.slice(0, slashIdx);
-  const rest = slashIdx === -1 ? "" : v.slice(slashIdx);
-
-  const lowerAuthority = authority.toLowerCase();
-  const isLocal =
-    lowerAuthority === "localhost" ||
-    lowerAuthority.startsWith("localhost:") ||
-    lowerAuthority === "127.0.0.1" ||
-    lowerAuthority.startsWith("127.0.0.1:") ||
-    lowerAuthority === "0.0.0.0" ||
-    lowerAuthority.startsWith("0.0.0.0:") ||
-    lowerAuthority === "::1" ||
-    lowerAuthority.startsWith("::1:") ||
-    lowerAuthority === "[::1]" ||
-    lowerAuthority.startsWith("[::1]:");
-
-  const portFromAuthority = () => {
-    if (authority.startsWith("[")) {
-      const m = authority.match(/^\[[^\]]+\]:(\d{1,5})$/);
-      return m ? m[1] : null;
-    }
-    // For bare IPv6 (multiple ':'), treat as "no port"; port must be provided via brackets.
-    if (authority.split(":").length > 2) return null;
-    const m = authority.match(/:([0-9]{1,5})$/);
-    return m ? m[1] : null;
-  };
-
-  const port = portFromAuthority();
-  const normalizeAuthority = () => {
-    if (authority.startsWith("[")) return authority;
-    const parts = authority.split(":");
-    if (parts.length <= 2) return authority;
-
-    // Likely IPv6 without brackets; bracketize. If a port was detected (bracketed form), keep it.
-    if (port) {
-      const host = parts.slice(0, -1).join(":");
-      return `[${host}]:${port}`;
-    }
-    return `[${authority}]`;
-  };
-
-  const scheme = isLocal ? "http" : port && port !== "443" ? "http" : "https";
-  return `${scheme}://${normalizeAuthority()}${rest}`;
-}
-
-const defaultForm: FormState = {
-  binanceSymbol: "BTCUSDT",
-  market: "spot",
-  interval: "1h",
-  bars: 200,
-  lookbackWindow: "24h",
-  lookbackBars: 0,
-  method: "11",
-  positioning: "long-flat",
-  openThreshold: 0.001,
-  closeThreshold: 0.001,
-  fee: 0.0005,
-  slippage: 0,
-  spread: 0,
-  intrabarFill: "stop-first",
-  stopLoss: 0,
-  takeProfit: 0,
-  trailingStop: 0,
-  maxDrawdown: 0,
-  maxDailyLoss: 0,
-  maxOrderErrors: 0,
-  backtestRatio: 0.2,
-  tuneRatio: 0.2,
-  normalization: "standard",
-  epochs: 30,
-  learningRate: 0.001,
-  valRatio: 0.2,
-  patience: 10,
-  gradClip: 0,
-  hiddenSize: 16,
-  kalmanZMin: 0,
-  kalmanZMax: 3,
-  maxHighVolProb: 0,
-  maxConformalWidth: 0,
-  maxQuantileWidth: 0,
-  confirmConformal: false,
-  confirmQuantiles: false,
-  confidenceSizing: false,
-  minPositionSize: 0,
-  optimizeOperations: false,
-  sweepThreshold: false,
-  binanceTestnet: false,
-  orderQuote: 20,
-  orderQuantity: 0,
-  orderQuoteFraction: 0,
-  maxOrderQuote: 0,
-  idempotencyKey: "",
-  binanceLive: false,
-  tradeArmed: false,
-  autoRefresh: false,
-  autoRefreshSec: 20,
-
-  botPollSeconds: 0,
-  botOnlineEpochs: 1,
-  botTrainBars: 800,
-  botMaxPoints: 2000,
-};
-
 type SavedProfiles = Record<string, FormState>;
-
-type FormStateJson = Partial<FormState> & {
-  threshold?: unknown; // legacy field (maps to openThreshold/closeThreshold)
-  interval?: unknown;
-  positioning?: unknown;
-  intrabarFill?: unknown;
-  lookbackWindow?: unknown;
-  lookbackBars?: unknown;
-};
-
-function normalizeBool(raw: unknown, fallback: boolean): boolean {
-  if (typeof raw === "boolean") return raw;
-  if (raw === 1 || raw === "1" || raw === "true") return true;
-  if (raw === 0 || raw === "0" || raw === "false") return false;
-  return fallback;
-}
-
-function normalizeFiniteNumber(raw: unknown, fallback: number, lo: number, hi: number): number {
-  if (typeof raw === "number" && Number.isFinite(raw)) return clamp(raw, lo, hi);
-  if (typeof raw === "string") {
-    const n = Number(raw);
-    if (Number.isFinite(n)) return clamp(n, lo, hi);
-  }
-  return fallback;
-}
-
-function normalizePositioning(raw: unknown, fallback: Positioning): Positioning {
-  if (raw === "long-flat" || raw === "long-short") return raw;
-  return fallback;
-}
-
-function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFill {
-  if (raw === "stop-first" || raw === "take-profit-first") return raw;
-  return fallback;
-}
-
-function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
-  const merged = { ...defaultForm, ...(raw ?? {}) };
-  const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
-  const legacyThreshold = rawRec.threshold;
-  const openThreshold = normalizeFiniteNumber(rawRec.openThreshold ?? legacyThreshold ?? merged.openThreshold, defaultForm.openThreshold, 0, 1e9);
-  const closeThreshold = normalizeFiniteNumber(
-    rawRec.closeThreshold ?? legacyThreshold ?? (rawRec.openThreshold != null ? openThreshold : merged.closeThreshold),
-    defaultForm.closeThreshold,
-    0,
-    1e9,
-  );
-  const kalmanZMin = normalizeFiniteNumber(rawRec.kalmanZMin ?? merged.kalmanZMin, defaultForm.kalmanZMin, 0, 1e9);
-  const kalmanZMaxRaw = normalizeFiniteNumber(
-    rawRec.kalmanZMax ?? merged.kalmanZMax,
-    defaultForm.kalmanZMax,
-    0,
-    1e9,
-  );
-  const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
-  const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
-  return {
-    ...mergedNoLegacy,
-    interval: normalizeBinanceInterval(raw?.interval ?? merged.interval, defaultForm.interval),
-    positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
-    lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
-    lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),
-    openThreshold,
-    closeThreshold,
-    slippage: normalizeFiniteNumber(rawRec.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
-    spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
-    intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
-    tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
-    kalmanZMin,
-    kalmanZMax,
-    maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
-    maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
-    maxQuantileWidth: normalizeFiniteNumber(rawRec.maxQuantileWidth ?? merged.maxQuantileWidth, 0, 0, 1e9),
-    confirmConformal: normalizeBool(rawRec.confirmConformal ?? merged.confirmConformal, defaultForm.confirmConformal),
-    confirmQuantiles: normalizeBool(rawRec.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
-    confidenceSizing: normalizeBool(rawRec.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
-    learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1),
-    valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
-    patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
-    gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
-    minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
-  };
-}
 
 type PendingProfileLoad = {
   name: string;
@@ -480,136 +175,14 @@ type PendingProfileLoad = {
   reasons: string[];
 };
 
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, n));
-}
-
-function numFromInput(raw: string, fallback: number): number {
-  if (raw.trim() === "") return fallback;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function escapeSingleQuotes(raw: string): string {
-  return raw.replaceAll("'", "'\\''");
-}
-
-function firstReason(...reasons: Array<string | null | undefined>): string | null {
-  for (const r of reasons) if (r) return r;
-  return null;
-}
-
-function isLocalHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-}
-
-function fmtTimeMs(ms: number): string {
-  if (!Number.isFinite(ms)) return "—";
-  try {
-    return new Date(ms).toLocaleString();
-  } catch {
-    return String(ms);
-  }
-}
-
-function fmtProfitFactor(pf: number | null | undefined, grossProfit: number, grossLoss: number): string {
-  if (typeof pf === "number" && Number.isFinite(pf)) return fmtNum(pf, 3);
-  if (grossLoss === 0 && grossProfit > 0) return "∞";
-  if (grossLoss === 0 && grossProfit === 0) return "0";
-  return "—";
-}
-
-function errorName(err: unknown): string {
-  if (!err || typeof err !== "object" || !("name" in err)) return "";
-  return String((err as { name: unknown }).name);
-}
-
-function isAbortError(err: unknown): boolean {
-  const name = errorName(err);
-  if (name === "AbortError") return true;
-  if (!(err instanceof Error)) return false;
-  return err.message.toLowerCase().includes("aborted");
-}
-
-function isTimeoutError(err: unknown): boolean {
-  return errorName(err) === "TimeoutError";
-}
-
-function actionBadgeClass(action: string): string {
-  const a = action.toUpperCase();
-  if (a.includes("LONG")) return "badge badgeStrong badgeLong";
-  if (a.includes("FLAT")) return "badge badgeStrong badgeFlat";
-  return "badge badgeStrong badgeHold";
-}
-
-function methodLabel(method: Method): string {
-  switch (method) {
-    case "11":
-      return "Both (agreement gated)";
-    case "10":
-      return "Kalman only";
-    case "01":
-      return "LSTM only";
-  }
-}
-
-function marketLabel(m: Market): string {
-  switch (m) {
-    case "spot":
-      return "Spot";
-    case "margin":
-      return "Margin";
-    case "futures":
-      return "Futures";
-  }
-}
-
-function generateIdempotencyKey(): string {
-  try {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-      return crypto.randomUUID();
-    }
-  } catch {
-    // ignore
-  }
-  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
-  const bytes = new Uint8Array(24);
-  try {
-    crypto.getRandomValues(bytes);
-  } catch {
-    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
-  }
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 1) out += alphabet[bytes[i]! % alphabet.length];
-  return out;
-}
-
-function isLikelyOrderError(message: string | null | undefined, sent: boolean | null | undefined, status: string | null | undefined): boolean {
-  if (sent === false) return true;
-  const s = `${status ?? ""} ${message ?? ""}`.toLowerCase();
-  return (
-    s.includes("error") ||
-    s.includes("fail") ||
-    s.includes("rejected") ||
-    s.includes("insufficient") ||
-    s.includes("no order") ||
-    s.includes("halt") ||
-    s.includes("denied")
-  );
-}
-
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [healthInfo, setHealthInfo] = useState<Awaited<ReturnType<typeof health>> | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [revealSecrets, setRevealSecrets] = useState(false);
   const [persistSecrets, setPersistSecrets] = useState<boolean>(() => readJson<boolean>(STORAGE_PERSIST_SECRETS_KEY) ?? false);
-  const [apiBaseUrl, setApiBaseUrl] = useState<string>(() => normalizeApiBaseUrlInput(readJson<string>(STORAGE_API_BASE_KEY) ?? ""));
-  const [apiToken, setApiToken] = useState<string>(() => {
-    const persisted = readLocalString(SESSION_TOKEN_KEY) ?? "";
-    const session = readSessionString(SESSION_TOKEN_KEY) ?? "";
-    return persistSecrets ? persisted || session : session;
-  });
+  const deployApiBaseUrl = TRADER_UI_CONFIG.apiBaseUrl;
+  const apiToken = TRADER_UI_CONFIG.apiToken;
   const [binanceApiKey, setBinanceApiKey] = useState<string>(() => {
     const persisted = readLocalString(SESSION_BINANCE_KEY_KEY) ?? "";
     const session = readSessionString(SESSION_BINANCE_KEY_KEY) ?? "";
@@ -656,12 +229,50 @@ export function App() {
     status: { running: false },
   });
 
+  const [botRt, setBotRt] = useState<BotRtUiState>({
+    lastFetchAtMs: null,
+    lastFetchDurationMs: null,
+    lastNewCandles: 0,
+    lastNewCandlesAtMs: null,
+    lastKlineUpdates: 0,
+    lastKlineUpdatesAtMs: null,
+    telemetry: [],
+    feed: [],
+  });
+  const botRtRef = useRef<{
+    botKey: string | null;
+    lastOpenTimeMs: number | null;
+    lastError: string | null;
+    lastHalted: boolean | null;
+    lastFetchedOpenTimeMs: number | null;
+    lastFetchedClose: number | null;
+    lastMethod: Method | null;
+    lastOpenThreshold: number | null;
+    lastCloseThreshold: number | null;
+    lastTradeEnabled: boolean | null;
+    lastTelemetryPolledAtMs: number | null;
+  }>({
+    botKey: null,
+    lastOpenTimeMs: null,
+    lastError: null,
+    lastHalted: null,
+    lastFetchedOpenTimeMs: null,
+    lastFetchedClose: null,
+    lastMethod: null,
+    lastOpenThreshold: null,
+    lastCloseThreshold: null,
+    lastTradeEnabled: null,
+    lastTelemetryPolledAtMs: null,
+  });
+
   const [keys, setKeys] = useState<KeysUiState>({
     loading: false,
     error: null,
     status: null,
     checkedAtMs: null,
   });
+
+  const [cacheUi, setCacheUi] = useState<CacheUiState>({ loading: false, error: null, stats: null });
 
   const [listenKeyUi, setListenKeyUi] = useState<ListenKeyUiState>({
     loading: false,
@@ -688,6 +299,7 @@ export function App() {
 
   const [dataLog, setDataLog] = useState<Array<{ timestamp: number; label: string; data: unknown }>>([]);
   const [dataLogExpanded, setDataLogExpanded] = useState(false);
+  const [dataLogIndexArrays, setDataLogIndexArrays] = useState(true);
   const [topCombos, setTopCombos] = useState<OptimizationCombo[]>([]);
   const [topCombosLoading, setTopCombosLoading] = useState(true);
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
@@ -734,23 +346,6 @@ export function App() {
     orderShowStatus,
     orderSideFilter,
   ]);
-
-  useEffect(() => {
-    writeJson(STORAGE_API_BASE_KEY, apiBaseUrl.trim());
-  }, [apiBaseUrl]);
-
-  useEffect(() => {
-    const token = apiToken.trim();
-    if (persistSecrets) {
-      if (!token) removeLocalKey(SESSION_TOKEN_KEY);
-      else writeLocalString(SESSION_TOKEN_KEY, token);
-      removeSessionKey(SESSION_TOKEN_KEY);
-    } else {
-      if (!token) removeSessionKey(SESSION_TOKEN_KEY);
-      else writeSessionString(SESSION_TOKEN_KEY, token);
-      removeLocalKey(SESSION_TOKEN_KEY);
-    }
-  }, [apiToken, persistSecrets]);
 
   useEffect(() => {
     const v = binanceApiKey.trim();
@@ -814,6 +409,8 @@ export function App() {
           stopLoss: combo.params.stopLoss ?? 0,
           takeProfit: combo.params.takeProfit ?? 0,
           trailingStop: combo.params.trailingStop ?? 0,
+          minHoldBars: combo.params.minHoldBars ?? prev.minHoldBars,
+          cooldownBars: combo.params.cooldownBars ?? prev.cooldownBars,
           maxDrawdown: combo.params.maxDrawdown ?? 0,
           maxDailyLoss: combo.params.maxDailyLoss ?? 0,
           maxOrderErrors: combo.params.maxOrderErrors ?? 0,
@@ -925,10 +522,10 @@ export function App() {
     return { Authorization: `Bearer ${token}`, "X-API-Key": token };
   }, [apiToken]);
 
-  const apiBaseCandidate = useMemo(() => normalizeApiBaseUrlInput(apiBaseUrl), [apiBaseUrl]);
+  const apiBaseCandidate = useMemo(() => normalizeApiBaseUrlInput(deployApiBaseUrl), [deployApiBaseUrl]);
 
   const apiBaseError = useMemo(() => {
-    const raw = apiBaseUrl.trim();
+    const raw = deployApiBaseUrl.trim();
     if (!raw) return null;
     const candidate = apiBaseCandidate.trim();
     if (candidate.startsWith("/")) return null;
@@ -938,11 +535,11 @@ export function App() {
         new URL(candidate);
         return null;
       } catch {
-        return "API base must be a valid URL (e.g. https://your-api-host) or a path like /api";
+        return "Configured apiBaseUrl must be a valid URL (e.g. https://your-api-host) or a path like /api";
       }
     }
-    return "API base must start with http(s):// or /api";
-  }, [apiBaseCandidate, apiBaseUrl]);
+    return "Configured apiBaseUrl must start with http(s):// or /api";
+  }, [apiBaseCandidate, deployApiBaseUrl]);
 
   const apiBase = useMemo(() => {
     const raw = apiBaseCandidate.trim();
@@ -1019,7 +616,47 @@ export function App() {
     }
   }, [apiBase, apiToken, authHeaders, showToast]);
 
-	  const commonParams: ApiParams = useMemo(() => {
+  const refreshCacheStats = useCallback(async () => {
+    setCacheUi((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const v = await cacheStats(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      setCacheUi({ loading: false, error: null, stats: v });
+    } catch (e) {
+      if (isAbortError(e)) return;
+      if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check apiToken / TRADER_API_TOKEN)." }));
+        return;
+      }
+      setCacheUi((s) => ({
+        ...s,
+        loading: false,
+        error: isTimeoutError(e) ? "Request timed out" : "Failed to load cache stats",
+      }));
+    }
+  }, [apiBase, authHeaders]);
+
+  const clearCacheUi = useCallback(async () => {
+    setCacheUi((s) => ({ ...s, loading: true, error: null }));
+    try {
+      await cacheClear(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      showToast("Cache cleared");
+      const v = await cacheStats(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      setCacheUi({ loading: false, error: null, stats: v });
+    } catch (e) {
+      if (isAbortError(e)) return;
+      if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check apiToken / TRADER_API_TOKEN)." }));
+        return;
+      }
+      setCacheUi((s) => ({
+        ...s,
+        loading: false,
+        error: isTimeoutError(e) ? "Request timed out" : "Failed to clear cache",
+      }));
+    }
+  }, [apiBase, authHeaders, showToast]);
+
+  const commonParams: ApiParams = useMemo(() => {
     const interval = form.interval.trim();
     const intervalOk = BINANCE_INTERVAL_SET.has(interval);
     const barsRaw = Math.trunc(form.bars);
@@ -1034,17 +671,24 @@ export function App() {
       openThreshold: Math.max(0, form.openThreshold),
       closeThreshold: Math.max(0, form.closeThreshold),
       fee: Math.max(0, form.fee),
-	      ...(form.slippage > 0 ? { slippage: clamp(form.slippage, 0, 0.999999) } : {}),
-	      ...(form.spread > 0 ? { spread: clamp(form.spread, 0, 0.999999) } : {}),
-	      ...(form.intrabarFill !== "stop-first" ? { intrabarFill: form.intrabarFill } : {}),
-	      ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
-	      ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
-	      ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
-	      ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
-	      ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
-	      ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
+      ...(form.slippage > 0 ? { slippage: clamp(form.slippage, 0, 0.999999) } : {}),
+      ...(form.spread > 0 ? { spread: clamp(form.spread, 0, 0.999999) } : {}),
+      ...(form.intrabarFill !== "stop-first" ? { intrabarFill: form.intrabarFill } : {}),
+      ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
+      ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
+      ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
+      ...(form.minHoldBars > 0 ? { minHoldBars: clamp(Math.trunc(form.minHoldBars), 0, 1_000_000) } : {}),
+      ...(form.cooldownBars > 0 ? { cooldownBars: clamp(Math.trunc(form.cooldownBars), 0, 1_000_000) } : {}),
+      ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
+      ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
+      ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       tuneRatio: clamp(form.tuneRatio, 0, 0.99),
+      tuneObjective: form.tuneObjective,
+      tunePenaltyMaxDrawdown: Math.max(0, form.tunePenaltyMaxDrawdown),
+      tunePenaltyTurnover: Math.max(0, form.tunePenaltyTurnover),
+      minRoundTrips: clamp(Math.trunc(form.minRoundTrips), 0, 1_000_000),
+      walkForwardFolds: clamp(Math.trunc(form.walkForwardFolds), 1, 1000),
       normalization: form.normalization,
       epochs: clamp(Math.trunc(form.epochs), 0, 5000),
       hiddenSize: clamp(Math.trunc(form.hiddenSize), 1, 512),
@@ -1052,27 +696,38 @@ export function App() {
       valRatio: clamp(form.valRatio, 0, 1),
       patience: clamp(Math.trunc(form.patience), 0, 1000),
       ...(form.gradClip > 0 ? { gradClip: clamp(form.gradClip, 0, 100) } : {}),
-	      kalmanZMin: Math.max(0, form.kalmanZMin),
-	      kalmanZMax: Math.max(Math.max(0, form.kalmanZMin), form.kalmanZMax),
-	      binanceTestnet: form.binanceTestnet,
-	    };
+      kalmanZMin: Math.max(0, form.kalmanZMin),
+      kalmanZMax: Math.max(Math.max(0, form.kalmanZMin), form.kalmanZMax),
+      binanceTestnet: form.binanceTestnet,
+    };
 
     if (form.lookbackBars >= 2) base.lookbackBars = Math.trunc(form.lookbackBars);
     else if (form.lookbackWindow.trim()) base.lookbackWindow = form.lookbackWindow.trim();
 
-	    if (form.optimizeOperations) base.optimizeOperations = true;
-	    if (form.sweepThreshold) base.sweepThreshold = true;
+    if (form.optimizeOperations) base.optimizeOperations = true;
+    if (form.sweepThreshold) base.sweepThreshold = true;
 
-	    if (form.maxHighVolProb > 0) base.maxHighVolProb = clamp(form.maxHighVolProb, 0, 1);
-	    if (form.maxConformalWidth > 0) base.maxConformalWidth = Math.max(0, form.maxConformalWidth);
-	    if (form.maxQuantileWidth > 0) base.maxQuantileWidth = Math.max(0, form.maxQuantileWidth);
-	    if (form.confirmConformal) base.confirmConformal = true;
-	    if (form.confirmQuantiles) base.confirmQuantiles = true;
-	    if (form.confidenceSizing) base.confidenceSizing = true;
-	    if (form.minPositionSize > 0) base.minPositionSize = clamp(form.minPositionSize, 0, 1);
+    if (form.maxHighVolProb > 0) base.maxHighVolProb = clamp(form.maxHighVolProb, 0, 1);
+    if (form.maxConformalWidth > 0) base.maxConformalWidth = Math.max(0, form.maxConformalWidth);
+    if (form.maxQuantileWidth > 0) base.maxQuantileWidth = Math.max(0, form.maxQuantileWidth);
+    if (form.confirmConformal) base.confirmConformal = true;
+    if (form.confirmQuantiles) base.confirmQuantiles = true;
+    if (form.confidenceSizing) base.confidenceSizing = true;
+    if (form.minPositionSize > 0) base.minPositionSize = clamp(form.minPositionSize, 0, 1);
 
-	    return base;
-	  }, [form]);
+    return base;
+  }, [form]);
+
+  const estimatedCosts = useMemo(() => {
+    const fee = Math.max(0, form.fee);
+    const slippage = Math.max(0, form.slippage);
+    const spread = Math.max(0, form.spread);
+    const perSide = Math.min(0.999999, fee + slippage + spread / 2);
+    const roundTrip = Math.min(0.999999, perSide * 2);
+    const denom = Math.max(1e-12, (1 - perSide) * (1 - perSide));
+    const breakEven = Math.max(0, 1 / denom - 1);
+    return { perSide, roundTrip, breakEven };
+  }, [form.fee, form.slippage, form.spread]);
 
   const tradeParams: ApiParams = useMemo(() => {
     const base: ApiParams = { ...commonParams };
@@ -1083,8 +738,8 @@ export function App() {
 
     if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
     else if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
-    else if (form.orderQuoteFraction > 0) {
-      base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
+    else if (form.orderQuoteFraction > 0 && form.orderQuoteFraction <= 1) {
+      base.orderQuoteFraction = form.orderQuoteFraction;
       if (form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
     }
 
@@ -1126,8 +781,8 @@ export function App() {
 
     if (form.orderQuantity > 0) base.orderQuantity = form.orderQuantity;
     else if (form.orderQuote > 0) base.orderQuote = form.orderQuote;
-    else if (form.orderQuoteFraction > 0) {
-      base.orderQuoteFraction = clamp(form.orderQuoteFraction, 0, 1);
+    else if (form.orderQuoteFraction > 0 && form.orderQuoteFraction <= 1) {
+      base.orderQuoteFraction = form.orderQuoteFraction;
       if (form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
     }
 
@@ -1192,6 +847,11 @@ export function App() {
     return rows.length ? rows.join("\n") : "No live operations yet.";
   }, [bot.status, botOrdersView.shown]);
 
+  const botRtFeedText = useMemo(() => {
+    if (botRt.feed.length === 0) return "No realtime events yet.";
+    return botRt.feed.map((e) => `${fmtTimeMs(e.atMs)} | ${e.message}`).join("\n");
+  }, [botRt.feed]);
+
   const botRisk = useMemo(() => {
     const st = bot.status;
     if (!st.running) return null;
@@ -1201,6 +861,78 @@ export function App() {
     const dd = peak > 0 ? Math.max(0, 1 - lastEq / peak) : 0;
     const dl = dayStart > 0 ? Math.max(0, 1 - lastEq / dayStart) : 0;
     return { lastEq, dd, dl };
+  }, [bot.status]);
+
+  const botRealtime = useMemo(() => {
+    const st = bot.status;
+    if (!st.running) return null;
+    const now = Date.now();
+    const processedOpenTime = st.openTimes[st.openTimes.length - 1] ?? null;
+    const fetchedLast = st.fetchedLastKline ?? null;
+    const fetchedOpenTime = fetchedLast?.openTime ?? null;
+    const candleOpenTime = fetchedOpenTime ?? processedOpenTime;
+    const intervalSec = binanceIntervalSeconds(st.interval) ?? parseDurationSeconds(st.interval);
+    const intervalMs = typeof intervalSec === "number" && Number.isFinite(intervalSec) && intervalSec > 0 ? intervalSec * 1000 : null;
+    const expectedCloseMs = candleOpenTime !== null && intervalMs !== null ? candleOpenTime + intervalMs : null;
+    const closeEtaMs = expectedCloseMs !== null ? expectedCloseMs - now : null;
+    const statusAgeMs = typeof st.updatedAtMs === "number" && Number.isFinite(st.updatedAtMs) ? now - st.updatedAtMs : null;
+    const polledAtMs = typeof st.polledAtMs === "number" && Number.isFinite(st.polledAtMs) ? st.polledAtMs : null;
+    const pollLatencyMs = typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? st.pollLatencyMs : null;
+    const pollAgeMs = polledAtMs !== null ? now - polledAtMs : null;
+    const fetchedKlines = typeof st.fetchedKlines === "number" && Number.isFinite(st.fetchedKlines) ? st.fetchedKlines : null;
+    const pollSeconds =
+      typeof st.settings?.pollSeconds === "number" && Number.isFinite(st.settings.pollSeconds) ? Math.max(0, st.settings.pollSeconds) : null;
+    const nextPollEtaMs = polledAtMs !== null && pollSeconds !== null ? polledAtMs + pollSeconds * 1000 - now : null;
+    const candleAgeMs = candleOpenTime !== null ? now - candleOpenTime : null;
+    const procLagMs = processedOpenTime !== null ? st.updatedAtMs - processedOpenTime : null;
+    const closeLagMs = expectedCloseMs !== null ? st.updatedAtMs - expectedCloseMs : null;
+    const pollCloseLagMs = polledAtMs !== null && expectedCloseMs !== null ? polledAtMs - expectedCloseMs : null;
+    const lastBatchAtMs = typeof st.lastBatchAtMs === "number" && Number.isFinite(st.lastBatchAtMs) ? st.lastBatchAtMs : null;
+    const lastBatchSize = typeof st.lastBatchSize === "number" && Number.isFinite(st.lastBatchSize) ? st.lastBatchSize : null;
+    const lastBatchMs = typeof st.lastBatchMs === "number" && Number.isFinite(st.lastBatchMs) ? st.lastBatchMs : null;
+    const batchAgeMs = lastBatchAtMs !== null ? now - lastBatchAtMs : null;
+    const batchPerBarMs = lastBatchMs !== null && lastBatchSize && lastBatchSize > 0 ? lastBatchMs / lastBatchSize : null;
+    const lastBarIndex = st.startIndex + Math.max(0, st.prices.length - 1);
+    const processedClose = st.prices[st.prices.length - 1] ?? null;
+    const fetchedClose = typeof fetchedLast?.close === "number" && Number.isFinite(fetchedLast.close) ? fetchedLast.close : null;
+    const closeDelta = typeof processedClose === "number" && Number.isFinite(processedClose) && typeof fetchedClose === "number" ? fetchedClose - processedClose : null;
+    const closeDeltaPct =
+      closeDelta !== null && typeof processedClose === "number" && Number.isFinite(processedClose) && processedClose !== 0 ? closeDelta / processedClose : null;
+    const behindCandles =
+      fetchedOpenTime !== null && processedOpenTime !== null && intervalMs !== null
+        ? Math.max(0, Math.round((fetchedOpenTime - processedOpenTime) / intervalMs))
+        : null;
+    return {
+      now,
+      processedOpenTime,
+      fetchedOpenTime,
+      candleOpenTime,
+      expectedCloseMs,
+      closeEtaMs,
+      statusAgeMs,
+      polledAtMs,
+      pollLatencyMs,
+      pollAgeMs,
+      fetchedKlines,
+      pollSeconds,
+      nextPollEtaMs,
+      candleAgeMs,
+      procLagMs,
+      closeLagMs,
+      pollCloseLagMs,
+      lastBatchAtMs,
+      lastBatchSize,
+      lastBatchMs,
+      batchAgeMs,
+      batchPerBarMs,
+      lastBarIndex,
+      processedClose,
+      fetchedClose,
+      closeDelta,
+      closeDeltaPct,
+      behindCandles,
+      fetchedLast,
+    };
   }, [bot.status]);
 
   const scrollToResult = useCallback((kind: RequestKind) => {
@@ -1226,11 +958,12 @@ export function App() {
         const p = overrideParams ?? (kind === "trade" ? tradeParams : commonParams);
         if (!p.binanceSymbol) throw new Error("binanceSymbol is required.");
         if (!p.interval) throw new Error("interval is required.");
+        const requestHeaders = form.bypassCache ? { ...(authHeaders ?? {}), "Cache-Control": "no-cache" } : authHeaders;
 
         if (kind === "signal") {
           const out = await signal(apiBase, p, {
             signal: controller.signal,
-            headers: authHeaders,
+            headers: requestHeaders,
             timeoutMs: SIGNAL_TIMEOUT_MS,
             onJobId: (jobId) => {
               if (requestId !== requestSeqRef.current) return;
@@ -1258,7 +991,7 @@ export function App() {
         } else if (kind === "backtest") {
           const out = await backtest(apiBase, p, {
             signal: controller.signal,
-            headers: authHeaders,
+            headers: requestHeaders,
             timeoutMs: BACKTEST_TIMEOUT_MS,
             onJobId: (jobId) => {
               if (requestId !== requestSeqRef.current) return;
@@ -1284,7 +1017,7 @@ export function App() {
           if (!form.tradeArmed) throw new Error("Trading is locked. Enable “Arm trading” to call /trade.");
           const out = await trade(apiBase, withBinanceKeys(p), {
             signal: controller.signal,
-            headers: authHeaders,
+            headers: requestHeaders,
             timeoutMs: TRADE_TIMEOUT_MS,
             onJobId: (jobId) => {
               if (requestId !== requestSeqRef.current) return;
@@ -1322,7 +1055,7 @@ export function App() {
         }
         if (e instanceof HttpError && e.status === 504) {
           msg = apiBase.startsWith("/api")
-            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, or set “API base URL” to https://<your-api-host>."
+            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, or set apiBaseUrl in trader-config.js to https://<your-api-host>."
             : "API gateway timed out (504). Try again, or reduce bars/epochs, or scale the API.";
         }
 
@@ -1351,7 +1084,7 @@ export function App() {
         }
       }
     },
-    [apiBase, authHeaders, commonParams, form.tradeArmed, scrollToResult, showToast, tradeParams, withBinanceKeys],
+    [apiBase, authHeaders, commonParams, form.bypassCache, form.tradeArmed, scrollToResult, showToast, tradeParams, withBinanceKeys],
   );
 
   const cancelActiveRequest = useCallback(() => {
@@ -1531,6 +1264,7 @@ export function App() {
   const refreshBot = useCallback(
     async (opts?: RunOptions) => {
       const requestId = ++botRequestSeqRef.current;
+      const startedAtMs = Date.now();
       botAbortRef.current?.abort();
       const controller = new AbortController();
       botAbortRef.current = controller;
@@ -1543,7 +1277,169 @@ export function App() {
           { signal: controller.signal, headers: authHeaders, timeoutMs: BOT_STATUS_TIMEOUT_MS },
           BOT_STATUS_TAIL_POINTS,
         );
+        const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
+        setBotRt((prev) => {
+          const base: BotRtUiState = {
+            ...prev,
+            lastFetchAtMs: finishedAtMs,
+            lastFetchDurationMs: Math.max(0, finishedAtMs - startedAtMs),
+            lastNewCandles: 0,
+            lastKlineUpdates: 0,
+          };
+
+          const rt = botRtRef.current;
+
+          if (!out.running) {
+            botRtRef.current = {
+              botKey: null,
+              lastOpenTimeMs: null,
+              lastError: null,
+              lastHalted: null,
+              lastFetchedOpenTimeMs: null,
+              lastFetchedClose: null,
+              lastMethod: null,
+              lastOpenThreshold: null,
+              lastCloseThreshold: null,
+              lastTradeEnabled: null,
+              lastTelemetryPolledAtMs: null,
+            };
+            return {
+              ...base,
+              lastNewCandles: 0,
+              lastNewCandlesAtMs: null,
+              lastKlineUpdates: 0,
+              lastKlineUpdatesAtMs: null,
+              telemetry: [],
+              feed: [],
+            };
+          }
+
+          const botKey = `${out.market}:${out.symbol}:${out.interval}`;
+          let feed = base.feed;
+          let telemetry = base.telemetry;
+          if (rt.botKey !== botKey) {
+            feed = [];
+            telemetry = [];
+            rt.botKey = botKey;
+            rt.lastOpenTimeMs = null;
+            rt.lastError = null;
+            rt.lastHalted = null;
+            rt.lastFetchedOpenTimeMs = null;
+            rt.lastFetchedClose = null;
+            rt.lastMethod = null;
+            rt.lastOpenThreshold = null;
+            rt.lastCloseThreshold = null;
+            rt.lastTradeEnabled = null;
+            rt.lastTelemetryPolledAtMs = null;
+          }
+
+          const openTimes = out.openTimes;
+          const lastOpen = openTimes[openTimes.length - 1] ?? null;
+          const prevLastOpen = rt.lastOpenTimeMs;
+          const newTimes = typeof prevLastOpen === "number" ? openTimes.filter((t) => t > prevLastOpen) : [];
+          const newCount = newTimes.length;
+
+	          let lastNewCandlesAtMs: number | null = prev.lastNewCandlesAtMs;
+	          if (newCount > 0) {
+	            lastNewCandlesAtMs = finishedAtMs;
+	            const lastNew = newTimes[newTimes.length - 1]!;
+	            const idx = openTimes.lastIndexOf(lastNew);
+	            const closePx = idx >= 0 ? out.prices[idx] : null;
+	            const action = out.latestSignal.action;
+	            const pollMs = typeof out.pollLatencyMs === "number" && Number.isFinite(out.pollLatencyMs) ? Math.max(0, Math.round(out.pollLatencyMs)) : null;
+	            const batchMs = typeof out.lastBatchMs === "number" && Number.isFinite(out.lastBatchMs) ? Math.max(0, Math.round(out.lastBatchMs)) : null;
+	            const batchSize =
+	              typeof out.lastBatchSize === "number" && Number.isFinite(out.lastBatchSize) ? Math.max(0, Math.round(out.lastBatchSize)) : null;
+	            const perBarMs = batchMs !== null && batchSize && batchSize > 0 ? batchMs / batchSize : null;
+	            const msg =
+	              `candle +${newCount}: open ${fmtTimeMs(lastNew)}` +
+	              (typeof closePx === "number" && Number.isFinite(closePx) ? ` close ${fmtMoney(closePx, 4)}` : "") +
+	              (action ? ` • action ${action}` : "") +
+	              (pollMs !== null ? ` • poll ${pollMs}ms` : "") +
+	              (batchMs !== null ? ` • proc ${batchMs}ms${perBarMs !== null ? ` (${fmtNum(perBarMs, 1)}ms/bar)` : ""}` : "");
+	            feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+	          }
+
+          let lastKlineUpdatesAtMs: number | null = prev.lastKlineUpdatesAtMs;
+          let klineUpdates = 0;
+          const fetchedLast = out.fetchedLastKline;
+	          if (fetchedLast && typeof fetchedLast.openTime === "number" && Number.isFinite(fetchedLast.openTime)) {
+	            const openTime = fetchedLast.openTime;
+	            const close = fetchedLast.close;
+	            if (typeof close === "number" && Number.isFinite(close)) {
+	              const prevFetchedOpen = rt.lastFetchedOpenTimeMs;
+	              const prevFetchedClose = rt.lastFetchedClose;
+	              if (newCount === 0 && prevFetchedOpen === openTime && typeof prevFetchedClose === "number" && Number.isFinite(prevFetchedClose) && close !== prevFetchedClose) {
+	                klineUpdates = 1;
+	                lastKlineUpdatesAtMs = finishedAtMs;
+	                const d = prevFetchedClose !== 0 ? (close - prevFetchedClose) / prevFetchedClose : null;
+	                const msg = `kline update: close ${fmtMoney(close, 4)}${d !== null ? ` (Δ ${fmtPct(d, 2)})` : ""}`;
+	                feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+	              }
+	              rt.lastFetchedOpenTimeMs = openTime;
+	              rt.lastFetchedClose = close;
+	            }
+	          }
+
+	          const polledAtMs = typeof out.polledAtMs === "number" && Number.isFinite(out.polledAtMs) ? out.polledAtMs : null;
+	          if (polledAtMs !== null && polledAtMs !== rt.lastTelemetryPolledAtMs) {
+	            rt.lastTelemetryPolledAtMs = polledAtMs;
+	            const pollLatencyMs = typeof out.pollLatencyMs === "number" && Number.isFinite(out.pollLatencyMs) ? out.pollLatencyMs : null;
+	            const processedOpenTime = out.openTimes[out.openTimes.length - 1] ?? null;
+	            const processedClose = out.prices[out.prices.length - 1] ?? null;
+	            const driftBps =
+	              fetchedLast &&
+	              typeof fetchedLast.openTime === "number" &&
+	              Number.isFinite(fetchedLast.openTime) &&
+	              processedOpenTime === fetchedLast.openTime &&
+	              typeof fetchedLast.close === "number" &&
+	              Number.isFinite(fetchedLast.close) &&
+	              typeof processedClose === "number" &&
+	              Number.isFinite(processedClose) &&
+	              processedClose !== 0
+	                ? ((fetchedLast.close - processedClose) / processedClose) * 10000
+	                : null;
+	            const point: BotTelemetryPoint = { atMs: polledAtMs, pollLatencyMs, driftBps };
+	            telemetry = [...telemetry, point].slice(-BOT_TELEMETRY_POINTS);
+	          }
+
+	          const openThr = out.openThreshold ?? out.threshold;
+	          const closeThr = out.closeThreshold ?? out.openThreshold ?? out.threshold;
+	          const tradeEnabled = out.settings?.tradeEnabled ?? null;
+
+	          if (rt.lastMethod !== null && (out.method !== rt.lastMethod || openThr !== rt.lastOpenThreshold || closeThr !== rt.lastCloseThreshold)) {
+	            const msg =
+	              `params: ${methodLabel(out.method)}` +
+	              ` • open ${fmtPct(openThr, 3)}` +
+	              ` • close ${fmtPct(closeThr, 3)}` +
+	              (typeof tradeEnabled === "boolean" ? ` • trade ${tradeEnabled ? "ON" : "OFF"}` : "");
+	            feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+	          }
+
+	          if (typeof tradeEnabled === "boolean" && rt.lastTradeEnabled !== null && tradeEnabled !== rt.lastTradeEnabled) {
+	            feed = [{ atMs: finishedAtMs, message: `trade ${tradeEnabled ? "enabled" : "disabled"}` }, ...feed].slice(0, 50);
+	          }
+
+	          const err = out.error ?? null;
+	          if (err && err !== rt.lastError) {
+	            feed = [{ atMs: finishedAtMs, message: `error: ${err}` }, ...feed].slice(0, 50);
+	          }
+
+          if (rt.lastHalted !== null && rt.lastHalted !== out.halted) {
+            feed = [{ atMs: finishedAtMs, message: out.halted ? `halted: ${out.haltReason ?? "true"}` : "resumed" }, ...feed].slice(0, 50);
+          }
+
+	          rt.lastOpenTimeMs = lastOpen;
+	          rt.lastError = err;
+	          rt.lastHalted = out.halted;
+	          rt.lastMethod = out.method;
+	          rt.lastOpenThreshold = openThr;
+	          rt.lastCloseThreshold = closeThr;
+	          rt.lastTradeEnabled = typeof tradeEnabled === "boolean" ? tradeEnabled : null;
+
+	          return { ...base, lastNewCandles: newCount, lastNewCandlesAtMs, lastKlineUpdates: klineUpdates, lastKlineUpdatesAtMs, telemetry, feed };
+	        });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         setApiOk("ok");
       } catch (e) {
@@ -1571,6 +1467,7 @@ export function App() {
       const payload: ApiParams = {
         ...tradeParams,
         botTrade: form.tradeArmed,
+        botAdoptExistingPosition: form.botAdoptExistingPosition,
         ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
         botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
         botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
@@ -1597,6 +1494,7 @@ export function App() {
     apiBase,
     authHeaders,
     form.botMaxPoints,
+    form.botAdoptExistingPosition,
     form.botOnlineEpochs,
     form.botPollSeconds,
     form.botTrainBars,
@@ -1656,11 +1554,22 @@ export function App() {
   useEffect(() => {
     let isCancelled = false;
     setTopCombosLoading(true);
-    void fetch("/top-combos.json")
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
+    const fetchPayload = async (): Promise<unknown> => {
+      if (apiOk === "ok") {
+        try {
+          const url = `${apiBase.replace(/\/+$/, "")}/optimizer/combos`;
+          const res = await fetch(url, { headers: authHeaders });
+          if (res.ok) return res.json();
+          throw new Error(`HTTP ${res.status}`);
+        } catch {
+          // Fall back to the static UI bundle.
+        }
+      }
+      const res = await fetch("/top-combos.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    };
+    void fetchPayload()
       .then((payload: unknown) => {
         if (isCancelled) return;
         const payloadRec = (payload as Record<string, unknown> | null | undefined) ?? {};
@@ -1734,12 +1643,37 @@ export function App() {
           const minPositionSizeRaw =
             typeof params.minPositionSize === "number" && Number.isFinite(params.minPositionSize) ? clamp(params.minPositionSize, 0, 1) : null;
           const minPositionSize = minPositionSizeRaw != null && minPositionSizeRaw > 0 ? minPositionSizeRaw : null;
+          const rankRaw = typeof rawRec.rank === "number" && Number.isFinite(rawRec.rank) ? Math.trunc(rawRec.rank) : null;
+          const rank = rankRaw != null && rankRaw >= 1 ? rankRaw : null;
+          const objective = typeof rawRec.objective === "string" && rawRec.objective ? rawRec.objective : null;
+          const score = typeof rawRec.score === "number" && Number.isFinite(rawRec.score) ? rawRec.score : null;
+          const metricsRec = (rawRec.metrics as Record<string, unknown> | null | undefined) ?? {};
+          const sharpe =
+            typeof metricsRec["sharpe"] === "number" && Number.isFinite(metricsRec["sharpe"]) ? (metricsRec["sharpe"] as number) : null;
+          const maxDrawdown =
+            typeof metricsRec["maxDrawdown"] === "number" && Number.isFinite(metricsRec["maxDrawdown"])
+              ? (metricsRec["maxDrawdown"] as number)
+              : null;
+          const turnover =
+            typeof metricsRec["turnover"] === "number" && Number.isFinite(metricsRec["turnover"]) ? (metricsRec["turnover"] as number) : null;
+          const roundTrips =
+            typeof metricsRec["roundTrips"] === "number" && Number.isFinite(metricsRec["roundTrips"])
+              ? Math.trunc(metricsRec["roundTrips"] as number)
+              : null;
+          const metrics =
+            sharpe != null || maxDrawdown != null || turnover != null || roundTrips != null
+              ? { sharpe, maxDrawdown, turnover, roundTrips }
+              : null;
           const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
           const source: OptimizationCombo["source"] =
             rawSource === "binance" ? "binance" : rawSource === "csv" ? "csv" : null;
           return {
-            id: typeof rawRec.rank === "number" ? rawRec.rank : index + 1,
-            finalEquity: typeof rawRec.finalEquity === "number" ? rawRec.finalEquity : 0,
+            id: rank ?? index + 1,
+            rank,
+            objective,
+            score,
+            metrics,
+            finalEquity: typeof rawRec.finalEquity === "number" && Number.isFinite(rawRec.finalEquity) ? rawRec.finalEquity : 0,
             openThreshold: typeof rawRec.openThreshold === "number" ? rawRec.openThreshold : null,
             closeThreshold: typeof rawRec.closeThreshold === "number" ? rawRec.closeThreshold : null,
             source,
@@ -1781,12 +1715,26 @@ export function App() {
           };
         });
         sanitized.sort((a, b) => {
+          const ar = typeof a.rank === "number" && Number.isFinite(a.rank) ? a.rank : null;
+          const br = typeof b.rank === "number" && Number.isFinite(b.rank) ? b.rank : null;
+          if (ar != null && br != null) return ar - br;
+          if (ar != null) return -1;
+          if (br != null) return 1;
+
+          const sa = typeof a.score === "number" && Number.isFinite(a.score) ? a.score : null;
+          const sb = typeof b.score === "number" && Number.isFinite(b.score) ? b.score : null;
+          if (sa != null || sb != null) {
+            const diff = (sb ?? Number.NEGATIVE_INFINITY) - (sa ?? Number.NEGATIVE_INFINITY);
+            if (diff !== 0) return diff;
+          }
+
           const eq = b.finalEquity - a.finalEquity;
           if (eq !== 0) return eq;
           return a.id - b.id;
         });
         const binanceCombos = sanitized.filter((combo) => combo.source === "binance");
-        setTopCombos(binanceCombos.slice(0, 5));
+        const preferredCombos = binanceCombos.length > 0 ? binanceCombos : sanitized;
+        setTopCombos(preferredCombos.slice(0, 5));
         setTopCombosError(null);
       })
       .catch((err) => {
@@ -1800,7 +1748,7 @@ export function App() {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [apiBase, apiOk, authHeaders]);
 
   const statusDotClass =
     apiOk === "ok" ? "dot dotOk" : apiOk === "down" ? "dot dotBad" : "dot dotWarn";
@@ -1868,13 +1816,13 @@ export function App() {
     const tokenPresent = Boolean(apiToken.trim());
     const authMsg = authRequired
       ? tokenPresent
-        ? "API token rejected. Update TRADER_API_TOKEN above."
-        : "API auth required. Paste TRADER_API_TOKEN above."
+        ? "API token rejected. Update apiToken in trader-config.js."
+        : "API auth required. Set apiToken in trader-config.js."
       : null;
     const startCmd = `cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
     const downMsg = showLocalStartHelp
       ? `Backend unreachable. Start it with: ${startCmd}`
-      : "Backend unreachable. Set “API base URL” to your deployed API host (e.g., your App Runner URL) or configure CloudFront to forward `/api/*` to your API origin.";
+      : "Backend unreachable. Configure apiBaseUrl in trader-config.js (or configure CloudFront to forward `/api/*` to your API origin).";
     return firstReason(
       apiBaseError,
       apiOk === "down" ? downMsg : null,
@@ -1885,8 +1833,9 @@ export function App() {
   const apiComputeLimits = healthInfo?.computeLimits ?? null;
   const apiLstmEnabled = form.method !== "10";
   const barsRawForLimits = Math.trunc(form.bars);
+  const barsEffectiveForLimits = barsRawForLimits <= 0 ? 500 : barsRawForLimits;
   const barsExceedsApi = Boolean(
-    apiComputeLimits && apiLstmEnabled && barsRawForLimits > 0 && barsRawForLimits > apiComputeLimits.maxBarsLstm,
+    apiComputeLimits && apiLstmEnabled && barsEffectiveForLimits > apiComputeLimits.maxBarsLstm,
   );
   const epochsExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.epochs > apiComputeLimits.maxEpochs);
   const hiddenSizeExceedsApi = Boolean(apiComputeLimits && apiLstmEnabled && form.hiddenSize > apiComputeLimits.maxHiddenSize);
@@ -1905,8 +1854,20 @@ export function App() {
     apiLimitsReason,
   );
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
+  const orderQuoteFractionError = useMemo(() => {
+    const f = form.orderQuoteFraction;
+    if (!Number.isFinite(f)) return "Order quote fraction must be a number.";
+    if (f <= 0) return null;
+    if (f > 1) return "Order quote fraction must be <= 1 (use 0 to disable).";
+    return null;
+  }, [form.orderQuoteFraction]);
+  const tradeOrderSizingError = useMemo(() => {
+    if (form.orderQuantity > 0 || form.orderQuote > 0) return null;
+    return orderQuoteFractionError;
+  }, [form.orderQuantity, form.orderQuote, orderQuoteFractionError]);
   const tradeDisabledReason = firstReason(
     requestDisabledReason,
+    tradeOrderSizingError,
     form.positioning === "long-short" && form.market !== "futures" ? "Long/Short trading requires Futures market." : null,
   );
 
@@ -1932,7 +1893,7 @@ export function App() {
         : effective === "orderQuote"
           ? `orderQuote = ${fmtMoney(form.orderQuote, 2)} (quote units)`
           : effective === "orderQuoteFraction"
-            ? `orderQuoteFraction = ${fmtPct(clamp(form.orderQuoteFraction, 0, 1), 2)}${form.maxOrderQuote > 0 ? ` (cap ${fmtMoney(form.maxOrderQuote, 2)})` : ""}`
+            ? `orderQuoteFraction = ${fmtPct(form.orderQuoteFraction, 2)}${form.maxOrderQuote > 0 ? ` (cap ${fmtMoney(form.maxOrderQuote, 2)})` : ""}`
             : "none";
 
     const hint =
@@ -2023,34 +1984,43 @@ export function App() {
           <div className="cardBody">
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
-                <label className="label" htmlFor="apiBaseUrl">
-                  API base URL (optional)
-                </label>
-                <div className="row" style={{ gridTemplateColumns: "1fr auto", alignItems: "center" }}>
-                  <input
-                    id="apiBaseUrl"
-                    className="input"
-                    type="text"
-                    value={apiBaseUrl}
-                    onChange={(e) => setApiBaseUrl(e.target.value)}
-                    onBlur={() => setApiBaseUrl((v) => normalizeApiBaseUrlInput(v))}
-                    placeholder="/api or https://your-api-host"
-                    spellCheck={false}
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    inputMode="url"
-                  />
-                  <button className="btn" type="button" onClick={() => setApiBaseUrl("")} disabled={!apiBaseUrl.trim()}>
-                    Clear
-                  </button>
+                <label className="label">API</label>
+                <div className="kv">
+                  <div className="k">Base URL</div>
+                  <div className="v">
+                    <span className="tdMono">{apiBase}</span>
+                  </div>
                 </div>
-                <div className="hint" style={apiBaseError ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
-                  {apiBaseError
-                    ? apiBaseError
-                    : "Leave blank to use /api. For CloudFront/S3 hosting, set this to your deployed API (HTTPS recommended)."}
+                <div className="kv">
+                  <div className="k">Token</div>
+                  <div className="v">{apiToken.trim() ? "configured" : "not set"}</div>
                 </div>
+                <div className="hint" style={{ marginTop: 6 }}>
+                  Configured at deploy time via <span style={{ fontFamily: "var(--mono)" }}>trader-config.js</span> (apiBaseUrl, apiToken).
+                </div>
+                {apiBaseError ? (
+                  <div className="hint" style={{ color: "rgba(239, 68, 68, 0.85)", marginTop: 6 }}>
+                    {apiBaseError}
+                  </div>
+                ) : null}
                 {healthInfo?.computeLimits ? (
                   <div className="hint" style={{ marginTop: 6 }}>
+                    {healthInfo.version ? (
+                      <>
+                        API build:{" "}
+                        <span className="tdMono">
+                          {healthInfo.version}
+                          {healthInfo.commit ? ` (${healthInfo.commit.slice(0, 12)})` : ""}
+                        </span>
+                        .{" "}
+                      </>
+                    ) : null}
+                    {typeof healthInfo.authRequired === "boolean" ? (
+                      <>
+                        Auth:{" "}
+                        {healthInfo.authRequired ? (healthInfo.authOk ? "required (ok)" : "required (failed)") : "not required"}.
+                      </>
+                    ) : null}{" "}
                     API limits: max LSTM bars {healthInfo.computeLimits.maxBarsLstm}, epochs {healthInfo.computeLimits.maxEpochs}, hidden{" "}
                     {healthInfo.computeLimits.maxHiddenSize}.
                     {healthInfo.asyncJobs
@@ -2058,50 +2028,43 @@ export function App() {
                           healthInfo.asyncJobs.ttlMs / 60000,
                         )}m, persistence ${healthInfo.asyncJobs.persistence ? "on" : "off"}.`
                       : ""}
+                    {healthInfo.cache
+                      ? ` Cache: ${healthInfo.cache.enabled ? "on" : "off"} (TTL ${Math.round(healthInfo.cache.ttlMs / 1000)}s, max ${
+                          healthInfo.cache.maxEntries
+                        }).`
+                      : ""}
                   </div>
                 ) : null}
-              </div>
-            </div>
-
-            <div className="row" style={{ gridTemplateColumns: "1fr" }}>
-              <div className="field">
-                <label className="label" htmlFor="apiToken">
-                  API token (optional)
-                </label>
-                <div className="row" style={{ gridTemplateColumns: "1fr auto auto", alignItems: "center" }}>
-                  <input
-                    id="apiToken"
-                    className="input"
-                    type={revealSecrets ? "text" : "password"}
-                    value={apiToken}
-                    onChange={(e) => setApiToken(e.target.value)}
-                    placeholder="TRADER_API_TOKEN"
-                    spellCheck={false}
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    inputMode="text"
-                  />
-                  <button className="btn" type="button" onClick={() => setRevealSecrets((v) => !v)}>
-                    {revealSecrets ? "Hide" : "Show"}
-                  </button>
-                  <button className="btn" type="button" onClick={() => setApiToken("")} disabled={!apiToken.trim()}>
-                    Clear
-                  </button>
-                </div>
-                <div className="hint">
-                  Only needed when the backend sets TRADER_API_TOKEN. Stored in {persistSecrets ? "local storage" : "session storage"} (not in the URL). For local
-                  dev, setting TRADER_API_TOKEN in your environment (or `haskell/web/.env.local`) makes the dev proxy attach it automatically.
-                </div>
-                <div className="pillRow" style={{ marginTop: 10 }}>
-                  <label className="pill">
-                    <input type="checkbox" checked={persistSecrets} onChange={(e) => setPersistSecrets(e.target.checked)} />
-                    Remember token & keys
-                  </label>
-                </div>
-                <div className="hint">
-                  When enabled, the token and Binance keys are stored in local storage so you can reopen the app later without re-entering them (not recommended on
-                  shared machines).
-                </div>
+                {healthInfo?.cache ? (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="actions" style={{ marginTop: 0 }}>
+                      <button className="btn" type="button" onClick={() => void refreshCacheStats()} disabled={cacheUi.loading || apiOk !== "ok"}>
+                        {cacheUi.loading ? "Loading…" : "Refresh cache stats"}
+                      </button>
+                      <button
+                        className="btn"
+                        type="button"
+                        onClick={() => void clearCacheUi()}
+                        disabled={cacheUi.loading || apiOk !== "ok" || healthInfo.cache.enabled === false}
+                      >
+                        Clear cache
+                      </button>
+                      <span className="hint">Disable via `TRADER_API_CACHE_TTL_MS=0` if you never want cached results.</span>
+                    </div>
+                    {cacheUi.error ? (
+                      <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginTop: 8 }}>
+                        {cacheUi.error}
+                      </pre>
+                    ) : null}
+                    {cacheUi.stats ? (
+                      <div className="hint" style={{ marginTop: 8 }}>
+                        Signals: {cacheUi.stats.signals.entries} entries ({cacheUi.stats.signals.hits} hit / {cacheUi.stats.signals.misses} miss) • Backtests:{" "}
+                        {cacheUi.stats.backtests.entries} entries ({cacheUi.stats.backtests.hits} hit / {cacheUi.stats.backtests.misses} miss) • Updated{" "}
+                        {fmtTimeMs(cacheUi.stats.atMs)}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -2113,10 +2076,10 @@ export function App() {
                     {apiOk === "down"
                       ? showLocalStartHelp
                         ? `Backend unreachable.\n\nStart it with:\ncd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`
-                        : "Backend unreachable.\n\nSet “API base URL” to your deployed API host (e.g., your App Runner URL), or configure CloudFront to forward `/api/*` to your API origin."
+                        : "Backend unreachable.\n\nConfigure apiBaseUrl in trader-config.js, or configure CloudFront to forward `/api/*` to your API origin."
                       : apiToken.trim()
-                        ? "API auth failed.\n\nUpdate TRADER_API_TOKEN above (it must match the backend’s TRADER_API_TOKEN)."
-                        : "API auth required.\n\nPaste TRADER_API_TOKEN above (it must match the backend’s TRADER_API_TOKEN)."}
+                        ? "API auth failed.\n\nUpdate apiToken in trader-config.js (it must match the backend’s TRADER_API_TOKEN)."
+                        : "API auth required.\n\nSet apiToken in trader-config.js (it must match the backend’s TRADER_API_TOKEN)."}
                   </pre>
                   <div className="actions" style={{ marginTop: 0 }}>
                     {apiOk === "down" && showLocalStartHelp ? (
@@ -2183,6 +2146,16 @@ export function App() {
                 <div className="hint">
                   Used for /trade and “Check keys”. Stored in {persistSecrets ? "local storage" : "session storage"}. The request preview/curl omits it.
                 </div>
+                <div className="pillRow" style={{ marginTop: 10 }}>
+                  <label className="pill">
+                    <input type="checkbox" checked={persistSecrets} onChange={(e) => setPersistSecrets(e.target.checked)} />
+                    Remember Binance keys
+                  </label>
+                </div>
+                <div className="hint">
+                  When enabled, the Binance keys are stored in local storage so you can reopen the app later without re-entering them (not recommended on shared
+                  machines).
+                </div>
               </div>
             </div>
 
@@ -2217,7 +2190,7 @@ export function App() {
                     Delete
                   </button>
                 </div>
-                <div className="hint">Save/load named config presets. Does not include API token or Binance keys.</div>
+                <div className="hint">Save/load named config presets. Does not include Binance keys.</div>
 
                 {pendingProfileLoad ? (
                   <>
@@ -2366,7 +2339,7 @@ export function App() {
                 <div className="hint" style={barsExceedsApi ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
                   {barsExceedsApi
                     ? `API limit: max ${apiComputeLimits?.maxBarsLstm ?? "?"} bars for LSTM methods. Reduce bars or use method=10 (Kalman-only).`
-                    : "0 uses all CSV data. For Binance, keep values between 2–1000 (default 500). Larger values take longer."
+                    : "0=auto (Binance uses 500; CSV uses all). For Binance, 2–1000 is allowed. Larger values take longer."
                   }
                 </div>
               </div>
@@ -2478,14 +2451,57 @@ export function App() {
                 </label>
                 <input
                   id="openThreshold"
-                  className="input"
+                  className={estimatedCosts.breakEven > 0 && form.openThreshold < estimatedCosts.breakEven ? "input inputError" : "input"}
                   type="number"
                   step="0.0001"
                   min={0}
                   value={form.openThreshold}
                   onChange={(e) => setForm((f) => ({ ...f, openThreshold: numFromInput(e.target.value, f.openThreshold) }))}
                 />
-                <div className="hint">Entry deadband. Default 0.001 = 0.1%.</div>
+                <div className="hint">
+                  Entry deadband. Default 0.001 = 0.1%. Break-even ≈ {fmtPct(estimatedCosts.breakEven, 3)} (round-trip cost ≈ {fmtPct(estimatedCosts.roundTrip, 3)}).
+                  {estimatedCosts.breakEven > 0 && form.openThreshold < estimatedCosts.breakEven
+                    ? " Consider increasing open threshold to avoid churn after costs."
+                    : null}
+                </div>
+                <div className="pillRow" style={{ marginTop: 10 }}>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    disabled={!(estimatedCosts.breakEven > 0)}
+                    onClick={() => {
+                      const be = estimatedCosts.breakEven;
+                      const open = Number((be * 2).toFixed(6));
+                      const close = Number(be.toFixed(6));
+                      setForm((f) => ({ ...f, openThreshold: open, closeThreshold: close }));
+                      showToast("Set thresholds to conservative (2× break-even)");
+                    }}
+                  >
+                    Conservative (2× BE)
+                  </button>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    disabled={!(estimatedCosts.breakEven > 0)}
+                    onClick={() => {
+                      const v = Number(estimatedCosts.breakEven.toFixed(6));
+                      setForm((f) => ({ ...f, openThreshold: v, closeThreshold: v }));
+                      showToast("Set thresholds to break-even");
+                    }}
+                  >
+                    Set open/close to break-even
+                  </button>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    onClick={() => {
+                      setForm((f) => ({ ...f, openThreshold: defaultForm.openThreshold, closeThreshold: defaultForm.closeThreshold }));
+                      showToast("Reset thresholds to defaults");
+                    }}
+                  >
+                    Reset thresholds
+                  </button>
+                </div>
               </div>
               <div className="field">
                 <label className="label" htmlFor="closeThreshold">
@@ -2493,14 +2509,28 @@ export function App() {
                 </label>
                 <input
                   id="closeThreshold"
-                  className="input"
+                  className={
+                    estimatedCosts.breakEven > 0 && form.closeThreshold < estimatedCosts.breakEven
+                      ? "input inputError"
+                      : form.closeThreshold > form.openThreshold
+                        ? "input inputWarn"
+                        : "input"
+                  }
                   type="number"
                   step="0.0001"
                   min={0}
                   value={form.closeThreshold}
                   onChange={(e) => setForm((f) => ({ ...f, closeThreshold: numFromInput(e.target.value, f.closeThreshold) }))}
                 />
-                <div className="hint">Exit deadband. Often smaller than open threshold to reduce churn.</div>
+                <div className="hint">
+                  Exit deadband. Often smaller than open threshold to reduce churn.
+                  {estimatedCosts.breakEven > 0 && form.closeThreshold < estimatedCosts.breakEven ? " Below break-even (may churn after costs)." : null}
+                </div>
+                {form.closeThreshold > form.openThreshold ? (
+                  <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
+                    Close threshold is above open threshold (inverted hysteresis). Usually close ≤ open.
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -2668,6 +2698,49 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
               <div className="field">
+                <label className="label">Trade pacing (bars)</label>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="minHoldBars">
+                      Min hold
+                    </label>
+                    <input
+                      id="minHoldBars"
+                      className="input"
+                      type="number"
+                      step={1}
+                      min={0}
+                      value={form.minHoldBars}
+                      onChange={(e) => setForm((f) => ({ ...f, minHoldBars: numFromInput(e.target.value, f.minHoldBars) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">
+                      {form.minHoldBars > 0 ? `${Math.trunc(Math.max(0, form.minHoldBars))} bars` : "0 disables"} • blocks signal exits, not bracket exits
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="cooldownBars">
+                      Cooldown
+                    </label>
+                    <input
+                      id="cooldownBars"
+                      className="input"
+                      type="number"
+                      step={1}
+                      min={0}
+                      value={form.cooldownBars}
+                      onChange={(e) => setForm((f) => ({ ...f, cooldownBars: numFromInput(e.target.value, f.cooldownBars) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">{form.cooldownBars > 0 ? `${Math.trunc(Math.max(0, form.cooldownBars))} bars` : "0 disables"} • after exiting</div>
+                  </div>
+                </div>
+                <div className="hint">Helps reduce churn in noisy markets (applies to backtests + live bot; stateless signals/trades ignore state).</div>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
+              <div className="field">
                 <label className="label">Risk kill-switches</label>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
                   <div className="field">
@@ -2796,7 +2869,121 @@ export function App() {
                     Optimize operations (method + thresholds)
                   </label>
                 </div>
-	                <div className="hint">Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.</div>
+                <div className="hint">Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.</div>
+                <div className="pillRow" style={{ marginTop: 10 }}>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    onClick={() => {
+                      setForm((f) => ({
+                        ...f,
+                        optimizeOperations: true,
+                        sweepThreshold: false,
+                        minRoundTrips: Math.max(5, Math.trunc(f.minRoundTrips)),
+                        walkForwardFolds: Math.max(5, Math.trunc(f.walkForwardFolds)),
+                      }));
+                      showToast("Preset: safe optimize (min round trips + folds)");
+                    }}
+                  >
+                    Preset: Safe optimize
+                  </button>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    onClick={() => {
+                      setForm((f) => ({
+                        ...f,
+                        sweepThreshold: true,
+                        optimizeOperations: false,
+                        minRoundTrips: Math.max(3, Math.trunc(f.minRoundTrips)),
+                        walkForwardFolds: Math.max(3, Math.trunc(f.walkForwardFolds)),
+                      }));
+                      showToast("Preset: fast sweep (min round trips + folds)");
+                    }}
+                  >
+                    Preset: Fast sweep
+                  </button>
+                </div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="tuneObjective">
+                      Tune objective
+                    </label>
+                    <select
+                      id="tuneObjective"
+                      className="select"
+                      value={form.tuneObjective}
+                      onChange={(e) => setForm((f) => ({ ...f, tuneObjective: e.target.value }))}
+                    >
+                      {TUNE_OBJECTIVES.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="hint">Used by “Optimize thresholds/operations”.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="tunePenaltyMaxDrawdown">
+                      DD penalty
+                    </label>
+                    <input
+                      id="tunePenaltyMaxDrawdown"
+                      className="input"
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={form.tunePenaltyMaxDrawdown}
+                      onChange={(e) => setForm((f) => ({ ...f, tunePenaltyMaxDrawdown: numFromInput(e.target.value, f.tunePenaltyMaxDrawdown) }))}
+                    />
+                    <div className="hint">Applied when objective includes drawdown.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="tunePenaltyTurnover">
+                      Turnover penalty
+                    </label>
+                    <input
+                      id="tunePenaltyTurnover"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={form.tunePenaltyTurnover}
+                      onChange={(e) => setForm((f) => ({ ...f, tunePenaltyTurnover: numFromInput(e.target.value, f.tunePenaltyTurnover) }))}
+                    />
+                    <div className="hint">Applied when objective includes turnover.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="minRoundTrips">
+                      Min round trips
+                    </label>
+                    <input
+                      id="minRoundTrips"
+                      className="input"
+                      type="number"
+                      step="1"
+                      min={0}
+                      value={form.minRoundTrips}
+                      onChange={(e) => setForm((f) => ({ ...f, minRoundTrips: numFromInput(e.target.value, f.minRoundTrips) }))}
+                    />
+                    <div className="hint">Only used when optimizing/sweeping. 0 disables.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="walkForwardFolds">
+                      Walk-forward folds
+                    </label>
+                    <input
+                      id="walkForwardFolds"
+                      className="input"
+                      type="number"
+                      step="1"
+                      min={1}
+                      value={form.walkForwardFolds}
+                      onChange={(e) => setForm((f) => ({ ...f, walkForwardFolds: numFromInput(e.target.value, f.walkForwardFolds) }))}
+                    />
+                    <div className="hint">Used for tune scoring + backtest variability.</div>
+                  </div>
+                </div>
               </div>
               <div className="field">
                 <label className="label">Options</label>
@@ -2823,6 +3010,14 @@ export function App() {
                     />
                     Auto-refresh
                   </label>
+                  <label className="pill">
+                    <input
+                      type="checkbox"
+                      checked={form.bypassCache}
+                      onChange={(e) => setForm((f) => ({ ...f, bypassCache: e.target.checked }))}
+                    />
+                    Bypass cache
+                  </label>
                 </div>
                 <div className="hint">
                   Auto-refresh every{" "}
@@ -2835,7 +3030,7 @@ export function App() {
                     value={form.autoRefreshSec}
                     onChange={(e) => setForm((f) => ({ ...f, autoRefreshSec: numFromInput(e.target.value, f.autoRefreshSec) }))}
                   />{" "}
-                  seconds.
+                  seconds. {form.bypassCache ? "Bypass cache adds Cache-Control: no-cache." : ""}
                 </div>
               </div>
             </div>
@@ -2967,6 +3162,22 @@ export function App() {
                     </div>
                     <div className="row" style={{ marginTop: 12 }}>
                       <div className="field">
+                        <label className="label">Startup position</label>
+                        <div className="pillRow">
+                          <label className="pill">
+                            <input
+                              type="checkbox"
+                              checked={form.botAdoptExistingPosition}
+                              onChange={(e) => setForm((f) => ({ ...f, botAdoptExistingPosition: e.target.checked }))}
+                            />
+                            Adopt existing long position
+                          </label>
+                        </div>
+                        <div className="hint">If trading is enabled, allow starting while already long (resume management instead of refusing to start).</div>
+                      </div>
+                    </div>
+                    <div className="row" style={{ marginTop: 12 }}>
+                      <div className="field">
                         <label className="label" htmlFor="botTrainBars">
                           Train bars (rolling)
                         </label>
@@ -3007,6 +3218,7 @@ export function App() {
                             botOnlineEpochs: defaultForm.botOnlineEpochs,
                             botTrainBars: defaultForm.botTrainBars,
                             botMaxPoints: defaultForm.botMaxPoints,
+                            botAdoptExistingPosition: defaultForm.botAdoptExistingPosition,
                           }))
                         }
                       >
@@ -3181,11 +3393,11 @@ export function App() {
                   <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 10 }}>
                     <div className="field">
                       <label className="label" htmlFor="orderQuoteFraction">
-                        Order quote fraction (0..1)
+                        Order quote fraction (0 &lt; F ≤ 1; 0 disables)
                       </label>
                       <input
                         id="orderQuoteFraction"
-                        className="input"
+                        className={orderQuoteFractionError ? "input inputError" : "input"}
                         type="number"
                         step="0.01"
                         min={0}
@@ -3199,7 +3411,9 @@ export function App() {
                         }
                         placeholder="0.10 (10%)"
                       />
-                      <div className="hint">Applies to BUYs: uses a fraction of your available quote balance.</div>
+                      <div className="hint" style={orderQuoteFractionError ? { color: "rgba(239, 68, 68, 0.9)" } : undefined}>
+                        {orderQuoteFractionError ?? "Applies to BUYs: uses a fraction of your available quote balance."}
+                      </div>
                     </div>
                     <div className="field">
                       <label className="label" htmlFor="maxOrderQuote">
@@ -3292,8 +3506,8 @@ export function App() {
                 </>
               ) : (
                 <>
-                  When hosting the UI separately (CloudFront/S3), set “API base URL” above (or configure <span style={{ fontFamily: "var(--mono)" }}>/api/*</span>{" "}
-                  to route to your backend).
+                  When hosting the UI separately (CloudFront/S3), configure <span style={{ fontFamily: "var(--mono)" }}>trader-config.js</span> (apiBaseUrl,
+                  apiToken) and/or route <span style={{ fontFamily: "var(--mono)" }}>/api/*</span> to your backend.
                 </>
               )}
             </p>
@@ -3339,6 +3553,7 @@ export function App() {
 	                  <BacktestChart
 	                    prices={bot.status.prices}
 	                    equityCurve={bot.status.equityCurve}
+	                    kalmanPredNext={bot.status.kalmanPredNext}
 	                    positions={bot.status.positions}
 	                    trades={bot.status.trades}
 	                    operations={bot.status.operations}
@@ -3346,25 +3561,160 @@ export function App() {
 	                    height={360}
 	                  />
 
-	                  <div style={{ marginTop: 10 }}>
-	                    <div className="hint" style={{ marginBottom: 8 }}>
-	                      Prediction values vs thresholds (hover for details)
-	                    </div>
-	                    <PredictionDiffChart
-	                      prices={bot.status.prices}
-	                      kalmanPredNext={bot.status.kalmanPredNext}
-	                      lstmPredNext={bot.status.lstmPredNext}
-	                      startIndex={bot.status.startIndex}
-	                      height={140}
-	                      openThreshold={bot.status.openThreshold ?? bot.status.threshold}
-	                      closeThreshold={bot.status.closeThreshold ?? bot.status.openThreshold ?? bot.status.threshold}
-	                    />
-	                  </div>
+		                  <div style={{ marginTop: 10 }}>
+		                    <div className="hint" style={{ marginBottom: 8 }}>
+		                      Prediction values vs thresholds (hover for details)
+		                    </div>
+		                    <PredictionDiffChart
+		                      prices={bot.status.prices}
+		                      kalmanPredNext={bot.status.kalmanPredNext}
+		                      lstmPredNext={bot.status.lstmPredNext}
+		                      startIndex={bot.status.startIndex}
+		                      height={140}
+		                      openThreshold={bot.status.openThreshold ?? bot.status.threshold}
+		                      closeThreshold={bot.status.closeThreshold ?? bot.status.openThreshold ?? bot.status.threshold}
+		                    />
+		                  </div>
+
+		                  <div style={{ marginTop: 10 }}>
+		                    <div className="hint" style={{ marginBottom: 8 }}>
+		                      Telemetry (Binance poll latency + close drift; hover for details)
+		                    </div>
+		                    <TelemetryChart points={botRt.telemetry} height={120} label="Live bot telemetry chart" />
+		                  </div>
 
 		                  <div className="kv" style={{ marginTop: 12 }}>
-		                    <div className="k">Equity / Position</div>
-			                    <div className="v">
-			                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
+		                    <div className="k">Realtime</div>
+		                    <div className="v">
+		                      <span className="badge" style={{ marginRight: 8 }}>
+		                        ui {fmtDurationMs(botRt.lastFetchDurationMs)}
+	                      </span>
+	                      <span className="badge" style={{ marginRight: 8 }}>
+	                        binance {fmtDurationMs(botRealtime?.pollLatencyMs)} • age {fmtDurationMs(botRealtime?.pollAgeMs)}
+	                      </span>
+	                      <span className="badge" style={{ marginRight: 8 }}>
+	                        state {fmtDurationMs(botRealtime?.statusAgeMs)}
+	                      </span>
+	                      <span
+	                        className={botRt.lastNewCandles > 0 ? "badge badgeStrong badgeLong" : "badge"}
+	                        style={{ marginRight: 8 }}
+	                      >
+	                        +{botRt.lastNewCandles} candle{botRt.lastNewCandles === 1 ? "" : "s"}
+	                      </span>
+	                      <span className={botRt.lastKlineUpdates > 0 ? "badge badgeStrong" : "badge"}>
+	                        +{botRt.lastKlineUpdates} update{botRt.lastKlineUpdates === 1 ? "" : "s"}
+	                      </span>
+	                    </div>
+	                  </div>
+		                  <div className="kv">
+		                    <div className="k">Binance poll</div>
+		                    <div className="v">
+		                      {botRealtime?.polledAtMs ? (
+		                        <>
+		                          {fmtTimeMs(botRealtime.polledAtMs)} • {fmtDurationMs(botRealtime.pollLatencyMs)} • klines{" "}
+		                          {typeof botRealtime.fetchedKlines === "number" ? botRealtime.fetchedKlines : "—"} • next {fmtEtaMs(botRealtime.nextPollEtaMs)}
+		                        </>
+		                      ) : (
+		                        "—"
+		                      )}
+		                    </div>
+		                  </div>
+		                  <div className="kv">
+		                    <div className="k">Batch</div>
+		                    <div className="v">
+		                      {botRealtime?.lastBatchAtMs ? (
+		                        <>
+		                          {fmtTimeMs(botRealtime.lastBatchAtMs)} •{" "}
+		                          {typeof botRealtime.lastBatchSize === "number"
+		                            ? `${botRealtime.lastBatchSize} candle${botRealtime.lastBatchSize === 1 ? "" : "s"}`
+		                            : "—"}{" "}
+		                          • {fmtDurationMs(botRealtime.lastBatchMs)}
+		                          {typeof botRealtime.batchPerBarMs === "number" && Number.isFinite(botRealtime.batchPerBarMs)
+		                            ? ` (${fmtNum(botRealtime.batchPerBarMs, 1)}ms/bar)`
+		                            : ""}
+		                          {" • "}age {fmtDurationMs(botRealtime.batchAgeMs)}
+		                        </>
+		                      ) : (
+		                        "—"
+		                      )}
+		                    </div>
+		                  </div>
+		                  <div className="kv">
+		                    <div className="k">Settings</div>
+		                    <div className="v">
+		                      {bot.status.settings ? (
+		                        <>
+		                          poll {bot.status.settings.pollSeconds}s • online epochs {bot.status.settings.onlineEpochs} • train bars{" "}
+		                          {bot.status.settings.trainBars} • max points {bot.status.settings.maxPoints} • trade{" "}
+		                          {bot.status.settings.tradeEnabled ? "ON" : "OFF"}
+		                        </>
+		                      ) : (
+		                        "—"
+		                      )}
+		                    </div>
+		                  </div>
+		                  <div className="kv">
+		                    <div className="k">Processed candle</div>
+		                    <div className="v">
+		                      {botRealtime?.processedOpenTime ? (
+		                        <>
+		                          {fmtTimeMs(botRealtime.processedOpenTime)} • close{" "}
+		                          {typeof botRealtime.processedClose === "number" ? fmtMoney(botRealtime.processedClose, 4) : "—"} • bar{" "}
+		                          {botRealtime.lastBarIndex}
+		                          {typeof botRealtime.behindCandles === "number" && botRealtime.behindCandles > 0
+		                            ? ` • behind ${botRealtime.behindCandles}`
+		                            : ""}
+		                        </>
+		                      ) : (
+		                        "—"
+		                      )}
+		                    </div>
+		                  </div>
+		                  <div className="kv">
+		                    <div className="k">Fetched candle</div>
+		                    <div className="v">
+		                      {botRealtime?.fetchedLast ? (
+		                        <>
+		                          {fmtTimeMs(botRealtime.fetchedLast.openTime)}
+		                          {typeof botRealtime.behindCandles === "number" && botRealtime.behindCandles > 0
+		                            ? ` • ahead +${botRealtime.behindCandles}`
+		                            : ""}{" "}
+		                          • O {fmtMoney(botRealtime.fetchedLast.open, 4)} H{" "}
+		                          {fmtMoney(botRealtime.fetchedLast.high, 4)} L {fmtMoney(botRealtime.fetchedLast.low, 4)} C{" "}
+		                          {fmtMoney(botRealtime.fetchedLast.close, 4)}
+		                          {typeof botRealtime.closeDelta === "number" && Number.isFinite(botRealtime.closeDelta) ? (
+		                            <>
+	                              {" "}
+	                              • Δ {fmtMoney(botRealtime.closeDelta, 4)}
+	                              {typeof botRealtime.closeDeltaPct === "number" && Number.isFinite(botRealtime.closeDeltaPct)
+	                                ? ` (${fmtPct(botRealtime.closeDeltaPct, 2)})`
+	                                : ""}
+	                            </>
+	                          ) : null}
+	                        </>
+	                      ) : (
+	                        "—"
+	                      )}
+	                    </div>
+	                  </div>
+	                  <div className="kv">
+	                    <div className="k">Candle close</div>
+	                    <div className="v">
+	                      {botRealtime?.expectedCloseMs ? (
+	                        <>
+	                          {fmtTimeMs(botRealtime.expectedCloseMs)} • {fmtEtaMs(botRealtime.closeEtaMs)} • pollΔ{" "}
+	                          {fmtDurationMs(botRealtime.pollCloseLagMs)}
+	                        </>
+	                      ) : (
+	                        "—"
+	                      )}
+	                    </div>
+	                  </div>
+
+                  <div className="kv" style={{ marginTop: 12 }}>
+                    <div className="k">Equity / Position</div>
+                    <div className="v">
+                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
 		                      {(() => {
 		                        const p = bot.status.positions[bot.status.positions.length - 1] ?? 0;
 		                        if (p > 0) return `LONG${Math.abs(p) < 0.9999 ? ` (${fmtPct(Math.abs(p), 1)})` : ""}`;
@@ -3397,20 +3747,178 @@ export function App() {
 	                      <div className="v">{fmtTimeMs(bot.status.haltedAtMs)}</div>
 	                    </div>
 	                  ) : null}
-	                  <div className="kv">
-	                    <div className="k">Order errors</div>
-	                    <div className="v">{bot.status.consecutiveOrderErrors}</div>
-	                  </div>
-	                  <div className="kv">
-	                    <div className="k">Last action</div>
-	                    <div className="v">{bot.status.latestSignal.action}</div>
-	                  </div>
-		                  {bot.status.lastOrder ? (
-		                    <div className="kv">
-		                      <div className="k">Last order</div>
-		                      <div className="v">{bot.status.lastOrder.message}</div>
-		                    </div>
-		                  ) : null}
+                  <div className="kv">
+                    <div className="k">Order errors</div>
+                    <div className="v">{bot.status.consecutiveOrderErrors}</div>
+                  </div>
+                  {typeof bot.status.cooldownLeft === "number" && Number.isFinite(bot.status.cooldownLeft) && bot.status.cooldownLeft > 0 ? (
+                    <div className="kv">
+                      <div className="k">Cooldown</div>
+                      <div className="v">{Math.max(0, Math.trunc(bot.status.cooldownLeft))} bar(s) remaining</div>
+                    </div>
+                  ) : null}
+                  <div className="kv">
+                    <div className="k">Latest signal</div>
+                    <div className="v">{bot.status.latestSignal.action}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Current price</div>
+                    <div className="v">{fmtMoney(bot.status.latestSignal.currentPrice, 4)}</div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Kalman</div>
+                    <div className="v">
+                      {(() => {
+                        const cur = bot.status.latestSignal.currentPrice;
+                        const next = bot.status.latestSignal.kalmanNext;
+                        const ret = bot.status.latestSignal.kalmanReturn;
+                        const z = bot.status.latestSignal.kalmanZ;
+                        const ret2 =
+                          typeof ret === "number" && Number.isFinite(ret)
+                            ? ret
+                            : typeof next === "number" && Number.isFinite(next) && cur !== 0
+                              ? (next - cur) / cur
+                              : null;
+                        const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
+                        const retTxt = typeof ret2 === "number" && Number.isFinite(ret2) ? fmtPct(ret2, 3) : "—";
+                        const zTxt = typeof z === "number" && Number.isFinite(z) ? fmtNum(z, 3) : "—";
+                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${bot.status.latestSignal.kalmanDirection ?? "—"}`;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">LSTM</div>
+                    <div className="v">
+                      {(() => {
+                        const cur = bot.status.latestSignal.currentPrice;
+                        const next = bot.status.latestSignal.lstmNext;
+                        const ret =
+                          typeof next === "number" && Number.isFinite(next) && cur !== 0 ? (next - cur) / cur : null;
+                        const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
+                        const retTxt = typeof ret === "number" && Number.isFinite(ret) ? fmtPct(ret, 3) : "—";
+                        return `${nextTxt} (${retTxt}) • ${bot.status.latestSignal.lstmDirection ?? "—"}`;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="kv">
+                    <div className="k">Chosen</div>
+                    <div className="v">{bot.status.latestSignal.chosenDirection ?? "—"}</div>
+                  </div>
+	                  {typeof bot.status.latestSignal.confidence === "number" && Number.isFinite(bot.status.latestSignal.confidence) ? (
+	                    <div className="kv">
+	                      <div className="k">Confidence / Size</div>
+	                      <div className="v">
+	                        {fmtPct(bot.status.latestSignal.confidence, 1)}
+	                        {typeof bot.status.latestSignal.positionSize === "number" && Number.isFinite(bot.status.latestSignal.positionSize)
+	                          ? ` • ${fmtPct(bot.status.latestSignal.positionSize, 1)}`
+	                          : ""}
+	                      </div>
+	                    </div>
+	                  ) : null}
+
+	                  <details className="details" style={{ marginTop: 12 }}>
+	                    <summary>Signal details</summary>
+	                    <div style={{ marginTop: 10 }}>
+	                      {(() => {
+	                        const sig = bot.status.latestSignal;
+	                        const r = sig.regimes;
+	                        if (!r) return null;
+	                        const trend = typeof r.trend === "number" && Number.isFinite(r.trend) ? fmtPct(r.trend, 1) : "—";
+	                        const mr = typeof r.mr === "number" && Number.isFinite(r.mr) ? fmtPct(r.mr, 1) : "—";
+	                        const hv = typeof r.highVol === "number" && Number.isFinite(r.highVol) ? fmtPct(r.highVol, 1) : "—";
+	                        return (
+	                          <div className="kv">
+	                            <div className="k">Regimes</div>
+	                            <div className="v">
+	                              trend {trend} • mr {mr} • high vol {hv}
+	                            </div>
+	                          </div>
+	                        );
+	                      })()}
+
+	                      {(() => {
+	                        const q = bot.status.latestSignal.quantiles;
+	                        if (!q) return null;
+	                        const q10 = typeof q.q10 === "number" && Number.isFinite(q.q10) ? fmtPct(q.q10, 3) : "—";
+	                        const q50 = typeof q.q50 === "number" && Number.isFinite(q.q50) ? fmtPct(q.q50, 3) : "—";
+	                        const q90 = typeof q.q90 === "number" && Number.isFinite(q.q90) ? fmtPct(q.q90, 3) : "—";
+	                        const w = typeof q.width === "number" && Number.isFinite(q.width) ? fmtPct(q.width, 3) : "—";
+	                        return (
+	                          <div className="kv">
+	                            <div className="k">Quantiles</div>
+	                            <div className="v">
+	                              q10 {q10} • q50 {q50} • q90 {q90} • width {w}
+	                            </div>
+	                          </div>
+	                        );
+	                      })()}
+
+	                      {(() => {
+	                        const i = bot.status.latestSignal.conformalInterval;
+	                        if (!i) return null;
+	                        const lo = typeof i.lo === "number" && Number.isFinite(i.lo) ? fmtPct(i.lo, 3) : "—";
+	                        const hi = typeof i.hi === "number" && Number.isFinite(i.hi) ? fmtPct(i.hi, 3) : "—";
+	                        const w = typeof i.width === "number" && Number.isFinite(i.width) ? fmtPct(i.width, 3) : "—";
+	                        return (
+	                          <div className="kv">
+	                            <div className="k">Conformal</div>
+	                            <div className="v">
+	                              lo {lo} • hi {hi} • width {w}
+	                            </div>
+	                          </div>
+	                        );
+	                      })()}
+
+	                      {(() => {
+	                        const std = bot.status.latestSignal.kalmanStd;
+	                        if (typeof std !== "number" || !Number.isFinite(std)) return null;
+	                        return (
+	                          <div className="kv">
+	                            <div className="k">Kalman σ</div>
+	                            <div className="v">{fmtPct(std, 3)}</div>
+	                          </div>
+	                        );
+	                      })()}
+	                    </div>
+	                  </details>
+
+	                  {bot.status.lastOrder ? (
+	                    <div className="kv">
+	                      <div className="k">Last order</div>
+	                      <div className="v">{bot.status.lastOrder.message}</div>
+                    </div>
+                  ) : null}
+
+                  <details className="details" style={{ marginTop: 12 }}>
+                    <summary>Realtime feed</summary>
+                    <div className="actions" style={{ marginTop: 10 }}>
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={botRt.feed.length === 0}
+                        onClick={() => {
+                          void copyText(botRtFeedText);
+                          showToast("Copied realtime feed");
+                        }}
+                      >
+                        Copy
+                      </button>
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={botRt.feed.length === 0}
+                        onClick={() => {
+                          setBotRt((s) => ({ ...s, feed: [] }));
+                          showToast("Cleared realtime feed");
+                        }}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <pre className="code" style={{ marginTop: 10 }}>
+                      {botRtFeedText}
+                    </pre>
+                  </details>
 
 		                  <div style={{ marginTop: 12 }}>
 		                    <div className="btChartHeader" style={{ marginBottom: 10 }}>
@@ -3623,21 +4131,126 @@ export function App() {
                   <div className="kv">
                     <div className="k">Kalman</div>
                     <div className="v">
-                      {state.latestSignal.kalmanNext ? fmtMoney(state.latestSignal.kalmanNext, 4) : "disabled"}{" "}
-                      {state.latestSignal.kalmanDirection ? `(${state.latestSignal.kalmanDirection})` : ""}
+                      {(() => {
+                        const sig = state.latestSignal;
+                        const cur = sig.currentPrice;
+                        const next = sig.kalmanNext;
+                        if (typeof next !== "number" || !Number.isFinite(next)) return "disabled";
+                        const ret = sig.kalmanReturn;
+                        const z = sig.kalmanZ;
+                        const ret2 =
+                          typeof ret === "number" && Number.isFinite(ret)
+                            ? ret
+                            : cur !== 0
+                              ? (next - cur) / cur
+                              : null;
+                        const nextTxt = fmtMoney(next, 4);
+                        const retTxt = typeof ret2 === "number" && Number.isFinite(ret2) ? fmtPct(ret2, 3) : "—";
+                        const zTxt = typeof z === "number" && Number.isFinite(z) ? fmtNum(z, 3) : "—";
+                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${sig.kalmanDirection ?? "—"}`;
+                      })()}
                     </div>
                   </div>
                   <div className="kv">
                     <div className="k">LSTM</div>
                     <div className="v">
-                      {state.latestSignal.lstmNext ? fmtMoney(state.latestSignal.lstmNext, 4) : "disabled"}{" "}
-                      {state.latestSignal.lstmDirection ? `(${state.latestSignal.lstmDirection})` : ""}
+                      {(() => {
+                        const sig = state.latestSignal;
+                        const cur = sig.currentPrice;
+                        const next = sig.lstmNext;
+                        if (typeof next !== "number" || !Number.isFinite(next)) return "disabled";
+                        const ret = cur !== 0 ? (next - cur) / cur : null;
+                        const nextTxt = fmtMoney(next, 4);
+                        const retTxt = typeof ret === "number" && Number.isFinite(ret) ? fmtPct(ret, 3) : "—";
+                        return `${nextTxt} (${retTxt}) • ${sig.lstmDirection ?? "—"}`;
+                      })()}
                     </div>
                   </div>
                   <div className="kv">
                     <div className="k">Chosen</div>
                     <div className="v">{state.latestSignal.chosenDirection ?? "NEUTRAL"}</div>
                   </div>
+                  {typeof state.latestSignal.confidence === "number" && Number.isFinite(state.latestSignal.confidence) ? (
+                    <div className="kv">
+                      <div className="k">Confidence / Size</div>
+                      <div className="v">
+                        {fmtPct(state.latestSignal.confidence, 1)}
+                        {typeof state.latestSignal.positionSize === "number" && Number.isFinite(state.latestSignal.positionSize)
+                          ? ` • ${fmtPct(state.latestSignal.positionSize, 1)}`
+                          : ""}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {(() => {
+                    const sig = state.latestSignal;
+                    const std = sig.kalmanStd;
+                    const hasStd = typeof std === "number" && Number.isFinite(std);
+                    const hasDetails = Boolean(sig.regimes || sig.quantiles || sig.conformalInterval || hasStd);
+                    if (!hasDetails) return null;
+                    return (
+                      <details className="details" style={{ marginTop: 12 }}>
+                        <summary>Signal details</summary>
+                        <div style={{ marginTop: 10 }}>
+                          {(() => {
+                            const r = sig.regimes;
+                            if (!r) return null;
+                            const trend = typeof r.trend === "number" && Number.isFinite(r.trend) ? fmtPct(r.trend, 1) : "—";
+                            const mr = typeof r.mr === "number" && Number.isFinite(r.mr) ? fmtPct(r.mr, 1) : "—";
+                            const hv = typeof r.highVol === "number" && Number.isFinite(r.highVol) ? fmtPct(r.highVol, 1) : "—";
+                            return (
+                              <div className="kv">
+                                <div className="k">Regimes</div>
+                                <div className="v">
+                                  trend {trend} • mr {mr} • high vol {hv}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {(() => {
+                            const q = sig.quantiles;
+                            if (!q) return null;
+                            const q10 = typeof q.q10 === "number" && Number.isFinite(q.q10) ? fmtPct(q.q10, 3) : "—";
+                            const q50 = typeof q.q50 === "number" && Number.isFinite(q.q50) ? fmtPct(q.q50, 3) : "—";
+                            const q90 = typeof q.q90 === "number" && Number.isFinite(q.q90) ? fmtPct(q.q90, 3) : "—";
+                            const w = typeof q.width === "number" && Number.isFinite(q.width) ? fmtPct(q.width, 3) : "—";
+                            return (
+                              <div className="kv">
+                                <div className="k">Quantiles</div>
+                                <div className="v">
+                                  q10 {q10} • q50 {q50} • q90 {q90} • width {w}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {(() => {
+                            const i = sig.conformalInterval;
+                            if (!i) return null;
+                            const lo = typeof i.lo === "number" && Number.isFinite(i.lo) ? fmtPct(i.lo, 3) : "—";
+                            const hi = typeof i.hi === "number" && Number.isFinite(i.hi) ? fmtPct(i.hi, 3) : "—";
+                            const w = typeof i.width === "number" && Number.isFinite(i.width) ? fmtPct(i.width, 3) : "—";
+                            return (
+                              <div className="kv">
+                                <div className="k">Conformal</div>
+                                <div className="v">
+                                  lo {lo} • hi {hi} • width {w}
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {hasStd ? (
+                            <div className="kv">
+                              <div className="k">Kalman σ</div>
+                              <div className="v">{fmtPct(std, 3)}</div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </details>
+                    );
+                  })()}
                 </>
               ) : (
                 <div className="hint">No signal yet.</div>
@@ -3653,15 +4266,16 @@ export function App() {
             <div className="cardBody">
               {state.backtest ? (
                 <>
-	                  <BacktestChart
-	                    prices={state.backtest.prices}
-	                    equityCurve={state.backtest.equityCurve}
-	                    positions={state.backtest.positions}
-	                    agreementOk={state.backtest.agreementOk}
-	                    trades={state.backtest.trades}
-	                    backtestStartIndex={state.backtest.split.backtestStartIndex}
-	                    height={360}
-		                  />
+		                  <BacktestChart
+			                    prices={state.backtest.prices}
+			                    equityCurve={state.backtest.equityCurve}
+			                    kalmanPredNext={state.backtest.kalmanPredNext}
+			                    positions={state.backtest.positions}
+			                    agreementOk={state.backtest.agreementOk}
+			                    trades={state.backtest.trades}
+			                    backtestStartIndex={state.backtest.split.backtestStartIndex}
+			                    height={360}
+			                  />
 		                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
 		                    {state.backtest.split.tune > 0 ? (
 		                      <>
@@ -3697,6 +4311,79 @@ export function App() {
                       })()}
                     </div>
                   </div>
+                  {(() => {
+                    const minHold = state.backtest.minHoldBars ?? 0;
+                    const cooldown = state.backtest.cooldownBars ?? 0;
+                    const minHoldN = typeof minHold === "number" && Number.isFinite(minHold) ? Math.max(0, Math.trunc(minHold)) : 0;
+                    const cooldownN = typeof cooldown === "number" && Number.isFinite(cooldown) ? Math.max(0, Math.trunc(cooldown)) : 0;
+                    if (minHoldN <= 0 && cooldownN <= 0) return null;
+                    return (
+                      <div className="kv">
+                        <div className="k">Min hold / Cooldown</div>
+                        <div className="v">
+                          {minHoldN} / {cooldownN} bars
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {state.backtest.costs ? (
+                    <>
+                      <div className="kv">
+                        <div className="k">Per-side cost (est.)</div>
+                        <div className="v">
+                          {fmtNum(state.backtest.costs.perSideCost, 6)} ({fmtPct(state.backtest.costs.perSideCost, 3)})
+                        </div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">Round-trip cost (approx)</div>
+                        <div className="v">
+                          {fmtNum(state.backtest.costs.roundTripCost, 6)} ({fmtPct(state.backtest.costs.roundTripCost, 3)})
+                        </div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">Break-even (round trip)</div>
+                        <div className="v">
+                          {(() => {
+                            const openThr = state.backtest.openThreshold ?? state.backtest.threshold;
+                            const be = state.backtest.costs?.breakEvenThreshold ?? 0;
+                            const note = openThr < be && be > 0 ? " (open threshold below break-even)" : "";
+                            return `${fmtNum(be, 6)} (${fmtPct(be, 3)})${note}`;
+                          })()}
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
+                  {state.backtest.tuning && state.backtest.split.tune > 0 ? (
+                    <div className="kv">
+                      <div className="k">Tune objective</div>
+                      <div className="v">
+                        {state.backtest.tuning.objective}
+                        {state.backtest.tuning.minRoundTrips && state.backtest.tuning.minRoundTrips > 0
+                          ? ` • min-round-trips=${state.backtest.tuning.minRoundTrips}`
+                          : ""}
+                        {state.backtest.tuning.tuneStats
+                          ? ` • folds=${state.backtest.tuning.tuneStats.folds} score=${fmtNum(state.backtest.tuning.tuneStats.meanScore, 4)}±${fmtNum(state.backtest.tuning.tuneStats.stdScore, 4)}`
+                          : ""}
+                      </div>
+                    </div>
+                  ) : null}
+                  {state.backtest.tuning?.tuneMetrics ? (
+                    <div className="kv">
+                      <div className="k">Tune vs backtest</div>
+                      <div className="v">
+                        {(() => {
+                          const tune = state.backtest?.tuning?.tuneMetrics;
+                          const bt = state.backtest?.metrics;
+                          if (!tune || !bt) return "—";
+                          const tuneEq = tune.finalEquity;
+                          const btEq = bt.finalEquity;
+                          const gap = tuneEq > 0 ? btEq / tuneEq - 1 : null;
+                          const gapTxt = gap != null && Number.isFinite(gap) ? ` • gap ${fmtPct(gap, 2)}` : "";
+                          return `tune ${fmtRatio(tuneEq, 4)} (${fmtPct(tune.totalReturn, 2)}) • holdout ${fmtRatio(btEq, 4)} (${fmtPct(bt.totalReturn, 2)})${gapTxt}`;
+                        })()}
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="kv">
                     <div className="k">Final equity</div>
                     <div className="v">{fmtRatio(state.backtest.metrics.finalEquity, 4)}</div>
@@ -3722,18 +4409,41 @@ export function App() {
                     </div>
                   </div>
                   <div className="kv">
-                    <div className="k">Trades / Win rate</div>
+                    <div className="k">Trades / Round trips / Win rate</div>
                     <div className="v">
-                      {state.backtest.metrics.roundTrips} / {fmtPct(state.backtest.metrics.winRate, 1)}
+                      {state.backtest.metrics.tradeCount} / {state.backtest.metrics.roundTrips} / {fmtPct(state.backtest.metrics.winRate, 1)}
+                      {state.backtest.metrics.roundTrips < 3 ? " • low sample" : ""}
                     </div>
                   </div>
+
+                  {state.backtest.baselines && state.backtest.baselines.length > 0 ? (
+                    <details className="details" style={{ marginTop: 12 }}>
+                      <summary>Baselines</summary>
+                      <div style={{ marginTop: 10 }}>
+                        {state.backtest.baselines.map((b) => {
+                          const baseEq = b.metrics.finalEquity;
+                          const modelEq = state.backtest?.metrics.finalEquity ?? 1;
+                          const delta = baseEq > 0 ? modelEq / baseEq - 1 : null;
+                          return (
+                            <div key={b.name} className="kv">
+                              <div className="k">{b.name}</div>
+                              <div className="v">
+                                {fmtRatio(baseEq, 4)} ({fmtPct(b.metrics.totalReturn, 2)})
+                                {delta != null && Number.isFinite(delta) ? ` • model: ${fmtPct(delta, 2)}` : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  ) : null}
 
                   <details className="details" style={{ marginTop: 12 }}>
                     <summary>More metrics</summary>
                     <div style={{ marginTop: 10 }}>
                       <div className="kv">
                         <div className="k">Operations (position changes)</div>
-                        <div className="v">{state.backtest.metrics.tradeCount}</div>
+                        <div className="v">{state.backtest.metrics.positionChanges}</div>
                       </div>
 	                      <div className="kv">
 	                        <div className="k">Annualized volatility</div>
@@ -3757,12 +4467,54 @@ export function App() {
 	                          {fmtPct(state.backtest.metrics.avgTradeReturn, 2)} / {fmtNum(state.backtest.metrics.avgHoldingPeriods, 2)} bars
 	                        </div>
 	                      </div>
-                      <div className="kv">
-                        <div className="k">Agreement rate</div>
-                        <div className="v">{fmtPct(state.backtest.metrics.agreementRate, 1)}</div>
-                      </div>
+	                      <div className="kv">
+	                        <div className="k">Agreement rate</div>
+	                        <div className="v">
+	                          {fmtPct(state.backtest.metrics.agreementRate, 1)}
+	                        </div>
+	                      </div>
                     </div>
                   </details>
+
+                  {state.backtest.walkForward ? (
+                    <details className="details" style={{ marginTop: 12 }}>
+                      <summary>Walk-forward</summary>
+                      <div style={{ marginTop: 10 }}>
+                        <div className="kv">
+                          <div className="k">Folds</div>
+                          <div className="v">{state.backtest.walkForward.foldCount}</div>
+                        </div>
+                        <div className="kv">
+                          <div className="k">Final equity (mean ± std)</div>
+                          <div className="v">
+                            {fmtRatio(state.backtest.walkForward.summary.finalEquityMean, 4)} ±{" "}
+                            {fmtRatio(state.backtest.walkForward.summary.finalEquityStd, 4)}
+                          </div>
+                        </div>
+                        <div className="kv">
+                          <div className="k">Sharpe (mean ± std)</div>
+                          <div className="v">
+                            {fmtNum(state.backtest.walkForward.summary.sharpeMean, 3)} ±{" "}
+                            {fmtNum(state.backtest.walkForward.summary.sharpeStd, 3)}
+                          </div>
+                        </div>
+                        <div className="kv">
+                          <div className="k">Max DD (mean ± std)</div>
+                          <div className="v">
+                            {fmtPct(state.backtest.walkForward.summary.maxDrawdownMean, 2)} ±{" "}
+                            {fmtPct(state.backtest.walkForward.summary.maxDrawdownStd, 2)}
+                          </div>
+                        </div>
+                        <div className="kv">
+                          <div className="k">Turnover (mean ± std)</div>
+                          <div className="v">
+                            {fmtNum(state.backtest.walkForward.summary.turnoverMean, 4)} ±{" "}
+                            {fmtNum(state.backtest.walkForward.summary.turnoverStd, 4)}
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+                  ) : null}
                 </>
               ) : (
                 <div className="hint">No backtest yet.</div>
@@ -4039,26 +4791,34 @@ export function App() {
           <p className="cardSubtitle">All incoming API responses (last 100 entries)</p>
         </div>
         <div className="cardBody">
-          <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
-            <button
-              className="btn"
-              onClick={() => setDataLog([])}
-            >
-              Clear Log
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                const logText = dataLog
-                  .map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
-                  .join("\n\n");
-                copyText(logText);
-                showToast("Copied log to clipboard");
-              }}
-            >
-              Copy All
-            </button>
-          </div>
+	          <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
+	            <button
+	              className="btn"
+	              onClick={() => setDataLog([])}
+	            >
+	              Clear Log
+	            </button>
+	            <button
+	              className="btn"
+	              onClick={() => {
+	                const logText = dataLog
+	                  .map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
+	                  .join("\n\n");
+	                copyText(logText);
+	                showToast("Copied log to clipboard");
+	              }}
+	            >
+	              Copy All
+	            </button>
+              <label className="pill" style={{ userSelect: "none" }}>
+                <input type="checkbox" checked={dataLogExpanded} onChange={(e) => setDataLogExpanded(e.target.checked)} />
+                Expand
+              </label>
+              <label className="pill" style={{ userSelect: "none" }}>
+                <input type="checkbox" checked={dataLogIndexArrays} onChange={(e) => setDataLogIndexArrays(e.target.checked)} />
+                Index arrays
+              </label>
+	          </div>
           <div
             ref={dataLogRef}
             style={{
@@ -4082,17 +4842,20 @@ export function App() {
                 <div key={idx} style={{ marginBottom: "12px", paddingBottom: "12px", borderBottom: "1px solid #1f2937" }}>
                   <div style={{ color: "#60a5fa", marginBottom: "4px" }}>
                     [{new Date(entry.timestamp).toLocaleTimeString()}] <span style={{ color: "#34d399" }}>{entry.label}</span>
-                  </div>
-                  <div style={{ color: "#d1d5db", fontSize: "11px" }}>
-                    {JSON.stringify(entry.data, null, 2)
-                      .split("\n")
-                      .slice(0, 50)
-                      .join("\n")}
-                    {JSON.stringify(entry.data, null, 2).split("\n").length > 50 && "\n... (truncated)"}
-                  </div>
-                </div>
-              ))
-            )}
+	                  </div>
+	                  <div style={{ color: "#d1d5db", fontSize: "11px" }}>
+                      {(() => {
+                        const data = dataLogIndexArrays ? indexTopLevelPrimitiveArrays(entry.data) : entry.data;
+                        const json = JSON.stringify(data, null, 2);
+                        if (dataLogExpanded) return json;
+                        const lines = json.split("\n");
+                        const head = lines.slice(0, DATA_LOG_COLLAPSED_MAX_LINES).join("\n");
+                        return lines.length > DATA_LOG_COLLAPSED_MAX_LINES ? `${head}\n... (truncated)` : head;
+                      })()}
+	                  </div>
+	                </div>
+	              ))
+	            )}
           </div>
         </div>
       </section>
