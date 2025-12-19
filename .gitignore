@@ -25,6 +25,7 @@ dist/
 dist-newstyle/
 haskell/dist-newstyle/
 haskell/.stack-work/
+haskell/.stack-root/
 haskell/stack.yaml.lock
 haskell/.cabal-config
 .cabal-sandbox/

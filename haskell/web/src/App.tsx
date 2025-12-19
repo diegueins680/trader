@@ -4461,20 +4461,36 @@ export function App() {
             <div className="cardBody">
               {state.backtest ? (
                 <>
-		                  <BacktestChart
-			                    prices={state.backtest.prices}
-			                    equityCurve={state.backtest.equityCurve}
-			                    kalmanPredNext={state.backtest.kalmanPredNext}
-			                    positions={state.backtest.positions}
-			                    agreementOk={state.backtest.agreementOk}
-			                    trades={state.backtest.trades}
-			                    backtestStartIndex={state.backtest.split.backtestStartIndex}
-			                    height={360}
-			                  />
-		                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
-		                    {state.backtest.split.tune > 0 ? (
-		                      <>
-		                        <span className="badge">Fit: {state.backtest.split.fit}</span>
+			                  <BacktestChart
+				                    prices={state.backtest.prices}
+				                    equityCurve={state.backtest.equityCurve}
+				                    kalmanPredNext={state.backtest.kalmanPredNext}
+				                    positions={state.backtest.positions}
+				                    agreementOk={state.backtest.agreementOk}
+				                    trades={state.backtest.trades}
+				                    backtestStartIndex={state.backtest.split.backtestStartIndex}
+				                    height={360}
+				                  />
+                        <div style={{ marginTop: 10 }}>
+                          <div className="hint" style={{ marginBottom: 8 }}>
+                            Prediction values vs thresholds (hover for details)
+                          </div>
+                          <PredictionDiffChart
+                            prices={state.backtest.prices}
+                            kalmanPredNext={state.backtest.kalmanPredNext}
+                            lstmPredNext={state.backtest.lstmPredNext}
+                            startIndex={state.backtest.split.backtestStartIndex}
+                            height={140}
+                            openThreshold={state.backtest.openThreshold ?? state.backtest.threshold}
+                            closeThreshold={
+                              state.backtest.closeThreshold ?? state.backtest.openThreshold ?? state.backtest.threshold
+                            }
+                          />
+                        </div>
+			                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
+			                    {state.backtest.split.tune > 0 ? (
+			                      <>
+			                        <span className="badge">Fit: {state.backtest.split.fit}</span>
 		                        <span className="badge">
 		                          Tune: {state.backtest.split.tune} ({fmtPct(state.backtest.split.tuneRatio, 1)})
 		                        </span>

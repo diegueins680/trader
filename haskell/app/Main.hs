@@ -6790,7 +6790,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           else Just x
       alignPred mCtx preds =
         let n0 = length backtestPrices
-            aligned = Nothing : map finiteMaybe preds
+            -- `preds` are next-bar predictions for each bar `t` (0..n-2).
+            -- Align to the bar index so `predNext[t]` lines up with decisions/positions for t→t+1.
+            aligned = map finiteMaybe preds ++ [Nothing]
          in if n0 <= 0
               then []
               else
