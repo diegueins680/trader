@@ -19,7 +19,7 @@ jobs:
           ghc-version: "8.10.7"
 
       - name: Cache Cabal artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cabal/store
