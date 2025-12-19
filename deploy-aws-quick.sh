@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Quick AWS deployment script for Trader
-# Usage:
+# AWS deployment script for Trader (API + optional UI)
+#
+# Quick usage (API only):
 #   bash deploy-aws-quick.sh [region] [api-token]
 #   TRADER_API_TOKEN=... bash deploy-aws-quick.sh [region]
 #
+# Optional: also deploy the web UI (S3 + optional CloudFront invalidation):
+#   bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" --ui-bucket "$S3_BUCKET" --distribution-id "$CF_ID"
+#
 # Notes:
 #   - If region is omitted, uses AWS_REGION/AWS_DEFAULT_REGION/aws-cli config, then ap-northeast-1.
-#   - If api-token is omitted, uses env TRADER_API_TOKEN (or reuses an existing App Runner token).
+#   - If api-token is omitted, uses env TRADER_API_TOKEN (or reuses an existing App Runner token when updating).
 
 set -euo pipefail
 
@@ -16,17 +20,65 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Configuration
-AWS_REGION="${1:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
-TRADER_API_TOKEN="${2:-${TRADER_API_TOKEN:-}}"
+# Configuration (inputs)
+AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+TRADER_API_TOKEN="${TRADER_API_TOKEN:-}"
+UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
+UI_DISTRIBUTION_ID="${TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID:-${CLOUDFRONT_DISTRIBUTION_ID:-}}"
+UI_SKIP_BUILD="${TRADER_UI_SKIP_BUILD:-false}"
+UI_DIST_DIR="${TRADER_UI_DIST_DIR:-haskell/web/dist}"
+UI_ONLY="false"
+API_ONLY="false"
+UI_API_URL="${TRADER_UI_API_URL:-}"
+UI_SERVICE_ARN="${TRADER_UI_SERVICE_ARN:-}"
+
+# Configuration (defaults)
 ECR_REPO="trader-api"
 APP_RUNNER_SERVICE_NAME="${APP_RUNNER_SERVICE_NAME:-$ECR_REPO}"
 APP_RUNNER_ECR_ACCESS_ROLE_NAME="${APP_RUNNER_ECR_ACCESS_ROLE_NAME:-AppRunnerECRAccessRole}"
 
-echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
-
 ECR_URI=""
 APP_RUNNER_SERVICE_URL=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  # API deploy (ECR + App Runner)
+  bash deploy-aws-quick.sh [region] [api-token]
+
+  # API deploy (named flags)
+  bash deploy-aws-quick.sh --region <region> [--api-token <token>]
+
+  # API + UI deploy (S3 + optional CloudFront invalidation)
+  bash deploy-aws-quick.sh --region <region> [--api-token <token>] --ui-bucket <s3-bucket> [--distribution-id <cf-distribution-id>]
+
+  # UI-only deploy (no App Runner changes)
+  bash deploy-aws-quick.sh --ui-only --region <region> --ui-bucket <s3-bucket> --api-url <https://api-host> [--api-token <token>] [--distribution-id <cf-distribution-id>] [--skip-ui-build]
+
+Flags:
+  --region <region>                 AWS region (e.g. ap-northeast-1)
+  --api-token <token>               API token (TRADER_API_TOKEN)
+  --api-only                         Deploy API only
+  --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
+  --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
+  --distribution-id <id>            CloudFront distribution ID (optional)
+  --api-url <url>                   API base URL for UI config (UI-only; otherwise auto from App Runner)
+  --service-arn <arn>               App Runner service ARN to auto-discover API URL/token (UI-only convenience)
+  --skip-ui-build                   Skip `npm run build` (uses existing dist dir)
+  --ui-dist-dir <dir>               UI dist dir (default: haskell/web/dist)
+  -h|--help                         Show help
+
+Environment variables (equivalents):
+  AWS_REGION / AWS_DEFAULT_REGION
+  TRADER_API_TOKEN
+  TRADER_UI_BUCKET / S3_BUCKET
+  TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID / CLOUDFRONT_DISTRIBUTION_ID
+  TRADER_UI_SKIP_BUILD
+  TRADER_UI_DIST_DIR
+  TRADER_UI_API_URL
+  TRADER_UI_SERVICE_ARN
+EOF
+}
 
 mask_token() {
   local tok="${1:-}"
@@ -42,8 +94,98 @@ mask_token() {
   echo "${tok:0:6}…${tok:n-4:4}"
 }
 
+is_true() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|y|Y)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --region)
+      AWS_REGION="${2:-}"
+      shift 2
+      ;;
+    --api-token)
+      TRADER_API_TOKEN="${2:-}"
+      shift 2
+      ;;
+    --api-only)
+      API_ONLY="true"
+      shift
+      ;;
+    --ui-only)
+      UI_ONLY="true"
+      shift
+      ;;
+    --ui-bucket|--bucket)
+      UI_BUCKET="${2:-}"
+      shift 2
+      ;;
+    --distribution-id)
+      UI_DISTRIBUTION_ID="${2:-}"
+      shift 2
+      ;;
+    --skip-ui-build)
+      UI_SKIP_BUILD="true"
+      shift
+      ;;
+    --ui-dist-dir)
+      UI_DIST_DIR="${2:-}"
+      shift 2
+      ;;
+    --api-url)
+      UI_API_URL="${2:-}"
+      shift 2
+      ;;
+    --service-arn)
+      UI_SERVICE_ARN="${2:-}"
+      shift 2
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ ${#POSITIONAL[@]} -ge 1 && -z "${AWS_REGION:-}" ]]; then
+  AWS_REGION="${POSITIONAL[0]}"
+fi
+if [[ ${#POSITIONAL[@]} -ge 2 && -z "${TRADER_API_TOKEN:-}" ]]; then
+  TRADER_API_TOKEN="${POSITIONAL[1]}"
+fi
+
+DEPLOY_API="true"
+DEPLOY_UI="false"
+if [[ -n "${UI_BUCKET:-}" || "$UI_ONLY" == "true" ]]; then
+  DEPLOY_UI="true"
+fi
+if [[ "$API_ONLY" == "true" ]]; then
+  DEPLOY_UI="false"
+fi
+if [[ "$UI_ONLY" == "true" ]]; then
+  DEPLOY_API="false"
+  DEPLOY_UI="true"
+fi
+
+echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
+
 # Check prerequisites
 check_prerequisites() {
+  local require_docker="${1:-true}"
+  local require_npm="${2:-false}"
+
   echo "Checking prerequisites..."
   
   if ! command -v aws >/dev/null 2>&1; then
@@ -63,19 +205,30 @@ check_prerequisites() {
     exit 1
   fi
   
-  if ! command -v docker >/dev/null 2>&1; then
-    echo -e "${RED}✗ Docker not found${NC}"
-    exit 1
-  fi
-  echo -e "${GREEN}✓ Docker found${NC}"
+  if [[ "$require_docker" == "true" ]]; then
+    if ! command -v docker >/dev/null 2>&1; then
+      echo -e "${RED}✗ Docker not found${NC}"
+      exit 1
+    fi
+    echo -e "${GREEN}✓ Docker found${NC}"
 
-  # Check Docker daemon connectivity early (otherwise docker build/push errors are confusing).
-  if ! docker ps >/dev/null 2>&1; then
-    echo -e "${RED}✗ Docker daemon not reachable${NC}"
-    echo "Start Docker Desktop (or ensure dockerd is running) and retry."
-    exit 1
+    # Check Docker daemon connectivity early (otherwise docker build/push errors are confusing).
+    if ! docker ps >/dev/null 2>&1; then
+      echo -e "${RED}✗ Docker daemon not reachable${NC}"
+      echo "Start Docker Desktop (or ensure dockerd is running) and retry."
+      exit 1
+    fi
+    echo -e "${GREEN}✓ Docker daemon reachable${NC}"
   fi
-  echo -e "${GREEN}✓ Docker daemon reachable${NC}"
+
+  if [[ "$require_npm" == "true" ]]; then
+    if ! command -v npm >/dev/null 2>&1; then
+      echo -e "${RED}✗ npm not found${NC}" >&2
+      echo "Install Node.js (>=18) and retry." >&2
+      exit 1
+    fi
+    echo -e "${GREEN}✓ npm found${NC}"
+  fi
   
   # Check AWS credentials
   if ! aws sts get-caller-identity --region "$AWS_REGION" >/dev/null 2>&1; then
@@ -89,6 +242,43 @@ check_prerequisites() {
 # Get AWS account ID
 get_account_id() {
   aws sts get-caller-identity --query Account --output text
+}
+
+discover_apprunner_service_url() {
+  local service_arn="$1"
+  local host=""
+  host="$(
+    aws apprunner describe-service \
+      --service-arn "$service_arn" \
+      --region "$AWS_REGION" \
+      --query 'Service.ServiceUrl' \
+      --output text
+  )"
+  if [[ -z "$host" || "$host" == "None" ]]; then
+    echo "" >&2
+    return 1
+  fi
+  if [[ "$host" =~ ^https?:// ]]; then
+    echo "$host"
+  else
+    echo "https://${host}"
+  fi
+}
+
+discover_apprunner_trader_api_token() {
+  local service_arn="$1"
+  local token=""
+  token="$(
+    aws apprunner describe-service \
+      --service-arn "$service_arn" \
+      --region "$AWS_REGION" \
+      --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_API_TOKEN' \
+      --output text 2>/dev/null || true
+  )"
+  if [[ "$token" == "None" ]]; then
+    token=""
+  fi
+  echo "$token"
 }
 
 wait_for_apprunner_running() {
@@ -123,6 +313,68 @@ wait_for_apprunner_running() {
   echo "" >&2
   echo "Timed out waiting for App Runner service to be RUNNING." >&2
   return 1
+}
+
+set_apprunner_scaling() {
+  local service_arn="$1"
+  local min_size="${2:-1}"
+  local max_size="${3:-1}"
+
+  local current_min=""
+  local current_max=""
+  current_min="$(
+    aws apprunner describe-service \
+      --service-arn "$service_arn" \
+      --region "$AWS_REGION" \
+      --query 'Service.AutoScalingConfigurationSummary.MinSize' \
+      --output text 2>/dev/null || true
+  )"
+  current_max="$(
+    aws apprunner describe-service \
+      --service-arn "$service_arn" \
+      --region "$AWS_REGION" \
+      --query 'Service.AutoScalingConfigurationSummary.MaxSize' \
+      --output text 2>/dev/null || true
+  )"
+
+  if [[ -n "$current_min" && -n "$current_max" && "$current_min" != "None" && "$current_max" != "None" ]]; then
+    if [[ "$current_min" == "$min_size" && "$current_max" == "$max_size" ]]; then
+      return 0
+    fi
+  fi
+
+  local ts
+  ts="$(date -u +%s)"
+  local name_prefix="trader-api-single"
+  local cfg_name="${name_prefix}-${min_size}-${max_size}-${ts}"
+  local max_len=32
+  if (( ${#cfg_name} > max_len )); then
+    local suffix_len=$(( ${#min_size} + ${#max_size} + ${#ts} + 3 ))
+    local allowed_prefix_len=$(( max_len - suffix_len ))
+    if (( allowed_prefix_len < 1 )); then
+      name_prefix="t"
+    else
+      name_prefix="${name_prefix:0:${allowed_prefix_len}}"
+    fi
+    cfg_name="${name_prefix}-${min_size}-${max_size}-${ts}"
+  fi
+
+  local cfg_arn
+  cfg_arn="$(
+    aws apprunner create-auto-scaling-configuration \
+      --region "$AWS_REGION" \
+      --auto-scaling-configuration-name "$cfg_name" \
+      --min-size "$min_size" \
+      --max-size "$max_size" \
+      --query 'AutoScalingConfiguration.AutoScalingConfigurationArn' \
+      --output text
+  )"
+
+  aws apprunner update-service \
+    --region "$AWS_REGION" \
+    --service-arn "$service_arn" \
+    --auto-scaling-configuration-arn "$cfg_arn" \
+    >/dev/null
 }
 
 # Create ECR repository
@@ -273,7 +525,7 @@ EOF
   rm -f "$src_cfg"
 
   echo "Setting single-instance scaling (min=1, max=1)..." >&2
-  AWS_REGION="$AWS_REGION" bash deploy/aws/set-app-runner-single-instance.sh --service-arn "$service_arn" --min 1 --max 1 >/dev/null
+  set_apprunner_scaling "$service_arn" 1 1
   echo -e "${GREEN}✓ Scaling updated${NC}" >&2
 
   echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
@@ -344,43 +596,146 @@ EOF
   exit 1
 }
 
+deploy_ui() {
+  local api_url="$1"
+  local api_token="$2"
+
+  if [[ -z "${UI_BUCKET:-}" ]]; then
+    echo -e "${RED}✗ Missing UI bucket. Provide --ui-bucket (or TRADER_UI_BUCKET / S3_BUCKET).${NC}" >&2
+    usage >&2
+    exit 2
+  fi
+  if [[ -z "${api_url:-}" ]]; then
+    echo -e "${RED}✗ Missing API URL for UI config. Provide --api-url (or deploy the API in the same run).${NC}" >&2
+    usage >&2
+    exit 2
+  fi
+
+  local skip_build="false"
+  if is_true "$UI_SKIP_BUILD"; then
+    skip_build="true"
+  fi
+
+  if [[ "$skip_build" != "true" ]]; then
+    echo "Building UI..." >&2
+    if [[ ! -d "haskell/web/node_modules" ]]; then
+      echo "Installing UI dependencies (npm ci)..." >&2
+      (cd haskell/web && npm ci --no-audit --no-fund)
+    fi
+    (cd haskell/web && TRADER_API_TARGET="$api_url" npm run build)
+    echo -e "${GREEN}✓ UI built${NC}" >&2
+  fi
+
+  if [[ ! -d "$UI_DIST_DIR" ]]; then
+    echo -e "${RED}✗ UI dist dir not found: ${UI_DIST_DIR}${NC}" >&2
+    echo "Build the UI first (or pass --ui-dist-dir)." >&2
+    exit 1
+  fi
+
+  echo "Writing ${UI_DIST_DIR}/trader-config.js..." >&2
+  cat > "${UI_DIST_DIR}/trader-config.js" <<EOF
+globalThis.__TRADER_CONFIG__ = {
+  apiBaseUrl: "${api_url}",
+  apiToken: "${api_token}",
+};
+EOF
+
+  if ! aws s3api head-bucket --bucket "$UI_BUCKET" --region "$AWS_REGION" >/dev/null 2>&1; then
+    echo -e "${RED}✗ S3 bucket not found or not accessible: ${UI_BUCKET}${NC}" >&2
+    echo "Create it first, e.g.:" >&2
+    echo "  aws s3 mb s3://${UI_BUCKET} --region ${AWS_REGION}" >&2
+    exit 1
+  fi
+
+  echo "Uploading UI to s3://${UI_BUCKET}/ ..." >&2
+  aws s3 sync "${UI_DIST_DIR}/" "s3://${UI_BUCKET}/" --delete --region "$AWS_REGION" >/dev/null
+  aws s3 cp "${UI_DIST_DIR}/trader-config.js" "s3://${UI_BUCKET}/trader-config.js" --region "$AWS_REGION" >/dev/null
+  echo -e "${GREEN}✓ UI uploaded${NC}" >&2
+
+  if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+    echo "Invalidating CloudFront..." >&2
+    aws cloudfront create-invalidation \
+      --distribution-id "$UI_DISTRIBUTION_ID" \
+      --paths "/" "/index.html" "/trader-config.js" \
+      >/dev/null
+    echo -e "${GREEN}✓ CloudFront invalidated${NC}" >&2
+  fi
+}
+
 # Main execution
 main() {
-  check_prerequisites
+  local need_docker="false"
+  local need_npm="false"
+  if [[ "$DEPLOY_API" == "true" ]]; then
+    need_docker="true"
+  fi
+  if [[ "$DEPLOY_UI" == "true" ]] && ! is_true "$UI_SKIP_BUILD"; then
+    need_npm="true"
+  fi
+
+  check_prerequisites "$need_docker" "$need_npm"
 
   echo "Configuration:"
   echo "  Region: $AWS_REGION"
   echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
+  if [[ "$DEPLOY_UI" == "true" ]]; then
+    echo "  UI Bucket: ${UI_BUCKET:-"(not set)"}"
+    if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+      echo "  UI CF Dist: ${UI_DISTRIBUTION_ID}"
+    fi
+    echo "  UI Dist Dir: ${UI_DIST_DIR}"
+    echo "  UI Skip Build: ${UI_SKIP_BUILD}"
+  fi
   echo ""
-  
-  # Create ECR repo
-  create_ecr_repo
-  local ecr_uri="$ECR_URI"
-  
-  # Build and push image
-  build_and_push "$ecr_uri"
-  
-  # Create App Runner service and get URL
-  create_app_runner "$ecr_uri"
-  local service_url="$APP_RUNNER_SERVICE_URL"
-  
-  echo -e "${GREEN}=== Deployment Complete ===${NC}\n"
-  echo "API URL: ${service_url}"
-  echo ""
-  echo "Next steps:"
-  echo "1. Test the API:"
-  echo "   curl -s ${service_url}/health | jq ."
-  echo ""
-  echo "2. Build and deploy the web UI:"
-  echo "   cd haskell/web"
-  echo "   TRADER_API_TARGET='${service_url}' npm run build"
-  echo "   # Edit dist/trader-config.js (apiBaseUrl/apiToken) before uploading to S3/CloudFront"
-  echo "   # Then upload dist/ to S3 or CloudFront"
-  echo ""
-  if [[ -z "$TRADER_API_TOKEN" ]]; then
-    echo -e "${YELLOW}⚠ No API token set. For security, set TRADER_API_TOKEN in App Runner environment.${NC}"
+
+  local api_url=""
+  local api_token="$TRADER_API_TOKEN"
+
+  if [[ "$DEPLOY_API" == "true" ]]; then
+    create_ecr_repo
+    local ecr_uri="$ECR_URI"
+
+    build_and_push "$ecr_uri"
+
+    create_app_runner "$ecr_uri"
+    api_url="$APP_RUNNER_SERVICE_URL"
+    api_token="$TRADER_API_TOKEN"
   else
-    echo "3. Set apiToken in dist/trader-config.js: $(mask_token "$TRADER_API_TOKEN") (use full token value)"
+    if [[ -z "${UI_API_URL:-}" && -n "${UI_SERVICE_ARN:-}" ]]; then
+      UI_API_URL="$(discover_apprunner_service_url "$UI_SERVICE_ARN")"
+    fi
+    api_url="$UI_API_URL"
+    if [[ -z "${api_token:-}" && -n "${UI_SERVICE_ARN:-}" ]]; then
+      api_token="$(discover_apprunner_trader_api_token "$UI_SERVICE_ARN")"
+    fi
+  fi
+
+  if [[ "$DEPLOY_UI" == "true" ]]; then
+    deploy_ui "$api_url" "$api_token"
+  fi
+
+  echo -e "${GREEN}=== Deployment Complete ===${NC}\n"
+  if [[ "$DEPLOY_API" == "true" ]]; then
+    echo "API URL: ${api_url}"
+  else
+    echo "API URL (configured): ${api_url}"
+  fi
+  if [[ "$DEPLOY_UI" == "true" ]]; then
+    echo "UI uploaded to: s3://${UI_BUCKET}/"
+  fi
+  echo ""
+
+  if [[ "$DEPLOY_API" == "true" ]]; then
+    echo "Test the API:"
+    echo "  curl -s ${api_url}/health | jq ."
+    echo ""
+  fi
+  if [[ "$DEPLOY_UI" == "true" ]]; then
+    echo "UI config token (for trader-config.js): $(mask_token "$api_token") (use full token value)"
+    if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+      echo "CloudFront invalidation: done (paths: /, /index.html, /trader-config.js)"
+    fi
+    echo ""
   fi
 }
 
