@@ -314,6 +314,7 @@ export function App() {
   const [orderShowOrderId, setOrderShowOrderId] = useState(() => orderPrefsInit?.showOrderId ?? false);
   const [orderShowStatus, setOrderShowStatus] = useState(() => orderPrefsInit?.showStatus ?? false);
   const [orderShowClientOrderId, setOrderShowClientOrderId] = useState(() => orderPrefsInit?.showClientOrderId ?? false);
+  const [selectedOrderKey, setSelectedOrderKey] = useState<string | null>(null);
 
   const [dataLog, setDataLog] = useState<Array<{ timestamp: number; label: string; data: unknown }>>([]);
   const [dataLogExpanded, setDataLogExpanded] = useState(false);
@@ -875,6 +876,8 @@ export function App() {
     withBinanceKeys,
   ]);
 
+  const orderRowKey = useCallback((e: BotOrderEvent) => `${e.atMs}-${e.index}-${e.opSide}`, []);
+
   const botOrdersView = useMemo(() => {
     const st = bot.status;
     if (!st.running) return { total: 0, shown: [] as BotOrderEvent[], startIndex: 0 };
@@ -910,6 +913,46 @@ export function App() {
 
     return { total, shown, startIndex: st.startIndex };
   }, [bot.status, orderErrorsOnly, orderFilterText, orderLimit, orderSentOnly, orderSideFilter]);
+
+  const selectedOrderDetails = useMemo(() => {
+    const st = bot.status;
+    if (!st.running || !selectedOrderKey) return null;
+    const event = st.orders.find((e) => orderRowKey(e) === selectedOrderKey);
+    if (!event) return null;
+    const idx = event.index;
+    const bar = st.startIndex + idx;
+    const close = st.prices[idx] ?? event.price;
+    const open = idx > 0 ? st.prices[idx - 1] ?? close : close;
+    const eq = st.equityCurve[idx];
+    const pos = st.positions[idx] ?? 0;
+    const kal = st.kalmanPredNext[idx] ?? null;
+    const lstm = st.lstmPredNext[idx] ?? null;
+    const closeForRet = typeof close === "number" && Number.isFinite(close) && close !== 0 ? close : null;
+    const kalRet = typeof kal === "number" && Number.isFinite(kal) && closeForRet ? (kal - closeForRet) / closeForRet : null;
+    const lstmRet = typeof lstm === "number" && Number.isFinite(lstm) && closeForRet ? (lstm - closeForRet) / closeForRet : null;
+    return { event, result: event.order, idx, bar, open, close, eq, pos, kal, lstm, kalRet, lstmRet };
+  }, [bot.status, orderRowKey, selectedOrderKey]);
+
+  const selectedOrderJson = useMemo(() => {
+    if (!selectedOrderDetails) return "";
+    const { event, bar, open, close, eq, pos, kal, lstm, kalRet, lstmRet } = selectedOrderDetails;
+    return JSON.stringify(
+      {
+        ...event,
+        bar,
+        openPrice: open,
+        closePrice: close,
+        equity: eq,
+        position: pos,
+        kalmanPredNext: kal,
+        lstmPredNext: lstm,
+        kalmanReturn: kalRet,
+        lstmReturn: lstmRet,
+      },
+      null,
+      2,
+    );
+  }, [selectedOrderDetails]);
 
   const botOrderCopyText = useMemo(() => {
     const st = bot.status;
@@ -4227,6 +4270,133 @@ export function App() {
 		                      </label>
 		                    </div>
 
+		                    {selectedOrderDetails ? (
+		                      (() => {
+		                        const { event, result, bar, open, close, eq, pos, kal, lstm, kalRet, lstmRet } = selectedOrderDetails;
+		                        const posLabel = pos > 0 ? "LONG" : pos < 0 ? "SHORT" : "FLAT";
+		                        const posSize =
+		                          Math.abs(pos) > 0 && Math.abs(pos) < 0.9999 ? ` size ${fmtPct(Math.abs(pos), 1)}` : "";
+		                        const eqTxt = typeof eq === "number" && Number.isFinite(eq) ? fmtRatio(eq, 4) : "—";
+		                        const kalTxt = typeof kal === "number" && Number.isFinite(kal) ? fmtMoney(kal, 4) : "disabled";
+		                        const kalRetTxt = typeof kalRet === "number" && Number.isFinite(kalRet) ? fmtPct(kalRet, 3) : "—";
+		                        const lstmTxt = typeof lstm === "number" && Number.isFinite(lstm) ? fmtMoney(lstm, 4) : "disabled";
+		                        const lstmRetTxt = typeof lstmRet === "number" && Number.isFinite(lstmRet) ? fmtPct(lstmRet, 3) : "—";
+		                        const qtyTxt = typeof result.quantity === "number" && Number.isFinite(result.quantity) ? fmtNum(result.quantity, 8) : "—";
+		                        const quoteQtyTxt =
+		                          typeof result.quoteQuantity === "number" && Number.isFinite(result.quoteQuantity)
+		                            ? fmtMoney(result.quoteQuantity, 2)
+		                            : "—";
+		                        const execQtyTxt =
+		                          typeof result.executedQty === "number" && Number.isFinite(result.executedQty)
+		                            ? fmtNum(result.executedQty, 8)
+		                            : "—";
+		                        const cumQuoteTxt =
+		                          typeof result.cummulativeQuoteQty === "number" && Number.isFinite(result.cummulativeQuoteQty)
+		                            ? fmtMoney(result.cummulativeQuoteQty, 2)
+		                            : "—";
+		                        return (
+		                          <div className="details" style={{ marginBottom: 10 }}>
+		                            <div className="btChartHeader" style={{ marginBottom: 10 }}>
+		                              <div className="btChartTitle">Order details</div>
+		                              <div className="btChartMeta">
+		                                <span className="badge">bar {bar}</span>
+		                                <span className="badge">{event.opSide}</span>
+		                                <span className="badge">{fmtMoney(close, 4)}</span>
+		                                <span className="badge">{result.sent ? "SENT" : "NO"}</span>
+		                              </div>
+		                              <div className="btChartActions">
+		                                <button
+		                                  className="btnSmall"
+		                                  type="button"
+		                                  onClick={() => {
+		                                    void copyText(selectedOrderJson);
+		                                    showToast("Copied order details JSON");
+		                                  }}
+		                                >
+		                                  Copy JSON
+		                                </button>
+		                                <button className="btnSmall" type="button" onClick={() => setSelectedOrderKey(null)}>
+		                                  Clear
+		                                </button>
+		                              </div>
+		                            </div>
+		                            <div className="kv">
+		                              <div className="k">Bar / Times</div>
+		                              <div className="v">
+		                                bar {bar} • open {fmtTimeMs(event.openTime)} • order {fmtTimeMs(event.atMs)}
+		                              </div>
+		                            </div>
+		                            <div className="kv">
+		                              <div className="k">Prices</div>
+		                              <div className="v">
+		                                open (prev close) {fmtMoney(open, 4)} • close {fmtMoney(close, 4)} • order {fmtMoney(event.price, 4)}
+		                              </div>
+		                            </div>
+		                            <div className="kv">
+		                              <div className="k">Equity / Position</div>
+		                              <div className="v">
+		                                {eqTxt} • {posLabel}
+		                                {posSize}
+		                              </div>
+		                            </div>
+		                            <div className="kv">
+		                              <div className="k">Kalman</div>
+		                              <div className="v">
+		                                {kalTxt}
+		                                {kalTxt !== "disabled" ? ` (${kalRetTxt})` : ""}
+		                              </div>
+		                            </div>
+		                            <div className="kv">
+		                              <div className="k">LSTM</div>
+		                              <div className="v">
+		                                {lstmTxt}
+		                                {lstmTxt !== "disabled" ? ` (${lstmRetTxt})` : ""}
+		                              </div>
+		                            </div>
+		                            <div className="kv">
+		                              <div className="k">Order</div>
+		                              <div className="v">
+		                                {result.sent ? "SENT" : "NO"} • {result.mode ?? "—"} • {result.status ?? "—"} •{" "}
+		                                {result.side ?? event.opSide ?? "—"} • {result.symbol ?? "—"}
+		                              </div>
+		                            </div>
+		                            <div className="kv">
+		                              <div className="k">IDs</div>
+		                              <div className="v">
+		                                order {result.orderId ?? "—"} • client {result.clientOrderId ?? "—"}
+		                              </div>
+		                            </div>
+		                            <div className="kv">
+		                              <div className="k">Amounts</div>
+		                              <div className="v">
+		                                qty {qtyTxt} • quote {quoteQtyTxt} • executed {execQtyTxt} • cumulative {cumQuoteTxt}
+		                              </div>
+		                            </div>
+		                            <div className="kv">
+		                              <div className="k">Message</div>
+		                              <div className="v">{result.message}</div>
+		                            </div>
+		                            {result.response ? (
+		                              <div className="kv">
+		                                <div className="k">Response</div>
+		                                <div className="v">{result.response}</div>
+		                              </div>
+		                            ) : null}
+		                            <details className="details" style={{ marginTop: 10 }}>
+		                              <summary>Raw order JSON</summary>
+		                              <pre className="code" style={{ marginTop: 10 }}>
+		                                {selectedOrderJson}
+		                              </pre>
+		                            </details>
+		                          </div>
+		                        );
+		                      })()
+		                    ) : (
+		                      <div className="hint" style={{ marginBottom: 10 }}>
+		                        Click an order row to see all details.
+		                      </div>
+		                    )}
+
 		                    {botOrdersView.total === 0 ? (
 		                      <div className="hint">No live operations yet.</div>
 		                    ) : botOrdersView.shown.length === 0 ? (
@@ -4252,8 +4422,23 @@ export function App() {
 		                            {botOrdersView.shown.map((e) => {
 		                              const bar = botOrdersView.startIndex + e.index;
 		                              const mode = e.order.mode ?? "—";
+		                              const rowKey = orderRowKey(e);
+		                              const selected = rowKey === selectedOrderKey;
 		                              return (
-		                                <tr key={`${e.atMs}-${e.index}-${e.opSide}`}>
+		                                <tr
+		                                  key={rowKey}
+		                                  className={`tableRowClickable${selected ? " tableRowSelected" : ""}`}
+		                                  onClick={() => setSelectedOrderKey((prev) => (prev === rowKey ? null : rowKey))}
+		                                  onKeyDown={(ev) => {
+		                                    if (ev.key === "Enter" || ev.key === " ") {
+		                                      ev.preventDefault();
+		                                      setSelectedOrderKey((prev) => (prev === rowKey ? null : rowKey));
+		                                    }
+		                                  }}
+		                                  tabIndex={0}
+		                                  aria-selected={selected}
+		                                  title="Click to view order details"
+		                                >
 		                                  <td className="tdMono">{fmtTimeMs(e.atMs)}</td>
 		                                  <td className="tdMono">{bar}</td>
 		                                  <td>
