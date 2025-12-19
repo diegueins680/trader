@@ -42,8 +42,12 @@ import {
   BOT_START_TIMEOUT_MS,
   BOT_STATUS_TAIL_POINTS,
   BOT_STATUS_TIMEOUT_MS,
+  BOT_AUTOSTART_RETRY_MS,
   BOT_TELEMETRY_POINTS,
   DATA_LOG_COLLAPSED_MAX_LINES,
+  RATE_LIMIT_BASE_MS,
+  RATE_LIMIT_MAX_MS,
+  RATE_LIMIT_TOAST_MIN_MS,
   SESSION_BINANCE_KEY_KEY,
   SESSION_BINANCE_SECRET_KEY,
   SIGNAL_TIMEOUT_MS,
@@ -90,6 +94,12 @@ type ActiveAsyncJob = {
   kind: RequestKind;
   jobId: string | null;
   startedAtMs: number;
+};
+
+type RateLimitState = {
+  untilMs: number;
+  reason: string;
+  lastHitAtMs: number;
 };
 
 type UiState = {
@@ -222,6 +232,11 @@ export function App() {
   const [activeAsyncJob, setActiveAsyncJob] = useState<ActiveAsyncJob | null>(null);
   const activeAsyncJobRef = useRef<ActiveAsyncJob | null>(null);
   const [activeAsyncTickMs, setActiveAsyncTickMs] = useState(() => Date.now());
+  const [rateLimit, setRateLimit] = useState<RateLimitState | null>(null);
+  const [rateLimitTickMs, setRateLimitTickMs] = useState(() => Date.now());
+  const rateLimitRef = useRef<RateLimitState | null>(null);
+  const rateLimitBackoffRef = useRef(RATE_LIMIT_BASE_MS);
+  const rateLimitToastAtRef = useRef<number | null>(null);
 
   const [bot, setBot] = useState<BotUiState>({
     loading: false,
@@ -264,6 +279,9 @@ export function App() {
     lastTradeEnabled: null,
     lastTelemetryPolledAtMs: null,
   });
+  const botStatusFetchedRef = useRef(false);
+  const botAutoStartSuppressedRef = useRef(false);
+  const botAutoStartRef = useRef<{ lastAttemptAtMs: number }>({ lastAttemptAtMs: 0 });
 
   const [keys, setKeys] = useState<KeysUiState>({
     loading: false,
@@ -384,6 +402,38 @@ export function App() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
 
+  const clearRateLimit = useCallback(() => {
+    setRateLimit(null);
+    rateLimitBackoffRef.current = RATE_LIMIT_BASE_MS;
+  }, []);
+
+  const applyRateLimit = useCallback(
+    (err: HttpError, opts?: RunOptions) => {
+      const now = Date.now();
+      const retryAfterMs =
+        typeof err.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) ? Math.max(0, err.retryAfterMs) : null;
+      const baseBackoffMs = Math.max(RATE_LIMIT_BASE_MS, rateLimitBackoffRef.current);
+      const delayMs = Math.min(RATE_LIMIT_MAX_MS, Math.max(retryAfterMs ?? 0, baseBackoffMs));
+      const untilMs = Math.max(now + delayMs, rateLimitRef.current?.untilMs ?? 0);
+      const reason =
+        retryAfterMs != null && retryAfterMs > 0
+          ? `Rate limited by API. Retry-After ${fmtDurationMs(retryAfterMs)}.`
+          : "Rate limited by API.";
+
+      setRateLimit({ untilMs, reason, lastHitAtMs: now });
+      rateLimitBackoffRef.current = Math.min(RATE_LIMIT_MAX_MS, Math.round(Math.max(baseBackoffMs, retryAfterMs ?? 0) * 1.6));
+
+      const lastToastAt = rateLimitToastAtRef.current ?? 0;
+      if (!opts?.silent || now - lastToastAt >= RATE_LIMIT_TOAST_MIN_MS) {
+        showToast(`Rate limited. Try again ${fmtEtaMs(Math.max(0, untilMs - now))}.`);
+        rateLimitToastAtRef.current = now;
+      }
+
+      return untilMs;
+    },
+    [showToast],
+  );
+
   const handleComboSelect = useCallback(
     (combo: OptimizationCombo) => {
       setForm((prev) => {
@@ -443,6 +493,32 @@ export function App() {
     const t = window.setInterval(() => setActiveAsyncTickMs(Date.now()), 1000);
     return () => window.clearInterval(t);
   }, [state.loading]);
+
+  useEffect(() => {
+    rateLimitRef.current = rateLimit;
+  }, [rateLimit]);
+
+  useEffect(() => {
+    if (!rateLimit) return;
+    const delayMs = Math.max(0, rateLimit.untilMs - Date.now());
+    if (delayMs === 0) {
+      setRateLimit(null);
+      rateLimitBackoffRef.current = RATE_LIMIT_BASE_MS;
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setRateLimit(null);
+      rateLimitBackoffRef.current = RATE_LIMIT_BASE_MS;
+    }, delayMs);
+    return () => window.clearTimeout(t);
+  }, [rateLimit]);
+
+  useEffect(() => {
+    if (!rateLimit) return;
+    setRateLimitTickMs(Date.now());
+    const t = window.setInterval(() => setRateLimitTickMs(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [rateLimit]);
 
   const profileNames = useMemo(() => Object.keys(profiles).sort((a, b) => a.localeCompare(b)), [profiles]);
 
@@ -942,6 +1018,15 @@ export function App() {
 
   const run = useCallback(
     async (kind: RequestKind, overrideParams?: ApiParams, opts?: RunOptions) => {
+      const now = Date.now();
+      const activeLimit = rateLimitRef.current;
+      if (activeLimit && now < activeLimit.untilMs) {
+        if (!opts?.silent) {
+          showToast(`Rate limited. Try again ${fmtEtaMs(Math.max(0, activeLimit.untilMs - now))}.`);
+        }
+        return;
+      }
+
       const requestId = ++requestSeqRef.current;
       const startedAtMs = Date.now();
       abortRef.current?.abort();
@@ -1041,11 +1126,13 @@ export function App() {
           setApiOk("ok");
           if (!opts?.silent) showToast(out.order.sent ? "Order sent" : "No order");
         }
+        clearRateLimit();
       } catch (e) {
         if (requestId !== requestSeqRef.current) return;
         if (isAbortError(e)) return;
 
         let msg = e instanceof Error ? e.message : String(e);
+        let showErrorToast = true;
         if (isTimeoutError(e)) msg = "Request timed out. Reduce bars/epochs or increase timeouts.";
         if (e instanceof HttpError && typeof e.payload === "string") {
           const payload = e.payload;
@@ -1057,6 +1144,11 @@ export function App() {
           msg = apiBase.startsWith("/api")
             ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, or set apiBaseUrl in trader-config.js to https://<your-api-host>."
             : "API gateway timed out (504). Try again, or reduce bars/epochs, or scale the API.";
+        }
+        if (e instanceof HttpError && e.status === 429) {
+          const untilMs = applyRateLimit(e, opts);
+          msg = `Rate limited. Try again ${fmtEtaMs(Math.max(0, untilMs - Date.now()))}.`;
+          showErrorToast = false;
         }
 
         setApiOk((prev) => {
@@ -1076,7 +1168,7 @@ export function App() {
         }
 
         setState((s) => ({ ...s, loading: false, error: msg }));
-        showToast("Request failed");
+        if (showErrorToast) showToast("Request failed");
       } finally {
         if (requestId === requestSeqRef.current) {
           abortRef.current = null;
@@ -1084,7 +1176,19 @@ export function App() {
         }
       }
     },
-    [apiBase, authHeaders, commonParams, form.bypassCache, form.tradeArmed, scrollToResult, showToast, tradeParams, withBinanceKeys],
+    [
+      apiBase,
+      applyRateLimit,
+      authHeaders,
+      clearRateLimit,
+      commonParams,
+      form.bypassCache,
+      form.tradeArmed,
+      scrollToResult,
+      showToast,
+      tradeParams,
+      withBinanceKeys,
+    ],
   );
 
   const cancelActiveRequest = useCallback(() => {
@@ -1279,6 +1383,7 @@ export function App() {
         );
         const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
+        botStatusFetchedRef.current = true;
         setBotRt((prev) => {
           const base: BotRtUiState = {
             ...prev,
@@ -1461,54 +1566,113 @@ export function App() {
     [apiBase, authHeaders],
   );
 
-  const startLiveBot = useCallback(async () => {
-    setBot((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const payload: ApiParams = {
-        ...tradeParams,
-        botTrade: form.tradeArmed,
-        botAdoptExistingPosition: form.botAdoptExistingPosition,
-        ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
-        botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
-        botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
-        botMaxPoints: clamp(Math.trunc(form.botMaxPoints), 100, 100000),
+  type StartBotOptions = { auto?: boolean; forceAdopt?: boolean; silent?: boolean };
+
+  const startLiveBot = useCallback(
+    async (opts?: StartBotOptions) => {
+      const silent = Boolean(opts?.silent);
+      const forceAdopt = Boolean(opts?.forceAdopt);
+      if (!opts?.auto) botAutoStartSuppressedRef.current = false;
+
+      const isAdoptError = (msg: string) => {
+        const lower = msg.toLowerCase();
+        return lower.includes("existing long position") || lower.includes("botadoptexistingposition=true");
       };
-      const out = await botStart(apiBase, withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
-      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
-      showToast(
-        out.running
-          ? form.tradeArmed
-            ? "Live bot started (trading armed)"
-            : "Live bot started (paper mode)"
-          : out.starting
-            ? "Live bot starting…"
-            : "Bot not running",
-      );
-    } catch (e) {
-      if (isAbortError(e)) return;
-      const msg = e instanceof Error ? e.message : String(e);
-      setBot((s) => ({ ...s, loading: false, error: msg }));
-      showToast("Bot start failed");
-    }
-  }, [
-    apiBase,
-    authHeaders,
-    form.botMaxPoints,
-    form.botAdoptExistingPosition,
-    form.botOnlineEpochs,
-    form.botPollSeconds,
-    form.botTrainBars,
-    form.tradeArmed,
-    showToast,
-    tradeParams,
-    withBinanceKeys,
-  ]);
+
+      const formatStartError = (err: unknown) => {
+        let msg = err instanceof Error ? err.message : String(err);
+        let showErrorToast = !silent;
+        if (err instanceof HttpError && err.status === 429) {
+          const untilMs = applyRateLimit(err, { silent });
+          msg = `Rate limited. Try again ${fmtEtaMs(Math.max(0, untilMs - Date.now()))}.`;
+          showErrorToast = false;
+        } else if (err instanceof HttpError && err.payload && typeof err.payload === "object") {
+          try {
+            let detail = JSON.stringify(err.payload, null, 2);
+            if (detail.length > 2000) detail = `${detail.slice(0, 1997)}...`;
+            if (detail !== "{}") msg = `${msg}\n${detail}`;
+          } catch {
+            // ignore
+          }
+        }
+        return { msg, showErrorToast };
+      };
+
+      const runStart = async (adoptOverride: boolean, retrying: boolean) => {
+        setBot((s) => ({ ...s, loading: true, error: null }));
+        const payload: ApiParams = {
+          ...tradeParams,
+          botTrade: form.tradeArmed,
+          botAdoptExistingPosition: adoptOverride || form.botAdoptExistingPosition,
+          ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
+          botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
+          botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
+          botMaxPoints: clamp(Math.trunc(form.botMaxPoints), 100, 100000),
+        };
+        const out = await botStart(apiBase, withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
+        setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+        if (adoptOverride && !form.botAdoptExistingPosition) {
+          setForm((f) => ({ ...f, botAdoptExistingPosition: true }));
+        }
+        if (!silent) {
+          showToast(
+            out.running
+              ? form.tradeArmed
+                ? "Live bot started (trading armed)"
+                : "Live bot started (paper mode)"
+              : out.starting
+                ? "Live bot starting…"
+                : "Bot not running",
+          );
+        }
+        if (!retrying) botAutoStartRef.current.lastAttemptAtMs = Date.now();
+      };
+
+      try {
+        await runStart(forceAdopt, false);
+      } catch (e) {
+        if (isAbortError(e)) return;
+        const baseMsg = e instanceof Error ? e.message : String(e);
+        if (!forceAdopt && isAdoptError(baseMsg)) {
+          if (!silent) showToast("Existing position detected. Adopting and retrying…");
+          try {
+            await runStart(true, true);
+            return;
+          } catch (e2) {
+            if (isAbortError(e2)) return;
+            const formatted2 = formatStartError(e2);
+            setBot((s) => ({ ...s, loading: false, error: formatted2.msg }));
+            if (formatted2.showErrorToast) showToast("Bot start failed");
+            return;
+          }
+        }
+        const formatted = formatStartError(e);
+        setBot((s) => ({ ...s, loading: false, error: formatted.msg }));
+        if (formatted.showErrorToast) showToast("Bot start failed");
+      }
+    },
+    [
+      apiBase,
+      applyRateLimit,
+      authHeaders,
+      form.botMaxPoints,
+      form.botAdoptExistingPosition,
+      form.botOnlineEpochs,
+      form.botPollSeconds,
+      form.botTrainBars,
+      form.tradeArmed,
+      showToast,
+      tradeParams,
+      withBinanceKeys,
+    ],
+  );
 
   const stopLiveBot = useCallback(async () => {
     setBot((s) => ({ ...s, loading: true, error: null }));
     try {
       const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 });
       setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+      botAutoStartSuppressedRef.current = true;
       showToast("Bot stopped");
     } catch (e) {
       if (isAbortError(e)) return;
@@ -1525,7 +1689,7 @@ export function App() {
 
   useEffect(() => {
     if (apiOk !== "ok") return;
-    const starting = !bot.status.running && bot.status.starting === true;
+    const starting = bot.status.running ? false : bot.status.starting === true;
     if (!bot.status.running && !starting) return;
     const t = window.setInterval(() => {
       if (bot.loading) return;
@@ -1539,6 +1703,8 @@ export function App() {
     const ms = clamp(form.autoRefreshSec, 5, 600) * 1000;
     const t = window.setInterval(() => {
       if (abortRef.current) return;
+      const limit = rateLimitRef.current;
+      if (limit && Date.now() < limit.untilMs) return;
       const p = commonParams;
       if (!p.binanceSymbol || !p.interval) return;
       void run("signal", undefined, { silent: true });
@@ -1829,6 +1995,9 @@ export function App() {
       authMsg,
     );
   }, [apiBaseError, apiOk, apiToken, showLocalStartHelp]);
+  const rateLimitEtaMs = rateLimit ? Math.max(0, rateLimit.untilMs - rateLimitTickMs) : null;
+  const rateLimitReason =
+    rateLimit && rateLimitEtaMs != null ? `${rateLimit.reason} Next retry ${fmtEtaMs(rateLimitEtaMs)}.` : rateLimit?.reason ?? null;
 
   const apiComputeLimits = healthInfo?.computeLimits ?? null;
   const apiLstmEnabled = form.method !== "10";
@@ -1848,12 +2017,31 @@ export function App() {
         : null;
   const requestDisabledReason = firstReason(
     apiBlockedReason,
+    rateLimitReason,
     missingSymbol ? "Binance symbol is required." : null,
     missingInterval ? "Interval is required." : null,
     lookbackState.error,
     apiLimitsReason,
   );
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
+  const botStarting = bot.status.running ? false : bot.status.starting === true;
+  const botStartBlockedReason = firstReason(
+    form.positioning === "long-short" ? "Live bot supports Long/Flat only." : null,
+    requestDisabledReason,
+  );
+  const botStartBlocked = bot.loading || botStarting || Boolean(botStartBlockedReason);
+
+  useEffect(() => {
+    if (apiOk !== "ok") return;
+    if (!botStatusFetchedRef.current) return;
+    if (botAutoStartSuppressedRef.current) return;
+    if (bot.status.running) return;
+    if (botStartBlocked) return;
+    const now = Date.now();
+    if (now - botAutoStartRef.current.lastAttemptAtMs < BOT_AUTOSTART_RETRY_MS) return;
+    botAutoStartRef.current.lastAttemptAtMs = now;
+    void startLiveBot({ auto: true, silent: true });
+  }, [apiOk, bot.status.running, botStartBlocked, startLiveBot]);
   const orderQuoteFractionError = useMemo(() => {
     const f = form.orderQuoteFraction;
     if (!Number.isFinite(f)) return "Order quote fraction must be a number.";
@@ -1956,6 +2144,14 @@ export function App() {
               Working…
             </span>
           ) : null}
+          <span className="pill">
+            <span className={form.binanceLive ? "dot dotWarn" : "dot"} aria-hidden="true" />
+            {form.binanceLive ? "Live orders" : "Test orders"}
+          </span>
+          <span className="pill">
+            <span className={form.tradeArmed ? "dot dotWarn" : "dot"} aria-hidden="true" />
+            {form.tradeArmed ? "Trading armed" : "Trading locked"}
+          </span>
           <span className="pill">
             {import.meta.env.DEV && apiBase === "/api" ? (
               <>
@@ -3076,6 +3272,12 @@ export function App() {
               </button>
             </div>
 
+            {rateLimitReason ? (
+              <div className="hint" style={{ marginTop: 10, color: "var(--warn)" }}>
+                {rateLimitReason}
+              </div>
+            ) : null}
+
             {state.loading ? (
               <div className="hint" style={{ marginTop: 10 }}>
                 {activeAsyncJob?.jobId
@@ -3094,25 +3296,18 @@ export function App() {
                   <div className="actions" style={{ marginTop: 0 }}>
                     <button
                       className="btn btnPrimary"
-                      disabled={
-                        bot.loading ||
-                        bot.status.running ||
-                        (!bot.status.running && bot.status.starting === true) ||
-                        requestDisabled ||
-                        form.positioning === "long-short"
-                      }
-                      onClick={startLiveBot}
+                      disabled={bot.status.running || botStartBlocked}
+                      onClick={() => void startLiveBot()}
                       title={
                         firstReason(
-                          form.positioning === "long-short" ? "Live bot supports Long/Flat only." : null,
-                          requestDisabledReason,
+                          botStartBlockedReason,
                           form.tradeArmed ? "Trading armed (will send orders)" : "Paper mode (no orders)",
                         ) ?? undefined
                       }
                     >
-                      {bot.loading || (!bot.status.running && bot.status.starting === true) ? "Starting…" : bot.status.running ? "Running" : "Start live bot"}
+                      {bot.loading || botStarting ? "Starting…" : bot.status.running ? "Running" : "Start live bot"}
                     </button>
-                    <button className="btn" disabled={bot.loading || (!bot.status.running && bot.status.starting !== true)} onClick={stopLiveBot}>
+                    <button className="btn btnDanger" disabled={bot.loading || (!bot.status.running && !botStarting)} onClick={stopLiveBot}>
                       Stop bot
                     </button>
                     <button className="btn" disabled={bot.loading || Boolean(apiBlockedReason)} onClick={() => refreshBot()} title={apiBlockedReason ?? undefined}>
@@ -3124,7 +3319,7 @@ export function App() {
                     Binance orders; otherwise it runs in paper mode. If “Sweep thresholds” or “Optimize operations” is enabled, the bot re-optimizes after each
                     buy/sell operation.
                   </div>
-                  {bot.error ? <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>{bot.error}</div> : null}
+                  {bot.error ? <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)", whiteSpace: "pre-wrap" }}>{bot.error}</div> : null}
 
                   <details className="details" style={{ marginTop: 10 }}>
                     <summary>Advanced live bot</summary>
@@ -4082,13 +4277,13 @@ export function App() {
 		                    )}
 		                  </div>
 		                </>
-		              ) : (
-		                <div className="hint">
-		                  {!bot.status.running && bot.status.starting === true
-		                    ? "Bot is starting… (initializing model). Use “Refresh” to check status."
-		                    : "Bot is stopped. Use “Start live bot” on the left."}
-		                </div>
-		              )}
+              ) : (
+                <div className="hint">
+                  {botStarting
+                    ? "Bot is starting… (initializing model). Use “Refresh” to check status."
+                    : "Bot is stopped. Use “Start live bot” on the left."}
+                </div>
+              )}
             </div>
           </div>
 

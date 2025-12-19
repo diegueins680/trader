@@ -25,6 +25,10 @@ export const BOT_START_TIMEOUT_MS = resolveTimeoutMs("botStartMs", DEFAULT_BOT_S
 export const BOT_STATUS_TIMEOUT_MS = resolveTimeoutMs("botStatusMs", DEFAULT_BOT_STATUS_TIMEOUT_MS);
 export const BOT_STATUS_TAIL_POINTS = 5000;
 export const BOT_TELEMETRY_POINTS = 240;
+export const BOT_AUTOSTART_RETRY_MS = 15_000;
+export const RATE_LIMIT_BASE_MS = 10_000;
+export const RATE_LIMIT_MAX_MS = 120_000;
+export const RATE_LIMIT_TOAST_MIN_MS = 12_000;
 
 export const BINANCE_INTERVALS = [
   "1m",

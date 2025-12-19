@@ -8,6 +8,7 @@ type Trade = {
   return: number;
   holdingPeriods: number;
   exitReason?: string | null;
+  open?: boolean;
 };
 
 type Operation = {
@@ -101,6 +102,52 @@ function findOp(ops: Operation[] | undefined, idx: number): Operation | null {
   return null;
 }
 
+function posSign(p: number, eps = 1e-9): -1 | 0 | 1 {
+  if (!Number.isFinite(p) || Math.abs(p) < eps) return 0;
+  return p > 0 ? 1 : -1;
+}
+
+function equityAt(equityCurve: number[], idx: number): number {
+  const v = equityCurve[idx];
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const last = equityCurve.length > 0 ? equityCurve[equityCurve.length - 1] : undefined;
+  if (typeof last === "number" && Number.isFinite(last)) return last;
+  return 1;
+}
+
+function deriveOpenTrade(trades: Trade[], pos: number[], equityCurve: number[], n: number): Trade | null {
+  if (n < 2) return null;
+
+  const lastPos = pos[n - 1] ?? 0;
+  const lastSign = posSign(lastPos);
+  if (lastSign === 0) return null;
+
+  // Backend may start including open trades in the future; avoid duplication.
+  if (findTrade(trades, n - 1)) return null;
+
+  let entryIndex = n - 1;
+  for (let i = n - 1; i > 0; i -= 1) {
+    const prev = pos[i - 1] ?? 0;
+    if (posSign(prev) === lastSign) entryIndex = i - 1;
+    else break;
+  }
+
+  const entryEquity = equityAt(equityCurve, entryIndex);
+  const exitEquity = equityAt(equityCurve, n - 1);
+  const ret = entryEquity > 0 ? exitEquity / entryEquity - 1 : 0;
+
+  return {
+    entryIndex,
+    exitIndex: n - 1,
+    entryEquity,
+    exitEquity,
+    return: ret,
+    holdingPeriods: n - 1 - entryIndex,
+    open: true,
+    exitReason: null,
+  };
+}
+
 export function BacktestChart({
   prices,
   equityCurve,
@@ -152,17 +199,20 @@ export function BacktestChart({
     return [...agreementOk, ...Array.from({ length: n - agreementOk.length }, () => last)];
   }, [agreementOk, n]);
 
+  const openTrade = useMemo(() => deriveOpenTrade(trades, pos, equityCurve, n), [equityCurve, n, pos, trades]);
+  const tradesAll = useMemo(() => (openTrade ? [...trades, openTrade] : trades), [openTrade, trades]);
+
   const legend = useMemo(() => {
     const hasShort = pos.some((p) => p < 0);
     const showKalman = Boolean(kalman && kalman.some((v) => typeof v === "number" && Number.isFinite(v)));
     return {
       showAgreement: agree !== null,
-      showTrades: trades.length > 0,
+      showTrades: trades.length > 0 || openTrade !== null,
       showOps: Boolean(operations && operations.length > 0),
       showKalman,
       hasShort,
     };
-  }, [agree, kalman, operations, pos, trades.length]);
+  }, [agree, kalman, openTrade, operations, pos, trades.length]);
 
   useEffect(() => {
     setView({ start: 0, end: Math.max(1, n - 1) });
@@ -338,13 +388,13 @@ export function BacktestChart({
     yGrid(erTicks, erNice, yEquity0, hEquity, "x");
 
     // Trade highlight regions
-    for (const t of trades) {
+    for (const t of tradesAll) {
       if (t.exitIndex < start || t.entryIndex > end) continue;
       const a = clamp(t.entryIndex, start, end);
       const b = clamp(t.exitIndex, start, end);
       const x0 = xFor(a);
       const x1 = xFor(b);
-      ctx.fillStyle = "rgba(34, 197, 94, 0.08)";
+      ctx.fillStyle = t.open ? "rgba(250, 204, 21, 0.10)" : "rgba(34, 197, 94, 0.08)";
       ctx.fillRect(x0, yPrice0, Math.max(1, x1 - x0), hPrice);
     }
 
@@ -455,7 +505,7 @@ export function BacktestChart({
       ctx.fill();
     };
 
-    for (const t of trades) {
+    for (const t of tradesAll) {
       if (t.exitIndex < start || t.entryIndex > end) continue;
       const ei = clamp(t.entryIndex, start, end);
       const xi = xFor(ei);
@@ -466,15 +516,37 @@ export function BacktestChart({
       const exitPrice = prices[clamp(t.exitIndex, start, end)]!;
       const yo = yScale(exitPrice, prNice, yPrice0, hPrice);
 
-      ctx.strokeStyle = t.return >= 0 ? "rgba(34, 197, 94, 0.55)" : "rgba(239, 68, 68, 0.55)";
-      ctx.lineWidth = 1.2;
+      const isOpen = t.open === true;
+      const dir = posSign(pos[clamp(t.entryIndex, 0, n - 1)] ?? 0);
+
+      ctx.save();
+      ctx.strokeStyle = isOpen
+        ? "rgba(250, 204, 21, 0.85)"
+        : t.return >= 0
+          ? "rgba(34, 197, 94, 0.55)"
+          : "rgba(239, 68, 68, 0.55)";
+      ctx.lineWidth = isOpen ? 1.35 : 1.2;
+      if (isOpen) ctx.setLineDash([6, 4]);
       ctx.beginPath();
       ctx.moveTo(xi, yi);
       ctx.lineTo(xo, yo);
       ctx.stroke();
+      ctx.restore();
 
-      tri(xi, yi, true, "rgba(34, 197, 94, 0.95)");
-      tri(xo, yo, false, "rgba(239, 68, 68, 0.92)");
+      const entryUp = dir >= 0;
+      const entryColor = entryUp ? "rgba(34, 197, 94, 0.95)" : "rgba(239, 68, 68, 0.92)";
+      tri(xi, yi, entryUp, entryColor);
+
+      if (isOpen) {
+        ctx.fillStyle = "rgba(250, 204, 21, 0.95)";
+        ctx.beginPath();
+        ctx.arc(xo, yo, 3.8, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const exitUp = dir < 0;
+        const exitColor = exitUp ? "rgba(34, 197, 94, 0.95)" : "rgba(239, 68, 68, 0.92)";
+        tri(xo, yo, exitUp, exitColor);
+      }
     }
 
     // Operations (buy/sell markers)
@@ -549,7 +621,7 @@ export function BacktestChart({
     prices,
     size.h,
     size.w,
-    trades,
+    tradesAll,
     view.end,
     view.start,
   ]);
@@ -561,11 +633,11 @@ export function BacktestChart({
     const kalPred = legend.showKalman ? kalman?.[hoverIdx] ?? null : null;
     const position = pos[hoverIdx] ?? 0;
     const ok = agree ? (agree[hoverIdx] ?? false) : null;
-    const trade = findTrade(trades, hoverIdx);
+    const trade = findTrade(tradesAll, hoverIdx);
     const op = findOp(operations, hoverIdx);
     const bar = backtestStartIndex + hoverIdx;
     return { idx: hoverIdx, bar, price, kalPred, eq, position, ok, trade, op };
-  }, [agree, backtestStartIndex, equityCurve, hoverIdx, kalman, legend.showKalman, n, operations, pos, prices, trades]);
+  }, [agree, backtestStartIndex, equityCurve, hoverIdx, kalman, legend.showKalman, n, operations, pos, prices, tradesAll]);
 
   const tooltipStyle = useMemo(() => {
     if (!pointer) return { display: "none" } as React.CSSProperties;
@@ -719,13 +791,13 @@ export function BacktestChart({
               <span className="btLegendMarker btLegendBuy" aria-hidden="true">
                 ▲
               </span>
-              BUY / entry
+              BUY
             </div>
             <div className="btLegendItem" role="listitem">
               <span className="btLegendMarker btLegendSell" aria-hidden="true">
                 ▼
               </span>
-              SELL / exit
+              SELL
             </div>
           </>
         ) : null}
@@ -778,7 +850,12 @@ export function BacktestChart({
                       {hover.trade.entryIndex} → {hover.trade.exitIndex} ({hover.trade.holdingPeriods}p)
                     </div>
                   </div>
-                  {hover.trade.exitReason ? (
+                  {hover.trade.open ? (
+                    <div className="btTooltipRow">
+                      <div className="k">Status</div>
+                      <div className="v">OPEN</div>
+                    </div>
+                  ) : hover.trade.exitReason ? (
                     <div className="btTooltipRow">
                       <div className="k">Exit</div>
                       <div className="v">{hover.trade.exitReason}</div>

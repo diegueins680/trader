@@ -134,7 +134,7 @@ export const defaultForm: FormState = {
   botOnlineEpochs: 1,
   botTrainBars: 800,
   botMaxPoints: 2000,
-  botAdoptExistingPosition: false,
+  botAdoptExistingPosition: true,
 };
 
 export type FormStateJson = Partial<FormState> & {
