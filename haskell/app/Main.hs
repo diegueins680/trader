@@ -3768,12 +3768,23 @@ startJob store action = do
   pruneJobStore store now
   pruneJobStoreDisk store now
 
-  ok <- modifyMVar (jsRunning store) $ \n ->
-    if n >= max 1 (jsMaxRunning store)
-      then pure (n, False)
-      else pure (n + 1, True)
+  let maxRunning = max 1 (jsMaxRunning store)
+  (running, ok) <-
+    modifyMVar (jsRunning store) $ \n ->
+      if n >= maxRunning
+        then pure (n, (n, False))
+        else pure (n + 1, (n, True))
   if not ok
-    then pure (Left "Too many requests. Try again in a moment.")
+    then
+      pure
+        ( Left
+            ( printf
+                "Async %s queue is full (%d/%d). Wait for the current job to finish/cancel, or increase TRADER_API_MAX_ASYNC_RUNNING."
+                (T.unpack (jsPrefix store))
+                running
+                maxRunning
+            )
+        )
     else do
       n <- atomicModifyIORef' (jsCounter store) (\x -> let y = x + 1 in (y, y))
       r <- (randomIO :: IO Word64)

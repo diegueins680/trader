@@ -14,12 +14,14 @@ import { TRADER_UI_CONFIG } from "./deployConfig";
 export class HttpError extends Error {
   readonly status: number;
   readonly payload?: unknown;
+  readonly retryAfterMs: number | null;
 
-  constructor(status: number, message: string, payload?: unknown) {
+  constructor(status: number, message: string, payload?: unknown, retryAfterMs?: number | null) {
     super(message);
     this.name = "HttpError";
     this.status = status;
     this.payload = payload;
+    this.retryAfterMs = typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) ? retryAfterMs : null;
   }
 }
 
@@ -82,6 +84,16 @@ function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, strin
   const merged = new Headers(base);
   for (const [key, value] of Object.entries(extra)) merged.set(key, value);
   return merged;
+}
+
+function parseRetryAfterMs(raw: string | null): number | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) return Math.max(0, Number(trimmed) * 1000);
+  const parsed = Date.parse(trimmed);
+  if (!Number.isNaN(parsed)) return Math.max(0, parsed - Date.now());
+  return null;
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -150,13 +162,16 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
       headers: mergeHeaders(init.headers, opts?.headers),
       signal,
     });
+    const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
     const payload = await readJsonOrText(res);
     if (!res.ok) {
       const message =
         typeof payload === "object" && payload && "error" in payload
           ? String((payload as ApiError).error)
-          : `${res.status} ${res.statusText}`;
-      throw new HttpError(res.status, message, payload);
+          : typeof payload === "string" && payload.trim()
+            ? payload.trim()
+            : `${res.status} ${res.statusText}`;
+      throw new HttpError(res.status, message, payload, retryAfterMs);
     }
     return payload as T;
   } catch (err) {
@@ -211,16 +226,41 @@ async function runAsyncJob<T>(
   let sawJob = false;
   let notFoundSinceMs: number | null = null;
 
-  const start = await fetchJson<AsyncStartResponse>(
-    baseUrl,
-    startPath,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    },
-    { signal: opts?.signal, headers: opts?.headers, timeoutMs: perRequestTimeoutMs },
-  );
+  let startBackoffMs = 750;
+  let start: AsyncStartResponse;
+  for (;;) {
+    const elapsed = Date.now() - startedAt;
+    const remaining = overallTimeoutMs - elapsed;
+    if (remaining <= 0) {
+      if (lastTransientError) throw new Error(describeAsyncTimeout(baseUrl, overallTimeoutMs, lastTransientError));
+      throw timeoutError();
+    }
+
+    try {
+      start = await fetchJson<AsyncStartResponse>(
+        baseUrl,
+        startPath,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        },
+        { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
+      );
+      break;
+    } catch (err) {
+      // 429 is safe to retry: the server didn't start the async job.
+      if (err instanceof HttpError && err.status === 429) {
+        lastTransientError = err;
+        const retryAfterMs = typeof err.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) ? Math.max(0, err.retryAfterMs) : null;
+        const delayMs = retryAfterMs == null ? startBackoffMs : Math.max(startBackoffMs, retryAfterMs);
+        await sleep(Math.min(delayMs, remaining), opts?.signal);
+        if (retryAfterMs == null) startBackoffMs = Math.min(5_000, Math.round(startBackoffMs * 1.4));
+        continue;
+      }
+      throw err;
+    }
+  }
   if (!start || typeof start !== "object" || !("jobId" in start) || typeof (start as { jobId?: unknown }).jobId !== "string") {
     throw new Error("Invalid async start response");
   }
@@ -273,6 +313,14 @@ async function runAsyncJob<T>(
       } catch (err) {
         if (err instanceof HttpError && (err.status === 401 || err.status === 403)) throw err;
         if (err instanceof HttpError && err.status === 404) throw err;
+        if (err instanceof HttpError && err.status === 429) {
+          lastTransientError = err;
+          const retryAfterMs = typeof err.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) ? Math.max(0, err.retryAfterMs) : 0;
+          const delayMs = Math.min(Math.max(backoffMs, retryAfterMs), remaining);
+          await sleep(delayMs, opts?.signal);
+          backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+          continue;
+        }
         if (isTimeoutError(err)) {
           lastTransientError = err;
           await sleep(Math.min(backoffMs, remaining), opts?.signal);
