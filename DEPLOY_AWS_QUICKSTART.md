@@ -45,7 +45,11 @@ echo "ECR URI: $ECR_URI"
 
 ### 2. Create ECR Repository
 ```bash
-AWS_REGION=$AWS_REGION ECR_REPO=$ECR_REPO bash deploy/aws/create-ecr-repo.sh
+aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$AWS_REGION" >/dev/null 2>&1 || \
+  aws ecr create-repository \
+    --repository-name "$ECR_REPO" \
+    --image-scanning-configuration scanOnPush=true \
+    --region "$AWS_REGION" >/dev/null
 ```
 
 ### 3. Build & Push Docker Image
@@ -93,6 +97,25 @@ curl -s -H "Authorization: Bearer ${TRADER_API_TOKEN}" "${API_URL}/health"
 ---
 
 ## Deploy Web UI (Optional)
+
+### Option A: Use the same deploy script (recommended)
+
+From the repo root:
+
+```bash
+AWS_REGION=ap-northeast-1
+S3_BUCKET="trader-ui-..."
+CLOUDFRONT_DISTRIBUTION_ID="E123..."   # optional
+
+bash deploy-aws-quick.sh --ui-only \
+  --region "$AWS_REGION" \
+  --ui-bucket "$S3_BUCKET" \
+  --api-url "$API_URL" \
+  --api-token "$TRADER_API_TOKEN" \
+  --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID"
+```
+
+### Option B: Manual deploy (S3 website hosting)
 
 ```bash
 cd haskell/web

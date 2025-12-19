@@ -46,12 +46,6 @@ Build info:
 - Option B (AWS CLI):
   - Note: ECR uses regions (Tokyo is `ap-northeast-1`), not availability zones (like `ap-northeast-1a`).
 
-```bash
-AWS_REGION=ap-northeast-1
-ECR_REPO=trader-api
-bash deploy/aws/create-ecr-repo.sh
-```
-
 Or directly:
 
 ```bash
@@ -117,11 +111,7 @@ Recommendation: run **single-instance** (min=1 / max=1) unless you have shared a
 
 Helper (AWS CLI):
 
-```bash
-AWS_REGION=ap-northeast-1
-APP_RUNNER_SERVICE_ARN="arn:aws:apprunner:..."
-bash deploy/aws/set-app-runner-single-instance.sh --service-arn "$APP_RUNNER_SERVICE_ARN" --min 1 --max 1
-```
+`deploy-aws-quick.sh` sets min=1/max=1 automatically on API deploy. If you need to adjust it later, use the App Runner console.
 
 ## Web UI (S3/CloudFront)
 
@@ -146,7 +136,7 @@ S3_BUCKET="trader-ui-..."
 APP_RUNNER_SERVICE_ARN="arn:aws:apprunner:..."
 CLOUDFRONT_DISTRIBUTION_ID="E123..."
 
-bash deploy/aws/deploy-ui.sh \
+bash deploy-aws-quick.sh --ui-only \
   --region "$AWS_REGION" \
   --bucket "$S3_BUCKET" \
   --service-arn "$APP_RUNNER_SERVICE_ARN" \

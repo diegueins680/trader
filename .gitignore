@@ -48,3 +48,4 @@ cabal.sandbox.config
 Long.csv
 Short.csv
 .tmp/
+AWS_DEPLOYMENT_SUMMARY.txt

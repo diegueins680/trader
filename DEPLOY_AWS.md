@@ -34,14 +34,12 @@ Create an Amazon Elastic Container Registry (ECR) repository for the Docker imag
 export AWS_REGION=ap-northeast-1          # Change to your region (e.g., us-east-1, eu-west-1)
 export ECR_REPO=trader-api
 
-# Run the helper script
-bash deploy/aws/create-ecr-repo.sh
-
-# Expected output:
-# 123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/trader-api
+aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$AWS_REGION" >/dev/null 2>&1 || \
+  aws ecr create-repository \
+    --repository-name "$ECR_REPO" \
+    --image-scanning-configuration scanOnPush=true \
+    --region "$AWS_REGION" >/dev/null
 ```
-
-Save the output (ECR URI) — you'll need it in the next step.
 
 **Or manually via AWS Console:**
 - AWS Console → **ECR** → **Create repository**
@@ -344,8 +342,8 @@ aws apprunner describe-service --service-arn <arn> --region ap-northeast-1 \
 aws apprunner start-deployment --service-arn <arn> --region ap-northeast-1
 
 # Set single-instance scaling
-AWS_REGION=ap-northeast-1 bash deploy/aws/set-app-runner-single-instance.sh \
-  --service-arn <arn> --min 1 --max 1
+# Note: `deploy-aws-quick.sh` sets min=1/max=1 automatically on API deploy.
+# If you need to adjust scaling manually, do it in the App Runner console.
 
 # View ECR images
 aws ecr describe-images --repository-name trader-api --region ap-northeast-1
