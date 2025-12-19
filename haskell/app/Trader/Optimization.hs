@@ -371,12 +371,36 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
             else
               case method of
                 MethodBoth
-                  | V.length kalV < stepCount -> Left "sweepThreshold: kalPred too short"
-                  | V.length lstmV < stepCount -> Left "sweepThreshold: lstmPred too short"
+                  | V.length kalV < stepCount ->
+                      Left
+                        ( "sweepThreshold: kalPred has length "
+                            ++ show (V.length kalV)
+                            ++ " but needs at least "
+                            ++ show stepCount
+                        )
+                  | V.length lstmV < stepCount ->
+                      Left
+                        ( "sweepThreshold: lstmPred has length "
+                            ++ show (V.length lstmV)
+                            ++ " but needs at least "
+                            ++ show stepCount
+                        )
                   | otherwise -> Right result
                 MethodKalmanOnly
-                  | V.length kalV < stepCount -> Left "sweepThreshold: kalPred too short"
+                  | V.length kalV < stepCount ->
+                      Left
+                        ( "sweepThreshold: kalPred has length "
+                            ++ show (V.length kalV)
+                            ++ " but needs at least "
+                            ++ show stepCount
+                        )
                   | otherwise -> Right result
                 MethodLstmOnly
-                  | V.length lstmV < stepCount -> Left "sweepThreshold: lstmPred too short"
+                  | V.length lstmV < stepCount ->
+                      Left
+                        ( "sweepThreshold: lstmPred has length "
+                            ++ show (V.length lstmV)
+                            ++ " but needs at least "
+                            ++ show stepCount
+                        )
                   | otherwise -> Right result

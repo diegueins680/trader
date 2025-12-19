@@ -1964,7 +1964,7 @@ botOptimizeAfterOperation st = do
             case thresholdResult of
               Right res -> pure res
               Left err -> do
-                hPutStrLn stderr ("Threshold tuning skipped: " ++ err)
+                hPutStrLn stderr ("Warning: Threshold tuning failed and was skipped: " ++ err)
                 pure (argMethod args, baseOpenThr, baseCloseThr)
           let args' =
                 args
