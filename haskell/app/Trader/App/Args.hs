@@ -69,6 +69,7 @@ data Args = Args
   , argKalmanDt :: Double
   , argKalmanProcessVar :: Double
   , argKalmanMeasurementVar :: Double
+  , argKalmanMarketTopN :: Int
   , argOpenThreshold :: Double
   , argCloseThreshold :: Double
   , argMethod :: Method
@@ -230,6 +231,13 @@ opts = do
   argKalmanDt <- option auto (long "kalman-dt" <> value 1.0 <> help "Kalman dt")
   argKalmanProcessVar <- option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
   argKalmanMeasurementVar <- option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
+  argKalmanMarketTopN <-
+    option
+      auto
+      ( long "kalman-market-top-n"
+          <> value 50
+          <> help "Use the top-N symbols by 24h quote volume as an extra Kalman measurement (0 disables; Binance only)."
+      )
   argOpenThreshold <- option auto (long "open-threshold" <> long "threshold" <> value 0.001 <> help "Entry/open direction threshold (fractional deadband)")
   mCloseThreshold <- optional (option auto (long "close-threshold" <> help "Exit/close threshold (fractional deadband; defaults to open-threshold when omitted)"))
   argMethod <-
@@ -431,6 +439,7 @@ validateArgs args0 = do
   ensure "--kalman-dt must be > 0" (argKalmanDt args > 0)
   ensure "--kalman-process-var must be > 0" (argKalmanProcessVar args > 0)
   ensure "--kalman-measurement-var must be > 0" (argKalmanMeasurementVar args > 0)
+  ensure "--kalman-market-top-n must be >= 0" (argKalmanMarketTopN args >= 0)
   ensure "--open-threshold/--threshold must be >= 0" (argOpenThreshold args >= 0)
   ensure "--close-threshold must be >= 0" (argCloseThreshold args >= 0)
   ensure "--fee must be >= 0" (argFee args >= 0)

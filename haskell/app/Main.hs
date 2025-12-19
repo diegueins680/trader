@@ -19,7 +19,7 @@ import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (toList)
 import Data.Int (Int64)
 import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn)
-import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Text (Text)
@@ -98,6 +98,7 @@ import Trader.LSTM
   , predictSeriesNext
   )
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
+import Trader.MarketContext (MarketModel, buildMarketModel, marketMeasurementAt)
 import Trader.BinanceIntervals (binanceIntervalsCsv)
 import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
 import Trader.Normalization (NormState, NormType(..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
@@ -504,6 +505,7 @@ data ApiParams = ApiParams
   , apKalmanDt :: Maybe Double
   , apKalmanProcessVar :: Maybe Double
   , apKalmanMeasurementVar :: Maybe Double
+  , apKalmanMarketTopN :: Maybe Int
   , apThreshold :: Maybe Double
   , apOpenThreshold :: Maybe Double
   , apCloseThreshold :: Maybe Double
@@ -1675,7 +1677,7 @@ initBotState args settings sym = do
 
         pure (Just (predictors, kalPrev, hmmPrev, svPrev), kalPred)
 
-  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx
+  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx Nothing
 
       -- Startup decision:
       -- - If we adopt an existing long, use closeThreshold (hysteresis) to decide hold/exit.
@@ -1972,7 +1974,7 @@ botOptimizeAfterOperation st = do
                   , argOpenThreshold = newOpenThr
                   , argCloseThreshold = newCloseThr
                   }
-              latest' = computeLatestSignal args' lookback pricesV (botLstmCtx st) (botKalmanCtx st)
+              latest' = computeLatestSignal args' lookback pricesV (botLstmCtx st) (botKalmanCtx st) Nothing
           pure st { botArgs = args', botLatestSignal = latest' }
 
 argLookbackEither :: Args -> Either String Int
@@ -2027,7 +2029,7 @@ botApplyOptimizerUpdate st upd = do
       if not hasLstmWindow
         then pure st { botError = Just "Optimizer update skipped: not enough data for lookback.", botUpdatedAtMs = now }
         else do
-          let latest = computeLatestSignal args' lookback' pricesV mLstmCtx' mKalmanCtx'
+          let latest = computeLatestSignal args' lookback' pricesV mLstmCtx' mKalmanCtx' Nothing
           pure
             st
               { botArgs = args'
@@ -2693,7 +2695,7 @@ botApplyKline mOps metrics mJournal st k = do
         savePersistedLstmModelMaybe mPath (length obsTrain) lstmModel1
         pure (Just (normState, obsAll', lstmModel1))
 
-  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1
+  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1 Nothing
       nan = 0 / 0 :: Double
       kalPred1 = V.snoc (botKalmanPredNext st) (maybe nan id (lsKalmanNext latest0Raw))
       lstmPred1 = V.snoc (botLstmPredNext st) (maybe nan id (lsLstmNext latest0Raw))
@@ -3326,6 +3328,7 @@ argsCacheJsonSignal args =
       , "kalmanDt" .= argKalmanDt args
       , "kalmanProcessVar" .= argKalmanProcessVar args
       , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+      , "kalmanMarketTopN" .= argKalmanMarketTopN args
       , "openThreshold" .= argOpenThreshold args
       , "closeThreshold" .= argCloseThreshold args
       , "method" .= methodCode (argMethod args)
@@ -3369,6 +3372,7 @@ argsCacheJsonBacktest args =
       , "kalmanDt" .= argKalmanDt args
       , "kalmanProcessVar" .= argKalmanProcessVar args
       , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+      , "kalmanMarketTopN" .= argKalmanMarketTopN args
       , "openThreshold" .= argOpenThreshold args
       , "closeThreshold" .= argCloseThreshold args
       , "method" .= methodCode (argMethod args)
@@ -5177,6 +5181,7 @@ argsFromApi baseArgs p = do
           , argKalmanDt = pick (apKalmanDt p) (argKalmanDt baseArgs)
           , argKalmanProcessVar = pick (apKalmanProcessVar p) (argKalmanProcessVar baseArgs)
           , argKalmanMeasurementVar = pick (apKalmanMeasurementVar p) (argKalmanMeasurementVar baseArgs)
+          , argKalmanMarketTopN = pick (apKalmanMarketTopN p) (argKalmanMarketTopN baseArgs)
           , argOpenThreshold = openThr
           , argCloseThreshold = closeThr
           , argMethod = method
@@ -5229,11 +5234,11 @@ dirLabel d =
 
 computeLatestSignalFromArgs :: Args -> IO LatestSignal
 computeLatestSignalFromArgs args = do
-  (series, _) <- loadPrices args
+  (series, mBinanceEnv) <- loadPrices args
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
-  computeTradeOnlySignal args lookback prices
+  computeTradeOnlySignal args lookback prices mBinanceEnv
 
 computeTradeFromArgs :: Args -> IO ApiTradeResponse
 computeTradeFromArgs args = do
@@ -5241,7 +5246,7 @@ computeTradeFromArgs args = do
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
-  sig <- computeTradeOnlySignal args lookback prices
+  sig <- computeTradeOnlySignal args lookback prices mBinanceEnv
   order <-
     case (argBinanceSymbol args, mBinanceEnv) of
       (Nothing, _) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing binanceSymbol.")
@@ -5930,11 +5935,11 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
 
 computeBacktestFromArgs :: Args -> IO Aeson.Value
 computeBacktestFromArgs args = do
-  (series, _) <- loadPrices args
+  (series, mBinanceEnv) <- loadPrices args
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
-  summary <- computeBacktestSummary args lookback series
+  summary <- computeBacktestSummary args lookback series mBinanceEnv
   pure (backtestSummaryJson summary)
 
 backtestSummaryJson :: BacktestSummary -> Aeson.Value
@@ -6077,7 +6082,7 @@ metricsToJson m =
 
 runTradeOnly :: Args -> Int -> [Double] -> Maybe BinanceEnv -> IO ()
 runTradeOnly args lookback prices mBinanceEnv = do
-  signal <- computeTradeOnlySignal args lookback prices
+  signal <- computeTradeOnlySignal args lookback prices mBinanceEnv
   if argJson args
     then
       if argBinanceTrade args
@@ -6099,7 +6104,7 @@ runTradeOnly args lookback prices mBinanceEnv = do
 runBacktestPipeline :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
 runBacktestPipeline args lookback series mBinanceEnv = do
   let prices = psClose series
-  summary <- computeBacktestSummary args lookback series
+  summary <- computeBacktestSummary args lookback series mBinanceEnv
   if argJson args
     then do
       let base = backtestSummaryJson summary
@@ -6235,8 +6240,8 @@ runBacktestPipeline args lookback series mBinanceEnv = do
 printJsonStdout :: ToJSON a => a -> IO ()
 printJsonStdout v = BS.putStrLn (BL.toStrict (encode v))
 
-computeTradeOnlySignal :: Args -> Int -> [Double] -> IO LatestSignal
-computeTradeOnlySignal args lookback prices = do
+computeTradeOnlySignal :: Args -> Int -> [Double] -> Maybe BinanceEnv -> IO LatestSignal
+computeTradeOnlySignal args lookback prices mBinanceEnv = do
   if argSweepThreshold args
     then error "Cannot use --sweep-threshold with --trade-only (sweep requires a backtest split)."
     else pure ()
@@ -6252,6 +6257,14 @@ computeTradeOnlySignal args lookback prices = do
       error
         (printf "Not enough data for lookback=%d (need >= %d prices, got %d). Reduce --lookback-bars/--lookback-window or increase --bars." lookback (lookback + 1) n)
     else pure ()
+
+  mMarketModel <-
+    case (method, mBinanceEnv, argBinanceSymbol args) of
+      (MethodLstmOnly, _, _) -> pure Nothing
+      (_, Just env, Just sym) -> do
+        r <- try (buildMarketModel args env sym n pricesV) :: IO (Either SomeException (Maybe MarketModel))
+        pure (either (const Nothing) id r)
+      _ -> pure Nothing
 
   mLstmCtx <-
     case method of
@@ -6291,7 +6304,7 @@ computeTradeOnlySignal args lookback prices = do
                   nextP = pricesV V.! (t + 1)
                   realizedR = if priceT == 0 then 0 else nextP / priceT - 1
                   (sensorOuts, predState) = predictSensors predictors pricesV hmm t
-                  meas = mapMaybe (toMeasurement args sv) sensorOuts
+                  meas = mapMaybe (toMeasurement args sv) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
                   kal' = stepMulti meas kal
                   sv' =
                     foldl'
@@ -6304,7 +6317,7 @@ computeTradeOnlySignal args lookback prices = do
             (kalPrev, hmmPrev, svPrev) = foldl' step (kal0, hmm0, sv0) [0 .. n - 2]
         pure (Just (predictors, kalPrev, hmmPrev, svPrev))
 
-  pure (computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx)
+  pure (computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel)
 
 -- LSTM weight persistence (for incremental training across backtests)
 
@@ -6448,8 +6461,8 @@ trainLstmWithPersistence args lookback cfg series = do
   savePersistedLstmModelMaybe mPath trainBars model
   pure (model, hist)
 
-computeBacktestSummary :: Args -> Int -> PriceSeries -> IO BacktestSummary
-computeBacktestSummary args lookback series = do
+computeBacktestSummary :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO BacktestSummary
+computeBacktestSummary args lookback series mBinanceEnv = do
   let prices = psClose series
       n = length prices
       backtestRatio = argBacktestRatio args
@@ -6528,6 +6541,14 @@ computeBacktestSummary args lookback series = do
           , lcSeed = argSeed args
           }
 
+  mMarketModel <-
+    case (methodForComputation, mBinanceEnv, argBinanceSymbol args) of
+      (MethodLstmOnly, _, _) -> pure Nothing
+      (_, Just env, Just sym) -> do
+        r <- try (buildMarketModel args env sym predStart pricesV) :: IO (Either SomeException (Maybe MarketModel))
+        pure (either (const Nothing) id r)
+      _ -> pure Nothing
+
   (mLstmCtx, mHistory, kalPredAll, lstmPredAll, mKalmanCtx, mMetaAll) <-
     case methodForComputation of
       MethodKalmanOnly -> do
@@ -6543,7 +6564,7 @@ computeBacktestSummary args lookback series = do
             sv0 = emptySensorVar
             (kalFinal, hmmFinal, svFinal, kalPredRev, metaRev) =
               foldl'
-                (backtestStepKalmanOnly args pricesV predictors predStart)
+                (backtestStepKalmanOnly args pricesV predictors predStart mMarketModel)
                 (kal0, hmm0, sv0, [], [])
                 [0 .. stepCount - 1]
             kalPred = reverse kalPredRev
@@ -6579,7 +6600,7 @@ computeBacktestSummary args lookback series = do
             sv0 = emptySensorVar
             (kalFinal, hmmFinal, svFinal, kalPredRev, lstmPredRev, metaRev) =
               foldl'
-                (backtestStep args lookback normState obsAll pricesV lstmModel predictors predStart)
+                (backtestStep args lookback normState obsAll pricesV lstmModel predictors predStart mMarketModel)
                 (kal0, hmm0, sv0, [], [], [])
                 [0 .. stepCount - 1]
             kalPred = reverse kalPredRev
@@ -6762,7 +6783,7 @@ computeBacktestSummary args lookback series = do
             then args { argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr }
             else args
 
-      latestSignal = computeLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx
+      latestSignal = computeLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx mMarketModel
       finiteMaybe x =
         if isNaN x || isInfinite x
           then Nothing
@@ -6952,8 +6973,9 @@ computeLatestSignal
   -> V.Vector Double
   -> Maybe LstmCtx
   -> Maybe KalmanCtx
+  -> Maybe MarketModel
   -> LatestSignal
-computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
+computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
   case method of
     MethodBoth ->
       case (mKalmanCtx, mLstmCtx) of
@@ -7087,7 +7109,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx =
                             mReg = listToMaybe [r | (_sid, out) <- sensorOuts, Just r <- [soRegimes out]]
                             mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
                             mI = listToMaybe [i | (_sid, out) <- sensorOuts, Just i <- [soInterval out]]
-                            meas = mapMaybe (toMeasurement args svPrev) sensorOuts
+                            meas = mapMaybe (toMeasurement args svPrev) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
                             kalNow = stepMulti meas kalPrev
                             kalReturn = kMean kalNow
                             kalVar = max 0 (kVar kalNow)
@@ -7469,10 +7491,11 @@ backtestStepKalmanOnly
   -> V.Vector Double
   -> PredictorBundle
   -> Int
+  -> Maybe MarketModel
   -> (Kalman1, HMMFilter, SensorVar, [Double], [StepMeta])
   -> Int
   -> (Kalman1, HMMFilter, SensorVar, [Double], [StepMeta])
-backtestStepKalmanOnly args pricesV predictors trainEnd (kal, hmm, sv, kalAcc, metaAcc) i =
+backtestStepKalmanOnly args pricesV predictors trainEnd mMarketModel (kal, hmm, sv, kalAcc, metaAcc) i =
   let t = trainEnd + i
       priceT = pricesV V.! t
       nextP = pricesV V.! (t + 1)
@@ -7482,7 +7505,7 @@ backtestStepKalmanOnly args pricesV predictors trainEnd (kal, hmm, sv, kalAcc, m
       mReg = listToMaybe [r | (_sid, out) <- sensorOuts, Just r <- [soRegimes out]]
       mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
       mI = listToMaybe [i' | (_sid, out) <- sensorOuts, Just i' <- [soInterval out]]
-      meas = mapMaybe (toMeasurement args sv) sensorOuts
+      meas = mapMaybe (toMeasurement args sv) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
       kal' = stepMulti meas kal
       fusedR = kMean kal'
       kalNext = priceT * (1 + fusedR)
@@ -7514,10 +7537,11 @@ backtestStep
   -> LSTMModel
   -> PredictorBundle
   -> Int
+  -> Maybe MarketModel
   -> (Kalman1, HMMFilter, SensorVar, [Double], [Double], [StepMeta])
   -> Int
   -> (Kalman1, HMMFilter, SensorVar, [Double], [Double], [StepMeta])
-backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEnd (kal, hmm, sv, kalAcc, lstmAcc, metaAcc) i =
+backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEnd mMarketModel (kal, hmm, sv, kalAcc, lstmAcc, metaAcc) i =
   let t = trainEnd + i
       priceT = pricesV V.! t
       nextP = pricesV V.! (t + 1)
@@ -7527,7 +7551,7 @@ backtestStep args lookback normState obsAll pricesV lstmModel predictors trainEn
       mReg = listToMaybe [r | (_sid, out) <- sensorOuts, Just r <- [soRegimes out]]
       mQ = listToMaybe [q | (_sid, out) <- sensorOuts, Just q <- [soQuantiles out]]
       mI = listToMaybe [i' | (_sid, out) <- sensorOuts, Just i' <- [soInterval out]]
-      meas = mapMaybe (toMeasurement args sv) sensorOuts
+      meas = mapMaybe (toMeasurement args sv) sensorOuts ++ maybeToList (mMarketModel >>= (`marketMeasurementAt` t))
       kal' = stepMulti meas kal
       fusedR = kMean kal'
       kalNext = priceT * (1 + fusedR)

@@ -24,6 +24,7 @@ import Trader.KalmanFusion (Kalman1(..), initKalman1, updateMulti)
 import Trader.Kalman3 (Vec3(..), Kalman3(..), constantAcceleration1D, step, forecastNextConstantAcceleration1D, runConstantAcceleration1D, KalmanRun(..))
 import Trader.LSTM (LSTMConfig(..), LSTMModel(..), trainLSTM, buildSequences, evaluateLoss)
 import Trader.Method (Method(..), parseMethod, selectPredictions)
+import Trader.MarketContext (fitLinearRange)
 import Trader.Metrics (computeMetrics, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn)
 import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
 import Trader.Predictors
@@ -44,6 +45,7 @@ main = do
   results <- sequence
     [ run "duration lookback bars" testLookbackBars
     , run "kalman fusion multi-sensor" testKalmanFusionMulti
+    , run "market linear fit" testMarketLinearFit
     , run "predictors output shape" testPredictorsOutputs
     , run "kalman constant series" testKalmanConstant
     , run "kalman forecast constant" testKalmanForecast
@@ -100,6 +102,15 @@ testKalmanFusionMulti = do
       expected = (0 * 1 + 0.01 * 10000 + 0.02 * 100) / (1 + 10000 + 100)
   assertApprox "posterior mean" 1e-6 (kMean k1) expected
   assert "posterior variance shrinks" (kVar k1 < 1)
+
+testMarketLinearFit :: IO ()
+testMarketLinearFit = do
+  let xs = V.generate 100 (fromIntegral :: Int -> Double)
+      ys = V.map (\x -> 2 + 3 * x) xs
+      (a, b, var) = fitLinearRange xs ys 0 100
+  assertApprox "intercept" 1e-9 a 2
+  assertApprox "beta" 1e-9 b 3
+  assert "var ~ 0" (var < 1e-9)
 
 testPredictorsOutputs :: IO ()
 testPredictorsOutputs = do

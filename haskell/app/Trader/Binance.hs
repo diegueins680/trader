@@ -7,7 +7,10 @@ module Trader.Binance
   , Kline(..)
   , Step(..)
   , SymbolFilters(..)
+  , Ticker24h(..)
   , fetchTickerPrice
+  , fetchTickers24h
+  , fetchTopSymbolsByQuoteVolume
   , binanceBaseUrl
   , binanceTestnetBaseUrl
   , binanceFuturesBaseUrl
@@ -41,8 +44,9 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Base16 as B16
 import Data.Char (isSpace)
 import Data.Int (Int64)
-import Data.List (foldl', isPrefixOf)
+import Data.List (foldl', isPrefixOf, isSuffixOf, sortBy)
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -316,6 +320,58 @@ fetchTickerPrice env symbol = do
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode ticker price: " ++ e))
     Right (TickerPrice p) -> pure p
+
+data Ticker24h = Ticker24h
+  { t24Symbol :: !String
+  , t24QuoteVolume :: !Double
+  } deriving (Eq, Show)
+
+instance FromJSON Ticker24h where
+  parseJSON = withObject "Ticker24h" $ \o -> do
+    symTxt <- o .: "symbol"
+    qvTxt <- o .: "quoteVolume"
+    qv <- parseDoubleText qvTxt
+    pure Ticker24h { t24Symbol = T.unpack symTxt, t24QuoteVolume = qv }
+
+fetchTickers24h :: BinanceEnv -> IO [Ticker24h]
+fetchTickers24h env = do
+  let path =
+        case beMarket env of
+          MarketSpot -> "/api/v3/ticker/24hr"
+          MarketMargin -> "/api/v3/ticker/24hr"
+          MarketFutures -> "/fapi/v1/ticker/24hr"
+  req0 <- parseRequest (beBaseUrl env ++ path)
+  let req = req0 { method = "GET" }
+  resp <- httpLbs req (beManager env)
+  ensure2xx "ticker/24hr" resp
+  case eitherDecode (responseBody resp) of
+    Left e -> throwIO (userError ("Failed to decode ticker/24hr: " ++ e))
+    Right xs -> pure xs
+
+-- | Returns the highest-volume symbols by 24h quote volume for the provided quote asset.
+-- Filtering is conservative to avoid leveraged tokens and stable-stable pairs.
+fetchTopSymbolsByQuoteVolume :: BinanceEnv -> String -> Int -> IO [(String, Double)]
+fetchTopSymbolsByQuoteVolume env quote topN = do
+  if topN <= 0
+    then pure []
+    else do
+      tickers <- fetchTickers24h env
+      let quoteU = map toUpperAscii quote
+          stableBases = ["USDT", "USDC", "BUSD", "TUSD", "FDUSD"]
+          leveragedSuffixes = ["UP", "DOWN", "BULL", "BEAR"]
+          wanted (Ticker24h symRaw _qv) =
+            let sym = map toUpperAscii symRaw
+             in quoteU `isSuffixOf` sym
+                && let base = take (length sym - length quoteU) sym
+                       isStableStable = base `elem` stableBases
+                       isLeveraged = any (`isSuffixOf` base) leveragedSuffixes
+                    in not isStableStable && not isLeveraged
+          ranked =
+            sortBy (flip (comparing snd)) $
+              [ (map toUpperAscii (t24Symbol t), max 0 (t24QuoteVolume t))
+              | t <- filter wanted tickers
+              ]
+      pure (take topN ranked)
 
 getTimestampMs :: IO Int64
 getTimestampMs = do
