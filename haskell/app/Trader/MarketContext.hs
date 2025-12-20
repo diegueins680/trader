@@ -57,7 +57,7 @@ forwardReturnsV prices =
 
 takeLast :: Int -> [a] -> [a]
 takeLast n xs
-  | n <= 0 = xs
+  | n <= 0 = []
   | otherwise =
       let k = length xs - n
        in if k <= 0 then xs else drop k xs
@@ -160,7 +160,8 @@ buildMarketModel args env targetSymbol fitEnd pricesV = do
       let usedSyms = [s | (s, _w, _r) <- fetched]
           wrets = [(w, r) | (_s, w, r) <- fetched]
 
-      if length wrets < 5
+      let minSymbols = max 1 (min topN 5)
+      if length wrets < minSymbols
         then pure Nothing
         else do
           let lag = weightedMarketLag n wrets
@@ -179,4 +180,3 @@ marketMeasurementAt m t =
           mu = if isBad mu0 then 0 else mu0
           var = max 1e-12 (mmVar m)
        in Just (mu, var)
-

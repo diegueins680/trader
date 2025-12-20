@@ -129,7 +129,8 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 
 - Normalization
   - `--normalization standard` one of `none|minmax|standard|log`
-  - If the fit window is empty, `minmax`/`standard` fall back to no-op normalization.
+  - If the fit window is empty or only has non-finite values, `minmax`/`standard` fall back to no-op normalization.
+  - `log` normalization requires finite, positive values.
 
 - LSTM
   - Lookback bars come from `--lookback-window`/`--lookback-bars`
@@ -145,6 +146,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--kalman-dt 1.0` scales process noise per step
   - `--kalman-process-var 1e-5` process noise variance
   - `--kalman-measurement-var 1e-3` fallback measurement variance (and initial variance)
+  - `--kalman-market-top-n 50` optional market context measurement; skipped if fewer than `min(N, 5)` symbols are available
 
 - Strategy / costs
   - `--open-threshold 0.001` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
@@ -173,6 +175,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day)
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
+  - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as the exit reason.
 
 - Metrics
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)

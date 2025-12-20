@@ -32,28 +32,29 @@ parseNormType s =
 
 fitNorm :: NormType -> [Double] -> NormState
 fitNorm nt xs =
-  case nt of
-    NormNone -> NSNone
-    NormMinMax ->
-      case xs of
-        [] -> NSNone
-        _ ->
-          let mn = minimum xs
-              mx = maximum xs
-           in NSMinMax mn mx
-    NormStandard ->
-      case xs of
-        [] -> NSNone
-        _ ->
-          let n = fromIntegral (length xs)
-              mu = sum xs / n
-              var = sum (map (\v -> (v - mu) ** 2) xs) / n
-              sigma = sqrt (var + 1e-8)
-           in NSStandard mu sigma
-    NormLog ->
-      if any (<= 0) xs
-        then error "log normalization requires all prices > 0"
-        else NSLog
+  let xsFinite = filter isFinite xs
+   in case nt of
+        NormNone -> NSNone
+        NormMinMax ->
+          case xsFinite of
+            [] -> NSNone
+            _ ->
+              let mn = minimum xsFinite
+                  mx = maximum xsFinite
+               in NSMinMax mn mx
+        NormStandard ->
+          case xsFinite of
+            [] -> NSNone
+            _ ->
+              let n = fromIntegral (length xsFinite)
+                  mu = sum xsFinite / n
+                  var = sum (map (\v -> (v - mu) ** 2) xsFinite) / n
+                  sigma = sqrt (var + 1e-8)
+               in NSStandard mu sigma
+        NormLog ->
+          if any (\v -> v <= 0 || not (isFinite v)) xs
+            then error "log normalization requires all prices finite and > 0"
+            else NSLog
 
 forwardNorm :: NormState -> Double -> Double
 forwardNorm st x =
@@ -82,3 +83,6 @@ trim = dropWhileEnd isSpace . dropWhile isSpace
 
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p = reverse . dropWhile p . reverse
+
+isFinite :: Double -> Bool
+isFinite x = not (isNaN x || isInfinite x)

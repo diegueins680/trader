@@ -3011,14 +3011,14 @@ botApplyKline mOps metrics mJournal st k = do
           then
             let why = haltReason1
                 latestHalt =
-                  case (prevPos, desiredPosPre, why) of
-                    (1, 1, Just r) -> latest0 { lsChosenDir = Just (-1), lsAction = "EXIT_" ++ r }
-                    (0, 1, Just r) -> latest0 { lsChosenDir = Nothing, lsAction = "HALTED_" ++ r }
+                  case (prevPos, why) of
+                    (1, Just r) -> latestPre { lsChosenDir = Just (-1), lsAction = "EXIT_" ++ r }
+                    (0, Just r) -> latestPre { lsChosenDir = Nothing, lsAction = "HALTED_" ++ r }
                     _ -> latestPre
                 exitReason =
-                  if prevPos == 1 && desiredPosPre == 1 && not (isJust mExitReasonPre)
-                    then why
-                    else mExitReasonPre
+                  case (prevPos, why) of
+                    (1, Just r) -> Just r
+                    _ -> mExitReasonPre
              in (latestHalt, 0, exitReason)
           else (latestPre, desiredPosPre, mExitReasonPre)
 
@@ -7740,7 +7740,7 @@ loadPrices args =
 
 takeLast :: Int -> [a] -> [a]
 takeLast n xs
-  | n <= 0 = xs
+  | n <= 0 = []
   | otherwise =
       let k = length xs - n
        in if k <= 0 then xs else drop k xs
