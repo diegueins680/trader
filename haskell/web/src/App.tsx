@@ -188,6 +188,7 @@ type PendingProfileLoad = {
 };
 
 type ComputeLimits = NonNullable<Awaited<ReturnType<typeof health>>["computeLimits"]>;
+type ManualOverrideKey = "method" | "openThreshold" | "closeThreshold";
 
 const CUSTOM_SYMBOL_VALUE = "__custom__";
 const TOP_COMBOS_POLL_MS = 30_000;
@@ -269,11 +270,16 @@ function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits 
   return { bars, epochs, hiddenSize };
 }
 
-function applyComboToForm(prev: FormState, combo: OptimizationCombo, apiLimits: ComputeLimits | null): FormState {
+function applyComboToForm(
+  prev: FormState,
+  combo: OptimizationCombo,
+  apiLimits: ComputeLimits | null,
+  manualOverrides?: Set<ManualOverrideKey>,
+): FormState {
   const comboSymbol = combo.params.binanceSymbol?.trim();
   const symbol = comboSymbol && comboSymbol.length > 0 ? comboSymbol : prev.binanceSymbol;
   const interval = combo.params.interval;
-  const method = combo.params.method;
+  const method = manualOverrides?.has("method") ? prev.method : combo.params.method;
   const positioning = combo.params.positioning ?? prev.positioning;
   const normalization = combo.params.normalization;
   const intrabarFill = combo.params.intrabarFill ?? prev.intrabarFill;
@@ -281,12 +287,19 @@ function applyComboToForm(prev: FormState, combo: OptimizationCombo, apiLimits: 
   const confirmQuantiles = combo.params.confirmQuantiles ?? prev.confirmQuantiles;
   const confidenceSizing = combo.params.confidenceSizing ?? prev.confidenceSizing;
 
-  const { bars, epochs, hiddenSize } = clampComboForLimits(combo, apiLimits);
+  const comboForLimits =
+    method === combo.params.method
+      ? combo
+      : {
+          ...combo,
+          params: { ...combo.params, method },
+        };
+  const { bars, epochs, hiddenSize } = clampComboForLimits(comboForLimits, apiLimits);
   const openThrRaw = coerceNumber(combo.openThreshold, prev.openThreshold);
   const closeThrRaw =
     combo.closeThreshold == null ? openThrRaw : coerceNumber(combo.closeThreshold, prev.closeThreshold);
-  const openThreshold = Math.max(0, openThrRaw);
-  const closeThreshold = Math.max(0, closeThrRaw);
+  const openThreshold = manualOverrides?.has("openThreshold") ? prev.openThreshold : Math.max(0, openThrRaw);
+  const closeThreshold = manualOverrides?.has("closeThreshold") ? prev.closeThreshold : Math.max(0, closeThrRaw);
   const fee = Math.max(0, coerceNumber(combo.params.fee, prev.fee));
   const learningRate = Math.max(1e-9, coerceNumber(combo.params.learningRate, prev.learningRate));
   const valRatio = clamp(coerceNumber(combo.params.valRatio, prev.valRatio), 0, 1);
@@ -392,8 +405,13 @@ function applyComboToForm(prev: FormState, combo: OptimizationCombo, apiLimits: 
   };
 }
 
-function comboApplySignature(combo: OptimizationCombo, apiLimits: ComputeLimits | null, baseForm: FormState): string {
-  return formApplySignature(applyComboToForm(baseForm, combo, apiLimits));
+function comboApplySignature(
+  combo: OptimizationCombo,
+  apiLimits: ComputeLimits | null,
+  baseForm: FormState,
+  manualOverrides?: Set<ManualOverrideKey>,
+): string {
+  return formApplySignature(applyComboToForm(baseForm, combo, apiLimits, manualOverrides));
 }
 
 function formApplySignature(form: FormState): string {
@@ -477,6 +495,7 @@ export function App() {
   });
   const formRef = useRef(form);
   const apiComputeLimitsRef = useRef<ComputeLimits | null>(apiComputeLimits);
+  const manualOverridesRef = useRef<Set<ManualOverrideKey>>(new Set());
 
   apiComputeLimitsRef.current = apiComputeLimits;
 
@@ -694,6 +713,11 @@ export function App() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
 
+  const markManualOverrides = useCallback((keys: ManualOverrideKey[]) => {
+    const set = manualOverridesRef.current;
+    for (const key of keys) set.add(key);
+  }, []);
+
   const clearRateLimit = useCallback(() => {
     setRateLimit(null);
     rateLimitBackoffRef.current = RATE_LIMIT_BASE_MS;
@@ -727,9 +751,10 @@ export function App() {
   );
 
   const applyCombo = useCallback(
-    (combo: OptimizationCombo, opts?: { silent?: boolean }) => {
+    (combo: OptimizationCombo, opts?: { silent?: boolean; respectManual?: boolean }) => {
       const comboSymbol = combo.params.binanceSymbol?.trim();
-      setForm((prev) => applyComboToForm(prev, combo, apiComputeLimitsRef.current));
+      const manualOverrides = opts?.respectManual ? manualOverridesRef.current : undefined;
+      setForm((prev) => applyComboToForm(prev, combo, apiComputeLimitsRef.current, manualOverrides));
       setSelectedComboId(combo.id);
       if (!opts?.silent) {
         showToast(`Loaded optimizer combo #${combo.id}${comboSymbol ? ` (${comboSymbol})` : ""}`);
@@ -2082,7 +2107,7 @@ export function App() {
           const positioning =
             typeof params.positioning === "string" && positionings.includes(params.positioning as Positioning)
               ? (params.positioning as Positioning)
-              : defaultForm.positioning;
+              : null;
           const rawSymbol =
             typeof params.binanceSymbol === "string"
               ? params.binanceSymbol
@@ -2234,10 +2259,10 @@ export function App() {
         const topCombo = limited[0];
         if (topCombo) {
           const currentForm = formRef.current;
-          const topSig = comboApplySignature(topCombo, apiComputeLimitsRef.current, currentForm);
+          const topSig = comboApplySignature(topCombo, apiComputeLimitsRef.current, currentForm, manualOverridesRef.current);
           const formSig = formApplySignature(currentForm);
           if (topSig !== formSig) {
-            applyCombo(topCombo, { silent: true });
+            applyCombo(topCombo, { silent: true, respectManual: true });
           }
         }
       } catch (err) {
@@ -2986,7 +3011,10 @@ export function App() {
                   id="method"
                   className="select"
                   value={form.method}
-                  onChange={(e) => setForm((f) => ({ ...f, method: e.target.value as Method }))}
+                  onChange={(e) => {
+                    markManualOverrides(["method"]);
+                    setForm((f) => ({ ...f, method: e.target.value as Method }));
+                  }}
                 >
                   <option value="11">11 — Both (agreement gated)</option>
                   <option value="10">10 — Kalman only</option>
@@ -3031,7 +3059,10 @@ export function App() {
                   step="0.0001"
                   min={0}
                   value={form.openThreshold}
-                  onChange={(e) => setForm((f) => ({ ...f, openThreshold: numFromInput(e.target.value, f.openThreshold) }))}
+                  onChange={(e) => {
+                    markManualOverrides(["openThreshold"]);
+                    setForm((f) => ({ ...f, openThreshold: numFromInput(e.target.value, f.openThreshold) }));
+                  }}
                 />
                 <div className="hint">
                   Entry deadband. Default 0.001 = 0.1%. Break-even ≈ {fmtPct(estimatedCosts.breakEven, 3)} (round-trip cost ≈ {fmtPct(estimatedCosts.roundTrip, 3)}).
@@ -3044,13 +3075,14 @@ export function App() {
                     className="btnSmall"
                     type="button"
                     disabled={!(estimatedCosts.breakEven > 0)}
-                    onClick={() => {
-                      const be = estimatedCosts.breakEven;
-                      const open = Number((be * 2).toFixed(6));
-                      const close = Number(be.toFixed(6));
-                      setForm((f) => ({ ...f, openThreshold: open, closeThreshold: close }));
-                      showToast("Set thresholds to conservative (2× break-even)");
-                    }}
+                      onClick={() => {
+                        const be = estimatedCosts.breakEven;
+                        const open = Number((be * 2).toFixed(6));
+                        const close = Number(be.toFixed(6));
+                        markManualOverrides(["openThreshold", "closeThreshold"]);
+                        setForm((f) => ({ ...f, openThreshold: open, closeThreshold: close }));
+                        showToast("Set thresholds to conservative (2× break-even)");
+                      }}
                   >
                     Conservative (2× BE)
                   </button>
@@ -3058,22 +3090,24 @@ export function App() {
                     className="btnSmall"
                     type="button"
                     disabled={!(estimatedCosts.breakEven > 0)}
-                    onClick={() => {
-                      const v = Number(estimatedCosts.breakEven.toFixed(6));
-                      setForm((f) => ({ ...f, openThreshold: v, closeThreshold: v }));
-                      showToast("Set thresholds to break-even");
-                    }}
+                      onClick={() => {
+                        const v = Number(estimatedCosts.breakEven.toFixed(6));
+                        markManualOverrides(["openThreshold", "closeThreshold"]);
+                        setForm((f) => ({ ...f, openThreshold: v, closeThreshold: v }));
+                        showToast("Set thresholds to break-even");
+                      }}
                   >
                     Set open/close to break-even
                   </button>
                   <button
                     className="btnSmall"
-                    type="button"
-                    onClick={() => {
-                      setForm((f) => ({ ...f, openThreshold: defaultForm.openThreshold, closeThreshold: defaultForm.closeThreshold }));
-                      showToast("Reset thresholds to defaults");
-                    }}
-                  >
+                      type="button"
+                      onClick={() => {
+                        markManualOverrides(["openThreshold", "closeThreshold"]);
+                        setForm((f) => ({ ...f, openThreshold: defaultForm.openThreshold, closeThreshold: defaultForm.closeThreshold }));
+                        showToast("Reset thresholds to defaults");
+                      }}
+                    >
                     Reset thresholds
                   </button>
                 </div>
@@ -3095,7 +3129,10 @@ export function App() {
                   step="0.0001"
                   min={0}
                   value={form.closeThreshold}
-                  onChange={(e) => setForm((f) => ({ ...f, closeThreshold: numFromInput(e.target.value, f.closeThreshold) }))}
+                  onChange={(e) => {
+                    markManualOverrides(["closeThreshold"]);
+                    setForm((f) => ({ ...f, closeThreshold: numFromInput(e.target.value, f.closeThreshold) }));
+                  }}
                 />
                 <div className="hint">
                   Exit deadband. Often smaller than open threshold to reduce churn.

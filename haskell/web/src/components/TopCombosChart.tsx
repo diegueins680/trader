@@ -7,7 +7,7 @@ export type OptimizationComboParams = {
   interval: string;
   bars: number;
   method: Method;
-  positioning?: Positioning;
+  positioning?: Positioning | null;
   normalization: Normalization;
   baseOpenThreshold?: number | null;
   baseCloseThreshold?: number | null;

@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Normalization: `minmax`/`standard` fall back to no-op when the fit window is empty or only contains non-finite values; `log` requires finite, positive values.
 - Web UI: improves async job not found handling with a clearer error after the grace period.
 - Web UI: fixes a startup crash when optimizer combos apply before API compute limits are available.
+- Web UI: optimizer combo loads preserve the current positioning unless the combo explicitly specifies one.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.
 - API/UI: `/binance/keys` trade probes report `skipped` when no test order is attempted, and the UI shows `SKIP` instead of `FAIL`.
 - API: `/binance/keys` preflight checks minNotional when price data is available and only fetches symbol filters when needed.
