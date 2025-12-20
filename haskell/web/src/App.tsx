@@ -1985,9 +1985,10 @@ export function App() {
           if (eq !== 0) return eq;
           return a.id - b.id;
         });
-        setTopCombos(sanitized);
+        const limited = sanitized.slice(0, 5);
+        setTopCombos(limited);
         setTopCombosError(null);
-        const topCombo = sanitized[0];
+        const topCombo = limited[0];
         if (topCombo) {
           applyCombo(topCombo, { silent: true });
         }
