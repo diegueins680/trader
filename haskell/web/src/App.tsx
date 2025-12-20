@@ -189,6 +189,24 @@ type PendingProfileLoad = {
 
 const CUSTOM_SYMBOL_VALUE = "__custom__";
 const TOP_COMBOS_POLL_MS = 30_000;
+const MIN_LOOKBACK_BARS = 2;
+
+const DURATION_UNITS: Array<{ unit: string; seconds: number }> = [
+  { unit: "M", seconds: 30 * 24 * 60 * 60 },
+  { unit: "w", seconds: 7 * 24 * 60 * 60 },
+  { unit: "d", seconds: 24 * 60 * 60 },
+  { unit: "h", seconds: 60 * 60 },
+  { unit: "m", seconds: 60 },
+  { unit: "s", seconds: 1 },
+];
+
+function formatDurationSeconds(totalSeconds: number): string {
+  const sec = Math.max(1, Math.round(totalSeconds));
+  for (const { unit, seconds } of DURATION_UNITS) {
+    if (sec % seconds === 0) return `${sec / seconds}${unit}`;
+  }
+  return `${sec}s`;
+}
 
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
@@ -462,17 +480,58 @@ export function App() {
       setForm((prev) => {
         const openThr = combo.openThreshold ?? prev.openThreshold;
         const closeThr = combo.closeThreshold ?? openThr ?? prev.closeThreshold;
+        const interval = combo.params.interval;
+        const method = combo.params.method;
+        const apiLimits = apiComputeLimits;
+        const lstmEnabled = method !== "10";
+
+        let bars = Math.trunc(combo.params.bars);
+        let epochs = Math.max(0, Math.trunc(combo.params.epochs));
+        let hiddenSize = Math.max(1, Math.trunc(combo.params.hiddenSize));
+
+        if (lstmEnabled && apiLimits) {
+          const barsEffective = bars <= 0 ? 500 : bars;
+          if (barsEffective > apiLimits.maxBarsLstm) {
+            bars = apiLimits.maxBarsLstm;
+          }
+          epochs = Math.min(epochs, apiLimits.maxEpochs);
+          hiddenSize = Math.min(hiddenSize, apiLimits.maxHiddenSize);
+        }
+
+        let lookbackBars = prev.lookbackBars;
+        let lookbackWindow = prev.lookbackWindow;
+
+        if (lookbackBars >= MIN_LOOKBACK_BARS && bars > 0) {
+          const maxLookback = Math.max(0, bars - 1);
+          if (maxLookback < MIN_LOOKBACK_BARS) {
+            lookbackBars = 0;
+          } else if (lookbackBars >= maxLookback) {
+            lookbackBars = maxLookback;
+          }
+        }
+
+        if (lookbackBars < MIN_LOOKBACK_BARS) {
+          const intervalSec = binanceIntervalSeconds(interval);
+          if (intervalSec) {
+            const windowSec = parseDurationSeconds(lookbackWindow);
+            const minWindowSec = intervalSec * MIN_LOOKBACK_BARS;
+            if (!windowSec || windowSec < minWindowSec) {
+              lookbackWindow = formatDurationSeconds(minWindowSec);
+            }
+          }
+        }
+
         return {
           ...prev,
           binanceSymbol: comboSymbol && comboSymbol.length > 0 ? comboSymbol : prev.binanceSymbol,
-          interval: combo.params.interval,
-          bars: combo.params.bars,
-          method: combo.params.method,
+          interval,
+          bars,
+          method,
           positioning: combo.params.positioning ?? prev.positioning,
           normalization: combo.params.normalization,
           fee: combo.params.fee ?? prev.fee,
-          epochs: Math.max(0, Math.trunc(combo.params.epochs)),
-          hiddenSize: Math.max(1, Math.trunc(combo.params.hiddenSize)),
+          epochs,
+          hiddenSize,
           learningRate: combo.params.learningRate,
           valRatio: combo.params.valRatio,
           patience: combo.params.patience,
@@ -497,6 +556,8 @@ export function App() {
           confirmQuantiles: combo.params.confirmQuantiles ?? prev.confirmQuantiles,
           confidenceSizing: combo.params.confidenceSizing ?? prev.confidenceSizing,
           minPositionSize: combo.params.minPositionSize ?? 0,
+          lookbackBars,
+          lookbackWindow,
           openThreshold: openThr,
           closeThreshold: closeThr,
         };
@@ -506,7 +567,7 @@ export function App() {
         showToast(`Loaded optimizer combo #${combo.id}${comboSymbol ? ` (${comboSymbol})` : ""}`);
       }
     },
-    [showToast],
+    [apiComputeLimits, showToast],
   );
 
   const handleComboSelect = useCallback((combo: OptimizationCombo) => applyCombo(combo), [applyCombo]);
