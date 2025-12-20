@@ -331,6 +331,7 @@ A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST 
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
+Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 
 Run it:
 ```

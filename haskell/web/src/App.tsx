@@ -763,7 +763,7 @@ export function App() {
     [showToast],
   );
 
-  const handleComboSelect = useCallback((combo: OptimizationCombo) => applyCombo(combo), [applyCombo]);
+  const handleComboSelect = useCallback((combo: OptimizationCombo) => applyCombo(combo, { respectManual: true }), [applyCombo]);
 
   useEffect(() => {
     topCombosRef.current = topCombos;
@@ -1396,12 +1396,14 @@ export function App() {
           if (p.optimizeOperations || p.sweepThreshold) {
             const openThreshold = out.openThreshold ?? out.threshold;
             const closeThreshold = out.closeThreshold ?? out.openThreshold ?? out.threshold;
-            setForm((f) => ({
-              ...f,
-              ...(p.optimizeOperations ? { method: out.method } : {}),
-              openThreshold: Math.max(0, openThreshold),
-              closeThreshold: Math.max(0, closeThreshold),
-            }));
+            const manualOverrides = manualOverridesRef.current;
+            const next: Partial<FormState> = {};
+            if (p.optimizeOperations && !manualOverrides.has("method")) next.method = out.method;
+            if (!manualOverrides.has("openThreshold")) next.openThreshold = Math.max(0, openThreshold);
+            if (!manualOverrides.has("closeThreshold")) next.closeThreshold = Math.max(0, closeThreshold);
+            if (Object.keys(next).length > 0) {
+              setForm((f) => ({ ...f, ...next }));
+            }
           }
           if (opts?.silent) setState((s) => ({ ...s, latestSignal: out }));
           else {
@@ -1424,12 +1426,14 @@ export function App() {
           if (p.optimizeOperations || p.sweepThreshold) {
             const openThreshold = out.openThreshold ?? out.threshold;
             const closeThreshold = out.closeThreshold ?? out.openThreshold ?? out.threshold;
-            setForm((f) => ({
-              ...f,
-              ...(p.optimizeOperations ? { method: out.method } : {}),
-              openThreshold: Math.max(0, openThreshold),
-              closeThreshold: Math.max(0, closeThreshold),
-            }));
+            const manualOverrides = manualOverridesRef.current;
+            const next: Partial<FormState> = {};
+            if (p.optimizeOperations && !manualOverrides.has("method")) next.method = out.method;
+            if (!manualOverrides.has("openThreshold")) next.openThreshold = Math.max(0, openThreshold);
+            if (!manualOverrides.has("closeThreshold")) next.closeThreshold = Math.max(0, closeThreshold);
+            if (Object.keys(next).length > 0) {
+              setForm((f) => ({ ...f, ...next }));
+            }
           }
           setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false, error: null }));
           setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Backtest Response", data: out }].slice(-100));
@@ -1451,12 +1455,14 @@ export function App() {
             const sig = out.signal;
             const openThreshold = sig.openThreshold ?? sig.threshold;
             const closeThreshold = sig.closeThreshold ?? sig.openThreshold ?? sig.threshold;
-            setForm((f) => ({
-              ...f,
-              ...(p.optimizeOperations ? { method: sig.method } : {}),
-              openThreshold: Math.max(0, openThreshold),
-              closeThreshold: Math.max(0, closeThreshold),
-            }));
+            const manualOverrides = manualOverridesRef.current;
+            const next: Partial<FormState> = {};
+            if (p.optimizeOperations && !manualOverrides.has("method")) next.method = sig.method;
+            if (!manualOverrides.has("openThreshold")) next.openThreshold = Math.max(0, openThreshold);
+            if (!manualOverrides.has("closeThreshold")) next.closeThreshold = Math.max(0, closeThreshold);
+            if (Object.keys(next).length > 0) {
+              setForm((f) => ({ ...f, ...next }));
+            }
           }
           setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false, error: null }));
           setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Trade Response", data: out }].slice(-100));
@@ -3075,14 +3081,14 @@ export function App() {
                     className="btnSmall"
                     type="button"
                     disabled={!(estimatedCosts.breakEven > 0)}
-                      onClick={() => {
-                        const be = estimatedCosts.breakEven;
-                        const open = Number((be * 2).toFixed(6));
-                        const close = Number(be.toFixed(6));
-                        markManualOverrides(["openThreshold", "closeThreshold"]);
-                        setForm((f) => ({ ...f, openThreshold: open, closeThreshold: close }));
-                        showToast("Set thresholds to conservative (2× break-even)");
-                      }}
+                    onClick={() => {
+                      const be = estimatedCosts.breakEven;
+                      const open = Number((be * 2).toFixed(6));
+                      const close = Number(be.toFixed(6));
+                      markManualOverrides(["openThreshold", "closeThreshold"]);
+                      setForm((f) => ({ ...f, openThreshold: open, closeThreshold: close }));
+                      showToast("Set thresholds to conservative (2× break-even)");
+                    }}
                   >
                     Conservative (2× BE)
                   </button>
@@ -3090,24 +3096,24 @@ export function App() {
                     className="btnSmall"
                     type="button"
                     disabled={!(estimatedCosts.breakEven > 0)}
-                      onClick={() => {
-                        const v = Number(estimatedCosts.breakEven.toFixed(6));
-                        markManualOverrides(["openThreshold", "closeThreshold"]);
-                        setForm((f) => ({ ...f, openThreshold: v, closeThreshold: v }));
-                        showToast("Set thresholds to break-even");
-                      }}
+                    onClick={() => {
+                      const v = Number(estimatedCosts.breakEven.toFixed(6));
+                      markManualOverrides(["openThreshold", "closeThreshold"]);
+                      setForm((f) => ({ ...f, openThreshold: v, closeThreshold: v }));
+                      showToast("Set thresholds to break-even");
+                    }}
                   >
                     Set open/close to break-even
                   </button>
                   <button
                     className="btnSmall"
-                      type="button"
-                      onClick={() => {
-                        markManualOverrides(["openThreshold", "closeThreshold"]);
-                        setForm((f) => ({ ...f, openThreshold: defaultForm.openThreshold, closeThreshold: defaultForm.closeThreshold }));
-                        showToast("Reset thresholds to defaults");
-                      }}
-                    >
+                    type="button"
+                    onClick={() => {
+                      markManualOverrides(["openThreshold", "closeThreshold"]);
+                      setForm((f) => ({ ...f, openThreshold: defaultForm.openThreshold, closeThreshold: defaultForm.closeThreshold }));
+                      showToast("Reset thresholds to defaults");
+                    }}
+                  >
                     Reset thresholds
                   </button>
                 </div>
