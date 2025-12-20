@@ -39,6 +39,8 @@ import {
   BACKTEST_TIMEOUT_MS,
   BINANCE_INTERVALS,
   BINANCE_INTERVAL_SET,
+  BINANCE_SYMBOLS,
+  BINANCE_SYMBOL_SET,
   BOT_START_TIMEOUT_MS,
   BOT_STATUS_TAIL_POINTS,
   BOT_STATUS_TIMEOUT_MS,
@@ -185,6 +187,8 @@ type PendingProfileLoad = {
   reasons: string[];
 };
 
+const CUSTOM_SYMBOL_VALUE = "__custom__";
+
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [healthInfo, setHealthInfo] = useState<Awaited<ReturnType<typeof health>> | null>(null);
@@ -204,6 +208,14 @@ export function App() {
     return persistSecrets ? persisted || session : session;
   });
   const [form, setForm] = useState<FormState>(() => normalizeFormState(readJson<FormStateJson>(STORAGE_KEY)));
+  const [customBinanceSymbol, setCustomBinanceSymbol] = useState(() => {
+    const normalized = form.binanceSymbol.trim().toUpperCase();
+    return BINANCE_SYMBOL_SET.has(normalized) ? "" : normalized;
+  });
+
+  const normalizedBinanceSymbol = form.binanceSymbol.trim().toUpperCase();
+  const symbolIsCustom = !BINANCE_SYMBOL_SET.has(normalizedBinanceSymbol);
+  const symbolSelectValue = symbolIsCustom ? CUSTOM_SYMBOL_VALUE : normalizedBinanceSymbol;
 
   const [profiles, setProfiles] = useState<SavedProfiles>(() => {
     const raw = readJson<Record<string, FormStateJson>>(STORAGE_PROFILES_KEY) ?? {};
@@ -341,6 +353,13 @@ export function App() {
   }, [form]);
 
   useEffect(() => {
+    if (!symbolIsCustom) return;
+    if (customBinanceSymbol !== normalizedBinanceSymbol) {
+      setCustomBinanceSymbol(normalizedBinanceSymbol);
+    }
+  }, [customBinanceSymbol, normalizedBinanceSymbol, symbolIsCustom]);
+
+  useEffect(() => {
     writeJson(STORAGE_PROFILES_KEY, profiles);
   }, [profiles]);
 
@@ -437,11 +456,13 @@ export function App() {
 
   const handleComboSelect = useCallback(
     (combo: OptimizationCombo) => {
+      const comboSymbol = combo.params.binanceSymbol?.trim();
       setForm((prev) => {
         const openThr = combo.openThreshold ?? prev.openThreshold;
         const closeThr = combo.closeThreshold ?? openThr ?? prev.closeThreshold;
         return {
           ...prev,
+          binanceSymbol: comboSymbol && comboSymbol.length > 0 ? comboSymbol : prev.binanceSymbol,
           interval: combo.params.interval,
           bars: combo.params.bars,
           method: combo.params.method,
@@ -479,7 +500,7 @@ export function App() {
         };
       });
       setSelectedComboId(combo.id);
-      showToast(`Loaded optimizer combo #${combo.id}`);
+      showToast(`Loaded optimizer combo #${combo.id}${comboSymbol ? ` (${comboSymbol})` : ""}`);
     },
     [showToast],
   );
@@ -1804,6 +1825,13 @@ export function App() {
             typeof params.positioning === "string" && positionings.includes(params.positioning as Positioning)
               ? (params.positioning as Positioning)
               : defaultForm.positioning;
+          const rawSymbol =
+            typeof params.binanceSymbol === "string"
+              ? params.binanceSymbol
+              : typeof params.symbol === "string"
+                ? params.symbol
+                : "";
+          const binanceSymbol = rawSymbol.trim().toUpperCase();
           const baseOpenThreshold =
             typeof params.baseOpenThreshold === "number" && Number.isFinite(params.baseOpenThreshold)
               ? Math.max(0, params.baseOpenThreshold)
@@ -1892,6 +1920,7 @@ export function App() {
               method,
               positioning,
               normalization,
+              binanceSymbol: binanceSymbol ? binanceSymbol : null,
               baseOpenThreshold,
               baseCloseThreshold,
               fee,
@@ -1941,9 +1970,7 @@ export function App() {
           if (eq !== 0) return eq;
           return a.id - b.id;
         });
-        const binanceCombos = sanitized.filter((combo) => combo.source === "binance");
-        const preferredCombos = binanceCombos.length > 0 ? binanceCombos : sanitized;
-        setTopCombos(preferredCombos.slice(0, 5));
+        setTopCombos(sanitized);
         setTopCombosError(null);
       })
       .catch((err) => {
@@ -2467,25 +2494,58 @@ export function App() {
                 selectedId={selectedComboId}
                 onSelect={handleComboSelect}
               />
-              <div className="hint">Click a combo to preload its parameters into the form (bars=0 runs the full dataset).</div>
+              <div className="hint">
+                Click a combo to preload its parameters into the form (and the symbol, when provided). bars=0 runs the full dataset.
+              </div>
             </div>
           </div>
 
             <div className="row">
               <div className="field">
                 <label className="label" htmlFor="symbol">
-                  Binance symbol
+                  Trading pair
                 </label>
-                <input
+                <select
                   id="symbol"
-                  className={missingSymbol ? "input inputError" : "input"}
-                  value={form.binanceSymbol}
-                  onChange={(e) => setForm((f) => ({ ...f, binanceSymbol: e.target.value.toUpperCase() }))}
-                  placeholder="BTCUSDT"
-                  spellCheck={false}
-                />
+                  className={missingSymbol ? "select selectError" : "select"}
+                  value={symbolSelectValue}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (next === CUSTOM_SYMBOL_VALUE) {
+                      setForm((f) => ({ ...f, binanceSymbol: customBinanceSymbol }));
+                      return;
+                    }
+                    setForm((f) => ({ ...f, binanceSymbol: next }));
+                  }}
+                >
+                  {BINANCE_SYMBOLS.map((symbol) => (
+                    <option key={symbol} value={symbol}>
+                      {symbol}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_SYMBOL_VALUE}>Custom...</option>
+                </select>
+                {symbolIsCustom ? (
+                  <input
+                    id="symbolCustom"
+                    className={missingSymbol ? "input inputError" : "input"}
+                    value={form.binanceSymbol}
+                    onChange={(e) => {
+                      const next = e.target.value.toUpperCase();
+                      setCustomBinanceSymbol(next);
+                      setForm((f) => ({ ...f, binanceSymbol: next }));
+                    }}
+                    placeholder="BTCUSDT"
+                    spellCheck={false}
+                    aria-label="Custom trading pair"
+                  />
+                ) : null}
                 <div className="hint" style={missingSymbol ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
-                  {missingSymbol ? "Required." : "Use a spot symbol like BTCUSDT (USDT-margined futures also use the same symbol)."}
+                  {missingSymbol
+                    ? "Required."
+                    : symbolIsCustom
+                      ? "Type any Binance symbol (spot or USDT-margined futures)."
+                      : "Pick a common USDT pair or choose Custom to type another symbol."}
                 </div>
               </div>
 
