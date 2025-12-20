@@ -355,6 +355,7 @@ export function App() {
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
   const topCombosRef = useRef<OptimizationCombo[]>([]);
+  const apiComputeLimits = healthInfo?.computeLimits ?? null;
   const dataLogRef = useRef<HTMLDivElement | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -2159,7 +2160,6 @@ export function App() {
   const rateLimitReason =
     rateLimit && rateLimitEtaMs != null ? `${rateLimit.reason} Next retry ${fmtEtaMs(rateLimitEtaMs)}.` : rateLimit?.reason ?? null;
 
-  const apiComputeLimits = healthInfo?.computeLimits ?? null;
   const apiLstmEnabled = form.method !== "10";
   const barsRawForLimits = Math.trunc(form.bars);
   const barsEffectiveForLimits = barsRawForLimits <= 0 ? 500 : barsRawForLimits;
