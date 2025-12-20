@@ -695,6 +695,7 @@ instance ToJSON ApiTradeResponse where
 
 data ApiBinanceProbe = ApiBinanceProbe
   { abpOk :: !Bool
+  , abpSkipped :: !Bool
   , abpStep :: !String
   , abpCode :: !(Maybe Int)
   , abpMsg :: !(Maybe String)
@@ -5611,14 +5612,14 @@ probeBinance :: String -> IO a -> IO ApiBinanceProbe
 probeBinance step action = do
   r <- try action
   case r of
-    Right _ -> pure (ApiBinanceProbe True step Nothing Nothing "OK")
+    Right _ -> pure (ApiBinanceProbe True False step Nothing Nothing "OK")
     Left ex -> do
       let msg =
             case (fromException ex :: Maybe IOError) of
               Just io | isUserError io -> ioeGetErrorString io
               _ -> show ex
           (code, m, summary) = parseBinanceError msg
-      pure (ApiBinanceProbe False step code m summary)
+      pure (ApiBinanceProbe False False step code m summary)
 
 computeBinanceKeysStatusFromArgs :: Args -> IO ApiBinanceKeysStatus
 computeBinanceKeysStatusFromArgs args = do
@@ -5645,7 +5646,6 @@ computeBinanceKeysStatusFromArgs args = do
     else do
       env <- makeBinanceEnv args
       sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure sym
-      mFilters <- fetchFilters env sym'
       signedProbe <-
         probeBinance "signed" $ do
           case market of
@@ -5684,61 +5684,65 @@ computeBinanceKeysStatusFromArgs args = do
                   pure (if q1 > 0 then Just q1 else Nothing)
                 _ -> pure qqArg
             if qty == Nothing && qq == Nothing
-              then
-                let msg =
-                      if isJust (argOrderQuoteFraction args)
-                        then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
-                        else "Provide orderQuantity or orderQuote."
-                 in pure (Just (ApiBinanceProbe False "order/test" Nothing Nothing msg))
-              else
+              then pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
+              else do
+                mFilters <- fetchFilters env sym'
                 case qty of
-                  Nothing -> Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym' Buy qty qq Nothing (trim <$> argIdempotencyKey args) >> pure ())
-                  Just qRaw ->
-                    case normalizeProbeQty mFilters qRaw of
-                      Left e -> pure (Just (ApiBinanceProbe False "order/test" Nothing Nothing ("No order: " ++ e)))
+                  Nothing ->
+                    case qq of
+                      Nothing -> pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
+                      Just qq0 ->
+                        case validateProbeQuote mFilters qq0 of
+                          Left e -> pure (Just (mkSkippedProbe "order/test" e))
+                          Right () ->
+                            Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym' Buy qty (Just qq0) Nothing (trim <$> argIdempotencyKey args) >> pure ())
+                  Just qRaw -> do
+                    mPrice <- fetchPriceIfNeeded env sym' mFilters
+                    case normalizeProbeQty mFilters mPrice qRaw of
+                      Left e -> pure (Just (mkSkippedProbe "order/test" e))
                       Right q -> Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) qq Nothing (trim <$> argIdempotencyKey args) >> pure ())
           MarketFutures -> do
             let qtyFromArgs =
                   case argOrderQuantity args of
                     Just q | q > 0 -> Just q
                     _ -> Nothing
-            qty <-
-              case qtyFromArgs of
-                Just q -> pure (Just q)
-                Nothing -> do
-                  qq <-
-                    case argOrderQuote args of
-                      Just qq | qq > 0 -> pure (Just qq)
-                      _ ->
-                        case argOrderQuoteFraction args of
-                          Just f | f > 0 -> do
-                            let (_baseAsset, quoteAsset) = splitSymbol sym'
-                            bal <- fetchFuturesAvailableBalance env quoteAsset
-                            let q0 = bal * f
-                                q1 =
-                                  let mCap =
-                                        case argMaxOrderQuote args of
-                                          Just q | q > 0 -> Just q
-                                          _ -> Nothing
-                                   in maybe q0 (\capQ -> min capQ q0) mCap
-                            pure (if q1 > 0 then Just q1 else Nothing)
-                          _ -> pure Nothing
-                  case qq of
-                    Nothing -> pure Nothing
-                    Just q -> do
-                      price <- fetchTickerPrice env sym'
-                      pure (if price > 0 then Just (q / price) else Nothing)
-            case qty of
-              Nothing ->
-                let msg =
-                      if isJust (argOrderQuoteFraction args)
-                        then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
-                        else "Provide orderQuantity or orderQuote."
-                 in pure (Just (ApiBinanceProbe False "futures/order/test" Nothing Nothing msg))
-              Just qRaw ->
-                case normalizeProbeQty mFilters qRaw of
-                  Left e -> pure (Just (ApiBinanceProbe False "futures/order/test" Nothing Nothing ("No order: " ++ e)))
+            case qtyFromArgs of
+              Just qRaw -> do
+                mFilters <- fetchFilters env sym'
+                mPrice <- fetchPriceIfNeeded env sym' mFilters
+                case normalizeProbeQty mFilters mPrice qRaw of
+                  Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
                   Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
+              Nothing -> do
+                qq <-
+                  case argOrderQuote args of
+                    Just qq | qq > 0 -> pure (Just qq)
+                    _ ->
+                      case argOrderQuoteFraction args of
+                        Just f | f > 0 -> do
+                          let (_baseAsset, quoteAsset) = splitSymbol sym'
+                          bal <- fetchFuturesAvailableBalance env quoteAsset
+                          let q0 = bal * f
+                              q1 =
+                                let mCap =
+                                      case argMaxOrderQuote args of
+                                        Just q | q > 0 -> Just q
+                                        _ -> Nothing
+                                 in maybe q0 (\capQ -> min capQ q0) mCap
+                          pure (if q1 > 0 then Just q1 else Nothing)
+                        _ -> pure Nothing
+                case qq of
+                  Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSizingMsg))
+                  Just qq0 -> do
+                    mPrice <- fetchPriceMaybe env sym'
+                    case mPrice of
+                      Nothing -> pure (Just (mkSkippedProbe "futures/order/test" "Price unavailable for quote sizing."))
+                      Just price -> do
+                        let qRaw = qq0 / price
+                        mFilters <- fetchFilters env sym'
+                        case normalizeProbeQty mFilters (Just price) qRaw of
+                          Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
+                          Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
 
       let isAuthFailureCode c = c == (-1022) || c == (-2014) || c == (-2015)
           normalizeTradeProbe p =
@@ -5751,15 +5755,43 @@ computeBinanceKeysStatusFromArgs args = do
                   _ -> p
       pure baseStatus { abkSigned = Just signedProbe, abkTradeTest = normalizeTradeProbe <$> tradeProbe }
   where
+    missingSizingMsg =
+      if isJust (argOrderQuoteFraction args)
+        then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
+        else "Provide orderQuantity or orderQuote."
+
+    mkSkippedProbe step reason =
+      ApiBinanceProbe False True step Nothing Nothing ("Trade test skipped: " ++ reason)
+
     fetchFilters env sym = do
       r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
       pure (either (const Nothing) Just r)
+
+    fetchPriceMaybe env sym = do
+      r <- try (fetchTickerPrice env sym) :: IO (Either SomeException Double)
+      pure $
+        case r of
+          Right price | price > 0 -> Just price
+          _ -> Nothing
+
+    fetchPriceIfNeeded env sym mSf =
+      case mSf >>= sfMinNotional of
+        Nothing -> pure Nothing
+        Just _ -> fetchPriceMaybe env sym
 
     effectiveStep sf = sfMarketStepSize sf <|> sfLotStepSize sf
     effectiveMinQty sf = sfMarketMinQty sf <|> sfLotMinQty sf
     effectiveMaxQty sf = sfMarketMaxQty sf <|> sfLotMaxQty sf
 
-    normalizeProbeQty mSf qtyRaw =
+    validateProbeQuote mSf qq =
+      if qq <= 0
+        then Left "Quote is 0."
+        else
+          case mSf >>= sfMinNotional of
+            Just mn | qq < mn -> Left ("Quote below minNotional (" ++ show mn ++ ").")
+            _ -> Right ()
+
+    normalizeProbeQty mSf mPrice qtyRaw =
       case mSf of
         Nothing ->
           if qtyRaw > 0
@@ -5776,7 +5808,10 @@ computeBinanceKeysStatusFromArgs args = do
                     _ ->
                       case effectiveMaxQty sf of
                         Just maxQ | qty1 > maxQ -> Left ("Quantity above maxQty (" ++ show maxQ ++ ").")
-                        _ -> Right qty1
+                        _ ->
+                          case (mPrice, sfMinNotional sf) of
+                            (Just price, Just mn) | price > 0 && qty1 * price < mn -> Left ("Notional below minNotional (" ++ show mn ++ ").")
+                            _ -> Right qty1
 
 data BinanceOrderInfo = BinanceOrderInfo
   { boiOrderId :: !(Maybe Int64)

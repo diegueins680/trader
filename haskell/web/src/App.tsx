@@ -5276,7 +5276,14 @@ export function App() {
                 {keys.status?.signed ? <span className="badge">Signed: {keys.status.signed.ok ? "OK" : "FAIL"}</span> : null}
                 {keys.status?.tradeTest ? (
                   <span className="badge">
-                    Trade: {form.market === "margin" ? "N/A" : keys.status.tradeTest.ok ? "OK" : "FAIL"}
+                    Trade:{" "}
+                    {form.market === "margin"
+                      ? "N/A"
+                      : keys.status.tradeTest.skipped
+                        ? "SKIP"
+                        : keys.status.tradeTest.ok
+                          ? "OK"
+                          : "FAIL"}
                   </span>
                 ) : null}
               </div>
@@ -5330,7 +5337,7 @@ export function App() {
                     <div className="v">
                       {keys.status.tradeTest ? (
                         <>
-                          {keys.status.tradeTest.ok ? "OK" : "FAIL"}{" "}
+                          {keys.status.tradeTest.skipped ? "SKIP" : keys.status.tradeTest.ok ? "OK" : "FAIL"}{" "}
                           {keys.status.tradeTest.code !== undefined ? `(${keys.status.tradeTest.code}) ` : ""}
                           {keys.status.tradeTest.summary}
                         </>

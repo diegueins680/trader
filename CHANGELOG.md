@@ -13,4 +13,6 @@ All notable changes to this project will be documented in this file.
 - Web UI: improves async job not found handling with a clearer error after the grace period.
 - Web UI: fixes a startup crash when optimizer combos apply before API compute limits are available.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.
+- API/UI: `/binance/keys` trade probes report `skipped` when no test order is attempted, and the UI shows `SKIP` instead of `FAIL`.
+- API: `/binance/keys` preflight checks minNotional when price data is available and only fetches symbol filters when needed.
 - API: enables async job persistence by default (local `.tmp/async`); set `TRADER_API_ASYNC_DIR` to override or disable.

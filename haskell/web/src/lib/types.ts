@@ -130,6 +130,7 @@ export type ApiTradeResponse = {
 
 export type BinanceProbe = {
   ok: boolean;
+  skipped?: boolean;
   step: string;
   code?: number;
   msg?: string;
