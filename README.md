@@ -129,6 +129,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 
 - Normalization
   - `--normalization standard` one of `none|minmax|standard|log`
+  - If the fit window is empty, `minmax`/`standard` fall back to no-op normalization.
 
 - LSTM
   - Lookback bars come from `--lookback-window`/`--lookback-bars`
@@ -154,6 +155,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--positioning long-flat` (default) or `--positioning long-short` (allows short positions in backtests; if trading, requires `--futures`; live bot is long-flat only)
   - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
+  - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
   - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
     - `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
   - `--tune-penalty-max-drawdown 1.0` penalty weight for max drawdown (used by `equity-dd*` objectives)
@@ -181,6 +183,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--json` machine-readable JSON to stdout:
     - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
     - Backtest: `{ "mode": "backtest", "backtest": ... }` (includes `"baselines"` like `buy-hold` / `sma-cross(...)`, and `"trade"` if `--binance-trade` is set)
+    - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
 
 Tests
 -----
@@ -226,7 +229,7 @@ Endpoints:
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
 - `POST /optimizer/run` → runs the optimizer script and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper)
-- `POST /binance/keys` → checks key/secret presence and probes signed endpoints
+- `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size)
 - `POST /binance/listenKey` → creates a Binance user-data listenKey (returns WebSocket URL)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
 - `POST /binance/listenKey/close` → closes a listenKey
@@ -245,8 +248,8 @@ Optional ops persistence (powers `GET /ops` and the “operations” history):
   - `since` (only return ops with `id > since`)
   - `kind` (exact match on operation kind)
 
-Optional async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
-- Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it).
+Async-job persistence (default on; recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
+- Default directory: `.tmp/async` (local only). Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it), or set it empty to disable.
 
 Optional in-memory caching (recommended for the Web UI’s repeated calls):
 - `TRADER_API_CACHE_TTL_MS` (default: `30000`) cache TTL in milliseconds (`0` disables)
@@ -317,13 +320,13 @@ Deploy to AWS
 -------------
 See `DEPLOY_AWS_QUICKSTART.md`, `DEPLOY_AWS.md`, and `deploy/aws/README.md`.
 
-Note: `/bot/*` is stateful, and async endpoints keep job state in-memory unless you configure shared persistence (`TRADER_API_ASYNC_DIR`). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you’ve enabled shared async storage.
-If the web UI shows "Async job not found", you are likely behind a non-sticky load balancer; run a single instance or set `TRADER_API_ASYNC_DIR` for shared async storage.
+Note: `/bot/*` is stateful, and async endpoints persist job state to `.tmp/async` by default (local only). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` to a shared writable directory. If the UI reports "Async job not found", the backend likely restarted or the load balancer is not sticky; use shared async storage or run a single instance.
 
 Web UI
 ------
 A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST API and visualizes signals/backtests (including the equity curve).
-Selecting Long/Short positioning in the UI automatically switches Market to Futures.
+When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
+Optimizer combos are clamped to API compute limits reported by `/health`.
 
 Run it:
 ```
@@ -350,12 +353,15 @@ Timeouts:
 - Frontend: set `timeoutsMs` in `haskell/web/public/trader-config.js` to increase UI request timeouts (e.g. long backtests).
 - Frontend (dev proxy): set `TRADER_UI_PROXY_TIMEOUT_MS` to increase the Vite `/api` proxy timeout.
 
+Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors.
+
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
 - Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
 The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (long-flat only).
+Optimizer combos are clamped to the API compute limits reported by `/health` when available.
 
 Troubleshooting: “No live operations yet”
 - The live bot only records an operation when it switches position (BUY/SELL). If the latest signal is `HOLD`/neutral, the operations list stays empty.

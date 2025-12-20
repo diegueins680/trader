@@ -3397,15 +3397,24 @@ runRestApi baseArgs = do
   metrics <- newMetrics
   mJournal <- newJournalFromEnv
   mOps <- newOpsStoreFromEnv
+  let defaultAsyncDir = tmpRoot </> "async"
   asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
-  let mAsyncDir =
-        case trim <$> asyncDirEnv of
-          Nothing -> Nothing
+  let asyncDirTrimmed = trim <$> asyncDirEnv
+      mAsyncDir =
+        case asyncDirTrimmed of
+          Nothing -> Just defaultAsyncDir
           Just dir | null dir -> Nothing
           Just dir -> Just dir
+      asyncDirFromEnv =
+        case asyncDirTrimmed of
+          Nothing -> False
+          Just dir -> not (null dir)
   case mAsyncDir of
     Nothing -> pure ()
-    Just dir -> putStrLn (printf "Async job persistence enabled: %s" dir)
+    Just dir -> do
+      let suffix :: String
+          suffix = if asyncDirFromEnv then "" else " (default; set TRADER_API_ASYNC_DIR to override)"
+      putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
   now <- getTimestampMs
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
   opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing
@@ -5636,6 +5645,7 @@ computeBinanceKeysStatusFromArgs args = do
     else do
       env <- makeBinanceEnv args
       sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure sym
+      mFilters <- fetchFilters env sym'
       signedProbe <-
         probeBinance "signed" $ do
           case market of
@@ -5680,7 +5690,13 @@ computeBinanceKeysStatusFromArgs args = do
                         then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
                         else "Provide orderQuantity or orderQuote."
                  in pure (Just (ApiBinanceProbe False "order/test" Nothing Nothing msg))
-              else Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym' Buy qty qq Nothing (trim <$> argIdempotencyKey args) >> pure ())
+              else
+                case qty of
+                  Nothing -> Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym' Buy qty qq Nothing (trim <$> argIdempotencyKey args) >> pure ())
+                  Just qRaw ->
+                    case normalizeProbeQty mFilters qRaw of
+                      Left e -> pure (Just (ApiBinanceProbe False "order/test" Nothing Nothing ("No order: " ++ e)))
+                      Right q -> Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) qq Nothing (trim <$> argIdempotencyKey args) >> pure ())
           MarketFutures -> do
             let qtyFromArgs =
                   case argOrderQuantity args of
@@ -5719,8 +5735,10 @@ computeBinanceKeysStatusFromArgs args = do
                         then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
                         else "Provide orderQuantity or orderQuote."
                  in pure (Just (ApiBinanceProbe False "futures/order/test" Nothing Nothing msg))
-              Just q ->
-                Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
+              Just qRaw ->
+                case normalizeProbeQty mFilters qRaw of
+                  Left e -> pure (Just (ApiBinanceProbe False "futures/order/test" Nothing Nothing ("No order: " ++ e)))
+                  Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
 
       let isAuthFailureCode c = c == (-1022) || c == (-2014) || c == (-2015)
           normalizeTradeProbe p =
@@ -5732,6 +5750,33 @@ computeBinanceKeysStatusFromArgs args = do
                     p { abpOk = True, abpSummary = "Auth OK, but order rejected: " ++ abpSummary p }
                   _ -> p
       pure baseStatus { abkSigned = Just signedProbe, abkTradeTest = normalizeTradeProbe <$> tradeProbe }
+  where
+    fetchFilters env sym = do
+      r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
+      pure (either (const Nothing) Just r)
+
+    effectiveStep sf = sfMarketStepSize sf <|> sfLotStepSize sf
+    effectiveMinQty sf = sfMarketMinQty sf <|> sfLotMinQty sf
+    effectiveMaxQty sf = sfMarketMaxQty sf <|> sfLotMaxQty sf
+
+    normalizeProbeQty mSf qtyRaw =
+      case mSf of
+        Nothing ->
+          if qtyRaw > 0
+            then Right qtyRaw
+            else Left "Quantity is 0."
+        Just sf ->
+          let qty0 = max 0 qtyRaw
+              qty1 = maybe qty0 (\st -> quantizeDown st qty0) (effectiveStep sf)
+           in if qty1 <= 0
+                then Left "Quantity rounds to 0."
+                else
+                  case effectiveMinQty sf of
+                    Just minQ | qty1 < minQ -> Left ("Quantity below minQty (" ++ show minQ ++ ").")
+                    _ ->
+                      case effectiveMaxQty sf of
+                        Just maxQ | qty1 > maxQ -> Left ("Quantity above maxQty (" ++ show maxQ ++ ").")
+                        _ -> Right qty1
 
 data BinanceOrderInfo = BinanceOrderInfo
   { boiOrderId :: !(Maybe Int64)

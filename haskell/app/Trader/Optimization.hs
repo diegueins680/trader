@@ -266,6 +266,50 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
           MethodKalmanOnly -> (kalV, kalV)
           MethodLstmOnly -> (lstmV, lstmV)
 
+      validationError =
+        if n < 2
+          then Just "sweepThreshold: need at least 2 prices"
+          else if V.length highsV /= n || V.length lowsV /= n
+            then Just "sweepThreshold: high/low series must match closes length"
+            else if maybe False (\mv -> V.length mv < stepCount) metaUsed
+              then Just "sweepThreshold: meta vector too short"
+              else
+                case method of
+                  MethodBoth
+                    | V.length kalV < stepCount ->
+                        Just
+                          ( "sweepThreshold: kalPred has length "
+                              ++ show (V.length kalV)
+                              ++ " but needs at least "
+                              ++ show stepCount
+                          )
+                    | V.length lstmV < stepCount ->
+                        Just
+                          ( "sweepThreshold: lstmPred has length "
+                              ++ show (V.length lstmV)
+                              ++ " but needs at least "
+                              ++ show stepCount
+                          )
+                    | otherwise -> Nothing
+                  MethodKalmanOnly
+                    | V.length kalV < stepCount ->
+                        Just
+                          ( "sweepThreshold: kalPred has length "
+                              ++ show (V.length kalV)
+                              ++ " but needs at least "
+                              ++ show stepCount
+                          )
+                    | otherwise -> Nothing
+                  MethodLstmOnly
+                    | V.length lstmV < stepCount ->
+                        Just
+                          ( "sweepThreshold: lstmPred has length "
+                              ++ show (V.length lstmV)
+                              ++ " but needs at least "
+                              ++ show stepCount
+                          )
+                    | otherwise -> Nothing
+
       predSources =
         case method of
           MethodBoth -> [kalV, lstmV]
@@ -360,47 +404,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
 
       result = (bestOpenThr, bestCloseThr, bestBt, bestStats)
    in
-    if n < 2
-      then Left "sweepThreshold: need at least 2 prices"
-      else if V.length highsV /= n || V.length lowsV /= n
-        then Left "sweepThreshold: high/low series must match closes length"
-        else if maybe False (\mv -> V.length mv < stepCount) metaUsed
-          then Left "sweepThreshold: meta vector too short"
-          else if minRoundTripsReq > 0 && not bestEligible
-            then Left ("sweepThreshold: no eligible candidates (minRoundTrips=" ++ show minRoundTripsReq ++ ")")
-            else
-              case method of
-                MethodBoth
-                  | V.length kalV < stepCount ->
-                      Left
-                        ( "sweepThreshold: kalPred has length "
-                            ++ show (V.length kalV)
-                            ++ " but needs at least "
-                            ++ show stepCount
-                        )
-                  | V.length lstmV < stepCount ->
-                      Left
-                        ( "sweepThreshold: lstmPred has length "
-                            ++ show (V.length lstmV)
-                            ++ " but needs at least "
-                            ++ show stepCount
-                        )
-                  | otherwise -> Right result
-                MethodKalmanOnly
-                  | V.length kalV < stepCount ->
-                      Left
-                        ( "sweepThreshold: kalPred has length "
-                            ++ show (V.length kalV)
-                            ++ " but needs at least "
-                            ++ show stepCount
-                        )
-                  | otherwise -> Right result
-                MethodLstmOnly
-                  | V.length lstmV < stepCount ->
-                      Left
-                        ( "sweepThreshold: lstmPred has length "
-                            ++ show (V.length lstmV)
-                            ++ " but needs at least "
-                            ++ show stepCount
-                        )
-                  | otherwise -> Right result
+    case validationError of
+      Just err -> Left err
+      Nothing ->
+        if minRoundTripsReq > 0 && not bestEligible
+          then Left ("sweepThreshold: no eligible candidates (minRoundTrips=" ++ show minRoundTripsReq ++ ")")
+          else Right result

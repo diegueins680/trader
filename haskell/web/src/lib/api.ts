@@ -197,6 +197,15 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
+function shouldFallbackToGet(err: unknown): boolean {
+  if (!(err instanceof HttpError)) return false;
+  return err.status === 403 || err.status === 405 || err.status === 501 || err.status === 502 || err.status === 503 || err.status === 504;
+}
+
+function asyncJobNotFoundMessage(): string {
+  return "Async job not found (server restarted or behind a non-sticky load balancer). Please retry; for multi-instance deployments, enable shared async job storage (TRADER_API_ASYNC_DIR) or run single-instance.";
+}
+
 function describeAsyncTimeout(baseUrl: string, overallTimeoutMs: number, lastError: unknown): string {
   const seconds = Math.max(1, Math.round(overallTimeoutMs / 1000));
   const last =
@@ -278,6 +287,7 @@ async function runAsyncJob<T>(
     }
   };
 
+  let pollMethod: "POST" | "GET" = "POST";
   let backoffMs = 750;
   try {
     for (;;) {
@@ -295,17 +305,18 @@ async function runAsyncJob<T>(
           status = await fetchJson<AsyncPollResponse<T>>(
             baseUrl,
             pollUrl,
-            { method: "POST" },
+            { method: pollMethod },
             { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
           );
         } catch (err) {
-          if (err instanceof HttpError && err.status === 405) {
+          if (pollMethod === "POST" && shouldFallbackToGet(err)) {
             status = await fetchJson<AsyncPollResponse<T>>(
               baseUrl,
               pollUrl,
               { method: "GET" },
               { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
             );
+            pollMethod = "GET";
           } else {
             throw err;
           }
@@ -354,9 +365,7 @@ async function runAsyncJob<T>(
           if (!sawJob) {
             if (notFoundSinceMs == null) notFoundSinceMs = Date.now();
             if (Date.now() - notFoundSinceMs > notFoundGraceMs) {
-              throw new Error(
-                "Async job not found (server restarted or behind a non-sticky load balancer). Please retry; for multi-instance deployments, enable shared async job storage (TRADER_API_ASYNC_DIR) or run single-instance.",
-              );
+              throw new Error(asyncJobNotFoundMessage());
             }
           }
           await sleep(Math.min(backoffMs, remaining), opts?.signal);

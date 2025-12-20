@@ -626,8 +626,8 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             else (desiredSideFinal0, desiredSizeFinal0)
 
                         switchExitReason =
-                          case (halted, haltReason1, posSide, desiredSideRaw) of
-                            (True, Just r, Just _, dsRaw) | dsRaw == posSide -> r
+                          case (halted, haltReason1, posSide) of
+                            (True, Just r, Just _) -> r
                             _ -> ExitSignal
 
                         closeTradeAt exitIndex why eqExit ot =

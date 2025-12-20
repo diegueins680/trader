@@ -35,15 +35,21 @@ fitNorm nt xs =
   case nt of
     NormNone -> NSNone
     NormMinMax ->
-      let mn = minimum xs
-          mx = maximum xs
-       in NSMinMax mn mx
+      case xs of
+        [] -> NSNone
+        _ ->
+          let mn = minimum xs
+              mx = maximum xs
+           in NSMinMax mn mx
     NormStandard ->
-      let n = fromIntegral (length xs)
-          mu = sum xs / n
-          var = sum (map (\v -> (v - mu) ** 2) xs) / n
-          sigma = sqrt (var + 1e-8)
-       in NSStandard mu sigma
+      case xs of
+        [] -> NSNone
+        _ ->
+          let n = fromIntegral (length xs)
+              mu = sum xs / n
+              var = sum (map (\v -> (v - mu) ** 2) xs) / n
+              sigma = sqrt (var + 1e-8)
+           in NSStandard mu sigma
     NormLog ->
       if any (<= 0) xs
         then error "log normalization requires all prices > 0"

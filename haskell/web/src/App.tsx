@@ -187,6 +187,8 @@ type PendingProfileLoad = {
   reasons: string[];
 };
 
+type ComputeLimits = NonNullable<Awaited<ReturnType<typeof health>>["computeLimits"]>;
+
 const CUSTOM_SYMBOL_VALUE = "__custom__";
 const TOP_COMBOS_POLL_MS = 30_000;
 const MIN_LOOKBACK_BARS = 2;
@@ -208,9 +210,251 @@ function formatDurationSeconds(totalSeconds: number): string {
   return `${sec}s`;
 }
 
+function sigNumber(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "";
+  const rounded = Math.round(value * 1e8) / 1e8;
+  return String(rounded);
+}
+
+function coerceNumber(value: number | null | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function clampOptionalRatio(value: number | null | undefined): number {
+  const v = coerceNumber(value, 0);
+  return v > 0 ? clamp(v, 0, 0.999999) : 0;
+}
+
+function clampOptionalRange(value: number | null | undefined, min: number, max: number): number {
+  const v = coerceNumber(value, 0);
+  return v > 0 ? clamp(v, min, max) : 0;
+}
+
+function clampOptionalInt(value: number | null | undefined, min: number, max: number): number {
+  const v = coerceNumber(value, 0);
+  return v > 0 ? clamp(Math.trunc(v), min, max) : 0;
+}
+
+function sigText(value: string | null | undefined): string {
+  return typeof value === "string" ? value : "";
+}
+
+function sigBool(value: boolean | null | undefined): string {
+  return value ? "1" : "0";
+}
+
+function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits | null): {
+  bars: number;
+  epochs: number;
+  hiddenSize: number;
+} {
+  const lstmEnabled = combo.params.method !== "10";
+  let bars = Math.trunc(combo.params.bars);
+  if (!Number.isFinite(bars) || bars < 0) bars = 0;
+  if (bars > 0) bars = clamp(bars, MIN_LOOKBACK_BARS, 1000);
+
+  let epochs = clamp(Math.trunc(combo.params.epochs), 0, 5000);
+  let hiddenSize = clamp(Math.trunc(combo.params.hiddenSize), 1, 512);
+
+  if (lstmEnabled && apiLimits) {
+    const maxBarsRaw = Math.trunc(apiLimits.maxBarsLstm);
+    if (Number.isFinite(maxBarsRaw) && maxBarsRaw > 0) {
+      const maxBars = clamp(maxBarsRaw, MIN_LOOKBACK_BARS, 1000);
+      bars = bars <= 0 ? maxBars : Math.min(bars, maxBars);
+    }
+    epochs = Math.min(epochs, apiLimits.maxEpochs);
+    hiddenSize = Math.min(hiddenSize, apiLimits.maxHiddenSize);
+  }
+
+  return { bars, epochs, hiddenSize };
+}
+
+function applyComboToForm(prev: FormState, combo: OptimizationCombo, apiLimits: ComputeLimits | null): FormState {
+  const comboSymbol = combo.params.binanceSymbol?.trim();
+  const symbol = comboSymbol && comboSymbol.length > 0 ? comboSymbol : prev.binanceSymbol;
+  const interval = combo.params.interval;
+  const method = combo.params.method;
+  const positioning = combo.params.positioning ?? prev.positioning;
+  const normalization = combo.params.normalization;
+  const intrabarFill = combo.params.intrabarFill ?? prev.intrabarFill;
+  const confirmConformal = combo.params.confirmConformal ?? prev.confirmConformal;
+  const confirmQuantiles = combo.params.confirmQuantiles ?? prev.confirmQuantiles;
+  const confidenceSizing = combo.params.confidenceSizing ?? prev.confidenceSizing;
+
+  const { bars, epochs, hiddenSize } = clampComboForLimits(combo, apiLimits);
+  const openThrRaw = coerceNumber(combo.openThreshold, prev.openThreshold);
+  const closeThrRaw =
+    combo.closeThreshold == null ? openThrRaw : coerceNumber(combo.closeThreshold, prev.closeThreshold);
+  const openThreshold = Math.max(0, openThrRaw);
+  const closeThreshold = Math.max(0, closeThrRaw);
+  const fee = Math.max(0, coerceNumber(combo.params.fee, prev.fee));
+  const learningRate = Math.max(1e-9, coerceNumber(combo.params.learningRate, prev.learningRate));
+  const valRatio = clamp(coerceNumber(combo.params.valRatio, prev.valRatio), 0, 1);
+  const patience = clamp(Math.trunc(coerceNumber(combo.params.patience, prev.patience)), 0, 1000);
+  const gradClipRaw = coerceNumber(combo.params.gradClip, 0);
+  const gradClip = gradClipRaw > 0 ? clamp(gradClipRaw, 0, 100) : 0;
+
+  const slippage = clampOptionalRatio(combo.params.slippage);
+  const spread = clampOptionalRatio(combo.params.spread);
+  const stopLoss = clampOptionalRatio(combo.params.stopLoss);
+  const takeProfit = clampOptionalRatio(combo.params.takeProfit);
+  const trailingStop = clampOptionalRatio(combo.params.trailingStop);
+  const minHoldBars = clampOptionalInt(combo.params.minHoldBars ?? prev.minHoldBars, 0, 1_000_000);
+  const cooldownBars = clampOptionalInt(combo.params.cooldownBars ?? prev.cooldownBars, 0, 1_000_000);
+  const maxDrawdown = clampOptionalRatio(combo.params.maxDrawdown);
+  const maxDailyLoss = clampOptionalRatio(combo.params.maxDailyLoss);
+  const maxOrderErrors = clampOptionalInt(combo.params.maxOrderErrors, 1, 1_000_000);
+
+  const kalmanZMin = Math.max(0, coerceNumber(combo.params.kalmanZMin, prev.kalmanZMin));
+  const kalmanZMax = Math.max(Math.max(0, coerceNumber(combo.params.kalmanZMax, prev.kalmanZMax)), kalmanZMin);
+  const maxHighVolProb = clampOptionalRange(combo.params.maxHighVolProb, 0, 1);
+  const maxConformalWidthRaw = coerceNumber(combo.params.maxConformalWidth, 0);
+  const maxConformalWidth = maxConformalWidthRaw > 0 ? Math.max(0, maxConformalWidthRaw) : 0;
+  const maxQuantileWidthRaw = coerceNumber(combo.params.maxQuantileWidth, 0);
+  const maxQuantileWidth = maxQuantileWidthRaw > 0 ? Math.max(0, maxQuantileWidthRaw) : 0;
+  const minPositionSize = clampOptionalRange(combo.params.minPositionSize, 0, 1);
+
+  let lookbackBars = prev.lookbackBars;
+  let lookbackWindow = prev.lookbackWindow;
+  const intervalChanged = interval !== prev.interval;
+  const prevLookbackBars = lookbackBars;
+
+  if (intervalChanged && prevLookbackBars >= MIN_LOOKBACK_BARS) {
+    const prevIntervalSec = binanceIntervalSeconds(prev.interval);
+    lookbackBars = 0;
+    if (prevIntervalSec) {
+      lookbackWindow = formatDurationSeconds(prevLookbackBars * prevIntervalSec);
+    } else {
+      const trimmed = lookbackWindow.trim();
+      lookbackWindow = trimmed ? trimmed : defaultForm.lookbackWindow;
+    }
+  }
+
+  if (lookbackBars >= MIN_LOOKBACK_BARS && bars > 0) {
+    const maxLookback = Math.max(0, bars - 1);
+    if (maxLookback < MIN_LOOKBACK_BARS) {
+      lookbackBars = 0;
+    } else if (lookbackBars >= maxLookback) {
+      lookbackBars = maxLookback;
+    }
+  }
+
+  if (lookbackBars < MIN_LOOKBACK_BARS) {
+    const intervalSec = binanceIntervalSeconds(interval);
+    if (intervalSec) {
+      const windowSec = parseDurationSeconds(lookbackWindow);
+      const minWindowSec = intervalSec * MIN_LOOKBACK_BARS;
+      if (!windowSec || windowSec < minWindowSec) {
+        lookbackWindow = formatDurationSeconds(minWindowSec);
+      }
+    }
+  }
+
+  return {
+    ...prev,
+    binanceSymbol: symbol,
+    interval,
+    bars,
+    method,
+    positioning,
+    normalization,
+    fee,
+    epochs,
+    hiddenSize,
+    learningRate,
+    valRatio,
+    patience,
+    gradClip,
+    slippage,
+    spread,
+    intrabarFill,
+    stopLoss,
+    takeProfit,
+    trailingStop,
+    minHoldBars,
+    cooldownBars,
+    maxDrawdown,
+    maxDailyLoss,
+    maxOrderErrors,
+    kalmanZMin,
+    kalmanZMax,
+    maxHighVolProb,
+    maxConformalWidth,
+    maxQuantileWidth,
+    confirmConformal,
+    confirmQuantiles,
+    confidenceSizing,
+    minPositionSize,
+    lookbackBars,
+    lookbackWindow,
+    openThreshold,
+    closeThreshold,
+  };
+}
+
+function comboApplySignature(combo: OptimizationCombo, apiLimits: ComputeLimits | null, baseForm: FormState): string {
+  return formApplySignature(applyComboToForm(baseForm, combo, apiLimits));
+}
+
+function formApplySignature(form: FormState): string {
+  let bars = Math.trunc(form.bars);
+  if (!Number.isFinite(bars) || bars < 0) bars = 0;
+  if (bars > 0 && bars < MIN_LOOKBACK_BARS) {
+    bars = MIN_LOOKBACK_BARS;
+  }
+  const lookbackBarsRaw = Math.trunc(form.lookbackBars);
+  const lookbackOverride = lookbackBarsRaw >= MIN_LOOKBACK_BARS;
+  const lookbackBars = lookbackOverride ? lookbackBarsRaw : 0;
+  const lookbackWindow = lookbackOverride ? "" : form.lookbackWindow.trim();
+  const epochs = Math.max(0, Math.trunc(form.epochs));
+  const hiddenSize = Math.max(1, Math.trunc(form.hiddenSize));
+  const symbol = form.binanceSymbol.trim().toUpperCase();
+
+  return [
+    sigText(symbol),
+    sigText(form.interval.trim()),
+    String(bars),
+    lookbackOverride ? String(lookbackBars) : "",
+    sigText(lookbackWindow),
+    sigText(form.method),
+    sigText(form.positioning),
+    sigText(form.normalization),
+    sigNumber(form.fee),
+    String(epochs),
+    String(hiddenSize),
+    sigNumber(form.learningRate),
+    sigNumber(form.valRatio),
+    sigNumber(form.patience),
+    sigNumber(form.gradClip),
+    sigNumber(form.slippage),
+    sigNumber(form.spread),
+    sigText(form.intrabarFill),
+    sigNumber(form.stopLoss),
+    sigNumber(form.takeProfit),
+    sigNumber(form.trailingStop),
+    sigNumber(form.minHoldBars),
+    sigNumber(form.cooldownBars),
+    sigNumber(form.maxDrawdown),
+    sigNumber(form.maxDailyLoss),
+    sigNumber(form.maxOrderErrors),
+    sigNumber(form.kalmanZMin),
+    sigNumber(form.kalmanZMax),
+    sigNumber(form.maxHighVolProb),
+    sigNumber(form.maxConformalWidth),
+    sigNumber(form.maxQuantileWidth),
+    sigBool(form.confirmConformal),
+    sigBool(form.confirmQuantiles),
+    sigBool(form.confidenceSizing),
+    sigNumber(form.minPositionSize),
+    sigNumber(form.openThreshold),
+    sigNumber(form.closeThreshold),
+  ].join("|");
+}
+
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [healthInfo, setHealthInfo] = useState<Awaited<ReturnType<typeof health>> | null>(null);
+  const apiComputeLimits = healthInfo?.computeLimits ?? null;
   const [toast, setToast] = useState<string | null>(null);
   const [revealSecrets, setRevealSecrets] = useState(false);
   const [persistSecrets, setPersistSecrets] = useState<boolean>(() => readJson<boolean>(STORAGE_PERSIST_SECRETS_KEY) ?? false);
@@ -231,6 +475,14 @@ export function App() {
     const normalized = form.binanceSymbol.trim().toUpperCase();
     return BINANCE_SYMBOL_SET.has(normalized) ? "" : normalized;
   });
+  const formRef = useRef(form);
+  const apiComputeLimitsRef = useRef<ComputeLimits | null>(apiComputeLimits);
+
+  apiComputeLimitsRef.current = apiComputeLimits;
+
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
 
   const normalizedBinanceSymbol = form.binanceSymbol.trim().toUpperCase();
   const symbolIsCustom = !BINANCE_SYMBOL_SET.has(normalizedBinanceSymbol);
@@ -355,7 +607,6 @@ export function App() {
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
   const topCombosRef = useRef<OptimizationCombo[]>([]);
-  const apiComputeLimits = healthInfo?.computeLimits ?? null;
   const dataLogRef = useRef<HTMLDivElement | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -478,97 +729,13 @@ export function App() {
   const applyCombo = useCallback(
     (combo: OptimizationCombo, opts?: { silent?: boolean }) => {
       const comboSymbol = combo.params.binanceSymbol?.trim();
-      setForm((prev) => {
-        const openThr = combo.openThreshold ?? prev.openThreshold;
-        const closeThr = combo.closeThreshold ?? openThr ?? prev.closeThreshold;
-        const interval = combo.params.interval;
-        const method = combo.params.method;
-        const apiLimits = apiComputeLimits;
-        const lstmEnabled = method !== "10";
-
-        let bars = Math.trunc(combo.params.bars);
-        let epochs = Math.max(0, Math.trunc(combo.params.epochs));
-        let hiddenSize = Math.max(1, Math.trunc(combo.params.hiddenSize));
-
-        if (lstmEnabled && apiLimits) {
-          const barsEffective = bars <= 0 ? 500 : bars;
-          if (barsEffective > apiLimits.maxBarsLstm) {
-            bars = apiLimits.maxBarsLstm;
-          }
-          epochs = Math.min(epochs, apiLimits.maxEpochs);
-          hiddenSize = Math.min(hiddenSize, apiLimits.maxHiddenSize);
-        }
-
-        let lookbackBars = prev.lookbackBars;
-        let lookbackWindow = prev.lookbackWindow;
-
-        if (lookbackBars >= MIN_LOOKBACK_BARS && bars > 0) {
-          const maxLookback = Math.max(0, bars - 1);
-          if (maxLookback < MIN_LOOKBACK_BARS) {
-            lookbackBars = 0;
-          } else if (lookbackBars >= maxLookback) {
-            lookbackBars = maxLookback;
-          }
-        }
-
-        if (lookbackBars < MIN_LOOKBACK_BARS) {
-          const intervalSec = binanceIntervalSeconds(interval);
-          if (intervalSec) {
-            const windowSec = parseDurationSeconds(lookbackWindow);
-            const minWindowSec = intervalSec * MIN_LOOKBACK_BARS;
-            if (!windowSec || windowSec < minWindowSec) {
-              lookbackWindow = formatDurationSeconds(minWindowSec);
-            }
-          }
-        }
-
-        return {
-          ...prev,
-          binanceSymbol: comboSymbol && comboSymbol.length > 0 ? comboSymbol : prev.binanceSymbol,
-          interval,
-          bars,
-          method,
-          positioning: combo.params.positioning ?? prev.positioning,
-          normalization: combo.params.normalization,
-          fee: combo.params.fee ?? prev.fee,
-          epochs,
-          hiddenSize,
-          learningRate: combo.params.learningRate,
-          valRatio: combo.params.valRatio,
-          patience: combo.params.patience,
-          gradClip: combo.params.gradClip ?? 0,
-          slippage: combo.params.slippage,
-          spread: combo.params.spread,
-          intrabarFill: combo.params.intrabarFill ?? prev.intrabarFill,
-          stopLoss: combo.params.stopLoss ?? 0,
-          takeProfit: combo.params.takeProfit ?? 0,
-          trailingStop: combo.params.trailingStop ?? 0,
-          minHoldBars: combo.params.minHoldBars ?? prev.minHoldBars,
-          cooldownBars: combo.params.cooldownBars ?? prev.cooldownBars,
-          maxDrawdown: combo.params.maxDrawdown ?? 0,
-          maxDailyLoss: combo.params.maxDailyLoss ?? 0,
-          maxOrderErrors: combo.params.maxOrderErrors ?? 0,
-          kalmanZMin: combo.params.kalmanZMin ?? prev.kalmanZMin,
-          kalmanZMax: combo.params.kalmanZMax ?? prev.kalmanZMax,
-          maxHighVolProb: combo.params.maxHighVolProb ?? 0,
-          maxConformalWidth: combo.params.maxConformalWidth ?? 0,
-          maxQuantileWidth: combo.params.maxQuantileWidth ?? 0,
-          confirmConformal: combo.params.confirmConformal ?? prev.confirmConformal,
-          confirmQuantiles: combo.params.confirmQuantiles ?? prev.confirmQuantiles,
-          confidenceSizing: combo.params.confidenceSizing ?? prev.confidenceSizing,
-          minPositionSize: combo.params.minPositionSize ?? 0,
-          lookbackBars,
-          lookbackWindow,
-          openThreshold: openThr,
-          closeThreshold: closeThr,
-        };
-      });
+      setForm((prev) => applyComboToForm(prev, combo, apiComputeLimitsRef.current));
       setSelectedComboId(combo.id);
       if (!opts?.silent) {
         showToast(`Loaded optimizer combo #${combo.id}${comboSymbol ? ` (${comboSymbol})` : ""}`);
       }
     },
-    [apiComputeLimits, showToast],
+    [showToast],
   );
 
   const handleComboSelect = useCallback((combo: OptimizationCombo) => applyCombo(combo), [applyCombo]);
@@ -753,12 +920,13 @@ export function App() {
   }, [form.binanceLive, form.market, showToast]);
 
   useEffect(() => {
+    if (!form.tradeArmed) return;
     if (form.positioning !== "long-short") return;
     if (form.market === "futures") return;
     setPendingMarket(null);
     setForm((f) => ({ ...f, market: "futures" }));
-    showToast("Long/Short requires Futures (switched Market to Futures)");
-  }, [form.market, form.positioning, showToast]);
+    showToast("Long/Short trading requires Futures (switched Market to Futures)");
+  }, [form.market, form.positioning, form.tradeArmed, showToast]);
 
   const recheckHealth = useCallback(async () => {
     let h: Awaited<ReturnType<typeof health>>;
@@ -1283,6 +1451,11 @@ export function App() {
           if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
             msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
           }
+        }
+        if (e instanceof HttpError && (e.status === 502 || e.status === 503)) {
+          msg = apiBase.startsWith("/api")
+            ? "CloudFront `/api/*` proxy is unavailable (502/503). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/GET/OPTIONS, or set apiBaseUrl in trader-config.js to https://<your-api-host>."
+            : "API gateway unavailable (502/503). Try again, or check the API logs.";
         }
         if (e instanceof HttpError && e.status === 504) {
           msg = apiBase.startsWith("/api")
@@ -2060,7 +2233,12 @@ export function App() {
         setTopCombosError(null);
         const topCombo = limited[0];
         if (topCombo) {
-          applyCombo(topCombo, { silent: true });
+          const currentForm = formRef.current;
+          const topSig = comboApplySignature(topCombo, apiComputeLimitsRef.current, currentForm);
+          const formSig = formApplySignature(currentForm);
+          if (topSig !== formSig) {
+            applyCombo(topCombo, { silent: true });
+          }
         }
       } catch (err) {
         if (isCancelled) return;
@@ -2824,14 +3002,7 @@ export function App() {
                   id="positioning"
                   className="select"
                   value={form.positioning}
-                  onChange={(e) => {
-                    const positioning = e.target.value as Positioning;
-                    setForm((f) =>
-                      positioning === "long-short" && f.market !== "futures"
-                        ? { ...f, positioning, market: "futures" }
-                        : { ...f, positioning },
-                    );
-                  }}
+                  onChange={(e) => setForm((f) => ({ ...f, positioning: e.target.value as Positioning }))}
                 >
                   <option value="long-flat">Long / Flat</option>
                   <option value="long-short">Long / Short (futures)</option>
@@ -2845,7 +3016,7 @@ export function App() {
                   }
                 >
                   {form.positioning === "long-short" && form.market !== "futures"
-                    ? "Long/Short trading requires Futures market (Market switches to Futures)."
+                    ? "Long/Short trading requires Futures market when trading is armed."
                     : "Down signals go FLAT (long/flat) or SHORT (long/short)."}
                 </div>
               </div>
