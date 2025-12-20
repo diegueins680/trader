@@ -188,6 +188,7 @@ type PendingProfileLoad = {
 };
 
 const CUSTOM_SYMBOL_VALUE = "__custom__";
+const TOP_COMBOS_POLL_MS = 30_000;
 
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
@@ -335,6 +336,7 @@ export function App() {
   const [topCombosLoading, setTopCombosLoading] = useState(true);
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
+  const topCombosRef = useRef<OptimizationCombo[]>([]);
   const dataLogRef = useRef<HTMLDivElement | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -454,8 +456,8 @@ export function App() {
     [showToast],
   );
 
-  const handleComboSelect = useCallback(
-    (combo: OptimizationCombo) => {
+  const applyCombo = useCallback(
+    (combo: OptimizationCombo, opts?: { silent?: boolean }) => {
       const comboSymbol = combo.params.binanceSymbol?.trim();
       setForm((prev) => {
         const openThr = combo.openThreshold ?? prev.openThreshold;
@@ -500,10 +502,18 @@ export function App() {
         };
       });
       setSelectedComboId(combo.id);
-      showToast(`Loaded optimizer combo #${combo.id}${comboSymbol ? ` (${comboSymbol})` : ""}`);
+      if (!opts?.silent) {
+        showToast(`Loaded optimizer combo #${combo.id}${comboSymbol ? ` (${comboSymbol})` : ""}`);
+      }
     },
     [showToast],
   );
+
+  const handleComboSelect = useCallback((combo: OptimizationCombo) => applyCombo(combo), [applyCombo]);
+
+  useEffect(() => {
+    topCombosRef.current = topCombos;
+  }, [topCombos]);
 
   useEffect(() => {
     activeAsyncJobRef.current = activeAsyncJob;
@@ -1783,7 +1793,7 @@ export function App() {
 
   useEffect(() => {
     let isCancelled = false;
-    setTopCombosLoading(true);
+    let inFlight = false;
     const fetchPayload = async (): Promise<unknown> => {
       if (apiOk === "ok") {
         try {
@@ -1799,8 +1809,13 @@ export function App() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     };
-    void fetchPayload()
-      .then((payload: unknown) => {
+    const syncTopCombos = async (opts?: { silent?: boolean }) => {
+      if (isCancelled || inFlight) return;
+      inFlight = true;
+      const silent = opts?.silent ?? false;
+      if (!silent) setTopCombosLoading(true);
+      try {
+        const payload = await fetchPayload();
         if (isCancelled) return;
         const payloadRec = (payload as Record<string, unknown> | null | undefined) ?? {};
         const rawCombos: unknown[] = Array.isArray(payloadRec.combos) ? (payloadRec.combos as unknown[]) : [];
@@ -1972,19 +1987,31 @@ export function App() {
         });
         setTopCombos(sanitized);
         setTopCombosError(null);
-      })
-      .catch((err) => {
+        if (sanitized.length > 0) {
+          applyCombo(sanitized[0], { silent: true });
+        }
+      } catch (err) {
         if (isCancelled) return;
-        setTopCombosError(err instanceof Error ? err.message : "Failed to load optimizer combos.");
-      })
-      .finally(() => {
+        const msg = err instanceof Error ? err.message : "Failed to load optimizer combos.";
+        if (!silent || topCombosRef.current.length === 0) {
+          setTopCombosError(msg);
+        }
+      } finally {
+        inFlight = false;
         if (isCancelled) return;
-        setTopCombosLoading(false);
-      });
+        if (!silent) setTopCombosLoading(false);
+      }
+    };
+
+    void syncTopCombos();
+    const t = window.setInterval(() => {
+      void syncTopCombos({ silent: true });
+    }, TOP_COMBOS_POLL_MS);
     return () => {
       isCancelled = true;
+      window.clearInterval(t);
     };
-  }, [apiBase, apiOk, authHeaders]);
+  }, [apiBase, apiOk, authHeaders, applyCombo]);
 
   const statusDotClass =
     apiOk === "ok" ? "dot dotOk" : apiOk === "down" ? "dot dotBad" : "dot dotWarn";

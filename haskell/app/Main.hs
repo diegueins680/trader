@@ -2487,7 +2487,7 @@ botOptimizerLoop mOps metrics mJournal stVar stopSig pending = do
 autoOptimizerLoop :: Args -> Maybe OpsStore -> Maybe Journal -> FilePath -> IO ()
 autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
   enabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
-  let enabled = readEnvBool enabledEnv False
+  let enabled = readEnvBool enabledEnv True
   if not enabled
     then pure ()
     else do
@@ -3336,7 +3336,7 @@ runRestApi baseArgs = do
           { aclMaxBarsLstm =
               case maxBarsLstmEnv >>= readMaybe of
                 Just n | n >= 2 -> n
-                _ -> 300
+                _ -> 1000
           , aclMaxEpochs =
               case maxEpochsEnv >>= readMaybe of
                 Just n | n >= 1 -> n
