@@ -23,6 +23,7 @@ NC='\033[0m' # No Color
 # Configuration (inputs)
 AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 TRADER_API_TOKEN="${TRADER_API_TOKEN:-}"
+TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
 UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
 UI_DISTRIBUTION_ID="${TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID:-${CLOUDFRONT_DISTRIBUTION_ID:-}}"
 UI_SKIP_BUILD="${TRADER_UI_SKIP_BUILD:-false}"
@@ -71,6 +72,7 @@ Flags:
 Environment variables (equivalents):
   AWS_REGION / AWS_DEFAULT_REGION
   TRADER_API_TOKEN
+  TRADER_API_MAX_BARS_LSTM
   TRADER_UI_BUCKET / S3_BUCKET
   TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID / CLOUDFRONT_DISTRIBUTION_ID
   TRADER_UI_SKIP_BUILD
@@ -485,6 +487,9 @@ create_app_runner() {
   src_cfg="$(mktemp)"
 
   local runtime_env_json='"TRADER_API_ASYNC_DIR":"/var/lib/trader/async"'
+  if [[ -n "${TRADER_API_MAX_BARS_LSTM:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_BARS_LSTM\":\"${TRADER_API_MAX_BARS_LSTM}\""
+  fi
   if [[ -n "$TRADER_API_TOKEN" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_TOKEN\":\"${TRADER_API_TOKEN}\""
   fi
@@ -698,6 +703,7 @@ main() {
   echo "Configuration:"
   echo "  Region: $AWS_REGION"
   echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
+  echo "  API Max Bars (LSTM): ${TRADER_API_MAX_BARS_LSTM}"
   if [[ "$DEPLOY_UI" == "true" ]]; then
     echo "  UI Bucket: ${UI_BUCKET:-"(not set)"}"
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
