@@ -66,6 +66,15 @@ def _coerce_bool(value: Any) -> Optional[bool]:
     return None
 
 
+def _normalize_symbol(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip().upper()
+        return s if s else None
+    return _normalize_symbol(str(value))
+
+
 def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -171,6 +180,7 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     confirm_conformal = _coerce_bool(params_raw.get("confirmConformal")) or False
     confirm_quantiles = _coerce_bool(params_raw.get("confirmQuantiles")) or False
     confidence_sizing = _coerce_bool(params_raw.get("confidenceSizing")) or False
+    symbol = _normalize_symbol(params_raw.get("binanceSymbol") or params_raw.get("symbol"))
 
     normalized_params: Dict[str, Any] = dict(params_raw)
     normalized_params.update(
@@ -212,6 +222,7 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "confirmQuantiles": confirm_quantiles,
             "confidenceSizing": confidence_sizing,
             "minPositionSize": _coerce_float(params_raw.get("minPositionSize")),
+            "binanceSymbol": symbol,
         }
     )
 
@@ -237,6 +248,7 @@ def _signature(combo: Dict[str, Any]) -> Tuple[Any, ...]:
         combo.get("source"),
         p("interval"),
         p("bars"),
+        p("binanceSymbol"),
         p("method"),
         p("normalization"),
         p("positioning"),

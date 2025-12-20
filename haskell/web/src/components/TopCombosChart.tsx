@@ -3,6 +3,7 @@ import type { IntrabarFill, Method, Normalization, Positioning } from "../lib/ty
 import { fmtPct, fmtRatio } from "../lib/format";
 
 export type OptimizationComboParams = {
+  binanceSymbol?: string | null;
   interval: string;
   bars: number;
   method: Method;
@@ -91,6 +92,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
       {combos.map((combo) => {
         const barsLabel = combo.params.bars <= 0 ? "auto" : combo.params.bars.toString();
         const sourceLabel = combo.source === "binance" ? "Binance" : combo.source === "csv" ? "CSV" : "Unknown";
+        const symbolLabel = combo.params.binanceSymbol ? combo.params.binanceSymbol : null;
         const barWidth = Math.max(1, (combo.finalEquity / maxEq) * 100);
         const objectiveLabel = typeof combo.objective === "string" && combo.objective ? combo.objective : null;
         const scoreLabel =
@@ -128,7 +130,10 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
             <div className="comboRowHeader">
               <div>
                 <div className="comboTitle">
-                  #{combo.rank ?? combo.id} · {sourceLabel} · {combo.params.interval} · bars={barsLabel}
+                  #{combo.rank ?? combo.id} · {sourceLabel}
+                  {symbolLabel ? ` · ${symbolLabel}` : ""}
+                  {" · "}
+                  {combo.params.interval} · bars={barsLabel}
                 </div>
                 <div className="comboDetail">
                   {(() => {

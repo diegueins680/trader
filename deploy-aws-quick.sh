@@ -320,22 +320,42 @@ set_apprunner_scaling() {
   local min_size="${2:-1}"
   local max_size="${3:-1}"
 
+  local current_cfg_arn=""
+  current_cfg_arn="$(
+    aws apprunner describe-service \
+      --service-arn "$service_arn" \
+      --region "$AWS_REGION" \
+      --query 'Service.AutoScalingConfigurationSummary.AutoScalingConfigurationArn' \
+      --output text 2>/dev/null || true
+  )"
+  if [[ "$current_cfg_arn" == "None" ]]; then
+    current_cfg_arn=""
+  fi
+
   local current_min=""
   local current_max=""
-  current_min="$(
-    aws apprunner describe-service \
-      --service-arn "$service_arn" \
-      --region "$AWS_REGION" \
-      --query 'Service.AutoScalingConfigurationSummary.MinSize' \
-      --output text 2>/dev/null || true
-  )"
-  current_max="$(
-    aws apprunner describe-service \
-      --service-arn "$service_arn" \
-      --region "$AWS_REGION" \
-      --query 'Service.AutoScalingConfigurationSummary.MaxSize' \
-      --output text 2>/dev/null || true
-  )"
+  if [[ -n "$current_cfg_arn" ]]; then
+    current_min="$(
+      aws apprunner describe-auto-scaling-configuration \
+        --auto-scaling-configuration-arn "$current_cfg_arn" \
+        --region "$AWS_REGION" \
+        --query 'AutoScalingConfiguration.MinSize' \
+        --output text 2>/dev/null || true
+    )"
+    current_max="$(
+      aws apprunner describe-auto-scaling-configuration \
+        --auto-scaling-configuration-arn "$current_cfg_arn" \
+        --region "$AWS_REGION" \
+        --query 'AutoScalingConfiguration.MaxSize' \
+        --output text 2>/dev/null || true
+    )"
+  fi
+  if [[ "$current_min" == "None" ]]; then
+    current_min=""
+  fi
+  if [[ "$current_max" == "None" ]]; then
+    current_max=""
+  fi
 
   if [[ -n "$current_min" && -n "$current_max" && "$current_min" != "None" && "$current_max" != "None" ]]; then
     if [[ "$current_min" == "$min_size" && "$current_max" == "$max_size" ]]; then

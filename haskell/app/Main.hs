@@ -99,7 +99,7 @@ import Trader.LSTM
   )
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
 import Trader.MarketContext (MarketModel, buildMarketModel, marketMeasurementAt)
-import Trader.BinanceIntervals (binanceIntervalsCsv)
+import Trader.BinanceIntervals (binanceIntervals, binanceIntervalsCsv, isBinanceInterval)
 import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
 import Trader.Normalization (NormState, NormType(..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Predictors
@@ -2363,7 +2363,7 @@ botOptimizerLoop mOps metrics mJournal stVar stopSig pending = do
                     interval = argInterval args
                     limit = clampInt 2 1000 (max 2 (bsMaxPoints (botSettings st)))
                     csvPath = optimizerTmp </> ("live-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
-                    topJsonPath = optimizerTmp </> "top-combos.json"
+                    topJsonPath = optimizerTmp </> "bot-top-combos.json"
 
                 ksOrErr <- try (fetchKlines env sym interval limit) :: IO (Either SomeException [Kline])
                 case ksOrErr of
@@ -2409,6 +2409,10 @@ botOptimizerLoop mOps metrics mJournal stVar stopSig pending = do
                               , show (seed :: Int)
                               , "--output"
                               , recordsPath
+                              , "--symbol-label"
+                              , sym
+                              , "--source-label"
+                              , "binance"
                               , "--top-json"
                               , topJsonPath
                               , "--objective"
@@ -2479,6 +2483,223 @@ botOptimizerLoop mOps metrics mJournal stVar stopSig pending = do
                             loop
 
       loop
+
+autoOptimizerLoop :: Args -> Maybe OpsStore -> Maybe Journal -> FilePath -> IO ()
+autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
+  enabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
+  let enabled = readEnvBool enabledEnv False
+  if not enabled
+    then pure ()
+    else do
+      projectRoot <- getCurrentDirectory
+      exePath <- getExecutablePath
+      let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
+          mergePath = projectRoot </> "scripts" </> "merge_top_combos.py"
+          topJsonPath = optimizerTmp </> "top-combos.json"
+      scriptExists <- doesFileExist scriptPath
+      mergeExists <- doesFileExist mergePath
+      if not scriptExists || not mergeExists
+        then do
+          now <- getTimestampMs
+          journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.missing_script" :: String), "atMs" .= now, "script" .= scriptPath])
+          opsAppendMaybe mOps "optimizer.auto.missing_script" Nothing Nothing (Just (object ["script" .= scriptPath])) Nothing
+        else do
+          envOrErr <- try (makeBinanceEnv baseArgs) :: IO (Either SomeException BinanceEnv)
+          case envOrErr of
+            Left ex -> do
+              now <- getTimestampMs
+              journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.env_failed" :: String), "atMs" .= now, "error" .= show ex])
+            Right env -> do
+              everySecEnv <- lookupEnv "TRADER_OPTIMIZER_EVERY_SEC"
+              trialsEnv <- lookupEnv "TRADER_OPTIMIZER_TRIALS"
+              timeoutEnv <- lookupEnv "TRADER_OPTIMIZER_TIMEOUT_SEC"
+              objectiveEnv <- lookupEnv "TRADER_OPTIMIZER_OBJECTIVE"
+              lookbackEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOW"
+              backtestEnv <- lookupEnv "TRADER_OPTIMIZER_BACKTEST_RATIO"
+              tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
+              maxCombosEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_COMBOS"
+              maxPointsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
+              symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
+              intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
+
+              let everySec :: Int
+                  everySec =
+                    case everySecEnv >>= readMaybe of
+                      Just n | n >= 5 -> n
+                      _ -> 300
+                  trials :: Int
+                  trials =
+                    case trialsEnv >>= readMaybe of
+                      Just n | n >= 1 -> n
+                      _ -> 20
+                  timeoutSec :: Int
+                  timeoutSec =
+                    case timeoutEnv >>= readMaybe of
+                      Just n | n >= 1 -> n
+                      _ -> 45
+                  maxCombos :: Int
+                  maxCombos =
+                    case maxCombosEnv >>= readMaybe of
+                      Just n | n >= 1 -> n
+                      _ -> 50
+                  maxPoints :: Int
+                  maxPoints =
+                    case maxPointsEnv >>= readMaybe of
+                      Just n | n >= 2 -> clampInt 2 1000 n
+                      _ -> 1000
+                  lookbackWindow = pickDefaultString "24h" lookbackEnv
+                  backtestRatio =
+                    case backtestEnv >>= readMaybe of
+                      Just n -> clamp01 n
+                      _ -> 0.2
+                  tuneRatio =
+                    case tuneEnv >>= readMaybe of
+                      Just n -> clamp01 n
+                      _ -> 0.2
+                  objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
+                  objectiveRaw = fmap (map toLower . trim) objectiveEnv
+                  objective =
+                    case objectiveRaw of
+                      Just v | v `elem` objectiveAllowed -> v
+                      _ -> "final-equity"
+                  symbols =
+                    case symbolsEnv of
+                      Just raw ->
+                        let parsed = map normalizeSymbol (splitEnvList raw)
+                         in if null parsed then defaultOptimizerSymbols else parsed
+                      Nothing -> defaultOptimizerSymbols
+                  intervalsRaw =
+                    case intervalsEnv of
+                      Just raw -> filter isBinanceInterval (splitEnvList raw)
+                      Nothing -> binanceIntervals
+                  intervals =
+                    filter
+                      (\v -> case lookbackBarsFrom v lookbackWindow of
+                        Left _ -> False
+                        Right lb -> lb >= 2 && lb + 3 <= maxPoints)
+                      intervalsRaw
+
+              if null symbols || null intervals
+                then do
+                  now <- getTimestampMs
+                  journalWriteMaybe
+                    mJournal
+                    (object ["type" .= ("optimizer.auto.config_invalid" :: String), "atMs" .= now, "symbols" .= symbols, "intervals" .= intervals])
+                else do
+                  putStrLn
+                    ( printf
+                        "Auto optimizer enabled: symbols=%d intervals=%d everySec=%d trials=%d"
+                        (length symbols)
+                        (length intervals)
+                        everySec
+                        trials
+                    )
+                  let sleepSec s = threadDelay (max 1 s * 1000000)
+
+                      loop = do
+                        sym <- pickRandom symbols
+                        interval <- pickRandom intervals
+                        let csvPath = optimizerTmp </> ("auto-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
+
+                        ksOrErr <- try (fetchKlines env sym interval maxPoints) :: IO (Either SomeException [Kline])
+                        case ksOrErr of
+                          Left ex -> do
+                            now <- getTimestampMs
+                            journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.fetch_failed" :: String), "atMs" .= now, "error" .= show ex])
+                            sleepSec everySec
+                            loop
+                          Right ks -> do
+                            if length ks < 2
+                              then do
+                                sleepSec everySec
+                                loop
+                              else do
+                                writeKlinesCsv csvPath ks
+                                ts <- fmap (floor . (* 1000)) getPOSIXTime
+                                randId <- randomIO :: IO Word64
+                                seedId <- randomIO :: IO Word64
+                                let recordsPath = optimizerTmp </> printf "optimizer-auto-%d-%016x.jsonl" (ts :: Integer) randId
+                                    seed = fromIntegral (seedId `mod` 2000000000)
+                                    cliArgs =
+                                      [ "--data"
+                                      , csvPath
+                                      , "--price-column"
+                                      , "close"
+                                      , "--high-column"
+                                      , "high"
+                                      , "--low-column"
+                                      , "low"
+                                      , "--interval"
+                                      , interval
+                                      , "--lookback-window"
+                                      , lookbackWindow
+                                      , "--backtest-ratio"
+                                      , show backtestRatio
+                                      , "--tune-ratio"
+                                      , show tuneRatio
+                                      , "--trials"
+                                      , show trials
+                                      , "--timeout-sec"
+                                      , show (timeoutSec :: Int)
+                                      , "--seed"
+                                      , show (seed :: Int)
+                                      , "--output"
+                                      , recordsPath
+                                      , "--symbol-label"
+                                      , sym
+                                      , "--source-label"
+                                      , "binance"
+                                      , "--objective"
+                                      , objective
+                                      , "--binary"
+                                      , exePath
+                                      , "--disable-lstm-persistence"
+                                      ]
+
+                                runResult <- runOptimizerProcess projectRoot recordsPath cliArgs
+                                case runResult of
+                                  Left (msg, out, err) -> do
+                                    now <- getTimestampMs
+                                    journalWriteMaybe
+                                      mJournal
+                                      ( object
+                                          [ "type" .= ("optimizer.auto.run_failed" :: String)
+                                          , "atMs" .= now
+                                          , "error" .= msg
+                                          , "stdout" .= out
+                                          , "stderr" .= err
+                                          ]
+                                      )
+                                  Right _ -> do
+                                    mergeResult <- runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos
+                                    case mergeResult of
+                                      Left (msg, out, err) -> do
+                                        now <- getTimestampMs
+                                        journalWriteMaybe
+                                          mJournal
+                                          ( object
+                                              [ "type" .= ("optimizer.auto.merge_failed" :: String)
+                                              , "atMs" .= now
+                                              , "error" .= msg
+                                              , "stdout" .= out
+                                              , "stderr" .= err
+                                              ]
+                                          )
+                                      Right _ -> do
+                                        now <- getTimestampMs
+                                        opsAppendMaybe
+                                          mOps
+                                          "optimizer.auto.updated"
+                                          Nothing
+                                          (Just (object ["symbol" .= sym, "interval" .= interval]))
+                                          Nothing
+                                          Nothing
+                                    _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
+                                    pure ()
+                                sleepSec everySec
+                                loop
+
+                  loop
 
 makeBinanceEnv :: Args -> IO BinanceEnv
 makeBinanceEnv args = do
@@ -3189,6 +3410,7 @@ runRestApi baseArgs = do
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
   opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing
   bot <- newBotController
+  _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
   asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
   asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
   asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
@@ -4164,6 +4386,61 @@ defaultOptimizerIntervals = binanceIntervalsCsv
 defaultOptimizerNormalizations :: String
 defaultOptimizerNormalizations = "none,minmax,standard,log"
 
+defaultOptimizerSymbols :: [String]
+defaultOptimizerSymbols =
+  [ "BTCUSDT"
+  , "ETHUSDT"
+  , "BNBUSDT"
+  , "SOLUSDT"
+  , "XRPUSDT"
+  , "ADAUSDT"
+  , "DOGEUSDT"
+  , "MATICUSDT"
+  , "AVAXUSDT"
+  , "LINKUSDT"
+  , "DOTUSDT"
+  , "LTCUSDT"
+  , "BCHUSDT"
+  , "TRXUSDT"
+  , "ATOMUSDT"
+  , "ETCUSDT"
+  , "UNIUSDT"
+  , "AAVEUSDT"
+  , "FILUSDT"
+  , "NEARUSDT"
+  , "OPUSDT"
+  , "ARBUSDT"
+  , "SUIUSDT"
+  ]
+
+splitEnvList :: String -> [String]
+splitEnvList raw =
+  let cleaned = map (\c -> if c == ',' then ' ' else c) raw
+   in filter (not . null) (map trim (words cleaned))
+
+readEnvBool :: Maybe String -> Bool -> Bool
+readEnvBool raw def =
+  case fmap (map toLower . trim) raw of
+    Just "1" -> True
+    Just "true" -> True
+    Just "yes" -> True
+    Just "on" -> True
+    Just "0" -> False
+    Just "false" -> False
+    Just "no" -> False
+    Just "off" -> False
+    _ -> def
+
+normalizeSymbol :: String -> String
+normalizeSymbol = map toUpper . trim
+
+pickRandom :: [a] -> IO a
+pickRandom xs = do
+  r <- randomIO :: IO Word64
+  let len = max 1 (length xs)
+      idx = fromIntegral (r `mod` fromIntegral len)
+  pure (xs !! idx)
+
 pickDefaultString :: String -> Maybe String -> String
 pickDefaultString def mb =
   case fmap trim mb of
@@ -4343,6 +4620,23 @@ runOptimizerProcess projectRoot outputPath cliArgs = do
         Left msg -> pure (Left (msg, out, err))
         Right val -> pure (Right (ApiOptimizerRunResponse val out err))
     ExitFailure code -> pure (Left (printf "Optimizer script failed (exit %d)" code, out, err))
+
+runMergeTopCombos ::
+  FilePath ->
+  FilePath ->
+  FilePath ->
+  Int ->
+  IO (Either (String, String, String) ())
+runMergeTopCombos projectRoot topJsonPath recordsPath maxItems = do
+  let scriptPath = projectRoot </> "scripts" </> "merge_top_combos.py"
+      proc' =
+        (proc "python3" [scriptPath, "--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)])
+          { cwd = Just projectRoot
+          }
+  (exitCode, out, err) <- readCreateProcessWithExitCode proc' ""
+  case exitCode of
+    ExitSuccess -> pure (Right ())
+    ExitFailure code -> pure (Left (printf "Merge script failed (exit %d)" code, out, err))
 
 readLastOptimizerRecord :: FilePath -> IO (Either String Aeson.Value)
 readLastOptimizerRecord path = do

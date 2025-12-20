@@ -68,6 +68,34 @@ export const BINANCE_INTERVAL_SECONDS: Record<string, number> = {
   "1M": 30 * 24 * 60 * 60,
 };
 
+export const BINANCE_SYMBOLS = [
+  "BTCUSDT",
+  "ETHUSDT",
+  "BNBUSDT",
+  "SOLUSDT",
+  "XRPUSDT",
+  "ADAUSDT",
+  "DOGEUSDT",
+  "MATICUSDT",
+  "AVAXUSDT",
+  "LINKUSDT",
+  "DOTUSDT",
+  "LTCUSDT",
+  "BCHUSDT",
+  "TRXUSDT",
+  "ATOMUSDT",
+  "ETCUSDT",
+  "UNIUSDT",
+  "AAVEUSDT",
+  "FILUSDT",
+  "NEARUSDT",
+  "OPUSDT",
+  "ARBUSDT",
+  "SUIUSDT",
+] as const;
+
+export const BINANCE_SYMBOL_SET = new Set<string>(BINANCE_SYMBOLS);
+
 export const TUNE_OBJECTIVES = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"] as const;
 export const TUNE_OBJECTIVE_SET = new Set<string>(TUNE_OBJECTIVES);
 

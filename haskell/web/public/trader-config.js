@@ -4,7 +4,9 @@
 //
 // Example:
 // globalThis.__TRADER_CONFIG__ = {
-//   apiBaseUrl: "https://your-api-host",
+//   // Use "/api" when CloudFront proxies /api/* to your API origin.
+//   // Use "https://your-api-host" for direct API calls.
+//   apiBaseUrl: "/api",
 //   apiToken: "TRADER_API_TOKEN",
 //   timeoutsMs: {
 //     // Increase these if large backtests/trades time out in the UI.
@@ -17,5 +19,5 @@
 (() => {
   const existing = globalThis.__TRADER_CONFIG__;
   if (existing && typeof existing === "object") return;
-  globalThis.__TRADER_CONFIG__ = { apiBaseUrl: "", apiToken: "", timeoutsMs: {} };
+  globalThis.__TRADER_CONFIG__ = { apiBaseUrl: "/api", apiToken: "", timeoutsMs: {} };
 })();

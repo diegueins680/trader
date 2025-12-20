@@ -408,7 +408,14 @@ def fmt_opt_int(v: Optional[int]) -> str:
     return str(v)
 
 
-def trial_to_record(tr: TrialResult) -> Dict[str, Any]:
+def normalize_symbol(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    s = str(raw).strip().upper()
+    return s if s else None
+
+
+def trial_to_record(tr: TrialResult, symbol_label: Optional[str]) -> Dict[str, Any]:
     r: Dict[str, Any] = {
         "ok": tr.ok,
         "eligible": tr.eligible,
@@ -458,6 +465,9 @@ def trial_to_record(tr: TrialResult) -> Dict[str, Any]:
             "minPositionSize": tr.params.min_position_size,
         },
     }
+    symbol = normalize_symbol(symbol_label)
+    if symbol is not None:
+        r["params"]["binanceSymbol"] = symbol
     if tr.metrics is not None:
         r["metrics"] = tr.metrics
     return r
@@ -679,6 +689,18 @@ def main(argv: List[str]) -> int:
     src = parser.add_mutually_exclusive_group(required=True)
     src.add_argument("--data", type=str, help="CSV path for backtest (recommended for optimization).")
     src.add_argument("--binance-symbol", type=str, help="Binance symbol (requires network; slower).")
+    parser.add_argument(
+        "--symbol-label",
+        type=str,
+        default="",
+        help="Optional symbol label to attach to params (useful for CSV runs).",
+    )
+    parser.add_argument(
+        "--source-label",
+        type=str,
+        default="",
+        help="Optional source label override for outputs (e.g., binance).",
+    )
     parser.add_argument("--price-column", type=str, default="close", help="CSV column name for price (default: close).")
     parser.add_argument(
         "--high-column",
@@ -1042,6 +1064,10 @@ def main(argv: List[str]) -> int:
 
     rng = random.Random(int(args.seed))
     data_source = "csv" if args.data else "binance"
+    source_override = str(args.source_label).strip().lower()
+    if source_override:
+        data_source = source_override
+    symbol_label = normalize_symbol(args.symbol_label) or normalize_symbol(args.binance_symbol)
 
     out_path = Path(args.output).expanduser() if args.output else None
     out_fh = None
@@ -1150,7 +1176,7 @@ def main(argv: List[str]) -> int:
         tr = replace(tr, eligible=eligible, filter_reason=filter_reason, objective=objective, score=score)
 
         if out_fh is not None:
-            rec = trial_to_record(tr)
+            rec = trial_to_record(tr, symbol_label)
             rec["source"] = data_source
             out_fh.write(json.dumps(rec, sort_keys=True) + "\n")
             out_fh.flush()
@@ -1240,13 +1266,14 @@ def main(argv: List[str]) -> int:
     if args.top_json:
         successful = [tr for tr in records if tr.eligible and tr.final_equity is not None and tr.score is not None]
         successful_sorted = sorted(successful, key=lambda tr: tr.score or 0, reverse=True)
-        source = "binance" if args.binance_symbol else "csv"
+        source = data_source
         combos = []
         for rank, tr in enumerate(successful_sorted[:10], start=1):
             sharpe = metric_float(tr.metrics, "sharpe", 0.0)
             max_dd = metric_float(tr.metrics, "maxDrawdown", 0.0)
             turnover = metric_float(tr.metrics, "turnover", 0.0)
             round_trips = metric_int(tr.metrics, "roundTrips", 0)
+            symbol = symbol_label
             combos.append(
                 {
                     "rank": rank,
@@ -1298,6 +1325,7 @@ def main(argv: List[str]) -> int:
                         "confirmQuantiles": tr.params.confirm_quantiles,
                         "confidenceSizing": tr.params.confidence_sizing,
                         "minPositionSize": tr.params.min_position_size,
+                        "binanceSymbol": symbol,
                     },
                 }
             )
