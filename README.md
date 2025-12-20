@@ -318,10 +318,12 @@ Deploy to AWS
 See `DEPLOY_AWS_QUICKSTART.md`, `DEPLOY_AWS.md`, and `deploy/aws/README.md`.
 
 Note: `/bot/*` is stateful, and async endpoints keep job state in-memory unless you configure shared persistence (`TRADER_API_ASYNC_DIR`). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you’ve enabled shared async storage.
+If the web UI shows "Async job not found", you are likely behind a non-sticky load balancer; run a single instance or set `TRADER_API_ASYNC_DIR` for shared async storage.
 
 Web UI
 ------
 A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST API and visualizes signals/backtests (including the equity curve).
+Selecting Long/Short positioning in the UI automatically switches Market to Futures.
 
 Run it:
 ```

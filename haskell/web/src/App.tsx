@@ -752,6 +752,14 @@ export function App() {
     showToast("Margin requires Live orders (switched back to Spot)");
   }, [form.binanceLive, form.market, showToast]);
 
+  useEffect(() => {
+    if (form.positioning !== "long-short") return;
+    if (form.market === "futures") return;
+    setPendingMarket(null);
+    setForm((f) => ({ ...f, market: "futures" }));
+    showToast("Long/Short requires Futures (switched Market to Futures)");
+  }, [form.market, form.positioning, showToast]);
+
   const recheckHealth = useCallback(async () => {
     let h: Awaited<ReturnType<typeof health>>;
     try {
@@ -2816,7 +2824,14 @@ export function App() {
                   id="positioning"
                   className="select"
                   value={form.positioning}
-                  onChange={(e) => setForm((f) => ({ ...f, positioning: e.target.value as Positioning }))}
+                  onChange={(e) => {
+                    const positioning = e.target.value as Positioning;
+                    setForm((f) =>
+                      positioning === "long-short" && f.market !== "futures"
+                        ? { ...f, positioning, market: "futures" }
+                        : { ...f, positioning },
+                    );
+                  }}
                 >
                   <option value="long-flat">Long / Flat</option>
                   <option value="long-short">Long / Short (futures)</option>
@@ -2830,7 +2845,7 @@ export function App() {
                   }
                 >
                   {form.positioning === "long-short" && form.market !== "futures"
-                    ? "Long/Short trading requires Futures market (switch Market to Futures to trade)."
+                    ? "Long/Short trading requires Futures market (Market switches to Futures)."
                     : "Down signals go FLAT (long/flat) or SHORT (long/short)."}
                 </div>
               </div>
