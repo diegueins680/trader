@@ -1987,8 +1987,9 @@ export function App() {
         });
         setTopCombos(sanitized);
         setTopCombosError(null);
-        if (sanitized.length > 0) {
-          applyCombo(sanitized[0], { silent: true });
+        const topCombo = sanitized[0];
+        if (topCombo) {
+          applyCombo(topCombo, { silent: true });
         }
       } catch (err) {
         if (isCancelled) return;
