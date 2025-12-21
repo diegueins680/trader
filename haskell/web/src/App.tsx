@@ -64,6 +64,7 @@ import {
 import { binanceIntervalSeconds, defaultForm, normalizeFormState, parseDurationSeconds, type FormState, type FormStateJson } from "./app/formState";
 import {
   actionBadgeClass,
+  buildRequestIssues,
   clamp,
   escapeSingleQuotes,
   firstReason,
@@ -173,6 +174,7 @@ type TopCombosMeta = {
   source: TopCombosSource;
   generatedAtMs: number | null;
   payloadSource: string | null;
+  payloadSources: string[] | null;
   fallbackReason: string | null;
 };
 
@@ -290,12 +292,14 @@ function applyComboToForm(
   combo: OptimizationCombo,
   apiLimits: ComputeLimits | null,
   manualOverrides?: Set<ManualOverrideKey>,
+  allowPositioning = true,
 ): FormState {
   const comboSymbol = combo.params.binanceSymbol?.trim();
   const symbol = comboSymbol && comboSymbol.length > 0 ? comboSymbol : prev.binanceSymbol;
   const interval = combo.params.interval;
   const method = manualOverrides?.has("method") ? prev.method : combo.params.method;
-  const positioning = combo.params.positioning ?? prev.positioning;
+  const comboPositioning = combo.params.positioning ?? prev.positioning;
+  const positioning = allowPositioning ? comboPositioning : prev.positioning;
   const normalization = combo.params.normalization;
   const intrabarFill = combo.params.intrabarFill ?? prev.intrabarFill;
   const confirmConformal = combo.params.confirmConformal ?? prev.confirmConformal;
@@ -425,8 +429,9 @@ function comboApplySignature(
   apiLimits: ComputeLimits | null,
   baseForm: FormState,
   manualOverrides?: Set<ManualOverrideKey>,
+  allowPositioning = true,
 ): string {
-  return formApplySignature(applyComboToForm(baseForm, combo, apiLimits, manualOverrides));
+  return formApplySignature(applyComboToForm(baseForm, combo, apiLimits, manualOverrides, allowPositioning));
 }
 
 function formApplySignature(form: FormState): string {
@@ -648,6 +653,7 @@ export function App() {
     source: "static",
     generatedAtMs: null,
     payloadSource: null,
+    payloadSources: null,
     fallbackReason: null,
   });
   const [autoApplyTopCombo, setAutoApplyTopCombo] = useState<boolean>(() => readJson<boolean>(STORAGE_AUTO_APPLY_TOP_COMBO_KEY) ?? true);
@@ -811,10 +817,11 @@ export function App() {
   );
 
   const applyCombo = useCallback(
-    (combo: OptimizationCombo, opts?: { silent?: boolean; respectManual?: boolean }) => {
+    (combo: OptimizationCombo, opts?: { silent?: boolean; respectManual?: boolean; allowPositioning?: boolean }) => {
       const comboSymbol = combo.params.binanceSymbol?.trim();
       const manualOverrides = opts?.respectManual ? manualOverridesRef.current : undefined;
-      setForm((prev) => applyComboToForm(prev, combo, apiComputeLimitsRef.current, manualOverrides));
+      const allowPositioning = opts?.allowPositioning ?? true;
+      setForm((prev) => applyComboToForm(prev, combo, apiComputeLimitsRef.current, manualOverrides, allowPositioning));
       setSelectedComboId(combo.id);
       if (!opts?.silent) {
         showToast(`Loaded optimizer combo #${combo.id}${comboSymbol ? ` (${comboSymbol})` : ""}`);
@@ -2414,16 +2421,32 @@ export function App() {
         const generatedAtMsRaw = payloadRec.generatedAtMs;
         const generatedAtMs =
           typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
-        const payloadSource = typeof payloadRec.source === "string" && payloadRec.source ? payloadRec.source : null;
-        setTopCombosMeta({ source, generatedAtMs, payloadSource, fallbackReason });
+        const payloadSourceRaw =
+          typeof payloadRec.payloadSource === "string" && payloadRec.payloadSource.trim()
+            ? payloadRec.payloadSource.trim()
+            : typeof payloadRec.source === "string" && payloadRec.source.trim()
+              ? payloadRec.source.trim()
+              : null;
+        const payloadSourcesRaw = Array.isArray(payloadRec.payloadSources) ? payloadRec.payloadSources : [];
+        const payloadSources = payloadSourcesRaw
+          .map((src) => (typeof src === "string" ? src.trim() : ""))
+          .filter((src) => src.length > 0);
+        const payloadSourcesFinal = payloadSources.length > 0 ? payloadSources : payloadSourceRaw ? [payloadSourceRaw] : null;
+        setTopCombosMeta({ source, generatedAtMs, payloadSource: payloadSourceRaw, payloadSources: payloadSourcesFinal, fallbackReason });
         setTopCombosError(null);
         const topCombo = limited[0];
         if (topCombo && autoApplyTopCombo) {
           const currentForm = formRef.current;
-          const topSig = comboApplySignature(topCombo, apiComputeLimitsRef.current, currentForm, manualOverridesRef.current);
+          const topSig = comboApplySignature(
+            topCombo,
+            apiComputeLimitsRef.current,
+            currentForm,
+            manualOverridesRef.current,
+            false,
+          );
           const formSig = formApplySignature(currentForm);
           if (topSig !== formSig) {
-            applyCombo(topCombo, { silent: true, respectManual: true });
+            applyCombo(topCombo, { silent: true, respectManual: true, allowPositioning: false });
             const now = Date.now();
             setAutoAppliedCombo({ id: topCombo.id, atMs: now });
             const prev = autoAppliedComboRef.current;
@@ -2579,16 +2602,18 @@ export function App() {
       : hiddenSizeExceedsApi
         ? `Hidden size exceeds API limit (max ${apiComputeLimits?.maxHiddenSize ?? "?"}). Reduce hidden size or switch to method=10 (Kalman-only).`
         : null;
-  const requestIssues = useMemo(() => {
-    const issues: string[] = [];
-    if (rateLimitReason) issues.push(rateLimitReason);
-    if (apiStatusIssue) issues.push(apiStatusIssue);
-    if (missingSymbol) issues.push("Binance symbol is required.");
-    if (missingInterval) issues.push("Interval is required.");
-    if (lookbackState.error) issues.push(lookbackState.error);
-    if (apiLimitsReason) issues.push(apiLimitsReason);
-    return issues;
-  }, [apiLimitsReason, apiStatusIssue, lookbackState.error, missingInterval, missingSymbol, rateLimitReason]);
+  const requestIssues = useMemo(
+    () =>
+      buildRequestIssues({
+        rateLimitReason,
+        apiStatusIssue,
+        missingSymbol,
+        missingInterval,
+        lookbackError: lookbackState.error,
+        apiLimitsReason,
+      }),
+    [apiLimitsReason, apiStatusIssue, lookbackState.error, missingInterval, missingSymbol, rateLimitReason],
+  );
   const primaryIssue = requestIssues[0] ?? null;
   const extraIssueCount = Math.max(0, requestIssues.length - 1);
   const requestDisabledReason = firstReason(
@@ -3090,12 +3115,19 @@ export function App() {
                 const ageLabel = updatedAtMs ? fmtDurationMs(Math.max(0, Date.now() - updatedAtMs)) : null;
                 const sourceLabel = topCombosMeta.source === "api" ? "Source: API" : "Source: static file";
                 const reason = topCombosMeta.source === "api" ? null : topCombosMeta.fallbackReason;
+                const payloadSources = topCombosMeta.payloadSources;
                 const payloadSource = topCombosMeta.payloadSource;
+                const payloadLabel =
+                  payloadSources && payloadSources.length > 0
+                    ? ` • payload ${payloadSources.join(" + ")}`
+                    : payloadSource
+                      ? ` • payload ${payloadSource}`
+                      : "";
                 return (
                   <div className="hint" style={{ marginBottom: 8 }}>
                     {sourceLabel}
                     {reason ? ` (${reason})` : ""}
-                    {payloadSource ? ` • payload ${payloadSource}` : ""}
+                    {payloadLabel}
                     {" • "}updated {updatedLabel}
                     {ageLabel ? ` (${ageLabel} ago)` : ""}
                   </div>

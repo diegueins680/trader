@@ -347,6 +347,7 @@ data LatestSignal = LatestSignal
   , lsLstmNext :: !(Maybe Double)
   , lsLstmDir :: !(Maybe Int)
   , lsChosenDir :: !(Maybe Int)
+  , lsCloseDir :: !(Maybe Int)
   , lsAction :: !String
   } deriving (Eq, Show)
 
@@ -522,8 +523,21 @@ data ApiParams = ApiParams
   , apTrailingStop :: Maybe Double
   , apMinHoldBars :: Maybe Int
   , apCooldownBars :: Maybe Int
+  , apMaxHoldBars :: Maybe Int
   , apMaxDrawdown :: Maybe Double
   , apMaxDailyLoss :: Maybe Double
+  , apMinEdge :: Maybe Double
+  , apCostAwareEdge :: Maybe Bool
+  , apEdgeBuffer :: Maybe Double
+  , apTrendLookback :: Maybe Int
+  , apMaxPositionSize :: Maybe Double
+  , apVolTarget :: Maybe Double
+  , apVolLookback :: Maybe Int
+  , apVolEwmaAlpha :: Maybe Double
+  , apVolFloor :: Maybe Double
+  , apVolScaleMax :: Maybe Double
+  , apMaxVolatility :: Maybe Double
+  , apBlendWeight :: Maybe Double
   , apMaxOrderErrors :: Maybe Int
   , apPeriodsPerYear :: Maybe Double
   , apBinanceLive :: Maybe Bool
@@ -547,6 +561,9 @@ data ApiParams = ApiParams
   , apConfirmQuantiles :: Maybe Bool
   , apConfidenceSizing :: Maybe Bool
   , apMinPositionSize :: Maybe Double
+  , apTuneStressVolMult :: Maybe Double
+  , apTuneStressShock :: Maybe Double
+  , apTuneStressWeight :: Maybe Double
   } deriving (Eq, Show, Generic)
 
 data OptimizerSource
@@ -663,6 +680,7 @@ instance ToJSON LatestSignal where
       , "lstmNext" .= lsLstmNext s
       , "lstmDirection" .= (if isJust (lsLstmNext s) then dirLabel (lsLstmDir s) else Nothing)
       , "chosenDirection" .= dirLabel (lsChosenDir s)
+      , "closeDirection" .= dirLabel (lsCloseDir s)
       , "action" .= lsAction s
       ]
 
@@ -986,8 +1004,24 @@ argsPublicJson args =
       , "trailingStop" .= argTrailingStop args
       , "minHoldBars" .= argMinHoldBars args
       , "cooldownBars" .= argCooldownBars args
+      , "maxHoldBars" .= argMaxHoldBars args
       , "maxDrawdown" .= argMaxDrawdown args
       , "maxDailyLoss" .= argMaxDailyLoss args
+      , "minEdge" .= argMinEdge args
+      , "costAwareEdge" .= argCostAwareEdge args
+      , "edgeBuffer" .= argEdgeBuffer args
+      , "trendLookback" .= argTrendLookback args
+      , "maxPositionSize" .= argMaxPositionSize args
+      , "volTarget" .= argVolTarget args
+      , "volLookback" .= argVolLookback args
+      , "volEwmaAlpha" .= argVolEwmaAlpha args
+      , "volFloor" .= argVolFloor args
+      , "volScaleMax" .= argVolScaleMax args
+      , "maxVolatility" .= argMaxVolatility args
+      , "blendWeight" .= argBlendWeight args
+      , "tuneStressVolMult" .= argTuneStressVolMult args
+      , "tuneStressShock" .= argTuneStressShock args
+      , "tuneStressWeight" .= argTuneStressWeight args
       , "maxOrderErrors" .= argMaxOrderErrors args
       , "periodsPerYear" .= argPeriodsPerYear args
       ]
@@ -1695,6 +1729,13 @@ initBotState args settings sym = do
 
       kalCloseDirRaw = lsKalmanNext latest0Raw >>= directionAt closeThr
       lstmCloseDir = lsLstmNext latest0Raw >>= directionAt closeThr
+      blendCloseDir =
+        case (lsKalmanNext latest0Raw, lsLstmNext latest0Raw) of
+          (Just k, Just l) ->
+            let w = max 0 (min 1 (argBlendWeight args))
+                blend = w * k + (1 - w) * l
+             in directionAt closeThr blend
+          _ -> Nothing
       closeAgreeDir =
         if kalCloseDirRaw == lstmCloseDir
           then kalCloseDirRaw
@@ -1705,6 +1746,7 @@ initBotState args settings sym = do
           MethodBoth -> closeAgreeDir == Just 1
           MethodKalmanOnly -> kalCloseDirRaw == Just 1
           MethodLstmOnly -> lstmCloseDir == Just 1
+          MethodBlend -> blendCloseDir == Just 1
 
       desiredPosSignal =
         if startPos0 == 1
@@ -2043,6 +2085,7 @@ botApplyOptimizerUpdate st upd = do
           MethodBoth -> isJust mLstmCtx' && isJust mKalmanCtx'
           MethodKalmanOnly -> isJust mKalmanCtx'
           MethodLstmOnly -> isJust mLstmCtx'
+          MethodBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
       hasLstmWindow = method /= MethodKalmanOnly && n >= lookback'
 
   if not ctxOk
@@ -3050,6 +3093,10 @@ botApplyKline mOps metrics mJournal st k = do
           Just (_ei, _eq0, hold, _entryPx, _trailHigh) -> hold
 
       minHoldBars = max 0 (argMinHoldBars args)
+      maxHoldBars =
+        case argMaxHoldBars args of
+          Just v | v > 0 -> Just v
+          _ -> Nothing
       cooldownBars = max 0 (argCooldownBars args)
       cooldownLeft0 = max 0 (botCooldownLeft st)
       cooldownBlocked = prevPos == 0 && cooldownLeft0 > 0
@@ -3059,10 +3106,20 @@ botApplyKline mOps metrics mJournal st k = do
           then (latest0b { lsAction = "HOLD_MIN_HOLD" }, 1, Nothing)
           else (latest0b, desiredPosWanted0b, mExitReason0b)
 
-      (latest, desiredPosWanted, mExitReason) =
-        if prevPos == 0 && desiredPosWanted1 == 1 && cooldownBlocked
-          then (latest1 { lsAction = "HOLD_COOLDOWN" }, 0, Nothing)
+      holdTooLong =
+        case maxHoldBars of
+          Nothing -> False
+          Just lim -> prevPos == 1 && holdBars >= lim && desiredPosWanted1 == 1
+
+      (latest2, desiredPosWanted2, mExitReason2) =
+        if holdTooLong
+          then (latest1 { lsChosenDir = Just (-1), lsAction = "EXIT_MAX_HOLD" }, 0, Just "MAX_HOLD")
           else (latest1, desiredPosWanted1, mExitReason1)
+
+      (latest, desiredPosWanted, mExitReason) =
+        if prevPos == 0 && desiredPosWanted2 == 1 && cooldownBlocked
+          then (latest2 { lsAction = "HOLD_COOLDOWN" }, 0, Nothing)
+          else (latest2, desiredPosWanted2, mExitReason2)
 
       wantSwitch = desiredPosWanted /= prevPos
 
@@ -3586,6 +3643,19 @@ argsCacheJsonSignal args =
       , "closeThreshold" .= argCloseThreshold args
       , "method" .= methodCode (argMethod args)
       , "positioning" .= positioningCode (argPositioning args)
+      , "maxHoldBars" .= argMaxHoldBars args
+      , "minEdge" .= argMinEdge args
+      , "costAwareEdge" .= argCostAwareEdge args
+      , "edgeBuffer" .= argEdgeBuffer args
+      , "trendLookback" .= argTrendLookback args
+      , "maxPositionSize" .= argMaxPositionSize args
+      , "volTarget" .= argVolTarget args
+      , "volLookback" .= argVolLookback args
+      , "volEwmaAlpha" .= argVolEwmaAlpha args
+      , "volFloor" .= argVolFloor args
+      , "volScaleMax" .= argVolScaleMax args
+      , "maxVolatility" .= argMaxVolatility args
+      , "blendWeight" .= argBlendWeight args
       , "kalmanZMin" .= argKalmanZMin args
       , "kalmanZMax" .= argKalmanZMax args
       , "maxHighVolProb" .= argMaxHighVolProb args
@@ -3635,6 +3705,9 @@ argsCacheJsonBacktest args =
       , "tuneObjective" .= tuneObjectiveCode (argTuneObjective args)
       , "tunePenaltyMaxDrawdown" .= argTunePenaltyMaxDrawdown args
       , "tunePenaltyTurnover" .= argTunePenaltyTurnover args
+      , "tuneStressVolMult" .= argTuneStressVolMult args
+      , "tuneStressShock" .= argTuneStressShock args
+      , "tuneStressWeight" .= argTuneStressWeight args
       , "minRoundTrips" .= argMinRoundTrips args
       , "walkForwardFolds" .= argWalkForwardFolds args
       , "optimizeOperations" .= argOptimizeOperations args
@@ -3648,8 +3721,21 @@ argsCacheJsonBacktest args =
       , "trailingStop" .= argTrailingStop args
       , "minHoldBars" .= argMinHoldBars args
       , "cooldownBars" .= argCooldownBars args
+      , "maxHoldBars" .= argMaxHoldBars args
       , "maxDrawdown" .= argMaxDrawdown args
       , "maxDailyLoss" .= argMaxDailyLoss args
+      , "minEdge" .= argMinEdge args
+      , "costAwareEdge" .= argCostAwareEdge args
+      , "edgeBuffer" .= argEdgeBuffer args
+      , "trendLookback" .= argTrendLookback args
+      , "maxPositionSize" .= argMaxPositionSize args
+      , "volTarget" .= argVolTarget args
+      , "volLookback" .= argVolLookback args
+      , "volEwmaAlpha" .= argVolEwmaAlpha args
+      , "volFloor" .= argVolFloor args
+      , "volScaleMax" .= argVolScaleMax args
+      , "maxVolatility" .= argMaxVolatility args
+      , "blendWeight" .= argBlendWeight args
       , "maxOrderErrors" .= argMaxOrderErrors args
       , "periodsPerYear" .= argPeriodsPerYear args
       , "kalmanZMin" .= argKalmanZMin args
@@ -4765,11 +4851,15 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
   fallbackValOrErr <- readTopCombos fallbackPath
   now <- getTimestampMs
 
-  let combos =
+  let tmpCombos = either (const []) extractCombos tmpValOrErr
+      fallbackCombos = either (const []) extractCombos fallbackValOrErr
+      combos = tmpCombos ++ fallbackCombos
+      payloadSources =
         concat
-          [ either (const []) extractCombos tmpValOrErr
-          , either (const []) extractCombos fallbackValOrErr
+          [ if null tmpCombos then [] else maybeToList (either (const Nothing) extractPayloadSource tmpValOrErr)
+          , if null fallbackCombos then [] else maybeToList (either (const Nothing) extractPayloadSource fallbackValOrErr)
           ]
+      payloadSource = listToMaybe payloadSources
   if null combos
     then respond (jsonError status404 "Optimizer combos not available yet.")
     else do
@@ -4779,6 +4869,8 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
             object
               [ "generatedAtMs" .= now
               , "source" .= ("optimizer/combos" :: String)
+              , "payloadSource" .= payloadSource
+              , "payloadSources" .= payloadSources
               , "combos" .= combosRanked
               ]
       respond (jsonValue status200 out)
@@ -4805,6 +4897,17 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
             Just (Aeson.Array arr) -> V.toList arr
             _ -> []
         _ -> []
+
+    extractPayloadSource :: Aeson.Value -> Maybe String
+    extractPayloadSource val =
+      case val of
+        Aeson.Object o -> KM.lookup "source" o >>= AT.parseMaybe parseJSON >>= cleanPayloadSource
+        _ -> Nothing
+
+    cleanPayloadSource :: String -> Maybe String
+    cleanPayloadSource raw =
+      let s = trim raw
+       in if null s then Nothing else Just s
 
     comboMetric key val =
       case val of
@@ -5522,8 +5625,21 @@ argsFromApi baseArgs p = do
           , argTrailingStop = pickMaybe (apTrailingStop p) (argTrailingStop baseArgs)
           , argMinHoldBars = pick (apMinHoldBars p) (argMinHoldBars baseArgs)
           , argCooldownBars = pick (apCooldownBars p) (argCooldownBars baseArgs)
+          , argMaxHoldBars = pickMaybe (apMaxHoldBars p) (argMaxHoldBars baseArgs)
           , argMaxDrawdown = pickMaybe (apMaxDrawdown p) (argMaxDrawdown baseArgs)
           , argMaxDailyLoss = pickMaybe (apMaxDailyLoss p) (argMaxDailyLoss baseArgs)
+          , argMinEdge = pick (apMinEdge p) (argMinEdge baseArgs)
+          , argCostAwareEdge = pick (apCostAwareEdge p) (argCostAwareEdge baseArgs)
+          , argEdgeBuffer = pick (apEdgeBuffer p) (argEdgeBuffer baseArgs)
+          , argTrendLookback = pick (apTrendLookback p) (argTrendLookback baseArgs)
+          , argMaxPositionSize = pick (apMaxPositionSize p) (argMaxPositionSize baseArgs)
+          , argVolTarget = pickMaybe (apVolTarget p) (argVolTarget baseArgs)
+          , argVolLookback = pick (apVolLookback p) (argVolLookback baseArgs)
+          , argVolEwmaAlpha = pickMaybe (apVolEwmaAlpha p) (argVolEwmaAlpha baseArgs)
+          , argVolFloor = pick (apVolFloor p) (argVolFloor baseArgs)
+          , argVolScaleMax = pick (apVolScaleMax p) (argVolScaleMax baseArgs)
+          , argMaxVolatility = pickMaybe (apMaxVolatility p) (argMaxVolatility baseArgs)
+          , argBlendWeight = pick (apBlendWeight p) (argBlendWeight baseArgs)
           , argMaxOrderErrors = pickMaybe (apMaxOrderErrors p) (argMaxOrderErrors baseArgs)
           , argPeriodsPerYear =
               case apPeriodsPerYear p of
@@ -5546,6 +5662,9 @@ argsFromApi baseArgs p = do
           , argConfirmQuantiles = pick (apConfirmQuantiles p) (argConfirmQuantiles baseArgs)
           , argConfidenceSizing = pick (apConfidenceSizing p) (argConfidenceSizing baseArgs)
           , argMinPositionSize = pick (apMinPositionSize p) (argMinPositionSize baseArgs)
+          , argTuneStressVolMult = pick (apTuneStressVolMult p) (argTuneStressVolMult baseArgs)
+          , argTuneStressShock = pick (apTuneStressShock p) (argTuneStressShock baseArgs)
+          , argTuneStressWeight = pick (apTuneStressWeight p) (argTuneStressWeight baseArgs)
           }
 
   validateArgs args
@@ -5916,11 +6035,12 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
 
     entryScale :: Double
     entryScale =
-      let s =
-            if argConfidenceSizing args
-              then maybe 1 id (lsPositionSize sig)
-              else 1
-       in max 0 (min 1 s)
+      let s0 = maybe 1 id (lsPositionSize sig)
+          s1 = max 0 s0
+          s2 = min s1 (max 0 (argMaxPositionSize args))
+       in case beMarket env of
+            MarketFutures -> s2
+            _ -> min 1 s2
 
     clientOrderId :: Maybe String
     clientOrderId = trim <$> (mClientOrderIdOverride <|> argIdempotencyKey args)
@@ -5951,6 +6071,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
         MethodBoth -> "No order: directions disagree or neutral (direction gate)."
         MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
         MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
+        MethodBlend -> "No order: Blend neutral (within threshold)."
 
     shortErr :: SomeException -> String
     shortErr ex = take 240 (show ex)
@@ -6360,6 +6481,9 @@ backtestSummaryJson summary =
           [ "objective" .= tuneObjectiveCode (bsTuneObjective summary)
           , "penaltyMaxDrawdown" .= bsTunePenaltyMaxDrawdown summary
           , "penaltyTurnover" .= bsTunePenaltyTurnover summary
+          , "stressVolMult" .= bsTuneStressVolMult summary
+          , "stressShock" .= bsTuneStressShock summary
+          , "stressWeight" .= bsTuneStressWeight summary
           , "minRoundTrips" .= bsMinRoundTrips summary
           , "walkForwardFolds" .= bsWalkForwardFolds summary
           , "tuneStats" .= tuneStatsJson
@@ -6418,6 +6542,19 @@ backtestSummaryJson summary =
     , "closeThreshold" .= bsBestCloseThreshold summary
     , "minHoldBars" .= bsMinHoldBars summary
     , "cooldownBars" .= bsCooldownBars summary
+    , "maxHoldBars" .= bsMaxHoldBars summary
+    , "maxPositionSize" .= bsMaxPositionSize summary
+    , "minEdge" .= bsMinEdge summary
+    , "costAwareEdge" .= bsCostAwareEdge summary
+    , "edgeBuffer" .= bsEdgeBuffer summary
+    , "trendLookback" .= bsTrendLookback summary
+    , "volTarget" .= bsVolTarget summary
+    , "volLookback" .= bsVolLookback summary
+    , "volEwmaAlpha" .= bsVolEwmaAlpha summary
+    , "volFloor" .= bsVolFloor summary
+    , "volScaleMax" .= bsVolScaleMax summary
+    , "maxVolatility" .= bsMaxVolatility summary
+    , "blendWeight" .= bsBlendWeight summary
     , "tuning" .= tuningJson
     , "costs" .= costsJson
     , "walkForward" .= walkForwardJson
@@ -6602,6 +6739,7 @@ runBacktestPipeline args lookback series mBinanceEnv = do
           MethodBoth -> "Backtest (Kalman fusion + LSTM direction-agreement gated) complete."
           MethodKalmanOnly -> "Backtest (Kalman fusion only) complete."
           MethodLstmOnly -> "Backtest (LSTM only) complete."
+          MethodBlend -> "Backtest (Kalman + LSTM blend) complete."
 
       case bsLstmHistory summary of
         Nothing -> pure ()
@@ -7263,6 +7401,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsTuneObjective = argTuneObjective args
       , bsTunePenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
       , bsTunePenaltyTurnover = argTunePenaltyTurnover args
+      , bsTuneStressVolMult = argTuneStressVolMult args
+      , bsTuneStressShock = argTuneStressShock args
+      , bsTuneStressWeight = argTuneStressWeight args
       , bsMinRoundTrips = argMinRoundTrips args
       , bsWalkForwardFolds = argWalkForwardFolds args
       , bsTuneStats = mTuneStats
@@ -7274,6 +7415,19 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsBestCloseThreshold = bestCloseThr
       , bsMinHoldBars = argMinHoldBars args
       , bsCooldownBars = argCooldownBars args
+      , bsMaxHoldBars = argMaxHoldBars args
+      , bsMaxPositionSize = argMaxPositionSize args
+      , bsMinEdge = minEdge
+      , bsCostAwareEdge = argCostAwareEdge args
+      , bsEdgeBuffer = argEdgeBuffer args
+      , bsTrendLookback = argTrendLookback args
+      , bsVolTarget = argVolTarget args
+      , bsVolLookback = argVolLookback args
+      , bsVolEwmaAlpha = argVolEwmaAlpha args
+      , bsVolFloor = argVolFloor args
+      , bsVolScaleMax = argVolScaleMax args
+      , bsMaxVolatility = argMaxVolatility args
+      , bsBlendWeight = argBlendWeight args
       , bsFee = feeUsed
       , bsSlippage = slippageUsed
       , bsSpread = spreadUsed
@@ -7720,6 +7874,18 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                       (Just k, Just l) -> Just (blendWeight * k + (1 - blendWeight) * l)
                       _ -> Nothing
                   blendDir = blendNext >>= directionPrice openThr
+                  kalCloseDirRaw = mKalNext >>= directionPrice closeThr
+                  lstmCloseDir = mLstmNext >>= directionPrice closeThr
+                  blendCloseDir = blendNext >>= directionPrice closeThr
+                  closeDir =
+                    case method of
+                      MethodBoth ->
+                        if kalCloseDirRaw == lstmCloseDir
+                          then kalCloseDirRaw
+                          else Nothing
+                      MethodKalmanOnly -> kalCloseDirRaw
+                      MethodLstmOnly -> lstmCloseDir
+                      MethodBlend -> blendCloseDir
 
                   agreeDir =
                     if kalDir == lstmDir
@@ -7847,6 +8013,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                     , lsLstmNext = mLstmNext
                     , lsLstmDir = lstmDir
                     , lsChosenDir = chosenDir
+                    , lsCloseDir = closeDir
                     , lsAction = action
                     }
 
@@ -7879,6 +8046,7 @@ printLatestSignalSummary sig = do
     Just lstmNext -> putStrLn (printf "LSTM next:   %.4f (%s)" lstmNext (showDir (lsLstmDir sig)))
   putStrLn (printf "Open threshold:  %.3f%%" (lsOpenThreshold sig * 100))
   putStrLn (printf "Close threshold: %.3f%%" (lsCloseThreshold sig * 100))
+  putStrLn (printf "Close dir:       %s" (showDir (lsCloseDir sig)))
   putStrLn (printf "Action: %s" (lsAction sig))
 
 estimatedPerSideCost :: Double -> Double -> Double -> Double
@@ -8230,6 +8398,7 @@ printMetrics method m = do
           MethodBoth -> "Direction agreement rate"
           MethodKalmanOnly -> "Signal rate (Kalman)"
           MethodLstmOnly -> "Signal rate (LSTM)"
+          MethodBlend -> "Signal rate (Blend)"
   putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
   putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
 
