@@ -75,9 +75,10 @@ type Props = {
   error: string | null;
   selectedId: number | null;
   onSelect: (combo: OptimizationCombo) => void;
+  onApply: (combo: OptimizationCombo) => void;
 };
 
-export function TopCombosChart({ combos, loading, error, selectedId, onSelect }: Props) {
+export function TopCombosChart({ combos, loading, error, selectedId, onSelect, onApply }: Props) {
   if (loading) {
     return <div className="hint">Looking for optimizer combos…</div>;
   }
@@ -140,11 +141,18 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
         const operations = combo.operations ?? [];
         const hasOps = operations.length > 0;
         return (
-          <button
-            type="button"
+          <div
             key={combo.id}
             className={`comboRow${selectedId === combo.id ? " comboRowSelected" : ""}`}
+            role="button"
+            tabIndex={0}
             onClick={() => onSelect(combo)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect(combo);
+              }
+            }}
           >
             <div className="comboRowHeader">
               <div>
@@ -180,7 +188,19 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
                   })()}
                 </div>
               </div>
-              <div className="comboEquity">{fmtRatio(combo.finalEquity, 4)}</div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+                <div className="comboEquity">{fmtRatio(combo.finalEquity, 4)}</div>
+                <button
+                  className="btnSmall"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onApply(combo);
+                  }}
+                >
+                  Apply
+                </button>
+              </div>
             </div>
             <div className="comboBarWrapper">
               <div className="comboBar" style={{ width: `${barWidth}%` }} />
@@ -232,7 +252,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
                 </div>
               </div>
             ) : null}
-          </button>
+          </div>
         );
       })}
     </div>

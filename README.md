@@ -152,9 +152,13 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--open-threshold 0.001` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
   - `--close-threshold 0.001` exit/close threshold (fractional deadband; defaults to open-threshold when omitted)
     - Live order placement uses `close-threshold` to decide exits when already in position, mirroring backtest logic.
-  - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only)
+  - `--min-edge F` minimum predicted return magnitude required to enter (`0` disables)
+    - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread
+    - `--edge-buffer F` optional extra buffer added on top of cost-aware edge
+  - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
+    - `--blend-weight 0.5` Kalman weight for `blend` (`0..1`, default: `0.5`)
   - `--positioning long-flat` (default) or `--positioning long-short` (allows short positions in backtests; if trading, requires `--futures`; live bot is long-flat only)
   - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
@@ -164,6 +168,9 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--tune-penalty-max-drawdown 1.0` penalty weight for max drawdown (used by `equity-dd*` objectives)
   - `--tune-penalty-turnover 0.1` penalty weight for turnover (used by `equity-dd-turnover`)
   - `--min-round-trips N` (default: `0`) when optimizing/sweeping, require at least `N` round trips in the tune split (helps avoid picking "no-trade" configs)
+  - `--tune-stress-vol-mult F` volatility multiplier for stress scoring (`1` disables)
+  - `--tune-stress-shock F` shock added to returns for stress scoring (`0` disables)
+  - `--tune-stress-weight F` penalty weight for stress scoring (`0` disables)
   - `--walk-forward-folds 5` number of folds used to score the tune split and report backtest variability (`1` disables)
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
   - `--fee 0.0005` fee applied when switching position
@@ -173,6 +180,15 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--trailing-stop F` optional synthetic trailing stop (`0 < F < 1`)
   - `--min-hold-bars N` optional: minimum holding periods before allowing a signal-based exit (`0` disables; bracket exits still apply)
   - `--cooldown-bars N` optional: after an exit to flat, wait `N` bars before allowing a new entry (`0` disables)
+  - `--max-hold-bars N` optional: force exit after holding for `N` bars (`0` disables; exit reason `MAX_HOLD`)
+  - `--trend-lookback N` optional: simple moving average filter for entries (`0` disables)
+  - `--max-position-size F` optional: cap position size/leverage (`1` = full size)
+  - `--vol-target F` optional: target annualized volatility for position sizing
+    - `--vol-lookback N` realized-vol lookback window (bars) when EWMA alpha is not set
+    - `--vol-ewma-alpha F` use EWMA volatility estimate (overrides lookback)
+    - `--vol-floor F` annualized vol floor for sizing
+    - `--vol-scale-max F` cap volatility scaling (limits leverage)
+    - `--max-volatility F` optional: block entries when annualized vol exceeds this
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day)
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
@@ -243,8 +259,10 @@ Endpoints:
 - `GET /bot/status` → returns the live bot status + chart data (prices/equity/positions/operations)
 
 Optimizer script tips:
-- `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
+- `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, trade-quality filters, hold/cooldown sampling, equity-dd-turnover, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
+- `--min-win-rate`, `--min-profit-factor`, and `--min-exposure` filter low-quality combos.
+- `--min-hold-bars-min/max` and `--cooldown-bars-min/max` sample trade gating windows to reduce churn.
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
@@ -322,7 +340,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
-- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), or `"01"`/`"lstm"` (LSTM only).
+- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), or `"blend"` (weighted average; see `--blend-weight`).
 - `positioning` is `"long-flat"` (default) or `"long-short"` (shorts require futures when placing orders; live bot is long-flat only).
 
 Deploy to AWS
@@ -339,9 +357,13 @@ Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
 The UI shows whether combos are coming from the live API or the static fallback, plus their last update time.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
+Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
+Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
+The configuration panel keeps a sticky action bar with readiness status and run buttons while you scroll.
 When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` (the quick AWS deploy script does this automatically when a distribution ID is provided) to avoid CORS issues.
 The UI exposes an Auto-apply toggle for top combos and shows when a combo auto-applied; manual override locks include an unlock button to let combos update those fields again.
+The API panel includes quick actions to copy the base URL and open `/health`.
 
 Run it:
 ```
