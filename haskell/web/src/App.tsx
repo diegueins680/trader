@@ -166,6 +166,15 @@ type ListenKeyUiState = {
   keepAliveError: string | null;
 };
 
+type TopCombosSource = "api" | "static";
+
+type TopCombosMeta = {
+  source: TopCombosSource;
+  generatedAtMs: number | null;
+  payloadSource: string | null;
+  fallbackReason: string | null;
+};
+
 type OrderSideFilter = "ALL" | "BUY" | "SELL";
 
 type OrderLogPrefs = {
@@ -624,6 +633,12 @@ export function App() {
   const [topCombos, setTopCombos] = useState<OptimizationCombo[]>([]);
   const [topCombosLoading, setTopCombosLoading] = useState(true);
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
+  const [topCombosMeta, setTopCombosMeta] = useState<TopCombosMeta>({
+    source: "static",
+    generatedAtMs: null,
+    payloadSource: null,
+    fallbackReason: null,
+  });
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
   const topCombosRef = useRef<OptimizationCombo[]>([]);
   const dataLogRef = useRef<HTMLDivElement | null>(null);
@@ -2068,20 +2083,31 @@ export function App() {
   useEffect(() => {
     let isCancelled = false;
     let inFlight = false;
-    const fetchPayload = async (): Promise<unknown> => {
+    const fetchPayload = async (): Promise<{ payload: unknown; source: TopCombosSource; fallbackReason: string | null }> => {
       if (apiOk === "ok") {
         try {
           const url = `${apiBase.replace(/\/+$/, "")}/optimizer/combos`;
           const res = await fetch(url, { headers: authHeaders });
-          if (res.ok) return res.json();
-          throw new Error(`HTTP ${res.status}`);
-        } catch {
-          // Fall back to the static UI bundle.
+          if (res.ok) return { payload: await res.json(), source: "api", fallbackReason: null };
+          throw new Error(`API error (HTTP ${res.status})`);
+        } catch (err) {
+          const fallbackReason = err instanceof Error ? err.message : "API unreachable";
+          const res = await fetch("/top-combos.json");
+          if (!res.ok) throw new Error(`Static combos unavailable (HTTP ${res.status})`);
+          return { payload: await res.json(), source: "static", fallbackReason };
         }
       }
+      const fallbackReason =
+        apiOk === "auth"
+          ? "API unauthorized"
+          : apiOk === "down"
+            ? "API unreachable"
+            : apiOk === "unknown"
+              ? "API unknown"
+              : "API unavailable";
       const res = await fetch("/top-combos.json");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
+      if (!res.ok) throw new Error(`Static combos unavailable (HTTP ${res.status})`);
+      return { payload: await res.json(), source: "static", fallbackReason };
     };
     const syncTopCombos = async (opts?: { silent?: boolean }) => {
       if (isCancelled || inFlight) return;
@@ -2089,7 +2115,7 @@ export function App() {
       const silent = opts?.silent ?? false;
       if (!silent) setTopCombosLoading(true);
       try {
-        const payload = await fetchPayload();
+        const { payload, source, fallbackReason } = await fetchPayload();
         if (isCancelled) return;
         const payloadRec = (payload as Record<string, unknown> | null | undefined) ?? {};
         const rawCombos: unknown[] = Array.isArray(payloadRec.combos) ? (payloadRec.combos as unknown[]) : [];
@@ -2295,6 +2321,11 @@ export function App() {
         });
         const limited = sanitized.slice(0, 5);
         setTopCombos(limited);
+        const generatedAtMsRaw = payloadRec.generatedAtMs;
+        const generatedAtMs =
+          typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
+        const payloadSource = typeof payloadRec.source === "string" && payloadRec.source ? payloadRec.source : null;
+        setTopCombosMeta({ source, generatedAtMs, payloadSource, fallbackReason });
         setTopCombosError(null);
         const topCombo = limited[0];
         if (topCombo) {
@@ -2828,6 +2859,23 @@ export function App() {
           <div className="row" style={{ gridTemplateColumns: "1fr" }}>
             <div className="field">
               <label className="label">Optimizer combos</label>
+              {(() => {
+                const updatedAtMs = topCombosMeta.generatedAtMs;
+                const updatedLabel = updatedAtMs ? fmtTimeMs(updatedAtMs) : "—";
+                const ageLabel = updatedAtMs ? fmtDurationMs(Math.max(0, Date.now() - updatedAtMs)) : null;
+                const sourceLabel = topCombosMeta.source === "api" ? "Source: API" : "Source: static file";
+                const reason = topCombosMeta.source === "api" ? null : topCombosMeta.fallbackReason;
+                const payloadSource = topCombosMeta.payloadSource;
+                return (
+                  <div className="hint" style={{ marginBottom: 8 }}>
+                    {sourceLabel}
+                    {reason ? ` (${reason})` : ""}
+                    {payloadSource ? ` • payload ${payloadSource}` : ""}
+                    {" • "}updated {updatedLabel}
+                    {ageLabel ? ` (${ageLabel} ago)` : ""}
+                  </div>
+                );
+              })()}
               <TopCombosChart
                 combos={topCombos}
                 loading={topCombosLoading}

@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Normalization: `minmax`/`standard` fall back to no-op when the fit window is empty or only contains non-finite values; `log` requires finite, positive values.
 - Web UI: improves async job not found handling with a clearer error after the grace period.
 - Web UI: fixes a startup crash when optimizer combos apply before API compute limits are available.
+- Web UI: show optimizer combo source (API vs static) and last update time.
 - Web UI: optimizer combo loads preserve the current positioning unless the combo explicitly specifies one.
 - Web UI: manual Method/open/close edits are preserved when optimizer combos or optimize/sweep results apply.
 - Web UI: optimizer combos now persist/show the operations that produced each top result on hover.
