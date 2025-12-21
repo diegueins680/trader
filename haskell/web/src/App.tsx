@@ -84,7 +84,7 @@ import {
 import { BacktestChart } from "./components/BacktestChart";
 import { PredictionDiffChart } from "./components/PredictionDiffChart";
 import { TelemetryChart } from "./components/TelemetryChart";
-import { TopCombosChart, type OptimizationCombo } from "./components/TopCombosChart";
+import { TopCombosChart, type OptimizationCombo, type OptimizationComboOperation } from "./components/TopCombosChart";
 
 type RequestKind = "signal" | "backtest" | "trade";
 
@@ -2190,6 +2190,39 @@ export function App() {
             sharpe != null || maxDrawdown != null || turnover != null || roundTrips != null
               ? { sharpe, maxDrawdown, turnover, roundTrips }
               : null;
+          const operationsRaw = Array.isArray(rawRec.operations) ? rawRec.operations : [];
+          const operations = operationsRaw
+            .map((rawOp) => {
+              const opRec = (rawOp as Record<string, unknown> | null | undefined) ?? {};
+              const entryIndex =
+                typeof opRec.entryIndex === "number" && Number.isFinite(opRec.entryIndex) ? Math.trunc(opRec.entryIndex) : null;
+              const exitIndex =
+                typeof opRec.exitIndex === "number" && Number.isFinite(opRec.exitIndex) ? Math.trunc(opRec.exitIndex) : null;
+              if (entryIndex == null || exitIndex == null) return null;
+              const entryEquity =
+                typeof opRec.entryEquity === "number" && Number.isFinite(opRec.entryEquity) ? (opRec.entryEquity as number) : null;
+              const exitEquity =
+                typeof opRec.exitEquity === "number" && Number.isFinite(opRec.exitEquity) ? (opRec.exitEquity as number) : null;
+              const retValue = typeof opRec.return === "number" && Number.isFinite(opRec.return) ? (opRec.return as number) : null;
+              const holdingPeriods =
+                typeof opRec.holdingPeriods === "number" && Number.isFinite(opRec.holdingPeriods)
+                  ? Math.trunc(opRec.holdingPeriods as number)
+                  : null;
+              const exitReason =
+                typeof opRec.exitReason === "string" && opRec.exitReason.trim() ? opRec.exitReason.trim() : null;
+              const op: OptimizationComboOperation = {
+                entryIndex,
+                exitIndex,
+                entryEquity,
+                exitEquity,
+                return: retValue,
+                holdingPeriods,
+                exitReason,
+              };
+              return op;
+            })
+            .filter((op): op is OptimizationComboOperation => op !== null);
+          const operationsOut = operations.length > 0 ? operations : null;
           const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
           const source: OptimizationCombo["source"] =
             rawSource === "binance" ? "binance" : rawSource === "csv" ? "csv" : null;
@@ -2203,6 +2236,7 @@ export function App() {
             openThreshold: typeof rawRec.openThreshold === "number" ? rawRec.openThreshold : null,
             closeThreshold: typeof rawRec.closeThreshold === "number" ? rawRec.closeThreshold : null,
             source,
+            operations: operationsOut,
             params: {
               interval,
               bars,

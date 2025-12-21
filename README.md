@@ -231,7 +231,7 @@ Endpoints:
 - `POST /backtest/async` → starts an async backtest job
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
 - `POST /optimizer/run` → runs the optimizer script and returns the last JSONL record
-- `GET /optimizer/combos` → returns `top-combos.json` (UI helper)
+- `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing)
 - `POST /binance/listenKey` → creates a Binance user-data listenKey (returns WebSocket URL)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
@@ -332,6 +332,7 @@ When trading is armed, Long/Short positioning requires Futures market (the UI sw
 Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
+Hover optimizer combos to inspect the operations captured for each top performer.
 
 Run it:
 ```

@@ -75,6 +75,16 @@ def _normalize_symbol(value: Any) -> Optional[str]:
     return _normalize_symbol(str(value))
 
 
+def _coerce_operations(value: Any) -> Optional[List[Dict[str, Any]]]:
+    if not isinstance(value, list):
+        return None
+    ops: List[Dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            ops.append(item)
+    return ops if ops else None
+
+
 def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -125,6 +135,7 @@ def _load_combos_from_jsonl(path: Path) -> List[Dict[str, Any]]:
                 "closeThreshold": _coerce_float(rec.get("closeThreshold")),
                 "source": source,
                 "metrics": rec.get("metrics") if isinstance(rec.get("metrics"), dict) else None,
+                "operations": _coerce_operations(rec.get("operations")),
                 "params": params,
             }
         )
@@ -147,6 +158,7 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     objective = combo.get("objective") if isinstance(combo.get("objective"), str) else None
     score = _coerce_float(combo.get("score"))
     metrics = combo.get("metrics") if isinstance(combo.get("metrics"), dict) else None
+    operations = _coerce_operations(combo.get("operations"))
 
     interval = params_raw.get("interval")
     interval_s = interval if isinstance(interval, str) else (str(interval) if interval is not None else "")
@@ -234,6 +246,7 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "closeThreshold": _coerce_float(combo.get("closeThreshold")),
         "source": source,
         "metrics": metrics,
+        "operations": operations,
         "params": normalized_params,
     }
 
@@ -331,19 +344,21 @@ def _write_top_json(path: Path, combos: List[Dict[str, Any]], max_items: int) ->
     for rank, combo in enumerate(combos_sorted, start=1):
         metrics = combo.get("metrics")
         metrics_out = metrics if isinstance(metrics, dict) else None
-        export["combos"].append(
-            {
-                "rank": rank,
-                "finalEquity": combo["finalEquity"],
-                "objective": combo.get("objective"),
-                "score": combo.get("score"),
-                "openThreshold": combo.get("openThreshold"),
-                "closeThreshold": combo.get("closeThreshold"),
-                "source": combo.get("source"),
-                "metrics": metrics_out,
-                "params": combo.get("params", {}),
-            }
-        )
+        combo_out: Dict[str, Any] = {
+            "rank": rank,
+            "finalEquity": combo["finalEquity"],
+            "objective": combo.get("objective"),
+            "score": combo.get("score"),
+            "openThreshold": combo.get("openThreshold"),
+            "closeThreshold": combo.get("closeThreshold"),
+            "source": combo.get("source"),
+            "metrics": metrics_out,
+            "params": combo.get("params", {}),
+        }
+        operations = combo.get("operations")
+        if isinstance(operations, list):
+            combo_out["operations"] = operations
+        export["combos"].append(combo_out)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(export, indent=2) + "\n", encoding="utf-8")

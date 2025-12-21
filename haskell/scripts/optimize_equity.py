@@ -125,6 +125,46 @@ def metric_int(metrics: Optional[Dict[str, Any]], key: str, default: int = 0) ->
     return default
 
 
+def coerce_float_value(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(int(value))
+    if isinstance(value, (int, float)):
+        v = float(value)
+        return v if math.isfinite(v) else None
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            v = float(s)
+        except ValueError:
+            return None
+        return v if math.isfinite(v) else None
+    return None
+
+
+def coerce_int_value(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return int(value) if math.isfinite(value) else None
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return int(float(s))
+        except ValueError:
+            return None
+    return None
+
+
 def objective_score(
     metrics: Dict[str, Any],
     objective: str,
@@ -470,7 +510,41 @@ def trial_to_record(tr: TrialResult, symbol_label: Optional[str]) -> Dict[str, A
         r["params"]["binanceSymbol"] = symbol
     if tr.metrics is not None:
         r["metrics"] = tr.metrics
+    ops = extract_operations(tr.stdout_json)
+    if ops is not None:
+        r["operations"] = ops
     return r
+
+
+def extract_operations(stdout_json: Optional[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+    if not isinstance(stdout_json, dict):
+        return None
+    bt = stdout_json.get("backtest")
+    if not isinstance(bt, dict):
+        return None
+    trades = bt.get("trades")
+    if not isinstance(trades, list):
+        return None
+    ops: List[Dict[str, Any]] = []
+    for raw in trades:
+        if not isinstance(raw, dict):
+            continue
+        entry_idx = coerce_int_value(raw.get("entryIndex"))
+        exit_idx = coerce_int_value(raw.get("exitIndex"))
+        if entry_idx is None or exit_idx is None:
+            continue
+        ops.append(
+            {
+                "entryIndex": entry_idx,
+                "exitIndex": exit_idx,
+                "entryEquity": coerce_float_value(raw.get("entryEquity")),
+                "exitEquity": coerce_float_value(raw.get("exitEquity")),
+                "return": coerce_float_value(raw.get("return")),
+                "holdingPeriods": coerce_int_value(raw.get("holdingPeriods")),
+                "exitReason": raw.get("exitReason") if isinstance(raw.get("exitReason"), str) else None,
+            }
+        )
+    return ops if ops else None
 
 
 def pick_intervals(
@@ -1274,61 +1348,63 @@ def main(argv: List[str]) -> int:
             turnover = metric_float(tr.metrics, "turnover", 0.0)
             round_trips = metric_int(tr.metrics, "roundTrips", 0)
             symbol = symbol_label
-            combos.append(
-                {
-                    "rank": rank,
-                    "finalEquity": tr.final_equity,
-                    "objective": tr.objective,
-                    "score": tr.score,
-                    "openThreshold": tr.open_threshold,
-                    "closeThreshold": tr.close_threshold,
-                    "source": source,
-                    "metrics": {
-                        "sharpe": sharpe,
-                        "maxDrawdown": max_dd,
-                        "turnover": turnover,
-                        "roundTrips": round_trips,
-                    },
-                    "params": {
-                        "interval": tr.params.interval,
-                        "bars": tr.params.bars,
-                        "method": tr.params.method,
-                        "positioning": tr.params.positioning,
-                        "normalization": tr.params.normalization,
-                        "baseOpenThreshold": tr.params.base_open_threshold,
-                        "baseCloseThreshold": tr.params.base_close_threshold,
-                        "fee": tr.params.fee,
-                        "epochs": tr.params.epochs,
-                        "hiddenSize": tr.params.hidden_size,
-                        "learningRate": tr.params.learning_rate,
-                        "valRatio": tr.params.val_ratio,
-                        "patience": tr.params.patience,
-                        "gradClip": tr.params.grad_clip,
-                        "slippage": tr.params.slippage,
-                        "spread": tr.params.spread,
-                        "intrabarFill": tr.params.intrabar_fill,
-                        "stopLoss": tr.params.stop_loss,
-                        "takeProfit": tr.params.take_profit,
-                        "trailingStop": tr.params.trailing_stop,
-                        "maxDrawdown": tr.params.max_drawdown,
-                        "maxDailyLoss": tr.params.max_daily_loss,
-                        "maxOrderErrors": tr.params.max_order_errors,
-                        "kalmanDt": tr.params.kalman_dt,
-                        "kalmanProcessVar": tr.params.kalman_process_var,
-                        "kalmanMeasurementVar": tr.params.kalman_measurement_var,
-                        "kalmanZMin": tr.params.kalman_z_min,
-                        "kalmanZMax": tr.params.kalman_z_max,
-                        "maxHighVolProb": tr.params.max_high_vol_prob,
-                        "maxConformalWidth": tr.params.max_conformal_width,
-                        "maxQuantileWidth": tr.params.max_quantile_width,
-                        "confirmConformal": tr.params.confirm_conformal,
-                        "confirmQuantiles": tr.params.confirm_quantiles,
-                        "confidenceSizing": tr.params.confidence_sizing,
-                        "minPositionSize": tr.params.min_position_size,
-                        "binanceSymbol": symbol,
-                    },
-                }
-            )
+            combo = {
+                "rank": rank,
+                "finalEquity": tr.final_equity,
+                "objective": tr.objective,
+                "score": tr.score,
+                "openThreshold": tr.open_threshold,
+                "closeThreshold": tr.close_threshold,
+                "source": source,
+                "metrics": {
+                    "sharpe": sharpe,
+                    "maxDrawdown": max_dd,
+                    "turnover": turnover,
+                    "roundTrips": round_trips,
+                },
+                "params": {
+                    "interval": tr.params.interval,
+                    "bars": tr.params.bars,
+                    "method": tr.params.method,
+                    "positioning": tr.params.positioning,
+                    "normalization": tr.params.normalization,
+                    "baseOpenThreshold": tr.params.base_open_threshold,
+                    "baseCloseThreshold": tr.params.base_close_threshold,
+                    "fee": tr.params.fee,
+                    "epochs": tr.params.epochs,
+                    "hiddenSize": tr.params.hidden_size,
+                    "learningRate": tr.params.learning_rate,
+                    "valRatio": tr.params.val_ratio,
+                    "patience": tr.params.patience,
+                    "gradClip": tr.params.grad_clip,
+                    "slippage": tr.params.slippage,
+                    "spread": tr.params.spread,
+                    "intrabarFill": tr.params.intrabar_fill,
+                    "stopLoss": tr.params.stop_loss,
+                    "takeProfit": tr.params.take_profit,
+                    "trailingStop": tr.params.trailing_stop,
+                    "maxDrawdown": tr.params.max_drawdown,
+                    "maxDailyLoss": tr.params.max_daily_loss,
+                    "maxOrderErrors": tr.params.max_order_errors,
+                    "kalmanDt": tr.params.kalman_dt,
+                    "kalmanProcessVar": tr.params.kalman_process_var,
+                    "kalmanMeasurementVar": tr.params.kalman_measurement_var,
+                    "kalmanZMin": tr.params.kalman_z_min,
+                    "kalmanZMax": tr.params.kalman_z_max,
+                    "maxHighVolProb": tr.params.max_high_vol_prob,
+                    "maxConformalWidth": tr.params.max_conformal_width,
+                    "maxQuantileWidth": tr.params.max_quantile_width,
+                    "confirmConformal": tr.params.confirm_conformal,
+                    "confirmQuantiles": tr.params.confirm_quantiles,
+                    "confidenceSizing": tr.params.confidence_sizing,
+                    "minPositionSize": tr.params.min_position_size,
+                    "binanceSymbol": symbol,
+                },
+            }
+            ops = extract_operations(tr.stdout_json)
+            if ops is not None:
+                combo["operations"] = ops
+            combos.append(combo)
         export = {
             "generatedAtMs": int(time.time() * 1000),
             "source": "optimize_equity.py",

@@ -460,6 +460,7 @@ textarea {
 
 .comboRow {
   width: 100%;
+  position: relative;
   border: 1px solid var(--stroke2);
   border-radius: 12px;
   padding: 10px 12px;
@@ -522,6 +523,69 @@ textarea {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.comboOpsTooltip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 8;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke2);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0)),
+    var(--card2);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(14px);
+}
+
+.comboRow:hover .comboOpsTooltip,
+.comboRow:focus-visible .comboOpsTooltip {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.comboOpsTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.comboOpsHeader,
+.comboOpsRow {
+  display: grid;
+  grid-template-columns: 0.6fr 0.6fr 1.6fr 0.7fr 0.7fr 1.1fr;
+  gap: 8px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.comboOpsHeader {
+  color: var(--muted);
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.comboOpsList {
+  max-height: 220px;
+  overflow: auto;
+  padding-top: 6px;
+  display: grid;
+  gap: 4px;
+}
+
+.comboOpsRow span {
+  white-space: nowrap;
 }
 
 .code {

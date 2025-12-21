@@ -40,6 +40,16 @@ export type OptimizationComboParams = {
   minPositionSize?: number | null;
 };
 
+export type OptimizationComboOperation = {
+  entryIndex: number;
+  exitIndex: number;
+  entryEquity?: number | null;
+  exitEquity?: number | null;
+  return?: number | null;
+  holdingPeriods?: number | null;
+  exitReason?: string | null;
+};
+
 export type OptimizationCombo = {
   id: number;
   rank?: number | null;
@@ -56,6 +66,7 @@ export type OptimizationCombo = {
   closeThreshold: number | null;
   params: OptimizationComboParams;
   source: "binance" | "csv" | null;
+  operations?: OptimizationComboOperation[] | null;
 };
 
 type Props = {
@@ -86,6 +97,12 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
   }
 
   const maxEq = combos.reduce((acc, combo) => Math.max(acc, combo.finalEquity), 0.0) || 1.0;
+  const fmtOptRatio = (v: number | null | undefined, digits = 4): string =>
+    typeof v === "number" && Number.isFinite(v) ? fmtRatio(v, digits) : "—";
+  const fmtOptPct = (v: number | null | undefined, digits = 2): string =>
+    typeof v === "number" && Number.isFinite(v) ? fmtPct(v, digits) : "—";
+  const fmtOptInt = (v: number | null | undefined): string =>
+    typeof v === "number" && Number.isFinite(v) ? Math.trunc(v).toString() : "—";
 
   return (
     <div className="topCombosChart">
@@ -120,6 +137,8 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
             : openLabel !== "—"
               ? openLabel
               : "—";
+        const operations = combo.operations ?? [];
+        const hasOps = operations.length > 0;
         return (
           <button
             type="button"
@@ -173,9 +192,46 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect }:
               {maxDdLabel ? <span className="badge">MaxDD {maxDdLabel}</span> : null}
               {turnoverLabel ? <span className="badge">Turn {turnoverLabel}</span> : null}
               {roundTripsLabel ? <span className="badge">RT {roundTripsLabel}</span> : null}
+              {hasOps ? <span className="badge">Ops {operations.length}</span> : null}
               <span className="badge">Open {openLabel}</span>
               <span className="badge">Close {closeLabel}</span>
             </div>
+            {hasOps ? (
+              <div className="comboOpsTooltip" aria-hidden="true">
+                <div className="comboOpsTitle">
+                  Operations <span className="badge">{operations.length}</span>
+                </div>
+                <div className="comboOpsHeader">
+                  <span>Entry</span>
+                  <span>Exit</span>
+                  <span>Equity</span>
+                  <span>Return</span>
+                  <span>Hold</span>
+                  <span>Reason</span>
+                </div>
+                <div className="comboOpsList">
+                  {operations.map((op, idx) => {
+                    const entryEq = fmtOptRatio(op.entryEquity, 4);
+                    const exitEq = fmtOptRatio(op.exitEquity, 4);
+                    const eqLabel = entryEq !== "—" || exitEq !== "—" ? `${entryEq} → ${exitEq}` : "—";
+                    const retLabel = fmtOptPct(op.return, 2);
+                    const holdLabel = fmtOptInt(op.holdingPeriods);
+                    const reasonLabel =
+                      typeof op.exitReason === "string" && op.exitReason.trim() ? op.exitReason.trim() : "—";
+                    return (
+                      <div key={`${combo.id}-op-${idx}`} className="comboOpsRow">
+                        <span>#{op.entryIndex}</span>
+                        <span>#{op.exitIndex}</span>
+                        <span>{eqLabel}</span>
+                        <span>{retLabel}</span>
+                        <span>{holdLabel}</span>
+                        <span>{reasonLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </button>
         );
       })}
