@@ -151,6 +151,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
 - Strategy / costs
   - `--open-threshold 0.001` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
   - `--close-threshold 0.001` exit/close threshold (fractional deadband; defaults to open-threshold when omitted)
+    - Live order placement uses `close-threshold` to decide exits when already in position, mirroring backtest logic.
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
@@ -187,6 +188,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
     - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
     - Backtest: `{ "mode": "backtest", "backtest": ... }` (includes `"baselines"` like `buy-hold` / `sma-cross(...)`, and `"trade"` if `--binance-trade` is set)
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
+    - Latest signal output includes `closeDirection` to indicate the close-threshold direction (when available).
 
 Tests
 -----

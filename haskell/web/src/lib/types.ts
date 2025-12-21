@@ -104,6 +104,7 @@ export type LatestSignal = {
   lstmNext: number | null;
   lstmDirection: DirectionLabel;
   chosenDirection: DirectionLabel;
+  closeDirection?: DirectionLabel;
   action: string;
 };
 
