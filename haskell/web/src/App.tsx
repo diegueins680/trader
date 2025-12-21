@@ -332,10 +332,27 @@ function applyComboToForm(
   const takeProfit = clampOptionalRatio(combo.params.takeProfit);
   const trailingStop = clampOptionalRatio(combo.params.trailingStop);
   const minHoldBars = clampOptionalInt(combo.params.minHoldBars ?? prev.minHoldBars, 0, 1_000_000);
+  const maxHoldBars = clampOptionalInt(combo.params.maxHoldBars ?? prev.maxHoldBars, 0, 1_000_000);
   const cooldownBars = clampOptionalInt(combo.params.cooldownBars ?? prev.cooldownBars, 0, 1_000_000);
   const maxDrawdown = clampOptionalRatio(combo.params.maxDrawdown);
   const maxDailyLoss = clampOptionalRatio(combo.params.maxDailyLoss);
   const maxOrderErrors = clampOptionalInt(combo.params.maxOrderErrors, 1, 1_000_000);
+  const minEdge = Math.max(0, coerceNumber(combo.params.minEdge ?? prev.minEdge, prev.minEdge));
+  const costAwareEdge = combo.params.costAwareEdge ?? prev.costAwareEdge;
+  const edgeBuffer = Math.max(0, coerceNumber(combo.params.edgeBuffer ?? prev.edgeBuffer, prev.edgeBuffer));
+  const trendLookback = clampOptionalInt(combo.params.trendLookback ?? prev.trendLookback, 0, 1_000_000);
+  const maxPositionSize = Math.max(0, coerceNumber(combo.params.maxPositionSize ?? prev.maxPositionSize, prev.maxPositionSize));
+  const volTarget = Math.max(0, coerceNumber(combo.params.volTarget ?? prev.volTarget, prev.volTarget));
+  const volLookback = Math.max(0, Math.trunc(coerceNumber(combo.params.volLookback ?? prev.volLookback, prev.volLookback)));
+  const volEwmaAlphaRaw = coerceNumber(combo.params.volEwmaAlpha ?? prev.volEwmaAlpha, prev.volEwmaAlpha);
+  const volEwmaAlpha = volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : 0;
+  const volFloor = Math.max(0, coerceNumber(combo.params.volFloor ?? prev.volFloor, prev.volFloor));
+  const volScaleMax = Math.max(0, coerceNumber(combo.params.volScaleMax ?? prev.volScaleMax, prev.volScaleMax));
+  const maxVolatility = Math.max(0, coerceNumber(combo.params.maxVolatility ?? prev.maxVolatility, prev.maxVolatility));
+  const blendWeight = clamp(coerceNumber(combo.params.blendWeight ?? prev.blendWeight, prev.blendWeight), 0, 1);
+  const tuneStressVolMult = Math.max(0, coerceNumber(combo.params.tuneStressVolMult ?? prev.tuneStressVolMult, prev.tuneStressVolMult));
+  const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
+  const tuneStressWeight = Math.max(0, coerceNumber(combo.params.tuneStressWeight ?? prev.tuneStressWeight, prev.tuneStressWeight));
 
   const kalmanZMin = Math.max(0, coerceNumber(combo.params.kalmanZMin, prev.kalmanZMin));
   const kalmanZMax = Math.max(Math.max(0, coerceNumber(combo.params.kalmanZMax, prev.kalmanZMax)), kalmanZMin);
@@ -404,10 +421,23 @@ function applyComboToForm(
     takeProfit,
     trailingStop,
     minHoldBars,
+    maxHoldBars,
     cooldownBars,
     maxDrawdown,
     maxDailyLoss,
     maxOrderErrors,
+    minEdge,
+    costAwareEdge,
+    edgeBuffer,
+    trendLookback,
+    maxPositionSize,
+    volTarget,
+    volLookback,
+    volEwmaAlpha,
+    volFloor,
+    volScaleMax,
+    maxVolatility,
+    blendWeight,
     kalmanZMin,
     kalmanZMax,
     maxHighVolProb,
@@ -417,6 +447,9 @@ function applyComboToForm(
     confirmQuantiles,
     confidenceSizing,
     minPositionSize,
+    tuneStressVolMult,
+    tuneStressShock,
+    tuneStressWeight,
     lookbackBars,
     lookbackWindow,
     openThreshold,
@@ -471,10 +504,23 @@ function formApplySignature(form: FormState): string {
     sigNumber(form.takeProfit),
     sigNumber(form.trailingStop),
     sigNumber(form.minHoldBars),
+    sigNumber(form.maxHoldBars),
     sigNumber(form.cooldownBars),
     sigNumber(form.maxDrawdown),
     sigNumber(form.maxDailyLoss),
     sigNumber(form.maxOrderErrors),
+    sigNumber(form.minEdge),
+    sigBool(form.costAwareEdge),
+    sigNumber(form.edgeBuffer),
+    sigNumber(form.trendLookback),
+    sigNumber(form.maxPositionSize),
+    sigNumber(form.volTarget),
+    sigNumber(form.volLookback),
+    sigNumber(form.volEwmaAlpha),
+    sigNumber(form.volFloor),
+    sigNumber(form.volScaleMax),
+    sigNumber(form.maxVolatility),
+    sigNumber(form.blendWeight),
     sigNumber(form.kalmanZMin),
     sigNumber(form.kalmanZMax),
     sigNumber(form.maxHighVolProb),
@@ -484,6 +530,9 @@ function formApplySignature(form: FormState): string {
     sigBool(form.confirmQuantiles),
     sigBool(form.confidenceSizing),
     sigNumber(form.minPositionSize),
+    sigNumber(form.tuneStressVolMult),
+    sigNumber(form.tuneStressShock),
+    sigNumber(form.tuneStressWeight),
     sigNumber(form.openThreshold),
     sigNumber(form.closeThreshold),
   ].join("|");
@@ -1134,6 +1183,12 @@ export function App() {
     const intervalOk = BINANCE_INTERVAL_SET.has(interval);
     const barsRaw = Math.trunc(form.bars);
     const bars = barsRaw <= 0 ? 0 : clamp(barsRaw, 2, 1000);
+    const volTarget = Math.max(0, form.volTarget);
+    const volEwmaAlphaRaw = form.volEwmaAlpha;
+    const volEwmaAlpha = volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : 0;
+    const volLookbackRaw = Math.max(0, Math.trunc(form.volLookback));
+    const volLookback = volTarget > 0 && volEwmaAlpha === 0 ? Math.max(2, volLookbackRaw) : volLookbackRaw;
+    const tuneStressVolMult = form.tuneStressVolMult <= 0 ? 1 : form.tuneStressVolMult;
     const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
       market: form.market,
@@ -1151,15 +1206,27 @@ export function App() {
       ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
       ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
       ...(form.minHoldBars > 0 ? { minHoldBars: clamp(Math.trunc(form.minHoldBars), 0, 1_000_000) } : {}),
+      ...(form.maxHoldBars > 0 ? { maxHoldBars: clamp(Math.trunc(form.maxHoldBars), 1, 1_000_000) } : {}),
       ...(form.cooldownBars > 0 ? { cooldownBars: clamp(Math.trunc(form.cooldownBars), 0, 1_000_000) } : {}),
       ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
       ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
       ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
+      minEdge: Math.max(0, form.minEdge),
+      edgeBuffer: Math.max(0, form.edgeBuffer),
+      trendLookback: clamp(Math.trunc(form.trendLookback), 0, 1_000_000),
+      maxPositionSize: Math.max(0, form.maxPositionSize),
+      volLookback,
+      volFloor: Math.max(0, form.volFloor),
+      volScaleMax: Math.max(0, form.volScaleMax),
+      blendWeight: clamp(form.blendWeight, 0, 1),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       tuneRatio: clamp(form.tuneRatio, 0, 0.99),
       tuneObjective: form.tuneObjective,
       tunePenaltyMaxDrawdown: Math.max(0, form.tunePenaltyMaxDrawdown),
       tunePenaltyTurnover: Math.max(0, form.tunePenaltyTurnover),
+      tuneStressVolMult,
+      tuneStressShock: form.tuneStressShock,
+      tuneStressWeight: Math.max(0, form.tuneStressWeight),
       minRoundTrips: clamp(Math.trunc(form.minRoundTrips), 0, 1_000_000),
       walkForwardFolds: clamp(Math.trunc(form.walkForwardFolds), 1, 1000),
       normalization: form.normalization,
@@ -1179,6 +1246,11 @@ export function App() {
 
     if (form.optimizeOperations) base.optimizeOperations = true;
     if (form.sweepThreshold) base.sweepThreshold = true;
+
+    if (form.costAwareEdge) base.costAwareEdge = true;
+    if (volTarget > 0) base.volTarget = volTarget;
+    if (volEwmaAlpha > 0) base.volEwmaAlpha = volEwmaAlpha;
+    if (form.maxVolatility > 0) base.maxVolatility = Math.max(0, form.maxVolatility);
 
     if (form.maxHighVolProb > 0) base.maxHighVolProb = clamp(form.maxHighVolProb, 0, 1);
     if (form.maxConformalWidth > 0) base.maxConformalWidth = Math.max(0, form.maxConformalWidth);
@@ -1201,6 +1273,13 @@ export function App() {
     const breakEven = Math.max(0, 1 / denom - 1);
     return { perSide, roundTrip, breakEven };
   }, [form.fee, form.slippage, form.spread]);
+
+  const minEdgeEffective = useMemo(() => {
+    const base = Math.max(0, form.minEdge);
+    if (!form.costAwareEdge) return base;
+    const buffer = Math.max(0, form.edgeBuffer);
+    return Math.max(base, estimatedCosts.breakEven + buffer);
+  }, [estimatedCosts.breakEven, form.costAwareEdge, form.edgeBuffer, form.minEdge]);
 
   const tradeParams: ApiParams = useMemo(() => {
     const base: ApiParams = { ...commonParams };
@@ -2266,9 +2345,58 @@ export function App() {
             typeof params.minHoldBars === "number" && Number.isFinite(params.minHoldBars)
               ? Math.max(0, Math.trunc(params.minHoldBars))
               : null;
+          const maxHoldBars =
+            typeof params.maxHoldBars === "number" && Number.isFinite(params.maxHoldBars)
+              ? Math.max(0, Math.trunc(params.maxHoldBars))
+              : null;
           const cooldownBars =
             typeof params.cooldownBars === "number" && Number.isFinite(params.cooldownBars)
               ? Math.max(0, Math.trunc(params.cooldownBars))
+              : null;
+          const minEdge =
+            typeof params.minEdge === "number" && Number.isFinite(params.minEdge) ? Math.max(0, params.minEdge) : null;
+          const costAwareEdge = typeof params.costAwareEdge === "boolean" ? params.costAwareEdge : null;
+          const edgeBuffer =
+            typeof params.edgeBuffer === "number" && Number.isFinite(params.edgeBuffer) ? Math.max(0, params.edgeBuffer) : null;
+          const trendLookback =
+            typeof params.trendLookback === "number" && Number.isFinite(params.trendLookback)
+              ? Math.max(0, Math.trunc(params.trendLookback))
+              : null;
+          const maxPositionSize =
+            typeof params.maxPositionSize === "number" && Number.isFinite(params.maxPositionSize)
+              ? Math.max(0, params.maxPositionSize)
+              : null;
+          const volTarget =
+            typeof params.volTarget === "number" && Number.isFinite(params.volTarget) ? Math.max(0, params.volTarget) : null;
+          const volLookback =
+            typeof params.volLookback === "number" && Number.isFinite(params.volLookback)
+              ? Math.max(0, Math.trunc(params.volLookback))
+              : null;
+          const volEwmaAlphaRaw =
+            typeof params.volEwmaAlpha === "number" && Number.isFinite(params.volEwmaAlpha) ? params.volEwmaAlpha : null;
+          const volEwmaAlpha = volEwmaAlphaRaw != null && volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : null;
+          const volFloor =
+            typeof params.volFloor === "number" && Number.isFinite(params.volFloor) ? Math.max(0, params.volFloor) : null;
+          const volScaleMax =
+            typeof params.volScaleMax === "number" && Number.isFinite(params.volScaleMax) ? Math.max(0, params.volScaleMax) : null;
+          const maxVolatility =
+            typeof params.maxVolatility === "number" && Number.isFinite(params.maxVolatility)
+              ? Math.max(0, params.maxVolatility)
+              : null;
+          const blendWeightRaw =
+            typeof params.blendWeight === "number" && Number.isFinite(params.blendWeight) ? params.blendWeight : null;
+          const blendWeight = blendWeightRaw != null ? clamp(blendWeightRaw, 0, 1) : null;
+          const tuneStressVolMult =
+            typeof params.tuneStressVolMult === "number" && Number.isFinite(params.tuneStressVolMult)
+              ? params.tuneStressVolMult
+              : null;
+          const tuneStressShock =
+            typeof params.tuneStressShock === "number" && Number.isFinite(params.tuneStressShock)
+              ? params.tuneStressShock
+              : null;
+          const tuneStressWeight =
+            typeof params.tuneStressWeight === "number" && Number.isFinite(params.tuneStressWeight)
+              ? params.tuneStressWeight
               : null;
           const kalmanZMin =
             typeof params.kalmanZMin === "number" && Number.isFinite(params.kalmanZMin) ? Math.max(0, params.kalmanZMin) : defaultForm.kalmanZMin;
@@ -2378,7 +2506,23 @@ export function App() {
               spread,
               intrabarFill,
               minHoldBars,
+              maxHoldBars,
               cooldownBars,
+              minEdge,
+              costAwareEdge,
+              edgeBuffer,
+              trendLookback,
+              maxPositionSize,
+              volTarget,
+              volLookback,
+              volEwmaAlpha,
+              volFloor,
+              volScaleMax,
+              maxVolatility,
+              blendWeight,
+              tuneStressVolMult,
+              tuneStressShock,
+              tuneStressWeight,
               stopLoss: typeof params.stopLoss === "number" && Number.isFinite(params.stopLoss) ? params.stopLoss : null,
               takeProfit: typeof params.takeProfit === "number" && Number.isFinite(params.takeProfit) ? params.takeProfit : null,
               trailingStop: typeof params.trailingStop === "number" && Number.isFinite(params.trailingStop) ? params.trailingStop : null,
@@ -3104,7 +3248,6 @@ export function App() {
                 ) : null}
               </div>
             </div>
-          </div>
 
           <div className="row" style={{ gridTemplateColumns: "1fr" }}>
             <div className="field">
@@ -3563,6 +3706,70 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
               <div className="field">
+                <label className="label" htmlFor="minEdge">
+                  Min edge (fraction)
+                </label>
+                <input
+                  id="minEdge"
+                  className="input"
+                  type="number"
+                  step="0.0001"
+                  min={0}
+                  value={form.minEdge}
+                  onChange={(e) => setForm((f) => ({ ...f, minEdge: numFromInput(e.target.value, f.minEdge) }))}
+                />
+                <div className="hint">
+                  {form.costAwareEdge
+                    ? `Cost-aware min edge ≈ ${fmtPct(minEdgeEffective, 3)} (break-even ${fmtPct(estimatedCosts.breakEven, 3)} + buffer).`
+                    : "Minimum predicted return to enter. 0 disables."}
+                </div>
+                <div className="pillRow" style={{ marginTop: 8 }}>
+                  <label className="pill">
+                    <input
+                      type="checkbox"
+                      checked={form.costAwareEdge}
+                      onChange={(e) => setForm((f) => ({ ...f, costAwareEdge: e.target.checked }))}
+                    />
+                    Cost-aware edge
+                  </label>
+                </div>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="edgeBuffer">
+                  Edge buffer (fraction)
+                </label>
+                <input
+                  id="edgeBuffer"
+                  className="input"
+                  type="number"
+                  step="0.0001"
+                  min={0}
+                  value={form.edgeBuffer}
+                  onChange={(e) => setForm((f) => ({ ...f, edgeBuffer: numFromInput(e.target.value, f.edgeBuffer) }))}
+                />
+                <div className="hint">{form.costAwareEdge ? "Extra buffer above break-even." : "Used when cost-aware edge is enabled."}</div>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="blendWeight">
+                  Blend weight (Kalman)
+                </label>
+                <input
+                  id="blendWeight"
+                  className="input"
+                  type="number"
+                  step="0.05"
+                  min={0}
+                  max={1}
+                  value={form.blendWeight}
+                  onChange={(e) => setForm((f) => ({ ...f, blendWeight: numFromInput(e.target.value, f.blendWeight) }))}
+                  disabled={form.method !== "blend"}
+                />
+                <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend.</div>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
+              <div className="field">
                 <label className="label" htmlFor="backtestRatio">
                   Backtest ratio
                 </label>
@@ -3726,7 +3933,7 @@ export function App() {
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
               <div className="field">
                 <label className="label">Trade pacing (bars)</label>
-                <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
                   <div className="field">
                     <label className="label" htmlFor="minHoldBars">
                       Min hold
@@ -3761,8 +3968,183 @@ export function App() {
                     />
                     <div className="hint">{form.cooldownBars > 0 ? `${Math.trunc(Math.max(0, form.cooldownBars))} bars` : "0 disables"} • after exiting</div>
                   </div>
+                  <div className="field">
+                    <label className="label" htmlFor="maxHoldBars">
+                      Max hold
+                    </label>
+                    <input
+                      id="maxHoldBars"
+                      className="input"
+                      type="number"
+                      step={1}
+                      min={0}
+                      value={form.maxHoldBars}
+                      onChange={(e) => setForm((f) => ({ ...f, maxHoldBars: numFromInput(e.target.value, f.maxHoldBars) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">
+                      {form.maxHoldBars > 0 ? `${Math.trunc(Math.max(0, form.maxHoldBars))} bars` : "0 disables"} • forces exit (MAX_HOLD)
+                    </div>
+                  </div>
                 </div>
-                <div className="hint">Helps reduce churn in noisy markets (applies to backtests + live bot; stateless signals/trades ignore state).</div>
+                <div className="hint">
+                  Helps reduce churn in noisy markets (applies to backtests + live bot; stateless signals/trades ignore state).
+                </div>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
+              <div className="field">
+                <label className="label">Sizing + filters</label>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="trendLookback">
+                      Trend lookback (SMA bars)
+                    </label>
+                    <input
+                      id="trendLookback"
+                      className="input"
+                      type="number"
+                      step={1}
+                      min={0}
+                      value={form.trendLookback}
+                      onChange={(e) => setForm((f) => ({ ...f, trendLookback: numFromInput(e.target.value, f.trendLookback) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">
+                      {form.trendLookback > 0 ? `${Math.trunc(Math.max(0, form.trendLookback))} bars` : "0 disables"} • filters entries to SMA trend
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="maxPositionSize">
+                      Max position size
+                    </label>
+                    <input
+                      id="maxPositionSize"
+                      className="input"
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={form.maxPositionSize}
+                      onChange={(e) => setForm((f) => ({ ...f, maxPositionSize: numFromInput(e.target.value, f.maxPositionSize) }))}
+                      placeholder="1"
+                    />
+                    <div className="hint">Caps size/leverage (1 = full size).</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="maxVolatility">
+                      Max volatility (annualized)
+                    </label>
+                    <input
+                      id="maxVolatility"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={form.maxVolatility}
+                      onChange={(e) => setForm((f) => ({ ...f, maxVolatility: numFromInput(e.target.value, f.maxVolatility) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">
+                      {form.maxVolatility > 0 ? fmtPct(form.maxVolatility, 2) : "0 disables"} • blocks entries when vol is too high
+                    </div>
+                  </div>
+                </div>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", marginTop: 10 }}>
+                  <div className="field">
+                    <label className="label" htmlFor="volTarget">
+                      Vol target
+                    </label>
+                    <input
+                      id="volTarget"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={form.volTarget}
+                      onChange={(e) => setForm((f) => ({ ...f, volTarget: numFromInput(e.target.value, f.volTarget) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">{form.volTarget > 0 ? fmtPct(form.volTarget, 2) : "0 disables"} • annualized</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="volLookback">
+                      Vol lookback
+                    </label>
+                    <input
+                      id="volLookback"
+                      className="input"
+                      type="number"
+                      step={1}
+                      min={0}
+                      value={form.volLookback}
+                      onChange={(e) => setForm((f) => ({ ...f, volLookback: numFromInput(e.target.value, f.volLookback) }))}
+                      placeholder="20"
+                    />
+                    <div
+                      className="hint"
+                      style={
+                        form.volTarget > 0 && !(form.volEwmaAlpha > 0 && form.volEwmaAlpha < 1) && form.volLookback < 2
+                          ? { color: "rgba(239, 68, 68, 0.85)" }
+                          : undefined
+                      }
+                    >
+                      {form.volTarget > 0 && !(form.volEwmaAlpha > 0 && form.volEwmaAlpha < 1) && form.volLookback < 2
+                        ? "Must be >=2 when vol target is set (unless EWMA alpha is provided)."
+                        : "Realized-vol lookback window (bars)."}
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="volEwmaAlpha">
+                      Vol EWMA alpha
+                    </label>
+                    <input
+                      id="volEwmaAlpha"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      max={0.999}
+                      value={form.volEwmaAlpha}
+                      onChange={(e) => setForm((f) => ({ ...f, volEwmaAlpha: numFromInput(e.target.value, f.volEwmaAlpha) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">Optional; overrides lookback when set (0 disables).</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="volFloor">
+                      Vol floor
+                    </label>
+                    <input
+                      id="volFloor"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={form.volFloor}
+                      onChange={(e) => setForm((f) => ({ ...f, volFloor: numFromInput(e.target.value, f.volFloor) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">Annualized floor for sizing (0 disables).</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="volScaleMax">
+                      Vol scale max
+                    </label>
+                    <input
+                      id="volScaleMax"
+                      className="input"
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={form.volScaleMax}
+                      onChange={(e) => setForm((f) => ({ ...f, volScaleMax: numFromInput(e.target.value, f.volScaleMax) }))}
+                      placeholder="1"
+                    />
+                    <div className="hint">Caps volatility-based scaling.</div>
+                  </div>
+                </div>
+                <div className="hint">Vol sizing scales position by target/realized volatility when vol target is set.</div>
               </div>
             </div>
 
@@ -4009,6 +4391,54 @@ export function App() {
                       onChange={(e) => setForm((f) => ({ ...f, walkForwardFolds: numFromInput(e.target.value, f.walkForwardFolds) }))}
                     />
                     <div className="hint">Used for tune scoring + backtest variability.</div>
+                  </div>
+                </div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="tuneStressVolMult">
+                      Stress vol mult
+                    </label>
+                    <input
+                      id="tuneStressVolMult"
+                      className="input"
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={form.tuneStressVolMult}
+                      onChange={(e) => setForm((f) => ({ ...f, tuneStressVolMult: numFromInput(e.target.value, f.tuneStressVolMult) }))}
+                    />
+                    <div className="hint">1 disables. &gt;1 increases stress volatility.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="tuneStressShock">
+                      Stress shock
+                    </label>
+                    <input
+                      id="tuneStressShock"
+                      className="input"
+                      type="number"
+                      step="0.001"
+                      value={form.tuneStressShock}
+                      onChange={(e) => setForm((f) => ({ ...f, tuneStressShock: numFromInput(e.target.value, f.tuneStressShock) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">Additive return shock (e.g., -0.01).</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="tuneStressWeight">
+                      Stress weight
+                    </label>
+                    <input
+                      id="tuneStressWeight"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={form.tuneStressWeight}
+                      onChange={(e) => setForm((f) => ({ ...f, tuneStressWeight: numFromInput(e.target.value, f.tuneStressWeight) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">Penalty weight (0 disables).</div>
                   </div>
                 </div>
               </div>

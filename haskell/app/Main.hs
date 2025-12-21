@@ -590,6 +590,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrLookbackWindow :: !(Maybe String)
   , arrBarsMin :: !(Maybe Int)
   , arrBarsMax :: !(Maybe Int)
+  , arrBarsAutoProb :: !(Maybe Double)
+  , arrBarsDistribution :: !(Maybe String)
   , arrEpochsMin :: !(Maybe Int)
   , arrEpochsMax :: !(Maybe Int)
   , arrHiddenSizeMin :: !(Maybe Int)
@@ -606,6 +608,37 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrPenaltyMaxDrawdown :: !(Maybe Double)
   , arrPenaltyTurnover :: !(Maybe Double)
   , arrMinRoundTrips :: !(Maybe Int)
+  , arrTuneObjective :: !(Maybe String)
+  , arrTunePenaltyMaxDrawdown :: !(Maybe Double)
+  , arrTunePenaltyTurnover :: !(Maybe Double)
+  , arrTuneStressVolMult :: !(Maybe Double)
+  , arrTuneStressShock :: !(Maybe Double)
+  , arrTuneStressWeight :: !(Maybe Double)
+  , arrMinHoldBarsMin :: !(Maybe Int)
+  , arrMinHoldBarsMax :: !(Maybe Int)
+  , arrCooldownBarsMin :: !(Maybe Int)
+  , arrCooldownBarsMax :: !(Maybe Int)
+  , arrMaxHoldBarsMin :: !(Maybe Int)
+  , arrMaxHoldBarsMax :: !(Maybe Int)
+  , arrMinEdgeMin :: !(Maybe Double)
+  , arrMinEdgeMax :: !(Maybe Double)
+  , arrEdgeBufferMin :: !(Maybe Double)
+  , arrEdgeBufferMax :: !(Maybe Double)
+  , arrTrendLookbackMin :: !(Maybe Int)
+  , arrTrendLookbackMax :: !(Maybe Int)
+  , arrMaxPositionSizeMin :: !(Maybe Double)
+  , arrMaxPositionSizeMax :: !(Maybe Double)
+  , arrVolTargetMin :: !(Maybe Double)
+  , arrVolTargetMax :: !(Maybe Double)
+  , arrVolLookbackMin :: !(Maybe Int)
+  , arrVolLookbackMax :: !(Maybe Int)
+  , arrVolEwmaAlphaMin :: !(Maybe Double)
+  , arrVolEwmaAlphaMax :: !(Maybe Double)
+  , arrVolScaleMaxMin :: !(Maybe Double)
+  , arrVolScaleMaxMax :: !(Maybe Double)
+  , arrMethodWeightBlend :: !(Maybe Double)
+  , arrBlendWeightMin :: !(Maybe Double)
+  , arrBlendWeightMax :: !(Maybe Double)
   , arrDisableLstmPersistence :: !(Maybe Bool)
   , arrNoSweepThreshold :: !(Maybe Bool)
   } deriving (Eq, Show, Generic)
@@ -4571,6 +4604,10 @@ maybeIntArg :: String -> Maybe Int -> [String]
 maybeIntArg _ Nothing = []
 maybeIntArg flag (Just n) = [flag, show (max 0 n)]
 
+maybeDoubleArg :: String -> Maybe Double -> [String]
+maybeDoubleArg _ Nothing = []
+maybeDoubleArg flag (Just n) = [flag, show n]
+
 prepareOptimizerArgs :: FilePath -> FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
 prepareOptimizerArgs outputPath topJsonPath req = do
   exePath <- getExecutablePath
@@ -4632,6 +4669,35 @@ prepareOptimizerArgs outputPath topJsonPath req = do
                       ++ intercalate ", " objectiveAllowed
                       ++ ")"
                   )
+          tuneObjectiveRaw = fmap (map toLower . trim) (arrTuneObjective req)
+          tuneObjectiveArgsResult =
+            case tuneObjectiveRaw of
+              Nothing -> Right []
+              Just v | null v -> Right []
+              Just v | v `elem` objectiveAllowed -> Right ["--tune-objective", v]
+              Just v ->
+                Left
+                  ( "Invalid tuneObjective: "
+                      ++ show v
+                      ++ " (expected one of: "
+                      ++ intercalate ", " objectiveAllowed
+                      ++ ")"
+                  )
+          barsDistributionAllowed = ["uniform", "log"]
+          barsDistributionRaw = fmap (map toLower . trim) (arrBarsDistribution req)
+          barsDistributionArgsResult =
+            case barsDistributionRaw of
+              Nothing -> Right []
+              Just v | null v -> Right []
+              Just v | v `elem` barsDistributionAllowed -> Right ["--bars-distribution", v]
+              Just v ->
+                Left
+                  ( "Invalid barsDistribution: "
+                      ++ show v
+                      ++ " (expected one of: "
+                      ++ intercalate ", " barsDistributionAllowed
+                      ++ ")"
+                  )
           penaltyMaxDdArgs =
             case arrPenaltyMaxDrawdown req of
               Nothing -> []
@@ -4644,6 +4710,15 @@ prepareOptimizerArgs outputPath topJsonPath req = do
             case arrMinRoundTrips req of
               Nothing -> []
               Just n -> ["--min-round-trips", show (max 0 n)]
+          tunePenaltyMaxDdArgs =
+            maybeDoubleArg "--tune-penalty-max-drawdown" (fmap (max 0) (arrTunePenaltyMaxDrawdown req))
+          tunePenaltyTurnoverArgs =
+            maybeDoubleArg "--tune-penalty-turnover" (fmap (max 0) (arrTunePenaltyTurnover req))
+          tuneStressVolMultArgs =
+            maybeDoubleArg "--tune-stress-vol-mult" (fmap (max 1e-12) (arrTuneStressVolMult req))
+          tuneStressShockArgs = maybeDoubleArg "--tune-stress-shock" (arrTuneStressShock req)
+          tuneStressWeightArgs =
+            maybeDoubleArg "--tune-stress-weight" (fmap (max 0) (arrTuneStressWeight req))
           intervalsVal = pickDefaultString defaultOptimizerIntervals (arrIntervals req)
           lookbackVal = pickDefaultString "24h" (arrLookbackWindow req)
           backtestRatioVal = clamp01 (fromMaybe 0.2 (arrBacktestRatio req))
@@ -4672,6 +4747,46 @@ prepareOptimizerArgs outputPath topJsonPath req = do
               (Just mn, Just mx) -> Just (max mn (max 0 mx))
               (_, Just mx) -> Just (max 0 mx)
               _ -> Nothing
+          barsAutoProbArgs =
+            maybeDoubleArg "--bars-auto-prob" (fmap clamp01 (arrBarsAutoProb req))
+          minHoldBarsArgs =
+            maybeIntArg "--min-hold-bars-min" (fmap (max 0) (arrMinHoldBarsMin req))
+              ++ maybeIntArg "--min-hold-bars-max" (fmap (max 0) (arrMinHoldBarsMax req))
+          cooldownBarsArgs =
+            maybeIntArg "--cooldown-bars-min" (fmap (max 0) (arrCooldownBarsMin req))
+              ++ maybeIntArg "--cooldown-bars-max" (fmap (max 0) (arrCooldownBarsMax req))
+          maxHoldBarsArgs =
+            maybeIntArg "--max-hold-bars-min" (fmap (max 0) (arrMaxHoldBarsMin req))
+              ++ maybeIntArg "--max-hold-bars-max" (fmap (max 0) (arrMaxHoldBarsMax req))
+          minEdgeArgs =
+            maybeDoubleArg "--min-edge-min" (fmap (max 0) (arrMinEdgeMin req))
+              ++ maybeDoubleArg "--min-edge-max" (fmap (max 0) (arrMinEdgeMax req))
+          edgeBufferArgs =
+            maybeDoubleArg "--edge-buffer-min" (fmap (max 0) (arrEdgeBufferMin req))
+              ++ maybeDoubleArg "--edge-buffer-max" (fmap (max 0) (arrEdgeBufferMax req))
+          trendLookbackArgs =
+            maybeIntArg "--trend-lookback-min" (fmap (max 0) (arrTrendLookbackMin req))
+              ++ maybeIntArg "--trend-lookback-max" (fmap (max 0) (arrTrendLookbackMax req))
+          maxPositionSizeArgs =
+            maybeDoubleArg "--max-position-size-min" (fmap (max 0) (arrMaxPositionSizeMin req))
+              ++ maybeDoubleArg "--max-position-size-max" (fmap (max 0) (arrMaxPositionSizeMax req))
+          volTargetArgs =
+            maybeDoubleArg "--vol-target-min" (fmap (max 0) (arrVolTargetMin req))
+              ++ maybeDoubleArg "--vol-target-max" (fmap (max 0) (arrVolTargetMax req))
+          volLookbackArgs =
+            maybeIntArg "--vol-lookback-min" (fmap (max 0) (arrVolLookbackMin req))
+              ++ maybeIntArg "--vol-lookback-max" (fmap (max 0) (arrVolLookbackMax req))
+          volEwmaAlphaArgs =
+            maybeDoubleArg "--vol-ewma-alpha-min" (fmap clamp01 (arrVolEwmaAlphaMin req))
+              ++ maybeDoubleArg "--vol-ewma-alpha-max" (fmap clamp01 (arrVolEwmaAlphaMax req))
+          volScaleMaxArgs =
+            maybeDoubleArg "--vol-scale-max-min" (fmap (max 0) (arrVolScaleMaxMin req))
+              ++ maybeDoubleArg "--vol-scale-max-max" (fmap (max 0) (arrVolScaleMaxMax req))
+          methodWeightBlendArgs =
+            maybeDoubleArg "--method-weight-blend" (fmap (max 0) (arrMethodWeightBlend req))
+          blendWeightArgs =
+            maybeDoubleArg "--blend-weight-min" (fmap clamp01 (arrBlendWeightMin req))
+              ++ maybeDoubleArg "--blend-weight-max" (fmap clamp01 (arrBlendWeightMax req))
           normalizationsVal = pickDefaultString defaultOptimizerNormalizations (arrNormalizations req)
           boolArg flag val = if val then [flag] else []
           disableLstm = fromMaybe False (arrDisableLstmPersistence req)
@@ -4697,17 +4812,38 @@ prepareOptimizerArgs outputPath topJsonPath req = do
             , "--spread-max", show spreadVal
             , "--normalizations", normalizationsVal
             ]
+              ++ barsAutoProbArgs
           tuneArgsSuffix =
             penaltyMaxDdArgs
               ++ penaltyTurnoverArgs
               ++ minRoundTripsArgs
+              ++ tunePenaltyMaxDdArgs
+              ++ tunePenaltyTurnoverArgs
+              ++ tuneStressVolMultArgs
+              ++ tuneStressShockArgs
+              ++ tuneStressWeightArgs
+              ++ minHoldBarsArgs
+              ++ cooldownBarsArgs
+              ++ maxHoldBarsArgs
+              ++ minEdgeArgs
+              ++ edgeBufferArgs
+              ++ trendLookbackArgs
+              ++ maxPositionSizeArgs
+              ++ volTargetArgs
+              ++ volLookbackArgs
+              ++ volEwmaAlphaArgs
+              ++ volScaleMaxArgs
+              ++ methodWeightBlendArgs
+              ++ blendWeightArgs
               ++ ["--output", outputPath, "--top-json", topJsonPath]
       pure $
-        case (ohlcArgsResult, objectiveArgsResult) of
-          (Left e, _) -> Left e
-          (_, Left e) -> Left e
-          (Right ohlcArgs, Right objectiveArgs) ->
-            let tuneArgs = tuneArgsBase ++ objectiveArgs ++ tuneArgsSuffix
+        case (ohlcArgsResult, objectiveArgsResult, tuneObjectiveArgsResult, barsDistributionArgsResult) of
+          (Left e, _, _, _) -> Left e
+          (_, Left e, _, _) -> Left e
+          (_, _, Left e, _) -> Left e
+          (_, _, _, Left e) -> Left e
+          (Right ohlcArgs, Right objectiveArgs, Right tuneObjectiveArgs, Right barsDistributionArgs) ->
+            let tuneArgs = tuneArgsBase ++ objectiveArgs ++ tuneObjectiveArgs ++ barsDistributionArgs ++ tuneArgsSuffix
              in Right
                   ( sourceArgs
                       ++ priceColumnArgs
