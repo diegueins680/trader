@@ -1970,6 +1970,9 @@ botOptimizeAfterOperation st = do
                   , tcPeriodsPerYear = ppy
                   , tcWalkForwardFolds = argWalkForwardFolds args
                   , tcMinRoundTrips = argMinRoundTrips args
+                  , tcStressVolMultiplier = argTuneStressVolMult args
+                  , tcStressShock = argTuneStressShock args
+                  , tcStressWeight = argTuneStressWeight args
                   }
               thresholdResult =
                 if optimizeOps && hasBothCtx
@@ -6918,7 +6921,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       methodForComputation =
         if argOptimizeOperations args
           then MethodBoth
-          else methodRequested
+          else
+            case methodRequested of
+              MethodBlend -> MethodBoth
+              _ -> methodRequested
       pricesV = V.fromList prices
 
       lstmCfg =
@@ -6976,6 +6982,37 @@ computeBacktestSummary args lookback series mBinanceEnv = do
               ]
         pure (Just (normState, obsAll, lstmModel), Just history, lstmPred, lstmPred, Nothing, Nothing)
       MethodBoth -> do
+        let normState = fitNorm (argNormalization args) fitPrices
+            obsAll = forwardSeries normState prices
+            obsTrain = take predStart obsAll
+        (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
+        let fitPricesV = V.fromList fitPrices
+            predictors = trainPredictors lookback fitPricesV
+            hmmInitReturns = forwardReturns (take (predStart + 1) prices)
+            hmm0 = initHMMFilter predictors hmmInitReturns
+            kal0 =
+              initKalman1
+                0
+                (max 1e-12 (argKalmanMeasurementVar args))
+                (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+            sv0 = emptySensorVar
+            (kalFinal, hmmFinal, svFinal, kalPredRev, lstmPredRev, metaRev) =
+              foldl'
+                (backtestStep args lookback normState obsAll pricesV lstmModel predictors predStart mMarketModel)
+                (kal0, hmm0, sv0, [], [], [])
+                [0 .. stepCount - 1]
+            kalPred = reverse kalPredRev
+            lstmPred = reverse lstmPredRev
+            meta = reverse metaRev
+        pure
+          ( Just (normState, obsAll, lstmModel)
+          , Just history
+          , kalPred
+          , lstmPred
+          , Just (predictors, kalFinal, hmmFinal, svFinal)
+          , Just meta
+          )
+      MethodBlend -> do
         let normState = fitNorm (argNormalization args) fitPrices
             obsAll = forwardSeries normState prices
             obsTrain = take predStart obsAll
@@ -7075,6 +7112,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , tcPeriodsPerYear = ppy
           , tcWalkForwardFolds = argWalkForwardFolds args
           , tcMinRoundTrips = argMinRoundTrips args
+          , tcStressVolMultiplier = argTuneStressVolMult args
+          , tcStressShock = argTuneStressShock args
+          , tcStressWeight = argTuneStressWeight args
           }
 
       (methodUsed, bestOpenThr, bestCloseThr, mTuneStats, mTuneMetrics) =
@@ -7091,7 +7131,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             else (methodRequested, argOpenThreshold args, argCloseThreshold args, Nothing, Nothing)
 
       backtestCfg = baseCfg { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
-      (kalPredUsedBacktest, lstmPredUsedBacktest) = selectPredictions methodUsed kalPredBacktest lstmPredBacktest
+      (kalPredUsedBacktest, lstmPredUsedBacktest) =
+        selectPredictions methodUsed (argBlendWeight args) kalPredBacktest lstmPredBacktest
       metaUsedBacktest =
         case methodUsed of
           MethodLstmOnly -> Nothing
@@ -7400,6 +7441,10 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
       case mLstmCtx of
         Just _ -> compute
         Nothing -> error "Internal: --method 01 requires LSTM context."
+    MethodBlend ->
+      case (mKalmanCtx, mLstmCtx) of
+        (Just _, Just _) -> compute
+        _ -> error "Internal: --method blend requires both Kalman and LSTM contexts."
   where
     method = argMethod args
     compute =
@@ -7409,7 +7454,13 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
             else
               let t = n - 1
                   currentPrice = pricesV V.! t
-                  openThr = max 0 (argOpenThreshold args)
+                  perSideCost = estimatedPerSideCost (argFee args) (argSlippage args) (argSpread args)
+                  minEdgeBase = max 0 (argMinEdge args)
+                  minEdge =
+                    if argCostAwareEdge args
+                      then max minEdgeBase (breakEvenThresholdFromPerSideCost perSideCost + max 0 (argEdgeBuffer args))
+                      else minEdgeBase
+                  openThr = max (max 0 (argOpenThreshold args)) minEdge
                   closeThr = max 0 (argCloseThreshold args)
                   directionPrice thr pred =
                     let upEdge = currentPrice * (1 + thr)
@@ -7418,8 +7469,101 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                           then Just (1 :: Int)
                           else if pred < downEdge then Just (-1) else Nothing
 
+                  trendLookback = max 0 (argTrendLookback args)
+                  maxPositionSize = max 0 (argMaxPositionSize args)
+                  volTarget =
+                    case argVolTarget args of
+                      Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
+                      _ -> Nothing
+                  volLookback = max 0 (argVolLookback args)
+                  volFloor = max 0 (argVolFloor args)
+                  volScaleMax = max 0 (argVolScaleMax args)
+                  volAlpha =
+                    case argVolEwmaAlpha args of
+                      Just a | a > 0 && not (isNaN a || isInfinite a) -> Just (max 0 (min 1 a))
+                      _ -> Nothing
+                  maxVolatility =
+                    case argMaxVolatility args of
+                      Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
+                      _ -> Nothing
+
+                  bad x = isNaN x || isInfinite x
+
+                  returnsFromPrices =
+                    case n of
+                      _ | n < 2 -> []
+                      _ ->
+                        let pricesList = V.toList pricesV
+                         in
+                          [ let r = if p0 == 0 || bad p0 || bad p1 then 0 else p1 / p0 - 1
+                             in if bad r then 0 else r
+                          | (p0, p1) <- zip pricesList (tail pricesList)
+                          ]
+
+                  meanList xs =
+                    if null xs then 0 else sum xs / fromIntegral (length xs)
+
+                  stddevList xs =
+                    case xs of
+                      [] -> 0
+                      [_] -> 0
+                      _ ->
+                        let m = meanList xs
+                            var = sum (map (\x -> (x - m) ** 2) xs) / fromIntegral (length xs - 1)
+                         in sqrt var
+
+                  volEstimate =
+                    let total = length returnsFromPrices
+                     in if total < 2
+                          then Nothing
+                          else
+                            case volAlpha of
+                              Just a ->
+                                let var = foldl' (\v r -> a * v + (1 - a) * (r * r)) 0 returnsFromPrices
+                                    vol = sqrt (max 0 var) * sqrt (periodsPerYear args)
+                                 in if bad vol then Nothing else Just vol
+                              Nothing ->
+                                let lb = if volLookback <= 0 then total else min total volLookback
+                                    window = drop (total - lb) returnsFromPrices
+                                    vol = stddevList window * sqrt (periodsPerYear args)
+                                 in if bad vol then Nothing else Just vol
+
+                  volScale =
+                    case volTarget of
+                      Nothing -> 1
+                      Just target ->
+                        case volEstimate of
+                          Nothing -> 1
+                          Just vol ->
+                            let volAdj = max volFloor vol
+                                scale0 = if volAdj <= 0 then 1 else target / volAdj
+                                scale1 = min volScaleMax (max 0 scale0)
+                             in if bad scale1 then 1 else scale1
+
+                  volOk =
+                    case (maxVolatility, volEstimate) of
+                      (Just maxVol, Just vol) -> vol <= maxVol
+                      _ -> True
+
+                  trendOk dir =
+                    if trendLookback <= 1 || n < trendLookback
+                      then True
+                      else
+                        let start = n - trendLookback
+                            v = V.slice start trendLookback pricesV
+                            sma = V.sum v / fromIntegral trendLookback
+                         in if bad sma || bad currentPrice
+                              then True
+                              else
+                                case dir of
+                                  1 -> currentPrice >= sma
+                                  (-1) -> currentPrice <= sma
+                                  _ -> True
+
                   clamp01 :: Double -> Double
                   clamp01 x = max 0 (min 1 x)
+
+                  blendWeight = clamp01 (argBlendWeight args)
 
                   scale01 :: Double -> Double -> Double -> Double
                   scale01 lo hi x =
@@ -7571,6 +7715,12 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                                     lstmNext = inverseNorm normState lstmNextObs
                                  in (Just lstmNext, directionPrice openThr lstmNext)
 
+                  blendNext =
+                    case (mKalNext, mLstmNext) of
+                      (Just k, Just l) -> Just (blendWeight * k + (1 - blendWeight) * l)
+                      _ -> Nothing
+                  blendDir = blendNext >>= directionPrice openThr
+
                   agreeDir =
                     if kalDir == lstmDir
                       then kalDir
@@ -7580,16 +7730,55 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                       MethodBoth -> agreeDir
                       MethodKalmanOnly -> kalDir
                       MethodLstmOnly -> lstmDir
-                  chosenDir =
+                      MethodBlend -> blendDir
+                  (chosenDir1, mPostGateReason) =
                     case chosenDir0 of
+                      Nothing -> (Nothing, Nothing)
+                      Just dir ->
+                        if not volOk
+                          then (Nothing, Just "MAX_VOLATILITY")
+                          else if not (trendOk dir)
+                            then (Nothing, Just "TREND_FILTER")
+                            else (Just dir, Nothing)
+
+                  chosenDir2 =
+                    case chosenDir1 of
                       Nothing -> Nothing
                       Just _ ->
                         case method of
-                          MethodLstmOnly -> chosenDir0
+                          MethodLstmOnly -> chosenDir1
                           _ ->
                             case mPosSize of
                               Just sz | sz <= 0 -> Nothing
-                              _ -> chosenDir0
+                              _ -> chosenDir1
+
+                  baseSize =
+                    case method of
+                      MethodLstmOnly ->
+                        case chosenDir2 of
+                          Nothing -> 0
+                          Just _ -> 1
+                      _ ->
+                        case (chosenDir2, mPosSize) of
+                          (Just _, Just sz) -> sz
+                          _ -> 0
+
+                  sizeScaled = baseSize * volScale
+                  sizeCapped = min maxPositionSize (max 0 sizeScaled)
+                  sizeFinal0 =
+                    if sizeCapped < argMinPositionSize args
+                      then 0
+                      else sizeCapped
+
+                  (chosenDir, mSizeGateReason) =
+                    case chosenDir2 of
+                      Nothing -> (Nothing, Nothing)
+                      Just _ ->
+                        if sizeFinal0 <= 0
+                          then (Nothing, Just "MIN_SIZE")
+                          else (chosenDir2, Nothing)
+
+                  gateReasonFinal = mPostGateReason <|> mSizeGateReason <|> mGateReason
 
                   action =
                     let downAction =
@@ -7604,8 +7793,11 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                           (Just (-1), Just (-1), Just (-1)) -> downAction
                           (Nothing, Nothing, Nothing) -> "HOLD (both neutral)"
                           (Just _, Just _, Nothing) ->
-                            case mGateReason of
-                              Just why -> "HOLD (" ++ why ++ ")"
+                            case agreeDir of
+                              Just _ ->
+                                case gateReasonFinal of
+                                  Just why -> "HOLD (" ++ why ++ ")"
+                                  Nothing -> "HOLD (confidence gate)"
                               Nothing -> "HOLD (directions disagree)"
                           _ -> "HOLD (directions disagree)"
                       MethodKalmanOnly ->
@@ -7613,7 +7805,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                           (Just 1, Just 1) -> "LONG"
                           (Just (-1), Just (-1)) -> downAction
                           (Just _, Nothing) ->
-                            case mGateReason of
+                            case gateReasonFinal of
                               Just why -> "HOLD (" ++ why ++ ")"
                               Nothing -> "HOLD (confidence gate)"
                           _ -> "HOLD (Kalman neutral)"
@@ -7621,21 +7813,19 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                         case chosenDir of
                           Just 1 -> "LONG"
                           Just (-1) -> downAction
-                          _ -> "HOLD (LSTM neutral)"
-                  posSizeFinal =
-                    case method of
-                      MethodLstmOnly ->
-                        Just $
-                          case chosenDir of
-                            Nothing -> 0
-                            Just _ -> 1
-                      _ ->
-                        case mPosSize of
-                          Nothing -> Just 0
-                          Just sz ->
-                            case chosenDir of
-                              Nothing -> Just 0
-                              Just _ -> Just sz
+                          _ ->
+                            case gateReasonFinal of
+                              Just why -> "HOLD (" ++ why ++ ")"
+                              Nothing -> "HOLD (LSTM neutral)"
+                      MethodBlend ->
+                        case chosenDir of
+                          Just 1 -> "LONG"
+                          Just (-1) -> downAction
+                          _ ->
+                            case gateReasonFinal of
+                              Just why -> "HOLD (" ++ why ++ ")"
+                              Nothing -> "HOLD (blend neutral)"
+                  posSizeFinal = Just sizeFinal0
                in LatestSignal
                     { lsMethod = method
                     , lsCurrentPrice = currentPrice

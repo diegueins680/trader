@@ -72,6 +72,9 @@ data TuneConfig = TuneConfig
   , tcPeriodsPerYear :: !Double
   , tcWalkForwardFolds :: !Int
   , tcMinRoundTrips :: !Int
+  , tcStressVolMultiplier :: !Double
+  , tcStressShock :: !Double
+  , tcStressWeight :: !Double
   } deriving (Eq, Show)
 
 data TuneStats = TuneStats
@@ -90,12 +93,34 @@ defaultTuneConfig periodsPerYear =
     , tcPeriodsPerYear = max 1e-12 periodsPerYear
     , tcWalkForwardFolds = 1
     , tcMinRoundTrips = 0
+    , tcStressVolMultiplier = 1.0
+    , tcStressShock = 0.0
+    , tcStressWeight = 0.0
     }
 
 scoreBacktest :: TuneConfig -> BacktestResult -> Double
 scoreBacktest cfg br =
-  let m = computeMetrics (max 1e-12 (tcPeriodsPerYear cfg)) br
-      finalEq = bmFinalEquity m
+  let ppy = max 1e-12 (tcPeriodsPerYear cfg)
+      m = computeMetrics ppy br
+      baseScore = scoreObjective cfg m
+      stressWeight = max 0 (tcStressWeight cfg)
+      stressScore =
+        if stressWeight <= 0
+          then baseScore
+          else
+            let mult = max 0 (tcStressVolMultiplier cfg)
+                shock = tcStressShock cfg
+                eq = brEquityCurve br
+                stressEq = stressEquityCurve mult shock eq
+                brStress = br { brEquityCurve = stressEq }
+                mStress = computeMetrics ppy brStress
+             in scoreObjective cfg mStress
+      penalty = max 0 (baseScore - stressScore)
+   in baseScore - stressWeight * penalty
+
+scoreObjective :: TuneConfig -> BacktestMetrics -> Double
+scoreObjective cfg m =
+  let finalEq = bmFinalEquity m
       maxDd = max 0 (bmMaxDrawdown m)
       turnover = max 0 (bmTurnover m)
       pDd = max 0 (tcPenaltyMaxDrawdown cfg)
@@ -108,6 +133,31 @@ scoreBacktest cfg br =
            in bmAnnualizedReturn m / denom
         TuneEquityDd -> finalEq - pDd * maxDd
         TuneEquityDdTurnover -> finalEq - pDd * maxDd - pTurn * turnover
+
+stressEquityCurve :: Double -> Double -> [Double] -> [Double]
+stressEquityCurve volMult shock eq =
+  let rets = returnsFromEquity eq
+      step acc r =
+        let r' = r * volMult + shock
+            next = acc * (1 + r')
+            next' = if isNaN next || isInfinite next || next < 0 then 0 else next
+         in next'
+   in case rets of
+        [] -> eq
+        _ -> scanl step 1.0 rets
+
+returnsFromEquity :: [Double] -> [Double]
+returnsFromEquity eq =
+  case eq of
+    [] -> []
+    [_] -> []
+    _ -> zipWith ret eq (tail eq)
+  where
+    bad x = isNaN x || isInfinite x
+    ret a b =
+      if bad a || bad b || a <= 0
+        then 0
+        else b / a - 1
 
 mean :: [Double] -> Double
 mean xs =
@@ -124,6 +174,9 @@ stddev xs =
       let m = mean xs
           var = sum (map (\x -> (x - m) ** 2) xs) / fromIntegral (length xs - 1)
        in sqrt var
+
+clamp01 :: Double -> Double
+clamp01 x = max 0 (min 1 x)
 
 foldRanges :: Int -> Int -> [(Int, Int)]
 foldRanges stepCount foldsReq =
@@ -168,7 +221,8 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
   let eps = 1e-12
       methodRank m =
         case m of
-          MethodBoth -> 2 :: Int
+          MethodBoth -> 3 :: Int
+          MethodBlend -> 2
           MethodKalmanOnly -> 1
           MethodLstmOnly -> 0
       eval m =
@@ -176,7 +230,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
           Left e -> Left e
           Right (openThr, closeThr, bt, stats) ->
             Right (tsMeanScore stats, tsStdScore stats, m, openThr, closeThr, bt, stats)
-      candidates = [MethodBoth, MethodKalmanOnly, MethodLstmOnly]
+      candidates = [MethodBoth, MethodBlend, MethodKalmanOnly, MethodLstmOnly]
       results = map eval candidates
       evaluated = [v | Right v <- results]
       errors = [e | Left e <- results]
@@ -260,9 +314,13 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
           MethodLstmOnly -> Nothing
           _ -> metaV
 
+      blendWeight = clamp01 (ecBlendWeight baseCfg)
+      blendV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalV lstmV
+
       (kalUsedV, lstmUsedV) =
         case method of
           MethodBoth -> (kalV, lstmV)
+          MethodBlend -> (blendV, blendV)
           MethodKalmanOnly -> (kalV, kalV)
           MethodLstmOnly -> (lstmV, lstmV)
 
@@ -276,6 +334,22 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
               else
                 case method of
                   MethodBoth
+                    | V.length kalV < stepCount ->
+                        Just
+                          ( "sweepThreshold: kalPred has length "
+                              ++ show (V.length kalV)
+                              ++ " but needs at least "
+                              ++ show stepCount
+                          )
+                    | V.length lstmV < stepCount ->
+                        Just
+                          ( "sweepThreshold: lstmPred has length "
+                              ++ show (V.length lstmV)
+                              ++ " but needs at least "
+                              ++ show stepCount
+                          )
+                    | otherwise -> Nothing
+                  MethodBlend
                     | V.length kalV < stepCount ->
                         Just
                           ( "sweepThreshold: kalPred has length "
@@ -313,6 +387,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
       predSources =
         case method of
           MethodBoth -> [kalV, lstmV]
+          MethodBlend -> [blendV]
           MethodKalmanOnly -> [kalV]
           MethodLstmOnly -> [lstmV]
       mags =

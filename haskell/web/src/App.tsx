@@ -2199,7 +2199,7 @@ export function App() {
         if (isCancelled) return;
         const payloadRec = (payload as Record<string, unknown> | null | undefined) ?? {};
         const rawCombos: unknown[] = Array.isArray(payloadRec.combos) ? (payloadRec.combos as unknown[]) : [];
-        const methods: Method[] = ["11", "10", "01"];
+        const methods: Method[] = ["11", "10", "01", "blend"];
         const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
         const positionings: Positioning[] = ["long-flat", "long-short"];
         const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
@@ -3372,10 +3372,13 @@ export function App() {
                   }}
                 >
                   <option value="11">11 — Both (agreement gated)</option>
+                  <option value="blend">blend — Weighted average</option>
                   <option value="10">10 — Kalman only</option>
                   <option value="01">01 — LSTM only</option>
                 </select>
-                <div className="hint">“11” only trades when both models agree on direction (up/down) outside the open threshold.</div>
+                <div className="hint">
+                  “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” averages the two predictions.
+                </div>
                 {methodOverride ? (
                   <div className="pillRow" style={{ marginTop: 6 }}>
                     <span className="pill" style={{ color: "rgba(245, 158, 11, 0.9)", borderColor: "rgba(245, 158, 11, 0.35)" }}>

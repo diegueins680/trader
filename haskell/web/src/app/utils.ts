@@ -174,6 +174,8 @@ export function methodLabel(method: Method): string {
       return "Kalman only";
     case "01":
       return "LSTM only";
+    case "blend":
+      return "Blend (weighted average)";
   }
 }
 

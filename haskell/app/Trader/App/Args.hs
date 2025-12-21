@@ -86,8 +86,21 @@ data Args = Args
   , argTrailingStop :: Maybe Double
   , argMinHoldBars :: Int
   , argCooldownBars :: Int
+  , argMaxHoldBars :: Maybe Int
   , argMaxDrawdown :: Maybe Double
   , argMaxDailyLoss :: Maybe Double
+  , argMinEdge :: Double
+  , argCostAwareEdge :: Bool
+  , argEdgeBuffer :: Double
+  , argTrendLookback :: Int
+  , argMaxPositionSize :: Double
+  , argVolTarget :: Maybe Double
+  , argVolLookback :: Int
+  , argVolEwmaAlpha :: Maybe Double
+  , argVolFloor :: Double
+  , argVolScaleMax :: Double
+  , argMaxVolatility :: Maybe Double
+  , argBlendWeight :: Double
   , argMaxOrderErrors :: Maybe Int
   , argPeriodsPerYear :: Maybe Double
   , argJson :: Bool
@@ -103,6 +116,9 @@ data Args = Args
   , argConfirmQuantiles :: Bool
   , argConfidenceSizing :: Bool
   , argMinPositionSize :: Double
+  , argTuneStressVolMult :: Double
+  , argTuneStressShock :: Double
+  , argTuneStressWeight :: Double
   } deriving (Eq, Show)
 
 defaultBinanceBars :: Int
@@ -275,8 +291,21 @@ opts = do
   argTrailingStop <- optional (option auto (long "trailing-stop" <> help "Trailing stop fraction for a bracket exit (e.g., 0.01 for 1%)"))
   argMinHoldBars <- option auto (long "min-hold-bars" <> value 0 <> help "Minimum holding periods (bars) before allowing a signal-based exit (0 disables)")
   argCooldownBars <- option auto (long "cooldown-bars" <> value 0 <> help "When flat after an exit, wait this many bars before allowing a new entry (0 disables)")
+  argMaxHoldBars <- optional (option auto (long "max-hold-bars" <> help "Force exit after holding for this many bars (0 disables)"))
   argMaxDrawdown <- optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
   argMaxDailyLoss <- optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
+  argMinEdge <- option auto (long "min-edge" <> value 0 <> help "Minimum predicted return magnitude required to enter (0 disables)")
+  argCostAwareEdge <- switch (long "cost-aware-edge" <> help "Raise min-edge to cover estimated fees/slippage/spread")
+  argEdgeBuffer <- option auto (long "edge-buffer" <> value 0 <> help "Extra buffer added to cost-aware min-edge")
+  argTrendLookback <- option auto (long "trend-lookback" <> value 0 <> help "SMA lookback for trend filter (0 disables)")
+  argMaxPositionSize <- option auto (long "max-position-size" <> value 1 <> help "Cap position size/leverage (1 = full size)")
+  argVolTarget <- optional (option auto (long "vol-target" <> help "Target annualized volatility for position sizing"))
+  argVolLookback <- option auto (long "vol-lookback" <> value 20 <> help "Lookback window for realized vol sizing (bars)")
+  argVolEwmaAlpha <- optional (option auto (long "vol-ewma-alpha" <> help "EWMA alpha for vol sizing (overrides vol-lookback)"))
+  argVolFloor <- option auto (long "vol-floor" <> value 0 <> help "Annualized vol floor for sizing")
+  argVolScaleMax <- option auto (long "vol-scale-max" <> value 1 <> help "Max volatility scaling (caps leverage)")
+  argMaxVolatility <- optional (option auto (long "max-volatility" <> help "Block entries when annualized vol exceeds this"))
+  argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend (0..1)")
   argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
   argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
   argJson <- switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
@@ -291,6 +320,9 @@ opts = do
   argConfirmQuantiles <- switch (long "confirm-quantiles" <> help "Require quantiles to agree with the chosen direction")
   argConfidenceSizing <- switch (long "confidence-sizing" <> help "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled")
   argMinPositionSize <- option auto (long "min-position-size" <> value 0 <> help "If confidence-sizing yields a size below this, skip the trade (0..1)")
+  argTuneStressVolMult <- option auto (long "tune-stress-vol-mult" <> value 1.0 <> help "Stress volatility multiplier for tune scoring (1 disables)")
+  argTuneStressShock <- option auto (long "tune-stress-shock" <> value 0.0 <> help "Stress shock added to returns for tune scoring (0 disables)")
+  argTuneStressWeight <- option auto (long "tune-stress-weight" <> value 0.0 <> help "Penalty weight for stress scenario in tune scoring (0 disables)")
 
   pure Args { argCloseThreshold = fromMaybe argOpenThreshold mCloseThreshold, .. }
 
@@ -456,12 +488,36 @@ validateArgs args0 = do
     Just v -> ensure "--trailing-stop must be > 0 and < 1" (v > 0 && v < 1)
   ensure "--min-hold-bars must be >= 0" (argMinHoldBars args >= 0)
   ensure "--cooldown-bars must be >= 0" (argCooldownBars args >= 0)
+  case argMaxHoldBars args of
+    Nothing -> pure ()
+    Just n -> ensure "--max-hold-bars must be >= 1" (n >= 1)
   case argMaxDrawdown args of
     Nothing -> pure ()
     Just v -> ensure "--max-drawdown must be > 0 and < 1" (v > 0 && v < 1)
   case argMaxDailyLoss args of
     Nothing -> pure ()
     Just v -> ensure "--max-daily-loss must be > 0 and < 1" (v > 0 && v < 1)
+  ensure "--min-edge must be >= 0" (argMinEdge args >= 0)
+  ensure "--edge-buffer must be >= 0" (argEdgeBuffer args >= 0)
+  ensure "--trend-lookback must be >= 0" (argTrendLookback args >= 0)
+  ensure "--max-position-size must be >= 0" (argMaxPositionSize args >= 0)
+  case argVolTarget args of
+    Nothing -> pure ()
+    Just v -> ensure "--vol-target must be > 0" (v > 0)
+  ensure "--vol-lookback must be >= 0" (argVolLookback args >= 0)
+  case (argVolTarget args, argVolEwmaAlpha args) of
+    (Just _, Nothing) ->
+      ensure "--vol-lookback must be >= 2 when --vol-target is set (or use --vol-ewma-alpha)" (argVolLookback args >= 2)
+    _ -> pure ()
+  case argVolEwmaAlpha args of
+    Nothing -> pure ()
+    Just a -> ensure "--vol-ewma-alpha must be > 0 and < 1" (a > 0 && a < 1)
+  ensure "--vol-floor must be >= 0" (argVolFloor args >= 0)
+  ensure "--vol-scale-max must be >= 0" (argVolScaleMax args >= 0)
+  case argMaxVolatility args of
+    Nothing -> pure ()
+    Just v -> ensure "--max-volatility must be > 0" (v > 0)
+  ensure "--blend-weight must be between 0 and 1" (argBlendWeight args >= 0 && argBlendWeight args <= 1)
   case argMaxOrderErrors args of
     Nothing -> pure ()
     Just n -> ensure "--max-order-errors must be >= 1" (n >= 1)
@@ -516,6 +572,8 @@ validateArgs args0 = do
     Nothing -> pure ()
     Just v -> ensure "--max-quantile-width must be >= 0" (v >= 0)
   ensure "--min-position-size must be between 0 and 1" (argMinPositionSize args >= 0 && argMinPositionSize args <= 1)
+  ensure "--tune-stress-vol-mult must be > 0" (argTuneStressVolMult args > 0)
+  ensure "--tune-stress-weight must be >= 0" (argTuneStressWeight args >= 0)
 
   pure args
   where

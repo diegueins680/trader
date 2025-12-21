@@ -1,5 +1,5 @@
 export type Market = "spot" | "margin" | "futures";
-export type Method = "11" | "10" | "01";
+export type Method = "11" | "10" | "01" | "blend";
 export type Normalization = "none" | "minmax" | "standard" | "log";
 export type Positioning = "long-flat" | "long-short";
 export type IntrabarFill = "stop-first" | "take-profit-first";

@@ -41,11 +41,23 @@ data EnsembleConfig = EnsembleConfig
   , ecTrailingStop :: !(Maybe Double)  -- fractional, e.g. 0.01
   , ecMinHoldBars :: !Int              -- bars; 0 disables (signal exits allowed immediately)
   , ecCooldownBars :: !Int             -- bars; 0 disables (wait after exiting before re-entering)
+  , ecMaxHoldBars :: !(Maybe Int)      -- bars; 0 disables (force exit after N bars)
   , ecMaxDrawdown :: !(Maybe Double)   -- fraction, e.g. 0.2 (20%); halts and exits to flat
   , ecMaxDailyLoss :: !(Maybe Double)  -- fraction, e.g. 0.05 (5%); halts and exits to flat
   , ecIntervalSeconds :: !(Maybe Int)  -- required for daily-loss; inferred from CLI interval
   , ecPositioning :: !Positioning
   , ecIntrabarFill :: !IntrabarFill
+  , ecMaxPositionSize :: !Double       -- 0..N, caps position sizing (1=full)
+  , ecMinEdge :: !Double               -- min predicted return magnitude required for entry
+  , ecTrendLookback :: !Int            -- bars; 0 disables
+  , ecPeriodsPerYear :: !Double        -- for annualized volatility sizing
+  , ecVolTarget :: !(Maybe Double)     -- target annualized volatility (0 disables)
+  , ecVolLookback :: !Int              -- bars; used when EWMA alpha is not set
+  , ecVolEwmaAlpha :: !(Maybe Double)  -- 0..1, uses EWMA variance when set
+  , ecVolFloor :: !Double              -- annualized volatility floor
+  , ecVolScaleMax :: !Double           -- caps volatility scaling
+  , ecMaxVolatility :: !(Maybe Double) -- if set, block trades above this annualized vol
+  , ecBlendWeight :: !Double           -- Kalman weight for blend method
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
   , ecKalmanZMin :: !Double
   , ecKalmanZMax :: !Double
@@ -269,10 +281,16 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
         then error "Need at least 2 prices to simulate"
         else
           let startT = max 0 (lookback - 1)
-              openThr = max 0 (ecOpenThreshold cfg)
+              openThrRaw = max 0 (ecOpenThreshold cfg)
+              minEdge = max 0 (ecMinEdge cfg)
+              openThr = max openThrRaw minEdge
               closeThr = max 0 (ecCloseThreshold cfg)
               minHoldBars = max 0 (ecMinHoldBars cfg)
               cooldownBars = max 0 (ecCooldownBars cfg)
+              maxHoldBars =
+                case ecMaxHoldBars cfg of
+                  Just v | v > 0 -> Just v
+                  _ -> Nothing
               maxDrawdownLim =
                 case ecMaxDrawdown cfg of
                   Just v | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
@@ -284,6 +302,24 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
               maxDailyLossLim =
                 case (ecMaxDailyLoss cfg, intervalSeconds) of
                   (Just v, Just _) | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
+                  _ -> Nothing
+              maxPositionSize = max 0 (ecMaxPositionSize cfg)
+              trendLookback = max 0 (ecTrendLookback cfg)
+              ppy = max 1e-12 (ecPeriodsPerYear cfg)
+              volTarget =
+                case ecVolTarget cfg of
+                  Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
+                  _ -> Nothing
+              volLookback = max 0 (ecVolLookback cfg)
+              volFloor = max 0 (ecVolFloor cfg)
+              volScaleMax = max 0 (ecVolScaleMax cfg)
+              volAlpha =
+                case ecVolEwmaAlpha cfg of
+                  Just a | a > 0 && not (isNaN a || isInfinite a) -> Just (max 0 (min 1 a))
+                  _ -> Nothing
+              maxVolatility =
+                case ecMaxVolatility cfg of
+                  Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
                   _ -> Nothing
               dayKeyAt :: Int -> Int
               dayKeyAt i =
@@ -345,8 +381,9 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
 
               applyCost :: Double -> Double -> Double
               applyCost eq size =
-                let s = min 1 (max 0 (abs size))
-                 in eq * (1 - perSideCost * s)
+                let s = max 0 (abs size)
+                    cost = min 0.999999 (perSideCost * s)
+                 in eq * (1 - cost)
 
               barHigh t1 =
                 let h = highsV V.! t1
@@ -369,6 +406,114 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
 
               isBad :: Double -> Bool
               isBad x = isNaN x || isInfinite x
+
+              returnsV :: V.Vector Double
+              returnsV =
+                V.generate stepCount $ \i ->
+                  let p0 = pricesV V.! i
+                      p1 = pricesV V.! (i + 1)
+                      r =
+                        if p0 == 0 || isBad p0 || isBad p1
+                          then 0
+                          else p1 / p0 - 1
+                   in if isBad r then 0 else r
+
+              meanV :: V.Vector Double -> Double
+              meanV v =
+                let n0 = V.length v
+                 in if n0 <= 0 then 0 else V.sum v / fromIntegral n0
+
+              stddevV :: V.Vector Double -> Double
+              stddevV v =
+                let n0 = V.length v
+                 in if n0 < 2
+                      then 0
+                      else
+                        let m = meanV v
+                            var = V.sum (V.map (\x -> (x - m) ** 2) v) / fromIntegral (n0 - 1)
+                         in sqrt var
+
+              ewmaVarV :: V.Vector Double
+              ewmaVarV =
+                case volAlpha of
+                  Nothing -> V.empty
+                  Just a ->
+                    let update var r = a * var + (1 - a) * (r * r)
+                     in V.tail (V.scanl' update 0 returnsV)
+
+              ewmaVarAt :: Int -> Maybe Double
+              ewmaVarAt t =
+                let idx = t - 1
+                 in if idx < 0 || idx >= V.length ewmaVarV
+                      then Nothing
+                      else Just (ewmaVarV V.! idx)
+
+              rollingVolAt :: Int -> Maybe Double
+              rollingVolAt t =
+                let end = t - 1
+                 in if volLookback <= 1 || end < 1
+                      then Nothing
+                      else
+                        let start = max 0 (end - volLookback + 1)
+                            len = end - start + 1
+                         in if len < 2
+                              then Nothing
+                              else
+                                let v = V.slice start len returnsV
+                                    std = stddevV v
+                                 in if isBad std then Nothing else Just (std * sqrt ppy)
+
+              ewmaVolAt :: Int -> Maybe Double
+              ewmaVolAt t =
+                case ewmaVarAt t of
+                  Nothing -> Nothing
+                  Just var ->
+                    let std = sqrt (max 0 var)
+                     in if isBad std then Nothing else Just (std * sqrt ppy)
+
+              volEstimateAt :: Int -> Maybe Double
+              volEstimateAt t =
+                case volAlpha of
+                  Just _ ->
+                    if t < 2
+                      then Nothing
+                      else ewmaVolAt t
+                  Nothing -> rollingVolAt t
+
+              volScaleAt :: Int -> Double
+              volScaleAt t =
+                case volTarget of
+                  Nothing -> 1
+                  Just target ->
+                    case volEstimateAt t of
+                      Nothing -> 1
+                      Just vol ->
+                        let volAdj = max volFloor vol
+                            scale0 = if volAdj <= 0 then 1 else target / volAdj
+                            scale1 = min volScaleMax (max 0 scale0)
+                         in if isBad scale1 then 1 else scale1
+
+              volOkAt :: Int -> Bool
+              volOkAt t =
+                case (maxVolatility, volEstimateAt t) of
+                  (Just maxVol, Just vol) -> vol <= maxVol
+                  _ -> True
+
+              trendOkAt :: Int -> PositionSide -> Bool
+              trendOkAt t side =
+                if trendLookback <= 1 || t < trendLookback - 1
+                  then True
+                  else
+                    let start = t - trendLookback + 1
+                        v = V.slice start trendLookback pricesV
+                        sma = meanV v
+                        px = pricesV V.! t
+                     in if isBad sma || isBad px
+                          then True
+                          else
+                            case side of
+                              SideLong -> px >= sma
+                              SideShort -> px <= sma
 
               clamp01 :: Double -> Double
               clamp01 x = max 0 (min 1 x)
@@ -597,13 +742,40 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                               else (Nothing, 0)
                                in (openAgreeDir == Just SideLong || openAgreeDir == Just SideShort, desiredSide', desiredSize')
 
-                        desiredSize =
+                        desiredSize0 =
                           if desiredSideRaw == Nothing
                             then 0
-                            else min 1 (max 0 desiredSizeRaw)
+                            else max 0 desiredSizeRaw
+
+                        desiredSide0 =
+                          if desiredSize0 <= 0 then Nothing else desiredSideRaw
+
+                        needsEntry = desiredSide0 /= Nothing && desiredSide0 /= posSide
+
+                        trendOk =
+                          case desiredSide0 of
+                            Just side | needsEntry -> trendLookback <= 1 || trendOkAt t side
+                            _ -> True
+
+                        volOk = if needsEntry then volOkAt t else True
+
+                        (desiredSide1, desiredSize1) =
+                          if not trendOk || not volOk
+                            then (Nothing, 0)
+                            else (desiredSide0, desiredSize0)
+
+                        sizeScale = if needsEntry then volScaleAt t else 1
+                        sizeScaled = desiredSize1 * sizeScale
+                        sizeCapped = min maxPositionSize (max 0 sizeScaled)
+                        sizeFinal0 =
+                          if sizeCapped < max 0 (ecMinPositionSize cfg)
+                            then 0
+                            else sizeCapped
 
                         desiredSide =
-                          if desiredSize <= 0 then Nothing else desiredSideRaw
+                          if sizeFinal0 <= 0 then Nothing else desiredSide1
+
+                        desiredSize = sizeFinal0
 
                         desiredSideHoldAdjusted =
                           if posSide /= Nothing && desiredSide /= posSide && holdBars < minHoldBars
@@ -620,14 +792,30 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             then (Nothing, 0)
                             else (desiredSideHoldAdjusted, desiredSizeHoldAdjusted)
 
-                        (desiredSideFinal, desiredSizeFinal) =
-                          if halted
+                        holdTooLong =
+                          case maxHoldBars of
+                            Nothing -> False
+                            Just lim -> posSide /= Nothing && holdBars >= lim
+
+                        (desiredSideFinal1, desiredSizeFinal1) =
+                          if holdTooLong
                             then (Nothing, 0)
                             else (desiredSideFinal0, desiredSizeFinal0)
 
+                        (desiredSideFinal, desiredSizeFinal) =
+                          if halted
+                            then (Nothing, 0)
+                            else (desiredSideFinal1, desiredSizeFinal1)
+
+                        exitReasonOverride =
+                          case () of
+                            _ | halted -> haltReason1
+                              | holdTooLong -> Just (ExitOther "MAX_HOLD")
+                              | otherwise -> Nothing
+
                         switchExitReason =
-                          case (halted, haltReason1, posSide) of
-                            (True, Just r, Just _) -> r
+                          case (exitReasonOverride, posSide) of
+                            (Just r, Just _) -> r
                             _ -> ExitSignal
 
                         closeTradeAt exitIndex why eqExit ot =
