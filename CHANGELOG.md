@@ -14,9 +14,14 @@ All notable changes to this project will be documented in this file.
 - Web UI: fixes a startup crash when optimizer combos apply before API compute limits are available.
 - Web UI: show optimizer combo source (API vs static) and last update time.
 - Web UI: optimizer combo loads preserve the current positioning unless the combo explicitly specifies one.
+- Web UI: hides the Agree overlay for LSTM-only backtests and clarifies bars=0 combo behavior.
+- API/Trading: latest signals include `closeDirection`, and live order decisions respect `closeThreshold` for exits.
 - Web UI: manual Method/open/close edits are preserved when optimizer combos or optimize/sweep results apply.
 - Web UI: optimizer combos now persist/show the operations that produced each top result on hover.
+- Web UI: add auto-apply toggle with last-applied marker, manual override lock/unlock hints, and a cross-origin API base warning.
+- Optimizer: adds a `--quality` preset plus CSV high/low auto-detection for deeper equity searches.
 - Deploy: when using CloudFront with a distribution ID, the quick AWS deploy script sets the UI API base to `/api` to avoid CORS.
+- Deploy: quick AWS deploy now prints the CloudFront domain and warns when `/api/*` behavior is missing.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.
 - API/UI: `/binance/keys` trade probes report `skipped` when no test order is attempted, and the UI shows `SKIP` instead of `FAIL`.
 - API: `/binance/keys` preflight checks minNotional when price data is available and only fetches symbol filters when needed.

@@ -687,6 +687,38 @@ EOF
   fi
 }
 
+describe_cloudfront_distribution() {
+  local dist_id="$1"
+  local ui_api_url="${2:-}"
+  local domain=""
+  domain="$(
+    aws cloudfront get-distribution \
+      --id "$dist_id" \
+      --query 'Distribution.DomainName' \
+      --output text 2>/dev/null || true
+  )"
+  if [[ -z "$domain" || "$domain" == "None" ]]; then
+    echo "CloudFront: unable to describe distribution ${dist_id}" >&2
+    return 0
+  fi
+  echo "CloudFront domain: https://${domain}"
+  local api_origin_id=""
+  api_origin_id="$(
+    aws cloudfront get-distribution \
+      --id "$dist_id" \
+      --query 'Distribution.DistributionConfig.CacheBehaviors.Items[?PathPattern==`/api/*`].TargetOriginId | [0]' \
+      --output text 2>/dev/null || true
+  )"
+  if [[ -z "$api_origin_id" || "$api_origin_id" == "None" ]]; then
+    echo "CloudFront warning: /api/* behavior not found; UI should use the full API URL instead of /api." >&2
+  else
+    echo "CloudFront /api/* behavior: ${api_origin_id}"
+  fi
+  if [[ "$ui_api_url" == "/api" && ( -z "$api_origin_id" || "$api_origin_id" == "None" ) ]]; then
+    echo "CloudFront warning: UI is configured to /api but no /api/* behavior is set. Update the distribution or set apiBaseUrl to the API host." >&2
+  fi
+}
+
 # Main execution
 main() {
   local need_docker="false"
@@ -717,6 +749,7 @@ main() {
   local api_url=""
   local api_token="$TRADER_API_TOKEN"
   local ui_api_url_override="${UI_API_URL:-}"
+  local ui_api_url=""
 
   if [[ "$DEPLOY_API" == "true" ]]; then
     create_ecr_repo
@@ -739,8 +772,10 @@ main() {
   fi
 
   if [[ "$DEPLOY_UI" == "true" ]]; then
-    local ui_api_url="$api_url"
-    if [[ -z "${ui_api_url_override:-}" && -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+    ui_api_url="$api_url"
+    if [[ -n "${ui_api_url_override:-}" ]]; then
+      ui_api_url="$ui_api_url_override"
+    elif [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
       ui_api_url="/api"
     fi
     deploy_ui "$ui_api_url" "$api_token"
@@ -759,6 +794,11 @@ main() {
     echo "UI uploaded to: s3://${UI_BUCKET}/"
   fi
   echo ""
+
+  if [[ "$DEPLOY_UI" == "true" && -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+    describe_cloudfront_distribution "$UI_DISTRIBUTION_ID" "$ui_api_url"
+    echo ""
+  fi
 
   if [[ "$DEPLOY_API" == "true" ]]; then
     echo "Test the API:"

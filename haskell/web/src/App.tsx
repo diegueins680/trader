@@ -53,6 +53,7 @@ import {
   SESSION_BINANCE_KEY_KEY,
   SESSION_BINANCE_SECRET_KEY,
   SIGNAL_TIMEOUT_MS,
+  STORAGE_AUTO_APPLY_TOP_COMBO_KEY,
   STORAGE_KEY,
   STORAGE_ORDER_LOG_PREFS_KEY,
   STORAGE_PERSIST_SECRETS_KEY,
@@ -270,7 +271,7 @@ function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits 
     const maxBarsRaw = Math.trunc(apiLimits.maxBarsLstm);
     if (Number.isFinite(maxBarsRaw) && maxBarsRaw > 0) {
       const maxBars = clamp(maxBarsRaw, MIN_LOOKBACK_BARS, 1000);
-      bars = bars <= 0 ? maxBars : Math.min(bars, maxBars);
+      if (bars > 0) bars = Math.min(bars, maxBars);
     }
     epochs = Math.min(epochs, apiLimits.maxEpochs);
     hiddenSize = Math.min(hiddenSize, apiLimits.maxHiddenSize);
@@ -504,13 +505,18 @@ export function App() {
   });
   const formRef = useRef(form);
   const apiComputeLimitsRef = useRef<ComputeLimits | null>(apiComputeLimits);
-  const manualOverridesRef = useRef<Set<ManualOverrideKey>>(new Set());
+  const [manualOverrides, setManualOverrides] = useState<Set<ManualOverrideKey>>(() => new Set());
+  const manualOverridesRef = useRef<Set<ManualOverrideKey>>(manualOverrides);
 
   apiComputeLimitsRef.current = apiComputeLimits;
 
   useEffect(() => {
     formRef.current = form;
   }, [form]);
+
+  useEffect(() => {
+    manualOverridesRef.current = manualOverrides;
+  }, [manualOverrides]);
 
   const normalizedBinanceSymbol = form.binanceSymbol.trim().toUpperCase();
   const symbolIsCustom = !BINANCE_SYMBOL_SET.has(normalizedBinanceSymbol);
@@ -639,6 +645,9 @@ export function App() {
     payloadSource: null,
     fallbackReason: null,
   });
+  const [autoApplyTopCombo, setAutoApplyTopCombo] = useState<boolean>(() => readJson<boolean>(STORAGE_AUTO_APPLY_TOP_COMBO_KEY) ?? true);
+  const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
+  const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
   const topCombosRef = useRef<OptimizationCombo[]>([]);
   const dataLogRef = useRef<HTMLDivElement | null>(null);
@@ -721,6 +730,10 @@ export function App() {
     writeJson(STORAGE_PERSIST_SECRETS_KEY, persistSecrets);
   }, [persistSecrets]);
 
+  useEffect(() => {
+    writeJson(STORAGE_AUTO_APPLY_TOP_COMBO_KEY, autoApplyTopCombo);
+  }, [autoApplyTopCombo]);
+
   const toastTimerRef = useRef<number | null>(null);
   const showToast = useCallback((msg: string) => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
@@ -728,10 +741,36 @@ export function App() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
 
-  const markManualOverrides = useCallback((keys: ManualOverrideKey[]) => {
-    const set = manualOverridesRef.current;
-    for (const key of keys) set.add(key);
+  const updateManualOverrides = useCallback((updater: (next: Set<ManualOverrideKey>) => void) => {
+    setManualOverrides((prev) => {
+      const next = new Set(prev);
+      updater(next);
+      manualOverridesRef.current = next;
+      return next;
+    });
   }, []);
+
+  const markManualOverrides = useCallback(
+    (keys: ManualOverrideKey[]) => {
+      updateManualOverrides((next) => {
+        for (const key of keys) next.add(key);
+      });
+    },
+    [updateManualOverrides],
+  );
+
+  const clearManualOverrides = useCallback(
+    (keys?: ManualOverrideKey[]) => {
+      updateManualOverrides((next) => {
+        if (!keys || keys.length === 0) {
+          next.clear();
+          return;
+        }
+        for (const key of keys) next.delete(key);
+      });
+    },
+    [updateManualOverrides],
+  );
 
   const clearRateLimit = useCallback(() => {
     setRateLimit(null);
@@ -931,6 +970,25 @@ export function App() {
     }
     return "/api";
   }, [apiBaseCandidate, apiBaseError]);
+
+  const apiBaseCrossOrigin = useMemo(() => {
+    if (!/^https?:\/\//i.test(apiBase)) return false;
+    try {
+      const apiOrigin = new URL(apiBase).origin;
+      if (typeof window === "undefined") return false;
+      return apiOrigin !== window.location.origin;
+    } catch {
+      return false;
+    }
+  }, [apiBase]);
+
+  const apiBaseCorsHint = useMemo(() => {
+    if (!apiBaseCrossOrigin || typeof window === "undefined") return null;
+    if (window.location.hostname.endsWith("cloudfront.net")) {
+      return "Cross-origin API base. If CloudFront has a /api/* behavior, set apiBaseUrl to /api to avoid CORS/preflight.";
+    }
+    return "Cross-origin API base. Ensure the API allows this origin, or use a same-origin /api proxy.";
+  }, [apiBaseCrossOrigin]);
 
   useEffect(() => {
     let mounted = true;
@@ -2328,12 +2386,20 @@ export function App() {
         setTopCombosMeta({ source, generatedAtMs, payloadSource, fallbackReason });
         setTopCombosError(null);
         const topCombo = limited[0];
-        if (topCombo) {
+        if (topCombo && autoApplyTopCombo) {
           const currentForm = formRef.current;
           const topSig = comboApplySignature(topCombo, apiComputeLimitsRef.current, currentForm, manualOverridesRef.current);
           const formSig = formApplySignature(currentForm);
           if (topSig !== formSig) {
             applyCombo(topCombo, { silent: true, respectManual: true });
+            const now = Date.now();
+            setAutoAppliedCombo({ id: topCombo.id, atMs: now });
+            const prev = autoAppliedComboRef.current;
+            const shouldToast = !prev.atMs || prev.id !== topCombo.id || now - prev.atMs > 120_000;
+            autoAppliedComboRef.current = { id: topCombo.id, atMs: now };
+            if (shouldToast) {
+              showToast(`Auto-applied top combo #${topCombo.id} (manual overrides respected)`);
+            }
           }
         }
       } catch (err) {
@@ -2357,7 +2423,7 @@ export function App() {
       isCancelled = true;
       window.clearInterval(t);
     };
-  }, [apiBase, apiOk, authHeaders, applyCombo]);
+  }, [apiBase, apiOk, authHeaders, applyCombo, autoApplyTopCombo, showToast]);
 
   const statusDotClass =
     apiOk === "ok" ? "dot dotOk" : apiOk === "down" ? "dot dotBad" : "dot dotWarn";
@@ -2371,6 +2437,19 @@ export function App() {
         : apiOk === "down"
           ? "API unreachable"
           : "API status unknown";
+  const methodOverride = manualOverrides.has("method");
+  const openThresholdOverride = manualOverrides.has("openThreshold");
+  const closeThresholdOverride = manualOverrides.has("closeThreshold");
+  const manualOverrideLabels = [
+    ...(methodOverride ? ["method"] : []),
+    ...(openThresholdOverride ? ["open threshold"] : []),
+    ...(closeThresholdOverride ? ["close threshold"] : []),
+  ];
+  const thresholdOverrideKeys: ManualOverrideKey[] = [];
+  if (openThresholdOverride) thresholdOverrideKeys.push("openThreshold");
+  if (closeThresholdOverride) thresholdOverrideKeys.push("closeThreshold");
+  const autoAppliedAge =
+    autoAppliedCombo && autoAppliedCombo.atMs ? fmtDurationMs(Math.max(0, Date.now() - autoAppliedCombo.atMs)) : null;
 
   const missingSymbol = !form.binanceSymbol.trim();
   const intervalValue = form.interval.trim();
@@ -2641,6 +2720,11 @@ export function App() {
                     {apiBaseError}
                   </div>
                 ) : null}
+                {apiBaseCorsHint ? (
+                  <div className="hint" style={{ marginTop: 6 }}>
+                    {apiBaseCorsHint}
+                  </div>
+                ) : null}
                 {healthInfo?.computeLimits ? (
                   <div className="hint" style={{ marginTop: 6 }}>
                     {healthInfo.version ? (
@@ -2876,6 +2960,31 @@ export function App() {
                   </div>
                 );
               })()}
+              <div className="pillRow" style={{ marginBottom: 8 }}>
+                <label className="pill">
+                  <input type="checkbox" checked={autoApplyTopCombo} onChange={(e) => setAutoApplyTopCombo(e.target.checked)} />
+                  Auto-apply top combo
+                </label>
+                {autoAppliedCombo ? (
+                  <span className="pill">
+                    Auto-applied #{autoAppliedCombo.id}
+                    {autoAppliedAge ? ` (${autoAppliedAge} ago)` : ""}
+                  </span>
+                ) : null}
+                {manualOverrideLabels.length > 0 ? (
+                  <>
+                    <span
+                      className="pill"
+                      style={{ color: "rgba(245, 158, 11, 0.9)", borderColor: "rgba(245, 158, 11, 0.35)" }}
+                    >
+                      Manual overrides: {manualOverrideLabels.join(", ")}
+                    </span>
+                    <button className="btnSmall" type="button" onClick={() => clearManualOverrides()}>
+                      Unlock overrides
+                    </button>
+                  </>
+                ) : null}
+              </div>
               <TopCombosChart
                 combos={topCombos}
                 loading={topCombosLoading}
@@ -2884,8 +2993,9 @@ export function App() {
                 onSelect={handleComboSelect}
               />
               <div className="hint">
-                Click a combo to preload its parameters into the form (and the symbol, when provided). bars=0 runs the full dataset.
+                Click a combo to preload its parameters into the form (and the symbol, when provided). bars=0 uses all CSV data or Binance's default (500).
               </div>
+              <div className="hint">Auto-apply respects manual overrides. Unlock to let combos update those fields.</div>
             </div>
           </div>
 
@@ -3109,6 +3219,16 @@ export function App() {
                   <option value="01">01 — LSTM only</option>
                 </select>
                 <div className="hint">“11” only trades when both models agree on direction (up/down) outside the open threshold.</div>
+                {methodOverride ? (
+                  <div className="pillRow" style={{ marginTop: 6 }}>
+                    <span className="pill" style={{ color: "rgba(245, 158, 11, 0.9)", borderColor: "rgba(245, 158, 11, 0.35)" }}>
+                      Manual override active
+                    </span>
+                    <button className="btnSmall" type="button" onClick={() => clearManualOverrides(["method"])}>
+                      Unlock method
+                    </button>
+                  </div>
+                ) : null}
               </div>
               <div className="field">
                 <label className="label" htmlFor="positioning">
@@ -3158,6 +3278,19 @@ export function App() {
                     ? " Consider increasing open threshold to avoid churn after costs."
                     : null}
                 </div>
+                {thresholdOverrideKeys.length > 0 ? (
+                  <div className="pillRow" style={{ marginTop: 8 }}>
+                    <span className="pill" style={{ color: "rgba(245, 158, 11, 0.9)", borderColor: "rgba(245, 158, 11, 0.35)" }}>
+                      Manual override: {thresholdOverrideKeys.includes("openThreshold") ? "open" : ""}
+                      {thresholdOverrideKeys.includes("openThreshold") && thresholdOverrideKeys.includes("closeThreshold") ? " + " : ""}
+                      {thresholdOverrideKeys.includes("closeThreshold") ? "close" : ""} threshold
+                      {thresholdOverrideKeys.length > 1 ? "s" : ""}
+                    </span>
+                    <button className="btnSmall" type="button" onClick={() => clearManualOverrides(thresholdOverrideKeys)}>
+                      Unlock thresholds
+                    </button>
+                  </div>
+                ) : null}
                 <div className="pillRow" style={{ marginTop: 10 }}>
                   <button
                     className="btnSmall"
@@ -4503,6 +4636,10 @@ export function App() {
                     <div className="k">Chosen</div>
                     <div className="v">{bot.status.latestSignal.chosenDirection ?? "—"}</div>
                   </div>
+                  <div className="kv">
+                    <div className="k">Close dir</div>
+                    <div className="v">{bot.status.latestSignal.closeDirection ?? "—"}</div>
+                  </div>
 	                  {typeof bot.status.latestSignal.confidence === "number" && Number.isFinite(bot.status.latestSignal.confidence) ? (
 	                    <div className="kv">
 	                      <div className="k">Confidence / Size</div>
@@ -5011,6 +5148,10 @@ export function App() {
                     <div className="k">Chosen</div>
                     <div className="v">{state.latestSignal.chosenDirection ?? "NEUTRAL"}</div>
                   </div>
+                  <div className="kv">
+                    <div className="k">Close dir</div>
+                    <div className="v">{state.latestSignal.closeDirection ?? "NEUTRAL"}</div>
+                  </div>
                   {typeof state.latestSignal.confidence === "number" && Number.isFinite(state.latestSignal.confidence) ? (
                     <div className="kv">
                       <div className="k">Confidence / Size</div>
@@ -5112,7 +5253,7 @@ export function App() {
 				                    equityCurve={state.backtest.equityCurve}
 				                    kalmanPredNext={state.backtest.kalmanPredNext}
 				                    positions={state.backtest.positions}
-				                    agreementOk={state.backtest.agreementOk}
+				                    agreementOk={state.backtest.method === "01" ? undefined : state.backtest.agreementOk}
 				                    trades={state.backtest.trades}
 				                    backtestStartIndex={state.backtest.split.backtestStartIndex}
 				                    height={360}

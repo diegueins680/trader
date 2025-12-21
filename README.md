@@ -240,6 +240,10 @@ Endpoints:
 - `POST /bot/stop` → stops the live bot loop
 - `GET /bot/status` → returns the live bot status + chart data (prices/equity/positions/operations)
 
+Optimizer script tips:
+- `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
+- `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
+
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
 
@@ -335,6 +339,7 @@ The UI shows whether combos are coming from the live API or the static fallback,
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 Hover optimizer combos to inspect the operations captured for each top performer.
 When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` (the quick AWS deploy script does this automatically when a distribution ID is provided) to avoid CORS issues.
+The UI exposes an Auto-apply toggle for top combos and shows when a combo auto-applied; manual override locks include an unlock button to let combos update those fields again.
 
 Run it:
 ```
