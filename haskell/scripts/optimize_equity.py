@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import os
@@ -85,6 +86,29 @@ def count_csv_rows(path: Path) -> int:
         return sum(1 for _ in f)
 
 
+def normalize_header_name(raw: str) -> str:
+    return "".join(ch for ch in raw.strip().lower() if ch.isalnum())
+
+
+def detect_high_low_columns(path: Path) -> Tuple[Optional[str], Optional[str]]:
+    try:
+        with path.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+    except Exception:
+        return None, None
+    if not header:
+        return None, None
+    normalized: Dict[str, str] = {}
+    for col in header:
+        key = normalize_header_name(str(col))
+        if key and key not in normalized:
+            normalized[key] = str(col)
+    high = next((normalized.get(k) for k in ("high", "highprice", "highpx") if k in normalized), None)
+    low = next((normalized.get(k) for k in ("low", "lowprice", "lowpx") if k in normalized), None)
+    return high, low
+
+
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
@@ -163,6 +187,27 @@ def coerce_int_value(value: Any) -> Optional[int]:
         except ValueError:
             return None
     return None
+
+
+def apply_quality_preset(args: argparse.Namespace) -> None:
+    args.trials = max(int(args.trials), 500)
+    args.min_round_trips = max(int(args.min_round_trips), 5)
+    args.open_threshold_max = max(float(args.open_threshold_max), 5e-2)
+    args.close_threshold_max = max(float(args.close_threshold_max), 5e-2)
+    args.epochs_max = max(int(args.epochs_max), 50)
+    args.hidden_size_max = max(int(args.hidden_size_max), 128)
+    args.lr_max = max(float(args.lr_max), 5e-2)
+    args.backtest_ratio = min(float(args.backtest_ratio), 0.10)
+    args.tune_ratio = min(float(args.tune_ratio), 0.15)
+    if str(args.objective).strip().lower() in ("final-equity", "final_equity", "finalequity"):
+        args.objective = "equity-dd-turnover"
+    args.penalty_turnover = max(float(args.penalty_turnover), 0.1)
+    if int(args.bars_max) > 0:
+        args.bars_max = 0
+    args.auto_high_low = True
+    if str(args.interval).strip():
+        args.interval = ""
+        args.intervals = ",".join(BINANCE_INTERVALS)
 
 
 def objective_score(
@@ -801,6 +846,16 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--disable-lstm-persistence", action="store_true", help="Disable LSTM weight caching (more reproducible).")
     parser.add_argument("--top-json", type=str, default="", help="Write the top-performing combos (JSON) for the UI chart.")
     parser.add_argument(
+        "--quality",
+        action="store_true",
+        help="Apply a deeper-search preset (more trials, wider ranges, stricter filters, equity-dd-turnover, smaller splits).",
+    )
+    parser.add_argument(
+        "--auto-high-low",
+        action="store_true",
+        help="Auto-detect CSV high/low columns when not explicitly provided (enables intrabar stops/TP/trailing).",
+    )
+    parser.add_argument(
         "--objective",
         type=str,
         default="final-equity",
@@ -976,6 +1031,8 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--p-disable-grad-clip", type=float, default=0.7, help="Probability grad clipping is disabled (default: 0.7).")
 
     args = parser.parse_args(argv)
+    if args.quality:
+        apply_quality_preset(args)
 
     root = Path(__file__).resolve().parents[1]
     haskell_dir = root
@@ -997,6 +1054,12 @@ def main(argv: List[str]) -> int:
         if not p.exists():
             print(f"--data not found: {p}", file=sys.stderr)
             return 2
+        if args.auto_high_low and not args.high_column and not args.low_column:
+            high_col, low_col = detect_high_low_columns(p)
+            if high_col and low_col:
+                args.high_column = high_col
+                args.low_column = low_col
+                print(f"Auto-detected high/low columns: {high_col}/{low_col}", file=sys.stderr)
         # csv rows includes header; bars are data rows.
         csv_n = max(0, count_csv_rows(p) - 1)
         max_bars_cap = max(2, csv_n)
