@@ -347,7 +347,6 @@ data LatestSignal = LatestSignal
   , lsLstmNext :: !(Maybe Double)
   , lsLstmDir :: !(Maybe Int)
   , lsChosenDir :: !(Maybe Int)
-  , lsCloseDir :: !(Maybe Int)
   , lsAction :: !String
   } deriving (Eq, Show)
 
@@ -664,7 +663,6 @@ instance ToJSON LatestSignal where
       , "lstmNext" .= lsLstmNext s
       , "lstmDirection" .= (if isJust (lsLstmNext s) then dirLabel (lsLstmDir s) else Nothing)
       , "chosenDirection" .= dirLabel (lsChosenDir s)
-      , "closeDirection" .= dirLabel (lsCloseDir s)
       , "action" .= lsAction s
       ]
 
@@ -1917,6 +1915,12 @@ botOptimizeAfterOperation st = do
               baseOpenThr = argOpenThreshold args
               baseCloseThr = argCloseThreshold args
               fee = argFee args
+              perSideCost = estimatedPerSideCost fee (argSlippage args) (argSpread args)
+              minEdgeBase = max 0 (argMinEdge args)
+              minEdge =
+                if argCostAwareEdge args
+                  then max minEdgeBase (breakEvenThresholdFromPerSideCost perSideCost + max 0 (argEdgeBuffer args))
+                  else minEdgeBase
               baseCfg =
                 EnsembleConfig
                   { ecOpenThreshold = baseOpenThr
@@ -1929,11 +1933,23 @@ botOptimizeAfterOperation st = do
                   , ecTrailingStop = argTrailingStop args
                   , ecMinHoldBars = argMinHoldBars args
                   , ecCooldownBars = argCooldownBars args
+                  , ecMaxHoldBars = argMaxHoldBars args
                   , ecMaxDrawdown = argMaxDrawdown args
                   , ecMaxDailyLoss = argMaxDailyLoss args
                   , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
                   , ecPositioning = LongFlat
                   , ecIntrabarFill = argIntrabarFill args
+                  , ecMaxPositionSize = argMaxPositionSize args
+                  , ecMinEdge = minEdge
+                  , ecTrendLookback = argTrendLookback args
+                  , ecPeriodsPerYear = periodsPerYear args
+                  , ecVolTarget = argVolTarget args
+                  , ecVolLookback = argVolLookback args
+                  , ecVolEwmaAlpha = argVolEwmaAlpha args
+                  , ecVolFloor = argVolFloor args
+                  , ecVolScaleMax = argVolScaleMax args
+                  , ecMaxVolatility = argMaxVolatility args
+                  , ecBlendWeight = argBlendWeight args
                   , ecKalmanZMin = argKalmanZMin args
                   , ecKalmanZMax = argKalmanZMax args
                   , ecMaxHighVolProb = argMaxHighVolProb args
@@ -5880,17 +5896,19 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
   case (beApiKey env, beApiSecret env) of
     (Nothing, _) -> noOrder "No order: missing Binance API key."
     (_, Nothing) -> noOrder "No order: missing Binance API secret."
-    (Just _, Just _) -> do
-      mFilters <- tryFetchFilters
-      let (baseAsset, quoteAsset) = splitSymbol sym
-      r <- try (place mFilters baseAsset quoteAsset) :: IO (Either SomeException ApiOrderResult)
-      case r of
-        Left ex -> noOrder ("Order failed: " ++ shortErr ex)
-        Right out -> pure out
+    (Just _, Just _) ->
+      case chosenDir of
+        Nothing -> noOrder neutralMsg
+        Just dir -> do
+          mFilters <- tryFetchFilters
+          let (baseAsset, quoteAsset) = splitSymbol sym
+          r <- try (place mFilters baseAsset quoteAsset dir) :: IO (Either SomeException ApiOrderResult)
+          case r of
+            Left ex -> noOrder ("Order failed: " ++ shortErr ex)
+            Right out -> pure out
   where
     method = lsMethod sig
-    openDir = lsChosenDir sig
-    closeDir = lsCloseDir sig
+    chosenDir = lsChosenDir sig
     currentPrice = lsCurrentPrice sig
 
     entryScale :: Double
@@ -5970,32 +5988,6 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         Just mn | price > 0 && qty1 * price < mn -> Left ("Notional below minNotional (" ++ show mn ++ ").")
                         _ -> Right qty1
 
-    normalizeOpenDir :: Positioning -> Maybe Int -> Maybe Int
-    normalizeOpenDir positioning dir =
-      case (positioning, dir) of
-        (LongFlat, Just (-1)) -> Nothing
-        _ -> dir
-
-    desiredPosFromSignals :: Positioning -> Int -> Maybe Int -> Maybe Int -> Int
-    desiredPosFromSignals positioning pos openDirRaw closeDirRaw =
-      let openDir' = normalizeOpenDir positioning openDirRaw
-          desired =
-            if pos == 0
-              then maybe 0 id openDir'
-              else
-                case openDir' of
-                  Just d | d == pos -> pos
-                  Just d | d == -pos ->
-                    if positioning == LongShort
-                      then d
-                      else 0
-                  _ ->
-                    if closeDirRaw == Just pos
-                      then pos
-                      else 0
-          desired' = if positioning == LongFlat && desired < 0 then 0 else desired
-       in desired'
-
     sendMarketOrder :: String -> OrderSide -> Maybe Double -> Maybe Double -> Maybe Bool -> IO ApiOrderResult
     sendMarketOrder sideLabel side mQty mQuote mReduceOnly = do
       let baseOut =
@@ -6033,29 +6025,26 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                   }
            in pure (maybe out0 (`applyOrderInfo` out0) (decodeOrderInfo body))
 
-    place :: Maybe SymbolFilters -> String -> String -> IO ApiOrderResult
-    place mSf baseAsset quoteAsset =
+    place :: Maybe SymbolFilters -> String -> String -> Int -> IO ApiOrderResult
+    place mSf baseAsset quoteAsset dir =
       case beMarket env of
-        MarketSpot -> placeSpotOrMargin mSf baseAsset quoteAsset
+        MarketSpot -> placeSpotOrMargin mSf baseAsset quoteAsset dir
         MarketMargin ->
           if mode == OrderTest
             then pure baseResult { aorMessage = "No order: margin trading requires binanceLive (no test endpoint)." }
-            else placeSpotOrMargin mSf baseAsset quoteAsset
-        MarketFutures -> placeFutures mSf quoteAsset
+            else placeSpotOrMargin mSf baseAsset quoteAsset dir
+        MarketFutures -> placeFutures mSf quoteAsset dir
 
-    placeSpotOrMargin :: Maybe SymbolFilters -> String -> String -> IO ApiOrderResult
-    placeSpotOrMargin mSf baseAsset quoteAsset = do
+    placeSpotOrMargin :: Maybe SymbolFilters -> String -> String -> Int -> IO ApiOrderResult
+    placeSpotOrMargin mSf baseAsset quoteAsset dir = do
       baseBal <- fetchFreeBalance env baseAsset
       let alreadyLong = isLongSpot mSf baseBal
-          pos = if alreadyLong then 1 else 0
-          desiredPos0 = desiredPosFromSignals (argPositioning args) pos openDir closeDir
-          desiredPos = max 0 (min 1 desiredPos0)
           qtyArg = case argOrderQuantity args of { Just q | q > 0 -> Just q; _ -> Nothing }
           quoteArg = case argOrderQuote args of { Just q | q > 0 -> Just q; _ -> Nothing }
           quoteFracArg = case argOrderQuoteFraction args of { Just f | f > 0 -> Just f; _ -> Nothing }
           maxOrderQuoteArg = case argMaxOrderQuote args of { Just q | q > 0 -> Just q; _ -> Nothing }
 
-      case desiredPos of
+      case dir of
         1 ->
           if alreadyLong
             then pure baseResult { aorMessage = "No order: already long." }
@@ -6102,7 +6091,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                               if qq > quoteBal
                                 then pure baseResult { aorMessage = "No order: insufficient quote balance." }
                                 else sendMarketOrder "BUY" Buy Nothing (Just qq) Nothing
-        0 ->
+        (-1) ->
           if not alreadyLong
             then pure baseResult { aorMessage = "No order: already flat." }
             else do
@@ -6124,14 +6113,9 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         else sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
         _ -> pure baseResult { aorMessage = neutralMsg }
 
-    placeFutures :: Maybe SymbolFilters -> String -> IO ApiOrderResult
-    placeFutures mSf quoteAsset = do
+    placeFutures :: Maybe SymbolFilters -> String -> Int -> IO ApiOrderResult
+    placeFutures mSf quoteAsset dir = do
       posAmt <- fetchFuturesPositionAmt env sym
-      let posSign =
-            if posAmt > 0
-              then 1
-              else if posAmt < 0 then -1 else 0
-          desiredPos = desiredPosFromSignals (argPositioning args) posSign openDir closeDir
       let protectPrefix = "trader_prot_"
           stopLoss0 =
             case argStopLoss args of
@@ -6245,7 +6229,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
               then "No order: computed quote is 0 (check futures balance / orderQuoteFraction / maxOrderQuote)."
               else "No order: futures requires orderQuantity or orderQuote."
 
-      case desiredPos of
+      case dir of
         1 ->
           if posAmt > 0
             then
@@ -6334,18 +6318,6 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                   else do
                     cancelProtectionOrders
                     closeOrder "BUY" Buy (abs posAmt)
-        0 ->
-          if posAmt == 0
-            then do
-              cancelProtectionOrders
-              pure baseResult { aorMessage = "No order: already flat." }
-            else if posAmt > 0
-              then do
-                cancelProtectionOrders
-                closeOrder "SELL" Sell (abs posAmt)
-              else do
-                cancelProtectionOrders
-                closeOrder "BUY" Buy (abs posAmt)
         _ -> pure baseResult { aorMessage = neutralMsg }
 
     modeLabel m =
@@ -7035,23 +7007,46 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , Just meta
           )
 
-  let baseCfg =
+  let feeUsed = max 0 (argFee args)
+      slippageUsed = max 0 (argSlippage args)
+      spreadUsed = max 0 (argSpread args)
+      perSideCost = estimatedPerSideCost feeUsed slippageUsed spreadUsed
+      roundTripCost = estimatedRoundTripCost feeUsed slippageUsed spreadUsed
+      minEdgeBase = max 0 (argMinEdge args)
+      minEdge =
+        if argCostAwareEdge args
+          then max minEdgeBase (breakEvenThresholdFromPerSideCost perSideCost + max 0 (argEdgeBuffer args))
+          else minEdgeBase
+
+      baseCfg =
         EnsembleConfig
           { ecOpenThreshold = argOpenThreshold args
           , ecCloseThreshold = argCloseThreshold args
-          , ecFee = argFee args
-          , ecSlippage = argSlippage args
-          , ecSpread = argSpread args
+          , ecFee = feeUsed
+          , ecSlippage = slippageUsed
+          , ecSpread = spreadUsed
           , ecStopLoss = argStopLoss args
           , ecTakeProfit = argTakeProfit args
           , ecTrailingStop = argTrailingStop args
           , ecMinHoldBars = argMinHoldBars args
           , ecCooldownBars = argCooldownBars args
+          , ecMaxHoldBars = argMaxHoldBars args
           , ecMaxDrawdown = argMaxDrawdown args
           , ecMaxDailyLoss = argMaxDailyLoss args
           , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
           , ecPositioning = argPositioning args
           , ecIntrabarFill = argIntrabarFill args
+          , ecMaxPositionSize = argMaxPositionSize args
+          , ecMinEdge = minEdge
+          , ecTrendLookback = argTrendLookback args
+          , ecPeriodsPerYear = periodsPerYear args
+          , ecVolTarget = argVolTarget args
+          , ecVolLookback = argVolLookback args
+          , ecVolEwmaAlpha = argVolEwmaAlpha args
+          , ecVolFloor = argVolFloor args
+          , ecVolScaleMax = argVolScaleMax args
+          , ecMaxVolatility = argMaxVolatility args
+          , ecBlendWeight = argBlendWeight args
           , ecKalmanZMin = argKalmanZMin args
           , ecKalmanZMax = argKalmanZMax args
           , ecMaxHighVolProb = argMaxHighVolProb args
@@ -7062,12 +7057,6 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecConfidenceSizing = argConfidenceSizing args
           , ecMinPositionSize = argMinPositionSize args
           }
-
-      feeUsed = max 0 (argFee args)
-      slippageUsed = max 0 (argSlippage args)
-      spreadUsed = max 0 (argSpread args)
-      perSideCost = estimatedPerSideCost feeUsed slippageUsed spreadUsed
-      roundTripCost = estimatedRoundTripCost feeUsed slippageUsed spreadUsed
 
       offsetBacktestPred = max 0 (trainEnd - predStart)
       kalPredBacktest = drop offsetBacktestPred kalPredAll
@@ -7582,17 +7571,6 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                                     lstmNext = inverseNorm normState lstmNextObs
                                  in (Just lstmNext, directionPrice openThr lstmNext)
 
-                  kalCloseDirRaw = mKalNext >>= directionPrice closeThr
-                  lstmCloseDir = mLstmNext >>= directionPrice closeThr
-                  closeDir =
-                    case method of
-                      MethodBoth ->
-                        if kalCloseDirRaw == lstmCloseDir
-                          then kalCloseDirRaw
-                          else Nothing
-                      MethodKalmanOnly -> kalCloseDirRaw
-                      MethodLstmOnly -> lstmCloseDir
-
                   agreeDir =
                     if kalDir == lstmDir
                       then kalDir
@@ -7679,7 +7657,6 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                     , lsLstmNext = mLstmNext
                     , lsLstmDir = lstmDir
                     , lsChosenDir = chosenDir
-                    , lsCloseDir = closeDir
                     , lsAction = action
                     }
 
@@ -7712,7 +7689,6 @@ printLatestSignalSummary sig = do
     Just lstmNext -> putStrLn (printf "LSTM next:   %.4f (%s)" lstmNext (showDir (lsLstmDir sig)))
   putStrLn (printf "Open threshold:  %.3f%%" (lsOpenThreshold sig * 100))
   putStrLn (printf "Close threshold: %.3f%%" (lsCloseThreshold sig * 100))
-  putStrLn (printf "Close dir:       %s" (showDir (lsCloseDir sig)))
   putStrLn (printf "Action: %s" (lsAction sig))
 
 estimatedPerSideCost :: Double -> Double -> Double -> Double

@@ -254,6 +254,11 @@ function sigBool(value: boolean | null | undefined): string {
   return value ? "1" : "0";
 }
 
+function formatDirectionLabel(value: LatestSignal["closeDirection"]): string {
+  if (value === undefined) return "—";
+  return value ?? "NEUTRAL";
+}
+
 function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits | null): {
   bars: number;
   epochs: number;
@@ -650,6 +655,7 @@ export function App() {
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
   const topCombosRef = useRef<OptimizationCombo[]>([]);
+  const topCombosSyncRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null);
   const dataLogRef = useRef<HTMLDivElement | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -817,7 +823,11 @@ export function App() {
     [showToast],
   );
 
-  const handleComboSelect = useCallback((combo: OptimizationCombo) => applyCombo(combo, { respectManual: true }), [applyCombo]);
+  const handleComboPreview = useCallback((combo: OptimizationCombo) => setSelectedComboId(combo.id), []);
+  const handleComboApply = useCallback((combo: OptimizationCombo) => applyCombo(combo, { respectManual: true }), [applyCombo]);
+  const refreshTopCombos = useCallback(() => {
+    topCombosSyncRef.current?.({ silent: false });
+  }, []);
 
   useEffect(() => {
     topCombosRef.current = topCombos;
@@ -914,10 +924,11 @@ export function App() {
       return;
     }
 
+    clearManualOverrides();
     setForm(profile);
     setPendingProfileLoad(null);
     showToast(`Profile loaded: ${name}`);
-  }, [form.binanceLive, form.market, form.tradeArmed, profileSelected, profiles, showToast]);
+  }, [clearManualOverrides, form.binanceLive, form.market, form.tradeArmed, profileSelected, profiles, showToast]);
 
   useEffect(() => {
     return () => {
@@ -989,6 +1000,17 @@ export function App() {
     }
     return "Cross-origin API base. Ensure the API allows this origin, or use a same-origin /api proxy.";
   }, [apiBaseCrossOrigin]);
+
+  const apiBaseAbsolute = useMemo(() => {
+    if (/^https?:\/\//.test(apiBase)) return apiBase;
+    if (typeof window !== "undefined") return `${window.location.origin}${apiBase}`;
+    return apiBase;
+  }, [apiBase]);
+
+  const apiHealthUrl = useMemo(() => {
+    if (!apiBaseAbsolute) return "";
+    return `${apiBaseAbsolute.replace(/\/+$/, "")}/health`;
+  }, [apiBaseAbsolute]);
 
   useEffect(() => {
     let mounted = true;
@@ -2233,6 +2255,14 @@ export function App() {
             typeof params.intrabarFill === "string" && intrabarFills.includes(params.intrabarFill as IntrabarFill)
               ? (params.intrabarFill as IntrabarFill)
               : defaultForm.intrabarFill;
+          const minHoldBars =
+            typeof params.minHoldBars === "number" && Number.isFinite(params.minHoldBars)
+              ? Math.max(0, Math.trunc(params.minHoldBars))
+              : null;
+          const cooldownBars =
+            typeof params.cooldownBars === "number" && Number.isFinite(params.cooldownBars)
+              ? Math.max(0, Math.trunc(params.cooldownBars))
+              : null;
           const kalmanZMin =
             typeof params.kalmanZMin === "number" && Number.isFinite(params.kalmanZMin) ? Math.max(0, params.kalmanZMin) : defaultForm.kalmanZMin;
           const kalmanZMaxRaw =
@@ -2340,6 +2370,8 @@ export function App() {
               slippage,
               spread,
               intrabarFill,
+              minHoldBars,
+              cooldownBars,
               stopLoss: typeof params.stopLoss === "number" && Number.isFinite(params.stopLoss) ? params.stopLoss : null,
               takeProfit: typeof params.takeProfit === "number" && Number.isFinite(params.takeProfit) ? params.takeProfit : null,
               trailingStop: typeof params.trailingStop === "number" && Number.isFinite(params.trailingStop) ? params.trailingStop : null,
@@ -2415,6 +2447,7 @@ export function App() {
       }
     };
 
+    topCombosSyncRef.current = syncTopCombos;
     void syncTopCombos();
     const t = window.setInterval(() => {
       void syncTopCombos({ silent: true });
@@ -2422,6 +2455,9 @@ export function App() {
     return () => {
       isCancelled = true;
       window.clearInterval(t);
+      if (topCombosSyncRef.current === syncTopCombos) {
+        topCombosSyncRef.current = null;
+      }
     };
   }, [apiBase, apiOk, authHeaders, applyCombo, autoApplyTopCombo, showToast]);
 
@@ -2450,6 +2486,7 @@ export function App() {
   if (closeThresholdOverride) thresholdOverrideKeys.push("closeThreshold");
   const autoAppliedAge =
     autoAppliedCombo && autoAppliedCombo.atMs ? fmtDurationMs(Math.max(0, Date.now() - autoAppliedCombo.atMs)) : null;
+  const topCombo = topCombos.length > 0 ? topCombos[0] : null;
 
   const missingSymbol = !form.binanceSymbol.trim();
   const intervalValue = form.interval.trim();
@@ -2517,6 +2554,12 @@ export function App() {
       authMsg,
     );
   }, [apiBaseError, apiOk, apiToken, showLocalStartHelp]);
+  const apiStatusIssue = useMemo(() => {
+    if (apiBaseError) return apiBaseError;
+    if (apiOk === "down") return "API unreachable";
+    if (apiOk === "auth") return apiToken.trim() ? "API auth failed" : "API auth required";
+    return null;
+  }, [apiBaseError, apiOk, apiToken]);
   const rateLimitEtaMs = rateLimit ? Math.max(0, rateLimit.untilMs - rateLimitTickMs) : null;
   const rateLimitReason =
     rateLimit && rateLimitEtaMs != null ? `${rateLimit.reason} Next retry ${fmtEtaMs(rateLimitEtaMs)}.` : rateLimit?.reason ?? null;
@@ -2536,6 +2579,18 @@ export function App() {
       : hiddenSizeExceedsApi
         ? `Hidden size exceeds API limit (max ${apiComputeLimits?.maxHiddenSize ?? "?"}). Reduce hidden size or switch to method=10 (Kalman-only).`
         : null;
+  const requestIssues = useMemo(() => {
+    const issues: string[] = [];
+    if (rateLimitReason) issues.push(rateLimitReason);
+    if (apiStatusIssue) issues.push(apiStatusIssue);
+    if (missingSymbol) issues.push("Binance symbol is required.");
+    if (missingInterval) issues.push("Interval is required.");
+    if (lookbackState.error) issues.push(lookbackState.error);
+    if (apiLimitsReason) issues.push(apiLimitsReason);
+    return issues;
+  }, [apiLimitsReason, apiStatusIssue, lookbackState.error, missingInterval, missingSymbol, rateLimitReason]);
+  const primaryIssue = requestIssues[0] ?? null;
+  const extraIssueCount = Math.max(0, requestIssues.length - 1);
   const requestDisabledReason = firstReason(
     apiBlockedReason,
     rateLimitReason,
@@ -2551,6 +2606,7 @@ export function App() {
     requestDisabledReason,
   );
   const botStartBlocked = bot.loading || botStarting || Boolean(botStartBlockedReason);
+  const longShortBotDisabled = bot.status.running || botStarting;
 
   useEffect(() => {
     if (apiOk !== "ok") return;
@@ -2635,14 +2691,9 @@ export function App() {
     const safe = escapeSingleQuotes(json);
     const token = apiToken.trim();
     const auth = token ? ` -H 'Authorization: Bearer ${escapeSingleQuotes(token)}' -H 'X-API-Key: ${escapeSingleQuotes(token)}'` : "";
-    const base =
-      /^https?:\/\//.test(apiBase)
-        ? apiBase
-        : typeof window !== "undefined"
-          ? `${window.location.origin}${apiBase}`
-          : apiBase;
+    const base = apiBaseAbsolute;
     return `curl -s -X POST ${base}${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
-  }, [apiBase, apiToken, requestPreview, requestPreviewKind]);
+  }, [apiBaseAbsolute, apiToken, requestPreview, requestPreviewKind]);
 
   return (
     <div className="container">
@@ -2699,6 +2750,78 @@ export function App() {
             <p className="cardSubtitle">Safe defaults, minimal knobs, and clear outputs.</p>
           </div>
           <div className="cardBody">
+            <div className="stickyActions">
+              <div className="pillRow">
+                <span className={`pill ${requestIssues.length ? "pillWarn" : "pillOk"}`}>
+                  {requestIssues.length
+                    ? `${requestIssues.length} issue${requestIssues.length === 1 ? "" : "s"} to fix`
+                    : "Ready to run"}
+                </span>
+                {primaryIssue ? (
+                  <span className="pill pillWarn">{primaryIssue}</span>
+                ) : (
+                  <span className="pill">All required inputs look good.</span>
+                )}
+                {extraIssueCount > 0 ? <span className="pill">+{extraIssueCount} more</span> : null}
+              </div>
+              <div className="actions">
+                <button
+                  className="btn btnPrimary"
+                  disabled={requestDisabled}
+                  onClick={() => run("signal")}
+                  title={requestDisabledReason ?? undefined}
+                >
+                  {state.loading && state.lastKind === "signal" ? "Getting signal…" : "Get signal"}
+                </button>
+                <button className="btn" disabled={requestDisabled} onClick={() => run("backtest")} title={requestDisabledReason ?? undefined}>
+                  {state.loading && state.lastKind === "backtest" ? "Running backtest…" : "Run backtest"}
+                </button>
+                <button
+                  className="btn"
+                  disabled={requestDisabled}
+                  title={requestDisabledReason ?? undefined}
+                  onClick={() => {
+                    const p = { ...commonParams, sweepThreshold: true, optimizeOperations: false };
+                    setForm((f) => ({ ...f, sweepThreshold: true, optimizeOperations: false }));
+                    void run("backtest", p);
+                  }}
+                >
+                  {state.loading && state.lastKind === "backtest" ? "Optimizing…" : "Optimize thresholds"}
+                </button>
+                <button
+                  className="btn"
+                  disabled={requestDisabled}
+                  title={requestDisabledReason ?? undefined}
+                  onClick={() => {
+                    const p = { ...commonParams, optimizeOperations: true, sweepThreshold: false };
+                    setForm((f) => ({ ...f, optimizeOperations: true, sweepThreshold: false }));
+                    void run("backtest", p);
+                  }}
+                >
+                  {state.loading && state.lastKind === "backtest" ? "Optimizing…" : "Optimize operations"}
+                </button>
+                <button className="btn" disabled={!state.loading} onClick={cancelActiveRequest}>
+                  Cancel
+                </button>
+              </div>
+
+              {rateLimitReason ? (
+                <div className="hint" style={{ marginTop: 6, color: "var(--warn)" }}>
+                  {rateLimitReason}
+                </div>
+              ) : null}
+
+              {state.loading ? (
+                <div className="hint" style={{ marginTop: 6 }}>
+                  {activeAsyncJob?.jobId
+                    ? `Async job: ${activeAsyncJob.jobId} • ${activeAsyncJob.kind} • ${Math.max(
+                        0,
+                        Math.floor((activeAsyncTickMs - activeAsyncJob.startedAtMs) / 1000),
+                      )}s`
+                    : "Starting async job…"}
+                </div>
+              ) : null}
+            </div>
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
                 <label className="label">API</label>
@@ -2711,6 +2834,22 @@ export function App() {
                 <div className="kv">
                   <div className="k">Token</div>
                   <div className="v">{apiToken.trim() ? "configured" : "not set"}</div>
+                </div>
+                <div className="actions" style={{ marginTop: 8 }}>
+                  <button className="btnSmall" type="button" onClick={() => void copyText(apiBaseAbsolute)} disabled={Boolean(apiBaseError)}>
+                    Copy base URL
+                  </button>
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    onClick={() => {
+                      if (!apiHealthUrl) return;
+                      if (typeof window !== "undefined") window.open(apiHealthUrl, "_blank", "noopener,noreferrer");
+                    }}
+                    disabled={Boolean(apiBaseError) || !apiHealthUrl}
+                  >
+                    Open /health
+                  </button>
                 </div>
                 <div className="hint" style={{ marginTop: 6 }}>
                   Configured at deploy time via <span style={{ fontFamily: "var(--mono)" }}>trader-config.js</span> (apiBaseUrl, apiToken).
@@ -2924,6 +3063,7 @@ export function App() {
                         className="btn btnPrimary"
                         type="button"
                         onClick={() => {
+                          clearManualOverrides();
                           setForm(pendingProfileLoad.profile);
                           setPendingProfileLoad(null);
                           showToast(`Profile loaded: ${pendingProfileLoad.name}`);
@@ -2936,7 +3076,8 @@ export function App() {
                       </button>
                     </div>
                   </>
-              ) : null}
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -2985,119 +3126,135 @@ export function App() {
                   </>
                 ) : null}
               </div>
+              <div className="actions" style={{ marginBottom: 8 }}>
+                <button className="btnSmall" type="button" onClick={refreshTopCombos} disabled={topCombosLoading}>
+                  {topCombosLoading ? "Refreshing…" : "Refresh combos now"}
+                </button>
+                <button
+                  className="btnSmall"
+                  type="button"
+                  onClick={() => {
+                    if (topCombo) handleComboApply(topCombo);
+                  }}
+                  disabled={!topCombo}
+                >
+                  Apply top combo now
+                </button>
+              </div>
               <TopCombosChart
                 combos={topCombos}
                 loading={topCombosLoading}
                 error={topCombosError}
                 selectedId={selectedComboId}
-                onSelect={handleComboSelect}
+                onSelect={handleComboPreview}
+                onApply={handleComboApply}
               />
               <div className="hint">
-                Click a combo to preload its parameters into the form (and the symbol, when provided). bars=0 uses all CSV data or Binance's default (500).
+                Select a combo to preview. Click Apply to load params into the form (and the symbol, when provided). bars=0 uses all CSV data or Binance's default (500).
               </div>
               <div className="hint">Auto-apply respects manual overrides. Unlock to let combos update those fields.</div>
             </div>
           </div>
 
-            <div className="row">
-              <div className="field">
-                <label className="label" htmlFor="symbol">
-                  Trading pair
-                </label>
-                <select
-                  id="symbol"
-                  className={missingSymbol ? "select selectError" : "select"}
-                  value={symbolSelectValue}
+          <div className="row">
+            <div className="field">
+              <label className="label" htmlFor="symbol">
+                Trading pair
+              </label>
+              <select
+                id="symbol"
+                className={missingSymbol ? "select selectError" : "select"}
+                value={symbolSelectValue}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (next === CUSTOM_SYMBOL_VALUE) {
+                    setForm((f) => ({ ...f, binanceSymbol: customBinanceSymbol }));
+                    return;
+                  }
+                  setForm((f) => ({ ...f, binanceSymbol: next }));
+                }}
+              >
+                {BINANCE_SYMBOLS.map((symbol) => (
+                  <option key={symbol} value={symbol}>
+                    {symbol}
+                  </option>
+                ))}
+                <option value={CUSTOM_SYMBOL_VALUE}>Custom...</option>
+              </select>
+              {symbolIsCustom ? (
+                <input
+                  id="symbolCustom"
+                  className={missingSymbol ? "input inputError" : "input"}
+                  value={form.binanceSymbol}
                   onChange={(e) => {
-                    const next = e.target.value;
-                    if (next === CUSTOM_SYMBOL_VALUE) {
-                      setForm((f) => ({ ...f, binanceSymbol: customBinanceSymbol }));
-                      return;
-                    }
+                    const next = e.target.value.toUpperCase();
+                    setCustomBinanceSymbol(next);
                     setForm((f) => ({ ...f, binanceSymbol: next }));
                   }}
-                >
-                  {BINANCE_SYMBOLS.map((symbol) => (
-                    <option key={symbol} value={symbol}>
-                      {symbol}
-                    </option>
-                  ))}
-                  <option value={CUSTOM_SYMBOL_VALUE}>Custom...</option>
-                </select>
-                {symbolIsCustom ? (
-                  <input
-                    id="symbolCustom"
-                    className={missingSymbol ? "input inputError" : "input"}
-                    value={form.binanceSymbol}
-                    onChange={(e) => {
-                      const next = e.target.value.toUpperCase();
-                      setCustomBinanceSymbol(next);
-                      setForm((f) => ({ ...f, binanceSymbol: next }));
-                    }}
-                    placeholder="BTCUSDT"
-                    spellCheck={false}
-                    aria-label="Custom trading pair"
-                  />
-                ) : null}
-                <div className="hint" style={missingSymbol ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
-                  {missingSymbol
-                    ? "Required."
-                    : symbolIsCustom
-                      ? "Type any Binance symbol (spot or USDT-margined futures)."
-                      : "Pick a common USDT pair or choose Custom to type another symbol."}
-                </div>
+                  placeholder="BTCUSDT"
+                  spellCheck={false}
+                  aria-label="Custom trading pair"
+                />
+              ) : null}
+              <div className="hint" style={missingSymbol ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                {missingSymbol
+                  ? "Required."
+                  : symbolIsCustom
+                    ? "Type any Binance symbol (spot or USDT-margined futures)."
+                    : "Pick a common USDT pair or choose Custom to type another symbol."}
               </div>
+            </div>
 
-              <div className="field">
-                <label className="label" htmlFor="market">
-                  Market
-                </label>
-                <select
-                  id="market"
-                  className="select"
-                  value={form.market}
-                  onChange={(e) => {
-                    const market = e.target.value as Market;
-                    setPendingMarket(null);
-                    setPendingProfileLoad(null);
-                    if (market === "margin" && !form.binanceLive) {
-                      setPendingMarket(market);
-                      return;
-                    }
-                    setForm((f) => ({ ...f, market, binanceTestnet: market === "margin" ? false : f.binanceTestnet }));
-                  }}
-                >
-                  <option value="spot">Spot</option>
-                  <option value="margin">Margin</option>
-                  <option value="futures">Futures (USDT-M)</option>
-                </select>
-                <div className="hint">Margin orders require live mode. Futures can close positions via reduce-only.</div>
-                {pendingMarket === "margin" ? (
-                  <>
-                    <pre className="code" style={{ borderColor: "rgba(245, 158, 11, 0.35)", marginTop: 10 }}>
-                      Switching to Margin requires enabling Live orders (Binance has no margin test endpoint). This will place real orders once you arm trading and
-                      trade.
-                    </pre>
-                    <div className="actions" style={{ marginTop: 10 }}>
-                      <button
-                        className="btn btnPrimary"
-                        type="button"
-                        onClick={() => {
-                          setForm((f) => ({ ...f, market: "margin", binanceTestnet: false, binanceLive: true }));
-                          setPendingMarket(null);
-                          setConfirmLive(false);
-                          showToast("Live orders enabled (required for margin)");
-                        }}
-                      >
-                        Enable live + switch
-                      </button>
-                      <button className="btn" type="button" onClick={() => setPendingMarket(null)}>
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                ) : null}
-              </div>
+            <div className="field">
+              <label className="label" htmlFor="market">
+                Market
+              </label>
+              <select
+                id="market"
+                className="select"
+                value={form.market}
+                onChange={(e) => {
+                  const market = e.target.value as Market;
+                  setPendingMarket(null);
+                  setPendingProfileLoad(null);
+                  if (market === "margin" && !form.binanceLive) {
+                    setPendingMarket(market);
+                    return;
+                  }
+                  setForm((f) => ({ ...f, market, binanceTestnet: market === "margin" ? false : f.binanceTestnet }));
+                }}
+              >
+                <option value="spot">Spot</option>
+                <option value="margin">Margin</option>
+                <option value="futures">Futures (USDT-M)</option>
+              </select>
+              <div className="hint">Margin orders require live mode. Futures can close positions via reduce-only.</div>
+              {pendingMarket === "margin" ? (
+                <>
+                  <pre className="code" style={{ borderColor: "rgba(245, 158, 11, 0.35)", marginTop: 10 }}>
+                    Switching to Margin requires enabling Live orders (Binance has no margin test endpoint). This will place real orders once you arm trading and
+                    trade.
+                  </pre>
+                  <div className="actions" style={{ marginTop: 10 }}>
+                    <button
+                      className="btn btnPrimary"
+                      type="button"
+                      onClick={() => {
+                        setForm((f) => ({ ...f, market: "margin", binanceTestnet: false, binanceLive: true }));
+                        setPendingMarket(null);
+                        setConfirmLive(false);
+                        showToast("Live orders enabled (required for margin)");
+                      }}
+                    >
+                      Enable live + switch
+                    </button>
+                    <button className="btn" type="button" onClick={() => setPendingMarket(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
             </div>
 
             <div className="row" style={{ marginTop: 12 }}>
@@ -3241,7 +3398,9 @@ export function App() {
                   onChange={(e) => setForm((f) => ({ ...f, positioning: e.target.value as Positioning }))}
                 >
                   <option value="long-flat">Long / Flat</option>
-                  <option value="long-short">Long / Short (futures)</option>
+                  <option value="long-short" disabled={longShortBotDisabled}>
+                    Long / Short (futures)
+                  </option>
                 </select>
                 <div
                   className="hint"
@@ -3251,8 +3410,8 @@ export function App() {
                       : undefined
                   }
                 >
-                  {form.positioning === "long-short" && form.market !== "futures"
-                    ? "Long/Short trading requires Futures market when trading is armed."
+                  {form.positioning === "long-short"
+                    ? `${form.market !== "futures" ? "Long/Short trading requires Futures market when trading is armed. " : ""}Live bot runs Long/Flat only.`
                     : "Down signals go FLAT (long/flat) or SHORT (long/short)."}
                 </div>
               </div>
@@ -3867,64 +4026,6 @@ export function App() {
                 </div>
               </div>
             </div>
-
-            <div className="actions">
-              <button
-                className="btn btnPrimary"
-                disabled={requestDisabled}
-                onClick={() => run("signal")}
-                title={requestDisabledReason ?? undefined}
-              >
-                {state.loading && state.lastKind === "signal" ? "Getting signal…" : "Get signal"}
-              </button>
-              <button className="btn" disabled={requestDisabled} onClick={() => run("backtest")} title={requestDisabledReason ?? undefined}>
-                {state.loading && state.lastKind === "backtest" ? "Running backtest…" : "Run backtest"}
-              </button>
-              <button
-                className="btn"
-                disabled={requestDisabled}
-                title={requestDisabledReason ?? undefined}
-                onClick={() => {
-                  const p = { ...commonParams, sweepThreshold: true, optimizeOperations: false };
-                  setForm((f) => ({ ...f, sweepThreshold: true, optimizeOperations: false }));
-                  void run("backtest", p);
-                }}
-              >
-                {state.loading && state.lastKind === "backtest" ? "Optimizing…" : "Optimize thresholds"}
-              </button>
-              <button
-                className="btn"
-                disabled={requestDisabled}
-                title={requestDisabledReason ?? undefined}
-                onClick={() => {
-                  const p = { ...commonParams, optimizeOperations: true, sweepThreshold: false };
-                  setForm((f) => ({ ...f, optimizeOperations: true, sweepThreshold: false }));
-                  void run("backtest", p);
-                }}
-              >
-                {state.loading && state.lastKind === "backtest" ? "Optimizing…" : "Optimize operations"}
-              </button>
-              <button className="btn" disabled={!state.loading} onClick={cancelActiveRequest}>
-                Cancel
-              </button>
-            </div>
-
-            {rateLimitReason ? (
-              <div className="hint" style={{ marginTop: 10, color: "var(--warn)" }}>
-                {rateLimitReason}
-              </div>
-            ) : null}
-
-            {state.loading ? (
-              <div className="hint" style={{ marginTop: 10 }}>
-                {activeAsyncJob?.jobId
-                  ? `Async job: ${activeAsyncJob.jobId} • ${activeAsyncJob.kind} • ${Math.max(
-                      0,
-                      Math.floor((activeAsyncTickMs - activeAsyncJob.startedAtMs) / 1000),
-                    )}s`
-                  : "Starting async job…"}
-              </div>
-            ) : null}
 
             <div style={{ marginTop: 14 }}>
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
@@ -4638,7 +4739,7 @@ export function App() {
                   </div>
                   <div className="kv">
                     <div className="k">Close dir</div>
-                    <div className="v">{bot.status.latestSignal.closeDirection ?? "—"}</div>
+                    <div className="v">{formatDirectionLabel(bot.status.latestSignal.closeDirection)}</div>
                   </div>
 	                  {typeof bot.status.latestSignal.confidence === "number" && Number.isFinite(bot.status.latestSignal.confidence) ? (
 	                    <div className="kv">
@@ -5150,7 +5251,7 @@ export function App() {
                   </div>
                   <div className="kv">
                     <div className="k">Close dir</div>
-                    <div className="v">{state.latestSignal.closeDirection ?? "NEUTRAL"}</div>
+                    <div className="v">{formatDirectionLabel(state.latestSignal.closeDirection)}</div>
                   </div>
                   {typeof state.latestSignal.confidence === "number" && Number.isFinite(state.latestSignal.confidence) ? (
                     <div className="kv">
