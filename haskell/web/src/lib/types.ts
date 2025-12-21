@@ -53,10 +53,23 @@ export type ApiParams = {
   takeProfit?: number;
   trailingStop?: number;
   minHoldBars?: number;
+  maxHoldBars?: number;
   cooldownBars?: number;
   maxDrawdown?: number;
   maxDailyLoss?: number;
   maxOrderErrors?: number;
+  minEdge?: number;
+  costAwareEdge?: boolean;
+  edgeBuffer?: number;
+  trendLookback?: number;
+  maxPositionSize?: number;
+  volTarget?: number;
+  volLookback?: number;
+  volEwmaAlpha?: number;
+  volFloor?: number;
+  volScaleMax?: number;
+  maxVolatility?: number;
+  blendWeight?: number;
   periodsPerYear?: number;
   binanceLive?: boolean;
   orderQuote?: number;
@@ -64,6 +77,9 @@ export type ApiParams = {
   orderQuoteFraction?: number;
   maxOrderQuote?: number;
   idempotencyKey?: string;
+  tuneStressVolMult?: number;
+  tuneStressShock?: number;
+  tuneStressWeight?: number;
 
   // Confidence / gating (Kalman sensors + HMM/intervals)
   kalmanZMin?: number;
@@ -205,11 +221,27 @@ export type BacktestResponse = {
   openThreshold?: number;
   closeThreshold?: number;
   minHoldBars?: number;
+  maxHoldBars?: number | null;
   cooldownBars?: number;
+  maxPositionSize?: number;
+  minEdge?: number;
+  costAwareEdge?: boolean;
+  edgeBuffer?: number;
+  trendLookback?: number;
+  volTarget?: number | null;
+  volLookback?: number;
+  volEwmaAlpha?: number | null;
+  volFloor?: number;
+  volScaleMax?: number;
+  maxVolatility?: number | null;
+  blendWeight?: number;
   tuning?: {
     objective: string;
     penaltyMaxDrawdown: number;
     penaltyTurnover: number;
+    stressVolMult: number;
+    stressShock: number;
+    stressWeight: number;
     minRoundTrips?: number;
     walkForwardFolds: number;
     tuneStats?: { folds: number; scores: number[]; meanScore: number; stdScore: number } | null;

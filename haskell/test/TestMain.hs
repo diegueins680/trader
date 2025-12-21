@@ -54,6 +54,7 @@ main = do
     , run "lstm training improves loss" testLstmImprovesLoss
     , run "ensemble agreement gate" testAgreementGate
     , run "min-hold blocks exit" testMinHoldBars
+    , run "max-hold forces exit" testMaxHoldBars
     , run "cooldown blocks re-entry" testCooldownBars
     , run "long-short down move" testLongShortDownMove
     , run "liquidation clamps equity" testLiquidationClamp
@@ -88,6 +89,47 @@ assert msg cond =
 assertApprox :: String -> Double -> Double -> Double -> IO ()
 assertApprox msg eps a b =
   assert msg (abs (a - b) <= eps)
+
+baseEnsembleConfig :: EnsembleConfig
+baseEnsembleConfig =
+  EnsembleConfig
+    { ecOpenThreshold = 0.0
+    , ecCloseThreshold = 0.0
+    , ecFee = 0.0
+    , ecSlippage = 0.0
+    , ecSpread = 0.0
+    , ecStopLoss = Nothing
+    , ecTakeProfit = Nothing
+    , ecTrailingStop = Nothing
+    , ecMinHoldBars = 0
+    , ecCooldownBars = 0
+    , ecMaxHoldBars = Nothing
+    , ecMaxDrawdown = Nothing
+    , ecMaxDailyLoss = Nothing
+    , ecIntervalSeconds = Nothing
+    , ecPositioning = LongFlat
+    , ecIntrabarFill = StopFirst
+    , ecMaxPositionSize = 1
+    , ecMinEdge = 0
+    , ecTrendLookback = 0
+    , ecPeriodsPerYear = 365
+    , ecVolTarget = Nothing
+    , ecVolLookback = 20
+    , ecVolEwmaAlpha = Nothing
+    , ecVolFloor = 0
+    , ecVolScaleMax = 1
+    , ecMaxVolatility = Nothing
+    , ecBlendWeight = 0.5
+    , ecKalmanZMin = 0
+    , ecKalmanZMax = 3
+    , ecMaxHighVolProb = Nothing
+    , ecMaxConformalWidth = Nothing
+    , ecMaxQuantileWidth = Nothing
+    , ecConfirmConformal = False
+    , ecConfirmQuantiles = False
+    , ecConfidenceSizing = False
+    , ecMinPositionSize = 0
+    }
 
 testLookbackBars :: IO ()
 testLookbackBars =
@@ -215,33 +257,7 @@ testAgreementGate = do
       lookback = 2
       kalPred = [101, 110, 120]  -- length 3
       lstmPred = [110, 100]      -- length 2, for t=1..2
-      cfg =
-        EnsembleConfig
-          { ecOpenThreshold = 0.0
-          , ecCloseThreshold = 0.0
-          , ecFee = 0.0
-          , ecSlippage = 0.0
-          , ecSpread = 0.0
-          , ecStopLoss = Nothing
-          , ecTakeProfit = Nothing
-          , ecTrailingStop = Nothing
-          , ecMinHoldBars = 0
-          , ecCooldownBars = 0
-          , ecMaxDrawdown = Nothing
-          , ecMaxDailyLoss = Nothing
-          , ecIntervalSeconds = Nothing
-          , ecPositioning = LongFlat
-          , ecIntrabarFill = StopFirst
-          , ecKalmanZMin = 0
-          , ecKalmanZMax = 3
-          , ecMaxHighVolProb = Nothing
-          , ecMaxConformalWidth = Nothing
-          , ecMaxQuantileWidth = Nothing
-          , ecConfirmConformal = False
-          , ecConfirmQuantiles = False
-          , ecConfidenceSizing = False
-          , ecMinPositionSize = 0
-          }
+      cfg = baseEnsembleConfig
       res = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
   assert "expected two position changes (enter + exit)" (brPositionChanges res == 2)
 
@@ -250,68 +266,25 @@ testMinHoldBars = do
   let prices = replicate 5 100
       lookback = 1
       preds = [101, 99, 99, 99] -- enter, then exit signals
-      cfg =
-        EnsembleConfig
-          { ecOpenThreshold = 0.0
-          , ecCloseThreshold = 0.0
-          , ecFee = 0.0
-          , ecSlippage = 0.0
-          , ecSpread = 0.0
-          , ecStopLoss = Nothing
-          , ecTakeProfit = Nothing
-          , ecTrailingStop = Nothing
-          , ecMinHoldBars = 2
-          , ecCooldownBars = 0
-          , ecMaxDrawdown = Nothing
-          , ecMaxDailyLoss = Nothing
-          , ecIntervalSeconds = Nothing
-          , ecPositioning = LongFlat
-          , ecIntrabarFill = StopFirst
-          , ecKalmanZMin = 0
-          , ecKalmanZMax = 3
-          , ecMaxHighVolProb = Nothing
-          , ecMaxConformalWidth = Nothing
-          , ecMaxQuantileWidth = Nothing
-          , ecConfirmConformal = False
-          , ecConfirmQuantiles = False
-          , ecConfidenceSizing = False
-          , ecMinPositionSize = 0
-          }
+      cfg = baseEnsembleConfig { ecMinHoldBars = 2 }
       bt = simulateEnsemble cfg lookback prices preds preds Nothing
   assert "min-hold keeps position through bar 2" (brPositions bt == [1, 1, 0, 0])
+
+testMaxHoldBars :: IO ()
+testMaxHoldBars = do
+  let prices = replicate 4 100
+      lookback = 1
+      preds = [101, 101, 101]
+      cfg = baseEnsembleConfig { ecMaxHoldBars = Just 1 }
+      bt = simulateEnsemble cfg lookback prices preds preds Nothing
+  assert "max-hold forces exit after limit" (brPositions bt == [1, 0, 0])
 
 testCooldownBars :: IO ()
 testCooldownBars = do
   let prices = replicate 5 100
       lookback = 1
       preds = [101, 99, 101, 101] -- enter, exit, re-enter attempts
-      cfg =
-        EnsembleConfig
-          { ecOpenThreshold = 0.0
-          , ecCloseThreshold = 0.0
-          , ecFee = 0.0
-          , ecSlippage = 0.0
-          , ecSpread = 0.0
-          , ecStopLoss = Nothing
-          , ecTakeProfit = Nothing
-          , ecTrailingStop = Nothing
-          , ecMinHoldBars = 0
-          , ecCooldownBars = 1
-          , ecMaxDrawdown = Nothing
-          , ecMaxDailyLoss = Nothing
-          , ecIntervalSeconds = Nothing
-          , ecPositioning = LongFlat
-          , ecIntrabarFill = StopFirst
-          , ecKalmanZMin = 0
-          , ecKalmanZMax = 3
-          , ecMaxHighVolProb = Nothing
-          , ecMaxConformalWidth = Nothing
-          , ecMaxQuantileWidth = Nothing
-          , ecConfirmConformal = False
-          , ecConfirmQuantiles = False
-          , ecConfidenceSizing = False
-          , ecMinPositionSize = 0
-          }
+      cfg = baseEnsembleConfig { ecCooldownBars = 1 }
       bt = simulateEnsemble cfg lookback prices preds preds Nothing
   assert "cooldown blocks entry for 1 bar after exit" (brPositions bt == [1, 0, 0, 1])
 
@@ -321,33 +294,7 @@ testLongShortDownMove = do
       lookback = 1
       kalPred = [90]
       lstmPred = [90]
-      baseCfg =
-        EnsembleConfig
-          { ecOpenThreshold = 0.0
-          , ecCloseThreshold = 0.0
-          , ecFee = 0.0
-          , ecSlippage = 0.0
-          , ecSpread = 0.0
-          , ecStopLoss = Nothing
-          , ecTakeProfit = Nothing
-          , ecTrailingStop = Nothing
-          , ecMinHoldBars = 0
-          , ecCooldownBars = 0
-          , ecMaxDrawdown = Nothing
-          , ecMaxDailyLoss = Nothing
-          , ecIntervalSeconds = Nothing
-          , ecPositioning = LongFlat
-          , ecIntrabarFill = StopFirst
-          , ecKalmanZMin = 0
-          , ecKalmanZMax = 3
-          , ecMaxHighVolProb = Nothing
-          , ecMaxConformalWidth = Nothing
-          , ecMaxQuantileWidth = Nothing
-          , ecConfirmConformal = False
-          , ecConfirmQuantiles = False
-          , ecConfidenceSizing = False
-          , ecMinPositionSize = 0
-          }
+      baseCfg = baseEnsembleConfig
       btFlat = simulateEnsemble baseCfg lookback prices kalPred lstmPred Nothing
       btShort = simulateEnsemble (baseCfg { ecPositioning = LongShort }) lookback prices kalPred lstmPred Nothing
 
@@ -361,33 +308,7 @@ testLiquidationClamp = do
       lookback = 1
       kalPred = [50]
       lstmPred = [50]
-      cfg =
-        EnsembleConfig
-          { ecOpenThreshold = 0.0
-          , ecCloseThreshold = 0.0
-          , ecFee = 0.0
-          , ecSlippage = 0.0
-          , ecSpread = 0.0
-          , ecStopLoss = Nothing
-          , ecTakeProfit = Nothing
-          , ecTrailingStop = Nothing
-          , ecMinHoldBars = 0
-          , ecCooldownBars = 0
-          , ecMaxDrawdown = Nothing
-          , ecMaxDailyLoss = Nothing
-          , ecIntervalSeconds = Nothing
-          , ecPositioning = LongShort
-          , ecIntrabarFill = StopFirst
-          , ecKalmanZMin = 0
-          , ecKalmanZMax = 3
-          , ecMaxHighVolProb = Nothing
-          , ecMaxConformalWidth = Nothing
-          , ecMaxQuantileWidth = Nothing
-          , ecConfirmConformal = False
-          , ecConfirmQuantiles = False
-          , ecConfidenceSizing = False
-          , ecMinPositionSize = 0
-          }
+      cfg = baseEnsembleConfig { ecPositioning = LongShort }
       bt = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
       finalEq = last (brEquityCurve bt)
       trades = brTrades bt
@@ -474,6 +395,7 @@ testMethodParsing = do
   assert "parse 01" (parseMethod "01" == Right MethodLstmOnly)
   assert "parse lstm" (parseMethod "lstm" == Right MethodLstmOnly)
   assert "parse LSTM_ONLY" (parseMethod "LSTM_ONLY" == Right MethodLstmOnly)
+  assert "parse blend" (parseMethod "blend" == Right MethodBlend)
   case parseMethod "00" of
     Left _ -> pure ()
     Right _ -> error "expected parse failure"
@@ -482,9 +404,12 @@ testMethodSelection :: IO ()
 testMethodSelection = do
   let kal = [1.0, 2.0]
       lstm = [10.0, 20.0]
-  assert "both keeps both" (selectPredictions MethodBoth kal lstm == (kal, lstm))
-  assert "kalman-only duplicates kalman" (selectPredictions MethodKalmanOnly kal lstm == (kal, kal))
-  assert "lstm-only duplicates lstm" (selectPredictions MethodLstmOnly kal lstm == (lstm, lstm))
+      w = 0.25
+      blend = [w * 1.0 + (1 - w) * 10.0, w * 2.0 + (1 - w) * 20.0]
+  assert "both keeps both" (selectPredictions MethodBoth w kal lstm == (kal, lstm))
+  assert "kalman-only duplicates kalman" (selectPredictions MethodKalmanOnly w kal lstm == (kal, kal))
+  assert "lstm-only duplicates lstm" (selectPredictions MethodLstmOnly w kal lstm == (lstm, lstm))
+  assert "blend averages" (selectPredictions MethodBlend w kal lstm == (blend, blend))
 
 testTrainBacktestSplit :: IO ()
 testTrainBacktestSplit = do
@@ -511,33 +436,7 @@ testSweepThreshold = do
   let prices = [100, 110]
       kalPred = [110]
       lstmPred = [110]
-      cfg =
-        EnsembleConfig
-          { ecOpenThreshold = 0.0
-          , ecCloseThreshold = 0.0
-          , ecFee = 0.0
-          , ecSlippage = 0.0
-          , ecSpread = 0.0
-          , ecStopLoss = Nothing
-          , ecTakeProfit = Nothing
-          , ecTrailingStop = Nothing
-          , ecMinHoldBars = 0
-          , ecCooldownBars = 0
-          , ecMaxDrawdown = Nothing
-          , ecMaxDailyLoss = Nothing
-          , ecIntervalSeconds = Nothing
-          , ecPositioning = LongFlat
-          , ecIntrabarFill = StopFirst
-          , ecKalmanZMin = 0
-          , ecKalmanZMax = 3
-          , ecMaxHighVolProb = Nothing
-          , ecMaxConformalWidth = Nothing
-          , ecMaxQuantileWidth = Nothing
-          , ecConfirmConformal = False
-          , ecConfirmQuantiles = False
-          , ecConfidenceSizing = False
-          , ecMinPositionSize = 0
-          }
+      cfg = baseEnsembleConfig
   (openThr, closeThr, bt) <-
     case sweepThreshold MethodKalmanOnly cfg prices kalPred lstmPred Nothing of
       Left e -> error e
@@ -551,33 +450,7 @@ testOptimizeOperations = do
   let prices = [100, 110]
       kalPred = [110]
       lstmPred = [90]
-      cfg =
-        EnsembleConfig
-          { ecOpenThreshold = 0.0
-          , ecCloseThreshold = 0.0
-          , ecFee = 0.0
-          , ecSlippage = 0.0
-          , ecSpread = 0.0
-          , ecStopLoss = Nothing
-          , ecTakeProfit = Nothing
-          , ecTrailingStop = Nothing
-          , ecMinHoldBars = 0
-          , ecCooldownBars = 0
-          , ecMaxDrawdown = Nothing
-          , ecMaxDailyLoss = Nothing
-          , ecIntervalSeconds = Nothing
-          , ecPositioning = LongFlat
-          , ecIntrabarFill = StopFirst
-          , ecKalmanZMin = 0
-          , ecKalmanZMax = 3
-          , ecMaxHighVolProb = Nothing
-          , ecMaxConformalWidth = Nothing
-          , ecMaxQuantileWidth = Nothing
-          , ecConfirmConformal = False
-          , ecConfirmQuantiles = False
-          , ecConfidenceSizing = False
-          , ecMinPositionSize = 0
-          }
+      cfg = baseEnsembleConfig
   (m, openThr, closeThr, bt) <-
     case optimizeOperations cfg prices kalPred lstmPred Nothing of
       Left e -> error e

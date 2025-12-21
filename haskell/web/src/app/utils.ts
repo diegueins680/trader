@@ -76,6 +76,26 @@ export function firstReason(...reasons: Array<string | null | undefined>): strin
   return null;
 }
 
+export type RequestIssuesInput = {
+  rateLimitReason?: string | null;
+  apiStatusIssue?: string | null;
+  missingSymbol?: boolean;
+  missingInterval?: boolean;
+  lookbackError?: string | null;
+  apiLimitsReason?: string | null;
+};
+
+export function buildRequestIssues(input: RequestIssuesInput): string[] {
+  const issues: string[] = [];
+  if (input.rateLimitReason) issues.push(input.rateLimitReason);
+  if (input.apiStatusIssue) issues.push(input.apiStatusIssue);
+  if (input.missingSymbol) issues.push("Binance symbol is required.");
+  if (input.missingInterval) issues.push("Interval is required.");
+  if (input.lookbackError) issues.push(input.lookbackError);
+  if (input.apiLimitsReason) issues.push(input.apiLimitsReason);
+  return issues;
+}
+
 export function isLocalHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
@@ -176,6 +196,8 @@ export function methodLabel(method: Method): string {
       return "LSTM only";
     case "blend":
       return "Blend (weighted average)";
+    default:
+      return "Unknown";
   }
 }
 
@@ -187,6 +209,8 @@ export function marketLabel(m: Market): string {
       return "Margin";
     case "futures":
       return "Futures";
+    default:
+      return "Unknown";
   }
 }
 

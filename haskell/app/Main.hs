@@ -361,6 +361,9 @@ data BacktestSummary = BacktestSummary
   , bsTuneObjective :: !TuneObjective
   , bsTunePenaltyMaxDrawdown :: !Double
   , bsTunePenaltyTurnover :: !Double
+  , bsTuneStressVolMult :: !Double
+  , bsTuneStressShock :: !Double
+  , bsTuneStressWeight :: !Double
   , bsMinRoundTrips :: !Int
   , bsWalkForwardFolds :: !Int
   , bsTuneStats :: !(Maybe TuneStats)
@@ -372,6 +375,19 @@ data BacktestSummary = BacktestSummary
   , bsBestCloseThreshold :: !Double
   , bsMinHoldBars :: !Int
   , bsCooldownBars :: !Int
+  , bsMaxHoldBars :: !(Maybe Int)
+  , bsMaxPositionSize :: !Double
+  , bsMinEdge :: !Double
+  , bsCostAwareEdge :: !Bool
+  , bsEdgeBuffer :: !Double
+  , bsTrendLookback :: !Int
+  , bsVolTarget :: !(Maybe Double)
+  , bsVolLookback :: !Int
+  , bsVolEwmaAlpha :: !(Maybe Double)
+  , bsVolFloor :: !Double
+  , bsVolScaleMax :: !Double
+  , bsMaxVolatility :: !(Maybe Double)
+  , bsBlendWeight :: !Double
   , bsFee :: !Double
   , bsSlippage :: !Double
   , bsSpread :: !Double

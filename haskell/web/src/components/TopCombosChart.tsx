@@ -7,6 +7,7 @@ export type OptimizationComboParams = {
   interval: string;
   bars: number;
   method: Method;
+  blendWeight?: number | null;
   positioning?: Positioning | null;
   normalization: Normalization;
   baseOpenThreshold?: number | null;
@@ -26,6 +27,11 @@ export type OptimizationComboParams = {
   trailingStop?: number | null;
   minHoldBars?: number | null;
   cooldownBars?: number | null;
+  maxHoldBars?: number | null;
+  minEdge?: number | null;
+  edgeBuffer?: number | null;
+  costAwareEdge?: boolean | null;
+  trendLookback?: number | null;
   maxDrawdown?: number | null;
   maxDailyLoss?: number | null;
   maxOrderErrors?: number | null;
@@ -38,6 +44,16 @@ export type OptimizationComboParams = {
   confirmQuantiles?: boolean;
   confidenceSizing?: boolean;
   minPositionSize?: number | null;
+  maxPositionSize?: number | null;
+  volTarget?: number | null;
+  volLookback?: number | null;
+  volEwmaAlpha?: number | null;
+  volFloor?: number | null;
+  volScaleMax?: number | null;
+  maxVolatility?: number | null;
+  tuneStressVolMult?: number | null;
+  tuneStressShock?: number | null;
+  tuneStressWeight?: number | null;
 };
 
 export type OptimizationComboOperation = {

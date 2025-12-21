@@ -259,10 +259,15 @@ Endpoints:
 - `GET /bot/status` → returns the live bot status + chart data (prices/equity/positions/operations)
 
 Optimizer script tips:
-- `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, trade-quality filters, hold/cooldown sampling, equity-dd-turnover, smaller splits).
+- `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
-- `--min-win-rate`, `--min-profit-factor`, and `--min-exposure` filter low-quality combos.
-- `--min-hold-bars-min/max` and `--cooldown-bars-min/max` sample trade gating windows to reduce churn.
+- `--bars-auto-prob` and `--bars-distribution` tune how often bars=auto/all is sampled and how explicit bars are drawn.
+- `--min-hold-bars-min/max`, `--cooldown-bars-min/max`, and `--max-hold-bars-min/max` sample trade gating windows to reduce churn.
+- `--min-edge-min/max`, `--edge-buffer-min/max`, and `--trend-lookback-min/max` tune entry gating (edge-buffer > 0 enables cost-aware edge).
+- `--max-position-size-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, and `--vol-scale-max-*` tune sizing.
+- `--blend-weight-min/max` plus `--method-weight-blend` sample the blend method mix.
+- `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective.
+- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `tuneObjective`).
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
@@ -408,6 +413,6 @@ Troubleshooting: “No live operations yet”
 
 Assumptions and limitations
 ---------------------------
-- The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests) and does not include sizing, risk limits, or robust transaction cost modeling.
+- The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests); it includes basic sizing/filters but is not a full portfolio/risk system or detailed transaction-cost model.
 - Live order placement attempts to fetch/apply symbol filters (minQty/step size/minNotional), but is not exhaustive and may still be rejected by the exchange.
 - This code is for experimentation and education only; it is **not** production-ready nor financial advice.

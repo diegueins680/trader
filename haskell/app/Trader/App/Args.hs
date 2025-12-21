@@ -262,7 +262,7 @@ opts = do
       ( long "method"
           <> value MethodBoth
           <> showDefaultWith methodCode
-          <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), 10|kalman=Kalman only, 01|lstm=LSTM only"
+          <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, 10|kalman=Kalman only, 01|lstm=LSTM only"
       )
   argPositioning <-
     option

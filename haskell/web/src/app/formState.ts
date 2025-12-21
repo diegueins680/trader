@@ -21,15 +21,31 @@ export type FormState = {
   takeProfit: number;
   trailingStop: number;
   minHoldBars: number;
+  maxHoldBars: number;
   cooldownBars: number;
   maxDrawdown: number;
   maxDailyLoss: number;
   maxOrderErrors: number;
+  minEdge: number;
+  costAwareEdge: boolean;
+  edgeBuffer: number;
+  trendLookback: number;
+  maxPositionSize: number;
+  volTarget: number;
+  volLookback: number;
+  volEwmaAlpha: number;
+  volFloor: number;
+  volScaleMax: number;
+  maxVolatility: number;
+  blendWeight: number;
   backtestRatio: number;
   tuneRatio: number;
   tuneObjective: string;
   tunePenaltyMaxDrawdown: number;
   tunePenaltyTurnover: number;
+  tuneStressVolMult: number;
+  tuneStressShock: number;
+  tuneStressWeight: number;
   minRoundTrips: number;
   walkForwardFolds: number;
   normalization: Normalization;
@@ -89,15 +105,31 @@ export const defaultForm: FormState = {
   takeProfit: 0,
   trailingStop: 0,
   minHoldBars: 0,
+  maxHoldBars: 0,
   cooldownBars: 0,
   maxDrawdown: 0,
   maxDailyLoss: 0,
   maxOrderErrors: 0,
+  minEdge: 0,
+  costAwareEdge: false,
+  edgeBuffer: 0,
+  trendLookback: 0,
+  maxPositionSize: 1,
+  volTarget: 0,
+  volLookback: 20,
+  volEwmaAlpha: 0,
+  volFloor: 0,
+  volScaleMax: 1,
+  maxVolatility: 0,
+  blendWeight: 0.5,
   backtestRatio: 0.2,
   tuneRatio: 0.2,
   tuneObjective: "equity-dd-turnover",
   tunePenaltyMaxDrawdown: 1.0,
   tunePenaltyTurnover: 0.1,
+  tuneStressVolMult: 1.0,
+  tuneStressShock: 0,
+  tuneStressWeight: 0,
   minRoundTrips: 0,
   walkForwardFolds: 5,
   normalization: "standard",
@@ -271,15 +303,31 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
     intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
     minHoldBars: normalizeFiniteNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1e9),
+    maxHoldBars: normalizeFiniteNumber(rawRec.maxHoldBars ?? merged.maxHoldBars, defaultForm.maxHoldBars, 0, 1e9),
     cooldownBars: normalizeFiniteNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1e9),
     tuneRatio: normalizeFiniteNumber(rawRec.tuneRatio ?? merged.tuneRatio, defaultForm.tuneRatio, 0, 0.99),
     tuneObjective: normalizeTuneObjective(rawRec.tuneObjective ?? merged.tuneObjective, defaultForm.tuneObjective),
     tunePenaltyMaxDrawdown: normalizeFiniteNumber(rawRec.tunePenaltyMaxDrawdown ?? merged.tunePenaltyMaxDrawdown, defaultForm.tunePenaltyMaxDrawdown, 0, 1e9),
     tunePenaltyTurnover: normalizeFiniteNumber(rawRec.tunePenaltyTurnover ?? merged.tunePenaltyTurnover, defaultForm.tunePenaltyTurnover, 0, 1e9),
+    tuneStressVolMult: normalizeFiniteNumber(rawRec.tuneStressVolMult ?? merged.tuneStressVolMult, defaultForm.tuneStressVolMult, 0, 1e9),
+    tuneStressShock: normalizeFiniteNumber(rawRec.tuneStressShock ?? merged.tuneStressShock, defaultForm.tuneStressShock, -1e9, 1e9),
+    tuneStressWeight: normalizeFiniteNumber(rawRec.tuneStressWeight ?? merged.tuneStressWeight, defaultForm.tuneStressWeight, 0, 1e9),
     minRoundTrips: normalizeFiniteNumber(rawRec.minRoundTrips ?? merged.minRoundTrips, defaultForm.minRoundTrips, 0, 1e9),
     walkForwardFolds: normalizeFiniteNumber(rawRec.walkForwardFolds ?? merged.walkForwardFolds, defaultForm.walkForwardFolds, 1, 1000),
     kalmanZMin,
     kalmanZMax,
+    minEdge: normalizeFiniteNumber(rawRec.minEdge ?? merged.minEdge, defaultForm.minEdge, 0, 1e9),
+    costAwareEdge: normalizeBool(rawRec.costAwareEdge ?? merged.costAwareEdge, defaultForm.costAwareEdge),
+    edgeBuffer: normalizeFiniteNumber(rawRec.edgeBuffer ?? merged.edgeBuffer, defaultForm.edgeBuffer, 0, 1e9),
+    trendLookback: normalizeFiniteNumber(rawRec.trendLookback ?? merged.trendLookback, defaultForm.trendLookback, 0, 1e9),
+    maxPositionSize: normalizeFiniteNumber(rawRec.maxPositionSize ?? merged.maxPositionSize, defaultForm.maxPositionSize, 0, 1e9),
+    volTarget: normalizeFiniteNumber(rawRec.volTarget ?? merged.volTarget, defaultForm.volTarget, 0, 1e9),
+    volLookback: normalizeFiniteNumber(rawRec.volLookback ?? merged.volLookback, defaultForm.volLookback, 0, 1e9),
+    volEwmaAlpha: normalizeFiniteNumber(rawRec.volEwmaAlpha ?? merged.volEwmaAlpha, defaultForm.volEwmaAlpha, 0, 0.999999),
+    volFloor: normalizeFiniteNumber(rawRec.volFloor ?? merged.volFloor, defaultForm.volFloor, 0, 1e9),
+    volScaleMax: normalizeFiniteNumber(rawRec.volScaleMax ?? merged.volScaleMax, defaultForm.volScaleMax, 0, 1e9),
+    maxVolatility: normalizeFiniteNumber(rawRec.maxVolatility ?? merged.maxVolatility, defaultForm.maxVolatility, 0, 1e9),
+    blendWeight: normalizeFiniteNumber(rawRec.blendWeight ?? merged.blendWeight, defaultForm.blendWeight, 0, 1),
     maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
     maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
     maxQuantileWidth: normalizeFiniteNumber(rawRec.maxQuantileWidth ?? merged.maxQuantileWidth, 0, 0, 1e9),

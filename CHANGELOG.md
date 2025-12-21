@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 - Live bot: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` exit reasons even if a signal exit coincides.
 - Kalman market context now honors small `--kalman-market-top-n` values when enough symbols are available.
 - Tuning: sweep/optimization validates prediction lengths before scoring to avoid crashes.
-- Trading/Tuning: add blend method, min-edge/cost-aware edge gating, max-hold exits, trend/volatility filters, and stress-weighted tune scoring.
+- Trading/Tuning: add blend method, min-edge/cost-aware edge gating, max-hold exits, trend/volatility sizing filters, and stress-weighted tune scoring.
 - Normalization: `minmax`/`standard` fall back to no-op when the fit window is empty or only contains non-finite values; `log` requires finite, positive values.
 - Web UI: improves async job not found handling with a clearer error after the grace period.
 - Web UI: fixes a startup crash when optimizer combos apply before API compute limits are available.
@@ -25,6 +25,8 @@ All notable changes to this project will be documented in this file.
 - Web UI: add auto-apply toggle with last-applied marker, manual override lock/unlock hints, and a cross-origin API base warning.
 - Optimizer: adds a `--quality` preset plus CSV high/low auto-detection for deeper equity searches.
 - Optimizer: adds trade-quality filters (win rate, profit factor, exposure) and samples min-hold/cooldown bars for churn control.
+- Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating, position/vol sizing, tune objective passthrough, and bars auto/distribution controls.
+- API: `/optimizer/run` now accepts the expanded optimizer sampling and tune-objective parameters.
 - Deploy: when using CloudFront with a distribution ID, the quick AWS deploy script sets the UI API base to `/api` to avoid CORS.
 - Deploy: quick AWS deploy now prints the CloudFront domain and warns when `/api/*` behavior is missing.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.

@@ -241,10 +241,25 @@ class TrialParams:
     interval: str
     bars: int  # 0 = auto/full; otherwise explicit bar count
     method: str  # "11" | "10" | "01"
+    blend_weight: float
     positioning: str  # "long-flat" | "long-short"
     normalization: str
     base_open_threshold: float
     base_close_threshold: float
+    min_hold_bars: int
+    cooldown_bars: int
+    max_hold_bars: Optional[int]
+    min_edge: float
+    edge_buffer: float
+    cost_aware_edge: bool
+    trend_lookback: int
+    max_position_size: float
+    vol_target: Optional[float]
+    vol_lookback: int
+    vol_ewma_alpha: Optional[float]
+    vol_floor: float
+    vol_scale_max: float
+    max_volatility: Optional[float]
     fee: float
     epochs: int
     hidden_size: int
@@ -325,9 +340,29 @@ def build_command(
         cmd += ["--bars", str(params.bars)]
     cmd += ["--positioning", params.positioning]
     cmd += ["--method", params.method]
+    cmd += ["--blend-weight", f"{clamp(float(params.blend_weight), 0.0, 1.0):.6f}"]
     cmd += ["--normalization", params.normalization]
     cmd += ["--open-threshold", f"{max(0.0, params.base_open_threshold):.12g}"]
     cmd += ["--close-threshold", f"{max(0.0, params.base_close_threshold):.12g}"]
+    cmd += ["--min-hold-bars", str(max(0, params.min_hold_bars))]
+    cmd += ["--cooldown-bars", str(max(0, params.cooldown_bars))]
+    if params.max_hold_bars is not None:
+        cmd += ["--max-hold-bars", str(max(1, params.max_hold_bars))]
+    cmd += ["--min-edge", f"{max(0.0, params.min_edge):.12g}"]
+    cmd += ["--edge-buffer", f"{max(0.0, params.edge_buffer):.12g}"]
+    if params.cost_aware_edge:
+        cmd += ["--cost-aware-edge"]
+    cmd += ["--trend-lookback", str(max(0, params.trend_lookback))]
+    cmd += ["--max-position-size", f"{max(0.0, params.max_position_size):.12g}"]
+    if params.vol_target is not None:
+        cmd += ["--vol-target", f"{max(1e-12, params.vol_target):.12g}"]
+    cmd += ["--vol-lookback", str(max(0, params.vol_lookback))]
+    if params.vol_ewma_alpha is not None:
+        cmd += ["--vol-ewma-alpha", f"{clamp(float(params.vol_ewma_alpha), 0.0, 1.0):.6f}"]
+    cmd += ["--vol-floor", f"{max(0.0, params.vol_floor):.12g}"]
+    cmd += ["--vol-scale-max", f"{max(0.0, params.vol_scale_max):.12g}"]
+    if params.max_volatility is not None:
+        cmd += ["--max-volatility", f"{max(1e-12, params.max_volatility):.12g}"]
     cmd += ["--fee", f"{max(0.0, params.fee):.12g}"]
     cmd += ["--epochs", str(params.epochs)]
     cmd += ["--hidden-size", str(params.hidden_size)]
@@ -516,10 +551,25 @@ def trial_to_record(tr: TrialResult, symbol_label: Optional[str]) -> Dict[str, A
             "interval": tr.params.interval,
             "bars": tr.params.bars,
             "method": tr.params.method,
+            "blendWeight": tr.params.blend_weight,
             "positioning": tr.params.positioning,
             "normalization": tr.params.normalization,
             "baseOpenThreshold": tr.params.base_open_threshold,
             "baseCloseThreshold": tr.params.base_close_threshold,
+            "minHoldBars": tr.params.min_hold_bars,
+            "cooldownBars": tr.params.cooldown_bars,
+            "maxHoldBars": tr.params.max_hold_bars,
+            "minEdge": tr.params.min_edge,
+            "edgeBuffer": tr.params.edge_buffer,
+            "costAwareEdge": tr.params.cost_aware_edge,
+            "trendLookback": tr.params.trend_lookback,
+            "maxPositionSize": tr.params.max_position_size,
+            "volTarget": tr.params.vol_target,
+            "volLookback": tr.params.vol_lookback,
+            "volEwmaAlpha": tr.params.vol_ewma_alpha,
+            "volFloor": tr.params.vol_floor,
+            "volScaleMax": tr.params.vol_scale_max,
+            "maxVolatility": tr.params.max_volatility,
             "fee": tr.params.fee,
             "epochs": tr.params.epochs,
             "hiddenSize": tr.params.hidden_size,
@@ -614,10 +664,24 @@ def sample_params(
     p_auto_bars: float,
     bars_min: int,
     bars_max: int,
+    bars_distribution: str,
     open_threshold_min: float,
     open_threshold_max: float,
     close_threshold_min: float,
     close_threshold_max: float,
+    min_hold_bars_range: Tuple[int, int],
+    cooldown_bars_range: Tuple[int, int],
+    max_hold_bars_range: Tuple[int, int],
+    min_edge_range: Tuple[float, float],
+    edge_buffer_range: Tuple[float, float],
+    trend_lookback_range: Tuple[int, int],
+    max_position_size_range: Tuple[float, float],
+    vol_target_range: Tuple[float, float],
+    vol_lookback_range: Tuple[int, int],
+    vol_ewma_alpha_range: Tuple[float, float],
+    vol_floor_range: Tuple[float, float],
+    vol_scale_max_range: Tuple[float, float],
+    max_volatility_range: Tuple[float, float],
     fee_min: float,
     fee_max: float,
     p_long_short: float,
@@ -660,6 +724,7 @@ def sample_params(
     trail_range: Tuple[float, float],
     method_weights: Dict[str, float],
     normalization_choices: List[str],
+    blend_weight_range: Tuple[float, float],
     p_disable_stop: float,
     p_disable_tp: float,
     p_disable_trail: float,
@@ -677,6 +742,12 @@ def sample_params(
         # 0 means auto/all; otherwise explicit number within the configured range.
         if rng.random() < clamp(p_auto_bars, 0.0, 1.0):
             return 0
+        if str(bars_distribution).strip().lower() == "log":
+            lo = max(2, bars_min)
+            hi = max(lo, bars_max)
+            if lo == hi:
+                return lo
+            return int(round(log_uniform(rng, float(lo), float(hi))))
         return rng.randint(bars_min, bars_max)
 
     # Weighted categorical draw for method.
@@ -695,9 +766,59 @@ def sample_params(
                 method = m
                 break
 
+    bw_lo, bw_hi = blend_weight_range
+    bw_lo, bw_hi = (min(bw_lo, bw_hi), max(bw_lo, bw_hi))
+    blend_weight = clamp(rng.uniform(bw_lo, bw_hi), 0.0, 1.0)
+
     normalization = rng.choice(normalization_choices)
     base_open_threshold = log_uniform(rng, max(1e-12, open_threshold_min), max(1e-12, open_threshold_max))
     base_close_threshold = log_uniform(rng, max(1e-12, close_threshold_min), max(1e-12, close_threshold_max))
+    min_hold_lo, min_hold_hi = min_hold_bars_range
+    min_hold_bars = rng.randint(min_hold_lo, min_hold_hi)
+    cooldown_lo, cooldown_hi = cooldown_bars_range
+    cooldown_bars = rng.randint(cooldown_lo, cooldown_hi)
+    max_hold_lo, max_hold_hi = max_hold_bars_range
+    max_hold_bars = None
+    if max_hold_hi > 0:
+        max_hold_sample = rng.randint(max_hold_lo, max_hold_hi)
+        if max_hold_sample > 0:
+            max_hold_bars = max_hold_sample
+    min_edge_lo, min_edge_hi = min_edge_range
+    min_edge = rng.uniform(min_edge_lo, min_edge_hi)
+    edge_buffer_lo, edge_buffer_hi = edge_buffer_range
+    edge_buffer = rng.uniform(edge_buffer_lo, edge_buffer_hi)
+    cost_aware_edge = edge_buffer > 0
+    trend_lookback_lo, trend_lookback_hi = trend_lookback_range
+    trend_lookback = rng.randint(trend_lookback_lo, trend_lookback_hi)
+    max_pos_lo, max_pos_hi = max_position_size_range
+    max_position_size = max(0.0, rng.uniform(max_pos_lo, max_pos_hi))
+    vol_target_lo, vol_target_hi = vol_target_range
+    vol_target = None
+    if max(vol_target_lo, vol_target_hi) > 0:
+        vt_lo = max(1e-12, min(vol_target_lo, vol_target_hi))
+        vt_hi = max(vt_lo, max(vol_target_lo, vol_target_hi))
+        vol_target = rng.uniform(vt_lo, vt_hi)
+    vol_alpha_lo, vol_alpha_hi = vol_ewma_alpha_range
+    vol_ewma_alpha = None
+    if max(vol_alpha_lo, vol_alpha_hi) > 0:
+        va_lo = max(1e-6, min(vol_alpha_lo, vol_alpha_hi))
+        va_hi = min(0.999, max(vol_alpha_lo, vol_alpha_hi))
+        if va_hi >= va_lo:
+            vol_ewma_alpha = rng.uniform(va_lo, va_hi)
+    vol_lb_lo, vol_lb_hi = vol_lookback_range
+    vol_lookback = rng.randint(vol_lb_lo, vol_lb_hi)
+    if vol_target is not None and vol_ewma_alpha is None:
+        vol_lookback = max(2, vol_lookback)
+    vol_floor_lo, vol_floor_hi = vol_floor_range
+    vol_floor = max(0.0, rng.uniform(vol_floor_lo, vol_floor_hi))
+    vol_scale_lo, vol_scale_hi = vol_scale_max_range
+    vol_scale_max = max(0.0, rng.uniform(vol_scale_lo, vol_scale_hi))
+    max_vol_lo, max_vol_hi = max_volatility_range
+    max_volatility = None
+    if max(max_vol_lo, max_vol_hi) > 0:
+        mv_lo = max(1e-12, min(max_vol_lo, max_vol_hi))
+        mv_hi = max(mv_lo, max(max_vol_lo, max_vol_hi))
+        max_volatility = rng.uniform(mv_lo, mv_hi)
     fee = rng.uniform(max(0.0, fee_min), max(0.0, fee_max))
     epochs = rng.randint(epochs_min, epochs_max)
     hidden_size = rng.randint(hidden_min, hidden_max)
@@ -768,10 +889,25 @@ def sample_params(
         interval=interval,
         bars=sample_bars(),
         method=method,
+        blend_weight=blend_weight,
         positioning=positioning,
         normalization=normalization,
         base_open_threshold=base_open_threshold,
         base_close_threshold=base_close_threshold,
+        min_hold_bars=min_hold_bars,
+        cooldown_bars=cooldown_bars,
+        max_hold_bars=max_hold_bars,
+        min_edge=min_edge,
+        edge_buffer=edge_buffer,
+        cost_aware_edge=cost_aware_edge,
+        trend_lookback=trend_lookback,
+        max_position_size=max_position_size,
+        vol_target=vol_target,
+        vol_lookback=vol_lookback,
+        vol_ewma_alpha=vol_ewma_alpha,
+        vol_floor=vol_floor,
+        vol_scale_max=vol_scale_max,
+        max_volatility=max_volatility,
         fee=fee,
         epochs=epochs,
         slippage=slippage,
@@ -880,6 +1016,43 @@ def main(argv: List[str]) -> int:
         default=0,
         help="Skip candidates with fewer than this many roundTrips (default: 0).",
     )
+    parser.add_argument(
+        "--tune-objective",
+        type=str,
+        default="equity-dd-turnover",
+        choices=["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"],
+        help="Tune objective used by --sweep-threshold inside trader-hs (default: equity-dd-turnover).",
+    )
+    parser.add_argument(
+        "--tune-penalty-max-drawdown",
+        type=float,
+        default=1.0,
+        help="Penalty weight for max drawdown in tune scoring (default: 1.0).",
+    )
+    parser.add_argument(
+        "--tune-penalty-turnover",
+        type=float,
+        default=0.1,
+        help="Penalty weight for turnover in tune scoring (default: 0.1).",
+    )
+    parser.add_argument(
+        "--tune-stress-vol-mult",
+        type=float,
+        default=1.0,
+        help="Stress volatility multiplier for tune scoring (default: 1.0).",
+    )
+    parser.add_argument(
+        "--tune-stress-shock",
+        type=float,
+        default=0.0,
+        help="Stress shock added to returns for tune scoring (default: 0.0).",
+    )
+    parser.add_argument(
+        "--tune-stress-weight",
+        type=float,
+        default=0.0,
+        help="Penalty weight for stress scenario in tune scoring (default: 0.0).",
+    )
 
     interval_group = parser.add_mutually_exclusive_group()
     interval_group.add_argument("--interval", type=str, default="", help="Single interval to sample (alias for --intervals).")
@@ -891,6 +1064,14 @@ def main(argv: List[str]) -> int:
     )
     parser.add_argument("--bars-min", type=int, default=0, help="Min bars when sampling explicit bars (default: 0=auto).")
     parser.add_argument("--bars-max", type=int, default=0, help="Max bars when sampling explicit bars (default: 0=auto-detect for CSV).")
+    parser.add_argument("--bars-auto-prob", type=float, default=0.25, help="Probability of sampling bars=auto/all (default: 0.25).")
+    parser.add_argument(
+        "--bars-distribution",
+        type=str,
+        default="uniform",
+        choices=["uniform", "log"],
+        help="Sampling distribution for explicit bars (default: uniform).",
+    )
     parser.add_argument("--epochs-min", type=int, default=0, help="Min epochs (default: 0).")
     parser.add_argument("--epochs-max", type=int, default=10, help="Max epochs (default: 10).")
     parser.add_argument("--slippage-max", type=float, default=0.001, help="Max slippage per side (default: 0.001).")
@@ -922,6 +1103,18 @@ def main(argv: List[str]) -> int:
         default=1e-2,
         help="Max close-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 1e-2).",
     )
+    parser.add_argument("--min-hold-bars-min", type=int, default=0, help="Min min-hold-bars when sampling (default: 0).")
+    parser.add_argument("--min-hold-bars-max", type=int, default=0, help="Max min-hold-bars when sampling (default: 0).")
+    parser.add_argument("--cooldown-bars-min", type=int, default=0, help="Min cooldown-bars when sampling (default: 0).")
+    parser.add_argument("--cooldown-bars-max", type=int, default=0, help="Max cooldown-bars when sampling (default: 0).")
+    parser.add_argument("--max-hold-bars-min", type=int, default=0, help="Min max-hold-bars when sampling (default: 0=disabled).")
+    parser.add_argument("--max-hold-bars-max", type=int, default=0, help="Max max-hold-bars when sampling (default: 0=disabled).")
+    parser.add_argument("--min-edge-min", type=float, default=0.0, help="Min min-edge when sampling (default: 0).")
+    parser.add_argument("--min-edge-max", type=float, default=0.0, help="Max min-edge when sampling (default: 0).")
+    parser.add_argument("--edge-buffer-min", type=float, default=0.0, help="Min edge-buffer when sampling (default: 0).")
+    parser.add_argument("--edge-buffer-max", type=float, default=0.0, help="Max edge-buffer when sampling (default: 0).")
+    parser.add_argument("--trend-lookback-min", type=int, default=0, help="Min trend-lookback when sampling (default: 0).")
+    parser.add_argument("--trend-lookback-max", type=int, default=0, help="Max trend-lookback when sampling (default: 0).")
 
     parser.add_argument("--p-long-short", type=float, default=0.2, help="Probability of long-short positioning (default: 0.2).")
     parser.add_argument(
@@ -987,6 +1180,24 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--p-confidence-sizing", type=float, default=0.15, help="Probability confidence-sizing is enabled (default: 0.15).")
     parser.add_argument("--min-position-size-min", type=float, default=0.0, help="Min min-position-size when enabled (default: 0).")
     parser.add_argument("--min-position-size-max", type=float, default=0.5, help="Max min-position-size when enabled (default: 0.5).")
+    parser.add_argument("--max-position-size-min", type=float, default=1.0, help="Min max-position-size when sampling (default: 1).")
+    parser.add_argument("--max-position-size-max", type=float, default=1.0, help="Max max-position-size when sampling (default: 1).")
+    parser.add_argument("--vol-target-min", type=float, default=0.0, help="Min vol-target when sampling (default: 0=disabled).")
+    parser.add_argument("--vol-target-max", type=float, default=0.0, help="Max vol-target when sampling (default: 0=disabled).")
+    parser.add_argument("--vol-lookback-min", type=int, default=20, help="Min vol-lookback when sampling (default: 20).")
+    parser.add_argument("--vol-lookback-max", type=int, default=20, help="Max vol-lookback when sampling (default: 20).")
+    parser.add_argument("--vol-ewma-alpha-min", type=float, default=0.0, help="Min vol-ewma-alpha when sampling (default: 0=disabled).")
+    parser.add_argument("--vol-ewma-alpha-max", type=float, default=0.0, help="Max vol-ewma-alpha when sampling (default: 0=disabled).")
+    parser.add_argument("--vol-floor-min", type=float, default=0.0, help="Min vol-floor when sampling (default: 0).")
+    parser.add_argument("--vol-floor-max", type=float, default=0.0, help="Max vol-floor when sampling (default: 0).")
+    parser.add_argument("--vol-scale-max-min", type=float, default=1.0, help="Min vol-scale-max when sampling (default: 1).")
+    parser.add_argument("--vol-scale-max-max", type=float, default=1.0, help="Max vol-scale-max when sampling (default: 1).")
+    parser.add_argument(
+        "--max-volatility-min", type=float, default=0.0, help="Min max-volatility when sampling (default: 0=disabled)."
+    )
+    parser.add_argument(
+        "--max-volatility-max", type=float, default=0.0, help="Max max-volatility when sampling (default: 0=disabled)."
+    )
 
     parser.add_argument("--stop-min", type=float, default=0.002, help="Min stop-loss when enabled (default: 0.002).")
     parser.add_argument("--stop-max", type=float, default=0.20, help="Max stop-loss when enabled (default: 0.20).")
@@ -1012,6 +1223,9 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--method-weight-11", type=float, default=1.0, help="Sampling weight for method=11 (default: 1.0).")
     parser.add_argument("--method-weight-10", type=float, default=2.0, help="Sampling weight for method=10 (default: 2.0).")
     parser.add_argument("--method-weight-01", type=float, default=1.0, help="Sampling weight for method=01 (default: 1.0).")
+    parser.add_argument("--method-weight-blend", type=float, default=0.0, help="Sampling weight for method=blend (default: 0).")
+    parser.add_argument("--blend-weight-min", type=float, default=0.5, help="Min blend-weight when sampling (default: 0.5).")
+    parser.add_argument("--blend-weight-max", type=float, default=0.5, help="Max blend-weight when sampling (default: 0.5).")
     parser.add_argument(
         "--normalizations",
         type=str,
@@ -1113,6 +1327,8 @@ def main(argv: List[str]) -> int:
 
         bars_min = min(bars_max, max(10, min_required))
     bars_min = max(2, min(bars_min, bars_max))
+    bars_auto_prob = clamp(float(args.bars_auto_prob), 0.0, 1.0)
+    bars_distribution = str(args.bars_distribution).strip().lower()
 
     epochs_min = max(0, int(args.epochs_min))
     epochs_max = max(epochs_min, int(args.epochs_max))
@@ -1141,6 +1357,18 @@ def main(argv: List[str]) -> int:
     open_threshold_max = max(open_threshold_min, float(args.open_threshold_max))
     close_threshold_min = max(1e-12, float(args.close_threshold_min))
     close_threshold_max = max(close_threshold_min, float(args.close_threshold_max))
+    min_hold_min = max(0, int(args.min_hold_bars_min))
+    min_hold_max = max(min_hold_min, int(args.min_hold_bars_max))
+    cooldown_min = max(0, int(args.cooldown_bars_min))
+    cooldown_max = max(cooldown_min, int(args.cooldown_bars_max))
+    max_hold_min = max(0, int(args.max_hold_bars_min))
+    max_hold_max = max(max_hold_min, int(args.max_hold_bars_max))
+    min_edge_min = max(0.0, float(args.min_edge_min))
+    min_edge_max = max(min_edge_min, float(args.min_edge_max))
+    edge_buffer_min = max(0.0, float(args.edge_buffer_min))
+    edge_buffer_max = max(edge_buffer_min, float(args.edge_buffer_max))
+    trend_lookback_min = max(0, int(args.trend_lookback_min))
+    trend_lookback_max = max(trend_lookback_min, int(args.trend_lookback_max))
 
     p_long_short = clamp(float(args.p_long_short), 0.0, 1.0)
     p_intrabar_take_profit_first = clamp(float(args.p_intrabar_take_profit_first), 0.0, 1.0)
@@ -1168,12 +1396,37 @@ def main(argv: List[str]) -> int:
     p_confirm_quantiles = clamp(float(args.p_confirm_quantiles), 0.0, 1.0)
     p_confidence_sizing = clamp(float(args.p_confidence_sizing), 0.0, 1.0)
     min_position_size_range = (float(args.min_position_size_min), float(args.min_position_size_max))
+    max_position_size_min = max(0.0, float(args.max_position_size_min))
+    max_position_size_max = max(max_position_size_min, float(args.max_position_size_max))
+    max_position_size_range = (max_position_size_min, max_position_size_max)
+    vol_target_min = max(0.0, float(args.vol_target_min))
+    vol_target_max = max(vol_target_min, float(args.vol_target_max))
+    vol_target_range = (vol_target_min, vol_target_max)
+    vol_lookback_min = max(0, int(args.vol_lookback_min))
+    vol_lookback_max = max(vol_lookback_min, int(args.vol_lookback_max))
+    vol_lookback_range = (vol_lookback_min, vol_lookback_max)
+    vol_ewma_alpha_min = max(0.0, float(args.vol_ewma_alpha_min))
+    vol_ewma_alpha_max = max(vol_ewma_alpha_min, float(args.vol_ewma_alpha_max))
+    vol_ewma_alpha_range = (vol_ewma_alpha_min, vol_ewma_alpha_max)
+    vol_floor_min = max(0.0, float(args.vol_floor_min))
+    vol_floor_max = max(vol_floor_min, float(args.vol_floor_max))
+    vol_floor_range = (vol_floor_min, vol_floor_max)
+    vol_scale_max_min = max(0.0, float(args.vol_scale_max_min))
+    vol_scale_max_max = max(vol_scale_max_min, float(args.vol_scale_max_max))
+    vol_scale_max_range = (vol_scale_max_min, vol_scale_max_max)
+    max_volatility_min = max(0.0, float(args.max_volatility_min))
+    max_volatility_max = max(max_volatility_min, float(args.max_volatility_max))
+    max_volatility_range = (max_volatility_min, max_volatility_max)
 
     method_weights = {
         "11": float(args.method_weight_11),
         "10": float(args.method_weight_10),
         "01": float(args.method_weight_01),
+        "blend": float(args.method_weight_blend),
     }
+    blend_weight_min = clamp(float(args.blend_weight_min), 0.0, 1.0)
+    blend_weight_max = clamp(float(args.blend_weight_max), 0.0, 1.0)
+    blend_weight_range = (min(blend_weight_min, blend_weight_max), max(blend_weight_min, blend_weight_max))
     normalization_choices = [s.strip() for s in str(args.normalizations).split(",") if s.strip()]
     if not normalization_choices:
         print("No normalizations provided.", file=sys.stderr)
@@ -1196,6 +1449,12 @@ def main(argv: List[str]) -> int:
 
     base_args += ["--lookback-window", args.lookback_window]
     base_args += ["--backtest-ratio", f"{float(args.backtest_ratio):.6f}"]
+    base_args += ["--tune-objective", str(args.tune_objective)]
+    base_args += ["--tune-penalty-max-drawdown", f"{max(0.0, float(args.tune_penalty_max_drawdown)):.6f}"]
+    base_args += ["--tune-penalty-turnover", f"{max(0.0, float(args.tune_penalty_turnover)):.6f}"]
+    base_args += ["--tune-stress-vol-mult", f"{max(1e-12, float(args.tune_stress_vol_mult)):.6f}"]
+    base_args += ["--tune-stress-shock", f"{float(args.tune_stress_shock):.6f}"]
+    base_args += ["--tune-stress-weight", f"{max(0.0, float(args.tune_stress_weight)):.6f}"]
     # Fix seed so model init is comparable across trials.
     base_args += ["--seed", str(int(args.seed))]
 
@@ -1222,13 +1481,27 @@ def main(argv: List[str]) -> int:
         params = sample_params(
             rng=rng,
             intervals=intervals,
-            p_auto_bars=0.25,
+            p_auto_bars=bars_auto_prob,
             bars_min=bars_min,
             bars_max=bars_max,
+            bars_distribution=bars_distribution,
             open_threshold_min=open_threshold_min,
             open_threshold_max=open_threshold_max,
             close_threshold_min=close_threshold_min,
             close_threshold_max=close_threshold_max,
+            min_hold_bars_range=(min_hold_min, min_hold_max),
+            cooldown_bars_range=(cooldown_min, cooldown_max),
+            max_hold_bars_range=(max_hold_min, max_hold_max),
+            min_edge_range=(min_edge_min, min_edge_max),
+            edge_buffer_range=(edge_buffer_min, edge_buffer_max),
+            trend_lookback_range=(trend_lookback_min, trend_lookback_max),
+            max_position_size_range=max_position_size_range,
+            vol_target_range=vol_target_range,
+            vol_lookback_range=vol_lookback_range,
+            vol_ewma_alpha_range=vol_ewma_alpha_range,
+            vol_floor_range=vol_floor_range,
+            vol_scale_max_range=vol_scale_max_range,
+            max_volatility_range=max_volatility_range,
             fee_min=fee_min,
             fee_max=fee_max,
             p_long_short=p_long_short,
@@ -1271,6 +1544,7 @@ def main(argv: List[str]) -> int:
             trail_range=(trail_min, trail_max),
             method_weights=method_weights,
             normalization_choices=normalization_choices,
+            blend_weight_range=blend_weight_range,
             p_disable_stop=clamp(float(args.p_disable_stop), 0.0, 1.0),
             p_disable_tp=clamp(float(args.p_disable_tp), 0.0, 1.0),
             p_disable_trail=clamp(float(args.p_disable_trail), 0.0, 1.0),
@@ -1360,6 +1634,21 @@ def main(argv: List[str]) -> int:
     print(f"  positioning: {b.params.positioning}")
     print(f"  thresholds:  open={b.open_threshold} close={b.close_threshold} (from sweep)")
     print(f"  base thresholds: open={b.params.base_open_threshold} close={b.params.base_close_threshold}")
+    print(f"  blendWeight:  {b.params.blend_weight}")
+    print(f"  minHoldBars:  {b.params.min_hold_bars}")
+    print(f"  cooldownBars: {b.params.cooldown_bars}")
+    print(f"  maxHoldBars:  {b.params.max_hold_bars}")
+    print(f"  minEdge:      {b.params.min_edge}")
+    print(f"  edgeBuffer:   {b.params.edge_buffer}")
+    print(f"  costAwareEdge:{b.params.cost_aware_edge}")
+    print(f"  trendLookback:{b.params.trend_lookback}")
+    print(f"  maxPositionSize:{b.params.max_position_size}")
+    print(f"  volTarget:    {b.params.vol_target}")
+    print(f"  volLookback:  {b.params.vol_lookback}")
+    print(f"  volEwmaAlpha: {b.params.vol_ewma_alpha}")
+    print(f"  volFloor:     {b.params.vol_floor}")
+    print(f"  volScaleMax:  {b.params.vol_scale_max}")
+    print(f"  maxVolatility: {b.params.max_volatility}")
     print(f"  normalization: {b.params.normalization}")
     print(f"  epochs:        {b.params.epochs}")
     print(f"  hiddenSize:    {b.params.hidden_size}")
@@ -1429,10 +1718,23 @@ def main(argv: List[str]) -> int:
                     "interval": tr.params.interval,
                     "bars": tr.params.bars,
                     "method": tr.params.method,
+                    "blendWeight": tr.params.blend_weight,
                     "positioning": tr.params.positioning,
                     "normalization": tr.params.normalization,
                     "baseOpenThreshold": tr.params.base_open_threshold,
                     "baseCloseThreshold": tr.params.base_close_threshold,
+                    "minHoldBars": tr.params.min_hold_bars,
+                    "cooldownBars": tr.params.cooldown_bars,
+                    "maxHoldBars": tr.params.max_hold_bars,
+                    "minEdge": tr.params.min_edge,
+                    "edgeBuffer": tr.params.edge_buffer,
+                    "costAwareEdge": tr.params.cost_aware_edge,
+                    "trendLookback": tr.params.trend_lookback,
+                    "maxPositionSize": tr.params.max_position_size,
+                    "volTarget": tr.params.vol_target,
+                    "volLookback": tr.params.vol_lookback,
+                    "volEwmaAlpha": tr.params.vol_ewma_alpha,
+                    "volScaleMax": tr.params.vol_scale_max,
                     "fee": tr.params.fee,
                     "epochs": tr.params.epochs,
                     "hiddenSize": tr.params.hidden_size,

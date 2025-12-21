@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.test.json --noEmit && esbuild src/app/utils.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/utils.js && node --test test/**/*.test.mjs"
   },
   "dependencies": {
     "react": "^19.2.3",
