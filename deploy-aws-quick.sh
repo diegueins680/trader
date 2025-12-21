@@ -716,6 +716,7 @@ main() {
 
   local api_url=""
   local api_token="$TRADER_API_TOKEN"
+  local ui_api_url_override="${UI_API_URL:-}"
 
   if [[ "$DEPLOY_API" == "true" ]]; then
     create_ecr_repo
@@ -727,26 +728,34 @@ main() {
     api_url="$APP_RUNNER_SERVICE_URL"
     api_token="$TRADER_API_TOKEN"
   else
-    if [[ -z "${UI_API_URL:-}" && -n "${UI_SERVICE_ARN:-}" ]]; then
-      UI_API_URL="$(discover_apprunner_service_url "$UI_SERVICE_ARN")"
+    if [[ -n "${ui_api_url_override:-}" ]]; then
+      api_url="$ui_api_url_override"
+    elif [[ -n "${UI_SERVICE_ARN:-}" ]]; then
+      api_url="$(discover_apprunner_service_url "$UI_SERVICE_ARN")"
     fi
-    api_url="$UI_API_URL"
     if [[ -z "${api_token:-}" && -n "${UI_SERVICE_ARN:-}" ]]; then
       api_token="$(discover_apprunner_trader_api_token "$UI_SERVICE_ARN")"
     fi
   fi
 
   if [[ "$DEPLOY_UI" == "true" ]]; then
-    deploy_ui "$api_url" "$api_token"
+    local ui_api_url="$api_url"
+    if [[ -z "${ui_api_url_override:-}" && -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+      ui_api_url="/api"
+    fi
+    deploy_ui "$ui_api_url" "$api_token"
   fi
 
   echo -e "${GREEN}=== Deployment Complete ===${NC}\n"
   if [[ "$DEPLOY_API" == "true" ]]; then
     echo "API URL: ${api_url}"
   else
-    echo "API URL (configured): ${api_url}"
+    echo "API URL (configured): ${ui_api_url}"
   fi
   if [[ "$DEPLOY_UI" == "true" ]]; then
+    if [[ "$DEPLOY_API" == "true" ]]; then
+      echo "UI API base: ${ui_api_url}"
+    fi
     echo "UI uploaded to: s3://${UI_BUCKET}/"
   fi
   echo ""

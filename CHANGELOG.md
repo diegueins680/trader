@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: optimizer combo loads preserve the current positioning unless the combo explicitly specifies one.
 - Web UI: manual Method/open/close edits are preserved when optimizer combos or optimize/sweep results apply.
 - Web UI: optimizer combos now persist/show the operations that produced each top result on hover.
+- Deploy: when using CloudFront with a distribution ID, the quick AWS deploy script sets the UI API base to `/api` to avoid CORS.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.
 - API/UI: `/binance/keys` trade probes report `skipped` when no test order is attempted, and the UI shows `SKIP` instead of `FAIL`.
 - API: `/binance/keys` preflight checks minNotional when price data is available and only fetches symbol filters when needed.

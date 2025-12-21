@@ -334,6 +334,7 @@ Optimizer combos only override Positioning when they include it; otherwise the c
 The UI shows whether combos are coming from the live API or the static fallback, plus their last update time.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 Hover optimizer combos to inspect the operations captured for each top performer.
+When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` (the quick AWS deploy script does this automatically when a distribution ID is provided) to avoid CORS issues.
 
 Run it:
 ```
