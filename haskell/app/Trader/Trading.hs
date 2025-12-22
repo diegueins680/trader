@@ -1121,9 +1121,16 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                         exitedToFlat =
                           posFinal2 == Nothing && (posAfterSwitch /= Nothing || posSide /= Nothing)
 
+                        maxHoldCooldown =
+                          if holdTooLong
+                            then 1
+                            else 0
+
+                        cooldownAfterExit = max cooldownBars maxHoldCooldown
+
                         cooldownNext =
                           if posFinal2 == Nothing
-                            then if exitedToFlat then cooldownBars else cooldownNext0
+                            then if exitedToFlat then cooldownAfterExit else cooldownNext0
                             else 0
                      in
                       ( posFinal2

@@ -298,7 +298,7 @@ opts = do
   argTrailingStopVolMult <- option auto (long "trailing-stop-vol-mult" <> value 0 <> help "Trailing stop in per-bar sigma multiples (0 disables; overrides --trailing-stop when vol estimate available)")
   argMinHoldBars <- option auto (long "min-hold-bars" <> value 0 <> help "Minimum holding periods (bars) before allowing a signal-based exit (0 disables)")
   argCooldownBars <- option auto (long "cooldown-bars" <> value 0 <> help "When flat after an exit, wait this many bars before allowing a new entry (0 disables)")
-  argMaxHoldBars <- optional (option auto (long "max-hold-bars" <> help "Force exit after holding for this many bars (0 disables)"))
+  argMaxHoldBars <- optional (option auto (long "max-hold-bars" <> help "Force exit after holding for this many bars (0 disables; enforces 1-bar cooldown)"))
   argMaxDrawdown <- optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
   argMaxDailyLoss <- optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
   argMinEdge <- option auto (long "min-edge" <> value 0 <> help "Minimum predicted return magnitude required to enter (0 disables)")

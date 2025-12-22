@@ -281,7 +281,7 @@ testMaxHoldBars = do
       preds = [101, 101, 101]
       cfg = baseEnsembleConfig { ecMaxHoldBars = Just 1 }
       bt = simulateEnsemble cfg lookback prices preds preds Nothing
-  assert "max-hold forces exit after limit" (brPositions bt == [1, 0, 0])
+  assert "max-hold forces exit after limit with 1-bar cooldown" (brPositions bt == [1, 0, 0])
 
 testCooldownBars :: IO ()
 testCooldownBars = do

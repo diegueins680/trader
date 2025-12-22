@@ -904,6 +904,11 @@ export function App() {
   const refreshTopCombos = useCallback(() => {
     topCombosSyncRef.current?.({ silent: false });
   }, []);
+  const scrollDataLogToBottom = useCallback(() => {
+    const el = dataLogRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
 
   useEffect(() => {
     topCombosRef.current = topCombos;
@@ -911,13 +916,11 @@ export function App() {
 
   useEffect(() => {
     if (!dataLogAutoScroll) return;
-    const el = dataLogRef.current;
-    if (!el) return;
     window.requestAnimationFrame(() => {
       if (!dataLogAutoScroll) return;
-      el.scrollTop = el.scrollHeight;
+      scrollDataLogToBottom();
     });
-  }, [dataLog, dataLogAutoScroll]);
+  }, [dataLog, dataLogAutoScroll, scrollDataLogToBottom]);
 
   useEffect(() => {
     activeAsyncJobRef.current = activeAsyncJob;
@@ -2779,6 +2782,10 @@ export function App() {
     if (!term) return dataLog;
     return dataLog.filter((entry) => entry.label.toLowerCase().includes(term));
   }, [dataLog, dataLogFilterText]);
+  const dataLogShown = useMemo(
+    () => (dataLogFilterText.trim() ? dataLogFiltered : dataLog),
+    [dataLog, dataLogFilterText, dataLogFiltered],
+  );
   const showLocalStartHelp = useMemo(() => {
     if (typeof window === "undefined") return true;
     return isLocalHostname(window.location.hostname);
@@ -6553,8 +6560,9 @@ export function App() {
 	            </button>
 	            <button
 	              className="btn"
+                disabled={dataLogShown.length === 0}
 	              onClick={() => {
-	                const logText = (dataLogFilterText.trim() ? dataLogFiltered : dataLog)
+	                const logText = dataLogShown
 	                  .map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
 	                  .join("\n\n");
 	                copyText(logText);
@@ -6572,6 +6580,11 @@ export function App() {
                 spellCheck={false}
                 aria-label="Filter data log"
               />
+              {dataLogFilterText.trim() ? (
+                <button className="btnSmall" type="button" onClick={() => setDataLogFilterText("")}>
+                  Clear filter
+                </button>
+              ) : null}
               <label className="pill" style={{ userSelect: "none" }}>
                 <input type="checkbox" checked={dataLogExpanded} onChange={(e) => setDataLogExpanded(e.target.checked)} />
                 Expand
@@ -6584,6 +6597,9 @@ export function App() {
                 <input type="checkbox" checked={dataLogAutoScroll} onChange={(e) => setDataLogAutoScroll(e.target.checked)} />
                 Auto-scroll
               </label>
+              <button className="btnSmall" type="button" onClick={scrollDataLogToBottom} disabled={dataLog.length === 0}>
+                Jump to latest
+              </button>
               {dataLogFilterText.trim() ? (
                 <span className="hint">
                   Showing {dataLogFiltered.length} of {dataLog.length}
@@ -6606,14 +6622,14 @@ export function App() {
               wordBreak: "break-word",
             }}
           >
-            {dataLogFiltered.length === 0 ? (
+            {dataLogShown.length === 0 ? (
               <div style={{ color: "#6b7280" }}>
                 {dataLog.length === 0
                   ? "No data logged yet. Run a signal, backtest, or trade to see incoming data."
                   : "No entries match the current filter."}
               </div>
             ) : (
-              dataLogFiltered.map((entry, idx) => (
+              dataLogShown.map((entry, idx) => (
                 <div key={idx} style={{ marginBottom: "12px", paddingBottom: "12px", borderBottom: "1px solid #1f2937" }}>
                   <div style={{ color: "#60a5fa", marginBottom: "4px" }}>
                     [{new Date(entry.timestamp).toLocaleTimeString()}] <span style={{ color: "#34d399" }}>{entry.label}</span>

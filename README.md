@@ -184,7 +184,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--trailing-stop-vol-mult F` optional: trailing stop as per-bar sigma multiple (`0` disables; overrides `--trailing-stop` when vol estimate is available)
   - `--min-hold-bars N` optional: minimum holding periods before allowing a signal-based exit (`0` disables; bracket exits still apply)
   - `--cooldown-bars N` optional: after an exit to flat, wait `N` bars before allowing a new entry (`0` disables)
-  - `--max-hold-bars N` optional: force exit after holding for `N` bars (`0` disables; exit reason `MAX_HOLD`)
+  - `--max-hold-bars N` optional: force exit after holding for `N` bars (`0` disables; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--trend-lookback N` optional: simple moving average filter for entries (`0` disables)
   - `--max-position-size F` optional: cap position size/leverage (`1` = full size)
   - `--vol-target F` optional: target annualized volatility for position sizing
@@ -388,7 +388,7 @@ The UI exposes an Auto-apply toggle for top combos and shows when a combo auto-a
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
 The Data Log panel supports auto-scroll to keep the newest responses in view.
-Filter the Data Log by label; Copy shown respects the current filter.
+Filter the Data Log by label; Copy shown respects the current filter, and Jump to latest scrolls back down.
 
 Run it:
 ```

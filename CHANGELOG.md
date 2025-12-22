@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: API panel adds base URL copy + /health open shortcuts; loading a profile clears manual override locks.
 - Web UI: add quick-jump buttons in the config panel to navigate major sections.
 - Web UI: Data Log adds an auto-scroll toggle to keep the latest entries visible.
-- Web UI: Data Log adds label filtering with copy-shown support.
+- Web UI: Data Log adds label filtering with copy-shown support plus clear-filter/jump-to-latest actions.
 - Web UI: numeric inputs accept comma decimals and strip thousands separators; auto-refresh interval input disables when off.
 - Web UI: add a sticky run bar in the configuration panel showing readiness issues and keeping run actions visible.
 - Web UI: when trading is armed, automatically switches Market to Futures when Positioning is set to Long/Short.
@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Kalman market context now honors small `--kalman-market-top-n` values when enough symbols are available.
 - Tuning: sweep/optimization validates prediction lengths before scoring to avoid crashes.
 - Trading/Tuning: add blend method, min-edge/cost-aware edge gating, max-hold exits, trend/volatility sizing filters, and stress-weighted tune scoring.
+- Trading: max-hold exits now enforce a 1-bar cooldown before re-entry.
 - Trading: add signal-to-noise entry filter plus volatility-multiple stop-loss/take-profit/trailing options.
 - Normalization: `minmax`/`standard` fall back to no-op when the fit window is empty or only contains non-finite values; `log` requires finite, positive values.
 - Web UI: improves async job not found handling with a clearer error after the grace period.
