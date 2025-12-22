@@ -25,10 +25,14 @@ export type OptimizationComboParams = {
   stopLoss?: number | null;
   takeProfit?: number | null;
   trailingStop?: number | null;
+  stopLossVolMult?: number | null;
+  takeProfitVolMult?: number | null;
+  trailingStopVolMult?: number | null;
   minHoldBars?: number | null;
   cooldownBars?: number | null;
   maxHoldBars?: number | null;
   minEdge?: number | null;
+  minSignalToNoise?: number | null;
   edgeBuffer?: number | null;
   costAwareEdge?: boolean | null;
   trendLookback?: number | null;
@@ -37,6 +41,7 @@ export type OptimizationComboParams = {
   maxOrderErrors?: number | null;
   kalmanZMin?: number | null;
   kalmanZMax?: number | null;
+  kalmanMarketTopN?: number | null;
   maxHighVolProb?: number | null;
   maxConformalWidth?: number | null;
   maxQuantileWidth?: number | null;
@@ -51,6 +56,8 @@ export type OptimizationComboParams = {
   volFloor?: number | null;
   volScaleMax?: number | null;
   maxVolatility?: number | null;
+  periodsPerYear?: number | null;
+  walkForwardFolds?: number | null;
   tuneStressVolMult?: number | null;
   tuneStressShock?: number | null;
   tuneStressWeight?: number | null;

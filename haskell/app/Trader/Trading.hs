@@ -39,6 +39,9 @@ data EnsembleConfig = EnsembleConfig
   , ecStopLoss :: !(Maybe Double)      -- fractional, e.g. 0.02
   , ecTakeProfit :: !(Maybe Double)    -- fractional, e.g. 0.03
   , ecTrailingStop :: !(Maybe Double)  -- fractional, e.g. 0.01
+  , ecStopLossVolMult :: !Double       -- per-bar sigma multiple (0 disables)
+  , ecTakeProfitVolMult :: !Double     -- per-bar sigma multiple (0 disables)
+  , ecTrailingStopVolMult :: !Double   -- per-bar sigma multiple (0 disables)
   , ecMinHoldBars :: !Int              -- bars; 0 disables (signal exits allowed immediately)
   , ecCooldownBars :: !Int             -- bars; 0 disables (wait after exiting before re-entering)
   , ecMaxHoldBars :: !(Maybe Int)      -- bars; 0 disables (force exit after N bars)
@@ -49,6 +52,7 @@ data EnsembleConfig = EnsembleConfig
   , ecIntrabarFill :: !IntrabarFill
   , ecMaxPositionSize :: !Double       -- 0..N, caps position sizing (1=full)
   , ecMinEdge :: !Double               -- min predicted return magnitude required for entry
+  , ecMinSignalToNoise :: !Double      -- min edge / per-bar sigma required for entry
   , ecTrendLookback :: !Int            -- bars; 0 disables
   , ecPeriodsPerYear :: !Double        -- for annualized volatility sizing
   , ecVolTarget :: !(Maybe Double)     -- target annualized volatility (0 disables)
@@ -283,6 +287,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
           let startT = max 0 (lookback - 1)
               openThrRaw = max 0 (ecOpenThreshold cfg)
               minEdge = max 0 (ecMinEdge cfg)
+              minSignalToNoise = max 0 (ecMinSignalToNoise cfg)
               openThr = max openThrRaw minEdge
               closeThr = max 0 (ecCloseThreshold cfg)
               minHoldBars = max 0 (ecMinHoldBars cfg)
@@ -480,6 +485,14 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                       else ewmaVolAt t
                   Nothing -> rollingVolAt t
 
+              volPerBarAt :: Int -> Maybe Double
+              volPerBarAt t =
+                case volEstimateAt t of
+                  Nothing -> Nothing
+                  Just vol ->
+                    let perBar = vol / sqrt ppy
+                     in if isBad perBar then Nothing else Just (max 0 perBar)
+
               volScaleAt :: Int -> Double
               volScaleAt t =
                 case volTarget of
@@ -499,6 +512,15 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                   (Just maxVol, Just vol) -> vol <= maxVol
                   _ -> True
 
+              signalToNoiseOkAt :: Int -> Double -> Bool
+              signalToNoiseOkAt t edge =
+                if minSignalToNoise <= 0
+                  then True
+                  else
+                    case volPerBarAt t of
+                      Just vol | vol > 0 -> edge / vol >= minSignalToNoise
+                      _ -> True
+
               trendOkAt :: Int -> PositionSide -> Bool
               trendOkAt t side =
                 if trendLookback <= 1 || t < trendLookback - 1
@@ -517,6 +539,47 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
 
               clamp01 :: Double -> Double
               clamp01 x = max 0 (min 1 x)
+
+              clampFrac :: Double -> Double
+              clampFrac x = min 0.999999 (max 0 x)
+
+              stopFracFromVol :: Int -> Double -> Maybe Double
+              stopFracFromVol t mult =
+                if mult <= 0
+                  then Nothing
+                  else
+                    case volPerBarAt t of
+                      Just vol | vol > 0 ->
+                        let f = mult * vol
+                         in if isBad f || f <= 0 then Nothing else Just (clampFrac f)
+                      _ -> Nothing
+
+              stopLossFracAt :: Int -> Maybe Double
+              stopLossFracAt t =
+                case stopFracFromVol t (ecStopLossVolMult cfg) of
+                  Just f -> Just f
+                  Nothing ->
+                    case ecStopLoss cfg of
+                      Just sl | sl > 0 -> Just (clampFrac sl)
+                      _ -> Nothing
+
+              takeProfitFracAt :: Int -> Maybe Double
+              takeProfitFracAt t =
+                case stopFracFromVol t (ecTakeProfitVolMult cfg) of
+                  Just f -> Just f
+                  Nothing ->
+                    case ecTakeProfit cfg of
+                      Just tp | tp > 0 -> Just (clampFrac tp)
+                      _ -> Nothing
+
+              trailingStopFracAt :: Int -> Maybe Double
+              trailingStopFracAt t =
+                case stopFracFromVol t (ecTrailingStopVolMult cfg) of
+                  Just f -> Just f
+                  Nothing ->
+                    case ecTrailingStop cfg of
+                      Just ts | ts > 0 -> Just (clampFrac ts)
+                      _ -> Nothing
 
               scale01 :: Double -> Double -> Double -> Double
               scale01 lo hi x =
@@ -696,12 +759,19 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             Just ot -> otHoldingPeriods ot
                         cooldownActive = posSide == Nothing && cooldownLeft > 0
                         cooldownNext0 = if posSide == Nothing then max 0 (cooldownLeft - 1) else 0
-                        (agreeOk, desiredSideRaw, desiredSizeRaw) =
+                        (agreeOk, desiredSideRaw, desiredSizeRaw, edgeRaw) =
                           if t < startT
-                            then (False, posSide, posSize)
+                            then (False, posSide, posSize, 0)
                             else
                               let kp = kalPredNextV V.! t
                                   lp = lstmPredNextV V.! (t - startT)
+                                  edgePred p =
+                                    if prev == 0 || isBad p
+                                      then 0
+                                      else
+                                        let edge = abs (p / prev - 1)
+                                         in if isBad edge then 0 else edge
+                                  edgeRaw = min (edgePred kp) (edgePred lp)
                                   kalOpenDirRaw = direction openThr prev kp
                                   kalCloseDirRaw = direction closeThr prev kp
                                   (kalOpenDir, kalSize) =
@@ -740,7 +810,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                             if closeAgreeDir == Just SideShort
                                               then (Just SideShort, posSize)
                                               else (Nothing, 0)
-                               in (openAgreeDir == Just SideLong || openAgreeDir == Just SideShort, desiredSide', desiredSize')
+                               in (openAgreeDir == Just SideLong || openAgreeDir == Just SideShort, desiredSide', desiredSize', edgeRaw)
 
                         desiredSize0 =
                           if desiredSideRaw == Nothing
@@ -759,8 +829,13 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
 
                         volOk = if needsEntry then volOkAt t else True
 
+                        snrOk =
+                          if needsEntry
+                            then signalToNoiseOkAt t (max 0 edgeRaw)
+                            else True
+
                         (desiredSide1, desiredSize1) =
-                          if not trendOk || not volOk
+                          if not trendOk || not volOk || not snrOk
                             then (Nothing, 0)
                             else (desiredSide0, desiredSize0)
 
@@ -894,17 +969,17 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                   entryPx = otEntryPrice ot0
                                   trail0 = otTrail ot0
                                   mTp =
-                                    case ecTakeProfit cfg of
-                                      Just tp | tp > 0 -> Just (entryPx * (1 + tp))
+                                    case takeProfitFracAt t of
+                                      Just tp -> Just (entryPx * (1 + tp))
                                       _ -> Nothing
                                   mSl =
-                                    case ecStopLoss cfg of
-                                      Just sl | sl > 0 -> Just (entryPx * (1 - sl))
+                                    case stopLossFracAt t of
+                                      Just sl -> Just (entryPx * (1 - sl))
                                       _ -> Nothing
                                   stopPx trail =
                                     let mTs =
-                                          case ecTrailingStop cfg of
-                                            Just ts | ts > 0 -> Just (trail * (1 - ts))
+                                          case trailingStopFracAt t of
+                                            Just ts -> Just (trail * (1 - ts))
                                             _ -> Nothing
                                      in case (mSl, mTs) of
                                           (Nothing, Nothing) -> (Nothing, Nothing)
@@ -959,17 +1034,17 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                   entryPx = otEntryPrice ot0
                                   trail0 = otTrail ot0
                                   mTp =
-                                    case ecTakeProfit cfg of
-                                      Just tp | tp > 0 -> Just (entryPx * (1 - tp))
+                                    case takeProfitFracAt t of
+                                      Just tp -> Just (entryPx * (1 - tp))
                                       _ -> Nothing
                                   mSl =
-                                    case ecStopLoss cfg of
-                                      Just sl | sl > 0 -> Just (entryPx * (1 + sl))
+                                    case stopLossFracAt t of
+                                      Just sl -> Just (entryPx * (1 + sl))
                                       _ -> Nothing
                                   stopPx trail =
                                     let mTs =
-                                          case ecTrailingStop cfg of
-                                            Just ts | ts > 0 -> Just (trail * (1 + ts))
+                                          case trailingStopFracAt t of
+                                            Just ts -> Just (trail * (1 + ts))
                                             _ -> Nothing
                                      in case (mSl, mTs) of
                                           (Nothing, Nothing) -> (Nothing, Nothing)

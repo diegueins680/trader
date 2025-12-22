@@ -153,6 +153,7 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--close-threshold 0.001` exit/close threshold (fractional deadband; defaults to open-threshold when omitted)
     - Live order placement uses `close-threshold` to decide exits when already in position, mirroring backtest logic.
   - `--min-edge F` minimum predicted return magnitude required to enter (`0` disables)
+  - `--min-signal-to-noise F` optional: require edge / per-bar sigma >= `F` (`0` disables)
     - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread
     - `--edge-buffer F` optional extra buffer added on top of cost-aware edge
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average)
@@ -178,6 +179,9 @@ You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
   - `--take-profit F` optional synthetic take profit (`0 < F < 1`)
   - `--trailing-stop F` optional synthetic trailing stop (`0 < F < 1`)
+  - `--stop-loss-vol-mult F` optional: stop loss as per-bar sigma multiple (`0` disables; overrides `--stop-loss` when vol estimate is available)
+  - `--take-profit-vol-mult F` optional: take profit as per-bar sigma multiple (`0` disables; overrides `--take-profit` when vol estimate is available)
+  - `--trailing-stop-vol-mult F` optional: trailing stop as per-bar sigma multiple (`0` disables; overrides `--trailing-stop` when vol estimate is available)
   - `--min-hold-bars N` optional: minimum holding periods before allowing a signal-based exit (`0` disables; bracket exits still apply)
   - `--cooldown-bars N` optional: after an exit to flat, wait `N` bars before allowing a new entry (`0` disables)
   - `--max-hold-bars N` optional: force exit after holding for `N` bars (`0` disables; exit reason `MAX_HOLD`)
@@ -263,11 +267,14 @@ Optimizer script tips:
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - `--bars-auto-prob` and `--bars-distribution` tune how often bars=auto/all is sampled and how explicit bars are drawn.
 - `--min-hold-bars-min/max`, `--cooldown-bars-min/max`, and `--max-hold-bars-min/max` sample trade gating windows to reduce churn.
-- `--min-edge-min/max`, `--edge-buffer-min/max`, and `--trend-lookback-min/max` tune entry gating (edge-buffer > 0 enables cost-aware edge).
-- `--max-position-size-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, and `--vol-scale-max-*` tune sizing.
+- `--min-win-rate`, `--min-profit-factor`, and `--min-exposure` filter out low-quality candidates.
+- `--min-edge-min/max`, `--edge-buffer-min/max`, `--p-cost-aware-edge`, and `--trend-lookback-min/max` tune entry gating (edge-buffer > 0 enables cost-aware edge; set `--p-cost-aware-edge` to override).
+- `--max-position-size-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, `--vol-floor-*`, `--vol-scale-max-*`, `--max-volatility-*`, and `--periods-per-year-*` tune sizing (use `--p-disable-vol-target`/`--p-disable-max-volatility` to mix disabled samples).
 - `--blend-weight-min/max` plus `--method-weight-blend` sample the blend method mix.
-- `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective.
-- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `tuneObjective`).
+- `--kalman-market-top-n-min/max` tunes the Kalman market-context sample size (Binance only).
+- `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective (`--tune-stress-*-min/max` lets it sample ranges).
+- `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
+- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`).
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
@@ -365,10 +372,12 @@ Manual edits to Method/open/close thresholds are preserved when optimizer combos
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
+The configuration panel includes quick-jump buttons for major sections (market, thresholds, risk, optimization, live bot, trade).
 The configuration panel keeps a sticky action bar with readiness status and run buttons while you scroll.
 When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` (the quick AWS deploy script does this automatically when a distribution ID is provided) to avoid CORS issues.
 The UI exposes an Auto-apply toggle for top combos and shows when a combo auto-applied; manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
+Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
 
 Run it:
 ```

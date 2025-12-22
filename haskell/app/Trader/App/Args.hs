@@ -84,12 +84,16 @@ data Args = Args
   , argStopLoss :: Maybe Double
   , argTakeProfit :: Maybe Double
   , argTrailingStop :: Maybe Double
+  , argStopLossVolMult :: Double
+  , argTakeProfitVolMult :: Double
+  , argTrailingStopVolMult :: Double
   , argMinHoldBars :: Int
   , argCooldownBars :: Int
   , argMaxHoldBars :: Maybe Int
   , argMaxDrawdown :: Maybe Double
   , argMaxDailyLoss :: Maybe Double
   , argMinEdge :: Double
+  , argMinSignalToNoise :: Double
   , argCostAwareEdge :: Bool
   , argEdgeBuffer :: Double
   , argTrendLookback :: Int
@@ -289,12 +293,16 @@ opts = do
   argStopLoss <- optional (option auto (long "stop-loss" <> help "Stop loss fraction for a bracket exit (e.g., 0.02 for 2%)"))
   argTakeProfit <- optional (option auto (long "take-profit" <> help "Take profit fraction for a bracket exit (e.g., 0.03 for 3%)"))
   argTrailingStop <- optional (option auto (long "trailing-stop" <> help "Trailing stop fraction for a bracket exit (e.g., 0.01 for 1%)"))
+  argStopLossVolMult <- option auto (long "stop-loss-vol-mult" <> value 0 <> help "Stop loss in per-bar sigma multiples (0 disables; overrides --stop-loss when vol estimate available)")
+  argTakeProfitVolMult <- option auto (long "take-profit-vol-mult" <> value 0 <> help "Take profit in per-bar sigma multiples (0 disables; overrides --take-profit when vol estimate available)")
+  argTrailingStopVolMult <- option auto (long "trailing-stop-vol-mult" <> value 0 <> help "Trailing stop in per-bar sigma multiples (0 disables; overrides --trailing-stop when vol estimate available)")
   argMinHoldBars <- option auto (long "min-hold-bars" <> value 0 <> help "Minimum holding periods (bars) before allowing a signal-based exit (0 disables)")
   argCooldownBars <- option auto (long "cooldown-bars" <> value 0 <> help "When flat after an exit, wait this many bars before allowing a new entry (0 disables)")
   argMaxHoldBars <- optional (option auto (long "max-hold-bars" <> help "Force exit after holding for this many bars (0 disables)"))
   argMaxDrawdown <- optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
   argMaxDailyLoss <- optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
   argMinEdge <- option auto (long "min-edge" <> value 0 <> help "Minimum predicted return magnitude required to enter (0 disables)")
+  argMinSignalToNoise <- option auto (long "min-signal-to-noise" <> value 0 <> help "Minimum edge/vol (per-bar sigma) required to enter (0 disables)")
   argCostAwareEdge <- switch (long "cost-aware-edge" <> help "Raise min-edge to cover estimated fees/slippage/spread")
   argEdgeBuffer <- option auto (long "edge-buffer" <> value 0 <> help "Extra buffer added to cost-aware min-edge")
   argTrendLookback <- option auto (long "trend-lookback" <> value 0 <> help "SMA lookback for trend filter (0 disables)")
@@ -486,6 +494,9 @@ validateArgs args0 = do
   case argTrailingStop args of
     Nothing -> pure ()
     Just v -> ensure "--trailing-stop must be > 0 and < 1" (v > 0 && v < 1)
+  ensure "--stop-loss-vol-mult must be >= 0" (argStopLossVolMult args >= 0)
+  ensure "--take-profit-vol-mult must be >= 0" (argTakeProfitVolMult args >= 0)
+  ensure "--trailing-stop-vol-mult must be >= 0" (argTrailingStopVolMult args >= 0)
   ensure "--min-hold-bars must be >= 0" (argMinHoldBars args >= 0)
   ensure "--cooldown-bars must be >= 0" (argCooldownBars args >= 0)
   case argMaxHoldBars args of
@@ -498,6 +509,7 @@ validateArgs args0 = do
     Nothing -> pure ()
     Just v -> ensure "--max-daily-loss must be > 0 and < 1" (v > 0 && v < 1)
   ensure "--min-edge must be >= 0" (argMinEdge args >= 0)
+  ensure "--min-signal-to-noise must be >= 0" (argMinSignalToNoise args >= 0)
   ensure "--edge-buffer must be >= 0" (argEdgeBuffer args >= 0)
   ensure "--trend-lookback must be >= 0" (argTrendLookback args >= 0)
   ensure "--max-position-size must be >= 0" (argMaxPositionSize args >= 0)
@@ -551,6 +563,9 @@ validateArgs args0 = do
   ensure "--binance-trade requires --binance-symbol" (not (argBinanceTrade args && argBinanceSymbol args == Nothing))
   let market = argBinanceMarket args
   ensure "--positioning long-short requires --futures when trading" (not (argBinanceTrade args && argPositioning args == LongShort && market /= MarketFutures))
+  ensure
+    "--positioning long-short requires --futures for binanceSymbol data"
+    (not (argPositioning args == LongShort && isJust (argBinanceSymbol args) && market /= MarketFutures))
   ensure "--margin requires --binance-live for trading" (not (argBinanceMargin args && argBinanceTrade args && not (argBinanceLive args)))
   case argIdempotencyKey args of
     Nothing -> pure ()

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
 - Web UI: API panel adds base URL copy + /health open shortcuts; loading a profile clears manual override locks.
+- Web UI: add quick-jump buttons in the config panel to navigate major sections.
+- Web UI: numeric inputs accept comma decimals and strip thousands separators; auto-refresh interval input disables when off.
 - Web UI: add a sticky run bar in the configuration panel showing readiness issues and keeping run actions visible.
 - Web UI: when trading is armed, automatically switches Market to Futures when Positioning is set to Long/Short.
 - Web UI: falls back to `GET` for async polling when `POST` hits proxy errors (e.g. 502/503).
@@ -13,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Kalman market context now honors small `--kalman-market-top-n` values when enough symbols are available.
 - Tuning: sweep/optimization validates prediction lengths before scoring to avoid crashes.
 - Trading/Tuning: add blend method, min-edge/cost-aware edge gating, max-hold exits, trend/volatility sizing filters, and stress-weighted tune scoring.
+- Trading: add signal-to-noise entry filter plus volatility-multiple stop-loss/take-profit/trailing options.
 - Normalization: `minmax`/`standard` fall back to no-op when the fit window is empty or only contains non-finite values; `log` requires finite, positive values.
 - Web UI: improves async job not found handling with a clearer error after the grace period.
 - Web UI: fixes a startup crash when optimizer combos apply before API compute limits are available.
@@ -25,8 +28,9 @@ All notable changes to this project will be documented in this file.
 - Web UI: add auto-apply toggle with last-applied marker, manual override lock/unlock hints, and a cross-origin API base warning.
 - Optimizer: adds a `--quality` preset plus CSV high/low auto-detection for deeper equity searches.
 - Optimizer: adds trade-quality filters (win rate, profit factor, exposure) and samples min-hold/cooldown bars for churn control.
-- Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating, position/vol sizing, tune objective passthrough, and bars auto/distribution controls.
-- API: `/optimizer/run` now accepts the expanded optimizer sampling and tune-objective parameters.
+- Optimizer: adds walk-forward/tune-stress sampling controls and propagates additional combo parameters (vol floors, vol caps, stress settings) through top-combo outputs.
+- Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
+- API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.
 - Deploy: when using CloudFront with a distribution ID, the quick AWS deploy script sets the UI API base to `/api` to avoid CORS.
 - Deploy: quick AWS deploy now prints the CloudFront domain and warns when `/api/*` behavior is missing.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.

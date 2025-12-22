@@ -338,6 +338,7 @@ data LatestSignal = LatestSignal
   , lsKalmanReturn :: !(Maybe Double)
   , lsKalmanStd :: !(Maybe Double)
   , lsKalmanZ :: !(Maybe Double)
+  , lsVolatility :: !(Maybe Double)
   , lsRegimes :: !(Maybe RegimeProbs)
   , lsQuantiles :: !(Maybe Quantiles)
   , lsConformalInterval :: !(Maybe Interval)
@@ -376,8 +377,12 @@ data BacktestSummary = BacktestSummary
   , bsMinHoldBars :: !Int
   , bsCooldownBars :: !Int
   , bsMaxHoldBars :: !(Maybe Int)
+  , bsStopLossVolMult :: !Double
+  , bsTakeProfitVolMult :: !Double
+  , bsTrailingStopVolMult :: !Double
   , bsMaxPositionSize :: !Double
   , bsMinEdge :: !Double
+  , bsMinSignalToNoise :: !Double
   , bsCostAwareEdge :: !Bool
   , bsEdgeBuffer :: !Double
   , bsTrendLookback :: !Int
@@ -537,12 +542,16 @@ data ApiParams = ApiParams
   , apStopLoss :: Maybe Double
   , apTakeProfit :: Maybe Double
   , apTrailingStop :: Maybe Double
+  , apStopLossVolMult :: Maybe Double
+  , apTakeProfitVolMult :: Maybe Double
+  , apTrailingStopVolMult :: Maybe Double
   , apMinHoldBars :: Maybe Int
   , apCooldownBars :: Maybe Int
   , apMaxHoldBars :: Maybe Int
   , apMaxDrawdown :: Maybe Double
   , apMaxDailyLoss :: Maybe Double
   , apMinEdge :: Maybe Double
+  , apMinSignalToNoise :: Maybe Double
   , apCostAwareEdge :: Maybe Bool
   , apEdgeBuffer :: Maybe Double
   , apTrendLookback :: Maybe Int
@@ -624,12 +633,23 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrPenaltyMaxDrawdown :: !(Maybe Double)
   , arrPenaltyTurnover :: !(Maybe Double)
   , arrMinRoundTrips :: !(Maybe Int)
+  , arrMinWinRate :: !(Maybe Double)
+  , arrMinProfitFactor :: !(Maybe Double)
+  , arrMinExposure :: !(Maybe Double)
   , arrTuneObjective :: !(Maybe String)
   , arrTunePenaltyMaxDrawdown :: !(Maybe Double)
   , arrTunePenaltyTurnover :: !(Maybe Double)
   , arrTuneStressVolMult :: !(Maybe Double)
   , arrTuneStressShock :: !(Maybe Double)
   , arrTuneStressWeight :: !(Maybe Double)
+  , arrTuneStressVolMultMin :: !(Maybe Double)
+  , arrTuneStressVolMultMax :: !(Maybe Double)
+  , arrTuneStressShockMin :: !(Maybe Double)
+  , arrTuneStressShockMax :: !(Maybe Double)
+  , arrTuneStressWeightMin :: !(Maybe Double)
+  , arrTuneStressWeightMax :: !(Maybe Double)
+  , arrWalkForwardFoldsMin :: !(Maybe Int)
+  , arrWalkForwardFoldsMax :: !(Maybe Int)
   , arrMinHoldBarsMin :: !(Maybe Int)
   , arrMinHoldBarsMax :: !(Maybe Int)
   , arrCooldownBarsMin :: !(Maybe Int)
@@ -640,18 +660,29 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrMinEdgeMax :: !(Maybe Double)
   , arrEdgeBufferMin :: !(Maybe Double)
   , arrEdgeBufferMax :: !(Maybe Double)
+  , arrPCostAwareEdge :: !(Maybe Double)
   , arrTrendLookbackMin :: !(Maybe Int)
   , arrTrendLookbackMax :: !(Maybe Int)
   , arrMaxPositionSizeMin :: !(Maybe Double)
   , arrMaxPositionSizeMax :: !(Maybe Double)
   , arrVolTargetMin :: !(Maybe Double)
   , arrVolTargetMax :: !(Maybe Double)
+  , arrPDisableVolTarget :: !(Maybe Double)
   , arrVolLookbackMin :: !(Maybe Int)
   , arrVolLookbackMax :: !(Maybe Int)
   , arrVolEwmaAlphaMin :: !(Maybe Double)
   , arrVolEwmaAlphaMax :: !(Maybe Double)
+  , arrVolFloorMin :: !(Maybe Double)
+  , arrVolFloorMax :: !(Maybe Double)
   , arrVolScaleMaxMin :: !(Maybe Double)
   , arrVolScaleMaxMax :: !(Maybe Double)
+  , arrMaxVolatilityMin :: !(Maybe Double)
+  , arrMaxVolatilityMax :: !(Maybe Double)
+  , arrPDisableMaxVolatility :: !(Maybe Double)
+  , arrPeriodsPerYearMin :: !(Maybe Double)
+  , arrPeriodsPerYearMax :: !(Maybe Double)
+  , arrKalmanMarketTopNMin :: !(Maybe Int)
+  , arrKalmanMarketTopNMax :: !(Maybe Int)
   , arrMethodWeightBlend :: !(Maybe Double)
   , arrBlendWeightMin :: !(Maybe Double)
   , arrBlendWeightMax :: !(Maybe Double)
@@ -679,6 +710,7 @@ instance ToJSON ApiParams where
 
 data ApiError = ApiError
   { aeError :: String
+  , aeHint :: !(Maybe String)
   } deriving (Eq, Show, Generic)
 
 instance ToJSON ApiError where
@@ -720,6 +752,7 @@ instance ToJSON LatestSignal where
       , "kalmanReturn" .= lsKalmanReturn s
       , "kalmanStd" .= lsKalmanStd s
       , "kalmanZ" .= lsKalmanZ s
+      , "volatility" .= lsVolatility s
       , "regimes" .= regimesJson
       , "quantiles" .= quantilesJson
       , "conformalInterval" .= conformalJson
@@ -1051,12 +1084,16 @@ argsPublicJson args =
       , "stopLoss" .= argStopLoss args
       , "takeProfit" .= argTakeProfit args
       , "trailingStop" .= argTrailingStop args
+      , "stopLossVolMult" .= argStopLossVolMult args
+      , "takeProfitVolMult" .= argTakeProfitVolMult args
+      , "trailingStopVolMult" .= argTrailingStopVolMult args
       , "minHoldBars" .= argMinHoldBars args
       , "cooldownBars" .= argCooldownBars args
       , "maxHoldBars" .= argMaxHoldBars args
       , "maxDrawdown" .= argMaxDrawdown args
       , "maxDailyLoss" .= argMaxDailyLoss args
       , "minEdge" .= argMinEdge args
+      , "minSignalToNoise" .= argMinSignalToNoise args
       , "costAwareEdge" .= argCostAwareEdge args
       , "edgeBuffer" .= argEdgeBuffer args
       , "trendLookback" .= argTrendLookback args
@@ -2022,6 +2059,9 @@ botOptimizeAfterOperation st = do
                   , ecStopLoss = argStopLoss args
                   , ecTakeProfit = argTakeProfit args
                   , ecTrailingStop = argTrailingStop args
+                  , ecStopLossVolMult = argStopLossVolMult args
+                  , ecTakeProfitVolMult = argTakeProfitVolMult args
+                  , ecTrailingStopVolMult = argTrailingStopVolMult args
                   , ecMinHoldBars = argMinHoldBars args
                   , ecCooldownBars = argCooldownBars args
                   , ecMaxHoldBars = argMaxHoldBars args
@@ -2032,6 +2072,7 @@ botOptimizeAfterOperation st = do
                   , ecIntrabarFill = argIntrabarFill args
                   , ecMaxPositionSize = argMaxPositionSize args
                   , ecMinEdge = minEdge
+                  , ecMinSignalToNoise = argMinSignalToNoise args
                   , ecTrendLookback = argTrendLookback args
                   , ecPeriodsPerYear = periodsPerYear args
                   , ecVolTarget = argVolTarget args
@@ -2322,6 +2363,50 @@ parseTopComboToArgs base combo = do
           Nothing -> argMinPositionSize base
           Just v -> clamp01 v
 
+      minHoldBars = max 0 (pickI "minHoldBars" (argMinHoldBars base))
+      cooldownBars = max 0 (pickI "cooldownBars" (argCooldownBars base))
+      maxHoldBars =
+        case pickMaybeMaybeInt "maxHoldBars" (argMaxHoldBars base) of
+          Nothing -> Nothing
+          Just n -> if n <= 0 then Nothing else Just n
+
+      minEdge = max 0 (pickD "minEdge" (argMinEdge base))
+      edgeBuffer = max 0 (pickD "edgeBuffer" (argEdgeBuffer base))
+      costAwareEdge = pickBool "costAwareEdge" (argCostAwareEdge base)
+      trendLookback = max 0 (pickI "trendLookback" (argTrendLookback base))
+      maxPositionSize = max 0 (pickD "maxPositionSize" (argMaxPositionSize base))
+
+      volTarget =
+        case pickMaybeMaybeDbl "volTarget" (argVolTarget base) of
+          Nothing -> Nothing
+          Just v -> if v <= 0 then Nothing else Just v
+      volLookback = max 0 (pickI "volLookback" (argVolLookback base))
+      volEwmaAlpha =
+        case pickMaybeMaybeDbl "volEwmaAlpha" (argVolEwmaAlpha base) of
+          Nothing -> Nothing
+          Just v ->
+            if v > 0 && v < 1
+              then Just v
+              else Nothing
+      volFloor = max 0 (pickD "volFloor" (argVolFloor base))
+      volScaleMax = max 0 (pickD "volScaleMax" (argVolScaleMax base))
+      maxVolatility =
+        case pickMaybeMaybeDbl "maxVolatility" (argMaxVolatility base) of
+          Nothing -> Nothing
+          Just v -> if v <= 0 then Nothing else Just v
+
+      blendWeight = clamp01 (pickD "blendWeight" (argBlendWeight base))
+      periodsPerYear =
+        case pickMaybeMaybeDbl "periodsPerYear" (argPeriodsPerYear base) of
+          Nothing -> Nothing
+          Just v -> if v <= 0 then Nothing else Just v
+      kalmanMarketTopN = max 0 (pickI "kalmanMarketTopN" (argKalmanMarketTopN base))
+
+      walkForwardFolds = max 1 (pickI "walkForwardFolds" (argWalkForwardFolds base))
+      tuneStressVolMult = max 1e-12 (pickD "tuneStressVolMult" (argTuneStressVolMult base))
+      tuneStressShock = pickD "tuneStressShock" (argTuneStressShock base)
+      tuneStressWeight = max 0 (pickD "tuneStressWeight" (argTuneStressWeight base))
+
       out =
         base
           { argMethod = method
@@ -2341,12 +2426,28 @@ parseTopComboToArgs base combo = do
           , argStopLoss = stopLoss
           , argTakeProfit = takeProfit
           , argTrailingStop = trailingStop
+          , argMinHoldBars = minHoldBars
+          , argCooldownBars = cooldownBars
+          , argMaxHoldBars = maxHoldBars
           , argMaxDrawdown = maxDD
           , argMaxDailyLoss = maxDL
           , argMaxOrderErrors = maxOE
+          , argMinEdge = minEdge
+          , argCostAwareEdge = costAwareEdge
+          , argEdgeBuffer = edgeBuffer
+          , argTrendLookback = trendLookback
+          , argMaxPositionSize = maxPositionSize
+          , argVolTarget = volTarget
+          , argVolLookback = volLookback
+          , argVolEwmaAlpha = volEwmaAlpha
+          , argVolFloor = volFloor
+          , argVolScaleMax = volScaleMax
+          , argMaxVolatility = maxVolatility
+          , argBlendWeight = blendWeight
           , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
           , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
           , argKalmanMeasurementVar = max 1e-12 (pickD "kalmanMeasurementVar" (argKalmanMeasurementVar base))
+          , argKalmanMarketTopN = kalmanMarketTopN
           , argKalmanZMin = kalZMin
           , argKalmanZMax = kalZMax
           , argMaxHighVolProb = maxHighVolProb
@@ -2356,6 +2457,11 @@ parseTopComboToArgs base combo = do
           , argConfirmQuantiles = confirmQuantiles
           , argConfidenceSizing = confidenceSizing
           , argMinPositionSize = minPositionSize
+          , argPeriodsPerYear = periodsPerYear
+          , argWalkForwardFolds = walkForwardFolds
+          , argTuneStressVolMult = tuneStressVolMult
+          , argTuneStressShock = tuneStressShock
+          , argTuneStressWeight = tuneStressWeight
           , argPositioning = LongFlat
           , argOptimizeOperations = False
           , argSweepThreshold = False
@@ -3050,6 +3156,13 @@ botApplyKline mOps metrics mJournal st k = do
 
       kalCloseDirRaw = lsKalmanNext latest0Raw >>= directionAt closeThr
       lstmCloseDir = lsLstmNext latest0Raw >>= directionAt closeThr
+      blendCloseDir =
+        case (lsKalmanNext latest0Raw, lsLstmNext latest0Raw) of
+          (Just k, Just l) ->
+            let w = max 0 (min 1 (argBlendWeight args))
+                blend = w * k + (1 - w) * l
+             in directionAt closeThr blend
+          _ -> Nothing
       closeAgreeDir =
         if kalCloseDirRaw == lstmCloseDir
           then kalCloseDirRaw
@@ -3060,6 +3173,7 @@ botApplyKline mOps metrics mJournal st k = do
           MethodBoth -> closeAgreeDir == Just 1
           MethodKalmanOnly -> kalCloseDirRaw == Just 1
           MethodLstmOnly -> lstmCloseDir == Just 1
+          MethodBlend -> blendCloseDir == Just 1
 
       desiredPosSignal =
         if prevPos == 1
@@ -3694,6 +3808,7 @@ argsCacheJsonSignal args =
       , "positioning" .= positioningCode (argPositioning args)
       , "maxHoldBars" .= argMaxHoldBars args
       , "minEdge" .= argMinEdge args
+      , "minSignalToNoise" .= argMinSignalToNoise args
       , "costAwareEdge" .= argCostAwareEdge args
       , "edgeBuffer" .= argEdgeBuffer args
       , "trendLookback" .= argTrendLookback args
@@ -3768,12 +3883,16 @@ argsCacheJsonBacktest args =
       , "stopLoss" .= argStopLoss args
       , "takeProfit" .= argTakeProfit args
       , "trailingStop" .= argTrailingStop args
+      , "stopLossVolMult" .= argStopLossVolMult args
+      , "takeProfitVolMult" .= argTakeProfitVolMult args
+      , "trailingStopVolMult" .= argTrailingStopVolMult args
       , "minHoldBars" .= argMinHoldBars args
       , "cooldownBars" .= argCooldownBars args
       , "maxHoldBars" .= argMaxHoldBars args
       , "maxDrawdown" .= argMaxDrawdown args
       , "maxDailyLoss" .= argMaxDailyLoss args
       , "minEdge" .= argMinEdge args
+      , "minSignalToNoise" .= argMinSignalToNoise args
       , "costAwareEdge" .= argCostAwareEdge args
       , "edgeBuffer" .= argEdgeBuffer args
       , "trendLookback" .= argTrendLookback args
@@ -4517,8 +4636,22 @@ jsonValue st v =
     ([("Content-Type", "application/json")] ++ noCacheHeaders)
     (encode v)
 
+longShortFuturesTradeError :: String
+longShortFuturesTradeError = "--positioning long-short requires --futures when trading"
+
+longShortFuturesDataError :: String
+longShortFuturesDataError = "--positioning long-short requires --futures for binanceSymbol data"
+
+apiErrorFromMsg :: String -> ApiError
+apiErrorFromMsg msg =
+  let hint =
+        if msg == longShortFuturesTradeError || msg == longShortFuturesDataError
+          then Just "Set market=futures or switch positioning to long-flat for spot/margin."
+          else Nothing
+   in ApiError msg hint
+
 jsonError :: Status -> String -> Wai.Response
-jsonError st msg = jsonValue st (ApiError msg)
+jsonError st msg = jsonValue st (apiErrorFromMsg msg)
 
 exceptionToHttp :: SomeException -> (Status, String)
 exceptionToHttp ex =
@@ -4726,6 +4859,12 @@ prepareOptimizerArgs outputPath topJsonPath req = do
             case arrMinRoundTrips req of
               Nothing -> []
               Just n -> ["--min-round-trips", show (max 0 n)]
+          minWinRateArgs =
+            maybeDoubleArg "--min-win-rate" (fmap clamp01 (arrMinWinRate req))
+          minProfitFactorArgs =
+            maybeDoubleArg "--min-profit-factor" (fmap (max 0) (arrMinProfitFactor req))
+          minExposureArgs =
+            maybeDoubleArg "--min-exposure" (fmap clamp01 (arrMinExposure req))
           tunePenaltyMaxDdArgs =
             maybeDoubleArg "--tune-penalty-max-drawdown" (fmap (max 0) (arrTunePenaltyMaxDrawdown req))
           tunePenaltyTurnoverArgs =
@@ -4735,6 +4874,18 @@ prepareOptimizerArgs outputPath topJsonPath req = do
           tuneStressShockArgs = maybeDoubleArg "--tune-stress-shock" (arrTuneStressShock req)
           tuneStressWeightArgs =
             maybeDoubleArg "--tune-stress-weight" (fmap (max 0) (arrTuneStressWeight req))
+          tuneStressVolMultRangeArgs =
+            maybeDoubleArg "--tune-stress-vol-mult-min" (fmap (max 1e-12) (arrTuneStressVolMultMin req))
+              ++ maybeDoubleArg "--tune-stress-vol-mult-max" (fmap (max 1e-12) (arrTuneStressVolMultMax req))
+          tuneStressShockRangeArgs =
+            maybeDoubleArg "--tune-stress-shock-min" (arrTuneStressShockMin req)
+              ++ maybeDoubleArg "--tune-stress-shock-max" (arrTuneStressShockMax req)
+          tuneStressWeightRangeArgs =
+            maybeDoubleArg "--tune-stress-weight-min" (fmap (max 0) (arrTuneStressWeightMin req))
+              ++ maybeDoubleArg "--tune-stress-weight-max" (fmap (max 0) (arrTuneStressWeightMax req))
+          walkForwardFoldsArgs =
+            maybeIntArg "--walk-forward-folds-min" (fmap (max 1) (arrWalkForwardFoldsMin req))
+              ++ maybeIntArg "--walk-forward-folds-max" (fmap (max 1) (arrWalkForwardFoldsMax req))
           intervalsVal = pickDefaultString defaultOptimizerIntervals (arrIntervals req)
           lookbackVal = pickDefaultString "24h" (arrLookbackWindow req)
           backtestRatioVal = clamp01 (fromMaybe 0.2 (arrBacktestRatio req))
@@ -4780,6 +4931,8 @@ prepareOptimizerArgs outputPath topJsonPath req = do
           edgeBufferArgs =
             maybeDoubleArg "--edge-buffer-min" (fmap (max 0) (arrEdgeBufferMin req))
               ++ maybeDoubleArg "--edge-buffer-max" (fmap (max 0) (arrEdgeBufferMax req))
+          pCostAwareEdgeArgs =
+            maybeDoubleArg "--p-cost-aware-edge" (arrPCostAwareEdge req)
           trendLookbackArgs =
             maybeIntArg "--trend-lookback-min" (fmap (max 0) (arrTrendLookbackMin req))
               ++ maybeIntArg "--trend-lookback-max" (fmap (max 0) (arrTrendLookbackMax req))
@@ -4789,15 +4942,31 @@ prepareOptimizerArgs outputPath topJsonPath req = do
           volTargetArgs =
             maybeDoubleArg "--vol-target-min" (fmap (max 0) (arrVolTargetMin req))
               ++ maybeDoubleArg "--vol-target-max" (fmap (max 0) (arrVolTargetMax req))
+          pDisableVolTargetArgs =
+            maybeDoubleArg "--p-disable-vol-target" (fmap clamp01 (arrPDisableVolTarget req))
           volLookbackArgs =
             maybeIntArg "--vol-lookback-min" (fmap (max 0) (arrVolLookbackMin req))
               ++ maybeIntArg "--vol-lookback-max" (fmap (max 0) (arrVolLookbackMax req))
           volEwmaAlphaArgs =
             maybeDoubleArg "--vol-ewma-alpha-min" (fmap clamp01 (arrVolEwmaAlphaMin req))
               ++ maybeDoubleArg "--vol-ewma-alpha-max" (fmap clamp01 (arrVolEwmaAlphaMax req))
+          volFloorArgs =
+            maybeDoubleArg "--vol-floor-min" (fmap (max 0) (arrVolFloorMin req))
+              ++ maybeDoubleArg "--vol-floor-max" (fmap (max 0) (arrVolFloorMax req))
           volScaleMaxArgs =
             maybeDoubleArg "--vol-scale-max-min" (fmap (max 0) (arrVolScaleMaxMin req))
               ++ maybeDoubleArg "--vol-scale-max-max" (fmap (max 0) (arrVolScaleMaxMax req))
+          maxVolatilityArgs =
+            maybeDoubleArg "--max-volatility-min" (fmap (max 0) (arrMaxVolatilityMin req))
+              ++ maybeDoubleArg "--max-volatility-max" (fmap (max 0) (arrMaxVolatilityMax req))
+          pDisableMaxVolatilityArgs =
+            maybeDoubleArg "--p-disable-max-volatility" (fmap clamp01 (arrPDisableMaxVolatility req))
+          periodsPerYearArgs =
+            maybeDoubleArg "--periods-per-year-min" (fmap (max 0) (arrPeriodsPerYearMin req))
+              ++ maybeDoubleArg "--periods-per-year-max" (fmap (max 0) (arrPeriodsPerYearMax req))
+          kalmanMarketTopNArgs =
+            maybeIntArg "--kalman-market-top-n-min" (fmap (max 0) (arrKalmanMarketTopNMin req))
+              ++ maybeIntArg "--kalman-market-top-n-max" (fmap (max 0) (arrKalmanMarketTopNMax req))
           methodWeightBlendArgs =
             maybeDoubleArg "--method-weight-blend" (fmap (max 0) (arrMethodWeightBlend req))
           blendWeightArgs =
@@ -4833,24 +5002,38 @@ prepareOptimizerArgs outputPath topJsonPath req = do
             penaltyMaxDdArgs
               ++ penaltyTurnoverArgs
               ++ minRoundTripsArgs
+              ++ minWinRateArgs
+              ++ minProfitFactorArgs
+              ++ minExposureArgs
               ++ tunePenaltyMaxDdArgs
               ++ tunePenaltyTurnoverArgs
               ++ tuneStressVolMultArgs
               ++ tuneStressShockArgs
               ++ tuneStressWeightArgs
+              ++ tuneStressVolMultRangeArgs
+              ++ tuneStressShockRangeArgs
+              ++ tuneStressWeightRangeArgs
+              ++ walkForwardFoldsArgs
               ++ minHoldBarsArgs
               ++ cooldownBarsArgs
               ++ maxHoldBarsArgs
               ++ minEdgeArgs
               ++ edgeBufferArgs
+              ++ pCostAwareEdgeArgs
               ++ trendLookbackArgs
               ++ maxPositionSizeArgs
               ++ volTargetArgs
+              ++ pDisableVolTargetArgs
               ++ volLookbackArgs
               ++ volEwmaAlphaArgs
+              ++ volFloorArgs
               ++ volScaleMaxArgs
+              ++ maxVolatilityArgs
+              ++ pDisableMaxVolatilityArgs
+              ++ periodsPerYearArgs
               ++ methodWeightBlendArgs
               ++ blendWeightArgs
+              ++ kalmanMarketTopNArgs
               ++ ["--output", outputPath, "--top-json", topJsonPath]
       pure $
         case (ohlcArgsResult, objectiveArgsResult, tuneObjectiveArgsResult, barsDistributionArgsResult) of
@@ -5775,12 +5958,16 @@ argsFromApi baseArgs p = do
           , argStopLoss = pickMaybe (apStopLoss p) (argStopLoss baseArgs)
           , argTakeProfit = pickMaybe (apTakeProfit p) (argTakeProfit baseArgs)
           , argTrailingStop = pickMaybe (apTrailingStop p) (argTrailingStop baseArgs)
+          , argStopLossVolMult = pick (apStopLossVolMult p) (argStopLossVolMult baseArgs)
+          , argTakeProfitVolMult = pick (apTakeProfitVolMult p) (argTakeProfitVolMult baseArgs)
+          , argTrailingStopVolMult = pick (apTrailingStopVolMult p) (argTrailingStopVolMult baseArgs)
           , argMinHoldBars = pick (apMinHoldBars p) (argMinHoldBars baseArgs)
           , argCooldownBars = pick (apCooldownBars p) (argCooldownBars baseArgs)
           , argMaxHoldBars = pickMaybe (apMaxHoldBars p) (argMaxHoldBars baseArgs)
           , argMaxDrawdown = pickMaybe (apMaxDrawdown p) (argMaxDrawdown baseArgs)
           , argMaxDailyLoss = pickMaybe (apMaxDailyLoss p) (argMaxDailyLoss baseArgs)
           , argMinEdge = pick (apMinEdge p) (argMinEdge baseArgs)
+          , argMinSignalToNoise = pick (apMinSignalToNoise p) (argMinSignalToNoise baseArgs)
           , argCostAwareEdge = pick (apCostAwareEdge p) (argCostAwareEdge baseArgs)
           , argEdgeBuffer = pick (apEdgeBuffer p) (argEdgeBuffer baseArgs)
           , argTrendLookback = pick (apTrendLookback p) (argTrendLookback baseArgs)
@@ -6393,14 +6580,38 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
     placeFutures mSf quoteAsset dir = do
       posAmt <- fetchFuturesPositionAmt env sym
       let protectPrefix = "trader_prot_"
+          volPerBar =
+            case lsVolatility sig of
+              Just vol ->
+                let perBar = vol / sqrt (max 1e-12 (periodsPerYear args))
+                 in if isNaN perBar || isInfinite perBar || perBar <= 0 then Nothing else Just perBar
+              _ -> Nothing
+          stopFromVol mult =
+            if mult <= 0
+              then Nothing
+              else
+                case volPerBar of
+                  Just v ->
+                    let frac = mult * v
+                        fracClamped = min 0.999999 (max 0 frac)
+                     in if isNaN fracClamped || isInfinite fracClamped || fracClamped <= 0
+                          then Nothing
+                          else Just fracClamped
+                  _ -> Nothing
           stopLoss0 =
-            case argStopLoss args of
-              Just v | v > 0 -> Just v
-              _ -> Nothing
+            case stopFromVol (argStopLossVolMult args) of
+              Just v -> Just v
+              Nothing ->
+                case argStopLoss args of
+                  Just v | v > 0 -> Just v
+                  _ -> Nothing
           takeProfit0 =
-            case argTakeProfit args of
-              Just v | v > 0 -> Just v
-              _ -> Nothing
+            case stopFromVol (argTakeProfitVolMult args) of
+              Just v -> Just v
+              Nothing ->
+                case argTakeProfit args of
+                  Just v | v > 0 -> Just v
+                  _ -> Nothing
           protectionManaged = enableProtectionOrders && mode == OrderLive
           protectionEnabled = protectionManaged && (isJust stopLoss0 || isJust takeProfit0)
           normalizeStopPrice px =
@@ -6695,8 +6906,12 @@ backtestSummaryJson summary =
     , "minHoldBars" .= bsMinHoldBars summary
     , "cooldownBars" .= bsCooldownBars summary
     , "maxHoldBars" .= bsMaxHoldBars summary
+    , "stopLossVolMult" .= bsStopLossVolMult summary
+    , "takeProfitVolMult" .= bsTakeProfitVolMult summary
+    , "trailingStopVolMult" .= bsTrailingStopVolMult summary
     , "maxPositionSize" .= bsMaxPositionSize summary
     , "minEdge" .= bsMinEdge summary
+    , "minSignalToNoise" .= bsMinSignalToNoise summary
     , "costAwareEdge" .= bsCostAwareEdge summary
     , "edgeBuffer" .= bsEdgeBuffer summary
     , "trendLookback" .= bsTrendLookback summary
@@ -7355,6 +7570,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecStopLoss = argStopLoss args
           , ecTakeProfit = argTakeProfit args
           , ecTrailingStop = argTrailingStop args
+          , ecStopLossVolMult = argStopLossVolMult args
+          , ecTakeProfitVolMult = argTakeProfitVolMult args
+          , ecTrailingStopVolMult = argTrailingStopVolMult args
           , ecMinHoldBars = argMinHoldBars args
           , ecCooldownBars = argCooldownBars args
           , ecMaxHoldBars = argMaxHoldBars args
@@ -7365,6 +7583,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecIntrabarFill = argIntrabarFill args
           , ecMaxPositionSize = argMaxPositionSize args
           , ecMinEdge = minEdge
+          , ecMinSignalToNoise = argMinSignalToNoise args
           , ecTrendLookback = argTrendLookback args
           , ecPeriodsPerYear = periodsPerYear args
           , ecVolTarget = argVolTarget args
@@ -7568,8 +7787,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsMinHoldBars = argMinHoldBars args
       , bsCooldownBars = argCooldownBars args
       , bsMaxHoldBars = argMaxHoldBars args
+      , bsStopLossVolMult = argStopLossVolMult args
+      , bsTakeProfitVolMult = argTakeProfitVolMult args
+      , bsTrailingStopVolMult = argTrailingStopVolMult args
       , bsMaxPositionSize = argMaxPositionSize args
       , bsMinEdge = minEdge
+      , bsMinSignalToNoise = argMinSignalToNoise args
       , bsCostAwareEdge = argCostAwareEdge args
       , bsEdgeBuffer = argEdgeBuffer args
       , bsTrendLookback = argTrendLookback args
@@ -7766,6 +7989,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                     if argCostAwareEdge args
                       then max minEdgeBase (breakEvenThresholdFromPerSideCost perSideCost + max 0 (argEdgeBuffer args))
                       else minEdgeBase
+                  minSignalToNoise = max 0 (argMinSignalToNoise args)
                   openThr = max (max 0 (argOpenThreshold args)) minEdge
                   closeThr = max 0 (argCloseThreshold args)
                   directionPrice thr pred =
@@ -7777,6 +8001,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
 
                   trendLookback = max 0 (argTrendLookback args)
                   maxPositionSize = max 0 (argMaxPositionSize args)
+                  ppy = max 1e-12 (periodsPerYear args)
                   volTarget =
                     case argVolTarget args of
                       Just v | v > 0 && not (isNaN v || isInfinite v) -> Just v
@@ -7826,12 +8051,12 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                             case volAlpha of
                               Just a ->
                                 let var = foldl' (\v r -> a * v + (1 - a) * (r * r)) 0 returnsFromPrices
-                                    vol = sqrt (max 0 var) * sqrt (periodsPerYear args)
+                                    vol = sqrt (max 0 var) * sqrt ppy
                                  in if bad vol then Nothing else Just vol
                               Nothing ->
                                 let lb = if volLookback <= 0 then total else min total volLookback
                                     window = drop (total - lb) returnsFromPrices
-                                    vol = stddevList window * sqrt (periodsPerYear args)
+                                    vol = stddevList window * sqrt ppy
                                  in if bad vol then Nothing else Just vol
 
                   volScale =
@@ -7850,6 +8075,13 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                     case (maxVolatility, volEstimate) of
                       (Just maxVol, Just vol) -> vol <= maxVol
                       _ -> True
+
+                  volPerBar =
+                    case volEstimate of
+                      Just vol ->
+                        let perBar = vol / sqrt ppy
+                         in if bad perBar || perBar <= 0 then Nothing else Just perBar
+                      _ -> Nothing
 
                   trendOk dir =
                     if trendLookback <= 1 || n < trendLookback
@@ -8025,6 +8257,31 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                     case (mKalNext, mLstmNext) of
                       (Just k, Just l) -> Just (blendWeight * k + (1 - blendWeight) * l)
                       _ -> Nothing
+                  edgeFromPred pred =
+                    if bad pred || bad currentPrice || currentPrice == 0
+                      then Nothing
+                      else
+                        let edge = abs (pred / currentPrice - 1)
+                         in if bad edge then Nothing else Just edge
+                  edgeKal = mKalNext >>= edgeFromPred
+                  edgeLstm = mLstmNext >>= edgeFromPred
+                  edgeBlend = blendNext >>= edgeFromPred
+                  edgeForMethod =
+                    case method of
+                      MethodBoth ->
+                        case (edgeKal, edgeLstm) of
+                          (Just a, Just b) -> Just (min a b)
+                          _ -> Nothing
+                      MethodKalmanOnly -> edgeKal
+                      MethodLstmOnly -> edgeLstm
+                      MethodBlend -> edgeBlend
+                  signalToNoiseOk =
+                    if minSignalToNoise <= 0
+                      then True
+                      else
+                        case (edgeForMethod, volPerBar) of
+                          (Just edge, Just vol) | vol > 0 -> edge / vol >= minSignalToNoise
+                          _ -> True
                   blendDir = blendNext >>= directionPrice openThr
                   kalCloseDirRaw = mKalNext >>= directionPrice closeThr
                   lstmCloseDir = mLstmNext >>= directionPrice closeThr
@@ -8057,6 +8314,8 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                           then (Nothing, Just "MAX_VOLATILITY")
                           else if not (trendOk dir)
                             then (Nothing, Just "TREND_FILTER")
+                            else if not signalToNoiseOk
+                              then (Nothing, Just "SIGNAL_TO_NOISE")
                             else (Just dir, Nothing)
 
                   chosenDir2 =
@@ -8153,6 +8412,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                     , lsKalmanReturn = mKalReturn
                     , lsKalmanStd = mKalStd
                     , lsKalmanZ = mKalZ
+                    , lsVolatility = volEstimate
                     , lsRegimes = mRegimes
                     , lsQuantiles = mQuantiles
                     , lsConformalInterval = mConformal

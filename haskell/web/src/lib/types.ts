@@ -6,7 +6,7 @@ export type IntrabarFill = "stop-first" | "take-profit-first";
 
 export type DirectionLabel = "UP" | "DOWN" | null;
 
-export type ApiError = { error: string };
+export type ApiError = { error: string; hint?: string | null };
 
 export type ApiParams = {
   data?: string;
@@ -52,6 +52,9 @@ export type ApiParams = {
   stopLoss?: number;
   takeProfit?: number;
   trailingStop?: number;
+  stopLossVolMult?: number;
+  takeProfitVolMult?: number;
+  trailingStopVolMult?: number;
   minHoldBars?: number;
   maxHoldBars?: number;
   cooldownBars?: number;
@@ -59,6 +62,7 @@ export type ApiParams = {
   maxDailyLoss?: number;
   maxOrderErrors?: number;
   minEdge?: number;
+  minSignalToNoise?: number;
   costAwareEdge?: boolean;
   edgeBuffer?: number;
   trendLookback?: number;
@@ -111,6 +115,7 @@ export type LatestSignal = {
   kalmanReturn?: number | null;
   kalmanStd?: number | null;
   kalmanZ?: number | null;
+  volatility?: number | null;
   regimes?: { trend: number; mr: number; highVol: number } | null;
   quantiles?: { q10: number; q50: number; q90: number; width: number } | null;
   conformalInterval?: { lo: number; hi: number; width: number } | null;
@@ -222,9 +227,13 @@ export type BacktestResponse = {
   closeThreshold?: number;
   minHoldBars?: number;
   maxHoldBars?: number | null;
+  stopLossVolMult?: number;
+  takeProfitVolMult?: number;
+  trailingStopVolMult?: number;
   cooldownBars?: number;
   maxPositionSize?: number;
   minEdge?: number;
+  minSignalToNoise?: number;
   costAwareEdge?: boolean;
   edgeBuffer?: number;
   trendLookback?: number;

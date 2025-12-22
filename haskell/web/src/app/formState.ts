@@ -20,6 +20,9 @@ export type FormState = {
   stopLoss: number;
   takeProfit: number;
   trailingStop: number;
+  stopLossVolMult: number;
+  takeProfitVolMult: number;
+  trailingStopVolMult: number;
   minHoldBars: number;
   maxHoldBars: number;
   cooldownBars: number;
@@ -27,6 +30,7 @@ export type FormState = {
   maxDailyLoss: number;
   maxOrderErrors: number;
   minEdge: number;
+  minSignalToNoise: number;
   costAwareEdge: boolean;
   edgeBuffer: number;
   trendLookback: number;
@@ -104,6 +108,9 @@ export const defaultForm: FormState = {
   stopLoss: 0,
   takeProfit: 0,
   trailingStop: 0,
+  stopLossVolMult: 0,
+  takeProfitVolMult: 0,
+  trailingStopVolMult: 0,
   minHoldBars: 0,
   maxHoldBars: 0,
   cooldownBars: 0,
@@ -111,6 +118,7 @@ export const defaultForm: FormState = {
   maxDailyLoss: 0,
   maxOrderErrors: 0,
   minEdge: 0,
+  minSignalToNoise: 0,
   costAwareEdge: false,
   edgeBuffer: 0,
   trendLookback: 0,
@@ -302,6 +310,24 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     slippage: normalizeFiniteNumber(rawRec.slippage ?? merged.slippage, defaultForm.slippage, 0, 0.999999),
     spread: normalizeFiniteNumber(rawRec.spread ?? merged.spread, defaultForm.spread, 0, 0.999999),
     intrabarFill: normalizeIntrabarFill(rawRec.intrabarFill ?? merged.intrabarFill, defaultForm.intrabarFill),
+    stopLossVolMult: normalizeFiniteNumber(
+      rawRec.stopLossVolMult ?? merged.stopLossVolMult,
+      defaultForm.stopLossVolMult,
+      0,
+      1e9,
+    ),
+    takeProfitVolMult: normalizeFiniteNumber(
+      rawRec.takeProfitVolMult ?? merged.takeProfitVolMult,
+      defaultForm.takeProfitVolMult,
+      0,
+      1e9,
+    ),
+    trailingStopVolMult: normalizeFiniteNumber(
+      rawRec.trailingStopVolMult ?? merged.trailingStopVolMult,
+      defaultForm.trailingStopVolMult,
+      0,
+      1e9,
+    ),
     minHoldBars: normalizeFiniteNumber(rawRec.minHoldBars ?? merged.minHoldBars, defaultForm.minHoldBars, 0, 1e9),
     maxHoldBars: normalizeFiniteNumber(rawRec.maxHoldBars ?? merged.maxHoldBars, defaultForm.maxHoldBars, 0, 1e9),
     cooldownBars: normalizeFiniteNumber(rawRec.cooldownBars ?? merged.cooldownBars, defaultForm.cooldownBars, 0, 1e9),
@@ -317,6 +343,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     kalmanZMin,
     kalmanZMax,
     minEdge: normalizeFiniteNumber(rawRec.minEdge ?? merged.minEdge, defaultForm.minEdge, 0, 1e9),
+    minSignalToNoise: normalizeFiniteNumber(
+      rawRec.minSignalToNoise ?? merged.minSignalToNoise,
+      defaultForm.minSignalToNoise,
+      0,
+      1e9,
+    ),
     costAwareEdge: normalizeBool(rawRec.costAwareEdge ?? merged.costAwareEdge, defaultForm.costAwareEdge),
     edgeBuffer: normalizeFiniteNumber(rawRec.edgeBuffer ?? merged.edgeBuffer, defaultForm.edgeBuffer, 0, 1e9),
     trendLookback: normalizeFiniteNumber(rawRec.trendLookback ?? merged.trendLookback, defaultForm.trendLookback, 0, 1e9),

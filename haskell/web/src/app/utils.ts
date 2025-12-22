@@ -62,8 +62,23 @@ export function clamp(n: number, lo: number, hi: number): number {
 }
 
 export function numFromInput(raw: string, fallback: number): number {
-  if (raw.trim() === "") return fallback;
-  const n = Number(raw);
+  const trimmed = raw.trim();
+  if (trimmed === "") return fallback;
+  const normalized = (() => {
+    if (!trimmed.includes(",")) return trimmed;
+    if (trimmed.includes(".")) return trimmed.replace(/,/g, "");
+    const parts = trimmed.split(",");
+    if (parts.length === 2) {
+      const [left, right] = parts;
+      const leftDigits = left.replace(/\D/g, "");
+      const rightDigits = right.replace(/\D/g, "");
+      if (leftDigits === "0") return `${left}.${right}`;
+      if (rightDigits.length === 3) return `${left}${right}`;
+      return `${left}.${right}`;
+    }
+    return trimmed.replace(/,/g, "");
+  })();
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : fallback;
 }
 
