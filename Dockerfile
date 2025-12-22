@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.5
 FROM haskell:8.10.4 AS build
 
 WORKDIR /opt/trader
@@ -15,7 +14,9 @@ RUN --mount=type=cache,target=/root/.cabal \
 RUN --mount=type=cache,target=/root/.cabal \
   --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
   cabal build exe:trader-hs
-RUN cp "$(cabal list-bin trader-hs)" /opt/trader/trader-hs
+RUN --mount=type=cache,target=/root/.cabal \
+  --mount=type=cache,target=/opt/trader/haskell/dist-newstyle \
+  cp "$(cabal list-bin trader-hs)" /opt/trader/trader-hs
 
 FROM debian:bookworm-slim
 
