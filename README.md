@@ -384,7 +384,7 @@ Hover optimizer combos to inspect the operations captured for each top performer
 The configuration panel includes quick-jump buttons for major sections (market, thresholds, risk, optimization, live bot, trade).
 The configuration panel keeps a sticky action bar with readiness status and run buttons while you scroll.
 When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` (the quick AWS deploy script does this automatically when a distribution ID is provided) to avoid CORS issues.
-The UI exposes an Auto-apply toggle for top combos and shows when a combo auto-applied; manual override locks include an unlock button to let combos update those fields again.
+The UI auto-applies top combos when available and shows when a combo auto-applied; manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
 The Data Log panel supports auto-scroll to keep the newest responses in view.

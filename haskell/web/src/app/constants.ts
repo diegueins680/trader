@@ -3,7 +3,6 @@ import { TRADER_UI_CONFIG } from "../lib/deployConfig";
 export const STORAGE_KEY = "trader.ui.form.v1";
 export const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
 export const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
-export const STORAGE_AUTO_APPLY_TOP_COMBO_KEY = "trader.ui.autoApplyTopCombo.v1";
 export const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
 export const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
 export const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";

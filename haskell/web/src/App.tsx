@@ -53,7 +53,6 @@ import {
   SESSION_BINANCE_KEY_KEY,
   SESSION_BINANCE_SECRET_KEY,
   SIGNAL_TIMEOUT_MS,
-  STORAGE_AUTO_APPLY_TOP_COMBO_KEY,
   STORAGE_KEY,
   STORAGE_ORDER_LOG_PREFS_KEY,
   STORAGE_PERSIST_SECRETS_KEY,
@@ -725,7 +724,6 @@ export function App() {
     payloadSources: null,
     fallbackReason: null,
   });
-  const [autoApplyTopCombo, setAutoApplyTopCombo] = useState<boolean>(() => readJson<boolean>(STORAGE_AUTO_APPLY_TOP_COMBO_KEY) ?? true);
   const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
@@ -810,10 +808,6 @@ export function App() {
   useEffect(() => {
     writeJson(STORAGE_PERSIST_SECRETS_KEY, persistSecrets);
   }, [persistSecrets]);
-
-  useEffect(() => {
-    writeJson(STORAGE_AUTO_APPLY_TOP_COMBO_KEY, autoApplyTopCombo);
-  }, [autoApplyTopCombo]);
 
   const toastTimerRef = useRef<number | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -2657,18 +2651,18 @@ export function App() {
         setTopCombosMeta({ source, generatedAtMs, payloadSource: payloadSourceRaw, payloadSources: payloadSourcesFinal, fallbackReason });
         setTopCombosError(null);
         const topCombo = limited[0];
-        if (topCombo && autoApplyTopCombo) {
+        if (topCombo) {
           const currentForm = formRef.current;
           const topSig = comboApplySignature(
             topCombo,
             apiComputeLimitsRef.current,
             currentForm,
             manualOverridesRef.current,
-            false,
+            true,
           );
           const formSig = formApplySignature(currentForm);
           if (topSig !== formSig) {
-            applyCombo(topCombo, { silent: true, respectManual: true, allowPositioning: false });
+            applyCombo(topCombo, { silent: true, respectManual: true, allowPositioning: true });
             const now = Date.now();
             setAutoAppliedCombo({ id: topCombo.id, atMs: now });
             const prev = autoAppliedComboRef.current;
@@ -2704,7 +2698,7 @@ export function App() {
         topCombosSyncRef.current = null;
       }
     };
-  }, [apiBase, apiOk, authHeaders, applyCombo, autoApplyTopCombo, showToast]);
+  }, [apiBase, apiOk, authHeaders, applyCombo, showToast]);
 
   const statusDotClass =
     apiOk === "ok" ? "dot dotOk" : apiOk === "down" ? "dot dotBad" : "dot dotWarn";
@@ -3386,10 +3380,6 @@ export function App() {
                 );
               })()}
               <div className="pillRow" style={{ marginBottom: 8 }}>
-                <label className="pill">
-                  <input type="checkbox" checked={autoApplyTopCombo} onChange={(e) => setAutoApplyTopCombo(e.target.checked)} />
-                  Auto-apply top combo
-                </label>
                 {autoAppliedCombo ? (
                   <span className="pill">
                     Auto-applied #{autoAppliedCombo.id}
@@ -3436,7 +3426,7 @@ export function App() {
               <div className="hint">
                 Select a combo to preview. Click Apply to load params into the form (and the symbol, when provided). bars=0 uses all CSV data or Binance's default (500).
               </div>
-              <div className="hint">Auto-apply respects manual overrides. Unlock to let combos update those fields.</div>
+              <div className="hint">Top combos auto-apply when available (manual overrides respected). Unlock to let combos update those fields.</div>
             </div>
           </div>
 
