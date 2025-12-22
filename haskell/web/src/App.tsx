@@ -1574,8 +1574,8 @@ export function App() {
     const ref = kind === "signal" ? signalRef : kind === "backtest" ? backtestRef : tradeRef;
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
-  const scrollToSection = useCallback((id: string) => {
-    if (typeof document === "undefined") return;
+  const scrollToSection = useCallback((id?: string) => {
+    if (!id || typeof document === "undefined") return;
     const el = document.getElementById(id);
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "start" });
