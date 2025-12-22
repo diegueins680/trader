@@ -5,12 +5,14 @@ All notable changes to this project will be documented in this file.
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
 - Web UI: top combos now auto-apply when available to keep the form aligned with the top performer.
 - Web UI: idle live bot auto-starts after the top combo is applied.
+- API: futures MIN_NOTIONAL parsing now honors the `notional` field to skip trade tests below minNotional.
 - Web UI: API panel adds base URL copy + /health open shortcuts; loading a profile clears manual override locks.
 - Web UI: add quick-jump buttons in the config panel to navigate major sections.
 - Web UI: Data Log adds an auto-scroll toggle to keep the latest entries visible.
 - Web UI: Data Log adds label filtering with copy-shown support plus clear-filter/jump-to-latest actions.
 - Web UI: numeric inputs accept comma decimals and strip thousands separators; auto-refresh interval input disables when off.
 - Web UI: add a sticky run bar in the configuration panel showing readiness issues and keeping run actions visible.
+- Web UI: add section headings plus issue shortcuts that jump and highlight the relevant inputs.
 - Web UI: when trading is armed, automatically switches Market to Futures when Positioning is set to Long/Short.
 - Web UI: falls back to `GET` for async polling when `POST` hits proxy errors (e.g. 502/503).
 - Web UI: avoid optimizer combo apply crashes when compute limits are unavailable.

@@ -254,7 +254,7 @@ Endpoints:
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
 - `POST /optimizer/run` → runs the optimizer script and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
-- `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing)
+- `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or minNotional)
 - `POST /binance/listenKey` → creates a Binance user-data listenKey (returns WebSocket URL)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
 - `POST /binance/listenKey/close` → closes a listenKey
@@ -381,8 +381,8 @@ Manual edits to Method/open/close thresholds are preserved when optimizer combos
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
-The configuration panel includes quick-jump buttons for major sections (market, thresholds, risk, optimization, live bot, trade).
-The configuration panel keeps a sticky action bar with readiness status and run buttons while you scroll.
+The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
+The configuration panel keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
 When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` (the quick AWS deploy script does this automatically when a distribution ID is provided) to avoid CORS issues.
 The UI auto-applies top combos when available and shows when a combo auto-applied; if the live bot is idle it auto-starts after the top combo applies, and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.

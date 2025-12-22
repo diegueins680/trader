@@ -254,7 +254,7 @@ parseSymbolFilters objs =
                 }
             "MIN_NOTIONAL" ->
               acc
-                { sfMinNotional = parseDField o "minNotional" <|> sfMinNotional acc
+                { sfMinNotional = parseDField o "minNotional" <|> parseDField o "notional" <|> sfMinNotional acc
                 }
             "PRICE_FILTER" ->
               acc
