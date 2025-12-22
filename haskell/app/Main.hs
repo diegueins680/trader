@@ -1500,6 +1500,92 @@ botStoppedJson =
     [ "running" .= False
     ]
 
+data BotStatusSnapshot = BotStatusSnapshot
+  { bssSavedAtMs :: !Int64
+  , bssStatus :: !Aeson.Value
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON BotStatusSnapshot where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+instance FromJSON BotStatusSnapshot where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 3)
+
+botStoppedSnapshotJson :: BotStatusSnapshot -> Aeson.Value
+botStoppedSnapshotJson snap =
+  object
+    [ "running" .= False
+    , "snapshotAtMs" .= bssSavedAtMs snap
+    , "snapshot" .= bssStatus snap
+    ]
+
+botStateFileName :: FilePath
+botStateFileName = "bot-state.json"
+
+defaultBotStateDir :: FilePath
+defaultBotStateDir = ".tmp/bot"
+
+resolveBotStatePath :: IO (Maybe FilePath)
+resolveBotStatePath = do
+  mDir <- lookupEnv "TRADER_BOT_STATE_DIR"
+  case trim <$> mDir of
+    Nothing -> pure (Just (defaultBotStateDir </> botStateFileName))
+    Just dir | null dir -> pure Nothing
+    Just dir -> pure (Just (dir </> botStateFileName))
+
+writeBotStatusSnapshot :: FilePath -> BotStatusSnapshot -> IO ()
+writeBotStatusSnapshot path snap = do
+  createDirectoryIfMissing True (takeDirectory path)
+  randId <- randomIO :: IO Word64
+  let tmpPath = path ++ ".tmp-" ++ show randId
+  BL.writeFile tmpPath (encode snap)
+  -- Atomic on POSIX when within the same filesystem; on Windows, fall back to replace.
+  r1 <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+  case r1 of
+    Right _ -> pure ()
+    Left _ -> do
+      _ <- try (removeFile path) :: IO (Either SomeException ())
+      _ <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+      pure ()
+
+writeBotStatusSnapshotMaybe :: Maybe FilePath -> BotStatusSnapshot -> IO ()
+writeBotStatusSnapshotMaybe mPath snap =
+  case mPath of
+    Nothing -> pure ()
+    Just path -> do
+      _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
+      pure ()
+
+persistBotStatusMaybe :: Maybe FilePath -> BotState -> IO ()
+persistBotStatusMaybe mPath st =
+  case mPath of
+    Nothing -> pure ()
+    Just _ -> do
+      now <- getTimestampMs
+      let snap =
+            BotStatusSnapshot
+              { bssSavedAtMs = now
+              , bssStatus = botStatusJson st
+              }
+      writeBotStatusSnapshotMaybe mPath snap
+
+readBotStatusSnapshotMaybe :: Maybe FilePath -> IO (Maybe BotStatusSnapshot)
+readBotStatusSnapshotMaybe mPath =
+  case mPath of
+    Nothing -> pure Nothing
+    Just path -> do
+      exists <- doesFileExist path
+      if not exists
+        then pure Nothing
+        else do
+          contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+          case contentsOrErr of
+            Left _ -> pure Nothing
+            Right contents ->
+              case Aeson.eitherDecode' contents of
+                Left _ -> pure Nothing
+                Right snap -> pure (Just snap)
+
 data BotOp = BotOp
   { boIndex :: !Int
   , boSide :: !String
@@ -1592,8 +1678,8 @@ preflightBotStart args settings sym =
         Left ex -> pure (Left (snd (exceptionToHttp ex)))
         Right out -> pure out
 
-botStart :: Maybe OpsStore -> Metrics -> Maybe Journal -> BotController -> Args -> ApiParams -> IO (Either String BotStartRuntime)
-botStart mOps metrics mJournal ctrl args p =
+botStart :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> Args -> ApiParams -> IO (Either String BotStartRuntime)
+botStart mOps metrics mJournal mBotStatePath ctrl args p =
   case argData args of
     Just _ -> pure (Left "bot/start supports binanceSymbol only (no CSV data source)")
     Nothing ->
@@ -1614,7 +1700,7 @@ botStart mOps metrics mJournal ctrl args p =
                       Left e -> pure (Nothing, Left e)
                       Right () -> do
                         stopSig <- newEmptyMVar
-                        tid <- forkIO (botStartWorker mOps metrics mJournal ctrl args settings sym stopSig)
+                        tid <- forkIO (botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSig)
                         let rt =
                               BotStartRuntime
                                 { bsrThreadId = tid
@@ -1626,8 +1712,8 @@ botStart mOps metrics mJournal ctrl args p =
                                 }
                         pure (Just (BotStarting rt), Right rt)
 
-botStartWorker :: Maybe OpsStore -> Metrics -> Maybe Journal -> BotController -> Args -> BotSettings -> String -> MVar () -> IO ()
-botStartWorker mOps metrics mJournal ctrl args settings sym stopSig = do
+botStartWorker :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> Args -> BotSettings -> String -> MVar () -> IO ()
+botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSig = do
   tid <- myThreadId
   r <- try (initBotState args settings sym) :: IO (Either SomeException BotState)
   case r of
@@ -1652,6 +1738,7 @@ botStartWorker mOps metrics mJournal ctrl args settings sym stopSig = do
         (Just (object ["symbol" .= botSymbol st0, "market" .= marketCode (argBinanceMarket (botArgs st0)), "interval" .= argInterval (botArgs st0)]))
         (Just eq0)
       stVar <- newMVar st0
+      persistBotStatusMaybe mBotStatePath st0
       optimizerStopSig <- newEmptyMVar
       optimizerPending <- newMVar Nothing
       optimizerTid <- forkIO (botOptimizerLoop mOps metrics mJournal stVar optimizerStopSig optimizerPending)
@@ -1668,7 +1755,7 @@ botStartWorker mOps metrics mJournal ctrl args settings sym stopSig = do
               pure (Just (BotRunning (BotRuntime tid stVar stopSig (Just optimizerRt))), True)
             _ -> pure (mrt, False)
       if startOk
-        then botLoop mOps metrics mJournal ctrl stVar stopSig (Just optimizerPending)
+        then botLoop mOps metrics mJournal mBotStatePath ctrl stVar stopSig (Just optimizerPending)
         else do
           _ <- tryPutMVar optimizerStopSig ()
           killThread optimizerTid
@@ -2935,8 +3022,8 @@ makeBinanceEnv args = do
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
   newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
 
-botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> BotController -> MVar BotState -> MVar () -> Maybe (MVar (Maybe BotOptimizerUpdate)) -> IO ()
-botLoop mOps metrics mJournal ctrl stVar stopSig mOptimizerPending = do
+botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> MVar BotState -> MVar () -> Maybe (MVar (Maybe BotOptimizerUpdate)) -> IO ()
+botLoop mOps metrics mJournal mBotStatePath ctrl stVar stopSig mOptimizerPending = do
   tid <- myThreadId
   let sleepSec s = threadDelay (max 1 s * 1000000)
 
@@ -2955,6 +3042,7 @@ botLoop mOps metrics mJournal ctrl stVar stopSig mOptimizerPending = do
                     st0 <- readMVar stVar
                     st1 <- botApplyOptimizerUpdate st0 upd
                     _ <- swapMVar stVar st1
+                    persistBotStatusMaybe mBotStatePath st1
                     pure ()
             st <- readMVar stVar
             let env = botEnv st
@@ -2974,6 +3062,7 @@ botLoop mOps metrics mJournal ctrl stVar stopSig mOptimizerPending = do
                         , botPollLatencyMs = latMs
                         }
                 _ <- swapMVar stVar st'
+                persistBotStatusMaybe mBotStatePath st'
                 sleepSec pollSec
                 loop
               Right ks -> do
@@ -2994,6 +3083,7 @@ botLoop mOps metrics mJournal ctrl stVar stopSig mOptimizerPending = do
                 if null newKs
                   then do
                     _ <- swapMVar stVar stPolled
+                    persistBotStatusMaybe mBotStatePath stPolled
                     sleepSec pollSec
                     loop
                   else do
@@ -3009,6 +3099,7 @@ botLoop mOps metrics mJournal ctrl stVar stopSig mOptimizerPending = do
                             , botLastBatchMs = batchMs
                             }
                     _ <- swapMVar stVar st1'
+                    persistBotStatusMaybe mBotStatePath st1'
                     loop
 
       cleanup = do
@@ -3639,6 +3730,7 @@ runRestApi baseArgs = do
   metrics <- newMetrics
   mJournal <- newJournalFromEnv
   mOps <- newOpsStoreFromEnv
+  mBotStatePath <- resolveBotStatePath
   let defaultAsyncDir = tmpRoot </> "async"
   asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
   let asyncDirTrimmed = trim <$> asyncDirEnv
@@ -3668,7 +3760,7 @@ runRestApi baseArgs = do
   hFlush stdout
   res <-
     ( try
-        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps mBotStatePath limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
         IO (Either IOException ())
     )
   case res of
@@ -4397,13 +4489,14 @@ apiApp ::
   Metrics ->
   Maybe Journal ->
   Maybe OpsStore ->
+  Maybe FilePath ->
   ApiComputeLimits ->
   ApiCache ->
   AsyncStores ->
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStatePath limits apiCache asyncStores projectRoot optimizerTmp req respond = do
   let rawPath = Wai.pathInfo req
       path =
         case rawPath of
@@ -4600,15 +4693,15 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps limits apiCache
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStart mOps limits metrics mJournal baseArgs botCtrl req respondCors
+                "POST" -> handleBotStart mOps limits metrics mJournal mBotStatePath baseArgs botCtrl req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "stop"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStop mOps mJournal botCtrl respondCors
+                "POST" -> handleBotStop mOps mJournal mBotStatePath botCtrl respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "status"] ->
               case Wai.requestMethod req of
-                "GET" -> handleBotStatus botCtrl req respondCors
+                "GET" -> handleBotStatus botCtrl mBotStatePath req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["optimizer", "run"] ->
               case Wai.requestMethod req of
@@ -5784,8 +5877,8 @@ handleBinanceListenKeyClose baseArgs req respond = do
                   now <- getTimestampMs
                   respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
-handleBotStart :: Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStart mOps limits metrics mJournal baseArgs botCtrl req respond = do
+handleBotStart :: Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStart mOps limits metrics mJournal mBotStatePath baseArgs botCtrl req respond = do
   body <- Wai.strictRequestBody req
   case eitherDecode body of
     Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
@@ -5803,7 +5896,7 @@ handleBotStart mOps limits metrics mJournal baseArgs botCtrl req respond = do
               case validateApiComputeLimits limits args of
                 Left e -> respond (jsonError status400 e)
                 Right argsOk -> do
-                  r <- botStart mOps metrics mJournal botCtrl argsOk params
+                  r <- botStart mOps metrics mJournal mBotStatePath botCtrl argsOk params
                   case r of
                     Left e -> respond (jsonError status400 e)
                     Right rt -> do
@@ -5842,23 +5935,37 @@ handleBotStart mOps limits metrics mJournal baseArgs botCtrl req respond = do
                         Nothing
                       respond (jsonValue status202 (botStartingJson rt))
 
-handleBotStop :: Maybe OpsStore -> Maybe Journal -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStop mOps mJournal botCtrl respond = do
+handleBotStop :: Maybe OpsStore -> Maybe Journal -> Maybe FilePath -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStop mOps mJournal mBotStatePath botCtrl respond = do
+  mSt <- botGetState botCtrl
   _ <- botStop botCtrl
   now <- getTimestampMs
   journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now])
   opsAppendMaybe mOps "bot.stop" Nothing Nothing Nothing Nothing
-  respond (jsonValue status200 botStoppedJson)
+  case mSt of
+    Nothing -> respond (jsonValue status200 botStoppedJson)
+    Just st -> do
+      let snap =
+            BotStatusSnapshot
+              { bssSavedAtMs = now
+              , bssStatus = botStatusJson st
+              }
+      writeBotStatusSnapshotMaybe mBotStatePath snap
+      respond (jsonValue status200 (botStoppedSnapshotJson snap))
 
-handleBotStatus :: BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStatus botCtrl req respond = do
+handleBotStatus :: BotController -> Maybe FilePath -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStatus botCtrl mBotStatePath req respond = do
   let tailN =
         case lookup (BS.pack "tail") (Wai.queryString req) of
           Just (Just raw) -> readMaybe (BS.unpack raw) >>= \n -> if n > 0 then Just n else Nothing
           _ -> Nothing
   mrt <- readMVar (bcRuntime botCtrl)
   case mrt of
-    Nothing -> respond (jsonValue status200 botStoppedJson)
+    Nothing -> do
+      mSnap <- readBotStatusSnapshotMaybe mBotStatePath
+      case mSnap of
+        Nothing -> respond (jsonValue status200 botStoppedJson)
+        Just snap -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
     Just (BotStarting rt) -> respond (jsonValue status200 (botStartingJson rt))
     Just (BotRunning rt) -> do
       st <- readMVar (brStateVar rt)

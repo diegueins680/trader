@@ -713,6 +713,7 @@ export function App() {
   const [dataLog, setDataLog] = useState<Array<{ timestamp: number; label: string; data: unknown }>>([]);
   const [dataLogExpanded, setDataLogExpanded] = useState(false);
   const [dataLogIndexArrays, setDataLogIndexArrays] = useState(true);
+  const [dataLogFilterText, setDataLogFilterText] = useState("");
   const [dataLogAutoScroll, setDataLogAutoScroll] = useState(true);
   const [topCombos, setTopCombos] = useState<OptimizationCombo[]>([]);
   const [topCombosLoading, setTopCombosLoading] = useState(true);
@@ -1385,10 +1386,14 @@ export function App() {
   ]);
 
   const orderRowKey = useCallback((e: BotOrderEvent) => `${e.atMs}-${e.index}-${e.opSide}`, []);
+  const botSnapshot = useMemo(() => (bot.status.running ? null : bot.status.snapshot ?? null), [bot.status]);
+  const botDisplay = bot.status.running ? bot.status : botSnapshot;
+  const botSnapshotAtMs = bot.status.running ? null : bot.status.snapshotAtMs ?? null;
+  const botHasSnapshot = botSnapshot !== null;
 
   const botOrdersView = useMemo(() => {
-    const st = bot.status;
-    if (!st.running) return { total: 0, shown: [] as BotOrderEvent[], startIndex: 0 };
+    const st = botDisplay;
+    if (!st) return { total: 0, shown: [] as BotOrderEvent[], startIndex: 0 };
 
     const total = st.orders.length;
     let shown = st.orders;
@@ -1420,11 +1425,11 @@ export function App() {
     }
 
     return { total, shown, startIndex: st.startIndex };
-  }, [bot.status, orderErrorsOnly, orderFilterText, orderLimit, orderSentOnly, orderSideFilter]);
+  }, [botDisplay, orderErrorsOnly, orderFilterText, orderLimit, orderSentOnly, orderSideFilter]);
 
   const selectedOrderDetails = useMemo(() => {
-    const st = bot.status;
-    if (!st.running || !selectedOrderKey) return null;
+    const st = botDisplay;
+    if (!st || !selectedOrderKey) return null;
     const event = st.orders.find((e) => orderRowKey(e) === selectedOrderKey);
     if (!event) return null;
     const idx = event.index;
@@ -1439,7 +1444,7 @@ export function App() {
     const kalRet = typeof kal === "number" && Number.isFinite(kal) && closeForRet ? (kal - closeForRet) / closeForRet : null;
     const lstmRet = typeof lstm === "number" && Number.isFinite(lstm) && closeForRet ? (lstm - closeForRet) / closeForRet : null;
     return { event, result: event.order, idx, bar, open, close, eq, pos, kal, lstm, kalRet, lstmRet };
-  }, [bot.status, orderRowKey, selectedOrderKey]);
+  }, [botDisplay, orderRowKey, selectedOrderKey]);
 
   const selectedOrderJson = useMemo(() => {
     if (!selectedOrderDetails) return "";
@@ -1463,8 +1468,8 @@ export function App() {
   }, [selectedOrderDetails]);
 
   const botOrderCopyText = useMemo(() => {
-    const st = bot.status;
-    if (!st.running) return "";
+    const st = botDisplay;
+    if (!st) return "";
     const rows = botOrdersView.shown.map((e) => {
       const bar = st.startIndex + e.index;
       const sent = e.order.sent ? "SENT" : "NO";
@@ -1472,7 +1477,7 @@ export function App() {
       return `${fmtTimeMs(e.atMs)} | bar ${bar} | ${e.opSide} @ ${fmtMoney(e.price, 4)} | ${sent} ${mode} | ${e.order.message}`;
     });
     return rows.length ? rows.join("\n") : "No live operations yet.";
-  }, [bot.status, botOrdersView.shown]);
+  }, [botDisplay, botOrdersView.shown]);
 
   const botRtFeedText = useMemo(() => {
     if (botRt.feed.length === 0) return "No realtime events yet.";
@@ -1480,19 +1485,19 @@ export function App() {
   }, [botRt.feed]);
 
   const botRisk = useMemo(() => {
-    const st = bot.status;
-    if (!st.running) return null;
+    const st = botDisplay;
+    if (!st) return null;
     const lastEq = st.equityCurve[st.equityCurve.length - 1] ?? 1;
     const peak = st.peakEquity || 1;
     const dayStart = st.dayStartEquity || 1;
     const dd = peak > 0 ? Math.max(0, 1 - lastEq / peak) : 0;
     const dl = dayStart > 0 ? Math.max(0, 1 - lastEq / dayStart) : 0;
     return { lastEq, dd, dl };
-  }, [bot.status]);
+  }, [botDisplay]);
 
   const botRealtime = useMemo(() => {
-    const st = bot.status;
-    if (!st.running) return null;
+    const st = botDisplay;
+    if (!st) return null;
     const now = Date.now();
     const processedOpenTime = st.openTimes[st.openTimes.length - 1] ?? null;
     const fetchedLast = st.fetchedLastKline ?? null;
@@ -1560,7 +1565,7 @@ export function App() {
       behindCandles,
       fetchedLast,
     };
-  }, [bot.status]);
+  }, [botDisplay]);
 
   const scrollToResult = useCallback((kind: RequestKind) => {
     const ref = kind === "signal" ? signalRef : kind === "backtest" ? backtestRef : tradeRef;
@@ -2769,6 +2774,11 @@ export function App() {
 
     return { bars, intervalSec, windowBars, overrideOn, effectiveBars, minBarsRequired, error, summary };
   }, [form.bars, form.interval, form.lookbackBars, form.lookbackWindow]);
+  const dataLogFiltered = useMemo(() => {
+    const term = dataLogFilterText.trim().toLowerCase();
+    if (!term) return dataLog;
+    return dataLog.filter((entry) => entry.label.toLowerCase().includes(term));
+  }, [dataLog, dataLogFilterText]);
   const showLocalStartHelp = useMemo(() => {
     if (typeof window === "undefined") return true;
     return isLocalHostname(window.location.hostname);
@@ -5099,29 +5109,35 @@ export function App() {
               <p className="cardSubtitle">Non-stop loop (server-side): fetches new bars, updates the model each bar, and records each buy/sell operation.</p>
             </div>
             <div className="cardBody">
-              {bot.status.running ? (
+              {botDisplay ? (
                 <>
 	                  <div className="pillRow" style={{ marginBottom: 10 }}>
-	                    <span className="badge">{bot.status.symbol}</span>
-	                    <span className="badge">{bot.status.interval}</span>
-	                    <span className="badge">{marketLabel(bot.status.market)}</span>
-	                    <span className="badge">{methodLabel(bot.status.method)}</span>
-	                    <span className="badge">open {fmtPct(bot.status.openThreshold ?? bot.status.threshold, 3)}</span>
+	                    <span className="badge">{botDisplay.symbol}</span>
+	                    <span className="badge">{botDisplay.interval}</span>
+	                    <span className="badge">{marketLabel(botDisplay.market)}</span>
+	                    <span className="badge">{methodLabel(botDisplay.method)}</span>
+	                    <span className="badge">open {fmtPct(botDisplay.openThreshold ?? botDisplay.threshold, 3)}</span>
 	                    <span className="badge">
-	                      close {fmtPct(bot.status.closeThreshold ?? bot.status.openThreshold ?? bot.status.threshold, 3)}
+	                      close {fmtPct(botDisplay.closeThreshold ?? botDisplay.openThreshold ?? botDisplay.threshold, 3)}
 	                    </span>
-	                    <span className="badge">{bot.status.halted ? "HALTED" : "ACTIVE"}</span>
-	                    <span className="badge">{bot.status.error ? "Error" : "OK"}</span>
+	                    <span className="badge">{botDisplay.halted ? "HALTED" : "ACTIVE"}</span>
+	                    <span className="badge">{botDisplay.error ? "Error" : "OK"}</span>
+                      {botHasSnapshot ? <span className="badge">SNAPSHOT</span> : null}
 	                  </div>
+                    {botHasSnapshot ? (
+                      <div className="hint" style={{ marginBottom: 10 }}>
+                        Snapshot {botSnapshotAtMs ? `from ${fmtTimeMs(botSnapshotAtMs)}` : "loaded"} (bot not running).
+                      </div>
+                    ) : null}
 
 	                  <BacktestChart
-	                    prices={bot.status.prices}
-	                    equityCurve={bot.status.equityCurve}
-	                    kalmanPredNext={bot.status.kalmanPredNext}
-	                    positions={bot.status.positions}
-	                    trades={bot.status.trades}
-	                    operations={bot.status.operations}
-	                    backtestStartIndex={bot.status.startIndex}
+	                    prices={botDisplay.prices}
+	                    equityCurve={botDisplay.equityCurve}
+	                    kalmanPredNext={botDisplay.kalmanPredNext}
+	                    positions={botDisplay.positions}
+	                    trades={botDisplay.trades}
+	                    operations={botDisplay.operations}
+	                    backtestStartIndex={botDisplay.startIndex}
 	                    height={360}
 	                  />
 
@@ -5130,13 +5146,13 @@ export function App() {
 		                      Prediction values vs thresholds (hover for details)
 		                    </div>
 		                    <PredictionDiffChart
-		                      prices={bot.status.prices}
-		                      kalmanPredNext={bot.status.kalmanPredNext}
-		                      lstmPredNext={bot.status.lstmPredNext}
-		                      startIndex={bot.status.startIndex}
+		                      prices={botDisplay.prices}
+		                      kalmanPredNext={botDisplay.kalmanPredNext}
+		                      lstmPredNext={botDisplay.lstmPredNext}
+		                      startIndex={botDisplay.startIndex}
 		                      height={140}
-		                      openThreshold={bot.status.openThreshold ?? bot.status.threshold}
-		                      closeThreshold={bot.status.closeThreshold ?? bot.status.openThreshold ?? bot.status.threshold}
+		                      openThreshold={botDisplay.openThreshold ?? botDisplay.threshold}
+		                      closeThreshold={botDisplay.closeThreshold ?? botDisplay.openThreshold ?? botDisplay.threshold}
 		                    />
 		                  </div>
 
@@ -5206,11 +5222,11 @@ export function App() {
 		                  <div className="kv">
 		                    <div className="k">Settings</div>
 		                    <div className="v">
-		                      {bot.status.settings ? (
+		                      {botDisplay.settings ? (
 		                        <>
-		                          poll {bot.status.settings.pollSeconds}s • online epochs {bot.status.settings.onlineEpochs} • train bars{" "}
-		                          {bot.status.settings.trainBars} • max points {bot.status.settings.maxPoints} • trade{" "}
-		                          {bot.status.settings.tradeEnabled ? "ON" : "OFF"}
+		                          poll {botDisplay.settings.pollSeconds}s • online epochs {botDisplay.settings.onlineEpochs} • train bars{" "}
+		                          {botDisplay.settings.trainBars} • max points {botDisplay.settings.maxPoints} • trade{" "}
+		                          {botDisplay.settings.tradeEnabled ? "ON" : "OFF"}
 		                        </>
 		                      ) : (
 		                        "—"
@@ -5278,9 +5294,9 @@ export function App() {
                   <div className="kv" style={{ marginTop: 12 }}>
                     <div className="k">Equity / Position</div>
                     <div className="v">
-                      {fmtRatio(bot.status.equityCurve[bot.status.equityCurve.length - 1] ?? 1, 4)}x /{" "}
+                      {fmtRatio(botDisplay.equityCurve[botDisplay.equityCurve.length - 1] ?? 1, 4)}x /{" "}
 		                      {(() => {
-		                        const p = bot.status.positions[bot.status.positions.length - 1] ?? 0;
+		                        const p = botDisplay.positions[botDisplay.positions.length - 1] ?? 0;
 		                        if (p > 0) return `LONG${Math.abs(p) < 0.9999 ? ` (${fmtPct(Math.abs(p), 1)})` : ""}`;
 		                        if (p < 0) return `SHORT${Math.abs(p) < 0.9999 ? ` (${fmtPct(Math.abs(p), 1)})` : ""}`;
 		                        return "FLAT";
@@ -5290,53 +5306,53 @@ export function App() {
 	                  <div className="kv">
 	                    <div className="k">Peak / Drawdown</div>
 	                    <div className="v">
-	                      {fmtRatio(bot.status.peakEquity, 4)}x / {botRisk ? fmtPct(botRisk.dd, 2) : "—"}
+	                      {fmtRatio(botDisplay.peakEquity, 4)}x / {botRisk ? fmtPct(botRisk.dd, 2) : "—"}
 	                    </div>
 	                  </div>
 	                  <div className="kv">
 	                    <div className="k">Day start / Daily loss</div>
 	                    <div className="v">
-	                      {fmtRatio(bot.status.dayStartEquity, 4)}x / {botRisk ? fmtPct(botRisk.dl, 2) : "—"}
+	                      {fmtRatio(botDisplay.dayStartEquity, 4)}x / {botRisk ? fmtPct(botRisk.dl, 2) : "—"}
 	                    </div>
 	                  </div>
 	                  <div className="kv">
 	                    <div className="k">Halt status</div>
 	                    <div className="v">
-	                      {bot.status.halted ? `HALTED${bot.status.haltReason ? ` (${bot.status.haltReason})` : ""}` : "Active"}
+	                      {botDisplay.halted ? `HALTED${botDisplay.haltReason ? ` (${botDisplay.haltReason})` : ""}` : "Active"}
 	                    </div>
 	                  </div>
-	                  {bot.status.haltedAtMs ? (
+	                  {botDisplay.haltedAtMs ? (
 	                    <div className="kv">
 	                      <div className="k">Halted at</div>
-	                      <div className="v">{fmtTimeMs(bot.status.haltedAtMs)}</div>
+	                      <div className="v">{fmtTimeMs(botDisplay.haltedAtMs)}</div>
 	                    </div>
 	                  ) : null}
                   <div className="kv">
                     <div className="k">Order errors</div>
-                    <div className="v">{bot.status.consecutiveOrderErrors}</div>
+                    <div className="v">{botDisplay.consecutiveOrderErrors}</div>
                   </div>
-                  {typeof bot.status.cooldownLeft === "number" && Number.isFinite(bot.status.cooldownLeft) && bot.status.cooldownLeft > 0 ? (
+                  {typeof botDisplay.cooldownLeft === "number" && Number.isFinite(botDisplay.cooldownLeft) && botDisplay.cooldownLeft > 0 ? (
                     <div className="kv">
                       <div className="k">Cooldown</div>
-                      <div className="v">{Math.max(0, Math.trunc(bot.status.cooldownLeft))} bar(s) remaining</div>
+                      <div className="v">{Math.max(0, Math.trunc(botDisplay.cooldownLeft))} bar(s) remaining</div>
                     </div>
                   ) : null}
                   <div className="kv">
                     <div className="k">Latest signal</div>
-                    <div className="v">{bot.status.latestSignal.action}</div>
+                    <div className="v">{botDisplay.latestSignal.action}</div>
                   </div>
                   <div className="kv">
                     <div className="k">Current price</div>
-                    <div className="v">{fmtMoney(bot.status.latestSignal.currentPrice, 4)}</div>
+                    <div className="v">{fmtMoney(botDisplay.latestSignal.currentPrice, 4)}</div>
                   </div>
                   <div className="kv">
                     <div className="k">Kalman</div>
                     <div className="v">
                       {(() => {
-                        const cur = bot.status.latestSignal.currentPrice;
-                        const next = bot.status.latestSignal.kalmanNext;
-                        const ret = bot.status.latestSignal.kalmanReturn;
-                        const z = bot.status.latestSignal.kalmanZ;
+                        const cur = botDisplay.latestSignal.currentPrice;
+                        const next = botDisplay.latestSignal.kalmanNext;
+                        const ret = botDisplay.latestSignal.kalmanReturn;
+                        const z = botDisplay.latestSignal.kalmanZ;
                         const ret2 =
                           typeof ret === "number" && Number.isFinite(ret)
                             ? ret
@@ -5346,7 +5362,7 @@ export function App() {
                         const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
                         const retTxt = typeof ret2 === "number" && Number.isFinite(ret2) ? fmtPct(ret2, 3) : "—";
                         const zTxt = typeof z === "number" && Number.isFinite(z) ? fmtNum(z, 3) : "—";
-                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${bot.status.latestSignal.kalmanDirection ?? "—"}`;
+                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${botDisplay.latestSignal.kalmanDirection ?? "—"}`;
                       })()}
                     </div>
                   </div>
@@ -5354,31 +5370,31 @@ export function App() {
                     <div className="k">LSTM</div>
                     <div className="v">
                       {(() => {
-                        const cur = bot.status.latestSignal.currentPrice;
-                        const next = bot.status.latestSignal.lstmNext;
+                        const cur = botDisplay.latestSignal.currentPrice;
+                        const next = botDisplay.latestSignal.lstmNext;
                         const ret =
                           typeof next === "number" && Number.isFinite(next) && cur !== 0 ? (next - cur) / cur : null;
                         const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
                         const retTxt = typeof ret === "number" && Number.isFinite(ret) ? fmtPct(ret, 3) : "—";
-                        return `${nextTxt} (${retTxt}) • ${bot.status.latestSignal.lstmDirection ?? "—"}`;
+                        return `${nextTxt} (${retTxt}) • ${botDisplay.latestSignal.lstmDirection ?? "—"}`;
                       })()}
                     </div>
                   </div>
                   <div className="kv">
                     <div className="k">Chosen</div>
-                    <div className="v">{bot.status.latestSignal.chosenDirection ?? "—"}</div>
+                    <div className="v">{botDisplay.latestSignal.chosenDirection ?? "—"}</div>
                   </div>
                   <div className="kv">
                     <div className="k">Close dir</div>
-                    <div className="v">{formatDirectionLabel(bot.status.latestSignal.closeDirection)}</div>
+                    <div className="v">{formatDirectionLabel(botDisplay.latestSignal.closeDirection)}</div>
                   </div>
-	                  {typeof bot.status.latestSignal.confidence === "number" && Number.isFinite(bot.status.latestSignal.confidence) ? (
+	                  {typeof botDisplay.latestSignal.confidence === "number" && Number.isFinite(botDisplay.latestSignal.confidence) ? (
 	                    <div className="kv">
 	                      <div className="k">Confidence / Size</div>
 	                      <div className="v">
-	                        {fmtPct(bot.status.latestSignal.confidence, 1)}
-	                        {typeof bot.status.latestSignal.positionSize === "number" && Number.isFinite(bot.status.latestSignal.positionSize)
-	                          ? ` • ${fmtPct(bot.status.latestSignal.positionSize, 1)}`
+	                        {fmtPct(botDisplay.latestSignal.confidence, 1)}
+	                        {typeof botDisplay.latestSignal.positionSize === "number" && Number.isFinite(botDisplay.latestSignal.positionSize)
+	                          ? ` • ${fmtPct(botDisplay.latestSignal.positionSize, 1)}`
 	                          : ""}
 	                      </div>
 	                    </div>
@@ -5388,7 +5404,7 @@ export function App() {
 	                    <summary>Signal details</summary>
 	                    <div style={{ marginTop: 10 }}>
 	                      {(() => {
-	                        const sig = bot.status.latestSignal;
+	                        const sig = botDisplay.latestSignal;
 	                        const r = sig.regimes;
 	                        if (!r) return null;
 	                        const trend = typeof r.trend === "number" && Number.isFinite(r.trend) ? fmtPct(r.trend, 1) : "—";
@@ -5405,7 +5421,7 @@ export function App() {
 	                      })()}
 
 	                      {(() => {
-	                        const q = bot.status.latestSignal.quantiles;
+	                        const q = botDisplay.latestSignal.quantiles;
 	                        if (!q) return null;
 	                        const q10 = typeof q.q10 === "number" && Number.isFinite(q.q10) ? fmtPct(q.q10, 3) : "—";
 	                        const q50 = typeof q.q50 === "number" && Number.isFinite(q.q50) ? fmtPct(q.q50, 3) : "—";
@@ -5422,7 +5438,7 @@ export function App() {
 	                      })()}
 
 	                      {(() => {
-	                        const i = bot.status.latestSignal.conformalInterval;
+	                        const i = botDisplay.latestSignal.conformalInterval;
 	                        if (!i) return null;
 	                        const lo = typeof i.lo === "number" && Number.isFinite(i.lo) ? fmtPct(i.lo, 3) : "—";
 	                        const hi = typeof i.hi === "number" && Number.isFinite(i.hi) ? fmtPct(i.hi, 3) : "—";
@@ -5438,7 +5454,7 @@ export function App() {
 	                      })()}
 
 	                      {(() => {
-	                        const std = bot.status.latestSignal.kalmanStd;
+	                        const std = botDisplay.latestSignal.kalmanStd;
 	                        if (typeof std !== "number" || !Number.isFinite(std)) return null;
 	                        return (
 	                          <div className="kv">
@@ -5450,10 +5466,10 @@ export function App() {
 	                    </div>
 	                  </details>
 
-	                  {bot.status.lastOrder ? (
+	                  {botDisplay.lastOrder ? (
 	                    <div className="kv">
 	                      <div className="k">Last order</div>
-	                      <div className="v">{bot.status.lastOrder.message}</div>
+	                      <div className="v">{botDisplay.lastOrder.message}</div>
                     </div>
                   ) : null}
 
@@ -6538,15 +6554,24 @@ export function App() {
 	            <button
 	              className="btn"
 	              onClick={() => {
-	                const logText = dataLog
+	                const logText = (dataLogFilterText.trim() ? dataLogFiltered : dataLog)
 	                  .map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
 	                  .join("\n\n");
 	                copyText(logText);
 	                showToast("Copied log to clipboard");
 	              }}
 	            >
-	              Copy All
+	              {dataLogFilterText.trim() ? "Copy shown" : "Copy all"}
 	            </button>
+              <input
+                className="input"
+                style={{ height: 32, width: 180, padding: "0 10px" }}
+                value={dataLogFilterText}
+                onChange={(e) => setDataLogFilterText(e.target.value)}
+                placeholder="Filter log…"
+                spellCheck={false}
+                aria-label="Filter data log"
+              />
               <label className="pill" style={{ userSelect: "none" }}>
                 <input type="checkbox" checked={dataLogExpanded} onChange={(e) => setDataLogExpanded(e.target.checked)} />
                 Expand
@@ -6559,6 +6584,11 @@ export function App() {
                 <input type="checkbox" checked={dataLogAutoScroll} onChange={(e) => setDataLogAutoScroll(e.target.checked)} />
                 Auto-scroll
               </label>
+              {dataLogFilterText.trim() ? (
+                <span className="hint">
+                  Showing {dataLogFiltered.length} of {dataLog.length}
+                </span>
+              ) : null}
 	          </div>
           <div
             ref={dataLogRef}
@@ -6576,10 +6606,14 @@ export function App() {
               wordBreak: "break-word",
             }}
           >
-            {dataLog.length === 0 ? (
-              <div style={{ color: "#6b7280" }}>No data logged yet. Run a signal, backtest, or trade to see incoming data.</div>
+            {dataLogFiltered.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>
+                {dataLog.length === 0
+                  ? "No data logged yet. Run a signal, backtest, or trade to see incoming data."
+                  : "No entries match the current filter."}
+              </div>
             ) : (
-              dataLog.map((entry, idx) => (
+              dataLogFiltered.map((entry, idx) => (
                 <div key={idx} style={{ marginBottom: "12px", paddingBottom: "12px", borderBottom: "1px solid #1f2937" }}>
                   <div style={{ color: "#60a5fa", marginBottom: "4px" }}>
                     [{new Date(entry.timestamp).toLocaleTimeString()}] <span style={{ color: "#34d399" }}>{entry.label}</span>

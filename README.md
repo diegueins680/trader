@@ -287,6 +287,14 @@ Optional ops persistence (powers `GET /ops` and the “operations” history):
   - `since` (only return ops with `id > since`)
   - `kind` (exact match on operation kind)
 
+Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
+- Set `TRADER_BOT_STATE_DIR` to a writable directory (writes `bot-state.json`; set empty to disable)
+- When unset, live-bot snapshots live under `.tmp/bot` and reset on restart.
+
+Optional optimizer combo persistence (keeps `/optimizer/combos` data across restarts/deploys):
+- Set `TRADER_OPTIMIZER_COMBOS_DIR` to a writable directory (writes `top-combos.json`)
+- When unset, optimizer combos live under `.tmp/optimizer` and reset on restart.
+
 Async-job persistence (default on; recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
 - Default directory: `.tmp/async` (local only). Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it), or set it empty to disable.
 
@@ -297,6 +305,7 @@ Optional in-memory caching (recommended for the Web UI’s repeated calls):
 
 Optional LSTM weight persistence (recommended for faster repeated backtests):
 - `TRADER_LSTM_WEIGHTS_DIR` (default: `.tmp/lstm`) directory to persist LSTM weights between runs (set to an empty string to disable)
+  - Used by both backtests and the live bot (online fine-tuning).
   - The persisted seed is only used when it was trained on **≤** the current training window (prevents lookahead leakage when you change tune/backtest splits).
 
 Examples:
@@ -378,6 +387,8 @@ When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` 
 The UI exposes an Auto-apply toggle for top combos and shows when a combo auto-applied; manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
+The Data Log panel supports auto-scroll to keep the newest responses in view.
+Filter the Data Log by label; Copy shown respects the current filter.
 
 Run it:
 ```

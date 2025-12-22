@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
 - Web UI: API panel adds base URL copy + /health open shortcuts; loading a profile clears manual override locks.
 - Web UI: add quick-jump buttons in the config panel to navigate major sections.
+- Web UI: Data Log adds an auto-scroll toggle to keep the latest entries visible.
+- Web UI: Data Log adds label filtering with copy-shown support.
 - Web UI: numeric inputs accept comma decimals and strip thousands separators; auto-refresh interval input disables when off.
 - Web UI: add a sticky run bar in the configuration panel showing readiness issues and keeping run actions visible.
 - Web UI: when trading is armed, automatically switches Market to Futures when Positioning is set to Long/Short.
@@ -26,11 +28,14 @@ All notable changes to this project will be documented in this file.
 - Web UI: manual Method/open/close edits are preserved when optimizer combos or optimize/sweep results apply.
 - Web UI: optimizer combos now persist/show the operations that produced each top result on hover.
 - Web UI: add auto-apply toggle with last-applied marker, manual override lock/unlock hints, and a cross-origin API base warning.
+- Web UI: show persisted live-bot snapshots when `/bot/status` is restored after restart.
 - Optimizer: adds a `--quality` preset plus CSV high/low auto-detection for deeper equity searches.
 - Optimizer: adds trade-quality filters (win rate, profit factor, exposure) and samples min-hold/cooldown bars for churn control.
 - Optimizer: adds walk-forward/tune-stress sampling controls and propagates additional combo parameters (vol floors, vol caps, stress settings) through top-combo outputs.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.
+- API: allow `/optimizer/combos` to persist top-combos.json via `TRADER_OPTIMIZER_COMBOS_DIR`.
+- API: persist `/bot/status` snapshots via `TRADER_BOT_STATE_DIR` so the last state survives restarts.
 - Deploy: when using CloudFront with a distribution ID, the quick AWS deploy script sets the UI API base to `/api` to avoid CORS.
 - Deploy: quick AWS deploy now prints the CloudFront domain and warns when `/api/*` behavior is missing.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.
