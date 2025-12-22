@@ -23,6 +23,7 @@ jobs:
         with:
           path: |
             ~/.cabal/store
+            ~/.cabal/packages
             haskell/dist-newstyle
           key: ${{ runner.os }}-cabal-${{ hashFiles('haskell/trader.cabal') }}
           restore-keys: |
