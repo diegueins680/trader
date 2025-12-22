@@ -713,6 +713,7 @@ export function App() {
   const [dataLog, setDataLog] = useState<Array<{ timestamp: number; label: string; data: unknown }>>([]);
   const [dataLogExpanded, setDataLogExpanded] = useState(false);
   const [dataLogIndexArrays, setDataLogIndexArrays] = useState(true);
+  const [dataLogAutoScroll, setDataLogAutoScroll] = useState(true);
   const [topCombos, setTopCombos] = useState<OptimizationCombo[]>([]);
   const [topCombosLoading, setTopCombosLoading] = useState(true);
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
@@ -906,6 +907,16 @@ export function App() {
   useEffect(() => {
     topCombosRef.current = topCombos;
   }, [topCombos]);
+
+  useEffect(() => {
+    if (!dataLogAutoScroll) return;
+    const el = dataLogRef.current;
+    if (!el) return;
+    window.requestAnimationFrame(() => {
+      if (!dataLogAutoScroll) return;
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [dataLog, dataLogAutoScroll]);
 
   useEffect(() => {
     activeAsyncJobRef.current = activeAsyncJob;
@@ -6543,6 +6554,10 @@ export function App() {
               <label className="pill" style={{ userSelect: "none" }}>
                 <input type="checkbox" checked={dataLogIndexArrays} onChange={(e) => setDataLogIndexArrays(e.target.checked)} />
                 Index arrays
+              </label>
+              <label className="pill" style={{ userSelect: "none" }}>
+                <input type="checkbox" checked={dataLogAutoScroll} onChange={(e) => setDataLogAutoScroll(e.target.checked)} />
+                Auto-scroll
               </label>
 	          </div>
           <div

@@ -2715,7 +2715,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
       exePath <- getExecutablePath
       let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
           mergePath = projectRoot </> "scripts" </> "merge_top_combos.py"
-          topJsonPath = optimizerTmp </> "top-combos.json"
+      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
       scriptExists <- doesFileExist scriptPath
       mergeExists <- doesFileExist mergePath
       if not scriptExists || not mergeExists
@@ -5056,6 +5056,16 @@ prepareOptimizerArgs outputPath topJsonPath req = do
                       ++ boolArg "--no-sweep-threshold" noSweep
                   )
 
+optimizerCombosFileName :: FilePath
+optimizerCombosFileName = "top-combos.json"
+
+resolveOptimizerCombosPath :: FilePath -> IO FilePath
+resolveOptimizerCombosPath optimizerTmp = do
+  mDir <- lookupEnv "TRADER_OPTIMIZER_COMBOS_DIR"
+  case trim <$> mDir of
+    Just dir | not (null dir) -> pure (dir </> optimizerCombosFileName)
+    _ -> pure (optimizerTmp </> optimizerCombosFileName)
+
 runOptimizerProcess ::
   FilePath ->
   FilePath ->
@@ -5080,15 +5090,19 @@ runMergeTopCombos ::
   Int ->
   IO (Either (String, String, String) ())
 runMergeTopCombos projectRoot topJsonPath recordsPath maxItems = do
-  let scriptPath = projectRoot </> "scripts" </> "merge_top_combos.py"
-      proc' =
-        (proc "python3" [scriptPath, "--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)])
-          { cwd = Just projectRoot
-          }
-  (exitCode, out, err) <- readCreateProcessWithExitCode proc' ""
-  case exitCode of
-    ExitSuccess -> pure (Right ())
-    ExitFailure code -> pure (Left (printf "Merge script failed (exit %d)" code, out, err))
+  dirResult <- try (createDirectoryIfMissing True (takeDirectory topJsonPath)) :: IO (Either SomeException ())
+  case dirResult of
+    Left e -> pure (Left ("Failed to create top combos directory: " ++ show e, "", ""))
+    Right _ -> do
+      let scriptPath = projectRoot </> "scripts" </> "merge_top_combos.py"
+          proc' =
+            (proc "python3" [scriptPath, "--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)])
+              { cwd = Just projectRoot
+              }
+      (exitCode, out, err) <- readCreateProcessWithExitCode proc' ""
+      case exitCode of
+        ExitSuccess -> pure (Right ())
+        ExitFailure code -> pure (Left (printf "Merge script failed (exit %d)" code, out, err))
 
 readLastOptimizerRecord :: FilePath -> IO (Either String Aeson.Value)
 readLastOptimizerRecord path = do
@@ -5162,8 +5176,8 @@ handleOptimizerRun projectRoot optimizerTmp req respond = do
     Right payload -> do
       ts <- fmap (floor . (* 1000)) getPOSIXTime
       randId <- randomIO :: IO Word64
+      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
       let recordsPath = optimizerTmp </> printf "optimizer-%d-%016x.jsonl" (ts :: Integer) randId
-          topJsonPath = optimizerTmp </> "top-combos.json"
       argsOrErr <- prepareOptimizerArgs recordsPath topJsonPath payload
       case argsOrErr of
         Left msg -> respond (jsonError status400 msg)
@@ -5180,20 +5194,25 @@ handleOptimizerCombos ::
   (Wai.Response -> IO Wai.ResponseReceived) ->
   IO Wai.ResponseReceived
 handleOptimizerCombos projectRoot optimizerTmp respond = do
-  let tmpPath = optimizerTmp </> "top-combos.json"
-      fallbackPath = projectRoot </> "web" </> "public" </> "top-combos.json"
-  tmpValOrErr <- readTopCombos tmpPath
-  fallbackValOrErr <- readTopCombos fallbackPath
+  topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+  let tmpPath = optimizerTmp </> optimizerCombosFileName
+      fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
+      comboPaths =
+        [topJsonPath]
+          ++ [tmpPath | tmpPath /= topJsonPath]
+          ++ [fallbackPath | fallbackPath /= topJsonPath && fallbackPath /= tmpPath]
+  vals <- mapM readTopCombos comboPaths
   now <- getTimestampMs
 
-  let tmpCombos = either (const []) extractCombos tmpValOrErr
-      fallbackCombos = either (const []) extractCombos fallbackValOrErr
-      combos = tmpCombos ++ fallbackCombos
+  let combosBySource =
+        map
+          (either (const ([], Nothing)) (\val -> (extractCombos val, extractPayloadSource val)))
+          vals
+      combos = concatMap fst combosBySource
       payloadSources =
-        concat
-          [ if null tmpCombos then [] else maybeToList (either (const Nothing) extractPayloadSource tmpValOrErr)
-          , if null fallbackCombos then [] else maybeToList (either (const Nothing) extractPayloadSource fallbackValOrErr)
-          ]
+        concatMap
+          (\(cs, src) -> if null cs then [] else maybeToList src)
+          combosBySource
       payloadSource = listToMaybe payloadSources
   if null combos
     then respond (jsonError status404 "Optimizer combos not available yet.")

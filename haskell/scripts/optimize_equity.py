@@ -149,6 +149,21 @@ def metric_int(metrics: Optional[Dict[str, Any]], key: str, default: int = 0) ->
     return default
 
 
+def metric_profit_factor(metrics: Optional[Dict[str, Any]]) -> float:
+    if not metrics:
+        return 0.0
+    v = metrics.get("profitFactor")
+    if isinstance(v, (int, float)) and math.isfinite(float(v)):
+        return float(v)
+    gross_profit = metric_float(metrics, "grossProfit", 0.0)
+    gross_loss = metric_float(metrics, "grossLoss", 0.0)
+    if gross_loss > 0:
+        return gross_profit / gross_loss
+    if gross_profit > 0:
+        return float("inf")
+    return 0.0
+
+
 def coerce_float_value(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -194,6 +209,9 @@ def apply_quality_preset(args: argparse.Namespace) -> None:
     args.min_round_trips = max(int(args.min_round_trips), 5)
     args.open_threshold_max = max(float(args.open_threshold_max), 5e-2)
     args.close_threshold_max = max(float(args.close_threshold_max), 5e-2)
+    args.min_win_rate = max(float(args.min_win_rate), 0.45)
+    args.min_profit_factor = max(float(args.min_profit_factor), 1.1)
+    args.min_exposure = max(float(args.min_exposure), 0.05)
     args.epochs_max = max(int(args.epochs_max), 50)
     args.hidden_size_max = max(int(args.hidden_size_max), 128)
     args.lr_max = max(float(args.lr_max), 5e-2)
@@ -205,6 +223,8 @@ def apply_quality_preset(args: argparse.Namespace) -> None:
     if int(args.bars_max) > 0:
         args.bars_max = 0
     args.auto_high_low = True
+    args.walk_forward_folds_min = max(int(args.walk_forward_folds_min), 3)
+    args.walk_forward_folds_max = max(int(args.walk_forward_folds_max), int(args.walk_forward_folds_min))
     if str(args.interval).strip():
         args.interval = ""
         args.intervals = ",".join(BINANCE_INTERVALS)
@@ -260,12 +280,18 @@ class TrialParams:
     vol_floor: float
     vol_scale_max: float
     max_volatility: Optional[float]
+    periods_per_year: Optional[float]
+    kalman_market_top_n: int
     fee: float
     epochs: int
     hidden_size: int
     learning_rate: float
     val_ratio: float
     patience: int
+    walk_forward_folds: int
+    tune_stress_vol_mult: float
+    tune_stress_shock: float
+    tune_stress_weight: float
     grad_clip: Optional[float]
     slippage: float
     spread: float
@@ -363,12 +389,18 @@ def build_command(
     cmd += ["--vol-scale-max", f"{max(0.0, params.vol_scale_max):.12g}"]
     if params.max_volatility is not None:
         cmd += ["--max-volatility", f"{max(1e-12, params.max_volatility):.12g}"]
+    if params.periods_per_year is not None:
+        cmd += ["--periods-per-year", f"{max(1e-12, params.periods_per_year):.6f}"]
     cmd += ["--fee", f"{max(0.0, params.fee):.12g}"]
     cmd += ["--epochs", str(params.epochs)]
     cmd += ["--hidden-size", str(params.hidden_size)]
     cmd += ["--lr", f"{params.learning_rate:.8f}"]
     cmd += ["--val-ratio", f"{params.val_ratio:.6f}"]
     cmd += ["--patience", str(params.patience)]
+    cmd += ["--walk-forward-folds", str(max(1, params.walk_forward_folds))]
+    cmd += ["--tune-stress-vol-mult", f"{max(1e-12, params.tune_stress_vol_mult):.6f}"]
+    cmd += ["--tune-stress-shock", f"{params.tune_stress_shock:.6f}"]
+    cmd += ["--tune-stress-weight", f"{max(0.0, params.tune_stress_weight):.6f}"]
     if params.grad_clip is not None:
         cmd += ["--grad-clip", f"{params.grad_clip:.8f}"]
     cmd += ["--slippage", f"{params.slippage:.8f}"]
@@ -386,6 +418,7 @@ def build_command(
         cmd += ["--max-daily-loss", f"{params.max_daily_loss:.8f}"]
     if params.max_order_errors is not None:
         cmd += ["--max-order-errors", str(params.max_order_errors)]
+    cmd += ["--kalman-market-top-n", str(max(0, params.kalman_market_top_n))]
     cmd += ["--kalman-dt", f"{max(1e-12, params.kalman_dt):.12g}"]
     cmd += ["--kalman-process-var", f"{max(1e-12, params.kalman_process_var):.12g}"]
     cmd += ["--kalman-measurement-var", f"{max(1e-12, params.kalman_measurement_var):.12g}"]
@@ -570,12 +603,18 @@ def trial_to_record(tr: TrialResult, symbol_label: Optional[str]) -> Dict[str, A
             "volFloor": tr.params.vol_floor,
             "volScaleMax": tr.params.vol_scale_max,
             "maxVolatility": tr.params.max_volatility,
+            "periodsPerYear": tr.params.periods_per_year,
+            "kalmanMarketTopN": tr.params.kalman_market_top_n,
             "fee": tr.params.fee,
             "epochs": tr.params.epochs,
             "hiddenSize": tr.params.hidden_size,
             "learningRate": tr.params.learning_rate,
             "valRatio": tr.params.val_ratio,
             "patience": tr.params.patience,
+            "walkForwardFolds": tr.params.walk_forward_folds,
+            "tuneStressVolMult": tr.params.tune_stress_vol_mult,
+            "tuneStressShock": tr.params.tune_stress_shock,
+            "tuneStressWeight": tr.params.tune_stress_weight,
             "gradClip": tr.params.grad_clip,
             "slippage": tr.params.slippage,
             "spread": tr.params.spread,
@@ -682,6 +721,9 @@ def sample_params(
     vol_floor_range: Tuple[float, float],
     vol_scale_max_range: Tuple[float, float],
     max_volatility_range: Tuple[float, float],
+    periods_per_year_range: Tuple[float, float],
+    kalman_market_top_n_range: Tuple[int, int],
+    p_cost_aware_edge: float,
     fee_min: float,
     fee_max: float,
     p_long_short: float,
@@ -695,6 +737,10 @@ def sample_params(
     val_min: float,
     val_max: float,
     patience_max: int,
+    walk_forward_folds_range: Tuple[int, int],
+    tune_stress_vol_mult_range: Tuple[float, float],
+    tune_stress_shock_range: Tuple[float, float],
+    tune_stress_weight_range: Tuple[float, float],
     grad_clip_min: float,
     grad_clip_max: float,
     slippage_max: float,
@@ -732,6 +778,8 @@ def sample_params(
     p_disable_max_dl: float,
     p_disable_max_oe: float,
     p_disable_grad_clip: float,
+    p_disable_vol_target: float,
+    p_disable_max_volatility: float,
     max_dd_range: Tuple[float, float],
     max_dl_range: Tuple[float, float],
     max_oe_range: Tuple[int, int],
@@ -787,14 +835,19 @@ def sample_params(
     min_edge = rng.uniform(min_edge_lo, min_edge_hi)
     edge_buffer_lo, edge_buffer_hi = edge_buffer_range
     edge_buffer = rng.uniform(edge_buffer_lo, edge_buffer_hi)
-    cost_aware_edge = edge_buffer > 0
+    if p_cost_aware_edge < 0:
+        cost_aware_edge = edge_buffer > 0
+    else:
+        cost_aware_edge = rng.random() < clamp(p_cost_aware_edge, 0.0, 1.0)
+        if not cost_aware_edge:
+            edge_buffer = 0.0
     trend_lookback_lo, trend_lookback_hi = trend_lookback_range
     trend_lookback = rng.randint(trend_lookback_lo, trend_lookback_hi)
     max_pos_lo, max_pos_hi = max_position_size_range
     max_position_size = max(0.0, rng.uniform(max_pos_lo, max_pos_hi))
     vol_target_lo, vol_target_hi = vol_target_range
     vol_target = None
-    if max(vol_target_lo, vol_target_hi) > 0:
+    if max(vol_target_lo, vol_target_hi) > 0 and rng.random() >= clamp(p_disable_vol_target, 0.0, 1.0):
         vt_lo = max(1e-12, min(vol_target_lo, vol_target_hi))
         vt_hi = max(vt_lo, max(vol_target_lo, vol_target_hi))
         vol_target = rng.uniform(vt_lo, vt_hi)
@@ -813,9 +866,18 @@ def sample_params(
     vol_floor = max(0.0, rng.uniform(vol_floor_lo, vol_floor_hi))
     vol_scale_lo, vol_scale_hi = vol_scale_max_range
     vol_scale_max = max(0.0, rng.uniform(vol_scale_lo, vol_scale_hi))
+    ppy_lo, ppy_hi = periods_per_year_range
+    periods_per_year = None
+    if max(ppy_lo, ppy_hi) > 0:
+        ppy_min = max(1e-12, min(ppy_lo, ppy_hi))
+        ppy_max = max(ppy_min, max(ppy_lo, ppy_hi))
+        periods_per_year = rng.uniform(ppy_min, ppy_max)
+    km_lo, km_hi = kalman_market_top_n_range
+    km_lo, km_hi = (min(km_lo, km_hi), max(km_lo, km_hi))
+    kalman_market_top_n = rng.randint(km_lo, km_hi)
     max_vol_lo, max_vol_hi = max_volatility_range
     max_volatility = None
-    if max(max_vol_lo, max_vol_hi) > 0:
+    if max(max_vol_lo, max_vol_hi) > 0 and rng.random() >= clamp(p_disable_max_volatility, 0.0, 1.0):
         mv_lo = max(1e-12, min(max_vol_lo, max_vol_hi))
         mv_hi = max(mv_lo, max(max_vol_lo, max_vol_hi))
         max_volatility = rng.uniform(mv_lo, mv_hi)
@@ -825,6 +887,20 @@ def sample_params(
     learning_rate = log_uniform(rng, lr_min, lr_max)
     val_ratio = rng.uniform(val_min, val_max)
     patience = rng.randint(0, patience_max)
+    wf_lo, wf_hi = walk_forward_folds_range
+    wf_lo, wf_hi = (min(wf_lo, wf_hi), max(wf_lo, wf_hi))
+    walk_forward_folds = rng.randint(max(1, wf_lo), max(1, wf_hi))
+    tsvm_lo, tsvm_hi = tune_stress_vol_mult_range
+    tsvm_lo = max(1e-12, min(tsvm_lo, tsvm_hi))
+    tsvm_hi = max(tsvm_lo, max(tsvm_lo, tsvm_hi))
+    tune_stress_vol_mult = rng.uniform(tsvm_lo, tsvm_hi)
+    tss_lo, tss_hi = tune_stress_shock_range
+    tss_lo, tss_hi = (min(tss_lo, tss_hi), max(tss_lo, tss_hi))
+    tune_stress_shock = rng.uniform(tss_lo, tss_hi)
+    tsw_lo, tsw_hi = tune_stress_weight_range
+    tsw_lo = max(0.0, min(tsw_lo, tsw_hi))
+    tsw_hi = max(tsw_lo, max(tsw_lo, tsw_hi))
+    tune_stress_weight = rng.uniform(tsw_lo, tsw_hi)
     grad_clip = maybe(rng, p_disable_grad_clip, lambda: log_uniform(rng, grad_clip_min, grad_clip_max))
 
     slippage = rng.uniform(0.0, max(0.0, slippage_max))
@@ -908,6 +984,8 @@ def sample_params(
         vol_floor=vol_floor,
         vol_scale_max=vol_scale_max,
         max_volatility=max_volatility,
+        periods_per_year=periods_per_year,
+        kalman_market_top_n=kalman_market_top_n,
         fee=fee,
         epochs=epochs,
         slippage=slippage,
@@ -923,6 +1001,10 @@ def sample_params(
         learning_rate=learning_rate,
         val_ratio=val_ratio,
         patience=patience,
+        walk_forward_folds=walk_forward_folds,
+        tune_stress_vol_mult=tune_stress_vol_mult,
+        tune_stress_shock=tune_stress_shock,
+        tune_stress_weight=tune_stress_weight,
         grad_clip=grad_clip,
         kalman_dt=kalman_dt,
         kalman_process_var=kalman_process_var,
@@ -1017,6 +1099,24 @@ def main(argv: List[str]) -> int:
         help="Skip candidates with fewer than this many roundTrips (default: 0).",
     )
     parser.add_argument(
+        "--min-win-rate",
+        type=float,
+        default=0.0,
+        help="Skip candidates with winRate below this threshold (default: 0).",
+    )
+    parser.add_argument(
+        "--min-profit-factor",
+        type=float,
+        default=0.0,
+        help="Skip candidates with profitFactor below this threshold (default: 0).",
+    )
+    parser.add_argument(
+        "--min-exposure",
+        type=float,
+        default=0.0,
+        help="Skip candidates with exposure below this threshold (default: 0).",
+    )
+    parser.add_argument(
         "--tune-objective",
         type=str,
         default="equity-dd-turnover",
@@ -1052,6 +1152,54 @@ def main(argv: List[str]) -> int:
         type=float,
         default=0.0,
         help="Penalty weight for stress scenario in tune scoring (default: 0.0).",
+    )
+    parser.add_argument(
+        "--tune-stress-vol-mult-min",
+        type=float,
+        default=None,
+        help="Min stress volatility multiplier when sampling (default: tune-stress-vol-mult).",
+    )
+    parser.add_argument(
+        "--tune-stress-vol-mult-max",
+        type=float,
+        default=None,
+        help="Max stress volatility multiplier when sampling (default: tune-stress-vol-mult).",
+    )
+    parser.add_argument(
+        "--tune-stress-shock-min",
+        type=float,
+        default=None,
+        help="Min stress shock when sampling (default: tune-stress-shock).",
+    )
+    parser.add_argument(
+        "--tune-stress-shock-max",
+        type=float,
+        default=None,
+        help="Max stress shock when sampling (default: tune-stress-shock).",
+    )
+    parser.add_argument(
+        "--tune-stress-weight-min",
+        type=float,
+        default=None,
+        help="Min stress weight when sampling (default: tune-stress-weight).",
+    )
+    parser.add_argument(
+        "--tune-stress-weight-max",
+        type=float,
+        default=None,
+        help="Max stress weight when sampling (default: tune-stress-weight).",
+    )
+    parser.add_argument(
+        "--walk-forward-folds-min",
+        type=int,
+        default=5,
+        help="Min walk-forward folds when sampling (default: 5).",
+    )
+    parser.add_argument(
+        "--walk-forward-folds-max",
+        type=int,
+        default=5,
+        help="Max walk-forward folds when sampling (default: 5).",
     )
 
     interval_group = parser.add_mutually_exclusive_group()
@@ -1113,6 +1261,12 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--min-edge-max", type=float, default=0.0, help="Max min-edge when sampling (default: 0).")
     parser.add_argument("--edge-buffer-min", type=float, default=0.0, help="Min edge-buffer when sampling (default: 0).")
     parser.add_argument("--edge-buffer-max", type=float, default=0.0, help="Max edge-buffer when sampling (default: 0).")
+    parser.add_argument(
+        "--p-cost-aware-edge",
+        type=float,
+        default=-1.0,
+        help="Probability cost-aware-edge is enabled (-1=enable when edge-buffer>0).",
+    )
     parser.add_argument("--trend-lookback-min", type=int, default=0, help="Min trend-lookback when sampling (default: 0).")
     parser.add_argument("--trend-lookback-max", type=int, default=0, help="Max trend-lookback when sampling (default: 0).")
 
@@ -1139,6 +1293,8 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--kalman-z-min-max", type=float, default=2.0, help="Max kalman-z-min (default: 2).")
     parser.add_argument("--kalman-z-max-min", type=float, default=0.0, help="Min kalman-z-max (default: 0).")
     parser.add_argument("--kalman-z-max-max", type=float, default=6.0, help="Max kalman-z-max (default: 6).")
+    parser.add_argument("--kalman-market-top-n-min", type=int, default=50, help="Min kalman-market-top-n when sampling (default: 50).")
+    parser.add_argument("--kalman-market-top-n-max", type=int, default=50, help="Max kalman-market-top-n when sampling (default: 50).")
 
     parser.add_argument(
         "--p-disable-max-high-vol-prob",
@@ -1184,6 +1340,12 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--max-position-size-max", type=float, default=1.0, help="Max max-position-size when sampling (default: 1).")
     parser.add_argument("--vol-target-min", type=float, default=0.0, help="Min vol-target when sampling (default: 0=disabled).")
     parser.add_argument("--vol-target-max", type=float, default=0.0, help="Max vol-target when sampling (default: 0=disabled).")
+    parser.add_argument(
+        "--p-disable-vol-target",
+        type=float,
+        default=0.0,
+        help="Probability vol-target is disabled when sampling (default: 0).",
+    )
     parser.add_argument("--vol-lookback-min", type=int, default=20, help="Min vol-lookback when sampling (default: 20).")
     parser.add_argument("--vol-lookback-max", type=int, default=20, help="Max vol-lookback when sampling (default: 20).")
     parser.add_argument("--vol-ewma-alpha-min", type=float, default=0.0, help="Min vol-ewma-alpha when sampling (default: 0=disabled).")
@@ -1197,6 +1359,24 @@ def main(argv: List[str]) -> int:
     )
     parser.add_argument(
         "--max-volatility-max", type=float, default=0.0, help="Max max-volatility when sampling (default: 0=disabled)."
+    )
+    parser.add_argument(
+        "--p-disable-max-volatility",
+        type=float,
+        default=0.0,
+        help="Probability max-volatility is disabled when sampling (default: 0).",
+    )
+    parser.add_argument(
+        "--periods-per-year-min",
+        type=float,
+        default=0.0,
+        help="Min periods-per-year when sampling (default: 0=auto).",
+    )
+    parser.add_argument(
+        "--periods-per-year-max",
+        type=float,
+        default=0.0,
+        help="Max periods-per-year when sampling (default: 0=auto).",
     )
 
     parser.add_argument("--stop-min", type=float, default=0.002, help="Min stop-loss when enabled (default: 0.002).")
@@ -1342,6 +1522,49 @@ def main(argv: List[str]) -> int:
     patience_max = max(0, int(args.patience_max))
     grad_clip_min = max(1e-9, float(args.grad_clip_min))
     grad_clip_max = max(grad_clip_min, float(args.grad_clip_max))
+    walk_forward_folds_min = max(1, int(args.walk_forward_folds_min))
+    walk_forward_folds_max = max(walk_forward_folds_min, int(args.walk_forward_folds_max))
+    walk_forward_folds_range = (walk_forward_folds_min, walk_forward_folds_max)
+    tune_stress_vol_mult_base = max(1e-12, float(args.tune_stress_vol_mult))
+    tune_stress_shock_base = float(args.tune_stress_shock)
+    tune_stress_weight_base = max(0.0, float(args.tune_stress_weight))
+    tsvm_min = args.tune_stress_vol_mult_min
+    tsvm_max = args.tune_stress_vol_mult_max
+    if tsvm_min is None and tsvm_max is None:
+        tsvm_min = tune_stress_vol_mult_base
+        tsvm_max = tune_stress_vol_mult_base
+    else:
+        if tsvm_min is None:
+            tsvm_min = tsvm_max
+        if tsvm_max is None:
+            tsvm_max = tsvm_min
+    tsvm_min = max(1e-12, float(tsvm_min))
+    tsvm_max = max(1e-12, float(tsvm_max))
+    tune_stress_vol_mult_range = (min(tsvm_min, tsvm_max), max(tsvm_min, tsvm_max))
+    tss_min = args.tune_stress_shock_min
+    tss_max = args.tune_stress_shock_max
+    if tss_min is None and tss_max is None:
+        tss_min = tune_stress_shock_base
+        tss_max = tune_stress_shock_base
+    else:
+        if tss_min is None:
+            tss_min = tss_max
+        if tss_max is None:
+            tss_max = tss_min
+    tune_stress_shock_range = (float(min(tss_min, tss_max)), float(max(tss_min, tss_max)))
+    tsw_min = args.tune_stress_weight_min
+    tsw_max = args.tune_stress_weight_max
+    if tsw_min is None and tsw_max is None:
+        tsw_min = tune_stress_weight_base
+        tsw_max = tune_stress_weight_base
+    else:
+        if tsw_min is None:
+            tsw_min = tsw_max
+        if tsw_max is None:
+            tsw_max = tsw_min
+    tsw_min = max(0.0, float(tsw_min))
+    tsw_max = max(0.0, float(tsw_max))
+    tune_stress_weight_range = (min(tsw_min, tsw_max), max(tsw_min, tsw_max))
 
     stop_min = float(args.stop_min)
     stop_max = float(args.stop_max)
@@ -1367,6 +1590,7 @@ def main(argv: List[str]) -> int:
     min_edge_max = max(min_edge_min, float(args.min_edge_max))
     edge_buffer_min = max(0.0, float(args.edge_buffer_min))
     edge_buffer_max = max(edge_buffer_min, float(args.edge_buffer_max))
+    p_cost_aware_edge = float(args.p_cost_aware_edge)
     trend_lookback_min = max(0, int(args.trend_lookback_min))
     trend_lookback_max = max(trend_lookback_min, int(args.trend_lookback_max))
 
@@ -1384,6 +1608,9 @@ def main(argv: List[str]) -> int:
     kalman_z_min_max = max(kalman_z_min_min, float(args.kalman_z_min_max))
     kalman_z_max_min = max(0.0, float(args.kalman_z_max_min))
     kalman_z_max_max = max(kalman_z_max_min, float(args.kalman_z_max_max))
+    kalman_market_top_n_min = max(0, int(args.kalman_market_top_n_min))
+    kalman_market_top_n_max = max(kalman_market_top_n_min, int(args.kalman_market_top_n_max))
+    kalman_market_top_n_range = (kalman_market_top_n_min, kalman_market_top_n_max)
 
     p_disable_max_high_vol_prob = clamp(float(args.p_disable_max_high_vol_prob), 0.0, 1.0)
     max_high_vol_prob_range = (float(args.max_high_vol_prob_min), float(args.max_high_vol_prob_max))
@@ -1402,6 +1629,7 @@ def main(argv: List[str]) -> int:
     vol_target_min = max(0.0, float(args.vol_target_min))
     vol_target_max = max(vol_target_min, float(args.vol_target_max))
     vol_target_range = (vol_target_min, vol_target_max)
+    p_disable_vol_target = clamp(float(args.p_disable_vol_target), 0.0, 1.0)
     vol_lookback_min = max(0, int(args.vol_lookback_min))
     vol_lookback_max = max(vol_lookback_min, int(args.vol_lookback_max))
     vol_lookback_range = (vol_lookback_min, vol_lookback_max)
@@ -1417,6 +1645,10 @@ def main(argv: List[str]) -> int:
     max_volatility_min = max(0.0, float(args.max_volatility_min))
     max_volatility_max = max(max_volatility_min, float(args.max_volatility_max))
     max_volatility_range = (max_volatility_min, max_volatility_max)
+    p_disable_max_volatility = clamp(float(args.p_disable_max_volatility), 0.0, 1.0)
+    periods_per_year_min = max(0.0, float(args.periods_per_year_min))
+    periods_per_year_max = max(periods_per_year_min, float(args.periods_per_year_max))
+    periods_per_year_range = (periods_per_year_min, periods_per_year_max)
 
     method_weights = {
         "11": float(args.method_weight_11),
@@ -1452,9 +1684,6 @@ def main(argv: List[str]) -> int:
     base_args += ["--tune-objective", str(args.tune_objective)]
     base_args += ["--tune-penalty-max-drawdown", f"{max(0.0, float(args.tune_penalty_max_drawdown)):.6f}"]
     base_args += ["--tune-penalty-turnover", f"{max(0.0, float(args.tune_penalty_turnover)):.6f}"]
-    base_args += ["--tune-stress-vol-mult", f"{max(1e-12, float(args.tune_stress_vol_mult)):.6f}"]
-    base_args += ["--tune-stress-shock", f"{float(args.tune_stress_shock):.6f}"]
-    base_args += ["--tune-stress-weight", f"{max(0.0, float(args.tune_stress_weight)):.6f}"]
     # Fix seed so model init is comparable across trials.
     base_args += ["--seed", str(int(args.seed))]
 
@@ -1477,6 +1706,10 @@ def main(argv: List[str]) -> int:
 
     trials = int(args.trials)
     records: List[TrialResult] = []
+    min_round_trips = max(0, int(args.min_round_trips))
+    min_win_rate = max(0.0, float(args.min_win_rate))
+    min_profit_factor = max(0.0, float(args.min_profit_factor))
+    min_exposure = max(0.0, float(args.min_exposure))
     for i in range(1, trials + 1):
         params = sample_params(
             rng=rng,
@@ -1502,6 +1735,9 @@ def main(argv: List[str]) -> int:
             vol_floor_range=vol_floor_range,
             vol_scale_max_range=vol_scale_max_range,
             max_volatility_range=max_volatility_range,
+            periods_per_year_range=periods_per_year_range,
+            kalman_market_top_n_range=kalman_market_top_n_range,
+            p_cost_aware_edge=p_cost_aware_edge,
             fee_min=fee_min,
             fee_max=fee_max,
             p_long_short=p_long_short,
@@ -1515,6 +1751,10 @@ def main(argv: List[str]) -> int:
             val_min=val_min,
             val_max=val_max,
             patience_max=patience_max,
+            walk_forward_folds_range=walk_forward_folds_range,
+            tune_stress_vol_mult_range=tune_stress_vol_mult_range,
+            tune_stress_shock_range=tune_stress_shock_range,
+            tune_stress_weight_range=tune_stress_weight_range,
             grad_clip_min=grad_clip_min,
             grad_clip_max=grad_clip_max,
             slippage_max=float(args.slippage_max),
@@ -1552,6 +1792,8 @@ def main(argv: List[str]) -> int:
             p_disable_max_dl=clamp(float(args.p_disable_max_dl), 0.0, 1.0),
             p_disable_max_oe=clamp(float(args.p_disable_max_oe), 0.0, 1.0),
             p_disable_grad_clip=clamp(float(args.p_disable_grad_clip), 0.0, 1.0),
+            p_disable_vol_target=p_disable_vol_target,
+            p_disable_max_volatility=p_disable_max_volatility,
             max_dd_range=(float(args.max_dd_min), float(args.max_dd_max)),
             max_dl_range=(float(args.max_dl_min), float(args.max_dl_max)),
             max_oe_range=(int(args.max_oe_min), int(args.max_oe_max)),
@@ -1572,18 +1814,32 @@ def main(argv: List[str]) -> int:
         filter_reason: Optional[str] = None
         score: Optional[float] = None
         if eligible:
-            min_round_trips = max(0, int(args.min_round_trips))
             rts = metric_int(tr.metrics, "roundTrips", 0)
             if min_round_trips > 0 and rts < min_round_trips:
                 eligible = False
                 filter_reason = f"roundTrips<{min_round_trips}"
             else:
-                score = objective_score(
-                    tr.metrics or {},
-                    objective=objective,
-                    penalty_max_drawdown=float(args.penalty_max_drawdown),
-                    penalty_turnover=float(args.penalty_turnover),
-                )
+                win_rate = metric_float(tr.metrics, "winRate", 0.0)
+                if min_win_rate > 0 and win_rate < min_win_rate:
+                    eligible = False
+                    filter_reason = f"winRate<{min_win_rate:.3f}"
+                else:
+                    profit_factor = metric_profit_factor(tr.metrics)
+                    if min_profit_factor > 0 and profit_factor < min_profit_factor:
+                        eligible = False
+                        filter_reason = f"profitFactor<{min_profit_factor:.3f}"
+                    else:
+                        exposure = metric_float(tr.metrics, "exposure", 0.0)
+                        if min_exposure > 0 and exposure < min_exposure:
+                            eligible = False
+                            filter_reason = f"exposure<{min_exposure:.3f}"
+                        else:
+                            score = objective_score(
+                                tr.metrics or {},
+                                objective=objective,
+                                penalty_max_drawdown=float(args.penalty_max_drawdown),
+                                penalty_turnover=float(args.penalty_turnover),
+                            )
         tr = replace(tr, eligible=eligible, filter_reason=filter_reason, objective=objective, score=score)
 
         if out_fh is not None:
@@ -1617,8 +1873,17 @@ def main(argv: List[str]) -> int:
 
     if best is None:
         msg = "No eligible trials."
-        if int(args.min_round_trips) > 0:
-            msg += " (Try lowering --min-round-trips.)"
+        hints = []
+        if min_round_trips > 0:
+            hints.append("--min-round-trips")
+        if min_win_rate > 0:
+            hints.append("--min-win-rate")
+        if min_profit_factor > 0:
+            hints.append("--min-profit-factor")
+        if min_exposure > 0:
+            hints.append("--min-exposure")
+        if hints:
+            msg += " (Try lowering " + ", ".join(hints) + ".)"
         print(msg, file=sys.stderr)
         return 1
 
@@ -1649,12 +1914,18 @@ def main(argv: List[str]) -> int:
     print(f"  volFloor:     {b.params.vol_floor}")
     print(f"  volScaleMax:  {b.params.vol_scale_max}")
     print(f"  maxVolatility: {b.params.max_volatility}")
+    print(f"  periodsPerYear:{b.params.periods_per_year}")
+    print(f"  kalmanMarketTopN:{b.params.kalman_market_top_n}")
     print(f"  normalization: {b.params.normalization}")
     print(f"  epochs:        {b.params.epochs}")
     print(f"  hiddenSize:    {b.params.hidden_size}")
     print(f"  lr:            {b.params.learning_rate}")
     print(f"  valRatio:      {b.params.val_ratio}")
     print(f"  patience:      {b.params.patience}")
+    print(f"  walkForwardFolds:{b.params.walk_forward_folds}")
+    print(f"  tuneStressVolMult:{b.params.tune_stress_vol_mult}")
+    print(f"  tuneStressShock: {b.params.tune_stress_shock}")
+    print(f"  tuneStressWeight:{b.params.tune_stress_weight}")
     print(f"  gradClip:      {b.params.grad_clip}")
     print(f"  fee:           {b.params.fee}")
     print(f"  slippage:      {b.params.slippage}")
@@ -1734,13 +2005,21 @@ def main(argv: List[str]) -> int:
                     "volTarget": tr.params.vol_target,
                     "volLookback": tr.params.vol_lookback,
                     "volEwmaAlpha": tr.params.vol_ewma_alpha,
+                    "volFloor": tr.params.vol_floor,
                     "volScaleMax": tr.params.vol_scale_max,
+                    "maxVolatility": tr.params.max_volatility,
+                    "periodsPerYear": tr.params.periods_per_year,
+                    "kalmanMarketTopN": tr.params.kalman_market_top_n,
                     "fee": tr.params.fee,
                     "epochs": tr.params.epochs,
                     "hiddenSize": tr.params.hidden_size,
                     "learningRate": tr.params.learning_rate,
                     "valRatio": tr.params.val_ratio,
                     "patience": tr.params.patience,
+                    "walkForwardFolds": tr.params.walk_forward_folds,
+                    "tuneStressVolMult": tr.params.tune_stress_vol_mult,
+                    "tuneStressShock": tr.params.tune_stress_shock,
+                    "tuneStressWeight": tr.params.tune_stress_weight,
                     "gradClip": tr.params.grad_clip,
                     "slippage": tr.params.slippage,
                     "spread": tr.params.spread,
