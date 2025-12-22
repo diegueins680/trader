@@ -2824,10 +2824,10 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
               lookbackEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOW"
               backtestEnv <- lookupEnv "TRADER_OPTIMIZER_BACKTEST_RATIO"
               tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
-              maxCombosEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_COMBOS"
               maxPointsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
               symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
               intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
+              maxCombos <- optimizerMaxCombosFromEnv
 
               let everySec :: Int
                   everySec =
@@ -2844,11 +2844,6 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                     case timeoutEnv >>= readMaybe of
                       Just n | n >= 1 -> n
                       _ -> 45
-                  maxCombos :: Int
-                  maxCombos =
-                    case maxCombosEnv >>= readMaybe of
-                      Just n | n >= 1 -> n
-                      _ -> 50
                   maxPoints :: Int
                   maxPoints =
                     case maxPointsEnv >>= readMaybe of
@@ -4850,8 +4845,8 @@ maybeDoubleArg :: String -> Maybe Double -> [String]
 maybeDoubleArg _ Nothing = []
 maybeDoubleArg flag (Just n) = [flag, show n]
 
-prepareOptimizerArgs :: FilePath -> FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
-prepareOptimizerArgs outputPath topJsonPath req = do
+prepareOptimizerArgs :: FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
+prepareOptimizerArgs outputPath req = do
   exePath <- getExecutablePath
   let source = fromMaybe OptimizerSourceBinance (arrSource req)
   sourceArgsResult <-
@@ -5127,7 +5122,7 @@ prepareOptimizerArgs outputPath topJsonPath req = do
               ++ methodWeightBlendArgs
               ++ blendWeightArgs
               ++ kalmanMarketTopNArgs
-              ++ ["--output", outputPath, "--top-json", topJsonPath]
+              ++ ["--output", outputPath]
       pure $
         case (ohlcArgsResult, objectiveArgsResult, tuneObjectiveArgsResult, barsDistributionArgsResult) of
           (Left e, _, _, _) -> Left e
@@ -5158,6 +5153,17 @@ resolveOptimizerCombosPath optimizerTmp = do
   case trim <$> mDir of
     Just dir | not (null dir) -> pure (dir </> optimizerCombosFileName)
     _ -> pure (optimizerTmp </> optimizerCombosFileName)
+
+defaultOptimizerMaxCombos :: Int
+defaultOptimizerMaxCombos = 50
+
+optimizerMaxCombosFromEnv :: IO Int
+optimizerMaxCombosFromEnv = do
+  maxCombosEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_COMBOS"
+  pure $
+    case maxCombosEnv >>= readMaybe of
+      Just n | n >= 1 -> n
+      _ -> defaultOptimizerMaxCombos
 
 runOptimizerProcess ::
   FilePath ->
@@ -5271,7 +5277,7 @@ handleOptimizerRun projectRoot optimizerTmp req respond = do
       randId <- randomIO :: IO Word64
       topJsonPath <- resolveOptimizerCombosPath optimizerTmp
       let recordsPath = optimizerTmp </> printf "optimizer-%d-%016x.jsonl" (ts :: Integer) randId
-      argsOrErr <- prepareOptimizerArgs recordsPath topJsonPath payload
+      argsOrErr <- prepareOptimizerArgs recordsPath payload
       case argsOrErr of
         Left msg -> respond (jsonError status400 msg)
         Right args -> do
@@ -5279,7 +5285,13 @@ handleOptimizerRun projectRoot optimizerTmp req respond = do
           case runResult of
             Left (msg, out, err) ->
               respond (jsonValue status500 (object ["error" .= msg, "stdout" .= out, "stderr" .= err]))
-            Right resp -> respond (jsonValue status200 resp)
+            Right resp -> do
+              maxCombos <- optimizerMaxCombosFromEnv
+              mergeResult <- runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos
+              case mergeResult of
+                Left (msg, out, err) ->
+                  respond (jsonValue status500 (object ["error" .= msg, "stdout" .= out, "stderr" .= err]))
+                Right _ -> respond (jsonValue status200 resp)
 
 handleOptimizerCombos ::
   FilePath ->
@@ -6224,7 +6236,11 @@ probeBinance step action = do
               Just io | isUserError io -> ioeGetErrorString io
               _ -> show ex
           (code, m, summary) = parseBinanceError msg
-      pure (ApiBinanceProbe False False step code m summary)
+          isMinNotional = code == Just (-4164) && "order/test" `isInfixOf` step
+      pure $
+        if isMinNotional
+          then ApiBinanceProbe False True step Nothing Nothing "Trade test skipped: order notional below minNotional (increase order size)."
+          else ApiBinanceProbe False False step code m summary
 
 computeBinanceKeysStatusFromArgs :: Args -> IO ApiBinanceKeysStatus
 computeBinanceKeysStatusFromArgs args = do
@@ -6339,15 +6355,18 @@ computeBinanceKeysStatusFromArgs args = do
                 case qq of
                   Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSizingMsg))
                   Just qq0 -> do
-                    mPrice <- fetchPriceMaybe env sym'
-                    case mPrice of
-                      Nothing -> pure (Just (mkSkippedProbe "futures/order/test" "Price unavailable for quote sizing."))
-                      Just price -> do
-                        let qRaw = qq0 / price
-                        mFilters <- fetchFilters env sym'
-                        case normalizeProbeQty mFilters (Just price) qRaw of
-                          Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
-                          Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
+                    mFilters <- fetchFilters env sym'
+                    case validateProbeQuote mFilters qq0 of
+                      Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
+                      Right () -> do
+                        mPrice <- fetchPriceMaybe env sym'
+                        case mPrice of
+                          Nothing -> pure (Just (mkSkippedProbe "futures/order/test" "Price unavailable for quote sizing."))
+                          Just price -> do
+                            let qRaw = qq0 / price
+                            case normalizeProbeQty mFilters (Just price) qRaw of
+                              Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
+                              Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
 
       let isAuthFailureCode c = c == (-1022) || c == (-2014) || c == (-2015)
           normalizeTradeProbe p =

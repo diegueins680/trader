@@ -252,7 +252,7 @@ Endpoints:
 - `POST /backtest` → runs a backtest and returns summary metrics
 - `POST /backtest/async` → starts an async backtest job
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
-- `POST /optimizer/run` → runs the optimizer script and returns the last JSONL record
+- `POST /optimizer/run` → runs the optimizer script, merges the run into `top-combos.json`, and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or minNotional)
 - `POST /binance/listenKey` → creates a Binance user-data listenKey (returns WebSocket URL)
@@ -293,6 +293,7 @@ Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 
 Optional optimizer combo persistence (keeps `/optimizer/combos` data across restarts/deploys):
 - Set `TRADER_OPTIMIZER_COMBOS_DIR` to a writable directory (writes `top-combos.json`)
+- `TRADER_OPTIMIZER_MAX_COMBOS` (default: `50`) caps the merged combo list size
 - When unset, optimizer combos live under `.tmp/optimizer` and reset on restart.
 
 Async-job persistence (default on; recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):

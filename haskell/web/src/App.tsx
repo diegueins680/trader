@@ -63,7 +63,6 @@ import {
 import { binanceIntervalSeconds, defaultForm, normalizeFormState, parseDurationSeconds, type FormState, type FormStateJson } from "./app/formState";
 import {
   actionBadgeClass,
-  buildRequestIssues,
   clamp,
   escapeSingleQuotes,
   firstReason,
@@ -88,6 +87,11 @@ import { TelemetryChart } from "./components/TelemetryChart";
 import { TopCombosChart, type OptimizationCombo, type OptimizationComboOperation } from "./components/TopCombosChart";
 
 type RequestKind = "signal" | "backtest" | "trade";
+
+type RequestIssueDetail = {
+  message: string;
+  targetId?: string;
+};
 
 type RunOptions = {
   silent?: boolean;
@@ -730,6 +734,8 @@ export function App() {
   const topCombosRef = useRef<OptimizationCombo[]>([]);
   const topCombosSyncRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null);
   const dataLogRef = useRef<HTMLDivElement | null>(null);
+  const sectionFlashRef = useRef<HTMLElement | null>(null);
+  const sectionFlashTimeoutRef = useRef<number | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const botAbortRef = useRef<AbortController | null>(null);
@@ -1573,6 +1579,17 @@ export function App() {
     const el = document.getElementById(id);
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (sectionFlashRef.current && sectionFlashRef.current !== el) {
+      sectionFlashRef.current.classList.remove("sectionFlash");
+    }
+    sectionFlashRef.current = el;
+    el.classList.remove("sectionFlash");
+    void el.offsetWidth;
+    el.classList.add("sectionFlash");
+    if (sectionFlashTimeoutRef.current) window.clearTimeout(sectionFlashTimeoutRef.current);
+    sectionFlashTimeoutRef.current = window.setTimeout(() => {
+      el.classList.remove("sectionFlash");
+    }, 1200);
   }, []);
 
   const run = useCallback(
@@ -2835,20 +2852,38 @@ export function App() {
       : hiddenSizeExceedsApi
         ? `Hidden size exceeds API limit (max ${apiComputeLimits?.maxHiddenSize ?? "?"}). Reduce hidden size or switch to method=10 (Kalman-only).`
         : null;
-  const requestIssues = useMemo(
-    () =>
-      buildRequestIssues({
-        rateLimitReason,
-        apiStatusIssue,
-        missingSymbol,
-        missingInterval,
-        lookbackError: lookbackState.error,
-        apiLimitsReason,
-      }),
-    [apiLimitsReason, apiStatusIssue, lookbackState.error, missingInterval, missingSymbol, rateLimitReason],
-  );
-  const primaryIssue = requestIssues[0] ?? null;
-  const extraIssueCount = Math.max(0, requestIssues.length - 1);
+  const requestIssueDetails = useMemo(() => {
+    const issues: RequestIssueDetail[] = [];
+    if (rateLimitReason) issues.push({ message: rateLimitReason });
+    if (apiStatusIssue) issues.push({ message: apiStatusIssue, targetId: "section-api" });
+    if (missingSymbol) issues.push({ message: "Binance symbol is required.", targetId: "symbol" });
+    if (missingInterval) issues.push({ message: "Interval is required.", targetId: "interval" });
+    if (lookbackState.error) {
+      issues.push({
+        message: lookbackState.error,
+        targetId: lookbackState.overrideOn ? "lookbackBars" : "lookbackWindow",
+      });
+    }
+    if (apiLimitsReason) {
+      const targetId = barsExceedsApi ? "bars" : epochsExceedsApi ? "epochs" : hiddenSizeExceedsApi ? "hiddenSize" : undefined;
+      issues.push({ message: apiLimitsReason, targetId });
+    }
+    return issues;
+  }, [
+    apiLimitsReason,
+    apiStatusIssue,
+    barsExceedsApi,
+    epochsExceedsApi,
+    hiddenSizeExceedsApi,
+    lookbackState.error,
+    lookbackState.overrideOn,
+    missingInterval,
+    missingSymbol,
+    rateLimitReason,
+  ]);
+  const requestIssues = useMemo(() => requestIssueDetails.map((issue) => issue.message), [requestIssueDetails]);
+  const primaryIssue = requestIssueDetails[0] ?? null;
+  const extraIssueCount = Math.max(0, requestIssueDetails.length - 1);
   const requestDisabledReason = firstReason(
     apiBlockedReason,
     rateLimitReason,
@@ -2954,6 +2989,7 @@ export function App() {
     return `curl -s -X POST ${base}${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
   }, [apiBaseAbsolute, apiToken, requestPreview, requestPreviewKind]);
   const jumpTargets = [
+    { id: "section-api", label: "API" },
     { id: "section-market", label: "Market" },
     { id: "section-lookback", label: "Lookback" },
     { id: "section-thresholds", label: "Thresholds" },
@@ -3026,7 +3062,14 @@ export function App() {
                     : "Ready to run"}
                 </span>
                 {primaryIssue ? (
-                  <span className="pill pillWarn">{primaryIssue}</span>
+                  <>
+                    <span className="pill pillWarn">{primaryIssue.message}</span>
+                    {primaryIssue.targetId ? (
+                      <button className="btnSmall" type="button" onClick={() => scrollToSection(primaryIssue.targetId)}>
+                        Fix
+                      </button>
+                    ) : null}
+                  </>
                 ) : (
                   <span className="pill">All required inputs look good.</span>
                 )}
@@ -3085,6 +3128,23 @@ export function App() {
                   </button>
                 ))}
               </div>
+              {requestIssueDetails.length > 1 ? (
+                <details className="details">
+                  <summary>Show all issues</summary>
+                  <div className="issueList" style={{ marginTop: 10 }}>
+                    {requestIssueDetails.map((issue, idx) => (
+                      <div key={`${issue.message}-${idx}`} className="issueItem">
+                        <span>{issue.message}</span>
+                        {issue.targetId ? (
+                          <button className="btnSmall" type="button" onClick={() => scrollToSection(issue.targetId)}>
+                            Jump
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
 
               {rateLimitReason ? (
                 <div className="hint" style={{ marginTop: 6, color: "var(--warn)" }}>
@@ -3103,7 +3163,7 @@ export function App() {
                 </div>
               ) : null}
             </div>
-            <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+            <div className="row" style={{ gridTemplateColumns: "1fr" }} id="section-api">
               <div className="field">
                 <label className="label">API</label>
                 <div className="kv">
@@ -3441,7 +3501,11 @@ export function App() {
             </div>
           </div>
 
-            <div className="row" id="section-market">
+          <div className="sectionHeading" id="section-market">
+            <span className="sectionTitle">Market</span>
+            <span className="sectionMeta">Pair, market type, interval, bars.</span>
+          </div>
+          <div className="row">
             <div className="field">
               <label className="label" htmlFor="symbol">
                 Trading pair
@@ -3540,52 +3604,56 @@ export function App() {
                 </>
               ) : null}
             </div>
-            </div>
+          </div>
 
-            <div className="row" style={{ marginTop: 12 }}>
-              <div className="field">
-                <label className="label" htmlFor="interval">
-                  Interval
-                </label>
-                <select
-                  id="interval"
-                  className={missingInterval ? "select selectError" : "select"}
-                  value={form.interval}
-                  onChange={(e) => setForm((f) => ({ ...f, interval: e.target.value }))}
-                >
-                  {BINANCE_INTERVALS.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-                <div className="hint" style={missingInterval ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
-                  {missingInterval ? "Required." : "Binance interval: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M."}
-                </div>
-              </div>
-              <div className="field">
-                <label className="label" htmlFor="bars">
-                  Bars (0=auto, 2–1000)
-                </label>
-                <input
-                  id="bars"
-                  className={barsExceedsApi ? "input inputError" : "input"}
-                  type="number"
-                  min={0}
-                  max={1000}
-                  value={form.bars}
-                  onChange={(e) => setForm((f) => ({ ...f, bars: numFromInput(e.target.value, f.bars) }))}
-                />
-                <div className="hint" style={barsExceedsApi ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
-                  {barsExceedsApi
-                    ? `API limit: max ${apiComputeLimits?.maxBarsLstm ?? "?"} bars for LSTM methods. Reduce bars or use method=10 (Kalman-only).`
-                    : "0=auto (Binance uses 500; CSV uses all). For Binance, 2–1000 is allowed. Larger values take longer."
-                  }
-                </div>
+          <div className="row" style={{ marginTop: 12 }}>
+            <div className="field">
+              <label className="label" htmlFor="interval">
+                Interval
+              </label>
+              <select
+                id="interval"
+                className={missingInterval ? "select selectError" : "select"}
+                value={form.interval}
+                onChange={(e) => setForm((f) => ({ ...f, interval: e.target.value }))}
+              >
+                {BINANCE_INTERVALS.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+              <div className="hint" style={missingInterval ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                {missingInterval ? "Required." : "Binance interval: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M."}
               </div>
             </div>
+            <div className="field">
+              <label className="label" htmlFor="bars">
+                Bars (0=auto, 2–1000)
+              </label>
+              <input
+                id="bars"
+                className={barsExceedsApi ? "input inputError" : "input"}
+                type="number"
+                min={0}
+                max={1000}
+                value={form.bars}
+                onChange={(e) => setForm((f) => ({ ...f, bars: numFromInput(e.target.value, f.bars) }))}
+              />
+              <div className="hint" style={barsExceedsApi ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+                {barsExceedsApi
+                  ? `API limit: max ${apiComputeLimits?.maxBarsLstm ?? "?"} bars for LSTM methods. Reduce bars or use method=10 (Kalman-only).`
+                  : "0=auto (Binance uses 500; CSV uses all). For Binance, 2–1000 is allowed. Larger values take longer."
+                }
+              </div>
+            </div>
+          </div>
 
-            <div className="row" style={{ marginTop: 12 }} id="section-lookback">
+            <div className="sectionHeading" id="section-lookback">
+              <span className="sectionTitle">Lookback</span>
+              <span className="sectionMeta">Window length and bar overrides.</span>
+            </div>
+            <div className="row">
               <div className="field">
                 <label className="label" htmlFor="lookbackWindow">
                   Lookback window
@@ -3642,7 +3710,11 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr 1fr" }} id="section-thresholds">
+            <div className="sectionHeading" id="section-thresholds">
+              <span className="sectionTitle">Thresholds</span>
+              <span className="sectionMeta">Method, positioning, entry/exit gates.</span>
+            </div>
+            <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
               <div className="field">
                 <label className="label" htmlFor="method">
                   Method
@@ -3981,7 +4053,11 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }} id="section-risk">
+            <div className="sectionHeading" id="section-risk">
+              <span className="sectionTitle">Risk</span>
+              <span className="sectionMeta">Stops, pacing, sizing, and kill-switches.</span>
+            </div>
+            <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
                 <label className="label">Bracket exits (fractions)</label>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
@@ -4421,6 +4497,7 @@ export function App() {
                     onChange={(e) => setForm((f) => ({ ...f, epochs: numFromInput(e.target.value, f.epochs) }))}
                   />
                   <input
+                    id="hiddenSize"
                     aria-label="Hidden size"
                     className={hiddenSizeExceedsApi ? "input inputError" : "input"}
                     type="number"
@@ -4439,7 +4516,11 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12 }} id="section-optimization">
+            <div className="sectionHeading" id="section-optimization">
+              <span className="sectionTitle">Optimization</span>
+              <span className="sectionMeta">Tuning sweeps, presets, and constraints.</span>
+            </div>
+            <div className="row">
               <div className="field">
                 <label className="label">Optimization</label>
                 <div className="pillRow">

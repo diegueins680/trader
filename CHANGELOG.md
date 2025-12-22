@@ -39,6 +39,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: adds walk-forward/tune-stress sampling controls and propagates additional combo parameters (vol floors, vol caps, stress settings) through top-combo outputs.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.
+- API: `/optimizer/run` now merges optimizer runs into `top-combos.json` (bounded by `TRADER_OPTIMIZER_MAX_COMBOS`).
 - API: allow `/optimizer/combos` to persist top-combos.json via `TRADER_OPTIMIZER_COMBOS_DIR`.
 - API: persist `/bot/status` snapshots via `TRADER_BOT_STATE_DIR` so the last state survives restarts.
 - Deploy: when using CloudFront with a distribution ID, the quick AWS deploy script sets the UI API base to `/api` to avoid CORS.
