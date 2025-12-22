@@ -2726,6 +2726,14 @@ export function App() {
   const autoAppliedAge =
     autoAppliedCombo && autoAppliedCombo.atMs ? fmtDurationMs(Math.max(0, Date.now() - autoAppliedCombo.atMs)) : null;
   const topCombo = topCombos.length > 0 ? topCombos[0] : null;
+  const topComboSig = useMemo(() => {
+    if (!topCombo) return null;
+    return comboApplySignature(topCombo, apiComputeLimits, form, manualOverrides, true);
+  }, [apiComputeLimits, form, manualOverrides, topCombo]);
+  const botAutoStartReady = useMemo(() => {
+    if (!topComboSig) return false;
+    return topComboSig === formApplySignature(form);
+  }, [form, topComboSig]);
 
   const missingSymbol = !form.binanceSymbol.trim();
   const intervalValue = form.interval.trim();
@@ -2859,6 +2867,7 @@ export function App() {
   const longShortBotDisabled = bot.status.running || botStarting;
 
   useEffect(() => {
+    if (!botAutoStartReady) return;
     if (apiOk !== "ok") return;
     if (!botStatusFetchedRef.current) return;
     if (botAutoStartSuppressedRef.current) return;
@@ -2868,7 +2877,7 @@ export function App() {
     if (now - botAutoStartRef.current.lastAttemptAtMs < BOT_AUTOSTART_RETRY_MS) return;
     botAutoStartRef.current.lastAttemptAtMs = now;
     void startLiveBot({ auto: true, silent: true });
-  }, [apiOk, bot.status.running, botStartBlocked, startLiveBot]);
+  }, [apiOk, bot.status.running, botAutoStartReady, botStartBlocked, startLiveBot]);
   const orderQuoteFractionError = useMemo(() => {
     const f = form.orderQuoteFraction;
     if (!Number.isFinite(f)) return "Order quote fraction must be a number.";
@@ -3426,7 +3435,9 @@ export function App() {
               <div className="hint">
                 Select a combo to preview. Click Apply to load params into the form (and the symbol, when provided). bars=0 uses all CSV data or Binance's default (500).
               </div>
-              <div className="hint">Top combos auto-apply when available (manual overrides respected). Unlock to let combos update those fields.</div>
+              <div className="hint">
+                Top combos auto-apply when available (manual overrides respected). If the bot is idle, it will auto-start once the top combo is applied.
+              </div>
             </div>
           </div>
 

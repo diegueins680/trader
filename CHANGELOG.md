@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
 - Web UI: top combos now auto-apply when available to keep the form aligned with the top performer.
+- Web UI: idle live bot auto-starts after the top combo is applied.
 - Web UI: API panel adds base URL copy + /health open shortcuts; loading a profile clears manual override locks.
 - Web UI: add quick-jump buttons in the config panel to navigate major sections.
 - Web UI: Data Log adds an auto-scroll toggle to keep the latest entries visible.
