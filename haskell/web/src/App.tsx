@@ -331,6 +331,12 @@ function applyComboToForm(
   const stopLoss = clampOptionalRatio(combo.params.stopLoss);
   const takeProfit = clampOptionalRatio(combo.params.takeProfit);
   const trailingStop = clampOptionalRatio(combo.params.trailingStop);
+  const stopLossVolMult = Math.max(0, coerceNumber(combo.params.stopLossVolMult ?? prev.stopLossVolMult, prev.stopLossVolMult));
+  const takeProfitVolMult = Math.max(0, coerceNumber(combo.params.takeProfitVolMult ?? prev.takeProfitVolMult, prev.takeProfitVolMult));
+  const trailingStopVolMult = Math.max(
+    0,
+    coerceNumber(combo.params.trailingStopVolMult ?? prev.trailingStopVolMult, prev.trailingStopVolMult),
+  );
   const minHoldBars = clampOptionalInt(combo.params.minHoldBars ?? prev.minHoldBars, 0, 1_000_000);
   const maxHoldBars = clampOptionalInt(combo.params.maxHoldBars ?? prev.maxHoldBars, 0, 1_000_000);
   const cooldownBars = clampOptionalInt(combo.params.cooldownBars ?? prev.cooldownBars, 0, 1_000_000);
@@ -338,6 +344,7 @@ function applyComboToForm(
   const maxDailyLoss = clampOptionalRatio(combo.params.maxDailyLoss);
   const maxOrderErrors = clampOptionalInt(combo.params.maxOrderErrors, 1, 1_000_000);
   const minEdge = Math.max(0, coerceNumber(combo.params.minEdge ?? prev.minEdge, prev.minEdge));
+  const minSignalToNoise = Math.max(0, coerceNumber(combo.params.minSignalToNoise ?? prev.minSignalToNoise, prev.minSignalToNoise));
   const costAwareEdge = combo.params.costAwareEdge ?? prev.costAwareEdge;
   const edgeBuffer = Math.max(0, coerceNumber(combo.params.edgeBuffer ?? prev.edgeBuffer, prev.edgeBuffer));
   const trendLookback = clampOptionalInt(combo.params.trendLookback ?? prev.trendLookback, 0, 1_000_000);
@@ -353,6 +360,7 @@ function applyComboToForm(
   const tuneStressVolMult = Math.max(0, coerceNumber(combo.params.tuneStressVolMult ?? prev.tuneStressVolMult, prev.tuneStressVolMult));
   const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
   const tuneStressWeight = Math.max(0, coerceNumber(combo.params.tuneStressWeight ?? prev.tuneStressWeight, prev.tuneStressWeight));
+  const walkForwardFolds = clampOptionalInt(combo.params.walkForwardFolds ?? prev.walkForwardFolds, 1, 1000);
 
   const kalmanZMin = Math.max(0, coerceNumber(combo.params.kalmanZMin, prev.kalmanZMin));
   const kalmanZMax = Math.max(Math.max(0, coerceNumber(combo.params.kalmanZMax, prev.kalmanZMax)), kalmanZMin);
@@ -420,6 +428,9 @@ function applyComboToForm(
     stopLoss,
     takeProfit,
     trailingStop,
+    stopLossVolMult,
+    takeProfitVolMult,
+    trailingStopVolMult,
     minHoldBars,
     maxHoldBars,
     cooldownBars,
@@ -427,6 +438,7 @@ function applyComboToForm(
     maxDailyLoss,
     maxOrderErrors,
     minEdge,
+    minSignalToNoise,
     costAwareEdge,
     edgeBuffer,
     trendLookback,
@@ -450,6 +462,7 @@ function applyComboToForm(
     tuneStressVolMult,
     tuneStressShock,
     tuneStressWeight,
+    walkForwardFolds,
     lookbackBars,
     lookbackWindow,
     openThreshold,
@@ -503,6 +516,9 @@ function formApplySignature(form: FormState): string {
     sigNumber(form.stopLoss),
     sigNumber(form.takeProfit),
     sigNumber(form.trailingStop),
+    sigNumber(form.stopLossVolMult),
+    sigNumber(form.takeProfitVolMult),
+    sigNumber(form.trailingStopVolMult),
     sigNumber(form.minHoldBars),
     sigNumber(form.maxHoldBars),
     sigNumber(form.cooldownBars),
@@ -510,6 +526,7 @@ function formApplySignature(form: FormState): string {
     sigNumber(form.maxDailyLoss),
     sigNumber(form.maxOrderErrors),
     sigNumber(form.minEdge),
+    sigNumber(form.minSignalToNoise),
     sigBool(form.costAwareEdge),
     sigNumber(form.edgeBuffer),
     sigNumber(form.trendLookback),
@@ -533,6 +550,7 @@ function formApplySignature(form: FormState): string {
     sigNumber(form.tuneStressVolMult),
     sigNumber(form.tuneStressShock),
     sigNumber(form.tuneStressWeight),
+    sigNumber(form.walkForwardFolds),
     sigNumber(form.openThreshold),
     sigNumber(form.closeThreshold),
   ].join("|");
@@ -1205,6 +1223,9 @@ export function App() {
       ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
       ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
       ...(form.trailingStop > 0 ? { trailingStop: clamp(form.trailingStop, 0, 0.999999) } : {}),
+      ...(form.stopLossVolMult > 0 ? { stopLossVolMult: Math.max(0, form.stopLossVolMult) } : {}),
+      ...(form.takeProfitVolMult > 0 ? { takeProfitVolMult: Math.max(0, form.takeProfitVolMult) } : {}),
+      ...(form.trailingStopVolMult > 0 ? { trailingStopVolMult: Math.max(0, form.trailingStopVolMult) } : {}),
       ...(form.minHoldBars > 0 ? { minHoldBars: clamp(Math.trunc(form.minHoldBars), 0, 1_000_000) } : {}),
       ...(form.maxHoldBars > 0 ? { maxHoldBars: clamp(Math.trunc(form.maxHoldBars), 1, 1_000_000) } : {}),
       ...(form.cooldownBars > 0 ? { cooldownBars: clamp(Math.trunc(form.cooldownBars), 0, 1_000_000) } : {}),
@@ -1212,6 +1233,7 @@ export function App() {
       ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
       ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
       minEdge: Math.max(0, form.minEdge),
+      ...(form.minSignalToNoise > 0 ? { minSignalToNoise: Math.max(0, form.minSignalToNoise) } : {}),
       edgeBuffer: Math.max(0, form.edgeBuffer),
       trendLookback: clamp(Math.trunc(form.trendLookback), 0, 1_000_000),
       maxPositionSize: Math.max(0, form.maxPositionSize),
@@ -1532,6 +1554,12 @@ export function App() {
   const scrollToResult = useCallback((kind: RequestKind) => {
     const ref = kind === "signal" ? signalRef : kind === "backtest" ? backtestRef : tradeRef;
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+  const scrollToSection = useCallback((id: string) => {
+    if (typeof document === "undefined") return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
   const run = useCallback(
@@ -2383,6 +2411,18 @@ export function App() {
             typeof params.maxVolatility === "number" && Number.isFinite(params.maxVolatility)
               ? Math.max(0, params.maxVolatility)
               : null;
+          const periodsPerYear =
+            typeof params.periodsPerYear === "number" && Number.isFinite(params.periodsPerYear)
+              ? Math.max(0, params.periodsPerYear)
+              : null;
+          const kalmanMarketTopN =
+            typeof params.kalmanMarketTopN === "number" && Number.isFinite(params.kalmanMarketTopN)
+              ? Math.max(0, Math.trunc(params.kalmanMarketTopN))
+              : null;
+          const walkForwardFolds =
+            typeof params.walkForwardFolds === "number" && Number.isFinite(params.walkForwardFolds)
+              ? Math.max(1, Math.trunc(params.walkForwardFolds))
+              : null;
           const blendWeightRaw =
             typeof params.blendWeight === "number" && Number.isFinite(params.blendWeight) ? params.blendWeight : null;
           const blendWeight = blendWeightRaw != null ? clamp(blendWeightRaw, 0, 1) : null;
@@ -2509,6 +2549,10 @@ export function App() {
               maxHoldBars,
               cooldownBars,
               minEdge,
+              minSignalToNoise:
+                typeof params.minSignalToNoise === "number" && Number.isFinite(params.minSignalToNoise)
+                  ? Math.max(0, params.minSignalToNoise)
+                  : null,
               costAwareEdge,
               edgeBuffer,
               trendLookback,
@@ -2519,19 +2563,34 @@ export function App() {
               volFloor,
               volScaleMax,
               maxVolatility,
+              periodsPerYear,
               blendWeight,
+              walkForwardFolds,
               tuneStressVolMult,
               tuneStressShock,
               tuneStressWeight,
               stopLoss: typeof params.stopLoss === "number" && Number.isFinite(params.stopLoss) ? params.stopLoss : null,
               takeProfit: typeof params.takeProfit === "number" && Number.isFinite(params.takeProfit) ? params.takeProfit : null,
               trailingStop: typeof params.trailingStop === "number" && Number.isFinite(params.trailingStop) ? params.trailingStop : null,
+              stopLossVolMult:
+                typeof params.stopLossVolMult === "number" && Number.isFinite(params.stopLossVolMult)
+                  ? Math.max(0, params.stopLossVolMult)
+                  : null,
+              takeProfitVolMult:
+                typeof params.takeProfitVolMult === "number" && Number.isFinite(params.takeProfitVolMult)
+                  ? Math.max(0, params.takeProfitVolMult)
+                  : null,
+              trailingStopVolMult:
+                typeof params.trailingStopVolMult === "number" && Number.isFinite(params.trailingStopVolMult)
+                  ? Math.max(0, params.trailingStopVolMult)
+                  : null,
               maxDrawdown: typeof params.maxDrawdown === "number" && Number.isFinite(params.maxDrawdown) ? params.maxDrawdown : null,
               maxDailyLoss: typeof params.maxDailyLoss === "number" && Number.isFinite(params.maxDailyLoss) ? params.maxDailyLoss : null,
               maxOrderErrors:
                 typeof params.maxOrderErrors === "number" && Number.isFinite(params.maxOrderErrors) ? Math.max(1, Math.trunc(params.maxOrderErrors)) : null,
               kalmanZMin,
               kalmanZMax,
+              kalmanMarketTopN,
               maxHighVolProb,
               maxConformalWidth,
               maxQuantileWidth,
@@ -2863,6 +2922,15 @@ export function App() {
     const base = apiBaseAbsolute;
     return `curl -s -X POST ${base}${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
   }, [apiBaseAbsolute, apiToken, requestPreview, requestPreviewKind]);
+  const jumpTargets = [
+    { id: "section-market", label: "Market" },
+    { id: "section-lookback", label: "Lookback" },
+    { id: "section-thresholds", label: "Thresholds" },
+    { id: "section-risk", label: "Risk" },
+    { id: "section-optimization", label: "Optimization" },
+    { id: "section-livebot", label: "Live bot" },
+    { id: "section-trade", label: "Trade" },
+  ];
 
   return (
     <div className="container">
@@ -2972,6 +3040,19 @@ export function App() {
                 <button className="btn" disabled={!state.loading} onClick={cancelActiveRequest}>
                   Cancel
                 </button>
+              </div>
+              <div className="pillRow jumpRow">
+                <span className="jumpLabel">Jump to</span>
+                {jumpTargets.map((target) => (
+                  <button
+                    key={target.id}
+                    className="btnSmall"
+                    type="button"
+                    onClick={() => scrollToSection(target.id)}
+                  >
+                    {target.label}
+                  </button>
+                ))}
               </div>
 
               {rateLimitReason ? (
@@ -3331,7 +3412,7 @@ export function App() {
             </div>
           </div>
 
-          <div className="row">
+            <div className="row" id="section-market">
             <div className="field">
               <label className="label" htmlFor="symbol">
                 Trading pair
@@ -3475,7 +3556,7 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12 }}>
+            <div className="row" style={{ marginTop: 12 }} id="section-lookback">
               <div className="field">
                 <label className="label" htmlFor="lookbackWindow">
                   Lookback window
@@ -3532,7 +3613,7 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr 1fr" }} id="section-thresholds">
               <div className="field">
                 <label className="label" htmlFor="method">
                   Method
@@ -3704,7 +3785,7 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
               <div className="field">
                 <label className="label" htmlFor="minEdge">
                   Min edge (fraction)
@@ -3748,6 +3829,24 @@ export function App() {
                   onChange={(e) => setForm((f) => ({ ...f, edgeBuffer: numFromInput(e.target.value, f.edgeBuffer) }))}
                 />
                 <div className="hint">{form.costAwareEdge ? "Extra buffer above break-even." : "Used when cost-aware edge is enabled."}</div>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="minSignalToNoise">
+                  Min signal/vol (x)
+                </label>
+                <input
+                  id="minSignalToNoise"
+                  className="input"
+                  type="number"
+                  step="0.05"
+                  min={0}
+                  value={form.minSignalToNoise}
+                  onChange={(e) => setForm((f) => ({ ...f, minSignalToNoise: numFromInput(e.target.value, f.minSignalToNoise) }))}
+                  placeholder="0"
+                />
+                <div className="hint">
+                  {form.minSignalToNoise > 0 ? `${form.minSignalToNoise.toFixed(2)}x sigma` : "0 disables"} - edge / per-bar vol filter.
+                </div>
               </div>
               <div className="field">
                 <label className="label" htmlFor="blendWeight">
@@ -3853,7 +3952,7 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }} id="section-risk">
               <div className="field">
                 <label className="label">Bracket exits (fractions)</label>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
@@ -3908,25 +4007,79 @@ export function App() {
                     />
                     <div className="hint">{form.trailingStop > 0 ? fmtPct(form.trailingStop, 2) : "0 disables"}</div>
                   </div>
-	                </div>
-	                <div className="row" style={{ gridTemplateColumns: "1fr" }}>
-	                  <div className="field">
-	                    <label className="label" htmlFor="intrabarFill">
-	                      Intrabar fill
-	                    </label>
-	                    <select
-	                      id="intrabarFill"
-	                      className="select"
-	                      value={form.intrabarFill}
-	                      onChange={(e) => setForm((f) => ({ ...f, intrabarFill: e.target.value as IntrabarFill }))}
-	                    >
-	                      <option value="stop-first">Stop-first (conservative)</option>
-	                      <option value="take-profit-first">Take-profit-first (optimistic)</option>
-	                    </select>
-	                    <div className="hint">If take-profit and stop are both hit within a bar.</div>
-	                  </div>
-	                </div>
-	                <div className="hint">Optional bracket exits (uses OHLC high/low when available; otherwise close-only). Example: 0.02 = 2%.</div>
+                </div>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 10 }}>
+                  <div className="field">
+                    <label className="label" htmlFor="stopLossVolMult">
+                      Stop-loss vol mult
+                    </label>
+                    <input
+                      id="stopLossVolMult"
+                      className="input"
+                      type="number"
+                      step="0.05"
+                      min={0}
+                      value={form.stopLossVolMult}
+                      onChange={(e) => setForm((f) => ({ ...f, stopLossVolMult: numFromInput(e.target.value, f.stopLossVolMult) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">{form.stopLossVolMult > 0 ? `${form.stopLossVolMult.toFixed(2)}x sigma` : "0 disables"}</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="takeProfitVolMult">
+                      Take-profit vol mult
+                    </label>
+                    <input
+                      id="takeProfitVolMult"
+                      className="input"
+                      type="number"
+                      step="0.05"
+                      min={0}
+                      value={form.takeProfitVolMult}
+                      onChange={(e) => setForm((f) => ({ ...f, takeProfitVolMult: numFromInput(e.target.value, f.takeProfitVolMult) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">{form.takeProfitVolMult > 0 ? `${form.takeProfitVolMult.toFixed(2)}x sigma` : "0 disables"}</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="trailingStopVolMult">
+                      Trailing vol mult
+                    </label>
+                    <input
+                      id="trailingStopVolMult"
+                      className="input"
+                      type="number"
+                      step="0.05"
+                      min={0}
+                      value={form.trailingStopVolMult}
+                      onChange={(e) => setForm((f) => ({ ...f, trailingStopVolMult: numFromInput(e.target.value, f.trailingStopVolMult) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">
+                      {form.trailingStopVolMult > 0 ? `${form.trailingStopVolMult.toFixed(2)}x sigma` : "0 disables"}
+                    </div>
+                  </div>
+                </div>
+                <div className="row" style={{ gridTemplateColumns: "1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="intrabarFill">
+                      Intrabar fill
+                    </label>
+                    <select
+                      id="intrabarFill"
+                      className="select"
+                      value={form.intrabarFill}
+                      onChange={(e) => setForm((f) => ({ ...f, intrabarFill: e.target.value as IntrabarFill }))}
+                    >
+                      <option value="stop-first">Stop-first (conservative)</option>
+                      <option value="take-profit-first">Take-profit-first (optimistic)</option>
+                    </select>
+                    <div className="hint">If take-profit and stop are both hit within a bar.</div>
+                  </div>
+                </div>
+                <div className="hint">
+                  Optional bracket exits (uses OHLC high/low when available; otherwise close-only). Vol multiples use per-bar sigma and override fixed fractions when available.
+                </div>
 	              </div>
 	            </div>
 
@@ -4257,7 +4410,7 @@ export function App() {
               </div>
             </div>
 
-            <div className="row" style={{ marginTop: 12 }}>
+            <div className="row" style={{ marginTop: 12 }} id="section-optimization">
               <div className="field">
                 <label className="label">Optimization</label>
                 <div className="pillRow">
@@ -4486,13 +4639,15 @@ export function App() {
                     max={600}
                     value={form.autoRefreshSec}
                     onChange={(e) => setForm((f) => ({ ...f, autoRefreshSec: numFromInput(e.target.value, f.autoRefreshSec) }))}
+                    disabled={!form.autoRefresh}
                   />{" "}
-                  seconds. {form.bypassCache ? "Bypass cache adds Cache-Control: no-cache." : ""}
+                  seconds.{!form.autoRefresh ? " Enable Auto-refresh to use this interval." : ""}{" "}
+                  {form.bypassCache ? "Bypass cache adds Cache-Control: no-cache." : ""}
                 </div>
               </div>
             </div>
 
-            <div style={{ marginTop: 14 }}>
+            <div style={{ marginTop: 14 }} id="section-livebot">
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
                 <div className="field">
                   <label className="label">Live bot</label>
@@ -4629,7 +4784,7 @@ export function App() {
               </div>
             </div>
 
-            <div style={{ marginTop: 14 }}>
+            <div style={{ marginTop: 14 }} id="section-trade">
               <div className="row">
                 <div className="field">
                   <label className="label">Trade controls</label>
