@@ -165,12 +165,17 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
     const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
     const payload = await readJsonOrText(res);
     if (!res.ok) {
-      const message =
+      const baseMessage =
         typeof payload === "object" && payload && "error" in payload
           ? String((payload as ApiError).error)
           : typeof payload === "string" && payload.trim()
             ? payload.trim()
             : `${res.status} ${res.statusText}`;
+      const hint =
+        typeof payload === "object" && payload && "hint" in payload && (payload as ApiError).hint
+          ? String((payload as ApiError).hint)
+          : "";
+      const message = hint ? `${baseMessage}\nHint: ${hint}` : baseMessage;
       throw new HttpError(res.status, message, payload, retryAfterMs);
     }
     return payload as T;

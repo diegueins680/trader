@@ -69,7 +69,8 @@ export function numFromInput(raw: string, fallback: number): number {
     if (trimmed.includes(".")) return trimmed.replace(/,/g, "");
     const parts = trimmed.split(",");
     if (parts.length === 2) {
-      const [left, right] = parts;
+      const left = parts[0] ?? "";
+      const right = parts[1] ?? "";
       const leftDigits = left.replace(/\D/g, "");
       const rightDigits = right.replace(/\D/g, "");
       if (leftDigits === "0") return `${left}.${right}`;
