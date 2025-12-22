@@ -4695,6 +4695,11 @@ export function App() {
                     Binance orders; otherwise it runs in paper mode. If “Sweep thresholds” or “Optimize operations” is enabled, the bot re-optimizes after each
                     buy/sell operation.
                   </div>
+                  {botStartBlockedReason && !bot.status.running && !botStarting ? (
+                    <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
+                      Start live bot is disabled: {botStartBlockedReason}
+                    </div>
+                  ) : null}
                   {bot.error ? <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)", whiteSpace: "pre-wrap" }}>{bot.error}</div> : null}
 
                   <details className="details" style={{ marginTop: 10 }}>
@@ -5809,7 +5814,9 @@ export function App() {
                 <div className="hint">
                   {botStarting
                     ? "Bot is starting… (initializing model). Use “Refresh” to check status."
-                    : "Bot is stopped. Use “Start live bot” on the left."}
+                    : botStartBlockedReason
+                      ? `Bot is stopped. Start live bot is disabled: ${botStartBlockedReason}`
+                      : "Bot is stopped. Use “Start live bot” on the left."}
                 </div>
               )}
             </div>
