@@ -30,10 +30,11 @@ WORKDIR /opt/trader/haskell
 COPY haskell/scripts /opt/trader/haskell/scripts
 COPY haskell/web/public /opt/trader/haskell/web/public
 
+ENV TRADER_STATE_DIR=/var/lib/trader/state
 ENV TRADER_API_ASYNC_DIR=/var/lib/trader/async
 ENV TRADER_LSTM_WEIGHTS_DIR=/var/lib/trader/lstm
 
-RUN mkdir -p /var/lib/trader/async /var/lib/trader/lstm /opt/trader/haskell/.tmp/optimizer \
+RUN mkdir -p /var/lib/trader/async /var/lib/trader/lstm /var/lib/trader/state /opt/trader/haskell/.tmp/optimizer \
   && chown -R 65532:65532 /var/lib/trader /opt/trader/haskell/.tmp
 
 EXPOSE 8080

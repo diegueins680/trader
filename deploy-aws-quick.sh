@@ -41,6 +41,10 @@ APP_RUNNER_ECR_ACCESS_ROLE_NAME="${APP_RUNNER_ECR_ACCESS_ROLE_NAME:-AppRunnerECR
 ECR_URI=""
 APP_RUNNER_SERVICE_URL=""
 
+if [[ -z "${TRADER_STATE_DIR+x}" ]]; then
+  TRADER_STATE_DIR="/var/lib/trader/state"
+fi
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -72,6 +76,7 @@ Flags:
 Environment variables (equivalents):
   AWS_REGION / AWS_DEFAULT_REGION
   TRADER_API_TOKEN
+  TRADER_STATE_DIR
   TRADER_API_MAX_BARS_LSTM
   TRADER_UI_BUCKET / S3_BUCKET
   TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID / CLOUDFRONT_DISTRIBUTION_ID
@@ -487,6 +492,9 @@ create_app_runner() {
   src_cfg="$(mktemp)"
 
   local runtime_env_json='"TRADER_API_ASYNC_DIR":"/var/lib/trader/async"'
+  if [[ -n "${TRADER_STATE_DIR}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_STATE_DIR\":\"${TRADER_STATE_DIR}\""
+  fi
   if [[ -n "${TRADER_API_MAX_BARS_LSTM:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_BARS_LSTM\":\"${TRADER_API_MAX_BARS_LSTM}\""
   fi

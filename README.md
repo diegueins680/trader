@@ -304,6 +304,8 @@ State directory (recommended for persistence across deployments):
   - async job results (`/signal/async`, `/backtest/async`, `/trade/async`)
   - LSTM weights (for incremental training)
 - Per-feature `TRADER_*_DIR` variables override the state directory; set any of them to an empty string to disable that feature.
+- Docker image default: `TRADER_STATE_DIR=/var/lib/trader/state` (mount `/var/lib/trader` to durable storage to keep state across redeploys).
+- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state` (set `TRADER_STATE_DIR=` to disable or override).
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
