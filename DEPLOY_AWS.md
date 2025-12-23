@@ -393,7 +393,7 @@ Use CloudWatch to monitor and set up auto-scaling if you expect variable traffic
 ## Next Steps
 
 1. **Monitor the API:** Set up CloudWatch dashboards and alarms
-2. **Backup state:** For stateful endpoints (`/bot/*`) and async polling, mount EFS and set `TRADER_STATE_DIR` (or at least `TRADER_API_ASYNC_DIR`) to persistent storage
+2. **Persist state:** For stateful endpoints (`/bot/*`) and async polling, mount EFS and set `TRADER_STATE_DIR` to persistent storage
    - Example (App Runner): mount EFS at `/var/lib/trader`, keep `TRADER_STATE_DIR=/var/lib/trader/state` (default) or override to match the mount.
 3. **Setup CI/CD:** Use GitHub Actions to automatically build & push on commit
 4. **Enable HTTPS:** Use CloudFront + ACM certificate for your domain

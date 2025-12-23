@@ -8,7 +8,7 @@ import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Exception (IOException, SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
-import Control.Monad (forM, forM_)
+import Control.Monad (forM, forM_, when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
@@ -40,7 +40,7 @@ import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException)
-import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status429, status500, status502)
+import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status429, status500, status502, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -4976,12 +4976,27 @@ apiApp ::
   FilePath ->
   Wai.Application
 apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir limits apiCache asyncStores projectRoot optimizerTmp req respond = do
+  startMs <- getTimestampMs
   let rawPath = Wai.pathInfo req
       path =
         case rawPath of
           ("api" : rest) -> rest
           _ -> rawPath
-      respondCors = respond . withCors
+      method = BS.unpack (Wai.requestMethod req)
+      pathLabel =
+        case path of
+          [] -> "/"
+          _ -> "/" ++ intercalate "/" (map T.unpack path)
+      pathIsHealth = path == ["health"]
+      respondLogged resp = do
+        endMs <- getTimestampMs
+        let code = statusCode (Wai.responseStatus resp)
+            durMs = max 0 (endMs - startMs)
+            shouldLog = method /= "OPTIONS" && not (pathIsHealth && code < 400)
+        when shouldLog $
+          putStrLn (printf "Request %s %s -> %d (%dms)" method pathLabel code durMs)
+        respond resp
+      respondCors = respondLogged . withCors
       label =
         case path of
           ["signal", "async", _, "cancel"] -> "signal/async/:jobId/cancel"
@@ -5002,7 +5017,7 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
              in go path
 
   case Wai.requestMethod req of
-    "OPTIONS" -> respond (Wai.responseLBS status204 corsHeaders "")
+    "OPTIONS" -> respondLogged (Wai.responseLBS status204 corsHeaders "")
     _ -> do
       metricsIncEndpoint metrics label
       if path /= ["health"] && not (authorized apiToken req)

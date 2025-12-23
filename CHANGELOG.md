@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Live bot: support multi-symbol bots via `botSymbols` and `TRADER_BOT_SYMBOLS`, with per-symbol status snapshots.
+- Live bot: auto-syncs to the latest top combo (poll interval `TRADER_BOT_COMBOS_POLL_SEC`) and applies it while running.
+- API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
+- Web UI: add Binance account trades panel powered by `/binance/trades`.
+- Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
+- Deploy: quick AWS deploy now validates an EFS mount and ensures `TRADER_STATE_DIR` lives on it.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with Binance-only trading/keys.
 - Exchange data: add Coinbase platform support for exchange klines (trading remains Binance-only).

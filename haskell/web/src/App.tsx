@@ -5,7 +5,6 @@ import type {
   ApiParams,
   ApiTradeResponse,
   BacktestResponse,
-  BinanceTrade,
   BinanceKeysStatus,
   BinanceListenKeyResponse,
   BotOrderEvent,
@@ -1627,6 +1626,16 @@ export function App() {
   );
   const botStatusBySymbol = useMemo(() => new Map(botEntriesWithSymbol.map((entry) => [entry.symbol, entry.status])), [botEntriesWithSymbol]);
   const botSymbolsActive = useMemo(() => botEntriesWithSymbol.map((entry) => entry.symbol), [botEntriesWithSymbol]);
+  const botSymbolOptions = useMemo(
+    () =>
+      botEntriesWithSymbol.map((entry) => {
+        const starting = !entry.status.running && entry.status.starting === true;
+        const snapshot = !entry.status.running && Boolean(entry.status.snapshot);
+        const label = `${entry.symbol}${entry.status.running ? " (running)" : starting ? " (starting)" : snapshot ? " (snapshot)" : " (stopped)"}`;
+        return { symbol: entry.symbol, label, starting, snapshot, running: entry.status.running };
+      }),
+    [botEntriesWithSymbol],
+  );
   const botActiveSymbols = useMemo(
     () =>
       botEntriesWithSymbol
@@ -1644,6 +1653,7 @@ export function App() {
     const target = botSelectedSymbol ?? botEntriesWithSymbol[0]!.symbol;
     return botStatusBySymbol.get(target) ?? null;
   }, [botEntriesWithSymbol, botSelectedSymbol, botStatusBySymbol]);
+  const botStartErrors = useMemo(() => (isBotStatusMulti(bot.status) ? bot.status.errors ?? [] : []), [bot.status]);
   const botSnapshot = useMemo(
     () => (botSelectedStatus && !botSelectedStatus.running ? botSelectedStatus.snapshot ?? null : null),
     [botSelectedStatus],
@@ -1653,14 +1663,13 @@ export function App() {
   const botHasSnapshot = botSnapshot !== null;
 
   useEffect(() => {
-    if (botSymbolsActive.length === 0) {
+    if (botEntriesWithSymbol.length === 0) {
       if (botSelectedSymbol !== null) setBotSelectedSymbol(null);
       return;
     }
-    if (!botSelectedSymbol || !botSymbolsActive.includes(botSelectedSymbol)) {
-      setBotSelectedSymbol(botSymbolsActive[0] ?? null);
-    }
-  }, [botSelectedSymbol, botSymbolsActive]);
+    const hasSelected = botSelectedSymbol && botEntriesWithSymbol.some((entry) => entry.symbol === botSelectedSymbol);
+    if (!hasSelected) setBotSelectedSymbol(botEntriesWithSymbol[0]!.symbol);
+  }, [botEntriesWithSymbol, botSelectedSymbol]);
 
   const botOrdersView = useMemo(() => {
     const st = botDisplay;
@@ -1754,6 +1763,25 @@ export function App() {
     if (botRt.feed.length === 0) return "No realtime events yet.";
     return botRt.feed.map((e) => `${fmtTimeMs(e.atMs)} | ${e.message}`).join("\n");
   }, [botRt.feed]);
+
+  const binanceTradesCopyText = useMemo(() => {
+    const trades = binanceTradesUi.response?.trades ?? [];
+    if (trades.length === 0) return "No trades loaded.";
+    return trades
+      .map((trade) => {
+        const side = trade.side ?? (trade.isBuyer === true ? "BUY" : trade.isBuyer === false ? "SELL" : "—");
+        const qty = typeof trade.qty === "number" && Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
+        const quote = typeof trade.quoteQty === "number" && Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
+        return `${fmtTimeMs(trade.time)} | ${trade.symbol} | ${side} | ${fmtMoney(trade.price, 4)} | ${qty} | ${quote}`;
+      })
+      .join("\n");
+  }, [binanceTradesUi.response]);
+
+  const binanceTradesJson = useMemo(() => {
+    const trades = binanceTradesUi.response?.trades ?? [];
+    if (trades.length === 0) return "";
+    return JSON.stringify(trades, null, 2);
+  }, [binanceTradesUi.response]);
 
   const botRisk = useMemo(() => {
     const st = botDisplay;
@@ -2609,7 +2637,7 @@ export function App() {
       const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 }, symbol);
       setBot((s) => ({ ...s, loading: false, error: null, status: out }));
       botAutoStartSuppressedRef.current = true;
-      showToast("Bot stopped");
+      showToast(symbol ? `Bot stopped (${symbol})` : "Bot stopped");
     } catch (e) {
       if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : String(e);
@@ -2698,8 +2726,9 @@ export function App() {
 
   useEffect(() => {
     if (apiOk !== "ok") return;
-    const starting = bot.status.running ? false : bot.status.starting === true;
-    if (!bot.status.running && !starting) return;
+    const running = bot.status.running;
+    const starting = "starting" in bot.status && bot.status.starting === true;
+    if (!running && !starting) return;
     const t = window.setInterval(() => {
       if (bot.loading) return;
       void refreshBot({ silent: true });
@@ -3328,29 +3357,34 @@ export function App() {
   const extraIssueCount = Math.max(0, requestIssueDetails.length - 1);
   const requestDisabledReason = primaryIssue?.disabledMessage ?? primaryIssue?.message ?? null;
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
-  const botStarting = apiOk === "ok" && !bot.error && !bot.status.running && bot.status.starting === true;
+  const botAnyRunning = bot.status.running;
+  const botAnyStarting = "starting" in bot.status && bot.status.starting === true;
+  const botStartPrimaryIssue = botIssueDetails[0] ?? null;
+  const botStartDisabledReason = botStartPrimaryIssue?.disabledMessage ?? botStartPrimaryIssue?.message ?? null;
+  const botStarting = apiOk === "ok" && !bot.error && botAnyStarting;
   const botStartBlockedReason = firstReason(
     !isBinancePlatform ? "Live bot is supported on Binance only." : null,
     form.positioning === "long-short" && form.market !== "futures"
       ? "Live bot long/short requires the Futures market."
       : null,
-    requestDisabledReason,
+    botStartDisabledReason,
+    botStartSymbols.length > 0 && !botHasNewSymbols ? "All requested bot symbols are already running." : null,
   );
   const botStartBlocked = bot.loading || botStarting || Boolean(botStartBlockedReason);
-  const longShortBotDisabled = bot.status.running || botStarting;
+  const longShortBotDisabled = botAnyRunning || botStarting;
 
   useEffect(() => {
     if (!botAutoStartReady) return;
     if (apiOk !== "ok") return;
     if (!botStatusFetchedRef.current) return;
     if (botAutoStartSuppressedRef.current) return;
-    if (bot.status.running) return;
+    if (botAnyRunning) return;
     if (botStartBlocked) return;
     const now = Date.now();
     if (now - botAutoStartRef.current.lastAttemptAtMs < BOT_AUTOSTART_RETRY_MS) return;
     botAutoStartRef.current.lastAttemptAtMs = now;
     void startLiveBot({ auto: true, silent: true });
-  }, [apiOk, bot.status.running, botAutoStartReady, botStartBlocked, startLiveBot]);
+  }, [apiOk, botAnyRunning, botAutoStartReady, botStartBlocked, startLiveBot]);
   const orderQuoteFractionError = useMemo(() => {
     const f = form.orderQuoteFraction;
     if (!Number.isFinite(f)) return "Order quote fraction must be a number.";
@@ -5309,7 +5343,7 @@ export function App() {
                   <div className="actions" style={{ marginTop: 0 }}>
                     <button
                       className="btn btnPrimary"
-                      disabled={bot.status.running || botStartBlocked}
+                      disabled={botStartBlocked}
                       onClick={() => void startLiveBot()}
                       title={
                         firstReason(
@@ -5318,25 +5352,51 @@ export function App() {
                         ) ?? undefined
                       }
                     >
-                      {bot.loading || botStarting ? "Starting…" : bot.status.running ? "Running" : "Start live bot"}
+                      {bot.loading || botStarting ? "Starting…" : botAnyRunning ? "Running" : "Start live bot"}
                     </button>
                     <button
                       className="btn btnDanger"
-                      disabled={bot.loading || (!bot.status.running && !botStarting)}
+                      disabled={bot.loading || (!botAnyRunning && !botStarting)}
                       onClick={() => void stopLiveBot()}
                     >
-                      Stop bot
+                      {botSymbolsActive.length > 1 ? "Stop all" : "Stop bot"}
                     </button>
+                    {botSymbolsActive.length > 1 ? (
+                      <button
+                        className="btn"
+                        disabled={bot.loading || !botSelectedSymbol || botStarting}
+                        onClick={() => botSelectedSymbol && stopLiveBot(botSelectedSymbol)}
+                      >
+                        Stop selected
+                      </button>
+                    ) : null}
                     <button className="btn" disabled={bot.loading || Boolean(apiBlockedReason)} onClick={() => refreshBot()} title={apiBlockedReason ?? undefined}>
                       Refresh
                     </button>
+                  </div>
+                  <div className="row" style={{ marginTop: 10 }}>
+                    <div className="field" style={{ flex: "1 1 360px" }}>
+                      <label className="label" htmlFor="botSymbols">
+                        Bot symbols (optional)
+                      </label>
+                      <input
+                        id="botSymbols"
+                        className="input"
+                        value={form.botSymbols}
+                        onChange={(e) => setForm((f) => ({ ...f, botSymbols: e.target.value }))}
+                        placeholder="BTCUSDT, ETHUSDT, SOLUSDT"
+                      />
+                      <div className="hint">
+                        Comma-separated list for multi-symbol bots. Leave blank to use the Symbol from Market settings.
+                      </div>
+                    </div>
                   </div>
                   <div className="hint">
                     Continuously ingests new bars, fine-tunes on each bar, and switches position based on the latest signal. Enable “Arm trading” to actually place
                     Binance orders; otherwise it runs in paper mode. If “Sweep thresholds” or “Optimize operations” is enabled, the bot re-optimizes after each
                     buy/sell operation.
                   </div>
-                  {botStartBlockedReason && !bot.status.running && !botStarting ? (
+                  {botStartBlockedReason && !botAnyRunning && !botStarting ? (
                     <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
                       Start live bot is disabled: {botStartBlockedReason}
                     </div>
@@ -5764,6 +5824,30 @@ export function App() {
             <div className="cardBody">
               {botDisplay ? (
                 <>
+                  {botSymbolOptions.length > 1 ? (
+                    <div className="pillRow" style={{ marginBottom: 10 }}>
+                      <span className="badge">Bots</span>
+                      <select
+                        className="select"
+                        value={botSelectedSymbol ?? ""}
+                        onChange={(e) => setBotSelectedSymbol(e.target.value)}
+                      >
+                        {botSymbolOptions.map((entry) => (
+                          <option key={entry.symbol} value={entry.symbol}>
+                            {entry.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="badge">
+                        {botActiveSymbols.length}/{botSymbolOptions.length} active
+                      </span>
+                    </div>
+                  ) : null}
+                  {botStartErrors.length > 0 ? (
+                    <div className="hint" style={{ marginBottom: 10, color: "rgba(239, 68, 68, 0.9)", whiteSpace: "pre-wrap" }}>
+                      {botStartErrors.map((err) => `${err.symbol}: ${err.error}`).join("\n")}
+                    </div>
+                  ) : null}
 	                  <div className="pillRow" style={{ marginBottom: 10 }}>
 	                    <span className="badge">{botDisplay.symbol}</span>
 	                    <span className="badge">{botDisplay.interval}</span>
@@ -6468,6 +6552,209 @@ export function App() {
                     : botStartBlockedReason
                       ? `Bot is stopped. Start live bot is disabled: ${botStartBlockedReason}`
                       : "Bot is stopped. Use “Start live bot” on the left."}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="cardHeader">
+              <h2 className="cardTitle">Binance account trades</h2>
+              <p className="cardSubtitle">Full exchange history from your Binance account (API keys required).</p>
+            </div>
+            <div className="cardBody">
+              <div className="row">
+                <div className="field" style={{ flex: "2 1 360px" }}>
+                  <label className="label" htmlFor="binanceTradesSymbols">
+                    Symbols (optional)
+                  </label>
+                  <input
+                    id="binanceTradesSymbols"
+                    className="input"
+                    value={binanceTradesSymbolsInput}
+                    onChange={(e) => setBinanceTradesSymbolsInput(e.target.value)}
+                    placeholder="BTCUSDT, ETHUSDT"
+                  />
+                  <div className="hint">Leave blank for all symbols (futures only). Spot/margin require a symbol.</div>
+                </div>
+                <div className="field" style={{ flex: "1 1 160px" }}>
+                  <label className="label" htmlFor="binanceTradesLimit">
+                    Limit
+                  </label>
+                  <input
+                    id="binanceTradesLimit"
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={binanceTradesLimit}
+                    onChange={(e) => setBinanceTradesLimit(numFromInput(e.target.value, binanceTradesLimit))}
+                  />
+                  <div className="hint">Max 1000 per request.</div>
+                </div>
+              </div>
+              <div className="row" style={{ marginTop: 10 }}>
+                <div className="field">
+                  <label className="label" htmlFor="binanceTradesStart">
+                    Start time (optional)
+                  </label>
+                  <input
+                    id="binanceTradesStart"
+                    className="input"
+                    value={binanceTradesStartInput}
+                    onChange={(e) => setBinanceTradesStartInput(e.target.value)}
+                    placeholder="2025-12-23T00:00:00Z or 1700000000000"
+                  />
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="binanceTradesEnd">
+                    End time (optional)
+                  </label>
+                  <input
+                    id="binanceTradesEnd"
+                    className="input"
+                    value={binanceTradesEndInput}
+                    onChange={(e) => setBinanceTradesEndInput(e.target.value)}
+                    placeholder="2025-12-23T23:59:59Z"
+                  />
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="binanceTradesFromId">
+                    From ID (optional)
+                  </label>
+                  <input
+                    id="binanceTradesFromId"
+                    className="input"
+                    value={binanceTradesFromIdInput}
+                    onChange={(e) => setBinanceTradesFromIdInput(e.target.value)}
+                    placeholder="Trade ID"
+                  />
+                </div>
+              </div>
+              <div className="actions" style={{ marginTop: 10 }}>
+                <button
+                  className="btn btnPrimary"
+                  disabled={binanceTradesUi.loading || Boolean(binanceTradesInputError)}
+                  onClick={() => void fetchBinanceTrades()}
+                >
+                  {binanceTradesUi.loading ? "Loading…" : "Fetch trades"}
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={!binanceTradesUi.response}
+                  onClick={() => {
+                    void copyText(binanceTradesCopyText);
+                    showToast("Copied trade log");
+                  }}
+                >
+                  Copy
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={!binanceTradesJson}
+                  onClick={() => {
+                    void copyText(binanceTradesJson);
+                    showToast("Copied trade log JSON");
+                  }}
+                >
+                  Copy JSON
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={!binanceTradesUi.response && !binanceTradesUi.error}
+                  onClick={() => setBinanceTradesUi({ loading: false, error: null, response: null })}
+                >
+                  Clear
+                </button>
+              </div>
+              {binanceTradesInputError ? (
+                <div className="hint" style={{ marginTop: 10, color: "rgba(239, 68, 68, 0.9)" }}>
+                  {binanceTradesInputError}
+                </div>
+              ) : null}
+              {binanceTradesUi.error ? (
+                <div className="hint" style={{ marginTop: 10, color: "rgba(239, 68, 68, 0.9)", whiteSpace: "pre-wrap" }}>
+                  {binanceTradesUi.error}
+                </div>
+              ) : null}
+              {binanceTradesUi.response ? (
+                <>
+                  <div className="pillRow" style={{ marginTop: 12, marginBottom: 10 }}>
+                    <span className="badge">{marketLabel(binanceTradesUi.response.market)}</span>
+                    <span className="badge">{binanceTradesUi.response.testnet ? "TESTNET" : "LIVE"}</span>
+                    <span className="badge">{binanceTradesUi.response.trades.length} trades</span>
+                    <span className="badge">
+                      {binanceTradesUi.response.allSymbols
+                        ? "all symbols"
+                        : binanceTradesUi.response.symbols.length > 0
+                          ? binanceTradesUi.response.symbols.join(", ")
+                          : "symbol"}
+                    </span>
+                    <span className="badge">fetched {fmtTimeMs(binanceTradesUi.response.fetchedAtMs)}</span>
+                  </div>
+                  {binanceTradesUi.response.trades.length === 0 ? (
+                    <div className="hint">No trades returned.</div>
+                  ) : (
+                    <div className="tableWrap" role="region" aria-label="Binance account trades">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Side</th>
+                            <th>Price</th>
+                            <th>Qty</th>
+                            <th>Quote</th>
+                            <th>Pos</th>
+                            <th>Commission</th>
+                            <th>PNL</th>
+                            <th>Order</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {binanceTradesUi.response.trades.map((trade) => {
+                            const side = trade.side ?? (trade.isBuyer === true ? "BUY" : trade.isBuyer === false ? "SELL" : "—");
+                            const qtyTxt = Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
+                            const quoteTxt = Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
+                            const commissionTxt =
+                              trade.commission != null && Number.isFinite(trade.commission)
+                                ? `${fmtNum(trade.commission, 8)}${trade.commissionAsset ? ` ${trade.commissionAsset}` : ""}`
+                                : "—";
+                            const pnlTxt =
+                              trade.realizedPnl != null && Number.isFinite(trade.realizedPnl) ? fmtMoney(trade.realizedPnl, 4) : "—";
+                            return (
+                              <tr key={`${trade.symbol}-${trade.tradeId}`}>
+                                <td className="tdMono">{fmtTimeMs(trade.time)}</td>
+                                <td className="tdMono">{trade.symbol}</td>
+                                <td>
+                                  <span className={side === "BUY" ? "badge badgeStrong badgeLong" : side === "SELL" ? "badge badgeStrong badgeFlat" : "badge"}>
+                                    {side}
+                                  </span>
+                                </td>
+                                <td className="tdMono">{fmtMoney(trade.price, 4)}</td>
+                                <td className="tdMono">{qtyTxt}</td>
+                                <td className="tdMono">{quoteTxt}</td>
+                                <td className="tdMono">{trade.positionSide ?? "—"}</td>
+                                <td className="tdMono">{commissionTxt}</td>
+                                <td className="tdMono">{pnlTxt}</td>
+                                <td className="tdMono">{trade.orderId ?? "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <div className="hint" style={{ marginTop: 8 }}>
+                    Binance returns up to 1000 trades per request. Use start/end time or fromId to page deeper history.
+                  </div>
+                </>
+              ) : (
+                <div className="hint" style={{ marginTop: 10 }}>
+                  No trades loaded yet.
                 </div>
               )}
             </div>

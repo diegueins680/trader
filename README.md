@@ -297,13 +297,14 @@ Endpoints:
 - `POST /optimizer/run` → runs the optimizer script, merges the run into `top-combos.json`, and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or minNotional)
+- `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
 - `POST /coinbase/keys` → checks Coinbase key/secret/passphrase via a signed `/accounts` probe
 - `POST /binance/listenKey` → creates a Binance user-data listenKey (returns WebSocket URL)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
 - `POST /binance/listenKey/close` → closes a listenKey
-- `POST /bot/start` → starts the live bot loop (Binance data only)
-- `POST /bot/stop` → stops the live bot loop
-- `GET /bot/status` → returns the live bot status + chart data (prices/equity/positions/operations)
+- `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol)
+- `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
+- `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`)
 
 Optimizer script tips:
 - `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
@@ -330,13 +331,14 @@ State directory (recommended for persistence across deployments):
 - Set `TRADER_STATE_DIR` to a shared writable directory to persist:
   - ops history (`ops.jsonl`)
   - JSONL journal events
-  - live-bot status snapshots (`bot-state.json`)
+  - live-bot status snapshots (`bot-state-<symbol>.json`)
   - optimizer top-combos (`top-combos.json`)
   - async job results (`/signal/async`, `/backtest/async`, `/trade/async`)
   - LSTM weights (for incremental training)
 - Per-feature `TRADER_*_DIR` variables override the state directory; set any of them to an empty string to disable that feature.
 - Docker image default: `TRADER_STATE_DIR=/var/lib/trader/state` (mount `/var/lib/trader` to durable storage to keep state across redeploys).
-- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state` (set `TRADER_STATE_DIR=` or pass `--state-dir` to override/disable).
+- For App Runner and other managed deployments, mount EFS at `/var/lib/trader` and keep `TRADER_STATE_DIR` inside the mount.
+- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state` and validates the EFS mount.
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
@@ -352,7 +354,7 @@ Optional ops persistence (powers `GET /ops` and the “operations” history):
   - `kind` (exact match on operation kind)
 
 Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
-- Set `TRADER_BOT_STATE_DIR` to a writable directory (writes `bot-state.json`; set empty to disable)
+- Set `TRADER_BOT_STATE_DIR` to a writable directory (writes `bot-state-<symbol>.json`; set empty to disable)
 - When unset, defaults to `TRADER_STATE_DIR/bot` (if set) or `.tmp/bot` (local only).
 
 Optional optimizer combo persistence (keeps `/optimizer/combos` data across restarts/deploys):
@@ -406,6 +408,18 @@ curl -s -X POST http://127.0.0.1:8080/bot/start \
   -d '{"binanceSymbol":"BTCUSDT","interval":"5m","bars":500,"method":"11","openThreshold":0.001,"closeThreshold":0.001,"fee":0.0005,"botOnlineEpochs":1,"botTrade":false}'
 ```
 
+Start multiple symbols (auto-apply latest top combo per symbol):
+```
+curl -s -X POST http://127.0.0.1:8080/bot/start \
+  -H 'Content-Type: application/json' \
+  -d '{"botSymbols":["BTCUSDT","ETHUSDT"],"interval":"5m","bars":500,"method":"11","openThreshold":0.001,"closeThreshold":0.001,"fee":0.0005,"botOnlineEpochs":1,"botTrade":false}'
+```
+
+Multi-symbol notes:
+- Use `botSymbols` (array) or `TRADER_BOT_SYMBOLS=BTCUSDT,ETHUSDT` to define the bot symbol set.
+- `GET /bot/status?symbol=BTCUSDT` returns a single bot; omit `symbol` to get `multi=true` with `bots[]`.
+- `POST /bot/stop?symbol=BTCUSDT` stops one bot; omit `symbol` to stop all.
+
 Live safety (startup position):
 - When `botTrade=true`, `/bot/start` refuses to start if it detects an existing position for the symbol (long or short, depending on positioning).
 - To allow restarts to resume managing an existing position, set `"botAdoptExistingPosition": true`.
@@ -413,6 +427,7 @@ Live safety (startup position):
 Auto-optimize after each buy/sell operation:
 - Thresholds only: add `"sweepThreshold": true`
 - Method + thresholds: add `"optimizeOperations": true`
+- The live bot always syncs to the latest top combo from `top-combos.json` (poll interval `TRADER_BOT_COMBOS_POLL_SEC`, default 30s).
 
 Check status:
 ```
@@ -446,6 +461,7 @@ The UI shows whether combos are coming from the live API or the static fallback,
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 If a refresh fails, the last known combos remain visible with a warning banner.
+The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
 Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).

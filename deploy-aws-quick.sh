@@ -63,7 +63,7 @@ Usage:
 Flags:
   --region <region>                 AWS region (e.g. ap-northeast-1)
   --api-token <token>               API token (TRADER_API_TOKEN)
-  --state-dir <path>                State dir (default: /var/lib/trader/state; set empty to disable)
+  --state-dir <path>                State dir (default: /var/lib/trader/state; must be inside the EFS mount)
   --api-only                         Deploy API only
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
@@ -327,6 +327,60 @@ wait_for_apprunner_running() {
   return 1
 }
 
+require_apprunner_efs() {
+  local service_arn="$1"
+  local efs_cfg=""
+  efs_cfg="$(
+    aws apprunner describe-service \
+      --service-arn "$service_arn" \
+      --region "$AWS_REGION" \
+      --query 'Service.StorageConfiguration.EfsConfiguration' \
+      --output json 2>/dev/null || true
+  )"
+  if [[ -z "$efs_cfg" || "$efs_cfg" == "null" || "$efs_cfg" == "[]" || "$efs_cfg" == "{}" ]]; then
+    echo -e "${RED}✗ App Runner service has no EFS storage configured.${NC}" >&2
+    echo "Add an EFS volume and mount it at /var/lib/trader (App Runner → Configuration → Storage)." >&2
+    exit 1
+  fi
+
+  local mount_path=""
+  mount_path="$(
+    aws apprunner describe-service \
+      --service-arn "$service_arn" \
+      --region "$AWS_REGION" \
+      --query 'Service.StorageConfiguration.EfsConfiguration.MountPath' \
+      --output text 2>/dev/null || true
+  )"
+  if [[ -z "$mount_path" || "$mount_path" == "None" ]]; then
+    mount_path="$(
+      aws apprunner describe-service \
+        --service-arn "$service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.StorageConfiguration.EfsConfiguration[0].MountPath' \
+        --output text 2>/dev/null || true
+    )"
+  fi
+
+  if [[ -z "$mount_path" || "$mount_path" == "None" ]]; then
+    echo -e "${RED}✗ App Runner EFS mount path not found.${NC}" >&2
+    exit 1
+  fi
+
+  if [[ -z "${TRADER_STATE_DIR:-}" ]]; then
+    echo -e "${RED}✗ TRADER_STATE_DIR is empty; persistent state requires an EFS-backed path.${NC}" >&2
+    exit 1
+  fi
+
+  case "$TRADER_STATE_DIR" in
+    "$mount_path"/*|"$mount_path")
+      ;;
+    *)
+      echo -e "${RED}✗ TRADER_STATE_DIR (${TRADER_STATE_DIR}) is outside the EFS mount (${mount_path}).${NC}" >&2
+      exit 1
+      ;;
+  esac
+}
+
 set_apprunner_scaling() {
   local service_arn="$1"
   local min_size="${2:-1}"
@@ -568,6 +622,10 @@ EOF
 
   echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
   wait_for_apprunner_running "$service_arn" >/dev/null
+
+  echo "Verifying EFS mount..." >&2
+  require_apprunner_efs "$service_arn"
+  echo -e "${GREEN}✓ EFS mount verified${NC}" >&2
 
   local service_host
   service_host="$(aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.ServiceUrl' --output text)"
