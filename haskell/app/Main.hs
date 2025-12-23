@@ -2686,6 +2686,7 @@ parseTopComboToArgs base combo = do
       out =
         base
           { argMethod = method
+          , argPositioning = _positioning
           , argNormalization = normalization
           , argOpenThreshold = openThr
           , argCloseThreshold = closeThr
