@@ -2137,8 +2137,8 @@ argsCompatibleWithAdoption args req
         _ ->
           not (arRequiresLongShort req) && argPositioning args /= LongShort
 
-selectCompatibleTopComboArgs :: String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe Args
-selectCompatibleTopComboArgs sym args req export =
+selectCompatibleTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe Args
+selectCompatibleTopComboArgs limits sym args req export =
   let combos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
       sortedCombos = sortOn topComboRankKey combos
       pick [] = Nothing
@@ -2147,12 +2147,15 @@ selectCompatibleTopComboArgs sym args req export =
           Left _ -> pick rest
           Right args' ->
             if argsCompatibleWithAdoption args' req
-              then Just args'
+              then
+                case validateApiComputeLimits limits args' of
+                  Left _ -> pick rest
+                  Right () -> Just args'
               else pick rest
    in pick sortedCombos
 
-applyLatestTopCombo :: FilePath -> String -> Args -> AdoptRequirement -> IO Args
-applyLatestTopCombo optimizerTmp sym args req = do
+applyLatestTopCombo :: FilePath -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO Args
+applyLatestTopCombo optimizerTmp limits sym args req = do
   topJsonPath <- resolveOptimizerCombosPath optimizerTmp
   if arActive req
     then do
@@ -2163,7 +2166,7 @@ applyLatestTopCombo optimizerTmp sym args req = do
             case combosOrErr of
               Left _ -> sleepSec pollSec >> loop
               Right export ->
-                case selectCompatibleTopComboArgs sym args req export of
+                case selectCompatibleTopComboArgs limits sym args req export of
                   Nothing -> sleepSec pollSec >> loop
                   Just args' -> pure args'
       loop
@@ -2200,12 +2203,15 @@ botStartSymbol ::
   Metrics ->
   Maybe Journal ->
   Maybe FilePath ->
+  FilePath ->
+  ApiComputeLimits ->
+  AdoptRequirement ->
   BotController ->
   Args ->
   ApiParams ->
   String ->
   IO (Either String BotStartOutcome)
-botStartSymbol allowExisting mOps metrics mJournal mBotStateDir ctrl args p symRaw =
+botStartSymbol allowExisting mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq ctrl args p symRaw =
   if not (platformSupportsLiveBot (argPlatform args))
     then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
     else
@@ -2233,10 +2239,24 @@ botStartSymbol allowExisting mOps metrics mJournal mBotStateDir ctrl args p symR
                       Nothing -> do
                         preflight <- preflightBotStart argsSym settings sym
                         case preflight of
-                          Left e -> pure (mrt, Left e)
+                          Left e | not (arActive adoptReq) -> pure (mrt, Left e)
+                          Left _ -> do
+                            stopSig <- newEmptyMVar
+                            tid <- forkIO (botStartWorker mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
+                            let rt =
+                                  BotStartRuntime
+                                    { bsrThreadId = tid
+                                    , bsrStopSignal = stopSig
+                                    , bsrArgs = argsSym
+                                    , bsrSettings = settings
+                                    , bsrSymbol = sym
+                                    , bsrRequestedAtMs = now
+                                    }
+                                st = BotStarting rt
+                            pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
                           Right () -> do
                             stopSig <- newEmptyMVar
-                            tid <- forkIO (botStartWorker mOps metrics mJournal mBotStateDir ctrl argsSym settings sym stopSig)
+                            tid <- forkIO (botStartWorker mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
                             let rt =
                                   BotStartRuntime
                                     { bsrThreadId = tid
@@ -2249,10 +2269,32 @@ botStartSymbol allowExisting mOps metrics mJournal mBotStateDir ctrl args p symR
                                 st = BotStarting rt
                             pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
 
-botStartWorker :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> Args -> BotSettings -> String -> MVar () -> IO ()
-botStartWorker mOps metrics mJournal mBotStateDir ctrl args settings sym stopSig = do
+botStartWorker ::
+  Maybe OpsStore ->
+  Metrics ->
+  Maybe Journal ->
+  Maybe FilePath ->
+  FilePath ->
+  ApiComputeLimits ->
+  AdoptRequirement ->
+  BotController ->
+  Args ->
+  BotSettings ->
+  String ->
+  MVar () ->
+  IO ()
+botStartWorker mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq ctrl args settings sym stopSig = do
   tid <- myThreadId
-  r <- try (initBotState args settings sym) :: IO (Either SomeException BotState)
+  let doStart baseArgs = do
+        argsFinal <-
+          if arActive adoptReq
+            then applyLatestTopCombo optimizerTmp limits sym baseArgs adoptReq
+            else pure baseArgs
+        preflight <- preflightBotStart argsFinal settings sym
+        case preflight of
+          Left e -> throwIO (userError e)
+          Right () -> initBotState argsFinal settings sym
+  r <- try (doStart args) :: IO (Either SomeException BotState)
   case r of
     Left ex -> do
       now <- getTimestampMs
@@ -6939,7 +6981,7 @@ handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs b
             Right symbols -> do
               let allowExisting = length symbols > 1
                   tradeEnabled = maybe False id (apBotTrade params)
-              let noAdoptRequirement = AdoptRequirement False False
+                  noAdoptRequirement = AdoptRequirement False False
               results <- forM symbols $ \sym -> do
                 let argsSym = argsBase { argBinanceSymbol = Just sym }
                 adoptReqOrErr <-
@@ -6949,11 +6991,14 @@ handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs b
                 case adoptReqOrErr of
                   Left err -> pure (sym, Left err)
                   Right adoptReq -> do
-                    argsCombo <- applyLatestTopCombo optimizerTmp sym argsSym adoptReq
+                    argsCombo <-
+                      if arActive adoptReq
+                        then pure argsSym
+                        else applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
                     case validateApiComputeLimits limits argsCombo of
                       Left err -> pure (sym, Left err)
                       Right argsOk -> do
-                        r <- botStartSymbol allowExisting mOps metrics mJournal mBotStateDir botCtrl argsOk params sym
+                        r <- botStartSymbol allowExisting mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq botCtrl argsOk params sym
                         pure (sym, r)
 
               let errors =
