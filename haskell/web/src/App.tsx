@@ -63,6 +63,7 @@ import {
 import { binanceIntervalSeconds, defaultForm, normalizeFormState, parseDurationSeconds, type FormState, type FormStateJson } from "./app/formState";
 import {
   actionBadgeClass,
+  buildRequestIssueDetails,
   clamp,
   escapeSingleQuotes,
   firstReason,
@@ -87,11 +88,6 @@ import { TelemetryChart } from "./components/TelemetryChart";
 import { TopCombosChart, type OptimizationCombo, type OptimizationComboOperation } from "./components/TopCombosChart";
 
 type RequestKind = "signal" | "backtest" | "trade";
-
-type RequestIssueDetail = {
-  message: string;
-  targetId?: string;
-};
 
 type RunOptions = {
   silent?: boolean;
@@ -1592,6 +1588,15 @@ export function App() {
     }, 1200);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (sectionFlashTimeoutRef.current) {
+        window.clearTimeout(sectionFlashTimeoutRef.current);
+        sectionFlashTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   const run = useCallback(
     async (kind: RequestKind, overrideParams?: ApiParams, opts?: RunOptions) => {
       const now = Date.now();
@@ -2852,46 +2857,40 @@ export function App() {
       : hiddenSizeExceedsApi
         ? `Hidden size exceeds API limit (max ${apiComputeLimits?.maxHiddenSize ?? "?"}). Reduce hidden size or switch to method=10 (Kalman-only).`
         : null;
-  const requestIssueDetails = useMemo(() => {
-    const issues: RequestIssueDetail[] = [];
-    if (rateLimitReason) issues.push({ message: rateLimitReason });
-    if (apiStatusIssue) issues.push({ message: apiStatusIssue, targetId: "section-api" });
-    if (missingSymbol) issues.push({ message: "Binance symbol is required.", targetId: "symbol" });
-    if (missingInterval) issues.push({ message: "Interval is required.", targetId: "interval" });
-    if (lookbackState.error) {
-      issues.push({
-        message: lookbackState.error,
-        targetId: lookbackState.overrideOn ? "lookbackBars" : "lookbackWindow",
-      });
-    }
-    if (apiLimitsReason) {
-      const targetId = barsExceedsApi ? "bars" : epochsExceedsApi ? "epochs" : hiddenSizeExceedsApi ? "hiddenSize" : undefined;
-      issues.push({ message: apiLimitsReason, targetId });
-    }
-    return issues;
-  }, [
-    apiLimitsReason,
-    apiStatusIssue,
-    barsExceedsApi,
-    epochsExceedsApi,
-    hiddenSizeExceedsApi,
-    lookbackState.error,
-    lookbackState.overrideOn,
-    missingInterval,
-    missingSymbol,
-    rateLimitReason,
-  ]);
+  const requestIssueDetails = useMemo(
+    () =>
+      buildRequestIssueDetails({
+        rateLimitReason,
+        apiStatusIssue,
+        apiBlockedReason,
+        apiTargetId: "section-api",
+        missingSymbol,
+        symbolTargetId: "symbol",
+        missingInterval,
+        intervalTargetId: "interval",
+        lookbackError: lookbackState.error,
+        lookbackTargetId: lookbackState.overrideOn ? "lookbackBars" : "lookbackWindow",
+        apiLimitsReason,
+        apiLimitsTargetId: barsExceedsApi ? "bars" : epochsExceedsApi ? "epochs" : hiddenSizeExceedsApi ? "hiddenSize" : undefined,
+      }),
+    [
+      apiBlockedReason,
+      apiLimitsReason,
+      apiStatusIssue,
+      barsExceedsApi,
+      epochsExceedsApi,
+      hiddenSizeExceedsApi,
+      lookbackState.error,
+      lookbackState.overrideOn,
+      missingInterval,
+      missingSymbol,
+      rateLimitReason,
+    ],
+  );
   const requestIssues = useMemo(() => requestIssueDetails.map((issue) => issue.message), [requestIssueDetails]);
   const primaryIssue = requestIssueDetails[0] ?? null;
   const extraIssueCount = Math.max(0, requestIssueDetails.length - 1);
-  const requestDisabledReason = firstReason(
-    apiBlockedReason,
-    rateLimitReason,
-    missingSymbol ? "Binance symbol is required." : null,
-    missingInterval ? "Interval is required." : null,
-    lookbackState.error,
-    apiLimitsReason,
-  );
+  const requestDisabledReason = primaryIssue?.disabledMessage ?? primaryIssue?.message ?? null;
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
   const botStarting = bot.status.running ? false : bot.status.starting === true;
   const botStartBlockedReason = firstReason(

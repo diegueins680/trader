@@ -92,23 +92,41 @@ export function firstReason(...reasons: Array<string | null | undefined>): strin
   return null;
 }
 
-export type RequestIssuesInput = {
-  rateLimitReason?: string | null;
-  apiStatusIssue?: string | null;
-  missingSymbol?: boolean;
-  missingInterval?: boolean;
-  lookbackError?: string | null;
-  apiLimitsReason?: string | null;
+export type RequestIssueDetail = {
+  message: string;
+  targetId?: string;
+  disabledMessage?: string;
 };
 
-export function buildRequestIssues(input: RequestIssuesInput): string[] {
-  const issues: string[] = [];
-  if (input.rateLimitReason) issues.push(input.rateLimitReason);
-  if (input.apiStatusIssue) issues.push(input.apiStatusIssue);
-  if (input.missingSymbol) issues.push("Binance symbol is required.");
-  if (input.missingInterval) issues.push("Interval is required.");
-  if (input.lookbackError) issues.push(input.lookbackError);
-  if (input.apiLimitsReason) issues.push(input.apiLimitsReason);
+export type RequestIssueDetailsInput = {
+  rateLimitReason?: string | null;
+  apiStatusIssue?: string | null;
+  apiBlockedReason?: string | null;
+  apiTargetId?: string;
+  missingSymbol?: boolean;
+  symbolTargetId?: string;
+  missingInterval?: boolean;
+  intervalTargetId?: string;
+  lookbackError?: string | null;
+  lookbackTargetId?: string;
+  apiLimitsReason?: string | null;
+  apiLimitsTargetId?: string;
+};
+
+export function buildRequestIssueDetails(input: RequestIssueDetailsInput): RequestIssueDetail[] {
+  const issues: RequestIssueDetail[] = [];
+  if (input.rateLimitReason) issues.push({ message: input.rateLimitReason });
+  if (input.apiStatusIssue) {
+    issues.push({
+      message: input.apiStatusIssue,
+      targetId: input.apiTargetId,
+      disabledMessage: input.apiBlockedReason ?? input.apiStatusIssue,
+    });
+  }
+  if (input.missingSymbol) issues.push({ message: "Binance symbol is required.", targetId: input.symbolTargetId });
+  if (input.missingInterval) issues.push({ message: "Interval is required.", targetId: input.intervalTargetId });
+  if (input.lookbackError) issues.push({ message: input.lookbackError, targetId: input.lookbackTargetId });
+  if (input.apiLimitsReason) issues.push({ message: input.apiLimitsReason, targetId: input.apiLimitsTargetId });
   return issues;
 }
 
