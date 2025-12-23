@@ -2130,7 +2130,7 @@ initBotState args settings sym = do
     if wantSwitch
       then
         if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
-          then Just <$> placeCloseIfEnabled args settings latest env sym
+          then Just <$> placeBotCloseIfEnabled args settings latest env sym
           else Just <$> placeIfEnabled args settings latest env sym
       else pure Nothing
 
@@ -2293,7 +2293,7 @@ initBotState args settings sym = do
           , botError = Nothing
           }
 
-  if wantSwitch && appliedSwitch && desiredPos == 1
+  if wantSwitch && appliedSwitch && desiredPos /= 0
     then botOptimizeAfterOperation st0
     else pure st0
 
@@ -2738,7 +2738,6 @@ parseTopComboToArgs base combo = do
           , argTuneStressVolMult = tuneStressVolMult
           , argTuneStressShock = tuneStressShock
           , argTuneStressWeight = tuneStressWeight
-          , argPositioning = LongFlat
           , argOptimizeOperations = False
           , argSweepThreshold = False
           }
@@ -3702,7 +3701,7 @@ botApplyKline mOps metrics mJournal st k = do
       else do
         o <-
           if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
-            then placeCloseIfEnabled args settings latest (botEnv st) (botSymbol st)
+            then placeBotCloseIfEnabled args settings latest (botEnv st) (botSymbol st)
             else placeIfEnabled args settings latest (botEnv st) (botSymbol st)
         let opSide =
               if desiredPosWanted > prevPos
@@ -3968,8 +3967,8 @@ placeIfEnabled args settings sig env sym =
     then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
     else placeOrderForSignalBot args sym sig env
 
-placeCloseIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
-placeCloseIfEnabled args settings sig env sym =
+placeBotCloseIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
+placeBotCloseIfEnabled args settings sig env sym =
   if not (bsTradeEnabled settings)
     then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
     else placeBotCloseOrder args sym sig env

@@ -456,7 +456,7 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` requi
 - Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
-The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (long-flat only).
+The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (supports long/short on futures).
 Optimizer combos are clamped to the API compute limits reported by `/health` when available.
 
 Troubleshooting: “No live operations yet”
