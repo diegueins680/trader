@@ -72,6 +72,26 @@ cabal run trader-hs -- \
   --epochs 5
 ```
 
+Coinbase example (products use BASE-QUOTE, e.g. BTC-USD):
+```
+cd haskell
+cabal run trader-hs -- \
+  --symbol BTC-USD \
+  --platform coinbase \
+  --interval 1h \
+  --epochs 5
+```
+
+Poloniex example (symbols use BASE_QUOTE, e.g. BTC_USDT):
+```
+cd haskell
+cabal run trader-hs -- \
+  --symbol BTC_USDT \
+  --platform poloniex \
+  --interval 2h \
+  --epochs 5
+```
+
 Sending Binance orders (optional)
 ---------------------------------
 By default, orders are sent to `/api/v3/order/test`. Trading is supported only when `--platform binance` (default). Add `--binance-live` to send live orders.
@@ -84,6 +104,9 @@ Futures protection orders (live, manual trades only):
 Environment variables:
 - `BINANCE_API_KEY`
 - `BINANCE_API_SECRET`
+- `COINBASE_API_KEY`
+- `COINBASE_API_SECRET`
+- `COINBASE_API_PASSPHRASE`
 
 Getting Binance API keys:
 - Binance → Profile → **API Management** → **Create API**
@@ -115,7 +138,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--high-column high` CSV column name for high (requires `--low-column`; enables intrabar stop-loss/take-profit/trailing-stop realism)
   - `--low-column low` CSV column name for low (requires `--high-column`)
   - `--symbol SYMBOL` (alias `--binance-symbol`) exchange symbol to fetch klines
-  - `--platform binance` exchange platform for `--symbol` (`binance|kraken|poloniex`)
+  - `--platform binance` exchange platform for `--symbol` (`binance|coinbase|kraken|poloniex`)
+    - Coinbase products use `BASE-QUOTE` (for example `BTC-USD`).
+    - Poloniex symbols use `BASE_QUOTE` (for example `BTC_USDT`); legacy `USDT_BTC` is auto-swapped.
 
 - Bars & lookback (defaults: `--interval 5m`, `--lookback-window 24h` → 288 bars, `--bars auto`)
 - `--interval 5m` (alias `--binance-interval`) bar interval / exchange kline interval
@@ -138,6 +163,11 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
+
+- Coinbase API keys (optional; stored for signed endpoints when needed)
+  - `--coinbase-api-key KEY` (default: none) or env `COINBASE_API_KEY`
+  - `--coinbase-api-secret SECRET` (default: none) or env `COINBASE_API_SECRET`
+  - `--coinbase-api-passphrase PASS` (default: none) or env `COINBASE_API_PASSPHRASE`
 
 - Normalization
   - `--normalization standard` one of `none|minmax|standard|log`
@@ -172,7 +202,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
     - `--blend-weight 0.5` Kalman weight for `blend` (`0..1`, default: `0.5`)
-- `--positioning long-flat` (default) or `--positioning long-short` (allows short positions; trading/live bot requires `--futures`)
+- `--positioning long-flat` (default, alias `long-only`/`long`) or `--positioning long-short` (allows short positions; trading/live bot requires `--futures`)
   - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
@@ -396,7 +426,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
 - `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), or `"blend"` (weighted average; see `--blend-weight`).
-- `positioning` is `"long-flat"` (default) or `"long-short"` (shorts require futures when placing orders or running the live bot).
+- `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
 
 Deploy to AWS
 -------------

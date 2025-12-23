@@ -6,6 +6,9 @@ export const STORAGE_PROFILES_KEY = "trader.ui.formProfiles.v1";
 export const STORAGE_PERSIST_SECRETS_KEY = "trader.ui.persistSecrets.v1";
 export const SESSION_BINANCE_KEY_KEY = "trader.ui.binanceApiKey.v1";
 export const SESSION_BINANCE_SECRET_KEY = "trader.ui.binanceApiSecret.v1";
+export const SESSION_COINBASE_KEY_KEY = "trader.ui.coinbaseApiKey.v1";
+export const SESSION_COINBASE_SECRET_KEY = "trader.ui.coinbaseApiSecret.v1";
+export const SESSION_COINBASE_PASSPHRASE_KEY = "trader.ui.coinbaseApiPassphrase.v1";
 export const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";
 
 const DEFAULT_SIGNAL_TIMEOUT_MS = 10 * 60_000;
@@ -31,10 +34,11 @@ export const RATE_LIMIT_BASE_MS = 10_000;
 export const RATE_LIMIT_MAX_MS = 120_000;
 export const RATE_LIMIT_TOAST_MIN_MS = 12_000;
 
-export const PLATFORMS: Platform[] = ["binance", "kraken", "poloniex"];
+export const PLATFORMS: Platform[] = ["binance", "coinbase", "kraken", "poloniex"];
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   binance: "Binance",
+  coinbase: "Coinbase",
   kraken: "Kraken",
   poloniex: "Poloniex",
 };
@@ -59,17 +63,20 @@ export const BINANCE_INTERVALS = [
 
 export const BINANCE_INTERVAL_SET = new Set<string>(BINANCE_INTERVALS);
 
+export const COINBASE_INTERVALS = ["1m", "5m", "15m", "1h", "6h", "1d"] as const;
 export const KRAKEN_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"] as const;
 export const POLONIEX_INTERVALS = ["5m", "15m", "30m", "2h", "4h", "1d"] as const;
 
 export const PLATFORM_INTERVALS: Record<Platform, readonly string[]> = {
   binance: BINANCE_INTERVALS,
+  coinbase: COINBASE_INTERVALS,
   kraken: KRAKEN_INTERVALS,
   poloniex: POLONIEX_INTERVALS,
 };
 
 export const PLATFORM_INTERVAL_SET: Record<Platform, Set<string>> = {
   binance: BINANCE_INTERVAL_SET,
+  coinbase: new Set<string>(COINBASE_INTERVALS),
   kraken: new Set<string>(KRAKEN_INTERVALS),
   poloniex: new Set<string>(POLONIEX_INTERVALS),
 };
@@ -120,6 +127,19 @@ export const BINANCE_SYMBOLS = [
 
 export const BINANCE_SYMBOL_SET = new Set<string>(BINANCE_SYMBOLS);
 
+export const COINBASE_SYMBOLS = [
+  "BTC-USD",
+  "ETH-USD",
+  "SOL-USD",
+  "XRP-USD",
+  "ADA-USD",
+  "DOGE-USD",
+  "AVAX-USD",
+  "LINK-USD",
+  "DOT-USD",
+  "LTC-USD",
+] as const;
+
 export const KRAKEN_SYMBOLS = [
   "XBTUSD",
   "ETHUSD",
@@ -131,30 +151,33 @@ export const KRAKEN_SYMBOLS = [
 ] as const;
 
 export const POLONIEX_SYMBOLS = [
-  "USDT_BTC",
-  "USDT_ETH",
-  "USDT_SOL",
-  "USDT_XRP",
-  "USDT_DOGE",
-  "USDT_ADA",
+  "BTC_USDT",
+  "ETH_USDT",
+  "SOL_USDT",
+  "XRP_USDT",
+  "DOGE_USDT",
+  "ADA_USDT",
 ] as const;
 
 export const PLATFORM_SYMBOLS: Record<Platform, readonly string[]> = {
   binance: BINANCE_SYMBOLS,
+  coinbase: COINBASE_SYMBOLS,
   kraken: KRAKEN_SYMBOLS,
   poloniex: POLONIEX_SYMBOLS,
 };
 
 export const PLATFORM_SYMBOL_SET: Record<Platform, Set<string>> = {
   binance: BINANCE_SYMBOL_SET,
+  coinbase: new Set<string>(COINBASE_SYMBOLS),
   kraken: new Set<string>(KRAKEN_SYMBOLS),
   poloniex: new Set<string>(POLONIEX_SYMBOLS),
 };
 
 export const PLATFORM_DEFAULT_SYMBOL: Record<Platform, string> = {
   binance: "BTCUSDT",
+  coinbase: "BTC-USD",
   kraken: "XBTUSD",
-  poloniex: "USDT_BTC",
+  poloniex: "BTC_USDT",
 };
 
 export const TUNE_OBJECTIVES = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"] as const;

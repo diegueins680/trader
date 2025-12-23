@@ -4,6 +4,7 @@ module Trader.Binance
   , BinanceMarket(..)
   , BinanceOrderMode(..)
   , OrderSide(..)
+  , BinanceTrade(..)
   , Kline(..)
   , Step(..)
   , SymbolFilters(..)
@@ -25,6 +26,7 @@ module Trader.Binance
   , placeMarketOrder
   , placeFuturesTriggerMarketOrder
   , fetchOrderByClientId
+  , fetchAccountTrades
   , fetchFreeBalance
   , fetchFuturesAvailableBalance
   , fetchFuturesPositionAmt
@@ -36,7 +38,7 @@ module Trader.Binance
 
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, throwIO, try)
-import Data.Aeson (FromJSON(..), eitherDecode, withArray, (.:), withObject)
+import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, object, withArray, (.:), (.=), withObject)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
@@ -83,6 +85,92 @@ data Kline = Kline
   , kLow :: !Double
   , kClose :: !Double
   } deriving (Eq, Show)
+
+data BinanceTrade = BinanceTrade
+  { btSymbol :: !String
+  , btTradeId :: !Int64
+  , btOrderId :: !(Maybe Int64)
+  , btPrice :: !Double
+  , btQty :: !Double
+  , btQuoteQty :: !Double
+  , btCommission :: !(Maybe Double)
+  , btCommissionAsset :: !(Maybe String)
+  , btTime :: !Int64
+  , btIsBuyer :: !(Maybe Bool)
+  , btIsMaker :: !(Maybe Bool)
+  , btSide :: !(Maybe String)
+  , btPositionSide :: !(Maybe String)
+  , btRealizedPnl :: !(Maybe Double)
+  } deriving (Eq, Show)
+
+instance FromJSON BinanceTrade where
+  parseJSON = withObject "BinanceTrade" $ \o -> do
+    sym <- o .: "symbol"
+    tradeId <- o .: "id"
+    orderId <- o .:? "orderId"
+    price <- parseDoubleField o "price"
+    qty <- parseDoubleField o "qty"
+    quoteQtyRaw <- parseMaybeDoubleField o "quoteQty"
+    commission <- parseMaybeDoubleField o "commission"
+    commissionAsset <- o .:? "commissionAsset"
+    ts <- o .: "time"
+    isBuyerRaw <- o .:? "isBuyer"
+    buyerRaw <- o .:? "buyer"
+    isMakerRaw <- o .:? "isMaker"
+    makerRaw <- o .:? "maker"
+    sideRaw <- o .:? "side"
+    positionSide <- o .:? "positionSide"
+    realizedPnl <- parseMaybeDoubleField o "realizedPnl"
+    let isBuyer = isBuyerRaw <|> buyerRaw
+        isMaker = isMakerRaw <|> makerRaw
+        sideDerived =
+          case sideRaw of
+            Just s | not (null (trim s)) -> Just (map toUpperAscii s)
+            _ ->
+              case isBuyer of
+                Just True -> Just "BUY"
+                Just False -> Just "SELL"
+                Nothing -> Nothing
+        quoteQty =
+          case quoteQtyRaw of
+            Just q -> q
+            Nothing -> price * qty
+    pure
+      BinanceTrade
+        { btSymbol = sym
+        , btTradeId = tradeId
+        , btOrderId = orderId
+        , btPrice = price
+        , btQty = qty
+        , btQuoteQty = quoteQty
+        , btCommission = commission
+        , btCommissionAsset = commissionAsset
+        , btTime = ts
+        , btIsBuyer = isBuyer
+        , btIsMaker = isMaker
+        , btSide = sideDerived
+        , btPositionSide = positionSide
+        , btRealizedPnl = realizedPnl
+        }
+
+instance ToJSON BinanceTrade where
+  toJSON t =
+    object
+      [ "symbol" .= btSymbol t
+      , "tradeId" .= btTradeId t
+      , "orderId" .= btOrderId t
+      , "price" .= btPrice t
+      , "qty" .= btQty t
+      , "quoteQty" .= btQuoteQty t
+      , "commission" .= btCommission t
+      , "commissionAsset" .= btCommissionAsset t
+      , "time" .= btTime t
+      , "isBuyer" .= btIsBuyer t
+      , "isMaker" .= btIsMaker t
+      , "side" .= btSide t
+      , "positionSide" .= btPositionSide t
+      , "realizedPnl" .= btRealizedPnl t
+      ]
 
 binanceBaseUrl :: String
 binanceBaseUrl = "https://api.binance.com"
@@ -131,6 +219,18 @@ parseDoubleText t =
   case readMaybe (T.unpack t) of
     Just d -> pure d
     Nothing -> fail ("Failed to parse double: " ++ T.unpack t)
+
+parseDoubleField :: Aeson.Object -> Text -> AT.Parser Double
+parseDoubleField o k = do
+  t <- o .: k
+  parseDoubleText t
+
+parseMaybeDoubleField :: Aeson.Object -> Text -> AT.Parser (Maybe Double)
+parseMaybeDoubleField o k = do
+  mt <- o .:? k
+  case mt of
+    Nothing -> pure Nothing
+    Just t -> Just <$> parseDoubleText t
 
 -- Binance symbol filters (exchangeInfo)
 
@@ -569,6 +669,64 @@ fetchOrderByClientId env symbol clientOrderId = do
   resp <- httpLbs req (beManager env)
   ensure2xx label resp
   pure (responseBody resp)
+
+fetchAccountTrades :: BinanceEnv -> Maybe String -> Maybe Int -> Maybe Int64 -> Maybe Int64 -> Maybe Int64 -> IO [BinanceTrade]
+fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
+  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+  ts <- getTimestampMs
+
+  symbolParam <-
+    case (beMarket env, mSymbol) of
+      (MarketFutures, Nothing) -> pure []
+      (_, Just sym) -> pure [("symbol", BS.pack (map toUpperAscii sym))]
+      (_, Nothing) -> throwIO (userError "binance trades require symbol for spot/margin markets")
+
+  let clampLimit n = max 1 (min 1000 n)
+      limitParam =
+        case mLimit of
+          Nothing -> []
+          Just lim -> [("limit", BS.pack (show (clampLimit lim)))]
+      startTimeParam =
+        case mStartTime of
+          Nothing -> []
+          Just t -> [("startTime", BS.pack (show (max 0 t)))]
+      endTimeParam =
+        case mEndTime of
+          Nothing -> []
+          Just t -> [("endTime", BS.pack (show (max 0 t)))]
+      fromIdParam =
+        case mFromId of
+          Nothing -> []
+          Just v -> [("fromId", BS.pack (show (max 0 v)))]
+      baseParams =
+        [ ("timestamp", BS.pack (show ts))
+        , ("recvWindow", "5000")
+        ]
+      params = symbolParam ++ limitParam ++ startTimeParam ++ endTimeParam ++ fromIdParam ++ baseParams
+      queryToSign = renderSimpleQuery False params
+      sig = signQuery secret queryToSign
+      paramsSigned = params ++ [("signature", sig)]
+      qs = renderSimpleQuery True paramsSigned
+
+      (path, label) =
+        case beMarket env of
+          MarketSpot -> ("/api/v3/myTrades", "account/myTrades")
+          MarketMargin -> ("/sapi/v1/margin/myTrades", "margin/myTrades")
+          MarketFutures -> ("/fapi/v1/userTrades", "futures/userTrades")
+
+  req0 <- parseRequest (beBaseUrl env ++ path)
+  let req =
+        req0
+          { method = "GET"
+          , queryString = qs
+          , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+          }
+  resp <- httpLbs req (beManager env)
+  ensure2xx label resp
+  case eitherDecode (responseBody resp) of
+    Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
+    Right trades -> pure trades
 
 data FuturesOpenOrder = FuturesOpenOrder
   { fooClientOrderId :: String

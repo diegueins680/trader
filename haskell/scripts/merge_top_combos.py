@@ -151,6 +151,7 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     source_s = source_raw.strip().lower() if isinstance(source_raw, str) else ""
     source_map = {
         "binance": "binance",
+        "coinbase": "coinbase",
         "kraken": "kraken",
         "poloniex": "poloniex",
         "csv": "csv",
@@ -163,8 +164,8 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     platform_raw = params_raw.get("platform")
     platform_s = platform_raw.strip().lower() if isinstance(platform_raw, str) else ""
-    if platform_s not in ("binance", "kraken", "poloniex"):
-        platform_s = source if source in ("binance", "kraken", "poloniex") else None
+    if platform_s not in ("binance", "coinbase", "kraken", "poloniex"):
+        platform_s = source if source in ("binance", "coinbase", "kraken", "poloniex") else None
 
     objective = combo.get("objective") if isinstance(combo.get("objective"), str) else None
     score = _coerce_float(combo.get("score"))

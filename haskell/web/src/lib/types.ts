@@ -1,5 +1,5 @@
 export type Market = "spot" | "margin" | "futures";
-export type Platform = "binance" | "kraken" | "poloniex";
+export type Platform = "binance" | "coinbase" | "kraken" | "poloniex";
 export type Method = "11" | "10" | "01" | "blend";
 export type Normalization = "none" | "minmax" | "standard" | "log";
 export type Positioning = "long-flat" | "long-short";
@@ -22,6 +22,9 @@ export type ApiParams = {
   binanceTestnet?: boolean;
   binanceApiKey?: string;
   binanceApiSecret?: string;
+  coinbaseApiKey?: string;
+  coinbaseApiSecret?: string;
+  coinbaseApiPassphrase?: string;
   normalization?: Normalization;
   hiddenSize?: number;
   epochs?: number;
@@ -169,6 +172,13 @@ export type BinanceKeysStatus = {
   hasApiSecret: boolean;
   signed?: BinanceProbe;
   tradeTest?: BinanceProbe;
+};
+
+export type CoinbaseKeysStatus = {
+  hasApiKey: boolean;
+  hasApiSecret: boolean;
+  hasApiPassphrase: boolean;
+  signed?: BinanceProbe;
 };
 
 export type BinanceListenKeyResponse = {

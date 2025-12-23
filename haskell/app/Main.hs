@@ -13,12 +13,13 @@ import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.Types as AT
 import Data.ByteArray (convert)
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (toList)
 import Data.Int (Int64)
-import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn)
+import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, nub, sortOn)
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
@@ -43,7 +44,7 @@ import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
-import System.Directory (canonicalizePath, createDirectoryIfMissing, doesFileExist, getCurrentDirectory, listDirectory, removeFile, renameFile)
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory, removeFile, renameFile)
 import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode(..), die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
@@ -60,6 +61,7 @@ import Trader.Binance
   ( BinanceEnv(..)
   , BinanceMarket(..)
   , BinanceOrderMode(..)
+  , BinanceTrade(..)
   , OrderSide(..)
   , SymbolFilters(..)
   , Step(..)
@@ -82,6 +84,7 @@ import Trader.Binance
   , placeMarketOrder
   , placeFuturesTriggerMarketOrder
   , fetchOrderByClientId
+  , fetchAccountTrades
   , createListenKey
   , keepAliveListenKey
   , closeListenKey
@@ -166,9 +169,12 @@ import Trader.Platform
   , platformIntervalsCsv
   , platformSupportsMarketContext
   , platformSupportsTrading
+  , coinbaseIntervalSeconds
   , krakenIntervalMinutes
+  , poloniexIntervalLabel
   , poloniexIntervalSeconds
   )
+import Trader.Coinbase (CoinbaseCandle(..), fetchCoinbaseAccounts, fetchCoinbaseCandles, newCoinbaseEnv)
 import Trader.Kraken (KrakenCandle(..), fetchKrakenCandles)
 import Trader.Poloniex (PoloniexCandle(..), fetchPoloniexCandles)
 
@@ -517,6 +523,7 @@ data ApiParams = ApiParams
   , apHighColumn :: Maybe String
   , apLowColumn :: Maybe String
   , apBinanceSymbol :: Maybe String
+  , apBotSymbols :: Maybe [String]
   , apPlatform :: Maybe String
   , apMarket :: Maybe String -- "spot" | "margin" | "futures"
   , apInterval :: Maybe String
@@ -526,6 +533,9 @@ data ApiParams = ApiParams
   , apBinanceTestnet :: Maybe Bool
   , apBinanceApiKey :: Maybe String
   , apBinanceApiSecret :: Maybe String
+  , apCoinbaseApiKey :: Maybe String
+  , apCoinbaseApiSecret :: Maybe String
+  , apCoinbaseApiPassphrase :: Maybe String
   , apNormalization :: Maybe String
   , apHiddenSize :: Maybe Int
   , apEpochs :: Maybe Int
@@ -610,6 +620,7 @@ data ApiParams = ApiParams
 
 data OptimizerSource
   = OptimizerSourceBinance
+  | OptimizerSourceCoinbase
   | OptimizerSourceKraken
   | OptimizerSourcePoloniex
   | OptimizerSourceCsv
@@ -621,14 +632,16 @@ instance FromJSON OptimizerSource where
       case T.toLower txt of
         "csv" -> pure OptimizerSourceCsv
         "binance" -> pure OptimizerSourceBinance
+        "coinbase" -> pure OptimizerSourceCoinbase
         "kraken" -> pure OptimizerSourceKraken
         "poloniex" -> pure OptimizerSourcePoloniex
-        _ -> fail "Invalid optimizer source (expected binance|kraken|poloniex|csv)"
+        _ -> fail "Invalid optimizer source (expected binance|coinbase|kraken|poloniex|csv)"
 
 optimizerSourcePlatform :: OptimizerSource -> Maybe Platform
 optimizerSourcePlatform source =
   case source of
     OptimizerSourceBinance -> Just PlatformBinance
+    OptimizerSourceCoinbase -> Just PlatformCoinbase
     OptimizerSourceKraken -> Just PlatformKraken
     OptimizerSourcePoloniex -> Just PlatformPoloniex
     OptimizerSourceCsv -> Nothing
@@ -897,6 +910,16 @@ data ApiBinanceKeysStatus = ApiBinanceKeysStatus
 instance ToJSON ApiBinanceKeysStatus where
   toJSON = Aeson.genericToJSON (jsonOptions 3)
 
+data ApiCoinbaseKeysStatus = ApiCoinbaseKeysStatus
+  { ackHasApiKey :: !Bool
+  , ackHasApiSecret :: !Bool
+  , ackHasApiPassphrase :: !Bool
+  , ackSigned :: !(Maybe ApiBinanceProbe)
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiCoinbaseKeysStatus where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
 data ApiListenKeyStartParams = ApiListenKeyStartParams
   { alsMarket :: !(Maybe String)
   , alsBinanceTestnet :: !(Maybe Bool)
@@ -1105,6 +1128,9 @@ sanitizeApiParams p =
   p
     { apBinanceApiKey = Nothing
     , apBinanceApiSecret = Nothing
+    , apCoinbaseApiKey = Nothing
+    , apCoinbaseApiSecret = Nothing
+    , apCoinbaseApiPassphrase = Nothing
     }
 
 boolFromMaybe :: Maybe a -> Bool
@@ -1152,6 +1178,9 @@ argsPublicJson args =
       , "binanceTrade" .= argBinanceTrade args
       , "hasBinanceApiKey" .= boolFromMaybe (argBinanceApiKey args)
       , "hasBinanceApiSecret" .= boolFromMaybe (argBinanceApiSecret args)
+      , "hasCoinbaseApiKey" .= boolFromMaybe (argCoinbaseApiKey args)
+      , "hasCoinbaseApiSecret" .= boolFromMaybe (argCoinbaseApiSecret args)
+      , "hasCoinbaseApiPassphrase" .= boolFromMaybe (argCoinbaseApiPassphrase args)
       , "orderQuote" .= argOrderQuote args
       , "orderQuantity" .= argOrderQuantity args
       , "orderQuoteFraction" .= argOrderQuoteFraction args
@@ -1324,8 +1353,10 @@ data BotSettings = BotSettings
   , bsAdoptExistingPosition :: !Bool
   } deriving (Eq, Show)
 
+type BotRuntimeMap = HM.HashMap String BotRuntimeState
+
 data BotController = BotController
-  { bcRuntime :: MVar (Maybe BotRuntimeState)
+  { bcRuntime :: MVar BotRuntimeMap
   }
 
 data BotStartRuntime = BotStartRuntime
@@ -1335,6 +1366,12 @@ data BotStartRuntime = BotStartRuntime
   , bsrSettings :: !BotSettings
   , bsrSymbol :: !String
   , bsrRequestedAtMs :: !Int64
+  }
+
+data BotStartOutcome = BotStartOutcome
+  { bsoSymbol :: !String
+  , bsoState :: !BotRuntimeState
+  , bsoStarted :: !Bool
   }
 
 data BotRuntimeState
@@ -1444,7 +1481,7 @@ data BotState = BotState
   }
 
 newBotController :: IO BotController
-newBotController = BotController <$> newMVar Nothing
+newBotController = BotController <$> newMVar HM.empty
 
 clampInt :: Int -> Int -> Int -> Int
 clampInt lo hi n = max lo (min hi n)
@@ -1619,6 +1656,27 @@ botStoppedJson =
     [ "running" .= False
     ]
 
+botStatusJsonMulti :: [Aeson.Value] -> Aeson.Value
+botStatusJsonMulti bots =
+  let running = any isRunning bots
+      starting = any isStarting bots
+   in
+    object
+      [ "running" .= running
+      , "starting" .= starting
+      , "multi" .= True
+      , "bots" .= bots
+      ]
+  where
+    isRunning v =
+      case v of
+        Aeson.Object o -> KM.lookup "running" o == Just (Aeson.Bool True)
+        _ -> False
+    isStarting v =
+      case v of
+        Aeson.Object o -> KM.lookup "starting" o == Just (Aeson.Bool True)
+        _ -> False
+
 data BotStatusSnapshot = BotStatusSnapshot
   { bssSavedAtMs :: !Int64
   , bssStatus :: !Aeson.Value
@@ -1641,19 +1699,26 @@ botStoppedSnapshotJson snap =
 botStateFileName :: FilePath
 botStateFileName = "bot-state.json"
 
+botStateFilePrefix :: FilePath
+botStateFilePrefix = "bot-state-"
+
 defaultBotStateDir :: FilePath
 defaultBotStateDir = ".tmp/bot"
 
-resolveBotStatePath :: IO (Maybe FilePath)
-resolveBotStatePath = do
+resolveBotStateDir :: IO (Maybe FilePath)
+resolveBotStateDir = do
   mDir <- lookupEnv "TRADER_BOT_STATE_DIR"
   case trim <$> mDir of
     Just dir | null dir -> pure Nothing
-    Just dir -> pure (Just (dir </> botStateFileName))
+    Just dir -> pure (Just dir)
     Nothing -> do
       mStateDir <- stateSubdirFromEnv "bot"
       let baseDir = fromMaybe defaultBotStateDir mStateDir
-      pure (Just (baseDir </> botStateFileName))
+      pure (Just baseDir)
+
+botStatePathFor :: FilePath -> String -> FilePath
+botStatePathFor dir sym =
+  dir </> (botStateFilePrefix ++ sanitizeFileComponent sym ++ ".json")
 
 writeBotStatusSnapshot :: FilePath -> BotStatusSnapshot -> IO ()
 writeBotStatusSnapshot path snap = do
@@ -1670,17 +1735,18 @@ writeBotStatusSnapshot path snap = do
       _ <- try (renameFile tmpPath path) :: IO (Either SomeException ())
       pure ()
 
-writeBotStatusSnapshotMaybe :: Maybe FilePath -> BotStatusSnapshot -> IO ()
-writeBotStatusSnapshotMaybe mPath snap =
-  case mPath of
+writeBotStatusSnapshotMaybe :: Maybe FilePath -> String -> BotStatusSnapshot -> IO ()
+writeBotStatusSnapshotMaybe mDir sym snap =
+  case mDir of
     Nothing -> pure ()
-    Just path -> do
+    Just dir -> do
+      let path = botStatePathFor dir sym
       _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
       pure ()
 
 persistBotStatusMaybe :: Maybe FilePath -> BotState -> IO ()
-persistBotStatusMaybe mPath st =
-  case mPath of
+persistBotStatusMaybe mDir st =
+  case mDir of
     Nothing -> pure ()
     Just _ -> do
       now <- getTimestampMs
@@ -1689,24 +1755,53 @@ persistBotStatusMaybe mPath st =
               { bssSavedAtMs = now
               , bssStatus = botStatusJson st
               }
-      writeBotStatusSnapshotMaybe mPath snap
+      writeBotStatusSnapshotMaybe mDir (botSymbol st) snap
 
-readBotStatusSnapshotMaybe :: Maybe FilePath -> IO (Maybe BotStatusSnapshot)
-readBotStatusSnapshotMaybe mPath =
-  case mPath of
-    Nothing -> pure Nothing
-    Just path -> do
-      exists <- doesFileExist path
-      if not exists
-        then pure Nothing
-        else do
-          contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
-          case contentsOrErr of
+readBotStatusSnapshotAtPath :: FilePath -> IO (Maybe BotStatusSnapshot)
+readBotStatusSnapshotAtPath path = do
+  exists <- doesFileExist path
+  if not exists
+    then pure Nothing
+    else do
+      contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+      case contentsOrErr of
+        Left _ -> pure Nothing
+        Right contents ->
+          case Aeson.eitherDecode' contents of
             Left _ -> pure Nothing
-            Right contents ->
-              case Aeson.eitherDecode' contents of
-                Left _ -> pure Nothing
-                Right snap -> pure (Just snap)
+            Right snap -> pure (Just snap)
+
+readBotStatusSnapshotMaybe :: Maybe FilePath -> String -> IO (Maybe BotStatusSnapshot)
+readBotStatusSnapshotMaybe mDir sym =
+  case mDir of
+    Nothing -> pure Nothing
+    Just dir -> do
+      let path = botStatePathFor dir sym
+      readBotStatusSnapshotAtPath path
+
+readBotStatusSnapshotsMaybe :: Maybe FilePath -> IO [BotStatusSnapshot]
+readBotStatusSnapshotsMaybe mDir =
+  case mDir of
+    Nothing -> pure []
+    Just dir -> do
+      exists <- doesFileExist (dir </> botStateFileName)
+      legacySnap <-
+        if exists
+          then readBotStatusSnapshotAtPath (dir </> botStateFileName)
+          else pure Nothing
+      dirExists <- doesDirectoryExist dir
+      if not dirExists
+        then pure (maybeToList legacySnap)
+        else do
+          entries <- listDirectory dir
+          let targets =
+                [ dir </> name
+                | name <- entries
+                , botStateFilePrefix `isPrefixOf` name
+                , ".json" `isSuffixOf` name
+                ]
+          snaps <- mapM readBotStatusSnapshotAtPath targets
+          pure (maybeToList legacySnap ++ mapMaybe id snaps)
 
 data BotOp = BotOp
   { boIndex :: !Int
@@ -1825,45 +1920,81 @@ preflightBotStart args settings sym =
         Left ex -> pure (Left (snd (exceptionToHttp ex)))
         Right out -> pure out
 
-botStart :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> Args -> ApiParams -> IO (Either String BotStartRuntime)
-botStart mOps metrics mJournal mBotStatePath ctrl args p =
+resolveBotSymbols :: Args -> ApiParams -> IO (Either String [String])
+resolveBotSymbols args p = do
+  envRaw <- lookupEnv "TRADER_BOT_SYMBOLS"
+  let symbolsReq = maybe [] (map trim) (apBotSymbols p)
+      symbolsEnv = maybe [] splitEnvList envRaw
+      symbolsFallback = maybeToList (argBinanceSymbol args)
+      raw =
+        case symbolsReq of
+          [] ->
+            case symbolsEnv of
+              [] -> symbolsFallback
+              xs -> xs
+          xs -> xs
+      normalized = filter (not . null) (nub (map normalizeSymbol raw))
+  if null normalized
+    then pure (Left "bot/start requires binanceSymbol or botSymbols")
+    else pure (Right normalized)
+
+botStartSymbol ::
+  Bool ->
+  Maybe OpsStore ->
+  Metrics ->
+  Maybe Journal ->
+  Maybe FilePath ->
+  BotController ->
+  Args ->
+  ApiParams ->
+  String ->
+  IO (Either String BotStartOutcome)
+botStartSymbol allowExisting mOps metrics mJournal mBotStateDir ctrl args p symRaw =
   if not (platformSupportsTrading (argPlatform args))
     then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
     else
       case argData args of
         Just _ -> pure (Left "bot/start supports binanceSymbol only (no CSV data source)")
         Nothing ->
-          case argBinanceSymbol args of
-            Nothing -> pure (Left "bot/start requires binanceSymbol")
-            Just sym ->
+          case trim symRaw of
+            "" -> pure (Left "bot/start requires binanceSymbol or botSymbols")
+            _ ->
               case botSettingsFromApi args p of
                 Left e -> pure (Left e)
                 Right settings -> do
+                  let sym = normalizeSymbol symRaw
+                      argsSym = args { argBinanceSymbol = Just sym }
                   now <- getTimestampMs
                   modifyMVar (bcRuntime ctrl) $ \mrt ->
-                    case mrt of
-                      Just (BotRunning _) -> pure (mrt, Left "Bot is already running")
-                      Just (BotStarting _) -> pure (mrt, Left "Bot is starting")
+                    case HM.lookup sym mrt of
+                      Just st ->
+                        if allowExisting
+                          then pure (mrt, Right (BotStartOutcome sym st False))
+                          else
+                            case st of
+                              BotRunning _ -> pure (mrt, Left "Bot is already running")
+                              BotStarting _ -> pure (mrt, Left "Bot is starting")
                       Nothing -> do
-                        preflight <- preflightBotStart args settings sym
+                        preflight <- preflightBotStart argsSym settings sym
                         case preflight of
-                          Left e -> pure (Nothing, Left e)
+                          Left e -> pure (mrt, Left e)
                           Right () -> do
                             stopSig <- newEmptyMVar
-                            tid <- forkIO (botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSig)
+                            tid <- forkIO (botStartWorker mOps metrics mJournal mBotStateDir ctrl argsSym settings sym stopSig)
                             let rt =
                                   BotStartRuntime
                                     { bsrThreadId = tid
                                     , bsrStopSignal = stopSig
-                                    , bsrArgs = args
+                                    , bsrArgs = argsSym
                                     , bsrSettings = settings
                                     , bsrSymbol = sym
                                     , bsrRequestedAtMs = now
                                     }
-                            pure (Just (BotStarting rt), Right rt)
+                                st = BotStarting rt
+                            pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
 
 botStartWorker :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> Args -> BotSettings -> String -> MVar () -> IO ()
-botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSig = do
+botStartWorker mOps metrics mJournal mBotStateDir ctrl args settings sym stopSig = do
   tid <- myThreadId
   r <- try (initBotState args settings sym) :: IO (Either SomeException BotState)
   case r of
@@ -1872,9 +2003,9 @@ botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSi
       journalWriteMaybe mJournal (object ["type" .= ("bot.start_failed" :: String), "atMs" .= now, "error" .= show ex])
       opsAppendMaybe mOps "bot.start_failed" Nothing (Just (argsPublicJson args)) (Just (object ["error" .= show ex])) Nothing
       modifyMVar_ (bcRuntime ctrl) $ \mrt ->
-        case mrt of
-          Just (BotStarting rt) | bsrThreadId rt == tid -> pure Nothing
-          other -> pure other
+        case HM.lookup sym mrt of
+          Just (BotStarting rt) | bsrThreadId rt == tid -> pure (HM.delete sym mrt)
+          _ -> pure mrt
     Right st0 -> do
       let eq0 =
             if V.null (botEquityCurve st0)
@@ -1888,7 +2019,7 @@ botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSi
         (Just (object ["symbol" .= botSymbol st0, "market" .= marketCode (argBinanceMarket (botArgs st0)), "interval" .= argInterval (botArgs st0)]))
         (Just eq0)
       stVar <- newMVar st0
-      persistBotStatusMaybe mBotStatePath st0
+      persistBotStatusMaybe mBotStateDir st0
       optimizerStopSig <- newEmptyMVar
       optimizerPending <- newMVar Nothing
       optimizerTid <- forkIO (botOptimizerLoop mOps metrics mJournal stVar optimizerStopSig optimizerPending)
@@ -1900,42 +2031,65 @@ botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSi
               }
       startOk <-
         modifyMVar (bcRuntime ctrl) $ \mrt ->
-          case mrt of
+          case HM.lookup sym mrt of
             Just (BotStarting rt) | bsrThreadId rt == tid ->
-              pure (Just (BotRunning (BotRuntime tid stVar stopSig (Just optimizerRt))), True)
+              pure (HM.insert sym (BotRunning (BotRuntime tid stVar stopSig (Just optimizerRt))) mrt, True)
             _ -> pure (mrt, False)
       if startOk
-        then botLoop mOps metrics mJournal mBotStatePath ctrl stVar stopSig (Just optimizerPending)
+        then botLoop mOps metrics mJournal mBotStateDir ctrl stVar stopSig (Just optimizerPending)
         else do
           _ <- tryPutMVar optimizerStopSig ()
           killThread optimizerTid
 
-botStop :: BotController -> IO Bool
-botStop ctrl =
-  modifyMVar (bcRuntime ctrl) $ \mrt ->
-    case mrt of
-      Nothing -> pure (Nothing, False)
-      Just (BotStarting rt) -> do
-        _ <- tryPutMVar (bsrStopSignal rt) ()
-        killThread (bsrThreadId rt)
-        pure (Nothing, True)
-      Just (BotRunning rt) -> do
-        case brOptimizer rt of
-          Nothing -> pure ()
-          Just optRt -> do
-            _ <- tryPutMVar (borStopSignal optRt) ()
-            killThread (borThreadId optRt)
-        _ <- tryPutMVar (brStopSignal rt) ()
-        killThread (brThreadId rt)
-        pure (Nothing, True)
+botStop :: BotController -> Maybe String -> IO [BotState]
+botStop ctrl mSymbol =
+  modifyMVar (bcRuntime ctrl) $ \mrt -> do
+    let (targets, remaining) =
+          case mSymbol of
+            Nothing -> (HM.toList mrt, HM.empty)
+            Just symRaw ->
+              let sym = normalizeSymbol symRaw
+               in case HM.lookup sym mrt of
+                    Nothing -> ([], mrt)
+                    Just st -> ([(sym, st)], HM.delete sym mrt)
+    stopped <- mapM (stopRuntime . snd) targets
+    pure (remaining, catMaybes stopped)
+  where
+    stopRuntime st =
+      case st of
+        BotStarting rt -> do
+          _ <- tryPutMVar (bsrStopSignal rt) ()
+          killThread (bsrThreadId rt)
+          pure Nothing
+        BotRunning rt -> do
+          mSt <- try (readMVar (brStateVar rt)) :: IO (Either SomeException BotState)
+          case brOptimizer rt of
+            Nothing -> pure ()
+            Just optRt -> do
+              _ <- tryPutMVar (borStopSignal optRt) ()
+              killThread (borThreadId optRt)
+          _ <- tryPutMVar (brStopSignal rt) ()
+          killThread (brThreadId rt)
+          pure (either (const Nothing) Just mSt)
 
-botGetState :: BotController -> IO (Maybe BotState)
-botGetState ctrl = do
+runtimeStateToState :: BotRuntimeState -> IO (Maybe BotState)
+runtimeStateToState st =
+  case st of
+    BotRunning rt -> Just <$> readMVar (brStateVar rt)
+    _ -> pure Nothing
+
+botGetStates :: BotController -> IO [BotState]
+botGetStates ctrl = do
   mrt <- readMVar (bcRuntime ctrl)
-  case mrt of
-    Nothing -> pure Nothing
-    Just (BotStarting _) -> pure Nothing
+  states <- mapM runtimeStateToState (HM.elems mrt)
+  pure (catMaybes states)
+
+botGetStateFor :: BotController -> String -> IO (Maybe BotState)
+botGetStateFor ctrl symRaw = do
+  mrt <- readMVar (bcRuntime ctrl)
+  case HM.lookup (normalizeSymbol symRaw) mrt of
     Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
+    _ -> pure Nothing
 
 initBotState :: Args -> BotSettings -> String -> IO BotState
 initBotState args settings sym = do
@@ -2808,178 +2962,100 @@ sanitizeFileComponent raw =
    in map go raw
 
 botOptimizerLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> MVar BotState -> MVar () -> MVar (Maybe BotOptimizerUpdate) -> IO ()
-botOptimizerLoop mOps metrics mJournal stVar stopSig pending = do
+botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
   projectRoot <- getCurrentDirectory
   mStateDir <- stateDirFromEnv
-  exePath <- getExecutablePath
   let tmpRoot = projectRoot </> ".tmp"
       optimizerTmp = fromMaybe (tmpRoot </> "optimizer") (fmap (</> "optimizer") mStateDir)
   createDirectoryIfMissing True optimizerTmp
-  let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
-  scriptExists <- doesFileExist scriptPath
-  if not scriptExists
-    then do
-      now <- getTimestampMs
-      journalWriteMaybe mJournal (object ["type" .= ("bot.optimizer.missing_script" :: String), "atMs" .= now, "script" .= scriptPath])
-      opsAppendMaybe mOps "bot.optimizer.missing_script" Nothing Nothing (Just (object ["script" .= scriptPath])) Nothing
-    else do
-      everySecEnv <- lookupEnv "TRADER_BOT_OPTIMIZER_EVERY_SEC"
-      trialsEnv <- lookupEnv "TRADER_BOT_OPTIMIZER_TRIALS"
-      timeoutEnv <- lookupEnv "TRADER_BOT_OPTIMIZER_TIMEOUT_SEC"
-      objectiveEnv <- lookupEnv "TRADER_BOT_OPTIMIZER_OBJECTIVE"
-      let everySec =
-            case everySecEnv >>= readMaybe of
-              Just n | n >= 5 -> n
-              _ -> 300
-          trials =
-            case trialsEnv >>= readMaybe of
-              Just n | n >= 1 -> n
-              _ -> 20
-          timeoutSec =
-            case timeoutEnv >>= readMaybe of
-              Just n | n >= 1 -> n
-              _ -> 45
-          objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
-          objectiveRaw = fmap (map toLower . trim) objectiveEnv
-          objective =
-            case objectiveRaw of
-              Just v | v `elem` objectiveAllowed -> v
-              _ -> "final-equity"
+  topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+  pollEnv <- lookupEnv "TRADER_BOT_COMBOS_POLL_SEC"
+  let pollSec =
+        case pollEnv >>= readMaybe of
+          Just n | n >= 5 -> n
+          _ -> 30
+  lastErrRef <- newIORef (Nothing :: Maybe (String, String))
 
-      let sleepSec s = threadDelay (max 1 s * 1000000)
+  let sleepSec s = threadDelay (max 1 s * 1000000)
 
-          loop = do
-            stopReq <- isJust <$> tryReadMVar stopSig
-            if stopReq
-              then pure ()
-              else do
-                st <- readMVar stVar
-                let args = botArgs st
-                    env = botEnv st
-                    sym = botSymbol st
-                    interval = argInterval args
-                    limit = clampInt 2 1000 (max 2 (bsMaxPoints (botSettings st)))
-                    csvPath = optimizerTmp </> ("live-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
-                    topJsonPath = optimizerTmp </> "bot-top-combos.json"
+      recordError kind msg sym interval = do
+        prev <- readIORef lastErrRef
+        let cur = Just (kind, msg)
+        if prev == cur
+          then pure ()
+          else do
+            writeIORef lastErrRef cur
+            now <- getTimestampMs
+            journalWriteMaybe
+              mJournal
+              ( object
+                  [ "type" .= kind
+                  , "atMs" .= now
+                  , "error" .= msg
+                  , "symbol" .= sym
+                  , "interval" .= interval
+                  , "path" .= topJsonPath
+                  ]
+              )
+            opsAppendMaybe
+              mOps
+              (T.pack kind)
+              Nothing
+              Nothing
+              (Just (object ["error" .= msg, "symbol" .= sym, "interval" .= interval, "path" .= topJsonPath]))
+              Nothing
 
-                ksOrErr <- try (fetchKlines env sym interval limit) :: IO (Either SomeException [Kline])
-                case ksOrErr of
-                  Left ex -> do
-                    now <- getTimestampMs
-                    journalWriteMaybe mJournal (object ["type" .= ("bot.optimizer.fetch_failed" :: String), "atMs" .= now, "error" .= show ex])
-                    sleepSec everySec
-                    loop
-                  Right ks -> do
-                    if length ks < 2
-                      then do
-                        sleepSec everySec
-                        loop
-                      else do
-                        writeKlinesCsv csvPath ks
-                        ts <- fmap (floor . (* 1000)) getPOSIXTime
-                        randId <- randomIO :: IO Word64
-                        seedId <- randomIO :: IO Word64
-                        let recordsPath = optimizerTmp </> printf "bot-optimizer-%d-%016x.jsonl" (ts :: Integer) randId
-                            seed = fromIntegral (seedId `mod` 2000000000)
-                            cliArgs =
-                              [ "--data"
-                              , csvPath
-                              , "--price-column"
-                              , "close"
-                              , "--high-column"
-                              , "high"
-                              , "--low-column"
-                              , "low"
-                              , "--interval"
-                              , interval
-                              , "--lookback-window"
-                              , argLookbackWindow args
-                              , "--backtest-ratio"
-                              , show (max 0 (min 1 (argBacktestRatio args)))
-                              , "--tune-ratio"
-                              , show (max 0 (min 1 (argTuneRatio args)))
-                              , "--trials"
-                              , show trials
-                              , "--timeout-sec"
-                              , show (timeoutSec :: Int)
-                              , "--seed"
-                              , show (seed :: Int)
-                              , "--output"
-                              , recordsPath
-                              , "--symbol-label"
-                              , sym
-                              , "--source-label"
-                              , "binance"
-                              , "--top-json"
-                              , topJsonPath
-                              , "--objective"
-                              , objective
-                              , "--p-long-short"
-                              , "0"
-                              , "--bars-min"
-                              , "0"
-                              , "--bars-max"
-                              , "0"
-                              , "--binary"
-                              , exePath
-                              , "--disable-lstm-persistence"
-                              ]
+      clearError = writeIORef lastErrRef Nothing
 
-                        runResult <- runOptimizerProcess projectRoot recordsPath cliArgs
-                        case runResult of
-                          Left (msg, out, err) -> do
+      loop = do
+        stopReq <- isJust <$> tryReadMVar stopSig
+        if stopReq
+          then pure ()
+          else do
+            st <- readMVar stVar
+            let sym = botSymbol st
+                interval = argInterval (botArgs st)
+            combosOrErr <- readTopCombosExport topJsonPath
+            case combosOrErr of
+              Left e -> recordError "bot.combo.sync_failed" e sym interval
+              Right export ->
+                case bestTopComboForSymbol sym (Just interval) export of
+                  Nothing -> recordError "bot.combo.sync_failed" "No top combo for symbol+interval." sym interval
+                  Just bestCombo -> do
+                    clearError
+                    updOrErr <- buildOptimizerUpdate st bestCombo
+                    case updOrErr of
+                      Left e -> recordError "bot.combo.apply_failed" e sym interval
+                      Right upd -> do
+                        let argsChanged = bouArgs upd /= botArgs st || bouLookback upd /= botLookback st
+                            ctxChanged = isJust (bouLstmCtx upd) || isJust (bouKalmanCtx upd)
+                            shouldApply = argsChanged || ctxChanged
+                        if shouldApply
+                          then do
+                            _ <- swapMVar pending (Just upd)
                             now <- getTimestampMs
-                            journalWriteMaybe
-                              mJournal
-                              ( object
-                                  [ "type" .= ("bot.optimizer.run_failed" :: String)
-                                  , "atMs" .= now
-                                  , "error" .= msg
-                                  , "stdout" .= out
-                                  , "stderr" .= err
-                                  ]
+                            opsAppendMaybe
+                              mOps
+                              "bot.optimizer.best"
+                              Nothing
+                              (Just (argsPublicJson (botArgs st)))
+                              ( Just
+                                  ( object
+                                      [ "symbol" .= sym
+                                      , "interval" .= interval
+                                      , "finalEquity" .= bouFinalEquity upd
+                                      , "objective" .= bouObjective upd
+                                      , "score" .= bouScore upd
+                                      , "appliedAtMs" .= now
+                                      ]
+                                  )
                               )
-                            sleepSec everySec
-                            loop
-                          Right _ -> do
-                            topOrErr <- readTopCombosExport topJsonPath
-                            case topOrErr >>= maybe (Left "Top combos JSON had no combos.") Right . bestTopCombo of
-                              Left e -> do
-                                now <- getTimestampMs
-                                journalWriteMaybe mJournal (object ["type" .= ("bot.optimizer.parse_failed" :: String), "atMs" .= now, "error" .= e])
-                              Right bestCombo -> do
-                                updOrErr <- buildOptimizerUpdate st bestCombo
-                                case updOrErr of
-                                  Left e -> do
-                                    now <- getTimestampMs
-                                    journalWriteMaybe mJournal (object ["type" .= ("bot.optimizer.apply_failed" :: String), "atMs" .= now, "error" .= e])
-                                  Right upd -> do
-                                    let argsChanged = bouArgs upd /= botArgs st || bouLookback upd /= botLookback st
-                                        ctxChanged = isJust (bouLstmCtx upd) || isJust (bouKalmanCtx upd)
-                                        shouldApply = argsChanged || ctxChanged
-                                    if shouldApply
-                                      then do
-                                        _ <- swapMVar pending (Just upd)
-                                        now <- getTimestampMs
-                                        opsAppendMaybe
-                                          mOps
-                                          "bot.optimizer.best"
-                                          Nothing
-                                          (Just (argsPublicJson (botArgs st)))
-                                          ( Just
-                                              ( object
-                                                  [ "finalEquity" .= bouFinalEquity upd
-                                                  , "objective" .= bouObjective upd
-                                                  , "score" .= bouScore upd
-                                                  ]
-                                              )
-                                          )
-                                          (bouFinalEquity upd)
-                                      else pure ()
-                            sleepSec everySec
-                            loop
+                              (bouFinalEquity upd)
+                          else pure ()
+            sleepSec pollSec
+            loop
 
-      loop
+  loop
 
 autoOptimizerLoop :: Args -> Maybe OpsStore -> Maybe Journal -> FilePath -> IO ()
 autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
@@ -3232,8 +3308,9 @@ makeBinanceEnv args = do
   newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
 
 botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> MVar BotState -> MVar () -> Maybe (MVar (Maybe BotOptimizerUpdate)) -> IO ()
-botLoop mOps metrics mJournal mBotStatePath ctrl stVar stopSig mOptimizerPending = do
+botLoop mOps metrics mJournal mBotStateDir ctrl stVar stopSig mOptimizerPending = do
   tid <- myThreadId
+  sym <- botSymbol <$> readMVar stVar
   let sleepSec s = threadDelay (max 1 s * 1000000)
 
       loop = do
@@ -3251,7 +3328,7 @@ botLoop mOps metrics mJournal mBotStatePath ctrl stVar stopSig mOptimizerPending
                     st0 <- readMVar stVar
                     st1 <- botApplyOptimizerUpdate st0 upd
                     _ <- swapMVar stVar st1
-                    persistBotStatusMaybe mBotStatePath st1
+                    persistBotStatusMaybe mBotStateDir st1
                     pure ()
             st <- readMVar stVar
             let env = botEnv st
@@ -3271,7 +3348,7 @@ botLoop mOps metrics mJournal mBotStatePath ctrl stVar stopSig mOptimizerPending
                         , botPollLatencyMs = latMs
                         }
                 _ <- swapMVar stVar st'
-                persistBotStatusMaybe mBotStatePath st'
+                persistBotStatusMaybe mBotStateDir st'
                 sleepSec pollSec
                 loop
               Right ks -> do
@@ -3292,7 +3369,7 @@ botLoop mOps metrics mJournal mBotStatePath ctrl stVar stopSig mOptimizerPending
                 if null newKs
                   then do
                     _ <- swapMVar stVar stPolled
-                    persistBotStatusMaybe mBotStatePath stPolled
+                    persistBotStatusMaybe mBotStateDir stPolled
                     sleepSec pollSec
                     loop
                   else do
@@ -3308,20 +3385,20 @@ botLoop mOps metrics mJournal mBotStatePath ctrl stVar stopSig mOptimizerPending
                             , botLastBatchMs = batchMs
                             }
                     _ <- swapMVar stVar st1'
-                    persistBotStatusMaybe mBotStatePath st1'
+                    persistBotStatusMaybe mBotStateDir st1'
                     loop
 
       cleanup = do
         modifyMVar_ (bcRuntime ctrl) $ \mrt ->
-          case mrt of
+          case HM.lookup sym mrt of
             Just (BotRunning rt) | brThreadId rt == tid -> do
               case brOptimizer rt of
                 Nothing -> pure ()
                 Just optRt -> do
                   _ <- tryPutMVar (borStopSignal optRt) ()
                   killThread (borThreadId optRt)
-              pure Nothing
-            other -> pure other
+              pure (HM.delete sym mrt)
+            _ -> pure mrt
 
   loop `finally` cleanup
 
@@ -4067,7 +4144,7 @@ runRestApi baseArgs = do
   metrics <- newMetrics
   mJournal <- newJournalFromEnv
   mOps <- newOpsStoreFromEnv
-  mBotStatePath <- resolveBotStatePath
+  mBotStateDir <- resolveBotStateDir
   let defaultAsyncDir = fromMaybe (tmpRoot </> "async") (fmap (</> "async") mStateDir)
   asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
   let asyncDirTrimmed = trim <$> asyncDirEnv
@@ -4101,7 +4178,7 @@ runRestApi baseArgs = do
   hFlush stdout
   res <-
     ( try
-        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps mBotStatePath limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps mBotStateDir limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
         IO (Either IOException ())
     )
   case res of
@@ -4839,7 +4916,7 @@ apiApp ::
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStatePath limits apiCache asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir limits apiCache asyncStores projectRoot optimizerTmp req respond = do
   let rawPath = Wai.pathInfo req
       path =
         case rawPath of
@@ -4903,6 +4980,7 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStatePath l
                                        , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/coinbase/keys" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/close" :: String)]
@@ -5022,6 +5100,10 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStatePath l
               case Wai.requestMethod req of
                 "POST" -> handleBinanceKeys baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
+            ["coinbase", "keys"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleCoinbaseKeys baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey"] ->
               case Wai.requestMethod req of
                 "POST" -> handleBinanceListenKey baseArgs req respondCors
@@ -5036,15 +5118,15 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStatePath l
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStart mOps limits metrics mJournal mBotStatePath baseArgs botCtrl req respondCors
+                "POST" -> handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "stop"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStop mOps mJournal mBotStatePath botCtrl respondCors
+                "POST" -> handleBotStop mOps mJournal mBotStateDir botCtrl req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "status"] ->
               case Wai.requestMethod req of
-                "GET" -> handleBotStatus botCtrl mBotStatePath req respondCors
+                "GET" -> handleBotStatus botCtrl mBotStateDir req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["optimizer", "run"] ->
               case Wai.requestMethod req of
@@ -5712,9 +5794,17 @@ readTopCombosExport path = do
             Left err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
             Right val -> pure (Right val)
 
-bestTopCombo :: TopCombosExport -> Maybe TopCombo
-bestTopCombo export =
-  case sortOn key (tceCombos export) of
+topComboParamString :: String -> TopCombo -> Maybe String
+topComboParamString key combo =
+  KM.lookup (AK.fromString key) (tcParams combo) >>= AT.parseMaybe parseJSON
+
+topComboParamInt :: String -> TopCombo -> Maybe Int
+topComboParamInt key combo =
+  KM.lookup (AK.fromString key) (tcParams combo) >>= AT.parseMaybe parseJSON
+
+bestTopComboFromList :: [TopCombo] -> Maybe TopCombo
+bestTopComboFromList combos =
+  case sortOn key combos of
     [] -> Nothing
     (c : _) -> Just c
   where
@@ -5723,6 +5813,50 @@ bestTopCombo export =
           score = fromMaybe (negate (1 / 0)) (tcScore c)
           eq = fromMaybe 0 (tcFinalEquity c)
        in (rank, negate score, negate eq)
+
+bestTopCombo :: TopCombosExport -> Maybe TopCombo
+bestTopCombo export = bestTopComboFromList (tceCombos export)
+
+bestTopComboForSymbol :: String -> Maybe String -> TopCombosExport -> Maybe TopCombo
+bestTopComboForSymbol symRaw mInterval export =
+  let sym = normalizeSymbol symRaw
+      matches combo =
+        let comboSym = topComboParamString "binanceSymbol" combo <|> topComboParamString "symbol" combo
+            symOk = maybe False (\s -> normalizeSymbol s == sym) comboSym
+            intervalOk =
+              case mInterval of
+                Nothing -> True
+                Just interval -> topComboParamString "interval" combo == Just interval
+            platformOk =
+              case topComboParamString "platform" combo of
+                Nothing -> True
+                Just p -> normalizeKey p == "binance"
+         in symOk && intervalOk && platformOk
+   in bestTopComboFromList (filter matches (tceCombos export))
+
+applyTopComboForStart :: Args -> TopCombo -> Either String Args
+applyTopComboForStart base combo = do
+  args0 <- parseTopComboToArgs base combo
+  let mInterval = topComboParamString "interval" combo
+      mBars = topComboParamInt "bars" combo
+      intervalOk =
+        case mInterval of
+          Nothing -> Nothing
+          Just v | isPlatformInterval (argPlatform args0) v -> Just v
+          _ -> Nothing
+      barsOk =
+        case mBars of
+          Nothing -> Nothing
+          Just n -> Just (max 0 n)
+      args1 =
+        case intervalOk of
+          Nothing -> args0
+          Just v -> args0 { argInterval = v }
+      args2 =
+        case barsOk of
+          Nothing -> args1
+          Just n -> args1 { argBars = Just n }
+  pure args2
 
 handleOptimizerRun ::
   FilePath ->
@@ -5853,8 +5987,8 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
 
 handleMetrics :: Metrics -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleMetrics metrics botCtrl respond = do
-  mSt <- botGetState botCtrl
-  body <- renderMetricsText metrics (isJust mSt)
+  states <- botGetStates botCtrl
+  body <- renderMetricsText metrics (not (null states))
   respond (textValue status200 body)
 
 handleOps :: Maybe OpsStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -6230,6 +6364,25 @@ handleBinanceKeys baseArgs req respond = do
                    in respond (jsonError st msg)
                 Right out -> respond (jsonValue status200 out)
 
+handleCoinbaseKeys :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleCoinbaseKeys baseArgs req respond = do
+  body <- Wai.strictRequestBody req
+  case eitherDecode body of
+    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+    Right params ->
+      case argsFromApi baseArgs params of
+        Left e -> respond (jsonError status400 e)
+        Right args0 -> do
+          if argPlatform args0 /= PlatformCoinbase
+            then respond (jsonError status400 ("Coinbase keys require platform=coinbase (got " ++ platformCode (argPlatform args0) ++ ")."))
+            else do
+              r <- try (computeCoinbaseKeysStatusFromArgs args0) :: IO (Either SomeException ApiCoinbaseKeysStatus)
+              case r of
+                Left ex ->
+                  let (st, msg) = exceptionToHttp ex
+                   in respond (jsonError st msg)
+                Right out -> respond (jsonValue status200 out)
+
 parseMarketForListenKey :: Args -> Maybe String -> Either String BinanceMarket
 parseMarketForListenKey baseArgs raw =
   case raw of
@@ -6537,6 +6690,9 @@ argsFromApi baseArgs p = do
           , argBinanceTestnet = pick (apBinanceTestnet p) (argBinanceTestnet baseArgs)
           , argBinanceApiKey = pickMaybe (apBinanceApiKey p) (argBinanceApiKey baseArgs)
           , argBinanceApiSecret = pickMaybe (apBinanceApiSecret p) (argBinanceApiSecret baseArgs)
+          , argCoinbaseApiKey = pickMaybe (apCoinbaseApiKey p) (argCoinbaseApiKey baseArgs)
+          , argCoinbaseApiSecret = pickMaybe (apCoinbaseApiSecret p) (argCoinbaseApiSecret baseArgs)
+          , argCoinbaseApiPassphrase = pickMaybe (apCoinbaseApiPassphrase p) (argCoinbaseApiPassphrase baseArgs)
           , argNormalization = norm
           , argHiddenSize = pick (apHiddenSize p) (argHiddenSize baseArgs)
           , argEpochs = pick (apEpochs p) (argEpochs baseArgs)
@@ -6704,6 +6860,23 @@ parseBinanceError raw =
       summary = maybe raw' id outMsg
    in (outCode, outMsg, summary)
 
+parseCoinbaseError :: String -> (Maybe Int, Maybe String, String)
+parseCoinbaseError raw =
+  let raw' = truncateString 240 raw
+      httpCode = extractHttpStatusCode raw'
+      decoded =
+        case extractJsonObject raw' of
+          Nothing -> Nothing
+          Just json ->
+            case eitherDecode (BL.fromStrict (BS.pack json)) :: Either String Aeson.Value of
+              Right (Aeson.Object o) ->
+                case KM.lookup "message" o of
+                  Just (Aeson.String t) -> Just (T.unpack t)
+                  _ -> Nothing
+              _ -> Nothing
+      summary = maybe raw' id decoded
+   in (httpCode, decoded, summary)
+
 probeBinance :: String -> IO a -> IO ApiBinanceProbe
 probeBinance step action = do
   r <- try action
@@ -6720,6 +6893,19 @@ probeBinance step action = do
         if isMinNotional
           then ApiBinanceProbe False True step Nothing Nothing "Trade test skipped: order notional below minNotional (increase order size)."
           else ApiBinanceProbe False False step code m summary
+
+probeCoinbase :: String -> IO a -> IO ApiBinanceProbe
+probeCoinbase step action = do
+  r <- try action
+  case r of
+    Right _ -> pure (ApiBinanceProbe True False step Nothing Nothing "OK")
+    Left ex -> do
+      let msg =
+            case (fromException ex :: Maybe IOError) of
+              Just io | isUserError io -> ioeGetErrorString io
+              _ -> show ex
+          (code, m, summary) = parseCoinbaseError msg
+      pure (ApiBinanceProbe False False step code m summary)
 
 computeBinanceKeysStatusFromArgs :: Args -> IO ApiBinanceKeysStatus
 computeBinanceKeysStatusFromArgs args = do
@@ -6915,6 +7101,37 @@ computeBinanceKeysStatusFromArgs args = do
                           case (mPrice, sfMinNotional sf) of
                             (Just price, Just mn) | price > 0 && qty1 * price < mn -> Left ("Notional below minNotional (" ++ show mn ++ ").")
                             _ -> Right qty1
+
+computeCoinbaseKeysStatusFromArgs :: Args -> IO ApiCoinbaseKeysStatus
+computeCoinbaseKeysStatusFromArgs args = do
+  apiKeyRaw <- resolveEnv "COINBASE_API_KEY" (argCoinbaseApiKey args)
+  apiSecretRaw <- resolveEnv "COINBASE_API_SECRET" (argCoinbaseApiSecret args)
+  apiPassphraseRaw <- resolveEnv "COINBASE_API_PASSPHRASE" (argCoinbaseApiPassphrase args)
+
+  let cleanKey v =
+        case fmap trim v of
+          Just "" -> Nothing
+          other -> other
+      apiKey = cleanKey apiKeyRaw
+      apiSecret = cleanKey apiSecretRaw
+      apiPassphrase = cleanKey apiPassphraseRaw
+      hasApiKey = isJust apiKey
+      hasApiSecret = isJust apiSecret
+      hasApiPassphrase = isJust apiPassphrase
+      baseStatus =
+        ApiCoinbaseKeysStatus
+          { ackHasApiKey = hasApiKey
+          , ackHasApiSecret = hasApiSecret
+          , ackHasApiPassphrase = hasApiPassphrase
+          , ackSigned = Nothing
+          }
+
+  if not (hasApiKey && hasApiSecret && hasApiPassphrase)
+    then pure baseStatus
+    else do
+      env <- newCoinbaseEnv (BS.pack <$> apiKey) (BS.pack <$> apiSecret) (BS.pack <$> apiPassphrase)
+      signedProbe <- probeCoinbase "signed" (fetchCoinbaseAccounts env >> pure ())
+      pure baseStatus { ackSigned = Just signedProbe }
 
 data BinanceOrderInfo = BinanceOrderInfo
   { boiOrderId :: !(Maybe Int64)
@@ -9206,6 +9423,9 @@ loadPrices args =
         PlatformBinance -> do
           (env, series) <- loadPricesBinance args sym
           pure (series, Just env)
+        PlatformCoinbase -> do
+          series <- loadPricesCoinbase args sym
+          pure (series, Nothing)
         PlatformKraken -> do
           series <- loadPricesKraken args sym
           pure (series, Nothing)
@@ -9255,6 +9475,23 @@ loadPricesBinance args sym = do
       lows = map kLow ks
   pure (envTrade, PriceSeries closes (Just highs) (Just lows))
 
+loadPricesCoinbase :: Args -> String -> IO PriceSeries
+loadPricesCoinbase args sym = do
+  let interval = argInterval args
+      bars = resolveBarsForPlatform args
+  granularity <-
+    case coinbaseIntervalSeconds interval of
+      Just v -> pure v
+      Nothing -> error ("Interval not supported by Coinbase: " ++ interval)
+  candles <- fetchCoinbaseCandles sym granularity (max 1 bars)
+  let closes = map ccClose candles
+      highs = map ccHigh candles
+      lows = map ccLow candles
+      closes' = if bars > 0 then takeLast bars closes else closes
+      highs' = if bars > 0 then takeLast bars highs else highs
+      lows' = if bars > 0 then takeLast bars lows else lows
+  pure (PriceSeries closes' (Just highs') (Just lows'))
+
 loadPricesKraken :: Args -> String -> IO PriceSeries
 loadPricesKraken args sym = do
   let interval = argInterval args
@@ -9276,11 +9513,11 @@ loadPricesPoloniex :: Args -> String -> IO PriceSeries
 loadPricesPoloniex args sym = do
   let interval = argInterval args
       bars = resolveBarsForPlatform args
-  period <-
-    case poloniexIntervalSeconds interval of
-      Just v -> pure v
-      Nothing -> error ("Interval not supported by Poloniex: " ++ interval)
-  candles <- fetchPoloniexCandles sym period (max 1 bars)
+  (label, period) <-
+    case (poloniexIntervalLabel interval, poloniexIntervalSeconds interval) of
+      (Just l, Just p) -> pure (l, p)
+      _ -> error ("Interval not supported by Poloniex: " ++ interval)
+  candles <- fetchPoloniexCandles sym label period (max 1 bars)
   let closes = map pcClose candles
       highs = map pcHigh candles
       lows = map pcLow candles

@@ -30,8 +30,10 @@ import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
 import Trader.Platform
   ( Platform(..)
   , isPlatformInterval
+  , coinbaseIntervalSeconds
   , krakenIntervalMinutes
   , parsePlatform
+  , poloniexIntervalLabel
   , poloniexIntervalSeconds
   )
 import Trader.Predictors
@@ -417,6 +419,7 @@ testMethodParsing = do
 testPlatformParsing :: IO ()
 testPlatformParsing = do
   assert "parse platform binance" (parsePlatform "binance" == Right PlatformBinance)
+  assert "parse platform coinbase" (parsePlatform "Coinbase" == Right PlatformCoinbase)
   assert "parse platform kraken" (parsePlatform "KrAkEn" == Right PlatformKraken)
   assert "parse platform poloniex" (parsePlatform "poloniex" == Right PlatformPoloniex)
   case parsePlatform "nope" of
@@ -426,12 +429,16 @@ testPlatformParsing = do
 testPlatformIntervals :: IO ()
 testPlatformIntervals = do
   assert "binance supports 3m" (isPlatformInterval PlatformBinance "3m")
+  assert "coinbase supports 1h" (isPlatformInterval PlatformCoinbase "1h")
   assert "kraken rejects 3m" (not (isPlatformInterval PlatformKraken "3m"))
   assert "poloniex supports 2h" (isPlatformInterval PlatformPoloniex "2h")
 
 testPlatformIntervalMapping :: IO ()
 testPlatformIntervalMapping = do
+  assert "coinbase 1h -> 3600s" (coinbaseIntervalSeconds "1h" == Just 3600)
+  assert "coinbase rejects 30m" (coinbaseIntervalSeconds "30m" == Nothing)
   assert "kraken 1h -> 60m" (krakenIntervalMinutes "1h" == Just 60)
+  assert "poloniex 2h -> HOUR_2" (poloniexIntervalLabel "2h" == Just "HOUR_2")
   assert "poloniex 2h -> 7200s" (poloniexIntervalSeconds "2h" == Just 7200)
   assert "poloniex rejects 1m" (poloniexIntervalSeconds "1m" == Nothing)
 

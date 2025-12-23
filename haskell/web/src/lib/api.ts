@@ -7,6 +7,7 @@ import type {
   BinanceListenKeyKeepAliveResponse,
   BinanceListenKeyResponse,
   BotStatus,
+  CoinbaseKeysStatus,
   LatestSignal,
 } from "./types";
 import { TRADER_UI_CONFIG } from "./deployConfig";
@@ -484,6 +485,23 @@ export async function binanceKeysStatus(
   return fetchJson<BinanceKeysStatus>(
     baseUrl,
     "/binance/keys",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
+export async function coinbaseKeysStatus(
+  baseUrl: string,
+  params: ApiParams,
+  opts?: FetchJsonOptions,
+): Promise<CoinbaseKeysStatus> {
+  return fetchJson<CoinbaseKeysStatus>(
+    baseUrl,
+    "/coinbase/keys",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

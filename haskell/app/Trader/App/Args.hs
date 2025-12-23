@@ -53,6 +53,9 @@ data Args = Args
   , argBinanceTestnet :: Bool
   , argBinanceApiKey :: Maybe String
   , argBinanceApiSecret :: Maybe String
+  , argCoinbaseApiKey :: Maybe String
+  , argCoinbaseApiSecret :: Maybe String
+  , argCoinbaseApiPassphrase :: Maybe String
   , argBinanceTrade :: Bool
   , argBinanceLive :: Bool
   , argOrderQuote :: Maybe Double
@@ -182,10 +185,12 @@ parsePositioning raw =
     "longflat" -> Right LongFlat
     "lf" -> Right LongFlat
     "flat" -> Right LongFlat
+    "longonly" -> Right LongFlat
+    "long" -> Right LongFlat
     "longshort" -> Right LongShort
     "ls" -> Right LongShort
     "short" -> Right LongShort
-    _ -> Left "Invalid positioning (expected long-flat|long-short)"
+    _ -> Left "Invalid positioning (expected long-flat|long-only|long-short)"
 
 intrabarFillCode :: IntrabarFill -> String
 intrabarFillCode f =
@@ -220,7 +225,7 @@ opts = do
       ( long "platform"
           <> value PlatformBinance
           <> showDefaultWith platformCode
-          <> help "Exchange platform for --binance-symbol (binance|kraken|poloniex)"
+          <> help "Exchange platform for --binance-symbol (binance|coinbase|kraken|poloniex)"
       )
   argBinanceFutures <- switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders (Binance only)")
   argBinanceMargin <- switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance (Binance only)")
@@ -240,6 +245,9 @@ opts = do
   argBinanceTestnet <- switch (long "binance-testnet" <> help "Use Binance testnet base URL (public + signed endpoints; Binance only)")
   argBinanceApiKey <- optional (strOption (long "binance-api-key" <> help "Binance API key (or env BINANCE_API_KEY; Binance only)"))
   argBinanceApiSecret <- optional (strOption (long "binance-api-secret" <> help "Binance API secret (or env BINANCE_API_SECRET; Binance only)"))
+  argCoinbaseApiKey <- optional (strOption (long "coinbase-api-key" <> help "Coinbase API key (or env COINBASE_API_KEY; Coinbase only)"))
+  argCoinbaseApiSecret <- optional (strOption (long "coinbase-api-secret" <> help "Coinbase API secret (or env COINBASE_API_SECRET; Coinbase only)"))
+  argCoinbaseApiPassphrase <- optional (strOption (long "coinbase-api-passphrase" <> help "Coinbase API passphrase (or env COINBASE_API_PASSPHRASE; Coinbase only)"))
   argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance only)")
   argBinanceLive <- switch (long "binance-live" <> help "If set, send LIVE orders (otherwise uses /order/test; Binance only)")
   argOrderQuote <- optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
@@ -301,7 +309,7 @@ opts = do
       ( long "positioning"
           <> value LongFlat
           <> showDefaultWith positioningCode
-          <> help "Positioning: long-flat (default) or long-short (futures-only when trading)"
+          <> help "Positioning: long-flat (default), long-only/long (alias), or long-short (futures-only when trading)"
       )
   argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
   argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")

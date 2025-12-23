@@ -53,8 +53,18 @@ POLONIEX_INTERVALS = [
     "1d",
 ]
 
+COINBASE_INTERVALS = [
+    "1m",
+    "5m",
+    "15m",
+    "1h",
+    "6h",
+    "1d",
+]
+
 PLATFORM_INTERVALS = {
     "binance": BINANCE_INTERVALS,
+    "coinbase": COINBASE_INTERVALS,
     "kraken": KRAKEN_INTERVALS,
     "poloniex": POLONIEX_INTERVALS,
 }
@@ -1384,7 +1394,7 @@ def main(argv: List[str]) -> int:
         "--platform",
         type=str,
         default="",
-        help="Single exchange platform to sample (binance|kraken|poloniex).",
+        help="Single exchange platform to sample (binance|coinbase|kraken|poloniex).",
     )
     platform_group.add_argument(
         "--platforms",

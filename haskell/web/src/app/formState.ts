@@ -281,7 +281,7 @@ function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFi
 }
 
 function normalizePlatform(raw: unknown, fallback: Platform): Platform {
-  if (raw === "binance" || raw === "kraken" || raw === "poloniex") return raw;
+  if (raw === "binance" || raw === "coinbase" || raw === "kraken" || raw === "poloniex") return raw;
   return fallback;
 }
 

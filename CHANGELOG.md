@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with Binance-only trading/keys.
 - Optimizer: add platform sampling (`--platforms`) and persist platform in top-combo outputs.
 - Web UI: add platform selector with per-exchange symbols/intervals and disable Binance-only actions when not on Binance.
@@ -58,3 +59,4 @@ All notable changes to this project will be documented in this file.
 - API/UI: `/binance/keys` trade probes report `skipped` when no test order is attempted, and the UI shows `SKIP` instead of `FAIL`.
 - API: `/binance/keys` preflight checks minNotional when price data is available and only fetches symbol filters when needed.
 - API: enables async job persistence by default (local `.tmp/async`); set `TRADER_API_ASYNC_DIR` to override or disable.
+- Exchange data: Poloniex candles now use the `/markets/{symbol}/candles` API with `BASE_QUOTE` symbols (legacy `QUOTE_BASE` is auto-swapped).

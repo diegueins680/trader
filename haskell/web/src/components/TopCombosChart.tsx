@@ -90,7 +90,7 @@ export type OptimizationCombo = {
   openThreshold: number | null;
   closeThreshold: number | null;
   params: OptimizationComboParams;
-  source: "binance" | "kraken" | "poloniex" | "csv" | null;
+  source: "binance" | "coinbase" | "kraken" | "poloniex" | "csv" | null;
   operations?: OptimizationComboOperation[] | null;
 };
 

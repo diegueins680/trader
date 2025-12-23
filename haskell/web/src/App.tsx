@@ -7,6 +7,7 @@ import type {
   BinanceListenKeyResponse,
   BotOrderEvent,
   BotStatus,
+  CoinbaseKeysStatus,
   IntrabarFill,
   LatestSignal,
   Market,
@@ -27,6 +28,7 @@ import {
   botStop,
   cacheClear,
   cacheStats,
+  coinbaseKeysStatus,
   health,
   signal,
   trade,
@@ -56,6 +58,9 @@ import {
   RATE_LIMIT_TOAST_MIN_MS,
   SESSION_BINANCE_KEY_KEY,
   SESSION_BINANCE_SECRET_KEY,
+  SESSION_COINBASE_KEY_KEY,
+  SESSION_COINBASE_SECRET_KEY,
+  SESSION_COINBASE_PASSPHRASE_KEY,
   SIGNAL_TIMEOUT_MS,
   STORAGE_KEY,
   STORAGE_ORDER_LOG_PREFS_KEY,
@@ -116,6 +121,16 @@ type RateLimitState = {
   lastHitAtMs: number;
 };
 
+type KeysStatus = BinanceKeysStatus | CoinbaseKeysStatus;
+
+function isCoinbaseKeysStatus(status: KeysStatus): status is CoinbaseKeysStatus {
+  return "hasApiPassphrase" in status;
+}
+
+function isBinanceKeysStatus(status: KeysStatus): status is BinanceKeysStatus {
+  return "market" in status;
+}
+
 type UiState = {
   loading: boolean;
   error: string | null;
@@ -156,7 +171,8 @@ type BotRtUiState = {
 type KeysUiState = {
   loading: boolean;
   error: string | null;
-  status: BinanceKeysStatus | null;
+  status: KeysStatus | null;
+  platform: Platform | null;
   checkedAtMs: number | null;
 };
 
@@ -592,9 +608,25 @@ export function App() {
     const session = readSessionString(SESSION_BINANCE_SECRET_KEY) ?? "";
     return persistSecrets ? persisted || session : session;
   });
+  const [coinbaseApiKey, setCoinbaseApiKey] = useState<string>(() => {
+    const persisted = readLocalString(SESSION_COINBASE_KEY_KEY) ?? "";
+    const session = readSessionString(SESSION_COINBASE_KEY_KEY) ?? "";
+    return persistSecrets ? persisted || session : session;
+  });
+  const [coinbaseApiSecret, setCoinbaseApiSecret] = useState<string>(() => {
+    const persisted = readLocalString(SESSION_COINBASE_SECRET_KEY) ?? "";
+    const session = readSessionString(SESSION_COINBASE_SECRET_KEY) ?? "";
+    return persistSecrets ? persisted || session : session;
+  });
+  const [coinbaseApiPassphrase, setCoinbaseApiPassphrase] = useState<string>(() => {
+    const persisted = readLocalString(SESSION_COINBASE_PASSPHRASE_KEY) ?? "";
+    const session = readSessionString(SESSION_COINBASE_PASSPHRASE_KEY) ?? "";
+    return persistSecrets ? persisted || session : session;
+  });
   const [form, setForm] = useState<FormState>(() => normalizeFormState(readJson<FormStateJson>(STORAGE_KEY)));
   const [customSymbolByPlatform, setCustomSymbolByPlatform] = useState<Record<Platform, string>>(() => ({
     binance: defaultForm.binanceSymbol,
+    coinbase: PLATFORM_DEFAULT_SYMBOL.coinbase,
     kraken: PLATFORM_DEFAULT_SYMBOL.kraken,
     poloniex: PLATFORM_DEFAULT_SYMBOL.poloniex,
   }));
@@ -615,10 +647,26 @@ export function App() {
 
   const platform = form.platform;
   const isBinancePlatform = platform === "binance";
+  const isCoinbasePlatform = platform === "coinbase";
   const platformSymbolSet = PLATFORM_SYMBOL_SET[platform];
   const platformSymbols = PLATFORM_SYMBOLS[platform];
   const platformLabel = PLATFORM_LABELS[platform];
   const platformIntervals = PLATFORM_INTERVALS[platform];
+  const platformKeyMode = isCoinbasePlatform ? "coinbase" : isBinancePlatform ? "binance" : null;
+  const platformKeyLabel =
+    platformKeyMode === "coinbase" ? "Coinbase API keys (optional)" : platformKeyMode === "binance" ? "Binance API keys (optional)" : "Platform API keys (optional)";
+  const platformKeyHint =
+    platformKeyMode === "coinbase"
+      ? "Used for “Check keys” (Coinbase signed /accounts)."
+      : platformKeyMode === "binance"
+        ? "Used for /trade and “Check keys”."
+        : "Keys can be stored for Binance or Coinbase. Switch Platform to edit them.";
+  const platformKeyHasValues =
+    platformKeyMode === "coinbase"
+      ? Boolean(coinbaseApiKey.trim() || coinbaseApiSecret.trim() || coinbaseApiPassphrase.trim())
+      : platformKeyMode === "binance"
+        ? Boolean(binanceApiKey.trim() || binanceApiSecret.trim())
+        : false;
   const normalizedSymbol = form.binanceSymbol.trim().toUpperCase();
   const symbolIsCustom = !platformSymbolSet.has(normalizedSymbol);
   const symbolSelectValue = symbolIsCustom ? CUSTOM_SYMBOL_VALUE : normalizedSymbol;
@@ -705,6 +753,7 @@ export function App() {
     loading: false,
     error: null,
     status: null,
+    platform: null,
     checkedAtMs: null,
   });
 
@@ -833,6 +882,45 @@ export function App() {
       removeLocalKey(SESSION_BINANCE_SECRET_KEY);
     }
   }, [binanceApiSecret, persistSecrets]);
+
+  useEffect(() => {
+    const v = coinbaseApiKey.trim();
+    if (persistSecrets) {
+      if (!v) removeLocalKey(SESSION_COINBASE_KEY_KEY);
+      else writeLocalString(SESSION_COINBASE_KEY_KEY, v);
+      removeSessionKey(SESSION_COINBASE_KEY_KEY);
+    } else {
+      if (!v) removeSessionKey(SESSION_COINBASE_KEY_KEY);
+      else writeSessionString(SESSION_COINBASE_KEY_KEY, v);
+      removeLocalKey(SESSION_COINBASE_KEY_KEY);
+    }
+  }, [coinbaseApiKey, persistSecrets]);
+
+  useEffect(() => {
+    const v = coinbaseApiSecret.trim();
+    if (persistSecrets) {
+      if (!v) removeLocalKey(SESSION_COINBASE_SECRET_KEY);
+      else writeLocalString(SESSION_COINBASE_SECRET_KEY, v);
+      removeSessionKey(SESSION_COINBASE_SECRET_KEY);
+    } else {
+      if (!v) removeSessionKey(SESSION_COINBASE_SECRET_KEY);
+      else writeSessionString(SESSION_COINBASE_SECRET_KEY, v);
+      removeLocalKey(SESSION_COINBASE_SECRET_KEY);
+    }
+  }, [coinbaseApiSecret, persistSecrets]);
+
+  useEffect(() => {
+    const v = coinbaseApiPassphrase.trim();
+    if (persistSecrets) {
+      if (!v) removeLocalKey(SESSION_COINBASE_PASSPHRASE_KEY);
+      else writeLocalString(SESSION_COINBASE_PASSPHRASE_KEY, v);
+      removeSessionKey(SESSION_COINBASE_PASSPHRASE_KEY);
+    } else {
+      if (!v) removeSessionKey(SESSION_COINBASE_PASSPHRASE_KEY);
+      else writeSessionString(SESSION_COINBASE_PASSPHRASE_KEY, v);
+      removeLocalKey(SESSION_COINBASE_PASSPHRASE_KEY);
+    }
+  }, [coinbaseApiPassphrase, persistSecrets]);
 
   useEffect(() => {
     writeJson(STORAGE_PERSIST_SECRETS_KEY, persistSecrets);
@@ -1385,6 +1473,24 @@ export function App() {
     [binanceApiKey, binanceApiSecret, form.platform],
   );
 
+  const withPlatformKeys = useCallback(
+    (p: ApiParams): ApiParams => {
+      if (isBinancePlatform) return withBinanceKeys(p);
+      if (!isCoinbasePlatform) return p;
+      const key = coinbaseApiKey.trim();
+      const secret = coinbaseApiSecret.trim();
+      const passphrase = coinbaseApiPassphrase.trim();
+      if (!key && !secret && !passphrase) return p;
+      return {
+        ...p,
+        ...(key ? { coinbaseApiKey: key } : {}),
+        ...(secret ? { coinbaseApiSecret: secret } : {}),
+        ...(passphrase ? { coinbaseApiPassphrase: passphrase } : {}),
+      };
+    },
+    [coinbaseApiKey, coinbaseApiPassphrase, coinbaseApiSecret, isBinancePlatform, isCoinbasePlatform, withBinanceKeys],
+  );
+
   const keysParams: ApiParams = useMemo(() => {
     const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
@@ -1403,7 +1509,7 @@ export function App() {
       if (form.maxOrderQuote > 0) base.maxOrderQuote = Math.max(0, form.maxOrderQuote);
     }
 
-    return withBinanceKeys(base);
+    return withPlatformKeys(base);
   }, [
     form.binanceSymbol,
     form.binanceTestnet,
@@ -1414,7 +1520,7 @@ export function App() {
     form.orderQuote,
     form.orderQuoteFraction,
     form.platform,
-    withBinanceKeys,
+    withPlatformKeys,
   ]);
 
   const orderRowKey = useCallback((e: BotOrderEvent) => `${e.atMs}-${e.index}-${e.opSide}`, []);
@@ -1718,7 +1824,7 @@ export function App() {
           if (!opts?.silent) showToast("Backtest complete");
         } else {
           if (!form.tradeArmed) throw new Error("Trading is locked. Enable “Arm trading” to call /trade.");
-          const out = await trade(apiBase, withBinanceKeys(p), {
+          const out = await trade(apiBase, withPlatformKeys(p), {
             signal: controller.signal,
             headers: requestHeaders,
             timeoutMs: TRADE_TIMEOUT_MS,
@@ -1812,7 +1918,7 @@ export function App() {
       scrollToResult,
       showToast,
       tradeParams,
-      withBinanceKeys,
+      withPlatformKeys,
     ],
   );
 
@@ -1828,10 +1934,10 @@ export function App() {
 
   const refreshKeys = useCallback(
     async (opts?: RunOptions) => {
-      if (!isBinancePlatform) {
-        const msg = "Binance key checks require Platform=Binance.";
+      if (!isBinancePlatform && !isCoinbasePlatform) {
+        const msg = "Key checks require Platform=Binance or Coinbase.";
         if (!opts?.silent) showToast(msg);
-        setKeys((s) => ({ ...s, loading: false, error: msg, status: null }));
+        setKeys((s) => ({ ...s, loading: false, error: msg, status: null, platform }));
         return;
       }
       const requestId = ++keysRequestSeqRef.current;
@@ -1839,15 +1945,17 @@ export function App() {
       const controller = new AbortController();
       keysAbortRef.current = controller;
 
-      setKeys((s) => ({ ...s, loading: true, error: opts?.silent ? s.error : null }));
+      setKeys((s) => ({ ...s, loading: true, error: opts?.silent ? s.error : null, platform }));
 
       try {
         const p = keysParams;
-        if (!p.binanceSymbol) throw new Error("Symbol is required.");
+        if (isBinancePlatform && !p.binanceSymbol) throw new Error("Symbol is required.");
 
-        const out = await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
+        const out = isBinancePlatform
+          ? await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 })
+          : await coinbaseKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
         if (requestId !== keysRequestSeqRef.current) return;
-        setKeys({ loading: false, error: null, status: out, checkedAtMs: Date.now() });
+        setKeys({ loading: false, error: null, status: out, platform, checkedAtMs: Date.now() });
         setApiOk("ok");
         if (!opts?.silent) showToast("Key status updated");
       } catch (e) {
@@ -1855,7 +1963,7 @@ export function App() {
         if (isAbortError(e)) return;
 
         let msg = e instanceof Error ? e.message : String(e);
-        if (isTimeoutError(e)) msg = "Key check timed out. Try again, or switch testnet off.";
+        if (isTimeoutError(e)) msg = isBinancePlatform ? "Key check timed out. Try again, or switch testnet off." : "Key check timed out. Try again.";
         if (e instanceof HttpError && typeof e.payload === "string") {
           const payload = e.payload;
           if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
@@ -1870,17 +1978,17 @@ export function App() {
         });
 
         if (opts?.silent) {
-          setKeys((s) => ({ ...s, loading: false }));
+          setKeys((s) => ({ ...s, loading: false, platform }));
           return;
         }
 
-        setKeys((s) => ({ ...s, loading: false, error: msg }));
+        setKeys((s) => ({ ...s, loading: false, error: msg, platform }));
         showToast("Key check failed");
       } finally {
         if (requestId === keysRequestSeqRef.current) keysAbortRef.current = null;
       }
     },
-    [apiBase, authHeaders, isBinancePlatform, keysParams, showToast],
+    [apiBase, authHeaders, isBinancePlatform, isCoinbasePlatform, keysParams, platform, showToast],
   );
 
   const stopListenKeyStream = useCallback(
@@ -2291,7 +2399,7 @@ export function App() {
           botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
           botMaxPoints: clamp(Math.trunc(form.botMaxPoints), 100, 100000),
         };
-        const out = await botStart(apiBase, withBinanceKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
+        const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         if (adoptOverride && !form.botAdoptExistingPosition) {
           setForm((f) => ({ ...f, botAdoptExistingPosition: true }));
@@ -2345,7 +2453,7 @@ export function App() {
       form.tradeArmed,
       showToast,
       tradeParams,
-      withBinanceKeys,
+      withPlatformKeys,
     ],
   );
 
@@ -2644,7 +2752,7 @@ export function App() {
           const operationsOut = operations.length > 0 ? operations : null;
           const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
           const source: OptimizationCombo["source"] =
-            rawSource === "binance" || rawSource === "kraken" || rawSource === "poloniex" || rawSource === "csv"
+            rawSource === "binance" || rawSource === "coinbase" || rawSource === "kraken" || rawSource === "poloniex" || rawSource === "csv"
               ? rawSource
               : null;
           const resolvedPlatform =
@@ -3419,30 +3527,63 @@ export function App() {
 
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
-                <label className="label">Binance API keys (optional)</label>
-                <div className="row" style={{ gridTemplateColumns: "1fr 1fr auto auto", alignItems: "center" }}>
+                <label className="label">{platformKeyLabel}</label>
+                <div
+                  className="row"
+                  style={{
+                    gridTemplateColumns: platformKeyMode === "coinbase" ? "1fr 1fr 1fr auto auto" : "1fr 1fr auto auto",
+                    alignItems: "center",
+                  }}
+                >
                   <input
                     className="input"
                     type={revealSecrets ? "text" : "password"}
-                    value={binanceApiKey}
-                    onChange={(e) => setBinanceApiKey(e.target.value)}
-                    placeholder="BINANCE_API_KEY"
+                    value={platformKeyMode === "coinbase" ? coinbaseApiKey : platformKeyMode === "binance" ? binanceApiKey : ""}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (platformKeyMode === "coinbase") setCoinbaseApiKey(next);
+                      else if (platformKeyMode === "binance") setBinanceApiKey(next);
+                    }}
+                    placeholder={
+                      platformKeyMode === "coinbase" ? "COINBASE_API_KEY" : platformKeyMode === "binance" ? "BINANCE_API_KEY" : "Select Binance/Coinbase"
+                    }
                     spellCheck={false}
                     autoCapitalize="none"
                     autoCorrect="off"
                     inputMode="text"
+                    disabled={!platformKeyMode}
                   />
                   <input
                     className="input"
                     type={revealSecrets ? "text" : "password"}
-                    value={binanceApiSecret}
-                    onChange={(e) => setBinanceApiSecret(e.target.value)}
-                    placeholder="BINANCE_API_SECRET"
+                    value={platformKeyMode === "coinbase" ? coinbaseApiSecret : platformKeyMode === "binance" ? binanceApiSecret : ""}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      if (platformKeyMode === "coinbase") setCoinbaseApiSecret(next);
+                      else if (platformKeyMode === "binance") setBinanceApiSecret(next);
+                    }}
+                    placeholder={
+                      platformKeyMode === "coinbase" ? "COINBASE_API_SECRET" : platformKeyMode === "binance" ? "BINANCE_API_SECRET" : "Select Binance/Coinbase"
+                    }
                     spellCheck={false}
                     autoCapitalize="none"
                     autoCorrect="off"
                     inputMode="text"
+                    disabled={!platformKeyMode}
                   />
+                  {platformKeyMode === "coinbase" ? (
+                    <input
+                      className="input"
+                      type={revealSecrets ? "text" : "password"}
+                      value={coinbaseApiPassphrase}
+                      onChange={(e) => setCoinbaseApiPassphrase(e.target.value)}
+                      placeholder="COINBASE_API_PASSPHRASE"
+                      spellCheck={false}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      inputMode="text"
+                    />
+                  ) : null}
                   <button className="btn" type="button" onClick={() => setRevealSecrets((v) => !v)}>
                     {revealSecrets ? "Hide" : "Show"}
                   </button>
@@ -3450,30 +3591,36 @@ export function App() {
                     className="btn"
                     type="button"
                     onClick={() => {
-                      setBinanceApiKey("");
-                      setBinanceApiSecret("");
+                      if (platformKeyMode === "coinbase") {
+                        setCoinbaseApiKey("");
+                        setCoinbaseApiSecret("");
+                        setCoinbaseApiPassphrase("");
+                      } else if (platformKeyMode === "binance") {
+                        setBinanceApiKey("");
+                        setBinanceApiSecret("");
+                      }
                     }}
-                    disabled={!binanceApiKey.trim() && !binanceApiSecret.trim()}
+                    disabled={!platformKeyHasValues}
                   >
                     Clear
                   </button>
                 </div>
                 <div className="hint">
-                  Used for /trade and “Check keys”. Stored in {persistSecrets ? "local storage" : "session storage"}. The request preview/curl omits it.
+                  {platformKeyHint} Stored in {persistSecrets ? "local storage" : "session storage"}. The request preview/curl omits it.
                 </div>
-                {!isBinancePlatform ? (
+                {!platformKeyMode ? (
                   <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
-                    Keys are only used when Platform is set to Binance.
+                    Keys are only editable when Platform is set to Binance or Coinbase.
                   </div>
                 ) : null}
                 <div className="pillRow" style={{ marginTop: 10 }}>
                   <label className="pill">
                     <input type="checkbox" checked={persistSecrets} onChange={(e) => setPersistSecrets(e.target.checked)} />
-                    Remember Binance keys
+                    Remember platform keys
                   </label>
                 </div>
                 <div className="hint">
-                  When enabled, the Binance keys are stored in local storage so you can reopen the app later without re-entering them (not recommended on shared
+                  When enabled, the platform keys are stored in local storage so you can reopen the app later without re-entering them (not recommended on shared
                   machines).
                 </div>
               </div>
@@ -3510,7 +3657,7 @@ export function App() {
                     Delete
                   </button>
                 </div>
-                <div className="hint">Save/load named config presets. Does not include Binance keys.</div>
+                <div className="hint">Save/load named config presets. Does not include API keys.</div>
 
                 {pendingProfileLoad ? (
                   <>
@@ -3660,7 +3807,9 @@ export function App() {
                   </option>
                 ))}
               </select>
-              <div className="hint">Exchange platform for price data. Trading, keys, and live bot are Binance-only.</div>
+              <div className="hint">
+                Exchange platform for price data. Trading and live bot are Binance-only; API keys can be stored for Binance and Coinbase.
+              </div>
             </div>
           </div>
           <div className="row">
@@ -3708,7 +3857,9 @@ export function App() {
                 {missingSymbol
                   ? "Required."
                   : symbolIsCustom
-                    ? `Type any ${platformLabel} symbol.`
+                    ? isCoinbasePlatform
+                      ? "Type any Coinbase product ID (e.g., BTC-USD)."
+                      : `Type any ${platformLabel} symbol.`
                     : `Pick a common ${platformLabel} pair or choose Custom to type another symbol.`}
               </div>
             </div>
@@ -6575,7 +6726,7 @@ export function App() {
               </div>
               {!isBinancePlatform ? (
                 <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)", marginBottom: 10 }}>
-                  Trading and key checks are Binance-only. Switch Platform to Binance to use this card.
+                  Trading and key checks are Binance-only. Coinbase keys can be stored above but are not checked here.
                 </div>
               ) : null}
 
