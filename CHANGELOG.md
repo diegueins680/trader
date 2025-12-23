@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with Binance-only trading/keys.
+- Optimizer: add platform sampling (`--platforms`) and persist platform in top-combo outputs.
+- Web UI: add platform selector with per-exchange symbols/intervals and disable Binance-only actions when not on Binance.
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
 - Web UI: top combos now auto-apply when available to keep the form aligned with the top performer.
 - Web UI: idle live bot auto-starts after the top combo is applied.
@@ -39,10 +42,12 @@ All notable changes to this project will be documented in this file.
 - Optimizer: adds min-signal-to-noise sampling plus Sharpe/walk-forward Sharpe filters, with `/optimizer/run` fields to match.
 - Optimizer: adds walk-forward/tune-stress sampling controls and propagates additional combo parameters (vol floors, vol caps, stress settings) through top-combo outputs.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
+- Optimizer/API: expose intrabar fill probability, bracket-stop ranges (incl. vol-mult), confidence gating, and LSTM training sampling controls to `/optimizer/run`.
 - API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.
 - API: `/optimizer/run` now merges optimizer runs into `top-combos.json` (bounded by `TRADER_OPTIMIZER_MAX_COMBOS`).
 - API: allow `/optimizer/combos` to persist top-combos.json via `TRADER_OPTIMIZER_COMBOS_DIR`.
 - API: persist `/bot/status` snapshots via `TRADER_BOT_STATE_DIR` so the last state survives restarts.
+- API: add `TRADER_STATE_DIR` to persist ops/journal/bot state/optimizer combos/async jobs/LSTM weights under one shared directory.
 - Deploy: when using CloudFront with a distribution ID, the quick AWS deploy script sets the UI API base to `/api` to avoid CORS.
 - Deploy: quick AWS deploy now prints the CloudFront domain and warns when `/api/*` behavior is missing.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.

@@ -26,7 +26,7 @@ test("buildRequestIssueDetails orders issues consistently", () => {
     [
       "rate limit",
       "api down",
-      "Binance symbol is required.",
+      "Symbol is required.",
       "Interval is required.",
       "lookback issue",
       "limits issue",

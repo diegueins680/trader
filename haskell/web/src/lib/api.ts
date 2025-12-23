@@ -208,7 +208,7 @@ function shouldFallbackToGet(err: unknown): boolean {
 }
 
 function asyncJobNotFoundMessage(): string {
-  return "Async job not found (server restarted or behind a non-sticky load balancer). Please retry; for multi-instance deployments, enable shared async job storage (TRADER_API_ASYNC_DIR) or run single-instance.";
+  return "Async job not found (server restarted or behind a non-sticky load balancer). Please retry; for multi-instance deployments, enable shared async job storage (TRADER_API_ASYNC_DIR or TRADER_STATE_DIR) or run single-instance.";
 }
 
 function describeAsyncTimeout(baseUrl: string, overallTimeoutMs: number, lastError: unknown): string {

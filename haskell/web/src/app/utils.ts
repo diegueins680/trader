@@ -123,7 +123,7 @@ export function buildRequestIssueDetails(input: RequestIssueDetailsInput): Reque
       disabledMessage: input.apiBlockedReason ?? input.apiStatusIssue,
     });
   }
-  if (input.missingSymbol) issues.push({ message: "Binance symbol is required.", targetId: input.symbolTargetId });
+  if (input.missingSymbol) issues.push({ message: "Symbol is required.", targetId: input.symbolTargetId });
   if (input.missingInterval) issues.push({ message: "Interval is required.", targetId: input.intervalTargetId });
   if (input.lookbackError) issues.push({ message: input.lookbackError, targetId: input.lookbackTargetId });
   if (input.apiLimitsReason) issues.push({ message: input.apiLimitsReason, targetId: input.apiLimitsTargetId });

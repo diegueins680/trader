@@ -1,3 +1,4 @@
+import type { Platform } from "../lib/types";
 import { TRADER_UI_CONFIG } from "../lib/deployConfig";
 
 export const STORAGE_KEY = "trader.ui.form.v1";
@@ -30,6 +31,14 @@ export const RATE_LIMIT_BASE_MS = 10_000;
 export const RATE_LIMIT_MAX_MS = 120_000;
 export const RATE_LIMIT_TOAST_MIN_MS = 12_000;
 
+export const PLATFORMS: Platform[] = ["binance", "kraken", "poloniex"];
+
+export const PLATFORM_LABELS: Record<Platform, string> = {
+  binance: "Binance",
+  kraken: "Kraken",
+  poloniex: "Poloniex",
+};
+
 export const BINANCE_INTERVALS = [
   "1m",
   "3m",
@@ -49,6 +58,21 @@ export const BINANCE_INTERVALS = [
 ] as const;
 
 export const BINANCE_INTERVAL_SET = new Set<string>(BINANCE_INTERVALS);
+
+export const KRAKEN_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"] as const;
+export const POLONIEX_INTERVALS = ["5m", "15m", "30m", "2h", "4h", "1d"] as const;
+
+export const PLATFORM_INTERVALS: Record<Platform, readonly string[]> = {
+  binance: BINANCE_INTERVALS,
+  kraken: KRAKEN_INTERVALS,
+  poloniex: POLONIEX_INTERVALS,
+};
+
+export const PLATFORM_INTERVAL_SET: Record<Platform, Set<string>> = {
+  binance: BINANCE_INTERVAL_SET,
+  kraken: new Set<string>(KRAKEN_INTERVALS),
+  poloniex: new Set<string>(POLONIEX_INTERVALS),
+};
 
 export const BINANCE_INTERVAL_SECONDS: Record<string, number> = {
   "1m": 60,
@@ -95,6 +119,43 @@ export const BINANCE_SYMBOLS = [
 ] as const;
 
 export const BINANCE_SYMBOL_SET = new Set<string>(BINANCE_SYMBOLS);
+
+export const KRAKEN_SYMBOLS = [
+  "XBTUSD",
+  "ETHUSD",
+  "XBTUSDT",
+  "ETHUSDT",
+  "SOLUSD",
+  "XRPUSD",
+  "ADAUSD",
+] as const;
+
+export const POLONIEX_SYMBOLS = [
+  "USDT_BTC",
+  "USDT_ETH",
+  "USDT_SOL",
+  "USDT_XRP",
+  "USDT_DOGE",
+  "USDT_ADA",
+] as const;
+
+export const PLATFORM_SYMBOLS: Record<Platform, readonly string[]> = {
+  binance: BINANCE_SYMBOLS,
+  kraken: KRAKEN_SYMBOLS,
+  poloniex: POLONIEX_SYMBOLS,
+};
+
+export const PLATFORM_SYMBOL_SET: Record<Platform, Set<string>> = {
+  binance: BINANCE_SYMBOL_SET,
+  kraken: new Set<string>(KRAKEN_SYMBOLS),
+  poloniex: new Set<string>(POLONIEX_SYMBOLS),
+};
+
+export const PLATFORM_DEFAULT_SYMBOL: Record<Platform, string> = {
+  binance: "BTCUSDT",
+  kraken: "XBTUSD",
+  poloniex: "USDT_BTC",
+};
 
 export const TUNE_OBJECTIVES = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"] as const;
 export const TUNE_OBJECTIVE_SET = new Set<string>(TUNE_OBJECTIVES);

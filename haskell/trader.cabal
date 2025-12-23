@@ -14,6 +14,7 @@ executable trader-hs
                      , Trader.Duration
                      , Trader.KalmanFusion
                      , Trader.Kalman3
+                     , Trader.Kraken
                      , Trader.LSTM
                      , Trader.Metrics
                      , Trader.Method
@@ -21,6 +22,7 @@ executable trader-hs
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.OnlineStats
+                     , Trader.Poloniex
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
@@ -30,6 +32,7 @@ executable trader-hs
                      , Trader.Predictors.Quantile
                      , Trader.Predictors.Conformal
                      , Trader.Predictors.HMM
+                     , Trader.Platform
                      , Trader.SensorVariance
                      , Trader.Split
                      , Trader.Symbol
@@ -72,6 +75,7 @@ test-suite trader-tests
                      , Trader.Duration
                      , Trader.KalmanFusion
                      , Trader.Kalman3
+                     , Trader.Kraken
                      , Trader.LSTM
                      , Trader.Metrics
                      , Trader.Method
@@ -79,6 +83,7 @@ test-suite trader-tests
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.OnlineStats
+                     , Trader.Poloniex
                      , Trader.Predictors
                      , Trader.Predictors.Types
                      , Trader.Predictors.Features
@@ -88,6 +93,7 @@ test-suite trader-tests
                      , Trader.Predictors.Quantile
                      , Trader.Predictors.Conformal
                      , Trader.Predictors.HMM
+                     , Trader.Platform
                      , Trader.SensorVariance
                      , Trader.Split
                      , Trader.Symbol

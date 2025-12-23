@@ -19,7 +19,7 @@ import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (toList)
 import Data.Int (Int64)
 import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn)
-import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Text (Text)
@@ -99,7 +99,7 @@ import Trader.LSTM
   )
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
 import Trader.MarketContext (MarketModel, buildMarketModel, marketMeasurementAt)
-import Trader.BinanceIntervals (binanceIntervals, binanceIntervalsCsv, isBinanceInterval)
+import Trader.BinanceIntervals (binanceIntervals)
 import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
 import Trader.Normalization (NormState, NormType(..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Predictors
@@ -142,6 +142,7 @@ import Trader.App.Args
   , positioningCode
   , resolveBarsForBinance
   , resolveBarsForCsv
+  , resolveBarsForPlatform
   , validateArgs
   )
 import Trader.Trading
@@ -155,6 +156,20 @@ import Trader.Trading
   , simulateEnsemble
   , simulateEnsembleWithHL
   )
+import Trader.Platform
+  ( Platform(..)
+  , isPlatformInterval
+  , parsePlatform
+  , platformCode
+  , platformLabel
+  , platformIntervalsCsv
+  , platformSupportsMarketContext
+  , platformSupportsTrading
+  , krakenIntervalMinutes
+  , poloniexIntervalSeconds
+  )
+import Trader.Kraken (KrakenCandle(..), fetchKrakenCandles)
+import Trader.Poloniex (PoloniexCandle(..), fetchPoloniexCandles)
 
 -- CSV loading
 
@@ -501,6 +516,7 @@ data ApiParams = ApiParams
   , apHighColumn :: Maybe String
   , apLowColumn :: Maybe String
   , apBinanceSymbol :: Maybe String
+  , apPlatform :: Maybe String
   , apMarket :: Maybe String -- "spot" | "margin" | "futures"
   , apInterval :: Maybe String
   , apBars :: Maybe Int
@@ -593,6 +609,8 @@ data ApiParams = ApiParams
 
 data OptimizerSource
   = OptimizerSourceBinance
+  | OptimizerSourceKraken
+  | OptimizerSourcePoloniex
   | OptimizerSourceCsv
   deriving (Eq, Show)
 
@@ -602,7 +620,17 @@ instance FromJSON OptimizerSource where
       case T.toLower txt of
         "csv" -> pure OptimizerSourceCsv
         "binance" -> pure OptimizerSourceBinance
-        _ -> fail "Invalid optimizer source (expected binance or csv)"
+        "kraken" -> pure OptimizerSourceKraken
+        "poloniex" -> pure OptimizerSourcePoloniex
+        _ -> fail "Invalid optimizer source (expected binance|kraken|poloniex|csv)"
+
+optimizerSourcePlatform :: OptimizerSource -> Maybe Platform
+optimizerSourcePlatform source =
+  case source of
+    OptimizerSourceBinance -> Just PlatformBinance
+    OptimizerSourceKraken -> Just PlatformKraken
+    OptimizerSourcePoloniex -> Just PlatformPoloniex
+    OptimizerSourceCsv -> Nothing
 
 data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   { arrSource :: !(Maybe OptimizerSource)
@@ -612,6 +640,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrHighColumn :: !(Maybe String)
   , arrLowColumn :: !(Maybe String)
   , arrIntervals :: !(Maybe String)
+  , arrPlatforms :: !(Maybe String)
   , arrLookbackWindow :: !(Maybe String)
   , arrBarsMin :: !(Maybe Int)
   , arrBarsMax :: !(Maybe Int)
@@ -621,6 +650,12 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrEpochsMax :: !(Maybe Int)
   , arrHiddenSizeMin :: !(Maybe Int)
   , arrHiddenSizeMax :: !(Maybe Int)
+  , arrLrMin :: !(Maybe Double)
+  , arrLrMax :: !(Maybe Double)
+  , arrPatienceMax :: !(Maybe Int)
+  , arrGradClipMin :: !(Maybe Double)
+  , arrGradClipMax :: !(Maybe Double)
+  , arrPDisableGradClip :: !(Maybe Double)
   , arrTrials :: !(Maybe Int)
   , arrTimeoutSec :: !(Maybe Double)
   , arrSeed :: !(Maybe Int)
@@ -668,6 +703,27 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrPCostAwareEdge :: !(Maybe Double)
   , arrTrendLookbackMin :: !(Maybe Int)
   , arrTrendLookbackMax :: !(Maybe Int)
+  , arrPIntrabarTakeProfitFirst :: !(Maybe Double)
+  , arrStopMin :: !(Maybe Double)
+  , arrStopMax :: !(Maybe Double)
+  , arrTpMin :: !(Maybe Double)
+  , arrTpMax :: !(Maybe Double)
+  , arrTrailMin :: !(Maybe Double)
+  , arrTrailMax :: !(Maybe Double)
+  , arrPDisableStop :: !(Maybe Double)
+  , arrPDisableTp :: !(Maybe Double)
+  , arrPDisableTrail :: !(Maybe Double)
+  , arrStopVolMultMin :: !(Maybe Double)
+  , arrStopVolMultMax :: !(Maybe Double)
+  , arrTpVolMultMin :: !(Maybe Double)
+  , arrTpVolMultMax :: !(Maybe Double)
+  , arrTrailVolMultMin :: !(Maybe Double)
+  , arrTrailVolMultMax :: !(Maybe Double)
+  , arrPDisableStopVolMult :: !(Maybe Double)
+  , arrPDisableTpVolMult :: !(Maybe Double)
+  , arrPDisableTrailVolMult :: !(Maybe Double)
+  , arrMinPositionSizeMin :: !(Maybe Double)
+  , arrMinPositionSizeMax :: !(Maybe Double)
   , arrMaxPositionSizeMin :: !(Maybe Double)
   , arrMaxPositionSizeMax :: !(Maybe Double)
   , arrVolTargetMin :: !(Maybe Double)
@@ -677,6 +733,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrVolLookbackMax :: !(Maybe Int)
   , arrVolEwmaAlphaMin :: !(Maybe Double)
   , arrVolEwmaAlphaMax :: !(Maybe Double)
+  , arrPDisableVolEwmaAlpha :: !(Maybe Double)
   , arrVolFloorMin :: !(Maybe Double)
   , arrVolFloorMax :: !(Maybe Double)
   , arrVolScaleMaxMin :: !(Maybe Double)
@@ -686,6 +743,22 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrPDisableMaxVolatility :: !(Maybe Double)
   , arrPeriodsPerYearMin :: !(Maybe Double)
   , arrPeriodsPerYearMax :: !(Maybe Double)
+  , arrKalmanZMinMin :: !(Maybe Double)
+  , arrKalmanZMinMax :: !(Maybe Double)
+  , arrKalmanZMaxMin :: !(Maybe Double)
+  , arrKalmanZMaxMax :: !(Maybe Double)
+  , arrPDisableMaxHighVolProb :: !(Maybe Double)
+  , arrMaxHighVolProbMin :: !(Maybe Double)
+  , arrMaxHighVolProbMax :: !(Maybe Double)
+  , arrPDisableMaxConformalWidth :: !(Maybe Double)
+  , arrMaxConformalWidthMin :: !(Maybe Double)
+  , arrMaxConformalWidthMax :: !(Maybe Double)
+  , arrPDisableMaxQuantileWidth :: !(Maybe Double)
+  , arrMaxQuantileWidthMin :: !(Maybe Double)
+  , arrMaxQuantileWidthMax :: !(Maybe Double)
+  , arrPConfirmConformal :: !(Maybe Double)
+  , arrPConfirmQuantiles :: !(Maybe Double)
+  , arrPConfidenceSizing :: !(Maybe Double)
   , arrKalmanMarketTopNMin :: !(Maybe Int)
   , arrKalmanMarketTopNMax :: !(Maybe Int)
   , arrMethodWeightBlend :: !(Maybe Double)
@@ -960,12 +1033,29 @@ data Journal = Journal
   , jLock :: !(MVar ())
   }
 
+stateDirFromEnv :: IO (Maybe FilePath)
+stateDirFromEnv = do
+  mDir <- lookupEnv "TRADER_STATE_DIR"
+  case trim <$> mDir of
+    Just dir | not (null dir) -> pure (Just dir)
+    _ -> pure Nothing
+
+stateSubdirFromEnv :: String -> IO (Maybe FilePath)
+stateSubdirFromEnv subdir = do
+  mState <- stateDirFromEnv
+  pure (fmap (</> subdir) mState)
+
 newJournalFromEnv :: IO (Maybe Journal)
 newJournalFromEnv = do
   mDir <- lookupEnv "TRADER_JOURNAL_DIR"
-  case trim <$> mDir of
+  mStateDir <- stateSubdirFromEnv "journal"
+  let resolvedDir =
+        case trim <$> mDir of
+          Just dir | null dir -> Nothing
+          Just dir -> Just dir
+          Nothing -> mStateDir
+  case resolvedDir of
     Nothing -> pure Nothing
-    Just dir | null dir -> pure Nothing
     Just dir -> do
       createDirectoryIfMissing True dir
       ts <- getTimestampMs
@@ -1028,10 +1118,10 @@ argsPublicJson args =
   let market = marketCode (argBinanceMarket args)
       barsRaw = argBars args
       barsCsv = resolveBarsForCsv args
-      barsBinance = resolveBarsForBinance args
+      barsPlatform = resolveBarsForPlatform args
       barsUsed =
         case (argBinanceSymbol args, argData args) of
-          (Just _, _) -> barsBinance
+          (Just _, _) -> barsPlatform
           (_, Just _) -> barsCsv
           _ -> fromMaybe 0 barsRaw
       lookback =
@@ -1048,6 +1138,7 @@ argsPublicJson args =
       , "highColumn" .= argHighCol args
       , "lowColumn" .= argLowCol args
       , "binanceSymbol" .= argBinanceSymbol args
+      , "platform" .= platformCode (argPlatform args)
       , "market" .= market
       , "interval" .= argInterval args
       , "bars" .= barsRaw
@@ -1152,9 +1243,14 @@ loadOpsFile path maxInMemory = do
 newOpsStoreFromEnv :: IO (Maybe OpsStore)
 newOpsStoreFromEnv = do
   mDir <- lookupEnv "TRADER_OPS_DIR"
-  case trim <$> mDir of
+  mStateDir <- stateSubdirFromEnv "ops"
+  let resolvedDir =
+        case trim <$> mDir of
+          Just dir | null dir -> Nothing
+          Just dir -> Just dir
+          Nothing -> mStateDir
+  case resolvedDir of
     Nothing -> pure Nothing
-    Just dir | null dir -> pure Nothing
     Just dir -> do
       createDirectoryIfMissing True dir
       maxEnv <- lookupEnv "TRADER_OPS_MAX_IN_MEMORY"
@@ -1534,9 +1630,12 @@ resolveBotStatePath :: IO (Maybe FilePath)
 resolveBotStatePath = do
   mDir <- lookupEnv "TRADER_BOT_STATE_DIR"
   case trim <$> mDir of
-    Nothing -> pure (Just (defaultBotStateDir </> botStateFileName))
     Just dir | null dir -> pure Nothing
     Just dir -> pure (Just (dir </> botStateFileName))
+    Nothing -> do
+      mStateDir <- stateSubdirFromEnv "bot"
+      let baseDir = fromMaybe defaultBotStateDir mStateDir
+      pure (Just (baseDir </> botStateFileName))
 
 writeBotStatusSnapshot :: FilePath -> BotStatusSnapshot -> IO ()
 writeBotStatusSnapshot path snap = do
@@ -1685,37 +1784,40 @@ preflightBotStart args settings sym =
 
 botStart :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> Args -> ApiParams -> IO (Either String BotStartRuntime)
 botStart mOps metrics mJournal mBotStatePath ctrl args p =
-  case argData args of
-    Just _ -> pure (Left "bot/start supports binanceSymbol only (no CSV data source)")
-    Nothing ->
-      case argBinanceSymbol args of
-        Nothing -> pure (Left "bot/start requires binanceSymbol")
-        Just sym ->
-          case botSettingsFromApi args p of
-            Left e -> pure (Left e)
-            Right settings -> do
-              now <- getTimestampMs
-              modifyMVar (bcRuntime ctrl) $ \mrt ->
-                case mrt of
-                  Just (BotRunning _) -> pure (mrt, Left "Bot is already running")
-                  Just (BotStarting _) -> pure (mrt, Left "Bot is starting")
-                  Nothing -> do
-                    preflight <- preflightBotStart args settings sym
-                    case preflight of
-                      Left e -> pure (Nothing, Left e)
-                      Right () -> do
-                        stopSig <- newEmptyMVar
-                        tid <- forkIO (botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSig)
-                        let rt =
-                              BotStartRuntime
-                                { bsrThreadId = tid
-                                , bsrStopSignal = stopSig
-                                , bsrArgs = args
-                                , bsrSettings = settings
-                                , bsrSymbol = sym
-                                , bsrRequestedAtMs = now
-                                }
-                        pure (Just (BotStarting rt), Right rt)
+  if not (platformSupportsTrading (argPlatform args))
+    then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
+    else
+      case argData args of
+        Just _ -> pure (Left "bot/start supports binanceSymbol only (no CSV data source)")
+        Nothing ->
+          case argBinanceSymbol args of
+            Nothing -> pure (Left "bot/start requires binanceSymbol")
+            Just sym ->
+              case botSettingsFromApi args p of
+                Left e -> pure (Left e)
+                Right settings -> do
+                  now <- getTimestampMs
+                  modifyMVar (bcRuntime ctrl) $ \mrt ->
+                    case mrt of
+                      Just (BotRunning _) -> pure (mrt, Left "Bot is already running")
+                      Just (BotStarting _) -> pure (mrt, Left "Bot is starting")
+                      Nothing -> do
+                        preflight <- preflightBotStart args settings sym
+                        case preflight of
+                          Left e -> pure (Nothing, Left e)
+                          Right () -> do
+                            stopSig <- newEmptyMVar
+                            tid <- forkIO (botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSig)
+                            let rt =
+                                  BotStartRuntime
+                                    { bsrThreadId = tid
+                                    , bsrStopSignal = stopSig
+                                    , bsrArgs = args
+                                    , bsrSettings = settings
+                                    , bsrSymbol = sym
+                                    , bsrRequestedAtMs = now
+                                    }
+                            pure (Just (BotStarting rt), Right rt)
 
 botStartWorker :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> Args -> BotSettings -> String -> MVar () -> IO ()
 botStartWorker mOps metrics mJournal mBotStatePath ctrl args settings sym stopSig = do
@@ -2626,9 +2728,10 @@ sanitizeFileComponent raw =
 botOptimizerLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> MVar BotState -> MVar () -> MVar (Maybe BotOptimizerUpdate) -> IO ()
 botOptimizerLoop mOps metrics mJournal stVar stopSig pending = do
   projectRoot <- getCurrentDirectory
+  mStateDir <- stateDirFromEnv
   exePath <- getExecutablePath
   let tmpRoot = projectRoot </> ".tmp"
-      optimizerTmp = tmpRoot </> "optimizer"
+      optimizerTmp = fromMaybe (tmpRoot </> "optimizer") (fmap (</> "optimizer") mStateDir)
   createDirectoryIfMissing True optimizerTmp
   let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
   scriptExists <- doesFileExist scriptPath
@@ -2802,190 +2905,196 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
   let enabled = readEnvBool enabledEnv True
   if not enabled
     then pure ()
-    else do
-      projectRoot <- getCurrentDirectory
-      exePath <- getExecutablePath
-      let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
-          mergePath = projectRoot </> "scripts" </> "merge_top_combos.py"
-      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-      scriptExists <- doesFileExist scriptPath
-      mergeExists <- doesFileExist mergePath
-      if not scriptExists || not mergeExists
+    else
+      if argPlatform baseArgs /= PlatformBinance
         then do
           now <- getTimestampMs
-          journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.missing_script" :: String), "atMs" .= now, "script" .= scriptPath])
-          opsAppendMaybe mOps "optimizer.auto.missing_script" Nothing Nothing (Just (object ["script" .= scriptPath])) Nothing
+          let msg :: String
+              msg = "Auto optimizer supports Binance only."
+          journalWriteMaybe
+            mJournal
+            ( object
+                [ "type" .= ("optimizer.auto.platform_unsupported" :: String)
+                , "atMs" .= now
+                , "platform" .= platformCode (argPlatform baseArgs)
+                , "error" .= msg
+                ]
+            )
+          opsAppendMaybe
+            mOps
+            "optimizer.auto.platform_unsupported"
+            Nothing
+            (Just (argsPublicJson baseArgs))
+            (Just (object ["error" .= msg]))
+            Nothing
         else do
-          envOrErr <- try (makeBinanceEnv baseArgs) :: IO (Either SomeException BinanceEnv)
-          case envOrErr of
-            Left ex -> do
+          projectRoot <- getCurrentDirectory
+          exePath <- getExecutablePath
+          let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
+              mergePath = projectRoot </> "scripts" </> "merge_top_combos.py"
+          topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+          scriptExists <- doesFileExist scriptPath
+          mergeExists <- doesFileExist mergePath
+          if not scriptExists || not mergeExists
+            then do
               now <- getTimestampMs
-              journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.env_failed" :: String), "atMs" .= now, "error" .= show ex])
-            Right env -> do
-              everySecEnv <- lookupEnv "TRADER_OPTIMIZER_EVERY_SEC"
-              trialsEnv <- lookupEnv "TRADER_OPTIMIZER_TRIALS"
-              timeoutEnv <- lookupEnv "TRADER_OPTIMIZER_TIMEOUT_SEC"
-              objectiveEnv <- lookupEnv "TRADER_OPTIMIZER_OBJECTIVE"
-              lookbackEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOW"
-              backtestEnv <- lookupEnv "TRADER_OPTIMIZER_BACKTEST_RATIO"
-              tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
-              maxPointsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
-              symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
-              intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
-              maxCombos <- optimizerMaxCombosFromEnv
-
-              let everySec :: Int
-                  everySec =
-                    case everySecEnv >>= readMaybe of
-                      Just n | n >= 5 -> n
-                      _ -> 300
-                  trials :: Int
-                  trials =
-                    case trialsEnv >>= readMaybe of
-                      Just n | n >= 1 -> n
-                      _ -> 20
-                  timeoutSec :: Int
-                  timeoutSec =
-                    case timeoutEnv >>= readMaybe of
-                      Just n | n >= 1 -> n
-                      _ -> 45
-                  maxPoints :: Int
-                  maxPoints =
-                    case maxPointsEnv >>= readMaybe of
-                      Just n | n >= 2 -> clampInt 2 1000 n
-                      _ -> 1000
-                  lookbackWindow = pickDefaultString "24h" lookbackEnv
-                  backtestRatio =
-                    case backtestEnv >>= readMaybe of
-                      Just n -> clamp01 n
-                      _ -> 0.2
-                  tuneRatio =
-                    case tuneEnv >>= readMaybe of
-                      Just n -> clamp01 n
-                      _ -> 0.2
-                  objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
-                  objectiveRaw = fmap (map toLower . trim) objectiveEnv
-                  objective =
-                    case objectiveRaw of
-                      Just v | v `elem` objectiveAllowed -> v
-                      _ -> "final-equity"
-                  symbols =
-                    case symbolsEnv of
-                      Just raw ->
-                        let parsed = map normalizeSymbol (splitEnvList raw)
-                         in if null parsed then defaultOptimizerSymbols else parsed
-                      Nothing -> defaultOptimizerSymbols
-                  intervalsRaw =
-                    case intervalsEnv of
-                      Just raw -> filter isBinanceInterval (splitEnvList raw)
-                      Nothing -> binanceIntervals
-                  intervals =
-                    filter
-                      (\v -> case lookbackBarsFrom v lookbackWindow of
-                        Left _ -> False
-                        Right lb -> lb >= 2 && lb + 3 <= maxPoints)
-                      intervalsRaw
-
-              if null symbols || null intervals
-                then do
+              journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.missing_script" :: String), "atMs" .= now, "script" .= scriptPath])
+              opsAppendMaybe mOps "optimizer.auto.missing_script" Nothing Nothing (Just (object ["script" .= scriptPath])) Nothing
+            else do
+              envOrErr <- try (makeBinanceEnv baseArgs) :: IO (Either SomeException BinanceEnv)
+              case envOrErr of
+                Left ex -> do
                   now <- getTimestampMs
-                  journalWriteMaybe
-                    mJournal
-                    (object ["type" .= ("optimizer.auto.config_invalid" :: String), "atMs" .= now, "symbols" .= symbols, "intervals" .= intervals])
-                else do
-                  putStrLn
-                    ( printf
-                        "Auto optimizer enabled: symbols=%d intervals=%d everySec=%d trials=%d"
-                        (length symbols)
-                        (length intervals)
-                        everySec
-                        trials
-                    )
-                  let sleepSec s = threadDelay (max 1 s * 1000000)
+                  journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.env_failed" :: String), "atMs" .= now, "error" .= show ex])
+                Right env -> do
+                  everySecEnv <- lookupEnv "TRADER_OPTIMIZER_EVERY_SEC"
+                  trialsEnv <- lookupEnv "TRADER_OPTIMIZER_TRIALS"
+                  timeoutEnv <- lookupEnv "TRADER_OPTIMIZER_TIMEOUT_SEC"
+                  objectiveEnv <- lookupEnv "TRADER_OPTIMIZER_OBJECTIVE"
+                  lookbackEnv <- lookupEnv "TRADER_OPTIMIZER_LOOKBACK_WINDOW"
+                  backtestEnv <- lookupEnv "TRADER_OPTIMIZER_BACKTEST_RATIO"
+                  tuneEnv <- lookupEnv "TRADER_OPTIMIZER_TUNE_RATIO"
+                  maxPointsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
+                  symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
+                  intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
+                  maxCombos <- optimizerMaxCombosFromEnv
 
-                      loop = do
-                        sym <- pickRandom symbols
-                        interval <- pickRandom intervals
-                        let csvPath = optimizerTmp </> ("auto-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
+                  let everySec :: Int
+                      everySec =
+                        case everySecEnv >>= readMaybe of
+                          Just n | n >= 5 -> n
+                          _ -> 300
+                      trials :: Int
+                      trials =
+                        case trialsEnv >>= readMaybe of
+                          Just n | n >= 1 -> n
+                          _ -> 20
+                      timeoutSec :: Int
+                      timeoutSec =
+                        case timeoutEnv >>= readMaybe of
+                          Just n | n >= 1 -> n
+                          _ -> 45
+                      maxPoints :: Int
+                      maxPoints =
+                        case maxPointsEnv >>= readMaybe of
+                          Just n | n >= 2 -> clampInt 2 1000 n
+                          _ -> 1000
+                      lookbackWindow = pickDefaultString "24h" lookbackEnv
+                      backtestRatio =
+                        case backtestEnv >>= readMaybe of
+                          Just n -> clamp01 n
+                          _ -> 0.2
+                      tuneRatio =
+                        case tuneEnv >>= readMaybe of
+                          Just n -> clamp01 n
+                          _ -> 0.2
+                      objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
+                      objectiveRaw = fmap (map toLower . trim) objectiveEnv
+                      objective =
+                        case objectiveRaw of
+                          Just v | v `elem` objectiveAllowed -> v
+                          _ -> "final-equity"
+                      symbols =
+                        case symbolsEnv of
+                          Just raw ->
+                            let parsed = map normalizeSymbol (splitEnvList raw)
+                             in if null parsed then defaultOptimizerSymbols else parsed
+                          Nothing -> defaultOptimizerSymbols
+                      intervalsRaw =
+                        case intervalsEnv of
+                          Just raw -> filter (isPlatformInterval PlatformBinance) (splitEnvList raw)
+                          Nothing -> binanceIntervals
+                      intervals =
+                        filter
+                          (\v -> case lookbackBarsFrom v lookbackWindow of
+                            Left _ -> False
+                            Right lb -> lb >= 2 && lb + 3 <= maxPoints)
+                          intervalsRaw
+                  if null symbols || null intervals
+                    then do
+                      now <- getTimestampMs
+                      journalWriteMaybe
+                        mJournal
+                        (object ["type" .= ("optimizer.auto.config_invalid" :: String), "atMs" .= now, "symbols" .= symbols, "intervals" .= intervals])
+                    else do
+                      putStrLn
+                        ( printf
+                            "Auto optimizer enabled: symbols=%d intervals=%d everySec=%d trials=%d"
+                            (length symbols)
+                            (length intervals)
+                            everySec
+                            trials
+                        )
+                      let sleepSec s = threadDelay (max 1 s * 1000000)
 
-                        ksOrErr <- try (fetchKlines env sym interval maxPoints) :: IO (Either SomeException [Kline])
-                        case ksOrErr of
-                          Left ex -> do
-                            now <- getTimestampMs
-                            journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.fetch_failed" :: String), "atMs" .= now, "error" .= show ex])
-                            sleepSec everySec
-                            loop
-                          Right ks -> do
-                            if length ks < 2
-                              then do
+                          loop = do
+                            sym <- pickRandom symbols
+                            interval <- pickRandom intervals
+                            let csvPath = optimizerTmp </> ("auto-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
+
+                            ksOrErr <- try (fetchKlines env sym interval maxPoints) :: IO (Either SomeException [Kline])
+                            case ksOrErr of
+                              Left ex -> do
+                                now <- getTimestampMs
+                                journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.fetch_failed" :: String), "atMs" .= now, "error" .= show ex])
                                 sleepSec everySec
                                 loop
-                              else do
-                                writeKlinesCsv csvPath ks
-                                ts <- fmap (floor . (* 1000)) getPOSIXTime
-                                randId <- randomIO :: IO Word64
-                                seedId <- randomIO :: IO Word64
-                                let recordsPath = optimizerTmp </> printf "optimizer-auto-%d-%016x.jsonl" (ts :: Integer) randId
-                                    seed = fromIntegral (seedId `mod` 2000000000)
-                                    cliArgs =
-                                      [ "--data"
-                                      , csvPath
-                                      , "--price-column"
-                                      , "close"
-                                      , "--high-column"
-                                      , "high"
-                                      , "--low-column"
-                                      , "low"
-                                      , "--interval"
-                                      , interval
-                                      , "--lookback-window"
-                                      , lookbackWindow
-                                      , "--backtest-ratio"
-                                      , show backtestRatio
-                                      , "--tune-ratio"
-                                      , show tuneRatio
-                                      , "--trials"
-                                      , show trials
-                                      , "--timeout-sec"
-                                      , show (timeoutSec :: Int)
-                                      , "--seed"
-                                      , show (seed :: Int)
-                                      , "--output"
-                                      , recordsPath
-                                      , "--symbol-label"
-                                      , sym
-                                      , "--source-label"
-                                      , "binance"
-                                      , "--objective"
-                                      , objective
-                                      , "--binary"
-                                      , exePath
-                                      , "--disable-lstm-persistence"
-                                      ]
-
-                                runResult <- runOptimizerProcess projectRoot recordsPath cliArgs
-                                case runResult of
-                                  Left (msg, out, err) -> do
-                                    now <- getTimestampMs
-                                    journalWriteMaybe
-                                      mJournal
-                                      ( object
-                                          [ "type" .= ("optimizer.auto.run_failed" :: String)
-                                          , "atMs" .= now
-                                          , "error" .= msg
-                                          , "stdout" .= out
-                                          , "stderr" .= err
+                              Right ks -> do
+                                if length ks < 2
+                                  then do
+                                    sleepSec everySec
+                                    loop
+                                  else do
+                                    writeKlinesCsv csvPath ks
+                                    ts <- fmap (floor . (* 1000)) getPOSIXTime
+                                    randId <- randomIO :: IO Word64
+                                    seedId <- randomIO :: IO Word64
+                                    let recordsPath = optimizerTmp </> printf "optimizer-auto-%d-%016x.jsonl" (ts :: Integer) randId
+                                        seed = fromIntegral (seedId `mod` 2000000000)
+                                        cliArgs =
+                                          [ "--data"
+                                          , csvPath
+                                          , "--price-column"
+                                          , "close"
+                                          , "--high-column"
+                                          , "high"
+                                          , "--low-column"
+                                          , "low"
+                                          , "--interval"
+                                          , interval
+                                          , "--lookback-window"
+                                          , lookbackWindow
+                                          , "--backtest-ratio"
+                                          , show backtestRatio
+                                          , "--tune-ratio"
+                                          , show tuneRatio
+                                          , "--trials"
+                                          , show trials
+                                          , "--timeout-sec"
+                                          , show (timeoutSec :: Int)
+                                          , "--seed"
+                                          , show (seed :: Int)
+                                          , "--output"
+                                          , recordsPath
+                                          , "--symbol-label"
+                                          , sym
+                                          , "--source-label"
+                                          , "binance"
+                                          , "--objective"
+                                          , objective
+                                          , "--binary"
+                                          , exePath
+                                          , "--disable-lstm-persistence"
                                           ]
-                                      )
-                                  Right _ -> do
-                                    mergeResult <- runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos
-                                    case mergeResult of
+
+                                    runResult <- runOptimizerProcess projectRoot recordsPath cliArgs
+                                    case runResult of
                                       Left (msg, out, err) -> do
                                         now <- getTimestampMs
                                         journalWriteMaybe
                                           mJournal
                                           ( object
-                                              [ "type" .= ("optimizer.auto.merge_failed" :: String)
+                                              [ "type" .= ("optimizer.auto.run_failed" :: String)
                                               , "atMs" .= now
                                               , "error" .= msg
                                               , "stdout" .= out
@@ -2993,23 +3102,41 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                               ]
                                           )
                                       Right _ -> do
-                                        now <- getTimestampMs
-                                        opsAppendMaybe
-                                          mOps
-                                          "optimizer.auto.updated"
-                                          Nothing
-                                          (Just (object ["symbol" .= sym, "interval" .= interval]))
-                                          Nothing
-                                          Nothing
-                                    _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
-                                    pure ()
-                                sleepSec everySec
-                                loop
+                                        mergeResult <- runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos
+                                        case mergeResult of
+                                          Left (msg, out, err) -> do
+                                            now <- getTimestampMs
+                                            journalWriteMaybe
+                                              mJournal
+                                              ( object
+                                                  [ "type" .= ("optimizer.auto.merge_failed" :: String)
+                                                  , "atMs" .= now
+                                                  , "error" .= msg
+                                                  , "stdout" .= out
+                                                  , "stderr" .= err
+                                                  ]
+                                              )
+                                          Right _ -> do
+                                            now <- getTimestampMs
+                                            opsAppendMaybe
+                                              mOps
+                                              "optimizer.auto.updated"
+                                              Nothing
+                                              (Just (object ["symbol" .= sym, "interval" .= interval]))
+                                              Nothing
+                                              Nothing
+                                        _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
+                                        pure ()
+                                    sleepSec everySec
+                                    loop
 
-                  loop
+                      loop
 
 makeBinanceEnv :: Args -> IO BinanceEnv
 makeBinanceEnv args = do
+  if argPlatform args /= PlatformBinance
+    then error ("Binance environment requires platform=binance (got " ++ platformCode (argPlatform args) ++ ").")
+    else pure ()
   let market = argBinanceMarket args
   if market == MarketMargin && argBinanceTestnet args
     then error "--binance-testnet is not supported for margin operations"
@@ -3723,15 +3850,16 @@ runRestApi baseArgs = do
         cacheMaxEntries
     )
   projectRoot <- getCurrentDirectory
+  mStateDir <- stateDirFromEnv
   let tmpRoot = projectRoot </> ".tmp"
   createDirectoryIfMissing True tmpRoot
-  let optimizerTmp = tmpRoot </> "optimizer"
+  let optimizerTmp = fromMaybe (tmpRoot </> "optimizer") (fmap (</> "optimizer") mStateDir)
   createDirectoryIfMissing True optimizerTmp
   metrics <- newMetrics
   mJournal <- newJournalFromEnv
   mOps <- newOpsStoreFromEnv
   mBotStatePath <- resolveBotStatePath
-  let defaultAsyncDir = tmpRoot </> "async"
+  let defaultAsyncDir = fromMaybe (tmpRoot </> "async") (fmap (</> "async") mStateDir)
   asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
   let asyncDirTrimmed = trim <$> asyncDirEnv
       mAsyncDir =
@@ -3743,11 +3871,15 @@ runRestApi baseArgs = do
         case asyncDirTrimmed of
           Nothing -> False
           Just dir -> not (null dir)
+      asyncDirFromState = isNothing asyncDirTrimmed && isJust mStateDir
   case mAsyncDir of
     Nothing -> pure ()
     Just dir -> do
       let suffix :: String
-          suffix = if asyncDirFromEnv then "" else " (default; set TRADER_API_ASYNC_DIR to override)"
+          suffix
+            | asyncDirFromEnv = ""
+            | asyncDirFromState = " (from TRADER_STATE_DIR; set TRADER_API_ASYNC_DIR to override)"
+            | otherwise = " (default; set TRADER_API_ASYNC_DIR to override)"
       putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
   now <- getTimestampMs
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
@@ -3861,7 +3993,7 @@ requestWantsNoCache req =
 barsResolvedForCache :: Args -> Int
 barsResolvedForCache args =
   case (argBinanceSymbol args, argData args) of
-    (Just _, _) -> resolveBarsForBinance args
+    (Just _, _) -> resolveBarsForPlatform args
     (_, Just _) -> resolveBarsForCsv args
     _ -> fromMaybe 0 (argBars args)
 
@@ -3877,6 +4009,7 @@ argsCacheJsonSignal args =
       , "highColumn" .= argHighCol args
       , "lowColumn" .= argLowCol args
       , "binanceSymbol" .= argBinanceSymbol args
+      , "platform" .= platformCode (argPlatform args)
       , "market" .= market
       , "interval" .= argInterval args
       , "bars" .= barsResolved
@@ -3935,6 +4068,7 @@ argsCacheJsonBacktest args =
       , "highColumn" .= argHighCol args
       , "lowColumn" .= argLowCol args
       , "binanceSymbol" .= argBinanceSymbol args
+      , "platform" .= platformCode (argPlatform args)
       , "market" .= market
       , "interval" .= argInterval args
       , "bars" .= barsResolved
@@ -4442,7 +4576,7 @@ validateApiComputeLimits limits args =
       let maxBars = aclMaxBarsLstm limits
           bars =
             case (argBinanceSymbol args, argData args) of
-              (Just _, _) -> resolveBarsForBinance args
+              (Just _, _) -> resolveBarsForPlatform args
               (_, Just _) -> resolveBarsForCsv args
               _ -> fromMaybe 0 (argBars args)
           barsLabel = "bars too high"
@@ -4773,7 +4907,7 @@ textValue st body =
     body
 
 defaultOptimizerIntervals :: String
-defaultOptimizerIntervals = binanceIntervalsCsv
+defaultOptimizerIntervals = platformIntervalsCsv PlatformBinance
 
 defaultOptimizerNormalizations :: String
 defaultOptimizerNormalizations = "none,minmax,standard,log"
@@ -4826,6 +4960,13 @@ readEnvBool raw def =
 normalizeSymbol :: String -> String
 normalizeSymbol = map toUpper . trim
 
+parsePlatformsArg :: String -> Either String [Platform]
+parsePlatformsArg raw =
+  let parsed = splitEnvList raw
+   in if null parsed
+        then Left "platforms must include at least one entry"
+        else traverse parsePlatform parsed
+
 pickRandom :: [a] -> IO a
 pickRandom xs = do
   r <- randomIO :: IO Word64
@@ -4854,12 +4995,26 @@ prepareOptimizerArgs :: FilePath -> ApiOptimizerRunRequest -> IO (Either String 
 prepareOptimizerArgs outputPath req = do
   exePath <- getExecutablePath
   let source = fromMaybe OptimizerSourceBinance (arrSource req)
+      sourcePlatform = optimizerSourcePlatform source
+      platformsRaw = fmap trim (arrPlatforms req)
+      platformsResult =
+        case source of
+          OptimizerSourceCsv ->
+            case platformsRaw of
+              Just raw | not (null raw) ->
+                Left "platforms is only valid for exchange sources"
+              _ -> Right []
+          _ ->
+            case platformsRaw of
+              Just raw | not (null raw) -> parsePlatformsArg raw
+              _ -> Right (fromMaybe [PlatformBinance] (fmap pure sourcePlatform))
+      platformArgsResult =
+        case platformsResult of
+          Left e -> Left e
+          Right [] -> Right []
+          Right ps -> Right ["--platforms", intercalate "," (map platformCode ps)]
   sourceArgsResult <-
     case source of
-      OptimizerSourceBinance ->
-        case fmap (trim . map toUpper) (arrBinanceSymbol req) of
-          Just sym | not (null sym) -> pure (Right ["--binance-symbol", sym])
-          _ -> pure (Left "binanceSymbol is required when using Binance data")
       OptimizerSourceCsv ->
         case fmap trim (arrData req) of
           Just raw | not (null raw) -> do
@@ -4872,13 +5027,17 @@ prepareOptimizerArgs outputPath req = do
                   then pure (Right ["--data", path])
                   else pure (Left ("CSV path not found: " ++ path))
           _ -> pure (Left "CSV path is required when using csv source")
+      _ ->
+        case fmap (trim . map toUpper) (arrBinanceSymbol req) of
+          Just sym | not (null sym) -> pure (Right ["--binance-symbol", sym])
+          _ -> pure (Left "binanceSymbol is required when using exchange data")
   case sourceArgsResult of
     Left err -> pure (Left err)
     Right sourceArgs -> do
       let priceColumnArgs =
             case source of
               OptimizerSourceCsv -> ["--price-column", pickDefaultString "close" (arrPriceColumn req)]
-              OptimizerSourceBinance -> []
+              _ -> []
           highCol = case fmap trim (arrHighColumn req) of
             Just v | not (null v) -> Just v
             _ -> Nothing
@@ -4887,15 +5046,15 @@ prepareOptimizerArgs outputPath req = do
             _ -> Nothing
           ohlcArgsResult =
             case source of
-              OptimizerSourceBinance ->
-                if isJust highCol || isJust lowCol
-                  then Left "highColumn/lowColumn are only supported for csv source"
-                  else Right []
               OptimizerSourceCsv ->
                 case (highCol, lowCol) of
                   (Nothing, Nothing) -> Right []
                   (Just h, Just l) -> Right ["--high-column", h, "--low-column", l]
                   _ -> Left "Provide both highColumn and lowColumn (or omit both)."
+              _ ->
+                if isJust highCol || isJust lowCol
+                  then Left "highColumn/lowColumn are only supported for csv source"
+                  else Right []
           objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
           objectiveRaw = fmap (map toLower . trim) (arrObjective req)
           objectiveArgsResult =
@@ -5038,6 +5197,31 @@ prepareOptimizerArgs outputPath req = do
           trendLookbackArgs =
             maybeIntArg "--trend-lookback-min" (fmap (max 0) (arrTrendLookbackMin req))
               ++ maybeIntArg "--trend-lookback-max" (fmap (max 0) (arrTrendLookbackMax req))
+          intrabarArgs =
+            maybeDoubleArg "--p-intrabar-take-profit-first" (fmap clamp01 (arrPIntrabarTakeProfitFirst req))
+          stopRangeArgs =
+            maybeDoubleArg "--stop-min" (fmap (max 0) (arrStopMin req))
+              ++ maybeDoubleArg "--stop-max" (fmap (max 0) (arrStopMax req))
+              ++ maybeDoubleArg "--tp-min" (fmap (max 0) (arrTpMin req))
+              ++ maybeDoubleArg "--tp-max" (fmap (max 0) (arrTpMax req))
+              ++ maybeDoubleArg "--trail-min" (fmap (max 0) (arrTrailMin req))
+              ++ maybeDoubleArg "--trail-max" (fmap (max 0) (arrTrailMax req))
+              ++ maybeDoubleArg "--p-disable-stop" (fmap clamp01 (arrPDisableStop req))
+              ++ maybeDoubleArg "--p-disable-tp" (fmap clamp01 (arrPDisableTp req))
+              ++ maybeDoubleArg "--p-disable-trail" (fmap clamp01 (arrPDisableTrail req))
+          stopVolMultArgs =
+            maybeDoubleArg "--stop-vol-mult-min" (fmap (max 0) (arrStopVolMultMin req))
+              ++ maybeDoubleArg "--stop-vol-mult-max" (fmap (max 0) (arrStopVolMultMax req))
+              ++ maybeDoubleArg "--tp-vol-mult-min" (fmap (max 0) (arrTpVolMultMin req))
+              ++ maybeDoubleArg "--tp-vol-mult-max" (fmap (max 0) (arrTpVolMultMax req))
+              ++ maybeDoubleArg "--trail-vol-mult-min" (fmap (max 0) (arrTrailVolMultMin req))
+              ++ maybeDoubleArg "--trail-vol-mult-max" (fmap (max 0) (arrTrailVolMultMax req))
+              ++ maybeDoubleArg "--p-disable-stop-vol-mult" (fmap clamp01 (arrPDisableStopVolMult req))
+              ++ maybeDoubleArg "--p-disable-tp-vol-mult" (fmap clamp01 (arrPDisableTpVolMult req))
+              ++ maybeDoubleArg "--p-disable-trail-vol-mult" (fmap clamp01 (arrPDisableTrailVolMult req))
+          minPositionSizeArgs =
+            maybeDoubleArg "--min-position-size-min" (fmap clamp01 (arrMinPositionSizeMin req))
+              ++ maybeDoubleArg "--min-position-size-max" (fmap clamp01 (arrMinPositionSizeMax req))
           maxPositionSizeArgs =
             maybeDoubleArg "--max-position-size-min" (fmap (max 0) (arrMaxPositionSizeMin req))
               ++ maybeDoubleArg "--max-position-size-max" (fmap (max 0) (arrMaxPositionSizeMax req))
@@ -5052,6 +5236,8 @@ prepareOptimizerArgs outputPath req = do
           volEwmaAlphaArgs =
             maybeDoubleArg "--vol-ewma-alpha-min" (fmap clamp01 (arrVolEwmaAlphaMin req))
               ++ maybeDoubleArg "--vol-ewma-alpha-max" (fmap clamp01 (arrVolEwmaAlphaMax req))
+          pDisableVolEwmaAlphaArgs =
+            maybeDoubleArg "--p-disable-vol-ewma-alpha" (fmap clamp01 (arrPDisableVolEwmaAlpha req))
           volFloorArgs =
             maybeDoubleArg "--vol-floor-min" (fmap (max 0) (arrVolFloorMin req))
               ++ maybeDoubleArg "--vol-floor-max" (fmap (max 0) (arrVolFloorMax req))
@@ -5066,6 +5252,28 @@ prepareOptimizerArgs outputPath req = do
           periodsPerYearArgs =
             maybeDoubleArg "--periods-per-year-min" (fmap (max 0) (arrPeriodsPerYearMin req))
               ++ maybeDoubleArg "--periods-per-year-max" (fmap (max 0) (arrPeriodsPerYearMax req))
+          kalmanZArgs =
+            maybeDoubleArg "--kalman-z-min-min" (fmap (max 0) (arrKalmanZMinMin req))
+              ++ maybeDoubleArg "--kalman-z-min-max" (fmap (max 0) (arrKalmanZMinMax req))
+              ++ maybeDoubleArg "--kalman-z-max-min" (fmap (max 0) (arrKalmanZMaxMin req))
+              ++ maybeDoubleArg "--kalman-z-max-max" (fmap (max 0) (arrKalmanZMaxMax req))
+          maxHighVolProbArgs =
+            maybeDoubleArg "--p-disable-max-high-vol-prob" (fmap clamp01 (arrPDisableMaxHighVolProb req))
+              ++ maybeDoubleArg "--max-high-vol-prob-min" (fmap clamp01 (arrMaxHighVolProbMin req))
+              ++ maybeDoubleArg "--max-high-vol-prob-max" (fmap clamp01 (arrMaxHighVolProbMax req))
+          maxConformalWidthArgs =
+            maybeDoubleArg "--p-disable-max-conformal-width" (fmap clamp01 (arrPDisableMaxConformalWidth req))
+              ++ maybeDoubleArg "--max-conformal-width-min" (fmap (max 0) (arrMaxConformalWidthMin req))
+              ++ maybeDoubleArg "--max-conformal-width-max" (fmap (max 0) (arrMaxConformalWidthMax req))
+          maxQuantileWidthArgs =
+            maybeDoubleArg "--p-disable-max-quantile-width" (fmap clamp01 (arrPDisableMaxQuantileWidth req))
+              ++ maybeDoubleArg "--max-quantile-width-min" (fmap (max 0) (arrMaxQuantileWidthMin req))
+              ++ maybeDoubleArg "--max-quantile-width-max" (fmap (max 0) (arrMaxQuantileWidthMax req))
+          confirmArgs =
+            maybeDoubleArg "--p-confirm-conformal" (fmap clamp01 (arrPConfirmConformal req))
+              ++ maybeDoubleArg "--p-confirm-quantiles" (fmap clamp01 (arrPConfirmQuantiles req))
+          confidenceSizingArgs =
+            maybeDoubleArg "--p-confidence-sizing" (fmap clamp01 (arrPConfidenceSizing req))
           kalmanMarketTopNArgs =
             maybeIntArg "--kalman-market-top-n-min" (fmap (max 0) (arrKalmanMarketTopNMin req))
               ++ maybeIntArg "--kalman-market-top-n-max" (fmap (max 0) (arrKalmanMarketTopNMax req))
@@ -5084,6 +5292,15 @@ prepareOptimizerArgs outputPath req = do
           hiddenArgs =
             maybeIntArg "--hidden-size-min" hiddenMinRaw
               ++ maybeIntArg "--hidden-size-max" hiddenMaxRaw
+          lrArgs =
+            maybeDoubleArg "--lr-min" (fmap (max 1e-12) (arrLrMin req))
+              ++ maybeDoubleArg "--lr-max" (fmap (max 1e-12) (arrLrMax req))
+          patienceArgs =
+            maybeIntArg "--patience-max" (fmap (max 0) (arrPatienceMax req))
+          gradClipArgs =
+            maybeDoubleArg "--grad-clip-min" (fmap (max 1e-12) (arrGradClipMin req))
+              ++ maybeDoubleArg "--grad-clip-max" (fmap (max 1e-12) (arrGradClipMax req))
+              ++ maybeDoubleArg "--p-disable-grad-clip" (fmap clamp01 (arrPDisableGradClip req))
           barsArgs =
             maybeIntArg "--bars-min" barsMinRaw
               ++ maybeIntArg "--bars-max" barsMaxRaw
@@ -5119,6 +5336,9 @@ prepareOptimizerArgs outputPath req = do
               ++ tuneStressShockRangeArgs
               ++ tuneStressWeightRangeArgs
               ++ walkForwardFoldsArgs
+              ++ lrArgs
+              ++ patienceArgs
+              ++ gradClipArgs
               ++ minHoldBarsArgs
               ++ cooldownBarsArgs
               ++ maxHoldBarsArgs
@@ -5127,30 +5347,43 @@ prepareOptimizerArgs outputPath req = do
               ++ edgeBufferArgs
               ++ pCostAwareEdgeArgs
               ++ trendLookbackArgs
+              ++ intrabarArgs
+              ++ stopRangeArgs
+              ++ stopVolMultArgs
+              ++ minPositionSizeArgs
               ++ maxPositionSizeArgs
               ++ volTargetArgs
               ++ pDisableVolTargetArgs
               ++ volLookbackArgs
               ++ volEwmaAlphaArgs
+              ++ pDisableVolEwmaAlphaArgs
               ++ volFloorArgs
               ++ volScaleMaxArgs
               ++ maxVolatilityArgs
               ++ pDisableMaxVolatilityArgs
               ++ periodsPerYearArgs
+              ++ kalmanZArgs
+              ++ maxHighVolProbArgs
+              ++ maxConformalWidthArgs
+              ++ maxQuantileWidthArgs
+              ++ confirmArgs
+              ++ confidenceSizingArgs
               ++ methodWeightBlendArgs
               ++ blendWeightArgs
               ++ kalmanMarketTopNArgs
               ++ ["--output", outputPath]
       pure $
-        case (ohlcArgsResult, objectiveArgsResult, tuneObjectiveArgsResult, barsDistributionArgsResult) of
-          (Left e, _, _, _) -> Left e
-          (_, Left e, _, _) -> Left e
-          (_, _, Left e, _) -> Left e
-          (_, _, _, Left e) -> Left e
-          (Right ohlcArgs, Right objectiveArgs, Right tuneObjectiveArgs, Right barsDistributionArgs) ->
+        case (platformArgsResult, ohlcArgsResult, objectiveArgsResult, tuneObjectiveArgsResult, barsDistributionArgsResult) of
+          (Left e, _, _, _, _) -> Left e
+          (_, Left e, _, _, _) -> Left e
+          (_, _, Left e, _, _) -> Left e
+          (_, _, _, Left e, _) -> Left e
+          (_, _, _, _, Left e) -> Left e
+          (Right platformArgs, Right ohlcArgs, Right objectiveArgs, Right tuneObjectiveArgs, Right barsDistributionArgs) ->
             let tuneArgs = tuneArgsBase ++ objectiveArgs ++ tuneObjectiveArgs ++ barsDistributionArgs ++ tuneArgsSuffix
              in Right
                   ( sourceArgs
+                      ++ platformArgs
                       ++ priceColumnArgs
                       ++ ohlcArgs
                       ++ tuneArgs
@@ -5170,7 +5403,9 @@ resolveOptimizerCombosPath optimizerTmp = do
   mDir <- lookupEnv "TRADER_OPTIMIZER_COMBOS_DIR"
   case trim <$> mDir of
     Just dir | not (null dir) -> pure (dir </> optimizerCombosFileName)
-    _ -> pure (optimizerTmp </> optimizerCombosFileName)
+    _ -> do
+      mStateDir <- stateSubdirFromEnv "optimizer"
+      pure ((fromMaybe optimizerTmp mStateDir) </> optimizerCombosFileName)
 
 defaultOptimizerMaxCombos :: Int
 defaultOptimizerMaxCombos = 50
@@ -5422,7 +5657,7 @@ handleOps mOps req respond =
             status200
             ( object
                 [ "enabled" .= False
-                , "hint" .= ("Set TRADER_OPS_DIR to enable ops persistence." :: String)
+                , "hint" .= ("Set TRADER_OPS_DIR or TRADER_STATE_DIR to enable ops persistence." :: String)
                 , "ops" .= ([] :: [PersistedOperation])
                 ]
             )
@@ -5776,12 +6011,15 @@ handleBinanceKeys baseArgs req respond = do
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
         Right args0 -> do
-          r <- try (computeBinanceKeysStatusFromArgs args0) :: IO (Either SomeException ApiBinanceKeysStatus)
-          case r of
-            Left ex ->
-              let (st, msg) = exceptionToHttp ex
-               in respond (jsonError st msg)
-            Right out -> respond (jsonValue status200 out)
+          if argPlatform args0 /= PlatformBinance
+            then respond (jsonError status400 ("Binance keys require platform=binance (got " ++ platformCode (argPlatform args0) ++ ")."))
+            else do
+              r <- try (computeBinanceKeysStatusFromArgs args0) :: IO (Either SomeException ApiBinanceKeysStatus)
+              case r of
+                Left ex ->
+                  let (st, msg) = exceptionToHttp ex
+                   in respond (jsonError st msg)
+                Right out -> respond (jsonValue status200 out)
 
 parseMarketForListenKey :: Args -> Maybe String -> Either String BinanceMarket
 parseMarketForListenKey baseArgs raw =
@@ -5815,97 +6053,106 @@ binanceUserStreamWsUrl market testnet listenKey =
 
 handleBinanceListenKey :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceListenKey baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
-    Right params -> do
-      let testnet = resolveTestnetForListenKey baseArgs (alsBinanceTestnet params)
-      case parseMarketForListenKey baseArgs (alsMarket params) of
-        Left e -> respond (jsonError status400 e)
-        Right market -> do
-          if market == MarketMargin && testnet
-            then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
-            else do
-              apiKey <- resolveEnv "BINANCE_API_KEY" (alsBinanceApiKey params <|> argBinanceApiKey baseArgs)
-              apiSecret <- resolveEnv "BINANCE_API_SECRET" (alsBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-              let baseUrl =
-                    case market of
-                      MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                      _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
-              env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-              r <- try (createListenKey env) :: IO (Either SomeException String)
-              case r of
-                Left ex ->
-                  let (st, msg) = exceptionToHttp ex
-                   in respond (jsonError st msg)
-                Right lk -> do
-                  let resp =
-                        ApiListenKeyResponse
-                          { alrListenKey = lk
-                          , alrMarket = marketCode market
-                          , alrTestnet = testnet
-                          , alrWsUrl = binanceUserStreamWsUrl market testnet lk
-                          , alrKeepAliveMs = 25 * 60 * 1000
-                          }
-                  respond (jsonValue status200 resp)
+  if argPlatform baseArgs /= PlatformBinance
+    then respond (jsonError status400 ("Binance listenKey requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
+    else do
+      body <- Wai.strictRequestBody req
+      case eitherDecode body of
+        Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+        Right params -> do
+          let testnet = resolveTestnetForListenKey baseArgs (alsBinanceTestnet params)
+          case parseMarketForListenKey baseArgs (alsMarket params) of
+            Left e -> respond (jsonError status400 e)
+            Right market -> do
+              if market == MarketMargin && testnet
+                then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+                else do
+                  apiKey <- resolveEnv "BINANCE_API_KEY" (alsBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (alsBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                  let baseUrl =
+                        case market of
+                          MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                          _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  r <- try (createListenKey env) :: IO (Either SomeException String)
+                  case r of
+                    Left ex ->
+                      let (st, msg) = exceptionToHttp ex
+                       in respond (jsonError st msg)
+                    Right lk -> do
+                      let resp =
+                            ApiListenKeyResponse
+                              { alrListenKey = lk
+                              , alrMarket = marketCode market
+                              , alrTestnet = testnet
+                              , alrWsUrl = binanceUserStreamWsUrl market testnet lk
+                              , alrKeepAliveMs = 25 * 60 * 1000
+                              }
+                      respond (jsonValue status200 resp)
 
 handleBinanceListenKeyKeepAlive :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceListenKeyKeepAlive baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
-    Right params -> do
-      let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
-      case parseMarketForListenKey baseArgs (alaMarket params) of
-        Left e -> respond (jsonError status400 e)
-        Right market -> do
-          if market == MarketMargin && testnet
-            then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
-            else do
-              apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
-              apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-              let baseUrl =
-                    case market of
-                      MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                      _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
-              env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-              r <- try (keepAliveListenKey env (alaListenKey params)) :: IO (Either SomeException ())
-              case r of
-                Left ex ->
-                  let (st, msg) = exceptionToHttp ex
-                   in respond (jsonError st msg)
-                Right _ -> do
-                  now <- getTimestampMs
-                  respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+  if argPlatform baseArgs /= PlatformBinance
+    then respond (jsonError status400 ("Binance listenKey keepAlive requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
+    else do
+      body <- Wai.strictRequestBody req
+      case eitherDecode body of
+        Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+        Right params -> do
+          let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
+          case parseMarketForListenKey baseArgs (alaMarket params) of
+            Left e -> respond (jsonError status400 e)
+            Right market -> do
+              if market == MarketMargin && testnet
+                then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+                else do
+                  apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                  let baseUrl =
+                        case market of
+                          MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                          _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  r <- try (keepAliveListenKey env (alaListenKey params)) :: IO (Either SomeException ())
+                  case r of
+                    Left ex ->
+                      let (st, msg) = exceptionToHttp ex
+                       in respond (jsonError st msg)
+                    Right _ -> do
+                      now <- getTimestampMs
+                      respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
 handleBinanceListenKeyClose :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceListenKeyClose baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
-    Right params -> do
-      let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
-      case parseMarketForListenKey baseArgs (alaMarket params) of
-        Left e -> respond (jsonError status400 e)
-        Right market -> do
-          if market == MarketMargin && testnet
-            then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
-            else do
-              apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
-              apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-              let baseUrl =
-                    case market of
-                      MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                      _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
-              env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-              r <- try (closeListenKey env (alaListenKey params)) :: IO (Either SomeException ())
-              case r of
-                Left ex ->
-                  let (st, msg) = exceptionToHttp ex
-                   in respond (jsonError st msg)
-                Right _ -> do
-                  now <- getTimestampMs
-                  respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+  if argPlatform baseArgs /= PlatformBinance
+    then respond (jsonError status400 ("Binance listenKey close requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
+    else do
+      body <- Wai.strictRequestBody req
+      case eitherDecode body of
+        Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+        Right params -> do
+          let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
+          case parseMarketForListenKey baseArgs (alaMarket params) of
+            Left e -> respond (jsonError status400 e)
+            Right market -> do
+              if market == MarketMargin && testnet
+                then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+                else do
+                  apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                  let baseUrl =
+                        case market of
+                          MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                          _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  r <- try (closeListenKey env (alaListenKey params)) :: IO (Either SomeException ())
+                  case r of
+                    Left ex ->
+                      let (st, msg) = exceptionToHttp ex
+                       in respond (jsonError st msg)
+                    Right _ -> do
+                      now <- getTimestampMs
+                      respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
 handleBotStart :: Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStart mOps limits metrics mJournal mBotStatePath baseArgs botCtrl req respond = do
@@ -6004,6 +6251,10 @@ handleBotStatus botCtrl mBotStatePath req respond = do
 
 argsFromApi :: Args -> ApiParams -> Either String Args
 argsFromApi baseArgs p = do
+  platform <-
+    case apPlatform p of
+      Nothing -> Right (argPlatform baseArgs)
+      Just raw -> parsePlatform raw
   method <-
     case apMethod p of
       Nothing -> Right (argMethod baseArgs)
@@ -6070,6 +6321,7 @@ argsFromApi baseArgs p = do
           , argHighCol = pickMaybe (apHighColumn p) (argHighCol baseArgs)
           , argLowCol = pickMaybe (apLowColumn p) (argLowCol baseArgs)
           , argBinanceSymbol = pickMaybe (apBinanceSymbol p) (argBinanceSymbol baseArgs)
+          , argPlatform = platform
           , argBinanceFutures = futuresFlag
           , argBinanceMargin = marginFlag
           , argInterval = pick (apInterval p) (argInterval baseArgs)
@@ -6187,10 +6439,13 @@ computeTradeFromArgs args = do
   let lookback = argLookback args
   sig <- computeTradeOnlySignal args lookback prices mBinanceEnv
   order <-
-    case (argBinanceSymbol args, mBinanceEnv) of
-      (Nothing, _) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing binanceSymbol.")
-      (_, Nothing) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing Binance environment (use binanceSymbol data source).")
-      (Just sym, Just env) -> placeOrderForSignal args sym sig env
+    if not (platformSupportsTrading (argPlatform args))
+      then pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: trading is supported on Binance only.")
+      else
+        case (argBinanceSymbol args, mBinanceEnv) of
+          (Nothing, _) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing binanceSymbol.")
+          (_, Nothing) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing Binance environment (use binanceSymbol data source).")
+          (Just sym, Just env) -> placeOrderForSignal args sym sig env
   pure ApiTradeResponse { atrSignal = sig, atrOrder = order }
 
 data BinanceApiErrorBody = BinanceApiErrorBody
@@ -7324,9 +7579,10 @@ computeTradeOnlySignal args lookback prices mBinanceEnv = do
   mMarketModel <-
     case (method, mBinanceEnv, argBinanceSymbol args) of
       (MethodLstmOnly, _, _) -> pure Nothing
-      (_, Just env, Just sym) -> do
-        r <- try (buildMarketModel args env sym n pricesV) :: IO (Either SomeException (Maybe MarketModel))
-        pure (either (const Nothing) id r)
+      (_, Just env, Just sym)
+        | platformSupportsMarketContext (argPlatform args) -> do
+            r <- try (buildMarketModel args env sym n pricesV) :: IO (Either SomeException (Maybe MarketModel))
+            pure (either (const Nothing) id r)
       _ -> pure Nothing
 
   mLstmCtx <-
@@ -7404,9 +7660,11 @@ resolveLstmWeightsDir :: IO (Maybe FilePath)
 resolveLstmWeightsDir = do
   mDir <- lookupEnv "TRADER_LSTM_WEIGHTS_DIR"
   case trim <$> mDir of
-    Nothing -> pure (Just defaultLstmWeightsDir)
     Just dir | null dir -> pure Nothing
     Just dir -> pure (Just dir)
+    Nothing -> do
+      mStateDir <- stateSubdirFromEnv "lstm"
+      pure (Just (fromMaybe defaultLstmWeightsDir mStateDir))
 
 safeCanonicalizePath :: FilePath -> IO FilePath
 safeCanonicalizePath path = do
@@ -8678,13 +8936,15 @@ printCostGuidance openThr closeThr perSide roundTrip = do
 
 maybeSendBinanceOrder :: Args -> Maybe BinanceEnv -> LatestSignal -> IO ()
 maybeSendBinanceOrder args mEnv sig =
-  case (argBinanceSymbol args, mEnv) of
-    (Just sym, Just env)
-      | argBinanceTrade args -> do
-          res <- placeOrderForSignal args sym sig env
-          putStrLn (aorMessage res)
-      | otherwise -> pure ()
-    _ -> pure ()
+  if not (platformSupportsTrading (argPlatform args))
+    then pure ()
+    else case (argBinanceSymbol args, mEnv) of
+      (Just sym, Just env)
+        | argBinanceTrade args -> do
+            res <- placeOrderForSignal args sym sig env
+            putStrLn (aorMessage res)
+        | otherwise -> pure ()
+      _ -> pure ()
 
 data PriceSeries = PriceSeries
   { psClose :: ![Double]
@@ -8696,7 +8956,7 @@ priceSourceLabel :: Args -> String
 priceSourceLabel args =
   case (argBinanceSymbol args, argData args) of
     (Just sym, _) ->
-      "Binance " ++ sym ++ " (" ++ argInterval args ++ ")"
+      platformLabel (argPlatform args) ++ " " ++ sym ++ " (" ++ argInterval args ++ ")"
     (_, Just path) ->
       "CSV " ++ path ++ " (column " ++ show (argPriceCol args) ++ ")"
     _ ->
@@ -8708,7 +8968,7 @@ ensureMinPriceRows args minRows prices =
       hint =
         case (argBinanceSymbol args, argData args) of
           (Just _, _) ->
-            " Check symbol/interval and increase --bars (requested " ++ show (resolveBarsForBinance args) ++ ")."
+            " Check symbol/interval and increase --bars (requested " ++ show (resolveBarsForPlatform args) ++ ")."
           (_, Just _) ->
             " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header)."
           _ -> ""
@@ -8735,9 +8995,17 @@ loadPrices args =
               then fmap (takeLast bars) mLows
               else mLows
       pure (PriceSeries closes' highs' lows', Nothing)
-    (Nothing, Just sym) -> do
-      (env, series) <- loadPricesBinance args sym
-      pure (series, Just env)
+    (Nothing, Just sym) ->
+      case argPlatform args of
+        PlatformBinance -> do
+          (env, series) <- loadPricesBinance args sym
+          pure (series, Just env)
+        PlatformKraken -> do
+          series <- loadPricesKraken args sym
+          pure (series, Nothing)
+        PlatformPoloniex -> do
+          series <- loadPricesPoloniex args sym
+          pure (series, Nothing)
     (Just _, Just _) -> error "Provide only one of --data or --binance-symbol"
     (Nothing, Nothing) -> error "Provide --data or --binance-symbol"
 
@@ -8780,6 +9048,40 @@ loadPricesBinance args sym = do
       highs = map kHigh ks
       lows = map kLow ks
   pure (envTrade, PriceSeries closes (Just highs) (Just lows))
+
+loadPricesKraken :: Args -> String -> IO PriceSeries
+loadPricesKraken args sym = do
+  let interval = argInterval args
+      bars = resolveBarsForPlatform args
+  minutes <-
+    case krakenIntervalMinutes interval of
+      Just v -> pure v
+      Nothing -> error ("Interval not supported by Kraken: " ++ interval)
+  candles <- fetchKrakenCandles sym minutes
+  let closes = map kcClose candles
+      highs = map kcHigh candles
+      lows = map kcLow candles
+      closes' = if bars > 0 then takeLast bars closes else closes
+      highs' = if bars > 0 then takeLast bars highs else highs
+      lows' = if bars > 0 then takeLast bars lows else lows
+  pure (PriceSeries closes' (Just highs') (Just lows'))
+
+loadPricesPoloniex :: Args -> String -> IO PriceSeries
+loadPricesPoloniex args sym = do
+  let interval = argInterval args
+      bars = resolveBarsForPlatform args
+  period <-
+    case poloniexIntervalSeconds interval of
+      Just v -> pure v
+      Nothing -> error ("Interval not supported by Poloniex: " ++ interval)
+  candles <- fetchPoloniexCandles sym period (max 1 bars)
+  let closes = map pcClose candles
+      highs = map pcHigh candles
+      lows = map pcLow candles
+      closes' = if bars > 0 then takeLast bars closes else closes
+      highs' = if bars > 0 then takeLast bars highs else highs
+      lows' = if bars > 0 then takeLast bars lows else lows
+  pure (PriceSeries closes' (Just highs') (Just lows'))
 
 resolveEnv :: String -> Maybe String -> IO (Maybe String)
 resolveEnv name override =

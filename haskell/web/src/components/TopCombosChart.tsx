@@ -1,9 +1,11 @@
 import React from "react";
-import type { IntrabarFill, Method, Normalization, Positioning } from "../lib/types";
+import type { IntrabarFill, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { fmtPct, fmtRatio } from "../lib/format";
+import { PLATFORM_LABELS } from "../app/constants";
 
 export type OptimizationComboParams = {
   binanceSymbol?: string | null;
+  platform?: Platform | null;
   interval: string;
   bars: number;
   method: Method;
@@ -88,7 +90,7 @@ export type OptimizationCombo = {
   openThreshold: number | null;
   closeThreshold: number | null;
   params: OptimizationComboParams;
-  source: "binance" | "csv" | null;
+  source: "binance" | "kraken" | "poloniex" | "csv" | null;
   operations?: OptimizationComboOperation[] | null;
 };
 
@@ -132,7 +134,8 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
     <div className="topCombosChart">
       {combos.map((combo) => {
         const barsLabel = combo.params.bars <= 0 ? "auto" : combo.params.bars.toString();
-        const sourceLabel = combo.source === "binance" ? "Binance" : combo.source === "csv" ? "CSV" : "Unknown";
+        const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
+        const sourceLabel = platform ? PLATFORM_LABELS[platform] : combo.source === "csv" ? "CSV" : "Unknown";
         const symbolLabel = combo.params.binanceSymbol ? combo.params.binanceSymbol : null;
         const barWidth = Math.max(1, (combo.finalEquity / maxEq) * 100);
         const objectiveLabel = typeof combo.objective === "string" && combo.objective ? combo.objective : null;

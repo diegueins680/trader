@@ -33,6 +33,32 @@ BINANCE_INTERVALS = [
     "1M",
 ]
 
+KRAKEN_INTERVALS = [
+    "1m",
+    "5m",
+    "15m",
+    "30m",
+    "1h",
+    "4h",
+    "1d",
+    "1w",
+]
+
+POLONIEX_INTERVALS = [
+    "5m",
+    "15m",
+    "30m",
+    "2h",
+    "4h",
+    "1d",
+]
+
+PLATFORM_INTERVALS = {
+    "binance": BINANCE_INTERVALS,
+    "kraken": KRAKEN_INTERVALS,
+    "poloniex": POLONIEX_INTERVALS,
+}
+
 
 def _parse_int_prefix(s: str) -> Tuple[int, str]:
     i = 0
@@ -279,6 +305,7 @@ def objective_score(
 
 @dataclass(frozen=True)
 class TrialParams:
+    platform: Optional[str]
     interval: str
     bars: int  # 0 = auto/full; otherwise explicit bar count
     method: str  # "11" | "10" | "01"
@@ -383,8 +410,10 @@ def build_command(
 ) -> List[str]:
     cmd = [str(trader_bin)]
     cmd += base_args
+    if params.platform:
+        cmd += ["--platform", params.platform]
     cmd += ["--interval", params.interval]
-    is_binance = "--binance-symbol" in base_args
+    is_binance = params.platform == "binance" and "--binance-symbol" in base_args
     if params.bars <= 0:
         cmd += ["--bars", "auto" if is_binance else "0"]
     else:
@@ -600,6 +629,29 @@ def normalize_symbol(raw: Optional[str]) -> Optional[str]:
     return s if s else None
 
 
+def parse_platforms(raw: str) -> List[str]:
+    cleaned = raw.replace(",", " ").strip().lower()
+    parts = [p for p in cleaned.split() if p]
+    if not parts:
+        raise ValueError("no platforms provided")
+    out: List[str] = []
+    for p in parts:
+        if p not in PLATFORM_INTERVALS:
+            allowed = ", ".join(sorted(PLATFORM_INTERVALS.keys()))
+            raise ValueError(f"invalid platform: {p} (expected {allowed})")
+        if p not in out:
+            out.append(p)
+    return out
+
+
+def resolve_source_label(platform: Optional[str], data_source: str, override: str) -> str:
+    if override:
+        return override
+    if platform:
+        return platform
+    return data_source
+
+
 def trial_to_record(tr: TrialResult, symbol_label: Optional[str]) -> Dict[str, Any]:
     r: Dict[str, Any] = {
         "ok": tr.ok,
@@ -613,6 +665,7 @@ def trial_to_record(tr: TrialResult, symbol_label: Optional[str]) -> Dict[str, A
         "openThreshold": tr.open_threshold,
         "closeThreshold": tr.close_threshold,
         "params": {
+            "platform": tr.params.platform,
             "interval": tr.params.interval,
             "bars": tr.params.bars,
             "method": tr.params.method,
@@ -733,8 +786,31 @@ def pick_intervals(
     return out
 
 
+def resolve_platform_intervals(
+    platforms: List[str],
+    intervals_raw: List[str],
+    lookback_window: str,
+    max_bars_cap: int,
+) -> Dict[str, List[str]]:
+    out: Dict[str, List[str]] = {}
+    for platform in platforms:
+        supported = PLATFORM_INTERVALS.get(platform, [])
+        if intervals_raw:
+            filtered = [itv for itv in intervals_raw if itv in supported]
+        else:
+            filtered = list(supported)
+        intervals = pick_intervals(filtered, lookback_window, max_bars_cap=max_bars_cap)
+        if not intervals:
+            supported_str = ", ".join(supported) if supported else "none"
+            raise ValueError(f"No valid intervals for platform={platform} (supported: {supported_str}).")
+        out[platform] = intervals
+    return out
+
+
 def sample_params(
     rng: random.Random,
+    platforms: List[str],
+    platform_intervals: Dict[str, List[str]],
     intervals: List[str],
     p_auto_bars: float,
     bars_min: int,
@@ -828,7 +904,9 @@ def sample_params(
     max_dl_range: Tuple[float, float],
     max_oe_range: Tuple[int, int],
 ) -> TrialParams:
-    interval = rng.choice(intervals)
+    platform = rng.choice(platforms) if platforms else None
+    interval_pool = platform_intervals.get(platform, intervals) if platform else intervals
+    interval = rng.choice(interval_pool)
 
     def sample_bars() -> int:
         # 0 means auto/all; otherwise explicit number within the configured range.
@@ -1030,6 +1108,7 @@ def sample_params(
     max_order_errors = maybe(rng, p_disable_max_oe, sample_oe)
 
     return TrialParams(
+        platform=platform,
         interval=interval,
         bars=sample_bars(),
         method=method,
@@ -1097,7 +1176,7 @@ def main(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(description="Random-search optimizer for trader-hs cumulative equity (finalEquity).")
     src = parser.add_mutually_exclusive_group(required=True)
     src.add_argument("--data", type=str, help="CSV path for backtest (recommended for optimization).")
-    src.add_argument("--binance-symbol", type=str, help="Binance symbol (requires network; slower).")
+    src.add_argument("--symbol", "--binance-symbol", dest="binance_symbol", type=str, help="Exchange symbol (requires network; slower).")
     parser.add_argument(
         "--symbol-label",
         type=str,
@@ -1299,6 +1378,19 @@ def main(argv: List[str]) -> int:
         type=str,
         default=",".join(BINANCE_INTERVALS),
         help="Comma-separated intervals to sample.",
+    )
+    platform_group = parser.add_mutually_exclusive_group()
+    platform_group.add_argument(
+        "--platform",
+        type=str,
+        default="",
+        help="Single exchange platform to sample (binance|kraken|poloniex).",
+    )
+    platform_group.add_argument(
+        "--platforms",
+        type=str,
+        default="binance",
+        help="Comma-separated platforms to sample (default: binance).",
     )
     parser.add_argument("--bars-min", type=int, default=0, help="Min bars when sampling explicit bars (default: 0=auto).")
     parser.add_argument("--bars-max", type=int, default=0, help="Max bars when sampling explicit bars (default: 0=auto-detect for CSV).")
@@ -1583,13 +1675,42 @@ def main(argv: List[str]) -> int:
         csv_n = max(0, count_csv_rows(p) - 1)
         max_bars_cap = max(2, csv_n)
 
-    intervals = pick_intervals(intervals_in, args.lookback_window, max_bars_cap=max_bars_cap)
-    if not intervals:
-        print(
-            f"No feasible intervals for lookback-window={args.lookback_window!r} and max bars={max_bars_cap}.",
-            file=sys.stderr,
-        )
-        return 2
+    platforms: List[str] = []
+    platform_intervals: Dict[str, List[str]] = {}
+    if args.binance_symbol:
+        raw_platforms = str(args.platform).strip() or str(args.platforms).strip()
+        if not raw_platforms:
+            raw_platforms = "binance"
+        try:
+            platforms = parse_platforms(raw_platforms)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        try:
+            platform_intervals = resolve_platform_intervals(
+                platforms,
+                intervals_in,
+                args.lookback_window,
+                max_bars_cap=max_bars_cap,
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        intervals = sorted({itv for values in platform_intervals.values() for itv in values})
+        if not intervals:
+            print(
+                f"No feasible intervals for lookback-window={args.lookback_window!r} and max bars={max_bars_cap}.",
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        intervals = pick_intervals(intervals_in, args.lookback_window, max_bars_cap=max_bars_cap)
+        if not intervals:
+            print(
+                f"No feasible intervals for lookback-window={args.lookback_window!r} and max bars={max_bars_cap}.",
+                file=sys.stderr,
+            )
+            return 2
 
     use_sweep_threshold = not bool(args.no_sweep_threshold)
 
@@ -1827,8 +1948,6 @@ def main(argv: List[str]) -> int:
     rng = random.Random(int(args.seed))
     data_source = "csv" if args.data else "binance"
     source_override = str(args.source_label).strip().lower()
-    if source_override:
-        data_source = source_override
     symbol_label = normalize_symbol(args.symbol_label) or normalize_symbol(args.binance_symbol)
 
     out_path = Path(args.output).expanduser() if args.output else None
@@ -1853,6 +1972,8 @@ def main(argv: List[str]) -> int:
     for i in range(1, trials + 1):
         params = sample_params(
             rng=rng,
+            platforms=platforms,
+            platform_intervals=platform_intervals,
             intervals=intervals,
             p_auto_bars=bars_auto_prob,
             bars_min=bars_min,
@@ -2019,7 +2140,7 @@ def main(argv: List[str]) -> int:
 
         if out_fh is not None:
             rec = trial_to_record(tr, symbol_label)
-            rec["source"] = data_source
+            rec["source"] = resolve_source_label(tr.params.platform, data_source, source_override)
             out_fh.write(json.dumps(rec, sort_keys=True) + "\n")
             out_fh.flush()
 
@@ -2074,6 +2195,8 @@ def main(argv: List[str]) -> int:
     if b.score is not None:
         print(f"  objective:   {b.objective} (score={b.score:.8f})")
     print(f"  finalEquity: {b.final_equity:.8f}x")
+    if b.params.platform:
+        print(f"  platform:    {b.params.platform}")
     print(f"  interval:    {b.params.interval}")
     print(f"  bars:        {b.params.bars}")
     print(f"  method:      {b.params.method}")
@@ -2085,7 +2208,7 @@ def main(argv: List[str]) -> int:
     print(f"  cooldownBars: {b.params.cooldown_bars}")
     print(f"  maxHoldBars:  {b.params.max_hold_bars}")
     print(f"  minEdge:      {b.params.min_edge}")
-    print(f"  minSignalToNoise:{b.params.min_signal_to_noise}")
+    print(f"  minSignalToNoise: {b.params.min_signal_to_noise}")
     print(f"  edgeBuffer:   {b.params.edge_buffer}")
     print(f"  costAwareEdge:{b.params.cost_aware_edge}")
     print(f"  trendLookback:{b.params.trend_lookback}")
@@ -2116,8 +2239,8 @@ def main(argv: List[str]) -> int:
     print(f"  stopLoss:      {b.params.stop_loss}")
     print(f"  takeProfit:    {b.params.take_profit}")
     print(f"  trailingStop:  {b.params.trailing_stop}")
-    print(f"  stopLossVolMult:   {b.params.stop_loss_vol_mult}")
-    print(f"  takeProfitVolMult: {b.params.take_profit_vol_mult}")
+    print(f"  stopLossVolMult:    {b.params.stop_loss_vol_mult}")
+    print(f"  takeProfitVolMult:  {b.params.take_profit_vol_mult}")
     print(f"  trailingStopVolMult:{b.params.trailing_stop_vol_mult}")
     print(f"  maxDrawdown:   {b.params.max_drawdown}")
     print(f"  maxDailyLoss:  {b.params.max_daily_loss}")
@@ -2148,7 +2271,6 @@ def main(argv: List[str]) -> int:
     if args.top_json:
         successful = [tr for tr in records if tr.eligible and tr.final_equity is not None and tr.score is not None]
         successful_sorted = sorted(successful, key=lambda tr: tr.score or 0, reverse=True)
-        source = data_source
         combos = []
         for rank, tr in enumerate(successful_sorted[:10], start=1):
             sharpe = metric_float(tr.metrics, "sharpe", 0.0)
@@ -2156,6 +2278,7 @@ def main(argv: List[str]) -> int:
             turnover = metric_float(tr.metrics, "turnover", 0.0)
             round_trips = metric_int(tr.metrics, "roundTrips", 0)
             symbol = symbol_label
+            source = resolve_source_label(tr.params.platform, data_source, source_override)
             combo = {
                 "rank": rank,
                 "finalEquity": tr.final_equity,
@@ -2171,6 +2294,7 @@ def main(argv: List[str]) -> int:
                     "roundTrips": round_trips,
                 },
                 "params": {
+                    "platform": tr.params.platform,
                     "interval": tr.params.interval,
                     "bars": tr.params.bars,
                     "method": tr.params.method,
@@ -2213,6 +2337,9 @@ def main(argv: List[str]) -> int:
                     "stopLoss": tr.params.stop_loss,
                     "takeProfit": tr.params.take_profit,
                     "trailingStop": tr.params.trailing_stop,
+                    "stopLossVolMult": tr.params.stop_loss_vol_mult,
+                    "takeProfitVolMult": tr.params.take_profit_vol_mult,
+                    "trailingStopVolMult": tr.params.trailing_stop_vol_mult,
                     "maxDrawdown": tr.params.max_drawdown,
                     "maxDailyLoss": tr.params.max_daily_loss,
                     "maxOrderErrors": tr.params.max_order_errors,

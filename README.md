@@ -1,10 +1,10 @@
-Haskell Trading Bot (Kalman + LSTM + Binance)
+Haskell Trading Bot (Kalman + LSTM + Binance/Kraken/Poloniex)
 =============================================
 
 This repository contains a small Haskell trading demo that:
 - Predicts the next price using a small **LSTM**, and a **multi-sensor Kalman fusion** layer that combines multiple model outputs into a single latent expected return signal.
 - By default, only trades when Kalman and LSTM **agree on direction** (both predict up, or both predict down) — configurable via `--method`.
-- Can backtest on CSV data or pull klines from **Binance** (and optionally place test/live market orders).
+- Can backtest on CSV data or pull klines from **Binance**, **Kraken**, or **Poloniex** (trading/keys are Binance-only).
 
 Features
 --------
@@ -19,7 +19,7 @@ Features
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, max drawdown) (`haskell/app/Trader/Metrics.hs`).
-- Data sources: CSV or Binance klines (`haskell/app/Trader/Binance.hs`).
+- Data sources: CSV or exchange klines (Binance/Kraken/Poloniex).
 - Sample dataset in `data/sample_prices.csv`.
 
 Quick start
@@ -51,9 +51,9 @@ cabal run trader-hs -- \
   --fee 0.0005
 ```
 
-Using Binance klines
---------------------
-Fetch klines from Binance instead of a CSV:
+Using exchange klines
+---------------------
+Fetch klines from an exchange instead of a CSV (default platform is Binance):
 ```
 cd haskell
 cabal run trader-hs -- \
@@ -62,9 +62,19 @@ cabal run trader-hs -- \
   --epochs 5
 ```
 
+Kraken example:
+```
+cd haskell
+cabal run trader-hs -- \
+  --symbol XBTUSD \
+  --platform kraken \
+  --interval 1h \
+  --epochs 5
+```
+
 Sending Binance orders (optional)
 ---------------------------------
-By default, orders are sent to `/api/v3/order/test`. Add `--binance-live` to send live orders.
+By default, orders are sent to `/api/v3/order/test`. Trading is supported only when `--platform binance` (default). Add `--binance-live` to send live orders.
 For futures orders, add `--futures` (uses `/fapi` endpoints). For margin orders, add `--margin` (requires `--binance-live`).
 
 Futures protection orders (live, manual trades only):
@@ -97,22 +107,24 @@ cabal run trader-hs -- \
 
 CLI parameters
 --------------
-You must provide exactly one data source: `--data` (CSV) or `--binance-symbol` (Binance).
+You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binance-symbol` (exchange; default platform is Binance).
 
 - Data source
   - `--data PATH` (default: none) CSV file containing prices
   - `--price-column close` CSV column name for price
   - `--high-column high` CSV column name for high (requires `--low-column`; enables intrabar stop-loss/take-profit/trailing-stop realism)
   - `--low-column low` CSV column name for low (requires `--high-column`)
+  - `--symbol SYMBOL` (alias `--binance-symbol`) exchange symbol to fetch klines
+  - `--platform binance` exchange platform for `--symbol` (`binance|kraken|poloniex`)
 
 - Bars & lookback (defaults: `--interval 5m`, `--lookback-window 24h` → 288 bars, `--bars auto`)
-  - `--interval 5m` (alias `--binance-interval`) bar interval / Binance kline interval
-  - `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or 500 for Binance; CSV also supports `0` = all; Binance 2..1000)
+- `--interval 5m` (alias `--binance-interval`) bar interval / exchange kline interval
+- `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or 500 for exchanges; CSV also supports `0` = all; Binance 2..1000)
   - `--lookback-window 24h` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
 
-- Binance (price fetch / optional trading)
-  - `--binance-symbol SYMBOL` (default: none) fetch klines from Binance (e.g., `BTCUSDT`)
+- Binance-only trading
+  - Trading flags apply only when `--platform binance`.
   - `--binance-testnet` (default: off) use Binance testnet base URL
   - `--futures` (default: off) use Binance USDT-M futures endpoints (data + orders)
   - `--margin` (default: off) use Binance margin account endpoints for orders/balance (requires `--binance-live`)
@@ -265,23 +277,41 @@ Endpoints:
 Optimizer script tips:
 - `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
+- `--platform`/`--platforms` sample exchange platforms when using `--binance-symbol`/`--symbol` (default: binance).
 - `--bars-auto-prob` and `--bars-distribution` tune how often bars=auto/all is sampled and how explicit bars are drawn.
 - `--min-hold-bars-min/max`, `--cooldown-bars-min/max`, and `--max-hold-bars-min/max` sample trade gating windows to reduce churn.
 - `--min-win-rate`, `--min-profit-factor`, and `--min-exposure` filter out low-quality candidates.
 - `--min-sharpe`, `--min-wf-sharpe-mean`, and `--max-wf-sharpe-std` filter for higher/stabler Sharpe candidates.
 - `--min-edge-min/max`, `--min-signal-to-noise-min/max`, `--edge-buffer-min/max`, `--p-cost-aware-edge`, and `--trend-lookback-min/max` tune entry gating (edge-buffer > 0 enables cost-aware edge; set `--p-cost-aware-edge` to override).
+- `--p-intrabar-take-profit-first` mixes intrabar fill ordering when high/low data is available.
+- `--stop-min/max`, `--tp-min/max`, `--trail-min/max`, and `--p-disable-stop/tp/trail` sample bracket exits; `--stop-vol-mult-min/max`, `--tp-vol-mult-min/max`, `--trail-vol-mult-min/max`, and `--p-disable-*-vol-mult` sample volatility-based brackets.
 - `--max-position-size-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, `--vol-floor-*`, `--vol-scale-max-*`, `--max-volatility-*`, and `--periods-per-year-*` tune sizing (use `--p-disable-vol-target`/`--p-disable-max-volatility` to mix disabled samples).
+- `--p-disable-vol-ewma-alpha` mixes EWMA vs rolling vol when using `--vol-ewma-alpha-*`.
 - `--blend-weight-min/max` plus `--method-weight-blend` sample the blend method mix.
 - `--kalman-market-top-n-min/max` tunes the Kalman market-context sample size (Binance only).
+- `--kalman-z-min-min/max`, `--kalman-z-max-min/max`, `--max-high-vol-prob-min/max`, `--max-conformal-width-min/max`, `--max-quantile-width-min/max`, `--p-confirm-conformal`, `--p-confirm-quantiles`, `--p-confidence-sizing`, and `--min-position-size-min/max` tune confidence gating/sizing (use `--p-disable-max-*` to mix disabled samples).
+- `--lr-min/max`, `--patience-max`, `--grad-clip-min/max`, and `--p-disable-grad-clip` tune LSTM training hyperparameters.
 - `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective (`--tune-stress-*-min/max` lets it sample ranges).
 - `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
-- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minSignalToNoiseMin`, `minSharpe`, `minWalkForwardSharpeMean`, `platforms`).
+- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minSignalToNoiseMin`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `kalmanZMinMin`, `lrMin`, `platforms`).
+
+State directory (recommended for persistence across deployments):
+- Set `TRADER_STATE_DIR` to a shared writable directory to persist:
+  - ops history (`ops.jsonl`)
+  - JSONL journal events
+  - live-bot status snapshots (`bot-state.json`)
+  - optimizer top-combos (`top-combos.json`)
+  - async job results (`/signal/async`, `/backtest/async`, `/trade/async`)
+  - LSTM weights (for incremental training)
+- Per-feature `TRADER_*_DIR` variables override the state directory; set any of them to an empty string to disable that feature.
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
+- If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/journal`.
 
 Optional ops persistence (powers `GET /ops` and the “operations” history):
 - Set `TRADER_OPS_DIR` to a writable directory (writes `ops.jsonl`)
+- If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/ops`.
 - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`) max operations kept in memory per process
 - `GET /ops` query params:
   - `limit` (default: `200`, max: `5000`)
@@ -290,15 +320,15 @@ Optional ops persistence (powers `GET /ops` and the “operations” history):
 
 Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 - Set `TRADER_BOT_STATE_DIR` to a writable directory (writes `bot-state.json`; set empty to disable)
-- When unset, live-bot snapshots live under `.tmp/bot` and reset on restart.
+- When unset, defaults to `TRADER_STATE_DIR/bot` (if set) or `.tmp/bot` (local only).
 
 Optional optimizer combo persistence (keeps `/optimizer/combos` data across restarts/deploys):
 - Set `TRADER_OPTIMIZER_COMBOS_DIR` to a writable directory (writes `top-combos.json`)
+- When unset, defaults to `TRADER_STATE_DIR/optimizer` (if set) or `.tmp/optimizer` (local only).
 - `TRADER_OPTIMIZER_MAX_COMBOS` (default: `50`) caps the merged combo list size
-- When unset, optimizer combos live under `.tmp/optimizer` and reset on restart.
 
 Async-job persistence (default on; recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
-- Default directory: `.tmp/async` (local only). Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it), or set it empty to disable.
+- Default directory: `TRADER_STATE_DIR/async` (if set) or `.tmp/async` (local only). Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it), or set it empty to disable.
 
 Optional in-memory caching (recommended for the Web UI’s repeated calls):
 - `TRADER_API_CACHE_TTL_MS` (default: `30000`) cache TTL in milliseconds (`0` disables)
@@ -306,7 +336,7 @@ Optional in-memory caching (recommended for the Web UI’s repeated calls):
   - To bypass cache for a single request, send `Cache-Control: no-cache` or add `?nocache=1`.
 
 Optional LSTM weight persistence (recommended for faster repeated backtests):
-- `TRADER_LSTM_WEIGHTS_DIR` (default: `.tmp/lstm`) directory to persist LSTM weights between runs (set to an empty string to disable)
+- `TRADER_LSTM_WEIGHTS_DIR` (default: `TRADER_STATE_DIR/lstm` if set, else `.tmp/lstm`) directory to persist LSTM weights between runs (set to an empty string to disable)
   - Used by both backtests and the live bot (online fine-tuning).
   - The persisted seed is only used when it was trained on **≤** the current training window (prevents lookahead leakage when you change tune/backtest splits).
 
@@ -370,7 +400,7 @@ Deploy to AWS
 -------------
 See `DEPLOY_AWS_QUICKSTART.md`, `DEPLOY_AWS.md`, and `deploy/aws/README.md`.
 
-Note: `/bot/*` is stateful, and async endpoints persist job state to `.tmp/async` by default (local only). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` to a shared writable directory. If the UI reports "Async job not found", the backend likely restarted or the load balancer is not sticky; use shared async storage or run a single instance.
+Note: `/bot/*` is stateful, and async endpoints persist job state to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default (local only). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to a shared writable directory. If the UI reports "Async job not found", the backend likely restarted or the load balancer is not sticky; use shared async storage or run a single instance.
 
 Web UI
 ------

@@ -4,6 +4,7 @@ module Trader.App.Args
   ( Args(..)
   , resolveBarsForCsv
   , resolveBarsForBinance
+  , resolveBarsForPlatform
   , positioningCode
   , parsePositioning
   , intrabarFillCode
@@ -21,11 +22,18 @@ import Text.Read (readMaybe)
 import Options.Applicative
 
 import Trader.Binance (BinanceMarket(..))
-import Trader.BinanceIntervals (binanceIntervalsCsv, isBinanceInterval)
 import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
 import Trader.Method (Method(..), methodCode, parseMethod)
 import Trader.Normalization (NormType(..), parseNormType)
 import Trader.Optimization (TuneObjective(..), tuneObjectiveCode, parseTuneObjective)
+import Trader.Platform
+  ( Platform(..)
+  , isPlatformInterval
+  , parsePlatform
+  , platformCode
+  , platformDefaultBars
+  , platformIntervalsCsv
+  )
 import Trader.Text (normalizeKey, trim)
 import Trader.Trading (IntrabarFill(..), Positioning(..))
 
@@ -35,6 +43,7 @@ data Args = Args
   , argHighCol :: Maybe String
   , argLowCol :: Maybe String
   , argBinanceSymbol :: Maybe String
+  , argPlatform :: Platform
   , argBinanceFutures :: Bool
   , argBinanceMargin :: Bool
   , argInterval :: String
@@ -141,6 +150,16 @@ resolveBarsForBinance args =
     Just 0 -> defaultBinanceBars
     Just n -> n
 
+resolveBarsForPlatform :: Args -> Int
+resolveBarsForPlatform args =
+  case argPlatform args of
+    PlatformBinance -> resolveBarsForBinance args
+    _ ->
+      case argBars args of
+        Nothing -> platformDefaultBars (argPlatform args)
+        Just 0 -> platformDefaultBars (argPlatform args)
+        Just n -> n
+
 parseBarsArg :: String -> Either String (Maybe Int)
 parseBarsArg raw =
   let s = map toLower (trim raw)
@@ -194,9 +213,17 @@ opts = do
   argPriceCol <- strOption (long "price-column" <> value "close" <> help "CSV column name for price (case-insensitive; prints suggestions on error)")
   argHighCol <- optional (strOption (long "high-column" <> help "CSV column name for high (requires --low-column; enables intrabar stops/TP/trailing)"))
   argLowCol <- optional (strOption (long "low-column" <> help "CSV column name for low (requires --high-column; enables intrabar stops/TP/trailing)"))
-  argBinanceSymbol <- optional (strOption (long "binance-symbol" <> metavar "SYMBOL" <> help "Fetch klines from Binance (e.g., BTCUSDT)"))
-  argBinanceFutures <- switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders")
-  argBinanceMargin <- switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance")
+  argBinanceSymbol <- optional (strOption (long "binance-symbol" <> long "symbol" <> metavar "SYMBOL" <> help "Exchange symbol to fetch klines (platform via --platform)"))
+  argPlatform <-
+    option
+      (eitherReader parsePlatform)
+      ( long "platform"
+          <> value PlatformBinance
+          <> showDefaultWith platformCode
+          <> help "Exchange platform for --binance-symbol (binance|kraken|poloniex)"
+      )
+  argBinanceFutures <- switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders (Binance only)")
+  argBinanceMargin <- switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance (Binance only)")
   argInterval <- strOption (long "interval" <> long "binance-interval" <> value "5m" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)")
   argBars <-
     option
@@ -206,15 +233,15 @@ opts = do
           <> metavar "N|auto"
           <> value Nothing
           <> showDefaultWith (\mb -> maybe "auto" show mb)
-          <> help "Number of bars/klines to use (auto/0=all CSV, Binance=500; Binance also supports 2..1000)"
+          <> help "Number of bars/klines to use (auto/0=all CSV, exchange default=500; Binance supports 2..1000)"
       )
   argLookbackWindow <- strOption (long "lookback-window" <> value "24h" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
   argLookbackBars <- optional (option auto (long "lookback-bars" <> long "lookback" <> help "Override lookback bars (disables --lookback-window conversion)"))
-  argBinanceTestnet <- switch (long "binance-testnet" <> help "Use Binance testnet base URL (public + signed endpoints)")
-  argBinanceApiKey <- optional (strOption (long "binance-api-key" <> help "Binance API key (or env BINANCE_API_KEY)"))
-  argBinanceApiSecret <- optional (strOption (long "binance-api-secret" <> help "Binance API secret (or env BINANCE_API_SECRET)"))
-  argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal")
-  argBinanceLive <- switch (long "binance-live" <> help "If set, send LIVE orders (otherwise uses /order/test)")
+  argBinanceTestnet <- switch (long "binance-testnet" <> help "Use Binance testnet base URL (public + signed endpoints; Binance only)")
+  argBinanceApiKey <- optional (strOption (long "binance-api-key" <> help "Binance API key (or env BINANCE_API_KEY; Binance only)"))
+  argBinanceApiSecret <- optional (strOption (long "binance-api-secret" <> help "Binance API secret (or env BINANCE_API_SECRET; Binance only)"))
+  argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance only)")
+  argBinanceLive <- switch (long "binance-live" <> help "If set, send LIVE orders (otherwise uses /order/test; Binance only)")
   argOrderQuote <- optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
   argOrderQuantity <- optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
   argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0 < F <= 1) when --order-quote/--order-quantity not set"))
@@ -390,6 +417,11 @@ validateArgs args0 = do
   ensure "--positioning long-short is not supported with --serve (live bot is long-flat only)" (not (argServe args && argPositioning args == LongShort))
   ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
   ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)
+  let isBinance = argPlatform args == PlatformBinance
+  ensure "--futures/--margin are only supported on Binance" (isBinance || not (argBinanceFutures args || argBinanceMargin args))
+  ensure "--binance-testnet is only supported on Binance" (isBinance || not (argBinanceTestnet args))
+  ensure "--binance-live is only supported on Binance" (isBinance || not (argBinanceLive args))
+  ensure "--binance-trade is only supported on Binance" (isBinance || not (argBinanceTrade args))
 
   case argHighCol args of
     Nothing -> pure ()
@@ -415,12 +447,12 @@ validateArgs args0 = do
     Nothing -> pure ()
     Just _ ->
       ensure
-        ("--interval must be a Binance interval: " ++ binanceIntervalsCsv)
-        (isBinanceInterval intervalStr)
+        ("--interval must be supported for " ++ platformCode (argPlatform args) ++ ": " ++ platformIntervalsCsv (argPlatform args))
+        (isPlatformInterval (argPlatform args) intervalStr)
 
   let barsRaw = argBars args
       barsCsv = resolveBarsForCsv args
-      barsBinance = resolveBarsForBinance args
+      barsPlatform = resolveBarsForPlatform args
   ensure
     "--bars must be auto, 0 (all CSV), or >= 2"
     ( case barsRaw of
@@ -430,7 +462,10 @@ validateArgs args0 = do
   ensure "--bars cannot be 1" (barsRaw /= Just 1)
   case argBinanceSymbol args of
     Nothing -> pure ()
-    Just _ -> ensure "--bars must be between 2 and 1000 for Binance data" (barsBinance >= 2 && barsBinance <= 1000)
+    Just _ ->
+      if argPlatform args == PlatformBinance
+        then ensure "--bars must be between 2 and 1000 for Binance data" (barsPlatform >= 2 && barsPlatform <= 1000)
+        else ensure "--bars must be >= 2 for exchange data" (barsPlatform >= 2)
 
   lookback <-
     case argLookbackBars args of
@@ -449,7 +484,7 @@ validateArgs args0 = do
   let hasDataSource = present (argData args) || present (argBinanceSymbol args)
       barsForLookback =
         case argBinanceSymbol args of
-          Just _ -> barsBinance
+          Just _ -> barsPlatform
           Nothing -> barsCsv
   if hasDataSource && barsForLookback > 0
     then
@@ -564,8 +599,8 @@ validateArgs args0 = do
   let market = argBinanceMarket args
   ensure "--positioning long-short requires --futures when trading" (not (argBinanceTrade args && argPositioning args == LongShort && market /= MarketFutures))
   ensure
-    "--positioning long-short requires --futures for binanceSymbol data"
-    (not (argPositioning args == LongShort && isJust (argBinanceSymbol args) && market /= MarketFutures))
+    "--positioning long-short requires Binance futures when using exchange data"
+    (not (argPositioning args == LongShort && isJust (argBinanceSymbol args) && (argPlatform args /= PlatformBinance || market /= MarketFutures)))
   ensure "--margin requires --binance-live for trading" (not (argBinanceMargin args && argBinanceTrade args && not (argBinanceLive args)))
   case argIdempotencyKey args of
     Nothing -> pure ()

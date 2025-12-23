@@ -27,6 +27,13 @@ import Trader.Method (Method(..), parseMethod, selectPredictions)
 import Trader.MarketContext (fitLinearRange)
 import Trader.Metrics (computeMetrics, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn)
 import Trader.Optimization (bestFinalEquity, optimizeOperations, sweepThreshold)
+import Trader.Platform
+  ( Platform(..)
+  , isPlatformInterval
+  , krakenIntervalMinutes
+  , parsePlatform
+  , poloniexIntervalSeconds
+  )
 import Trader.Predictors
   ( SensorId(..)
   , SensorOutput(..)
@@ -63,6 +70,9 @@ main = do
     , run "binance signature length" testBinanceSignatureLength
     , run "binance kline json parsing" testBinanceKlineParsing
     , run "method parsing" testMethodParsing
+    , run "platform parsing" testPlatformParsing
+    , run "platform intervals" testPlatformIntervals
+    , run "platform interval mapping" testPlatformIntervalMapping
     , run "method selects predictions" testMethodSelection
     , run "train/backtest split" testTrainBacktestSplit
     , run "threshold sweep" testSweepThreshold
@@ -403,6 +413,27 @@ testMethodParsing = do
   case parseMethod "00" of
     Left _ -> pure ()
     Right _ -> error "expected parse failure"
+
+testPlatformParsing :: IO ()
+testPlatformParsing = do
+  assert "parse platform binance" (parsePlatform "binance" == Right PlatformBinance)
+  assert "parse platform kraken" (parsePlatform "KrAkEn" == Right PlatformKraken)
+  assert "parse platform poloniex" (parsePlatform "poloniex" == Right PlatformPoloniex)
+  case parsePlatform "nope" of
+    Left _ -> pure ()
+    Right _ -> error "expected parsePlatform to reject unknown platforms"
+
+testPlatformIntervals :: IO ()
+testPlatformIntervals = do
+  assert "binance supports 3m" (isPlatformInterval PlatformBinance "3m")
+  assert "kraken rejects 3m" (not (isPlatformInterval PlatformKraken "3m"))
+  assert "poloniex supports 2h" (isPlatformInterval PlatformPoloniex "2h")
+
+testPlatformIntervalMapping :: IO ()
+testPlatformIntervalMapping = do
+  assert "kraken 1h -> 60m" (krakenIntervalMinutes "1h" == Just 60)
+  assert "poloniex 2h -> 7200s" (poloniexIntervalSeconds "2h" == Just 7200)
+  assert "poloniex rejects 1m" (poloniexIntervalSeconds "1m" == Nothing)
 
 testMethodSelection :: IO ()
 testMethodSelection = do

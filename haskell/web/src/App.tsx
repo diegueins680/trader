@@ -12,6 +12,7 @@ import type {
   Market,
   Method,
   Normalization,
+  Platform,
   Positioning,
 } from "./lib/types";
 import {
@@ -37,16 +38,19 @@ import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
 import { API_PORT, API_TARGET } from "./app/apiTarget";
 import {
   BACKTEST_TIMEOUT_MS,
-  BINANCE_INTERVALS,
-  BINANCE_INTERVAL_SET,
-  BINANCE_SYMBOLS,
-  BINANCE_SYMBOL_SET,
   BOT_START_TIMEOUT_MS,
   BOT_STATUS_TAIL_POINTS,
   BOT_STATUS_TIMEOUT_MS,
   BOT_AUTOSTART_RETRY_MS,
   BOT_TELEMETRY_POINTS,
   DATA_LOG_COLLAPSED_MAX_LINES,
+  PLATFORM_DEFAULT_SYMBOL,
+  PLATFORM_INTERVALS,
+  PLATFORM_INTERVAL_SET,
+  PLATFORM_LABELS,
+  PLATFORM_SYMBOLS,
+  PLATFORM_SYMBOL_SET,
+  PLATFORMS,
   RATE_LIMIT_BASE_MS,
   RATE_LIMIT_MAX_MS,
   RATE_LIMIT_TOAST_MIN_MS,
@@ -60,7 +64,14 @@ import {
   TRADE_TIMEOUT_MS,
   TUNE_OBJECTIVES,
 } from "./app/constants";
-import { binanceIntervalSeconds, defaultForm, normalizeFormState, parseDurationSeconds, type FormState, type FormStateJson } from "./app/formState";
+import {
+  defaultForm,
+  normalizeFormState,
+  parseDurationSeconds,
+  platformIntervalSeconds,
+  type FormState,
+  type FormStateJson,
+} from "./app/formState";
 import {
   actionBadgeClass,
   buildRequestIssueDetails,
@@ -293,6 +304,7 @@ function applyComboToForm(
   manualOverrides?: Set<ManualOverrideKey>,
   allowPositioning = true,
 ): FormState {
+  const nextPlatform = combo.params.platform ?? prev.platform;
   const comboSymbol = combo.params.binanceSymbol?.trim();
   const symbol = comboSymbol && comboSymbol.length > 0 ? comboSymbol : prev.binanceSymbol;
   const interval = combo.params.interval;
@@ -376,7 +388,7 @@ function applyComboToForm(
   const prevLookbackBars = lookbackBars;
 
   if (intervalChanged && prevLookbackBars >= MIN_LOOKBACK_BARS) {
-    const prevIntervalSec = binanceIntervalSeconds(prev.interval);
+    const prevIntervalSec = platformIntervalSeconds(prev.platform, prev.interval);
     lookbackBars = 0;
     if (prevIntervalSec) {
       lookbackWindow = formatDurationSeconds(prevLookbackBars * prevIntervalSec);
@@ -396,7 +408,7 @@ function applyComboToForm(
   }
 
   if (lookbackBars < MIN_LOOKBACK_BARS) {
-    const intervalSec = binanceIntervalSeconds(interval);
+    const intervalSec = platformIntervalSeconds(nextPlatform, interval);
     if (intervalSec) {
       const windowSec = parseDurationSeconds(lookbackWindow);
       const minWindowSec = intervalSec * MIN_LOOKBACK_BARS;
@@ -409,6 +421,8 @@ function applyComboToForm(
   return {
     ...prev,
     binanceSymbol: symbol,
+    platform: nextPlatform,
+    market: nextPlatform === "binance" ? prev.market : "spot",
     interval,
     bars,
     method,
@@ -458,6 +472,9 @@ function applyComboToForm(
     confirmQuantiles,
     confidenceSizing,
     minPositionSize,
+    binanceTestnet: nextPlatform === "binance" ? prev.binanceTestnet : false,
+    binanceLive: nextPlatform === "binance" ? prev.binanceLive : false,
+    tradeArmed: nextPlatform === "binance" ? prev.tradeArmed : false,
     tuneStressVolMult,
     tuneStressShock,
     tuneStressWeight,
@@ -495,6 +512,7 @@ function formApplySignature(form: FormState): string {
 
   return [
     sigText(symbol),
+    sigText(form.platform),
     sigText(form.interval.trim()),
     String(bars),
     lookbackOverride ? String(lookbackBars) : "",
@@ -575,10 +593,11 @@ export function App() {
     return persistSecrets ? persisted || session : session;
   });
   const [form, setForm] = useState<FormState>(() => normalizeFormState(readJson<FormStateJson>(STORAGE_KEY)));
-  const [customBinanceSymbol, setCustomBinanceSymbol] = useState(() => {
-    const normalized = form.binanceSymbol.trim().toUpperCase();
-    return BINANCE_SYMBOL_SET.has(normalized) ? "" : normalized;
-  });
+  const [customSymbolByPlatform, setCustomSymbolByPlatform] = useState<Record<Platform, string>>(() => ({
+    binance: defaultForm.binanceSymbol,
+    kraken: PLATFORM_DEFAULT_SYMBOL.kraken,
+    poloniex: PLATFORM_DEFAULT_SYMBOL.poloniex,
+  }));
   const formRef = useRef(form);
   const apiComputeLimitsRef = useRef<ComputeLimits | null>(apiComputeLimits);
   const [manualOverrides, setManualOverrides] = useState<Set<ManualOverrideKey>>(() => new Set());
@@ -594,9 +613,15 @@ export function App() {
     manualOverridesRef.current = manualOverrides;
   }, [manualOverrides]);
 
-  const normalizedBinanceSymbol = form.binanceSymbol.trim().toUpperCase();
-  const symbolIsCustom = !BINANCE_SYMBOL_SET.has(normalizedBinanceSymbol);
-  const symbolSelectValue = symbolIsCustom ? CUSTOM_SYMBOL_VALUE : normalizedBinanceSymbol;
+  const platform = form.platform;
+  const isBinancePlatform = platform === "binance";
+  const platformSymbolSet = PLATFORM_SYMBOL_SET[platform];
+  const platformSymbols = PLATFORM_SYMBOLS[platform];
+  const platformLabel = PLATFORM_LABELS[platform];
+  const platformIntervals = PLATFORM_INTERVALS[platform];
+  const normalizedSymbol = form.binanceSymbol.trim().toUpperCase();
+  const symbolIsCustom = !platformSymbolSet.has(normalizedSymbol);
+  const symbolSelectValue = symbolIsCustom ? CUSTOM_SYMBOL_VALUE : normalizedSymbol;
 
   const [profiles, setProfiles] = useState<SavedProfiles>(() => {
     const raw = readJson<Record<string, FormStateJson>>(STORAGE_PROFILES_KEY) ?? {};
@@ -750,10 +775,12 @@ export function App() {
 
   useEffect(() => {
     if (!symbolIsCustom) return;
-    if (customBinanceSymbol !== normalizedBinanceSymbol) {
-      setCustomBinanceSymbol(normalizedBinanceSymbol);
-    }
-  }, [customBinanceSymbol, normalizedBinanceSymbol, symbolIsCustom]);
+    setCustomSymbolByPlatform((prev) => {
+      const nextValue = normalizedSymbol || prev[platform];
+      if (prev[platform] === nextValue) return prev;
+      return { ...prev, [platform]: nextValue };
+    });
+  }, [platform, normalizedSymbol, symbolIsCustom]);
 
   useEffect(() => {
     writeJson(STORAGE_PROFILES_KEY, profiles);
@@ -1118,20 +1145,22 @@ export function App() {
 
   useEffect(() => {
     // Prevent inconsistent state; margin requires live mode.
+    if (!isBinancePlatform) return;
     if (form.market !== "margin") return;
     if (form.binanceLive) return;
     setForm((f) => ({ ...f, market: "spot" }));
     showToast("Margin requires Live orders (switched back to Spot)");
-  }, [form.binanceLive, form.market, showToast]);
+  }, [form.binanceLive, form.market, isBinancePlatform, showToast]);
 
   useEffect(() => {
+    if (!isBinancePlatform) return;
     if (!form.tradeArmed) return;
     if (form.positioning !== "long-short") return;
     if (form.market === "futures") return;
     setPendingMarket(null);
     setForm((f) => ({ ...f, market: "futures" }));
     showToast("Long/Short trading requires Futures (switched Market to Futures)");
-  }, [form.market, form.positioning, form.tradeArmed, showToast]);
+  }, [form.market, form.positioning, form.tradeArmed, isBinancePlatform, showToast]);
 
   const recheckHealth = useCallback(async () => {
     let h: Awaited<ReturnType<typeof health>>;
@@ -1209,9 +1238,9 @@ export function App() {
 
   const commonParams: ApiParams = useMemo(() => {
     const interval = form.interval.trim();
-    const intervalOk = BINANCE_INTERVAL_SET.has(interval);
+    const intervalOk = PLATFORM_INTERVAL_SET[platform].has(interval);
     const barsRaw = Math.trunc(form.bars);
-    const bars = barsRaw <= 0 ? 0 : clamp(barsRaw, 2, 1000);
+    const bars = barsRaw <= 0 ? 0 : platform === "binance" ? clamp(barsRaw, 2, 1000) : Math.max(2, barsRaw);
     const volTarget = Math.max(0, form.volTarget);
     const volEwmaAlphaRaw = form.volEwmaAlpha;
     const volEwmaAlpha = volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : 0;
@@ -1220,7 +1249,8 @@ export function App() {
     const tuneStressVolMult = form.tuneStressVolMult <= 0 ? 1 : form.tuneStressVolMult;
     const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
-      market: form.market,
+      platform: form.platform,
+      ...(platform === "binance" ? { market: form.market } : {}),
       interval: intervalOk ? interval : undefined,
       bars,
       method: form.method,
@@ -1271,7 +1301,7 @@ export function App() {
       ...(form.gradClip > 0 ? { gradClip: clamp(form.gradClip, 0, 100) } : {}),
       kalmanZMin: Math.max(0, form.kalmanZMin),
       kalmanZMax: Math.max(Math.max(0, form.kalmanZMin), form.kalmanZMax),
-      binanceTestnet: form.binanceTestnet,
+      ...(platform === "binance" ? { binanceTestnet: form.binanceTestnet } : {}),
     };
 
     if (form.lookbackBars >= 2) base.lookbackBars = Math.trunc(form.lookbackBars);
@@ -1316,7 +1346,7 @@ export function App() {
 
   const tradeParams: ApiParams = useMemo(() => {
     const base: ApiParams = { ...commonParams };
-    if (form.binanceLive) base.binanceLive = true;
+    if (form.platform === "binance" && form.binanceLive) base.binanceLive = true;
     const k = form.idempotencyKey.trim();
     const idOk = !k || (k.length <= 36 && /^[A-Za-z0-9_-]+$/.test(k));
     if (k && idOk) base.idempotencyKey = k;
@@ -1337,10 +1367,12 @@ export function App() {
     form.orderQuantity,
     form.orderQuote,
     form.orderQuoteFraction,
+    form.platform,
   ]);
 
   const withBinanceKeys = useCallback(
     (p: ApiParams): ApiParams => {
+      if (form.platform !== "binance") return p;
       const key = binanceApiKey.trim();
       const secret = binanceApiSecret.trim();
       if (!key && !secret) return p;
@@ -1350,14 +1382,14 @@ export function App() {
         ...(secret ? { binanceApiSecret: secret } : {}),
       };
     },
-    [binanceApiKey, binanceApiSecret],
+    [binanceApiKey, binanceApiSecret, form.platform],
   );
 
   const keysParams: ApiParams = useMemo(() => {
     const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
-      market: form.market,
-      binanceTestnet: form.binanceTestnet,
+      platform: form.platform,
+      ...(form.platform === "binance" ? { market: form.market, binanceTestnet: form.binanceTestnet } : {}),
     };
 
     const k = form.idempotencyKey.trim();
@@ -1381,6 +1413,7 @@ export function App() {
     form.orderQuantity,
     form.orderQuote,
     form.orderQuoteFraction,
+    form.platform,
     withBinanceKeys,
   ]);
 
@@ -1502,7 +1535,7 @@ export function App() {
     const fetchedLast = st.fetchedLastKline ?? null;
     const fetchedOpenTime = fetchedLast?.openTime ?? null;
     const candleOpenTime = fetchedOpenTime ?? processedOpenTime;
-    const intervalSec = binanceIntervalSeconds(st.interval) ?? parseDurationSeconds(st.interval);
+    const intervalSec = platformIntervalSeconds(platform, st.interval) ?? parseDurationSeconds(st.interval);
     const intervalMs = typeof intervalSec === "number" && Number.isFinite(intervalSec) && intervalSec > 0 ? intervalSec * 1000 : null;
     const expectedCloseMs = candleOpenTime !== null && intervalMs !== null ? candleOpenTime + intervalMs : null;
     const closeEtaMs = expectedCloseMs !== null ? expectedCloseMs - now : null;
@@ -1622,7 +1655,7 @@ export function App() {
 
       try {
         const p = overrideParams ?? (kind === "trade" ? tradeParams : commonParams);
-        if (!p.binanceSymbol) throw new Error("binanceSymbol is required.");
+        if (!p.binanceSymbol) throw new Error("Symbol is required.");
         if (!p.interval) throw new Error("interval is required.");
         const requestHeaders = form.bypassCache ? { ...(authHeaders ?? {}), "Cache-Control": "no-cache" } : authHeaders;
 
@@ -1795,6 +1828,12 @@ export function App() {
 
   const refreshKeys = useCallback(
     async (opts?: RunOptions) => {
+      if (!isBinancePlatform) {
+        const msg = "Binance key checks require Platform=Binance.";
+        if (!opts?.silent) showToast(msg);
+        setKeys((s) => ({ ...s, loading: false, error: msg, status: null }));
+        return;
+      }
       const requestId = ++keysRequestSeqRef.current;
       keysAbortRef.current?.abort();
       const controller = new AbortController();
@@ -1804,7 +1843,7 @@ export function App() {
 
       try {
         const p = keysParams;
-        if (!p.binanceSymbol) throw new Error("binanceSymbol is required.");
+        if (!p.binanceSymbol) throw new Error("Symbol is required.");
 
         const out = await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
         if (requestId !== keysRequestSeqRef.current) return;
@@ -1841,7 +1880,7 @@ export function App() {
         if (requestId === keysRequestSeqRef.current) keysAbortRef.current = null;
       }
     },
-    [apiBase, authHeaders, keysParams, showToast],
+    [apiBase, authHeaders, isBinancePlatform, keysParams, showToast],
   );
 
   const stopListenKeyStream = useCallback(
@@ -1909,6 +1948,12 @@ export function App() {
   );
 
   const startListenKeyStream = useCallback(async () => {
+    if (!isBinancePlatform) {
+      const msg = "Listen key streams are supported on Binance only.";
+      setListenKeyUi((s) => ({ ...s, error: msg, wsStatus: "disconnected" }));
+      showToast(msg);
+      return;
+    }
     if (apiOk !== "ok") return;
     await stopListenKeyStream({ close: false, silent: true });
     setListenKeyUi((s) => ({ ...s, loading: true, error: null, wsError: null, keepAliveError: null, wsStatus: "connecting" }));
@@ -1955,7 +2000,18 @@ export function App() {
       setListenKeyUi((s) => ({ ...s, loading: false, error: msg, wsStatus: "disconnected" }));
       showToast("Listen key start failed");
     }
-  }, [apiBase, apiOk, authHeaders, form.binanceTestnet, form.market, keepAliveListenKeyStream, showToast, stopListenKeyStream, withBinanceKeys]);
+  }, [
+    apiBase,
+    apiOk,
+    authHeaders,
+    form.binanceTestnet,
+    form.market,
+    isBinancePlatform,
+    keepAliveListenKeyStream,
+    showToast,
+    stopListenKeyStream,
+    withBinanceKeys,
+  ]);
 
   const refreshBot = useCallback(
     async (opts?: RunOptions) => {
@@ -2363,6 +2419,11 @@ export function App() {
             typeof params.normalization === "string" && normalizations.includes(params.normalization as Normalization)
               ? (params.normalization as Normalization)
               : defaultForm.normalization;
+          const rawPlatform = typeof params.platform === "string" ? params.platform : null;
+          const platform =
+            rawPlatform && PLATFORMS.includes(rawPlatform as Platform)
+              ? (rawPlatform as Platform)
+              : null;
           const interval = typeof params.interval === "string" && params.interval ? params.interval : defaultForm.interval;
           const bars = typeof params.bars === "number" && Number.isFinite(params.bars) ? Math.trunc(params.bars) : Math.trunc(defaultForm.bars);
           const positioning =
@@ -2549,7 +2610,11 @@ export function App() {
           const operationsOut = operations.length > 0 ? operations : null;
           const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
           const source: OptimizationCombo["source"] =
-            rawSource === "binance" ? "binance" : rawSource === "csv" ? "csv" : null;
+            rawSource === "binance" || rawSource === "kraken" || rawSource === "poloniex" || rawSource === "csv"
+              ? rawSource
+              : null;
+          const resolvedPlatform =
+            platform ?? (source && source !== "csv" ? (source as Platform) : null);
           return {
             id: rank ?? index + 1,
             rank,
@@ -2562,6 +2627,7 @@ export function App() {
             source,
             operations: operationsOut,
             params: {
+              platform: resolvedPlatform,
               interval,
               bars,
               method,
@@ -2759,12 +2825,12 @@ export function App() {
 
   const missingSymbol = !form.binanceSymbol.trim();
   const intervalValue = form.interval.trim();
-  const missingInterval = !intervalValue || !BINANCE_INTERVAL_SET.has(intervalValue);
+  const missingInterval = !intervalValue || !PLATFORM_INTERVAL_SET[platform].has(intervalValue);
   const lookbackState = useMemo(() => {
     const barsRaw = Math.trunc(form.bars);
-    const bars = barsRaw <= 0 ? 0 : clamp(barsRaw, 2, 1000);
+    const bars = barsRaw <= 0 ? 0 : platform === "binance" ? clamp(barsRaw, 2, 1000) : Math.max(2, barsRaw);
     const interval = form.interval.trim();
-    const intervalSec = binanceIntervalSeconds(interval);
+    const intervalSec = platformIntervalSeconds(platform, interval);
 
     const overrideRaw = Math.trunc(form.lookbackBars);
     const overrideOn = overrideRaw >= 2;
@@ -2800,7 +2866,7 @@ export function App() {
         : "Effective lookback: —";
 
     return { bars, intervalSec, windowBars, overrideOn, effectiveBars, minBarsRequired, error, summary };
-  }, [form.bars, form.interval, form.lookbackBars, form.lookbackWindow]);
+  }, [form.bars, form.interval, form.lookbackBars, form.lookbackWindow, platform]);
   const dataLogFiltered = useMemo(() => {
     const term = dataLogFilterText.trim().toLowerCase();
     if (!term) return dataLog;
@@ -2894,6 +2960,7 @@ export function App() {
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
   const botStarting = bot.status.running ? false : bot.status.starting === true;
   const botStartBlockedReason = firstReason(
+    !isBinancePlatform ? "Live bot is supported on Binance only." : null,
     form.positioning === "long-short" ? "Live bot supports Long/Flat only." : null,
     requestDisabledReason,
   );
@@ -2923,11 +2990,22 @@ export function App() {
     if (form.orderQuantity > 0 || form.orderQuote > 0) return null;
     return orderQuoteFractionError;
   }, [form.orderQuantity, form.orderQuote, orderQuoteFractionError]);
-  const tradeDisabledReason = firstReason(
-    requestDisabledReason,
-    tradeOrderSizingError,
-    form.positioning === "long-short" && form.market !== "futures" ? "Long/Short trading requires Futures market." : null,
-  );
+  const tradeDisabledDetail = useMemo(() => {
+    if (requestDisabledReason) {
+      return { message: requestDisabledReason, targetId: requestIssueDetails[0]?.targetId };
+    }
+    if (!isBinancePlatform) {
+      return { message: "Trading is supported on Binance only.", targetId: "platform" };
+    }
+    if (tradeOrderSizingError) {
+      return { message: tradeOrderSizingError, targetId: "orderQuoteFraction" };
+    }
+    if (form.positioning === "long-short" && form.market !== "futures") {
+      return { message: "Long/Short trading requires Futures market.", targetId: "market" };
+    }
+    return null;
+  }, [form.market, form.positioning, isBinancePlatform, requestDisabledReason, requestIssueDetails, tradeOrderSizingError]);
+  const tradeDisabledReason = tradeDisabledDetail?.message ?? null;
 
   const orderSizing = useMemo(() => {
     const enabled = {
@@ -3347,6 +3425,11 @@ export function App() {
                 <div className="hint">
                   Used for /trade and “Check keys”. Stored in {persistSecrets ? "local storage" : "session storage"}. The request preview/curl omits it.
                 </div>
+                {!isBinancePlatform ? (
+                  <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
+                    Keys are only used when Platform is set to Binance.
+                  </div>
+                ) : null}
                 <div className="pillRow" style={{ marginTop: 10 }}>
                   <label className="pill">
                     <input type="checkbox" checked={persistSecrets} onChange={(e) => setPersistSecrets(e.target.checked)} />
@@ -3492,7 +3575,7 @@ export function App() {
                 onApply={handleComboApply}
               />
               <div className="hint">
-                Select a combo to preview. Click Apply to load params into the form (and the symbol, when provided). bars=0 uses all CSV data or Binance's default (500).
+                Select a combo to preview. Click Apply to load params into the form (and the symbol, when provided). bars=0 uses all CSV data or the exchange default (500).
               </div>
               <div className="hint">
                 Top combos auto-apply when available (manual overrides respected). If the bot is idle, it will auto-start once the top combo is applied.
@@ -3503,6 +3586,46 @@ export function App() {
           <div className="sectionHeading" id="section-market">
             <span className="sectionTitle">Market</span>
             <span className="sectionMeta">Pair, market type, interval, bars.</span>
+          </div>
+          <div className="row rowSingle">
+            <div className="field">
+              <label className="label" htmlFor="platform">
+                Platform
+              </label>
+              <select
+                id="platform"
+                className="select"
+                value={form.platform}
+                onChange={(e) => {
+                  const next = e.target.value as Platform;
+                  setPendingMarket(null);
+                  setPendingProfileLoad(null);
+                  setForm((f) => {
+                    const symbolSet = PLATFORM_SYMBOL_SET[next];
+                    const fallback = customSymbolByPlatform[next] || PLATFORM_DEFAULT_SYMBOL[next];
+                    const normalized = f.binanceSymbol.trim().toUpperCase();
+                    const nextSymbol = symbolSet.has(normalized) ? normalized : fallback;
+                    if (next === "binance") return { ...f, platform: next, binanceSymbol: nextSymbol };
+                    return {
+                      ...f,
+                      platform: next,
+                      binanceSymbol: nextSymbol,
+                      market: "spot",
+                      binanceTestnet: false,
+                      binanceLive: false,
+                      tradeArmed: false,
+                    };
+                  });
+                }}
+              >
+                {PLATFORMS.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {PLATFORM_LABELS[entry]}
+                  </option>
+                ))}
+              </select>
+              <div className="hint">Exchange platform for price data. Trading, keys, and live bot are Binance-only.</div>
+            </div>
           </div>
           <div className="row">
             <div className="field">
@@ -3516,13 +3639,14 @@ export function App() {
                 onChange={(e) => {
                   const next = e.target.value;
                   if (next === CUSTOM_SYMBOL_VALUE) {
-                    setForm((f) => ({ ...f, binanceSymbol: customBinanceSymbol }));
+                    const fallback = customSymbolByPlatform[platform] || "";
+                    setForm((f) => ({ ...f, binanceSymbol: fallback }));
                     return;
                   }
                   setForm((f) => ({ ...f, binanceSymbol: next }));
                 }}
               >
-                {BINANCE_SYMBOLS.map((symbol) => (
+                {platformSymbols.map((symbol) => (
                   <option key={symbol} value={symbol}>
                     {symbol}
                   </option>
@@ -3536,10 +3660,10 @@ export function App() {
                   value={form.binanceSymbol}
                   onChange={(e) => {
                     const next = e.target.value.toUpperCase();
-                    setCustomBinanceSymbol(next);
+                    setCustomSymbolByPlatform((prev) => ({ ...prev, [platform]: next }));
                     setForm((f) => ({ ...f, binanceSymbol: next }));
                   }}
-                  placeholder="BTCUSDT"
+                  placeholder={PLATFORM_DEFAULT_SYMBOL[platform]}
                   spellCheck={false}
                   aria-label="Custom trading pair"
                 />
@@ -3548,8 +3672,8 @@ export function App() {
                 {missingSymbol
                   ? "Required."
                   : symbolIsCustom
-                    ? "Type any Binance symbol (spot or USDT-margined futures)."
-                    : "Pick a common USDT pair or choose Custom to type another symbol."}
+                    ? `Type any ${platformLabel} symbol.`
+                    : `Pick a common ${platformLabel} pair or choose Custom to type another symbol.`}
               </div>
             </div>
 
@@ -3561,6 +3685,7 @@ export function App() {
                 id="market"
                 className="select"
                 value={form.market}
+                disabled={!isBinancePlatform}
                 onChange={(e) => {
                   const market = e.target.value as Market;
                   setPendingMarket(null);
@@ -3576,7 +3701,11 @@ export function App() {
                 <option value="margin">Margin</option>
                 <option value="futures">Futures (USDT-M)</option>
               </select>
-              <div className="hint">Margin orders require live mode. Futures can close positions via reduce-only.</div>
+              <div className="hint">
+                {isBinancePlatform
+                  ? "Margin orders require live mode. Futures can close positions via reduce-only."
+                  : "Market selection applies to Binance only."}
+              </div>
               {pendingMarket === "margin" ? (
                 <>
                   <pre className="code" style={{ borderColor: "rgba(245, 158, 11, 0.35)", marginTop: 10 }}>
@@ -3616,33 +3745,35 @@ export function App() {
                 value={form.interval}
                 onChange={(e) => setForm((f) => ({ ...f, interval: e.target.value }))}
               >
-                {BINANCE_INTERVALS.map((v) => (
+                {platformIntervals.map((v) => (
                   <option key={v} value={v}>
                     {v}
                   </option>
                 ))}
               </select>
               <div className="hint" style={missingInterval ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
-                {missingInterval ? "Required." : "Binance interval: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M."}
+                {missingInterval ? "Required." : `${platformLabel} intervals: ${platformIntervals.join(", ")}.`}
               </div>
             </div>
             <div className="field">
               <label className="label" htmlFor="bars">
-                Bars (0=auto, 2–1000)
+                Bars (0=auto, {isBinancePlatform ? "2–1000" : ">=2"})
               </label>
               <input
                 id="bars"
                 className={barsExceedsApi ? "input inputError" : "input"}
                 type="number"
                 min={0}
-                max={1000}
+                max={isBinancePlatform ? 1000 : undefined}
                 value={form.bars}
                 onChange={(e) => setForm((f) => ({ ...f, bars: numFromInput(e.target.value, f.bars) }))}
               />
               <div className="hint" style={barsExceedsApi ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
                 {barsExceedsApi
                   ? `API limit: max ${apiComputeLimits?.maxBarsLstm ?? "?"} bars for LSTM methods. Reduce bars or use method=10 (Kalman-only).`
-                  : "0=auto (Binance uses 500; CSV uses all). For Binance, 2–1000 is allowed. Larger values take longer."
+                  : isBinancePlatform
+                    ? "0=auto (Binance uses 500; CSV uses all). For Binance, 2–1000 is allowed. Larger values take longer."
+                    : `0=auto (exchange default 500; CSV uses all). ${platformLabel} requires at least 2 bars. Larger values take longer.`
                 }
               </div>
             </div>
@@ -5159,6 +5290,16 @@ export function App() {
                   Cancel
                 </button>
               </div>
+              {tradeDisabledDetail ? (
+                <div className="issueItem" style={{ marginTop: 10 }}>
+                  <span>Trade disabled: {tradeDisabledDetail.message}</span>
+                  {tradeDisabledDetail.targetId ? (
+                    <button className="btnSmall" type="button" onClick={() => scrollToSection(tradeDisabledDetail.targetId)}>
+                      Fix
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <p className="footerNote">
@@ -6396,18 +6537,27 @@ export function App() {
                   </span>
                 ) : null}
               </div>
+              {!isBinancePlatform ? (
+                <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)", marginBottom: 10 }}>
+                  Trading and key checks are Binance-only. Switch Platform to Binance to use this card.
+                </div>
+              ) : null}
 
               <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
                 <button
                   className="btn"
                   type="button"
                   onClick={() => refreshKeys()}
-                  disabled={keys.loading || apiOk === "down" || apiOk === "auth"}
+                  disabled={!isBinancePlatform || keys.loading || apiOk === "down" || apiOk === "auth"}
                 >
                   {keys.loading ? "Checking…" : "Check keys"}
                 </button>
                 <span className="hint">
-                  {keys.checkedAtMs ? `Last checked: ${fmtTimeMs(keys.checkedAtMs)}` : "Uses Binance signed endpoints + /order/test (no real order)."}
+                  {!isBinancePlatform
+                    ? "Switch Platform to Binance to check keys."
+                    : keys.checkedAtMs
+                      ? `Last checked: ${fmtTimeMs(keys.checkedAtMs)}`
+                      : "Uses Binance signed endpoints + /order/test (no real order)."}
                 </span>
               </div>
 
@@ -6494,14 +6644,19 @@ export function App() {
               </div>
 
               <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
-                <button className="btn" type="button" onClick={() => void startListenKeyStream()} disabled={listenKeyUi.loading || apiOk !== "ok"}>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => void startListenKeyStream()}
+                  disabled={!isBinancePlatform || listenKeyUi.loading || apiOk !== "ok"}
+                >
                   {listenKeyUi.loading ? "Starting…" : listenKeyUi.info ? "Restart stream" : "Start stream"}
                 </button>
                 <button
                   className="btn"
                   type="button"
                   onClick={() => (listenKeyUi.info ? void keepAliveListenKeyStream(listenKeyUi.info) : undefined)}
-                  disabled={!listenKeyUi.info || listenKeyUi.loading || apiOk !== "ok"}
+                  disabled={!isBinancePlatform || !listenKeyUi.info || listenKeyUi.loading || apiOk !== "ok"}
                 >
                   Keep alive now
                 </button>
@@ -6509,11 +6664,15 @@ export function App() {
                   className="btn"
                   type="button"
                   onClick={() => void stopListenKeyStream({ close: true })}
-                  disabled={!listenKeyUi.info || listenKeyUi.loading || apiOk !== "ok"}
+                  disabled={!isBinancePlatform || !listenKeyUi.info || listenKeyUi.loading || apiOk !== "ok"}
                 >
                   Stop
                 </button>
-                <span className="hint">Binance requires a keep-alive (PUT) at least every ~30 minutes; the UI schedules one every ~{Math.round((listenKeyUi.info?.keepAliveMs ?? 25 * 60_000) * 0.9 / 60_000)} minutes.</span>
+                <span className="hint">
+                  {!isBinancePlatform
+                    ? "Listen key streams are available on Binance only."
+                    : `Binance requires a keep-alive (PUT) at least every ~30 minutes; the UI schedules one every ~${Math.round((listenKeyUi.info?.keepAliveMs ?? 25 * 60_000) * 0.9 / 60_000)} minutes.`}
+                </span>
               </div>
 
               {listenKeyUi.error ? (

@@ -149,11 +149,22 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     source_raw = combo.get("source")
     source_s = source_raw.strip().lower() if isinstance(source_raw, str) else ""
-    source = "binance" if source_s == "binance" else "csv" if source_s == "csv" else None
+    source_map = {
+        "binance": "binance",
+        "kraken": "kraken",
+        "poloniex": "poloniex",
+        "csv": "csv",
+    }
+    source = source_map.get(source_s)
 
     params_raw = combo.get("params")
     if not isinstance(params_raw, dict):
         params_raw = {}
+
+    platform_raw = params_raw.get("platform")
+    platform_s = platform_raw.strip().lower() if isinstance(platform_raw, str) else ""
+    if platform_s not in ("binance", "kraken", "poloniex"):
+        platform_s = source if source in ("binance", "kraken", "poloniex") else None
 
     objective = combo.get("objective") if isinstance(combo.get("objective"), str) else None
     score = _coerce_float(combo.get("score"))
@@ -198,6 +209,7 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     normalized_params: Dict[str, Any] = dict(params_raw)
     normalized_params.update(
         {
+            "platform": platform_s,
             "interval": interval_s,
             "bars": bars,
             "method": method_s,
@@ -281,6 +293,7 @@ def _signature(combo: Dict[str, Any]) -> Tuple[Any, ...]:
 
     return (
         combo.get("source"),
+        p("platform"),
         p("interval"),
         p("bars"),
         p("binanceSymbol"),

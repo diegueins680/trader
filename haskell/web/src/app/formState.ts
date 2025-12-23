@@ -1,9 +1,10 @@
-import type { IntrabarFill, Market, Method, Normalization, Positioning } from "../lib/types";
-import { BINANCE_INTERVAL_SECONDS, BINANCE_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
+import type { IntrabarFill, Market, Method, Normalization, Platform, Positioning } from "../lib/types";
+import { BINANCE_INTERVAL_SECONDS, PLATFORM_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
 import { clamp } from "./utils";
 
 export type FormState = {
   binanceSymbol: string;
+  platform: Platform;
   market: Market;
   interval: string;
   bars: number;
@@ -92,6 +93,7 @@ export type FormState = {
 
 export const defaultForm: FormState = {
   binanceSymbol: "BTCUSDT",
+  platform: "binance",
   market: "spot",
   interval: "1h",
   bars: 200,
@@ -179,6 +181,7 @@ export const defaultForm: FormState = {
 
 export type FormStateJson = Partial<FormState> & {
   threshold?: unknown; // legacy field (maps to openThreshold/closeThreshold)
+  platform?: unknown;
   interval?: unknown;
   positioning?: unknown;
   intrabarFill?: unknown;
@@ -189,6 +192,11 @@ export type FormStateJson = Partial<FormState> & {
 export function binanceIntervalSeconds(interval: string): number | null {
   const sec = BINANCE_INTERVAL_SECONDS[interval];
   return typeof sec === "number" && Number.isFinite(sec) ? sec : null;
+}
+
+export function platformIntervalSeconds(platform: Platform, interval: string): number | null {
+  if (platform === "binance") return binanceIntervalSeconds(interval);
+  return parseDurationSeconds(interval);
 }
 
 export function parseDurationSeconds(raw: string): number | null {
@@ -219,10 +227,10 @@ export function parseDurationSeconds(raw: string): number | null {
   return n * mult;
 }
 
-function normalizeBinanceInterval(raw: unknown, fallback: string): string {
+function normalizePlatformInterval(platform: Platform, raw: unknown, fallback: string): string {
   if (typeof raw !== "string") return fallback;
   const value = raw.trim();
-  return BINANCE_INTERVAL_SET.has(value) ? value : fallback;
+  return PLATFORM_INTERVAL_SET[platform].has(value) ? value : fallback;
 }
 
 function normalizeLookbackWindow(raw: unknown, fallback: string): string {
@@ -272,6 +280,11 @@ function normalizeIntrabarFill(raw: unknown, fallback: IntrabarFill): IntrabarFi
   return fallback;
 }
 
+function normalizePlatform(raw: unknown, fallback: Platform): Platform {
+  if (raw === "binance" || raw === "kraken" || raw === "poloniex") return raw;
+  return fallback;
+}
+
 function normalizeTuneObjective(raw: unknown, fallback: string): string {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (s && TUNE_OBJECTIVE_SET.has(s)) return s;
@@ -298,10 +311,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     1e9,
   );
   const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
+  const platform = normalizePlatform(rawRec.platform ?? merged.platform, defaultForm.platform);
   const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
   return {
     ...mergedNoLegacy,
-    interval: normalizeBinanceInterval(raw?.interval ?? merged.interval, defaultForm.interval),
+    platform,
+    interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, defaultForm.interval),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
     lookbackBars: normalizeLookbackBars(raw?.lookbackBars ?? merged.lookbackBars, defaultForm.lookbackBars),

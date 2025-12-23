@@ -1,4 +1,5 @@
 export type Market = "spot" | "margin" | "futures";
+export type Platform = "binance" | "kraken" | "poloniex";
 export type Method = "11" | "10" | "01" | "blend";
 export type Normalization = "none" | "minmax" | "standard" | "log";
 export type Positioning = "long-flat" | "long-short";
@@ -12,6 +13,7 @@ export type ApiParams = {
   data?: string;
   priceColumn?: string;
   binanceSymbol?: string;
+  platform?: Platform;
   market?: Market;
   interval?: string;
   bars?: number;

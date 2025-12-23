@@ -17,7 +17,8 @@ curl -s http://127.0.0.1:8080/health
 ```
 
 Async job persistence (recommended if you use the `*/async` endpoints behind a non-sticky load balancer):
-- Mount a shared volume at `/var/lib/trader/async` (the Docker image defaults `TRADER_API_ASYNC_DIR` to this path), or override `TRADER_API_ASYNC_DIR` to your shared mount.
+- Mount a shared volume and set `TRADER_STATE_DIR` (recommended) or `TRADER_API_ASYNC_DIR` to your shared mount.
+- If you only want async persistence, point `TRADER_API_ASYNC_DIR` at your shared mount; otherwise, use `TRADER_STATE_DIR` to persist ops/journal/bot state/optimizer combos/LSTM weights alongside async jobs.
 
 Example (named Docker volume):
 
@@ -83,6 +84,8 @@ docker push "${ECR_URI}:latest"
 - Environment variables:
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
+  - Optional: shared state directory (recommended for persistence across deploys):
+    - `TRADER_STATE_DIR=/var/lib/trader/state` (mount a durable volume here, e.g. EFS)
   - Optional: operation persistence (append-only JSONL) for `GET /ops`:
     - `TRADER_OPS_DIR=/tmp/trader-ops` (ephemeral unless you mount durable storage)
     - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`)
@@ -93,6 +96,7 @@ docker push "${ECR_URI}:latest"
     - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`)
   - Async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
     - `TRADER_API_ASYNC_DIR` (e.g. an EFS-mounted path). Docker image default: `/var/lib/trader/async`.
+    - Or set `TRADER_STATE_DIR` to a shared mount to persist async jobs plus ops/journal/bot state/optimizer combos/LSTM weights.
       - For multi-instance deployments, ensure this path is a shared writable mount across all instances (otherwise polling can still return “Not found”).
 
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).

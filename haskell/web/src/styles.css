@@ -296,6 +296,10 @@ textarea {
   gap: 12px;
 }
 
+.row.rowSingle {
+  grid-template-columns: 1fr;
+}
+
 @media (max-width: 520px) {
   .row {
     grid-template-columns: 1fr;
