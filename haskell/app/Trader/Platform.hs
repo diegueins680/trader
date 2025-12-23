@@ -8,6 +8,7 @@ module Trader.Platform
   , isPlatformInterval
   , platformDefaultBars
   , platformSupportsTrading
+  , platformSupportsLiveBot
   , platformSupportsFutures
   , platformSupportsMargin
   , platformSupportsTestnet
@@ -76,7 +77,10 @@ platformDefaultBars p =
     _ -> 500
 
 platformSupportsTrading :: Platform -> Bool
-platformSupportsTrading p = p == PlatformBinance
+platformSupportsTrading p = p == PlatformBinance || p == PlatformCoinbase
+
+platformSupportsLiveBot :: Platform -> Bool
+platformSupportsLiveBot p = p == PlatformBinance
 
 platformSupportsFutures :: Platform -> Bool
 platformSupportsFutures p = p == PlatformBinance

@@ -248,8 +248,8 @@ opts = do
   argCoinbaseApiKey <- optional (strOption (long "coinbase-api-key" <> help "Coinbase API key (or env COINBASE_API_KEY; Coinbase only)"))
   argCoinbaseApiSecret <- optional (strOption (long "coinbase-api-secret" <> help "Coinbase API secret (or env COINBASE_API_SECRET; Coinbase only)"))
   argCoinbaseApiPassphrase <- optional (strOption (long "coinbase-api-passphrase" <> help "Coinbase API passphrase (or env COINBASE_API_PASSPHRASE; Coinbase only)"))
-  argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance only)")
-  argBinanceLive <- switch (long "binance-live" <> help "If set, send LIVE orders (otherwise uses /order/test; Binance only)")
+  argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance/Coinbase spot)")
+  argBinanceLive <- switch (long "binance-live" <> help "If set, send LIVE orders (Binance/Coinbase; Coinbase has no test endpoint)")
   argOrderQuote <- optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
   argOrderQuantity <- optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
   argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0 < F <= 1) when --order-quote/--order-quantity not set"))
@@ -425,10 +425,12 @@ validateArgs args0 = do
   ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
   ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)
   let isBinance = argPlatform args == PlatformBinance
+      isCoinbase = argPlatform args == PlatformCoinbase
+      supportsTrading = isBinance || isCoinbase
   ensure "--futures/--margin are only supported on Binance" (isBinance || not (argBinanceFutures args || argBinanceMargin args))
   ensure "--binance-testnet is only supported on Binance" (isBinance || not (argBinanceTestnet args))
-  ensure "--binance-live is only supported on Binance" (isBinance || not (argBinanceLive args))
-  ensure "--binance-trade is only supported on Binance" (isBinance || not (argBinanceTrade args))
+  ensure "--binance-live is only supported on Binance/Coinbase" (supportsTrading || not (argBinanceLive args))
+  ensure "--binance-trade is only supported on Binance/Coinbase" (supportsTrading || not (argBinanceTrade args))
 
   case argHighCol args of
     Nothing -> pure ()

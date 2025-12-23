@@ -1,16 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Trader.Coinbase
   ( CoinbaseCandle(..)
+  , CoinbaseAccount(..)
   , CoinbaseEnv(..)
   , newCoinbaseEnv
   , fetchCoinbaseAccounts
+  , fetchCoinbaseAvailableBalance
   , fetchCoinbaseCandles
+  , placeCoinbaseMarketOrder
   ) where
 
 import Control.Exception (throwIO)
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
-import Data.Aeson (Value(..), eitherDecode, withArray)
+import Data.Aeson (FromJSON(..), Value(..), eitherDecode, encode, object, withArray, withObject, (.=), (.:))
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteArray as BA
 import qualified Data.ByteArray.Encoding as BAE
@@ -18,7 +21,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
-import Data.List (sortOn)
+import Data.List (find, sortOn)
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime, posixSecondsToUTCTime)
@@ -27,6 +30,7 @@ import qualified Data.Vector as V
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
+import Numeric (showFFloat)
 import Trader.Text (trim)
 
 
@@ -36,6 +40,19 @@ data CoinbaseCandle = CoinbaseCandle
   , ccLow :: !Double
   , ccClose :: !Double
   } deriving (Eq, Show)
+
+data CoinbaseAccount = CoinbaseAccount
+  { caCurrency :: !String
+  , caAvailable :: !Double
+  } deriving (Eq, Show)
+
+instance FromJSON CoinbaseAccount where
+  parseJSON =
+    withObject "CoinbaseAccount" $ \o -> do
+      cur <- o .: "currency"
+      availVal <- o .: "available"
+      avail <- parseDoubleValue availVal
+      pure CoinbaseAccount { caCurrency = cur, caAvailable = avail }
 
 coinbaseBaseUrl :: String
 coinbaseBaseUrl = "https://api.exchange.coinbase.com"
@@ -67,6 +84,54 @@ fetchCoinbaseAccounts env = do
   resp <- httpLbs req (ceManager env)
   ensure2xx "Coinbase accounts" resp
   pure (responseBody resp)
+
+fetchCoinbaseAvailableBalance :: CoinbaseEnv -> String -> IO Double
+fetchCoinbaseAvailableBalance env currency = do
+  raw <- fetchCoinbaseAccounts env
+  accounts <-
+    case eitherDecode raw of
+      Left err -> throwIO (userError ("Failed to decode Coinbase accounts: " ++ err))
+      Right xs -> pure (xs :: [CoinbaseAccount])
+  let target = map toUpperAscii (trim currency)
+      match = find (\acct -> map toUpperAscii (caCurrency acct) == target) accounts
+  pure (maybe 0 caAvailable match)
+
+placeCoinbaseMarketOrder :: CoinbaseEnv -> String -> String -> Maybe Double -> Maybe Double -> Maybe String -> IO BL.ByteString
+placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId = do
+  let cleanedProduct = map toUpperAscii (trim product)
+  side <-
+    case map toLowerAscii (trim sideRaw) of
+      "buy" -> pure ("buy" :: String)
+      "sell" -> pure ("sell" :: String)
+      _ -> throwIO (userError "Invalid Coinbase order side (expected BUY/SELL).")
+  let mSize = mSizeRaw >>= positive
+      mFunds = mFundsRaw >>= positive
+  case (mSize, mFunds) of
+    (Nothing, Nothing) -> throwIO (userError "Coinbase market orders require size or funds.")
+    _ -> pure ()
+  let body =
+        encode $
+          object $
+            [ "type" .= ("market" :: String)
+            , "side" .= side
+            , "product_id" .= cleanedProduct
+            ]
+              ++ maybe [] (\q -> ["size" .= renderDoubleText q]) mSize
+              ++ maybe [] (\q -> ["funds" .= renderDoubleText q]) mFunds
+              ++ maybe [] (\cid -> ["client_oid" .= trim cid]) mClientOrderId
+  req0 <- parseRequest (ceBaseUrl env ++ "/orders")
+  reqSigned <- signCoinbaseRequest env "POST" "/orders" (BL.toStrict body) req0
+  let req =
+        reqSigned
+          { requestBody = RequestBodyLBS body
+          , requestHeaders = ("Content-Type", BS8.pack "application/json") : requestHeaders reqSigned
+          , responseTimeout = responseTimeoutMicro coinbaseTimeoutMicros
+          }
+  resp <- httpLbs req (ceManager env)
+  ensure2xx "Coinbase order" resp
+  pure (responseBody resp)
+  where
+    positive v = if v > 0 then Just v else Nothing
 
 fetchCoinbaseCandles :: String -> Int -> Int -> IO [CoinbaseCandle]
 fetchCoinbaseCandles product granularitySec bars = do
@@ -230,8 +295,27 @@ ensure2xx label resp = do
     then throwIO (userError (label ++ " request failed (HTTP " ++ show code ++ ")"))
     else pure ()
 
+renderDoubleText :: Double -> String
+renderDoubleText x =
+  trimTrailingZeros (showFFloat (Just 8) x "")
+
+trimTrailingZeros :: String -> String
+trimTrailingZeros s =
+  case break (== '.') s of
+    (a, "") -> a
+    (a, '.':b) ->
+      let b' = reverse (dropWhile (== '0') (reverse b))
+       in if null b' then a else a ++ "." ++ b'
+    _ -> s
+
 toUpperAscii :: Char -> Char
 toUpperAscii c =
   if c >= 'a' && c <= 'z'
     then toEnum (fromEnum c - 32)
+    else c
+
+toLowerAscii :: Char -> Char
+toLowerAscii c =
+  if c >= 'A' && c <= 'Z'
+    then toEnum (fromEnum c + 32)
     else c

@@ -9,8 +9,9 @@ All notable changes to this project will be documented in this file.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
 - Deploy: quick AWS deploy now validates an EFS mount and ensures `TRADER_STATE_DIR` lives on it.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
-- Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with Binance-only trading/keys.
-- Exchange data: add Coinbase platform support for exchange klines (trading remains Binance-only).
+- Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with trading only on Binance/Coinbase.
+- Exchange data: add Coinbase platform support for exchange klines and spot trading.
+- Trading: Coinbase spot orders now supported via `/trade` and `--binance-trade` (live-only; no test endpoint).
 - Optimizer: add platform sampling (`--platforms`) and persist platform in top-combo outputs.
 - Web UI: add platform selector with per-exchange symbols/intervals and disable Binance-only actions when not on Binance.
 - Web UI: store and check API keys per platform (Binance/Coinbase) and show Coinbase symbol defaults.

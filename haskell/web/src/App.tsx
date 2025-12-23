@@ -712,7 +712,7 @@ export function App() {
     platformKeyMode === "coinbase" ? "Coinbase API keys (optional)" : platformKeyMode === "binance" ? "Binance API keys (optional)" : "Platform API keys (optional)";
   const platformKeyHint =
     platformKeyMode === "coinbase"
-      ? "Used for “Check keys” (Coinbase signed /accounts)."
+      ? "Used for /trade (live only) and “Check keys” (Coinbase signed /accounts)."
       : platformKeyMode === "binance"
         ? "Used for /trade and “Check keys”."
         : "Keys can be stored for Binance or Coinbase. Switch Platform to edit them.";
@@ -3400,17 +3400,28 @@ export function App() {
     if (requestDisabledReason) {
       return { message: requestDisabledReason, targetId: requestIssueDetails[0]?.targetId };
     }
-    if (!isBinancePlatform) {
-      return { message: "Trading is supported on Binance only.", targetId: "platform" };
+    if (!isBinancePlatform && !isCoinbasePlatform) {
+      return { message: "Trading is supported on Binance and Coinbase only.", targetId: "platform" };
+    }
+    if (isCoinbasePlatform && form.positioning === "long-short") {
+      return { message: "Coinbase supports spot only (positioning=long-flat).", targetId: "positioning" };
     }
     if (tradeOrderSizingError) {
       return { message: tradeOrderSizingError, targetId: "orderQuoteFraction" };
     }
-    if (form.positioning === "long-short" && form.market !== "futures") {
+    if (isBinancePlatform && form.positioning === "long-short" && form.market !== "futures") {
       return { message: "Long/Short trading requires Futures market.", targetId: "market" };
     }
     return null;
-  }, [form.market, form.positioning, isBinancePlatform, requestDisabledReason, requestIssueDetails, tradeOrderSizingError]);
+  }, [
+    form.market,
+    form.positioning,
+    isBinancePlatform,
+    isCoinbasePlatform,
+    requestDisabledReason,
+    requestIssueDetails,
+    tradeOrderSizingError,
+  ]);
   const tradeDisabledReason = tradeDisabledDetail?.message ?? null;
 
   const orderSizing = useMemo(() => {
@@ -4070,7 +4081,7 @@ export function App() {
                 ))}
               </select>
               <div className="hint">
-                Exchange platform for price data. Trading and live bot are Binance-only; API keys can be stored for Binance and Coinbase.
+                Exchange platform for price data. Trading supports Binance + Coinbase (spot only); live bot is Binance-only. API keys can be stored per platform.
               </div>
             </div>
           </div>
@@ -5555,7 +5566,7 @@ export function App() {
                   {confirmLive ? (
                     <>
                       <pre className="code" style={{ borderColor: "rgba(245, 158, 11, 0.35)", marginTop: 10 }}>
-                        Enable Live orders? This can place real orders on Binance when you trade or start the live bot with trading armed.
+                        Enable Live orders? This can place real orders on Binance or Coinbase when you trade (live bot orders remain Binance-only).
                       </pre>
                       <div className="actions" style={{ marginTop: 10 }}>
                         <button
@@ -7241,8 +7252,8 @@ export function App() {
               {!isBinancePlatform ? (
                 <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)", marginBottom: 10 }}>
                   {isCoinbasePlatform
-                    ? "Trading is Binance-only. Coinbase keys can be checked here but trading is not supported."
-                    : "Trading is Binance-only. Key checks are supported on Binance and Coinbase."}
+                    ? "Coinbase trades are spot-only and live-only (no test endpoint)."
+                    : "Trading is supported on Binance and Coinbase only. Key checks are supported on Binance and Coinbase."}
                 </div>
               ) : null}
 

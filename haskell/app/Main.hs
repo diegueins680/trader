@@ -169,13 +169,21 @@ import Trader.Platform
   , platformLabel
   , platformIntervalsCsv
   , platformSupportsMarketContext
-  , platformSupportsTrading
+  , platformSupportsLiveBot
   , coinbaseIntervalSeconds
   , krakenIntervalMinutes
   , poloniexIntervalLabel
   , poloniexIntervalSeconds
   )
-import Trader.Coinbase (CoinbaseCandle(..), fetchCoinbaseAccounts, fetchCoinbaseCandles, newCoinbaseEnv)
+import Trader.Coinbase
+  ( CoinbaseCandle(..)
+  , CoinbaseEnv(..)
+  , fetchCoinbaseAccounts
+  , fetchCoinbaseAvailableBalance
+  , fetchCoinbaseCandles
+  , newCoinbaseEnv
+  , placeCoinbaseMarketOrder
+  )
 import Trader.Kraken (KrakenCandle(..), fetchKrakenCandles)
 import Trader.Poloniex (PoloniexCandle(..), fetchPoloniexCandles)
 
@@ -2009,7 +2017,7 @@ botStartSymbol ::
   String ->
   IO (Either String BotStartOutcome)
 botStartSymbol allowExisting mOps metrics mJournal mBotStateDir ctrl args p symRaw =
-  if not (platformSupportsTrading (argPlatform args))
+  if not (platformSupportsLiveBot (argPlatform args))
     then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
     else
       case argData args of
@@ -3365,6 +3373,16 @@ makeBinanceEnv args = do
   apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
   newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+
+makeCoinbaseEnv :: Args -> IO CoinbaseEnv
+makeCoinbaseEnv args = do
+  if argPlatform args /= PlatformCoinbase
+    then error ("Coinbase environment requires platform=coinbase (got " ++ platformCode (argPlatform args) ++ ").")
+    else pure ()
+  apiKey <- resolveEnv "COINBASE_API_KEY" (argCoinbaseApiKey args)
+  apiSecret <- resolveEnv "COINBASE_API_SECRET" (argCoinbaseApiSecret args)
+  apiPassphrase <- resolveEnv "COINBASE_API_PASSPHRASE" (argCoinbaseApiPassphrase args)
+  newCoinbaseEnv (BS.pack <$> apiKey) (BS.pack <$> apiSecret) (BS.pack <$> apiPassphrase)
 
 botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> MVar BotState -> MVar () -> Maybe (MVar (Maybe BotOptimizerUpdate)) -> IO ()
 botLoop mOps metrics mJournal mBotStateDir ctrl stVar stopSig mOptimizerPending = do
@@ -7041,14 +7059,25 @@ computeTradeFromArgs args = do
   let lookback = argLookback args
   sig <- computeTradeOnlySignal args lookback prices mBinanceEnv
   order <-
-    if not (platformSupportsTrading (argPlatform args))
-      then pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: trading is supported on Binance only.")
-      else
+    case argPlatform args of
+      PlatformBinance ->
         case (argBinanceSymbol args, mBinanceEnv) of
-          (Nothing, _) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing binanceSymbol.")
-          (_, Nothing) -> pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "No order: missing Binance environment (use binanceSymbol data source).")
+          (Nothing, _) -> noOrder "No order: missing binanceSymbol."
+          (_, Nothing) -> noOrder "No order: missing Binance environment (use binanceSymbol data source)."
           (Just sym, Just env) -> placeOrderForSignal args sym sig env
+      PlatformCoinbase ->
+        case argBinanceSymbol args of
+          Nothing -> noOrder "No order: missing symbol."
+          Just sym -> do
+            envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
+            case envOrErr of
+              Left ex -> noOrder ("No order: " ++ take 240 (show ex))
+              Right env -> placeCoinbaseOrderForSignal args sym sig env
+      _ -> noOrder "No order: trading is supported on Binance and Coinbase only."
   pure ApiTradeResponse { atrSignal = sig, atrOrder = order }
+  where
+    noOrder msg =
+      pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing msg)
 
 data BinanceApiErrorBody = BinanceApiErrorBody
   { baeCode :: !Int
@@ -7893,6 +7922,163 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
         OrderLive -> "live"
         OrderTest -> "test"
 
+placeCoinbaseOrderForSignal :: Args -> String -> LatestSignal -> CoinbaseEnv -> IO ApiOrderResult
+placeCoinbaseOrderForSignal args symRaw sig env = do
+  case (ceApiKey env, ceApiSecret env, ceApiPassphrase env) of
+    (Nothing, _, _) -> noOrder "No order: missing Coinbase API key."
+    (_, Nothing, _) -> noOrder "No order: missing Coinbase API secret."
+    (_, _, Nothing) -> noOrder "No order: missing Coinbase API passphrase."
+    _ ->
+      if not (argBinanceLive args)
+        then noOrder "No order: Coinbase does not support test orders; enable Live orders to send trades."
+        else
+          case splitCoinbaseSymbol sym of
+            Left err -> noOrder ("No order: " ++ err)
+            Right (baseAsset, quoteAsset) ->
+              if argPositioning args == LongShort
+                then noOrder "No order: Coinbase supports spot only (positioning=long-flat)."
+                else do
+                  baseBal <- fetchCoinbaseAvailableBalance env baseAsset
+                  quoteBal <- fetchCoinbaseAvailableBalance env quoteAsset
+                  case chosenDir of
+                    Nothing -> noOrder neutralMsg
+                    Just dir ->
+                      case dir of
+                        1 -> placeBuy baseBal quoteBal baseAsset quoteAsset
+                        (-1) -> placeSell baseBal baseAsset
+                        _ -> noOrder neutralMsg
+  where
+    sym = normalizeSymbol symRaw
+    method = lsMethod sig
+    chosenDir = lsChosenDir sig
+    currentPrice = lsCurrentPrice sig
+
+    entryScale :: Double
+    entryScale =
+      let s0 = maybe 1 id (lsPositionSize sig)
+          s1 = max 0 s0
+          s2 = min s1 (max 0 (argMaxPositionSize args))
+       in min 1 s2
+
+    clientOrderId :: Maybe String
+    clientOrderId = trim <$> argIdempotencyKey args
+
+    baseResult :: ApiOrderResult
+    baseResult =
+      ApiOrderResult
+        { aorSent = False
+        , aorMode = Just (if argBinanceLive args then "live" else "paper")
+        , aorSide = Nothing
+        , aorSymbol = Just sym
+        , aorQuantity = Nothing
+        , aorQuoteQuantity = Nothing
+        , aorOrderId = Nothing
+        , aorClientOrderId = clientOrderId
+        , aorStatus = Nothing
+        , aorExecutedQty = Nothing
+        , aorCummulativeQuoteQty = Nothing
+        , aorResponse = Nothing
+        , aorMessage = ""
+        }
+
+    noOrder :: String -> IO ApiOrderResult
+    noOrder msg = pure baseResult { aorMessage = msg }
+
+    neutralMsg =
+      case method of
+        MethodBoth -> "No order: directions disagree or neutral (direction gate)."
+        MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
+        MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
+        MethodBlend -> "No order: Blend neutral (within threshold)."
+
+    splitCoinbaseSymbol s =
+      case break (== '-') s of
+        (base, '-':quote) | not (null base) && not (null quote) ->
+          Right (map toUpper base, map toUpper quote)
+        _ -> Left "Coinbase symbols must be BASE-QUOTE (e.g., BTC-USD)."
+
+    sendOrder :: String -> Maybe Double -> Maybe Double -> IO ApiOrderResult
+    sendOrder sideLabel mQty mFunds = do
+      let baseOut =
+            baseResult
+              { aorSide = Just sideLabel
+              , aorQuantity = mQty
+              , aorQuoteQuantity = mFunds
+              }
+      r <- try (placeCoinbaseMarketOrder env sym sideLabel mQty mFunds clientOrderId) :: IO (Either SomeException BL.ByteString)
+      case r of
+        Left ex -> pure baseOut { aorMessage = "Order failed: " ++ take 240 (show ex) }
+        Right body ->
+          pure
+            baseOut
+              { aorSent = True
+              , aorResponse = Just (shortResp body)
+              , aorMessage = "Order sent."
+              }
+
+    placeBuy baseBal quoteBal _baseAsset quoteAsset =
+      if baseBal > 0
+        then noOrder "No order: already long."
+        else do
+          let qtyArg =
+                case argOrderQuantity args of
+                  Just q | q > 0 -> Just (q * entryScale)
+                  _ -> Nothing
+              quoteArg =
+                case argOrderQuote args of
+                  Just q | q > 0 -> Just (q * entryScale)
+                  _ -> Nothing
+              quoteFracArg =
+                case argOrderQuoteFraction args of
+                  Just f | f > 0 -> Just (f * entryScale)
+                  _ -> Nothing
+              maxOrderQuoteArg =
+                case argMaxOrderQuote args of
+                  Just q | q > 0 -> Just q
+                  _ -> Nothing
+              quoteFromFraction =
+                case (qtyArg, quoteArg, quoteFracArg) of
+                  (Nothing, Nothing, Just f) ->
+                    let q0 = quoteBal * f
+                        q1 = maybe q0 (\capQ -> min capQ q0) maxOrderQuoteArg
+                     in Just q1
+                  _ -> Nothing
+              quoteEffective = quoteArg <|> quoteFromFraction
+
+          case (qtyArg, quoteEffective) of
+            (Nothing, Nothing) ->
+              case quoteFracArg of
+                Nothing -> noOrder "No order: provide orderQuantity or orderQuote."
+                Just _ -> noOrder "No order: computed quote is 0 (check quote balance / orderQuoteFraction / maxOrderQuote)."
+            (Just qRaw, _) ->
+              if currentPrice > 0 && qRaw * currentPrice > quoteBal
+                then noOrder ("No order: insufficient " ++ quoteAsset ++ " balance.")
+                else sendOrder "BUY" (Just qRaw) Nothing
+            (Nothing, Just qq0) ->
+              let qq = max 0 qq0
+               in if qq <= 0
+                    then noOrder "No order: quote is 0."
+                    else
+                      if qq > quoteBal
+                        then noOrder ("No order: insufficient " ++ quoteAsset ++ " balance.")
+                        else sendOrder "BUY" Nothing (Just qq)
+
+    placeSell baseBal _baseAsset =
+      if baseBal <= 0
+        then noOrder "No order: already flat."
+        else do
+          let qtyArg =
+                case argOrderQuantity args of
+                  Just q | q > 0 -> Just q
+                  _ -> Nothing
+              qRaw =
+                case qtyArg of
+                  Just q -> min q baseBal
+                  Nothing -> baseBal
+          if qRaw <= 0
+            then noOrder "No order: quantity is 0."
+            else sendOrder "SELL" (Just qRaw) Nothing
+
 computeBacktestFromArgs :: Args -> IO Aeson.Value
 computeBacktestFromArgs args = do
   (series, mBinanceEnv) <- loadPrices args
@@ -8079,7 +8265,7 @@ runTradeOnly args lookback prices mBinanceEnv = do
       let perSide = estimatedPerSideCost (argFee args) (argSlippage args) (argSpread args)
           roundTrip = estimatedRoundTripCost (argFee args) (argSlippage args) (argSpread args)
       printCostGuidance (argOpenThreshold args) (argCloseThreshold args) perSide roundTrip
-      maybeSendBinanceOrder args mBinanceEnv signal
+      maybeSendOrder args mBinanceEnv signal
 
 runBacktestPipeline :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
 runBacktestPipeline args lookback series mBinanceEnv = do
@@ -8216,7 +8402,7 @@ runBacktestPipeline args lookback series mBinanceEnv = do
             )
 
       printLatestSignalSummary (bsLatestSignal summary)
-      maybeSendBinanceOrder args mBinanceEnv (bsLatestSignal summary)
+      maybeSendOrder args mBinanceEnv (bsLatestSignal summary)
 
 printJsonStdout :: ToJSON a => a -> IO ()
 printJsonStdout v = BS.putStrLn (BL.toStrict (encode v))
@@ -9597,17 +9783,30 @@ printCostGuidance openThr closeThr perSide roundTrip = do
         )
     else pure ()
 
-maybeSendBinanceOrder :: Args -> Maybe BinanceEnv -> LatestSignal -> IO ()
-maybeSendBinanceOrder args mEnv sig =
-  if not (platformSupportsTrading (argPlatform args))
-    then pure ()
-    else case (argBinanceSymbol args, mEnv) of
-      (Just sym, Just env)
-        | argBinanceTrade args -> do
-            res <- placeOrderForSignal args sym sig env
-            putStrLn (aorMessage res)
-        | otherwise -> pure ()
-      _ -> pure ()
+maybeSendOrder :: Args -> Maybe BinanceEnv -> LatestSignal -> IO ()
+maybeSendOrder args mBinanceEnv sig =
+  case argPlatform args of
+    PlatformBinance ->
+      case (argBinanceSymbol args, mBinanceEnv) of
+        (Just sym, Just env)
+          | argBinanceTrade args -> do
+              res <- placeOrderForSignal args sym sig env
+              putStrLn (aorMessage res)
+          | otherwise -> pure ()
+        _ -> pure ()
+    PlatformCoinbase ->
+      case argBinanceSymbol args of
+        Just sym
+          | argBinanceTrade args -> do
+              envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
+              case envOrErr of
+                Left _ -> pure ()
+                Right env -> do
+                  res <- placeCoinbaseOrderForSignal args sym sig env
+                  putStrLn (aorMessage res)
+          | otherwise -> pure ()
+        _ -> pure ()
+    _ -> pure ()
 
 data PriceSeries = PriceSeries
   { psClose :: ![Double]

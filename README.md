@@ -4,7 +4,7 @@ Haskell Trading Bot (Kalman + LSTM + Binance/Coinbase/Kraken/Poloniex)
 This repository contains a small Haskell trading demo that:
 - Predicts the next price using a small **LSTM**, and a **multi-sensor Kalman fusion** layer that combines multiple model outputs into a single latent expected return signal.
 - By default, only trades when Kalman and LSTM **agree on direction** (both predict up, or both predict down) — configurable via `--method`.
-- Can backtest on CSV data or pull klines from **Binance**, **Coinbase**, **Kraken**, or **Poloniex** (trading is Binance-only).
+- Can backtest on CSV data or pull klines from **Binance**, **Coinbase**, **Kraken**, or **Poloniex** (trading supports Binance + Coinbase spot).
 
 Features
 --------
@@ -92,10 +92,10 @@ cabal run trader-hs -- \
   --epochs 5
 ```
 
-Sending Binance orders (optional)
----------------------------------
-By default, orders are sent to `/api/v3/order/test`. Trading is supported only when `--platform binance` (default). Add `--binance-live` to send live orders.
-For futures orders, add `--futures` (uses `/fapi` endpoints). For margin orders, add `--margin` (requires `--binance-live`).
+Sending exchange orders (optional)
+----------------------------------
+Binance: by default, orders are sent to `/api/v3/order/test`. Add `--binance-live` to send live orders. Futures use `--futures` (uses `/fapi` endpoints). Margin uses `--margin` (requires `--binance-live`).
+Coinbase: spot-only and live-only (no test endpoint). Use `--platform coinbase` plus `--binance-live` to send live orders.
 
 Futures protection orders (live, manual trades only):
 - When sending **LIVE futures** orders via the CLI (`--binance-trade`) or REST `/trade`, providing `--stop-loss` and/or `--take-profit` places exchange-native trigger orders (`STOP_MARKET` / `TAKE_PROFIT_MARKET`) with `closePosition=true`.
@@ -148,15 +148,15 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--lookback-window 24h` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
 
-- Binance-only trading
-  - Trading flags apply only when `--platform binance`.
-  - `--binance-testnet` (default: off) use Binance testnet base URL
-  - `--futures` (default: off) use Binance USDT-M futures endpoints (data + orders)
-  - `--margin` (default: off) use Binance margin account endpoints for orders/balance (requires `--binance-live`)
+- Trading (Binance + Coinbase spot)
+  - Trading flags apply only when `--platform binance` or `--platform coinbase` (Coinbase is spot-only and has no test endpoint).
+  - `--binance-testnet` (default: off) use Binance testnet base URL (Binance only)
+  - `--futures` (default: off) use Binance USDT-M futures endpoints (data + orders; Binance only)
+  - `--margin` (default: off) use Binance margin account endpoints for orders/balance (requires `--binance-live`; Binance only)
   - `--binance-api-key KEY` (default: none) or env `BINANCE_API_KEY`
   - `--binance-api-secret SECRET` (default: none) or env `BINANCE_API_SECRET`
   - `--binance-trade` (default: off) place a market order for the latest signal
-  - `--binance-live` (default: off) send LIVE orders (otherwise uses `/order/test`)
+  - `--binance-live` (default: off) send LIVE orders (Binance uses `/order/test` when off; Coinbase requires this)
   - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`)
   - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`)
   - `--order-quote-fraction F` (default: none) size BUY orders as a fraction of the free quote balance (`0 < F <= 1`)
@@ -164,7 +164,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
 
-- Coinbase API keys (optional; used for `/coinbase/keys` checks)
+- Coinbase API keys (optional; used for `/coinbase/keys` checks and Coinbase trades)
   - `--coinbase-api-key KEY` (default: none) or env `COINBASE_API_KEY`
   - `--coinbase-api-secret SECRET` (default: none) or env `COINBASE_API_SECRET`
   - `--coinbase-api-passphrase PASSPHRASE` (default: none) or env `COINBASE_API_PASSPHRASE`
@@ -288,7 +288,7 @@ Endpoints:
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /signal/async` → starts an async signal job
 - `GET /signal/async/:jobId` → polls an async signal job (also accepts `POST` for proxy compatibility)
-- `POST /trade` → returns the latest signal + attempts an order
+- `POST /trade` → returns the latest signal + attempts an order (Binance test orders by default; Coinbase is live-only)
 - `POST /trade/async` → starts an async trade job
 - `GET /trade/async/:jobId` → polls an async trade job (also accepts `POST` for proxy compatibility)
 - `POST /backtest` → runs a backtest and returns summary metrics
@@ -453,7 +453,7 @@ Note: `/bot/*` is stateful, and async endpoints persist job state to `TRADER_STA
 Web UI
 ------
 A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST API and visualizes signals/backtests (including the equity curve).
-The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, but trading/live bot remain Binance-only.
+The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
