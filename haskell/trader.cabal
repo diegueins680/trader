@@ -37,6 +37,7 @@ executable trader-hs
                      , Trader.SensorVariance
                      , Trader.Split
                      , Trader.Symbol
+                     , Trader.S3
                      , Trader.Text
                      , Trader.Trading
                      , Paths_trader

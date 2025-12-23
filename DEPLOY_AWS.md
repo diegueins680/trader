@@ -104,6 +104,9 @@ Create an AWS App Runner service to run your API.
 6. **Environment variables** (optional but recommended):
    ```
    TRADER_API_TOKEN=<your-random-token>
+   TRADER_STATE_S3_BUCKET=<s3-bucket>
+   TRADER_STATE_S3_PREFIX=trader
+   TRADER_STATE_S3_REGION=ap-northeast-1
    ```
    Generate a token:
    ```bash
@@ -180,6 +183,23 @@ If you didn't set `TRADER_API_TOKEN` during creation, add it now:
 5. Click **Save changes**
 
 The service will redeploy.
+
+---
+
+## Optional: Enable S3 State Persistence (App Runner)
+
+App Runner does **not** support EFS volumes. To persist bot snapshots and optimizer top-combos, store them in S3:
+
+1. Create a private S3 bucket (e.g. `trader-api-state-...`).
+2. Create an App Runner instance role with S3 access (trust `tasks.apprunner.amazonaws.com`).
+3. Set the instance role on the service and add env vars:
+   ```
+   TRADER_STATE_S3_BUCKET=<s3-bucket>
+   TRADER_STATE_S3_PREFIX=trader
+   TRADER_STATE_S3_REGION=ap-northeast-1
+   ```
+
+If you use `deploy-aws-quick.sh`, pass `--state-s3-bucket ... --state-s3-prefix ... --instance-role-arn ...`.
 
 ---
 
@@ -393,8 +413,8 @@ Use CloudWatch to monitor and set up auto-scaling if you expect variable traffic
 ## Next Steps
 
 1. **Monitor the API:** Set up CloudWatch dashboards and alarms
-2. **Persist state:** For stateful endpoints (`/bot/*`) and async polling, mount EFS and set `TRADER_STATE_DIR` to persistent storage
-   - Example (App Runner): mount EFS at `/var/lib/trader`, keep `TRADER_STATE_DIR=/var/lib/trader/state` (default) or override to match the mount.
+2. **Persist state:** For App Runner, use S3-backed persistence (`TRADER_STATE_S3_BUCKET`) and grant the service an instance role with S3 access.
+   - App Runner does **not** support EFS volumes; S3 is the supported persistence option.
 3. **Setup CI/CD:** Use GitHub Actions to automatically build & push on commit
 4. **Enable HTTPS:** Use CloudFront + ACM certificate for your domain
 5. **Security:** Use IAM roles, VPC security groups, and API Gateway if needed

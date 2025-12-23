@@ -64,6 +64,7 @@ import Trader.Binance
   , BinanceOrderMode(..)
   , BinanceTrade(..)
   , OrderSide(..)
+  , BinanceOpenOrder(..)
   , SymbolFilters(..)
   , Step(..)
   , Kline(..)
@@ -78,6 +79,7 @@ import Trader.Binance
   , fetchFreeBalance
   , fetchFuturesAvailableBalance
   , fetchFuturesPositionAmt
+  , fetchOpenOrders
   , cancelFuturesOpenOrdersByClientPrefix
   , fetchSymbolFilters
   , quantizeDown
@@ -160,6 +162,13 @@ import Trader.Trading
   , exitReasonFromCode
   , simulateEnsemble
   , simulateEnsembleWithHL
+  )
+import Trader.S3
+  ( S3State(..)
+  , resolveS3State
+  , s3GetObject
+  , s3KeyFor
+  , s3PutObject
   )
 import Trader.Platform
   ( Platform(..)
@@ -1538,7 +1547,7 @@ botSettingsFromApi args p = do
       trainBars = maybe 800 id (apBotTrainBars p)
       maxPoints = maybe 2000 id (apBotMaxPoints p)
       tradeEnabled = maybe False id (apBotTrade p)
-      adoptExistingPosition = maybe False id (apBotAdoptExistingPosition p)
+      adoptExistingPosition = True
 
   ensure "botPollSeconds must be between 1 and 3600" (poll >= 1 && poll <= 3600)
   ensure "botOnlineEpochs must be between 0 and 50" (onlineEpochs >= 0 && onlineEpochs <= 50)
@@ -1773,6 +1782,14 @@ botStatePathFor :: FilePath -> String -> FilePath
 botStatePathFor dir sym =
   dir </> (botStateFilePrefix ++ sanitizeFileComponent sym ++ ".json")
 
+s3BotSnapshotKey :: S3State -> String -> String
+s3BotSnapshotKey st sym =
+  s3KeyFor st ["bot", botStateFilePrefix ++ sanitizeFileComponent sym ++ ".json"]
+
+s3BotSnapshotIndexKey :: S3State -> String
+s3BotSnapshotIndexKey st =
+  s3KeyFor st ["bot", "bot-state-index.json"]
+
 writeBotStatusSnapshot :: FilePath -> BotStatusSnapshot -> IO ()
 writeBotStatusSnapshot path snap = do
   createDirectoryIfMissing True (takeDirectory path)
@@ -1789,12 +1806,20 @@ writeBotStatusSnapshot path snap = do
       pure ()
 
 writeBotStatusSnapshotMaybe :: Maybe FilePath -> String -> BotStatusSnapshot -> IO ()
-writeBotStatusSnapshotMaybe mDir sym snap =
+writeBotStatusSnapshotMaybe mDir sym snap = do
   case mDir of
     Nothing -> pure ()
     Just dir -> do
       let path = botStatePathFor dir sym
       _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
+      pure ()
+  mS3 <- resolveS3State
+  case mS3 of
+    Nothing -> pure ()
+    Just st -> do
+      let key = s3BotSnapshotKey st sym
+      _ <- try (s3PutObject st key (encode snap)) :: IO (Either SomeException (Either String ()))
+      _ <- try (updateBotSnapshotIndex st sym) :: IO (Either SomeException ())
       pure ()
 
 persistBotStatusMaybe :: Maybe FilePath -> BotState -> IO ()
@@ -1825,36 +1850,107 @@ readBotStatusSnapshotAtPath path = do
             Right snap -> pure (Just snap)
 
 readBotStatusSnapshotMaybe :: Maybe FilePath -> String -> IO (Maybe BotStatusSnapshot)
-readBotStatusSnapshotMaybe mDir sym =
-  case mDir of
-    Nothing -> pure Nothing
-    Just dir -> do
-      let path = botStatePathFor dir sym
-      readBotStatusSnapshotAtPath path
+readBotStatusSnapshotMaybe mDir sym = do
+  mS3 <- resolveS3State
+  s3Snap <-
+    case mS3 of
+      Nothing -> pure Nothing
+      Just st -> readBotStatusSnapshotS3 st sym
+  case s3Snap of
+    Just snap -> pure (Just snap)
+    Nothing ->
+      case mDir of
+        Nothing -> pure Nothing
+        Just dir -> do
+          let path = botStatePathFor dir sym
+          readBotStatusSnapshotAtPath path
 
 readBotStatusSnapshotsMaybe :: Maybe FilePath -> IO [BotStatusSnapshot]
-readBotStatusSnapshotsMaybe mDir =
-  case mDir of
-    Nothing -> pure []
-    Just dir -> do
-      exists <- doesFileExist (dir </> botStateFileName)
-      legacySnap <-
-        if exists
-          then readBotStatusSnapshotAtPath (dir </> botStateFileName)
-          else pure Nothing
-      dirExists <- doesDirectoryExist dir
-      if not dirExists
-        then pure (maybeToList legacySnap)
-        else do
-          entries <- listDirectory dir
-          let targets =
-                [ dir </> name
-                | name <- entries
-                , botStateFilePrefix `isPrefixOf` name
-                , ".json" `isSuffixOf` name
-                ]
-          snaps <- mapM readBotStatusSnapshotAtPath targets
-          pure (maybeToList legacySnap ++ mapMaybe id snaps)
+readBotStatusSnapshotsMaybe mDir = do
+  localSnaps <-
+    case mDir of
+      Nothing -> pure []
+      Just dir -> do
+        exists <- doesFileExist (dir </> botStateFileName)
+        legacySnap <-
+          if exists
+            then readBotStatusSnapshotAtPath (dir </> botStateFileName)
+            else pure Nothing
+        dirExists <- doesDirectoryExist dir
+        if not dirExists
+          then pure (maybeToList legacySnap)
+          else do
+            entries <- listDirectory dir
+            let targets =
+                  [ dir </> name
+                  | name <- entries
+                  , botStateFilePrefix `isPrefixOf` name
+                  , ".json" `isSuffixOf` name
+                  ]
+            snaps <- mapM readBotStatusSnapshotAtPath targets
+            pure (maybeToList legacySnap ++ mapMaybe id snaps)
+  mS3 <- resolveS3State
+  s3Snaps <-
+    case mS3 of
+      Nothing -> pure []
+      Just st -> do
+        symbols <- readBotSnapshotIndex st
+        snaps <- mapM (readBotStatusSnapshotS3 st) symbols
+        pure (mapMaybe id snaps)
+  pure (mergeBotSnapshots (localSnaps ++ s3Snaps))
+
+readBotSnapshotIndex :: S3State -> IO [String]
+readBotSnapshotIndex st = do
+  let key = s3BotSnapshotIndexKey st
+  r <- s3GetObject st key
+  case r of
+    Left _ -> pure []
+    Right Nothing -> pure []
+    Right (Just bytes) ->
+      case Aeson.eitherDecode' bytes of
+        Left _ -> pure []
+        Right symbols -> pure (filter (not . null) (map normalizeSymbol symbols))
+
+updateBotSnapshotIndex :: S3State -> String -> IO ()
+updateBotSnapshotIndex st sym = do
+  symbols <- readBotSnapshotIndex st
+  let symNorm = normalizeSymbol sym
+      next = if symNorm `elem` symbols then symbols else symbols ++ [symNorm]
+  _ <- s3PutObject st (s3BotSnapshotIndexKey st) (encode next)
+  pure ()
+
+readBotStatusSnapshotS3 :: S3State -> String -> IO (Maybe BotStatusSnapshot)
+readBotStatusSnapshotS3 st sym = do
+  let key = s3BotSnapshotKey st sym
+  r <- s3GetObject st key
+  case r of
+    Left _ -> pure Nothing
+    Right Nothing -> pure Nothing
+    Right (Just bytes) ->
+      case Aeson.eitherDecode' bytes of
+        Left _ -> pure Nothing
+        Right snap -> pure (Just snap)
+
+mergeBotSnapshots :: [BotStatusSnapshot] -> [BotStatusSnapshot]
+mergeBotSnapshots snaps =
+  HM.elems (foldl' insertSnap HM.empty snaps)
+  where
+    insertSnap acc snap =
+      case snapshotSymbol snap of
+        Nothing -> acc
+        Just sym ->
+          case HM.lookup sym acc of
+            Nothing -> HM.insert sym snap acc
+            Just existing ->
+              if bssSavedAtMs snap >= bssSavedAtMs existing
+                then HM.insert sym snap acc
+                else acc
+
+    snapshotSymbol :: BotStatusSnapshot -> Maybe String
+    snapshotSymbol snap =
+      case bssStatus snap of
+        Aeson.Object o -> KM.lookup "symbol" o >>= AT.parseMaybe parseJSON
+        _ -> Nothing
 
 data BotOp = BotOp
   { boIndex :: !Int
@@ -1944,6 +2040,12 @@ fetchBotAccountPos args env sym =
     LongFlat -> fetchLongFlatAccountPos args env sym
     LongShort -> fetchLongShortAccountPos args env sym
 
+fetchAdoptableAccountPos :: Args -> BinanceEnv -> String -> IO Int
+fetchAdoptableAccountPos args env sym =
+  case argBinanceMarket args of
+    MarketFutures -> accountPosSign <$> fetchFuturesPositionAmt env sym
+    _ -> fetchLongFlatAccountPos args env sym
+
 preflightBotStart :: Args -> BotSettings -> String -> IO (Either String ())
 preflightBotStart args settings sym =
   if not (bsTradeEnabled settings)
@@ -1991,19 +2093,106 @@ resolveBotSymbols args p = do
     then pure (Left "bot/start requires binanceSymbol or botSymbols")
     else pure (Right normalized)
 
-applyLatestTopCombo :: FilePath -> String -> Args -> IO Args
-applyLatestTopCombo optimizerTmp sym args = do
+comboPollSecondsFromEnv :: IO Int
+comboPollSecondsFromEnv = do
+  pollEnv <- lookupEnv "TRADER_BOT_COMBOS_POLL_SEC"
+  pure $
+    case pollEnv >>= readMaybe of
+      Just n | n >= 5 -> n
+      _ -> 30
+
+data AdoptRequirement = AdoptRequirement
+  { arActive :: !Bool
+  , arRequiresLongShort :: !Bool
+  } deriving (Eq, Show)
+
+openOrdersRequireShort :: BinanceMarket -> [BinanceOpenOrder] -> Bool
+openOrdersRequireShort market orders =
+  case market of
+    MarketFutures -> any requiresShort orders
+    _ -> False
+  where
+    requiresShort order =
+      case fmap normalizeKey (booPositionSide order) of
+        Just "short" -> True
+        Just "long" -> False
+        _ ->
+          case (booReduceOnly order, booClosePosition order) of
+            (Just True, _) -> False
+            (_, Just True) -> False
+            _ ->
+              case booSide order of
+                Just Sell -> True
+                _ -> False
+
+argsCompatibleWithAdoption :: Args -> AdoptRequirement -> Bool
+argsCompatibleWithAdoption args req
+  | not (arActive req) = True
+  | otherwise =
+      case argBinanceMarket args of
+        MarketFutures ->
+          if arRequiresLongShort req
+            then argPositioning args == LongShort
+            else True
+        _ ->
+          not (arRequiresLongShort req) && argPositioning args /= LongShort
+
+selectCompatibleTopComboArgs :: String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe Args
+selectCompatibleTopComboArgs sym args req export =
+  let combos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
+      sortedCombos = sortOn topComboRankKey combos
+      pick [] = Nothing
+      pick (combo : rest) =
+        case applyTopComboForStart args combo of
+          Left _ -> pick rest
+          Right args' ->
+            if argsCompatibleWithAdoption args' req
+              then Just args'
+              else pick rest
+   in pick sortedCombos
+
+applyLatestTopCombo :: FilePath -> String -> Args -> AdoptRequirement -> IO Args
+applyLatestTopCombo optimizerTmp sym args req = do
   topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-  combosOrErr <- readTopCombosExport topJsonPath
-  case combosOrErr of
-    Left _ -> pure args
-    Right export ->
-      case bestTopComboForSymbol sym Nothing export of
-        Nothing -> pure args
-        Just combo ->
-          case applyTopComboForStart args combo of
-            Left _ -> pure args
-            Right args' -> pure args'
+  if arActive req
+    then do
+      pollSec <- comboPollSecondsFromEnv
+      let sleepSec s = threadDelay (max 1 s * 1000000)
+          loop = do
+            combosOrErr <- readTopCombosExport topJsonPath
+            case combosOrErr of
+              Left _ -> sleepSec pollSec >> loop
+              Right export ->
+                case selectCompatibleTopComboArgs sym args req export of
+                  Nothing -> sleepSec pollSec >> loop
+                  Just args' -> pure args'
+      loop
+    else do
+      combosOrErr <- readTopCombosExport topJsonPath
+      case combosOrErr of
+        Left _ -> pure args
+        Right export ->
+          case bestTopComboForSymbol sym Nothing export of
+            Nothing -> pure args
+            Just combo ->
+              case applyTopComboForStart args combo of
+                Left _ -> pure args
+                Right args' -> pure args'
+
+resolveAdoptionRequirement :: Args -> String -> IO (Either String AdoptRequirement)
+resolveAdoptionRequirement args sym = do
+  r <- try $ do
+    env <- makeBinanceEnv args
+    ensureBinanceKeysPresent env
+    pos <- fetchAdoptableAccountPos args env sym
+    orders <- fetchOpenOrders env sym
+    let requiresShort = pos < 0 || openOrdersRequireShort (argBinanceMarket args) orders
+        active = pos /= 0 || not (null orders)
+    pure AdoptRequirement { arActive = active, arRequiresLongShort = requiresShort }
+  pure $
+    case r of
+      Left ex -> Left (snd (exceptionToHttp ex))
+      Right req -> Right req
 
 botStartSymbol ::
   Bool ->
@@ -5786,6 +5975,10 @@ prepareOptimizerArgs outputPath req = do
 optimizerCombosFileName :: FilePath
 optimizerCombosFileName = "top-combos.json"
 
+s3TopCombosKey :: S3State -> String
+s3TopCombosKey st =
+  s3KeyFor st ["optimizer", optimizerCombosFileName]
+
 resolveOptimizerCombosPath :: FilePath -> IO FilePath
 resolveOptimizerCombosPath optimizerTmp = do
   mDir <- lookupEnv "TRADER_OPTIMIZER_COMBOS_DIR"
@@ -5841,7 +6034,9 @@ runMergeTopCombos projectRoot topJsonPath recordsPath maxItems = do
               }
       (exitCode, out, err) <- readCreateProcessWithExitCode proc' ""
       case exitCode of
-        ExitSuccess -> pure (Right ())
+        ExitSuccess -> do
+          persistTopCombosMaybe topJsonPath
+          pure (Right ())
         ExitFailure code -> pure (Left (printf "Merge script failed (exit %d)" code, out, err))
 
 readLastOptimizerRecord :: FilePath -> IO (Either String Aeson.Value)
@@ -5879,17 +6074,49 @@ writeKlinesCsv path ks = do
 
 readTopCombosExport :: FilePath -> IO (Either String TopCombosExport)
 readTopCombosExport path = do
-  exists <- doesFileExist path
-  if not exists
-    then pure (Left "Top combos JSON not found.")
-    else do
+  mS3 <- resolveS3State
+  s3Result <-
+    case mS3 of
+      Nothing -> pure Nothing
+      Just st -> do
+        let key = s3TopCombosKey st
+        r <- s3GetObject st key
+        case r of
+          Left e -> pure (Just (Left ("Failed to read top combos from S3: " ++ e)))
+          Right Nothing -> pure (Just (Left "Top combos JSON not found in S3."))
+          Right (Just contents) ->
+            pure $
+              Just $
+                case Aeson.eitherDecode' contents of
+                  Left err -> Left ("Failed to parse top combos JSON from S3: " ++ err)
+                  Right val -> Right val
+  case s3Result of
+    Just (Right val) -> pure (Right val)
+    _ -> do
+      exists <- doesFileExist path
+      if not exists
+        then pure (Left "Top combos JSON not found.")
+        else do
+          contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+          case contentsOrErr of
+            Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
+            Right contents ->
+              case Aeson.eitherDecode' contents of
+                Left err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
+                Right val -> pure (Right val)
+
+persistTopCombosMaybe :: FilePath -> IO ()
+persistTopCombosMaybe path = do
+  mS3 <- resolveS3State
+  case mS3 of
+    Nothing -> pure ()
+    Just st -> do
       contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
       case contentsOrErr of
-        Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
-        Right contents ->
-          case Aeson.eitherDecode' contents of
-            Left err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
-            Right val -> pure (Right val)
+        Left _ -> pure ()
+        Right contents -> do
+          _ <- s3PutObject st (s3TopCombosKey st) contents
+          pure ()
 
 topComboParamString :: String -> TopCombo -> Maybe String
 topComboParamString key combo =
@@ -5899,37 +6126,40 @@ topComboParamInt :: String -> TopCombo -> Maybe Int
 topComboParamInt key combo =
   KM.lookup (AK.fromString key) (tcParams combo) >>= AT.parseMaybe parseJSON
 
+topComboRankKey :: TopCombo -> (Int, Double, Double)
+topComboRankKey combo =
+  let rank = fromMaybe (maxBound :: Int) (tcRank combo)
+      score = fromMaybe (negate (1 / 0)) (tcScore combo)
+      eq = fromMaybe 0 (tcFinalEquity combo)
+   in (rank, negate score, negate eq)
+
+topComboMatchesSymbol :: String -> Maybe String -> TopCombo -> Bool
+topComboMatchesSymbol symRaw mInterval combo =
+  let sym = normalizeSymbol symRaw
+      comboSym = topComboParamString "binanceSymbol" combo <|> topComboParamString "symbol" combo
+      symOk = maybe False (\s -> normalizeSymbol s == sym) comboSym
+      intervalOk =
+        case mInterval of
+          Nothing -> True
+          Just interval -> topComboParamString "interval" combo == Just interval
+      platformOk =
+        case topComboParamString "platform" combo of
+          Nothing -> True
+          Just p -> normalizeKey p == "binance"
+   in symOk && intervalOk && platformOk
+
 bestTopComboFromList :: [TopCombo] -> Maybe TopCombo
 bestTopComboFromList combos =
-  case sortOn key combos of
+  case sortOn topComboRankKey combos of
     [] -> Nothing
     (c : _) -> Just c
-  where
-    key c =
-      let rank = fromMaybe (maxBound :: Int) (tcRank c)
-          score = fromMaybe (negate (1 / 0)) (tcScore c)
-          eq = fromMaybe 0 (tcFinalEquity c)
-       in (rank, negate score, negate eq)
 
 bestTopCombo :: TopCombosExport -> Maybe TopCombo
 bestTopCombo export = bestTopComboFromList (tceCombos export)
 
 bestTopComboForSymbol :: String -> Maybe String -> TopCombosExport -> Maybe TopCombo
 bestTopComboForSymbol symRaw mInterval export =
-  let sym = normalizeSymbol symRaw
-      matches combo =
-        let comboSym = topComboParamString "binanceSymbol" combo <|> topComboParamString "symbol" combo
-            symOk = maybe False (\s -> normalizeSymbol s == sym) comboSym
-            intervalOk =
-              case mInterval of
-                Nothing -> True
-                Just interval -> topComboParamString "interval" combo == Just interval
-            platformOk =
-              case topComboParamString "platform" combo of
-                Nothing -> True
-                Just p -> normalizeKey p == "binance"
-         in symOk && intervalOk && platformOk
-   in bestTopComboFromList (filter matches (tceCombos export))
+  bestTopComboFromList (filter (topComboMatchesSymbol symRaw mInterval) (tceCombos export))
 
 applyTopComboForStart :: Args -> TopCombo -> Either String Args
 applyTopComboForStart base combo = do
@@ -5999,13 +6229,15 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
         [topJsonPath]
           ++ [tmpPath | tmpPath /= topJsonPath]
           ++ [fallbackPath | fallbackPath /= topJsonPath && fallbackPath /= tmpPath]
+  s3Val <- readTopCombosS3
   vals <- mapM readTopCombos comboPaths
+  let allVals = maybe vals (: vals) s3Val
   now <- getTimestampMs
 
   let combosBySource =
         map
           (either (const ([], Nothing)) (\val -> (extractCombos val, extractPayloadSource val)))
-          vals
+          allVals
       combos = concatMap fst combosBySource
       payloadSources =
         concatMap
@@ -6027,6 +6259,24 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
               ]
       respond (jsonValue status200 out)
   where
+    readTopCombosS3 :: IO (Maybe (Either String Aeson.Value))
+    readTopCombosS3 = do
+      mS3 <- resolveS3State
+      case mS3 of
+        Nothing -> pure Nothing
+        Just st -> do
+          let key = s3TopCombosKey st
+          r <- s3GetObject st key
+          pure $
+            Just $
+              case r of
+                Left _ -> Left "s3"
+                Right Nothing -> Left "missing"
+                Right (Just contents) ->
+                  case (Aeson.eitherDecode' contents :: Either String Aeson.Value) of
+                    Left err -> Left ("decode_failed:" ++ err)
+                    Right val -> Right val
+
     readTopCombos :: FilePath -> IO (Either String Aeson.Value)
     readTopCombos path = do
       exists <- doesFileExist path
@@ -6688,14 +6938,23 @@ handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs b
             Left e -> respond (jsonError status400 e)
             Right symbols -> do
               let allowExisting = length symbols > 1
+                  tradeEnabled = maybe False id (apBotTrade params)
+              let noAdoptRequirement = AdoptRequirement False False
               results <- forM symbols $ \sym -> do
                 let argsSym = argsBase { argBinanceSymbol = Just sym }
-                argsCombo <- applyLatestTopCombo optimizerTmp sym argsSym
-                case validateApiComputeLimits limits argsCombo of
+                adoptReqOrErr <-
+                  if tradeEnabled && platformSupportsLiveBot (argPlatform argsSym)
+                    then resolveAdoptionRequirement argsSym sym
+                    else pure (Right noAdoptRequirement)
+                case adoptReqOrErr of
                   Left err -> pure (sym, Left err)
-                  Right argsOk -> do
-                    r <- botStartSymbol allowExisting mOps metrics mJournal mBotStateDir botCtrl argsOk params sym
-                    pure (sym, r)
+                  Right adoptReq -> do
+                    argsCombo <- applyLatestTopCombo optimizerTmp sym argsSym adoptReq
+                    case validateApiComputeLimits limits argsCombo of
+                      Left err -> pure (sym, Left err)
+                      Right argsOk -> do
+                        r <- botStartSymbol allowExisting mOps metrics mJournal mBotStateDir botCtrl argsOk params sym
+                        pure (sym, r)
 
               let errors =
                     [ object ["symbol" .= sym, "error" .= err]

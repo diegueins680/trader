@@ -18,8 +18,12 @@ API_TOKEN=$(openssl rand -hex 32)
 # Run the automated deployment script
 bash deploy-aws-quick.sh ap-northeast-1 "$API_TOKEN"
 
-# Optional: override the state directory (must be on the EFS mount; default: /var/lib/trader/state)
+# Optional: override the state directory (default: /var/lib/trader/state)
 # bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" --state-dir "/var/lib/trader/state"
+#
+# Optional: enable S3 state persistence (recommended for App Runner)
+# bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" \
+#   --state-s3-bucket "trader-api-state-..." --state-s3-prefix "trader" --instance-role-arn "arn:aws:iam::123:role/TraderAppRunnerS3Role"
 ```
 
 The script will:
@@ -34,14 +38,13 @@ The script will:
 
 ---
 
-## Persist state with EFS (required for live bot persistence)
+## Persist state with S3 (recommended for App Runner)
 
-Checklist (App Runner + EFS):
-1. Create an EFS file system + access point in the same VPC/subnets as App Runner.
-2. Add a VPC connector to the App Runner service.
-3. App Runner → Configuration → Storage → Add EFS volume, mount at `/var/lib/trader` (read/write).
-4. Keep `TRADER_STATE_DIR=/var/lib/trader/state` (default) or override with `--state-dir`.
-5. The quick deploy script validates the EFS mount and will error if it is missing.
+Checklist (App Runner + S3):
+1. Create an S3 bucket for state (private).
+2. Create an IAM role for App Runner with `s3:GetObject`/`s3:PutObject` on the bucket/prefix.
+3. Pass `--state-s3-bucket` (plus optional `--state-s3-prefix`, `--state-s3-region`) and `--instance-role-arn` to the deploy script.
+4. App Runner does **not** support EFS volumes; S3 is the supported persistence option.
 
 ---
 
@@ -91,6 +94,9 @@ docker push "${ECR_URI}:latest"
    ```
    TRADER_API_TOKEN=<your-api-token>
    TRADER_STATE_DIR=/var/lib/trader/state
+   TRADER_STATE_S3_BUCKET=<s3-bucket>
+   TRADER_STATE_S3_PREFIX=trader
+   TRADER_STATE_S3_REGION=ap-northeast-1
    ```
 6. Click **Create & deploy** (wait 5-10 min)
 

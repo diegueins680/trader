@@ -391,6 +391,6 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
     gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
     minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
-    botAdoptExistingPosition: normalizeBool(rawRec.botAdoptExistingPosition ?? merged.botAdoptExistingPosition, defaultForm.botAdoptExistingPosition),
+    botAdoptExistingPosition: true,
   };
 }

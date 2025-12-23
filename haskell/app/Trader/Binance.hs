@@ -9,6 +9,7 @@ module Trader.Binance
   , Step(..)
   , SymbolFilters(..)
   , Ticker24h(..)
+  , BinanceOpenOrder(..)
   , fetchTickerPrice
   , fetchTickers24h
   , fetchTopSymbolsByQuoteVolume
@@ -30,6 +31,7 @@ module Trader.Binance
   , fetchFreeBalance
   , fetchFuturesAvailableBalance
   , fetchFuturesPositionAmt
+  , fetchOpenOrders
   , cancelFuturesOpenOrdersByClientPrefix
   , createListenKey
   , keepAliveListenKey
@@ -733,16 +735,51 @@ data FuturesOpenOrder = FuturesOpenOrder
   { fooClientOrderId :: String
   } deriving (Eq, Show)
 
+data BinanceOpenOrder = BinanceOpenOrder
+  { booClientOrderId :: !(Maybe String)
+  , booSide :: !(Maybe OrderSide)
+  , booReduceOnly :: !(Maybe Bool)
+  , booClosePosition :: !(Maybe Bool)
+  , booPositionSide :: !(Maybe String)
+  } deriving (Eq, Show)
+
+parseOrderSide :: String -> Maybe OrderSide
+parseOrderSide raw =
+  case map toUpperAscii raw of
+    "BUY" -> Just Buy
+    "SELL" -> Just Sell
+    _ -> Nothing
+
 instance FromJSON FuturesOpenOrder where
   parseJSON = withObject "FuturesOpenOrder" $ \o -> do
     cid <- o .: "clientOrderId"
     pure FuturesOpenOrder { fooClientOrderId = cid }
 
-fetchFuturesOpenOrders :: BinanceEnv -> String -> IO [FuturesOpenOrder]
-fetchFuturesOpenOrders env symbol = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "fetchFuturesOpenOrders requires MarketFutures")
-    else pure ()
+instance FromJSON BinanceOpenOrder where
+  parseJSON = withObject "BinanceOpenOrder" $ \o -> do
+    clientOrderId <- o AT..:? "clientOrderId"
+    sideRaw <- o AT..:? "side"
+    let side = sideRaw >>= parseOrderSide
+    reduceOnly <- o AT..:? "reduceOnly"
+    closePosition <- o AT..:? "closePosition"
+    positionSide <- o AT..:? "positionSide"
+    pure
+      BinanceOpenOrder
+        { booClientOrderId = clientOrderId
+        , booSide = side
+        , booReduceOnly = reduceOnly
+        , booClosePosition = closePosition
+        , booPositionSide = positionSide
+        }
+
+fetchOpenOrdersWith ::
+  FromJSON a =>
+  BinanceEnv ->
+  String ->
+  String ->
+  String ->
+  IO [a]
+fetchOpenOrdersWith env label path symbol = do
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
   ts <- getTimestampMs
@@ -757,7 +794,7 @@ fetchFuturesOpenOrders env symbol = do
       paramsSigned = params ++ [("signature", sig)]
       qs = renderSimpleQuery True paramsSigned
 
-  req0 <- parseRequest (beBaseUrl env ++ "/fapi/v1/openOrders")
+  req0 <- parseRequest (beBaseUrl env ++ path)
   let req =
         req0
           { method = "GET"
@@ -765,10 +802,24 @@ fetchFuturesOpenOrders env symbol = do
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
   resp <- httpLbs req (beManager env)
-  ensure2xx "futures/openOrders" resp
+  ensure2xx label resp
   case eitherDecode (responseBody resp) of
-    Left e -> throwIO (userError ("Failed to decode futures openOrders: " ++ e))
+    Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
     Right orders -> pure orders
+
+fetchOpenOrders :: BinanceEnv -> String -> IO [BinanceOpenOrder]
+fetchOpenOrders env symbol =
+  case beMarket env of
+    MarketFutures -> fetchOpenOrdersWith env "futures/openOrders" "/fapi/v1/openOrders" symbol
+    MarketMargin -> fetchOpenOrdersWith env "margin/openOrders" "/sapi/v1/margin/openOrders" symbol
+    MarketSpot -> fetchOpenOrdersWith env "spot/openOrders" "/api/v3/openOrders" symbol
+
+fetchFuturesOpenOrders :: BinanceEnv -> String -> IO [FuturesOpenOrder]
+fetchFuturesOpenOrders env symbol = do
+  if beMarket env /= MarketFutures
+    then throwIO (userError "fetchFuturesOpenOrders requires MarketFutures")
+    else pure ()
+  fetchOpenOrdersWith env "futures/openOrders" "/fapi/v1/openOrders" symbol
 
 cancelFuturesOrderByClientId :: BinanceEnv -> String -> String -> IO BL.ByteString
 cancelFuturesOrderByClientId env symbol clientOrderId = do

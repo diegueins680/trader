@@ -5455,13 +5455,13 @@ export function App() {
                           <label className="pill">
                             <input
                               type="checkbox"
-                              checked={form.botAdoptExistingPosition}
-                              onChange={(e) => setForm((f) => ({ ...f, botAdoptExistingPosition: e.target.checked }))}
+                              checked={true}
+                              disabled
                             />
-                            Adopt existing long position
+                            Always adopt existing positions
                           </label>
                         </div>
-                        <div className="hint">If trading is enabled, allow starting while already long (resume management instead of refusing to start).</div>
+                        <div className="hint">Existing positions are adopted automatically when the live bot starts.</div>
                       </div>
                     </div>
                     <div className="row" style={{ marginTop: 12 }}>

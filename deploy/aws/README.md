@@ -84,8 +84,12 @@ docker push "${ECR_URI}:latest"
 - Environment variables:
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
-  - Optional: shared state directory (recommended for persistence across deploys):
-    - `TRADER_STATE_DIR=/var/lib/trader/state` (mount a durable volume here, e.g. EFS)
+  - Optional: S3 state persistence (recommended for App Runner):
+    - `TRADER_STATE_S3_BUCKET=<bucket>`
+    - `TRADER_STATE_S3_PREFIX=trader`
+    - `TRADER_STATE_S3_REGION=ap-northeast-1`
+  - Optional: shared state directory (useful on ECS/EKS or Docker with a mounted volume):
+    - `TRADER_STATE_DIR=/var/lib/trader/state`
   - Optional: operation persistence (append-only JSONL) for `GET /ops`:
     - `TRADER_OPS_DIR=/tmp/trader-ops` (ephemeral unless you mount durable storage)
     - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`)
@@ -95,15 +99,11 @@ docker push "${ECR_URI}:latest"
     - `TRADER_API_MAX_EPOCHS` (default: `100`)
     - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`)
   - Async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
-    - `TRADER_API_ASYNC_DIR` (e.g. an EFS-mounted path). Docker image default: `/var/lib/trader/async`.
+    - `TRADER_API_ASYNC_DIR` (shared mount; App Runner has no volume support). Docker image default: `/var/lib/trader/async`.
     - Or set `TRADER_STATE_DIR` to a shared mount to persist async jobs plus ops/journal/bot state/optimizer combos/LSTM weights.
       - For multi-instance deployments, ensure this path is a shared writable mount across all instances (otherwise polling can still return “Not found”).
 
-EFS mount example (App Runner):
-- Create an EFS file system (and access point) in the same VPC/subnets as App Runner.
-- App Runner service → Configuration → Storage → Add EFS volume.
-- Mount path: `/var/lib/trader` (read/write).
-- Keep `TRADER_STATE_DIR=/var/lib/trader/state` (default) or override it to match the mount.
+App Runner note: EFS volumes are not supported; use S3 (`TRADER_STATE_S3_BUCKET`) for persistence on App Runner.
 
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).
 

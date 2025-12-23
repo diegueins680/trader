@@ -24,6 +24,9 @@ NC='\033[0m' # No Color
 AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 TRADER_API_TOKEN="${TRADER_API_TOKEN:-}"
 TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
+TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
+TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
+TRADER_STATE_S3_REGION="${TRADER_STATE_S3_REGION:-}"
 UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
 UI_DISTRIBUTION_ID="${TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID:-${CLOUDFRONT_DISTRIBUTION_ID:-}}"
 UI_SKIP_BUILD="${TRADER_UI_SKIP_BUILD:-false}"
@@ -32,6 +35,7 @@ UI_ONLY="false"
 API_ONLY="false"
 UI_API_URL="${TRADER_UI_API_URL:-}"
 UI_SERVICE_ARN="${TRADER_UI_SERVICE_ARN:-}"
+APP_RUNNER_INSTANCE_ROLE_ARN="${APP_RUNNER_INSTANCE_ROLE_ARN:-${TRADER_APP_RUNNER_INSTANCE_ROLE_ARN:-}}"
 
 # Configuration (defaults)
 ECR_REPO="trader-api"
@@ -63,7 +67,11 @@ Usage:
 Flags:
   --region <region>                 AWS region (e.g. ap-northeast-1)
   --api-token <token>               API token (TRADER_API_TOKEN)
-  --state-dir <path>                State dir (default: /var/lib/trader/state; must be inside the EFS mount)
+  --state-dir <path>                State dir (default: /var/lib/trader/state)
+  --state-s3-bucket <bucket>        S3 bucket for bot/optimizer snapshots (TRADER_STATE_S3_BUCKET)
+  --state-s3-prefix <prefix>        S3 key prefix for state (TRADER_STATE_S3_PREFIX)
+  --state-s3-region <region>        S3 region override (TRADER_STATE_S3_REGION)
+  --instance-role-arn <arn>         App Runner instance role ARN (for S3 access)
   --api-only                         Deploy API only
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
@@ -78,6 +86,9 @@ Environment variables (equivalents):
   AWS_REGION / AWS_DEFAULT_REGION
   TRADER_API_TOKEN
   TRADER_STATE_DIR
+  TRADER_STATE_S3_BUCKET
+  TRADER_STATE_S3_PREFIX
+  TRADER_STATE_S3_REGION
   TRADER_API_MAX_BARS_LSTM
   TRADER_UI_BUCKET / S3_BUCKET
   TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID / CLOUDFRONT_DISTRIBUTION_ID
@@ -85,6 +96,7 @@ Environment variables (equivalents):
   TRADER_UI_DIST_DIR
   TRADER_UI_API_URL
   TRADER_UI_SERVICE_ARN
+  APP_RUNNER_INSTANCE_ROLE_ARN / TRADER_APP_RUNNER_INSTANCE_ROLE_ARN
 EOF
 }
 
@@ -130,6 +142,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --state-dir)
       TRADER_STATE_DIR="${2:-}"
+      shift 2
+      ;;
+    --state-s3-bucket)
+      TRADER_STATE_S3_BUCKET="${2:-}"
+      shift 2
+      ;;
+    --state-s3-prefix)
+      TRADER_STATE_S3_PREFIX="${2:-}"
+      shift 2
+      ;;
+    --state-s3-region)
+      TRADER_STATE_S3_REGION="${2:-}"
+      shift 2
+      ;;
+    --instance-role-arn)
+      APP_RUNNER_INSTANCE_ROLE_ARN="${2:-}"
       shift 2
       ;;
     --api-only)
@@ -327,60 +355,6 @@ wait_for_apprunner_running() {
   return 1
 }
 
-require_apprunner_efs() {
-  local service_arn="$1"
-  local efs_cfg=""
-  efs_cfg="$(
-    aws apprunner describe-service \
-      --service-arn "$service_arn" \
-      --region "$AWS_REGION" \
-      --query 'Service.StorageConfiguration.EfsConfiguration' \
-      --output json 2>/dev/null || true
-  )"
-  if [[ -z "$efs_cfg" || "$efs_cfg" == "null" || "$efs_cfg" == "[]" || "$efs_cfg" == "{}" ]]; then
-    echo -e "${RED}✗ App Runner service has no EFS storage configured.${NC}" >&2
-    echo "Add an EFS volume and mount it at /var/lib/trader (App Runner → Configuration → Storage)." >&2
-    exit 1
-  fi
-
-  local mount_path=""
-  mount_path="$(
-    aws apprunner describe-service \
-      --service-arn "$service_arn" \
-      --region "$AWS_REGION" \
-      --query 'Service.StorageConfiguration.EfsConfiguration.MountPath' \
-      --output text 2>/dev/null || true
-  )"
-  if [[ -z "$mount_path" || "$mount_path" == "None" ]]; then
-    mount_path="$(
-      aws apprunner describe-service \
-        --service-arn "$service_arn" \
-        --region "$AWS_REGION" \
-        --query 'Service.StorageConfiguration.EfsConfiguration[0].MountPath' \
-        --output text 2>/dev/null || true
-    )"
-  fi
-
-  if [[ -z "$mount_path" || "$mount_path" == "None" ]]; then
-    echo -e "${RED}✗ App Runner EFS mount path not found.${NC}" >&2
-    exit 1
-  fi
-
-  if [[ -z "${TRADER_STATE_DIR:-}" ]]; then
-    echo -e "${RED}✗ TRADER_STATE_DIR is empty; persistent state requires an EFS-backed path.${NC}" >&2
-    exit 1
-  fi
-
-  case "$TRADER_STATE_DIR" in
-    "$mount_path"/*|"$mount_path")
-      ;;
-    *)
-      echo -e "${RED}✗ TRADER_STATE_DIR (${TRADER_STATE_DIR}) is outside the EFS mount (${mount_path}).${NC}" >&2
-      exit 1
-      ;;
-  esac
-}
-
 set_apprunner_scaling() {
   local service_arn="$1"
   local min_size="${2:-1}"
@@ -546,6 +520,11 @@ create_app_runner() {
   access_role_arn="$(ensure_apprunner_ecr_access_role)"
   echo -e "${GREEN}✓ Using ECR access role: ${access_role_arn}${NC}" >&2
 
+  local instance_cfg="Cpu=1024,Memory=2048"
+  if [[ -n "${APP_RUNNER_INSTANCE_ROLE_ARN:-}" ]]; then
+    instance_cfg="${instance_cfg},InstanceRoleArn=${APP_RUNNER_INSTANCE_ROLE_ARN}"
+  fi
+
   # Create source-configuration JSON (file:// is the most reliable for AWS CLI JSON input)
   local src_cfg
   src_cfg="$(mktemp)"
@@ -553,6 +532,15 @@ create_app_runner() {
   local runtime_env_json='"TRADER_API_ASYNC_DIR":"/var/lib/trader/async"'
   if [[ -n "${TRADER_STATE_DIR}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_STATE_DIR\":\"${TRADER_STATE_DIR}\""
+  fi
+  if [[ -n "${TRADER_STATE_S3_BUCKET:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_STATE_S3_BUCKET\":\"${TRADER_STATE_S3_BUCKET}\""
+    if [[ -n "${TRADER_STATE_S3_PREFIX:-}" ]]; then
+      runtime_env_json="${runtime_env_json},\"TRADER_STATE_S3_PREFIX\":\"${TRADER_STATE_S3_PREFIX}\""
+    fi
+    if [[ -n "${TRADER_STATE_S3_REGION:-}" ]]; then
+      runtime_env_json="${runtime_env_json},\"TRADER_STATE_S3_REGION\":\"${TRADER_STATE_S3_REGION}\""
+    fi
   fi
   if [[ -n "${TRADER_API_MAX_BARS_LSTM:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_BARS_LSTM\":\"${TRADER_API_MAX_BARS_LSTM}\""
@@ -591,7 +579,7 @@ EOF
       --region "$AWS_REGION" \
       --service-arn "$service_arn" \
       --source-configuration "file://${src_cfg}" \
-      --instance-configuration "Cpu=1024,Memory=2048" \
+      --instance-configuration "$instance_cfg" \
       --health-check-configuration "$health_cfg" \
       >/dev/null
 
@@ -603,7 +591,7 @@ EOF
       --region "$AWS_REGION" \
       --service-name "$APP_RUNNER_SERVICE_NAME" \
       --source-configuration "file://${src_cfg}" \
-      --instance-configuration "Cpu=1024,Memory=2048" \
+      --instance-configuration "$instance_cfg" \
       --health-check-configuration "$health_cfg" \
       --tags Key=Name,Value=trader-api \
       --query 'Service.ServiceArn' \
@@ -622,10 +610,6 @@ EOF
 
   echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
   wait_for_apprunner_running "$service_arn" >/dev/null
-
-  echo "Verifying EFS mount..." >&2
-  require_apprunner_efs "$service_arn"
-  echo -e "${GREEN}✓ EFS mount verified${NC}" >&2
 
   local service_host
   service_host="$(aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.ServiceUrl' --output text)"
@@ -803,6 +787,10 @@ main() {
 
   check_prerequisites "$need_docker" "$need_npm"
 
+  if [[ -n "${TRADER_STATE_S3_BUCKET:-}" && -z "${TRADER_STATE_S3_REGION:-}" ]]; then
+    TRADER_STATE_S3_REGION="$AWS_REGION"
+  fi
+
   echo "Configuration:"
   echo "  Region: $AWS_REGION"
   echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
@@ -810,6 +798,14 @@ main() {
     echo "  State Dir: ${TRADER_STATE_DIR}"
   else
     echo "  State Dir: (disabled)"
+  fi
+  if [[ -n "${TRADER_STATE_S3_BUCKET:-}" ]]; then
+    echo "  State S3 Bucket: ${TRADER_STATE_S3_BUCKET}"
+    echo "  State S3 Prefix: ${TRADER_STATE_S3_PREFIX:-"(none)"}"
+    echo "  State S3 Region: ${TRADER_STATE_S3_REGION:-"(default)"}"
+  fi
+  if [[ -n "${APP_RUNNER_INSTANCE_ROLE_ARN:-}" ]]; then
+    echo "  App Runner Instance Role: ${APP_RUNNER_INSTANCE_ROLE_ARN}"
   fi
   echo "  API Max Bars (LSTM): ${TRADER_API_MAX_BARS_LSTM}"
   if [[ "$DEPLOY_UI" == "true" ]]; then
