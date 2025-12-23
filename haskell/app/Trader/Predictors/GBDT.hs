@@ -18,19 +18,35 @@ data Stump = Stump
 data GBDTModel = GBDTModel
   { gmBase :: !Double
   , gmLearningRate :: !Double
+  , gmFeatureDim :: !Int
   , gmStumps :: [Stump]
   , gmSigma :: !(Maybe Double)
   } deriving (Eq, Show)
 
 predictGBDT :: GBDTModel -> [Double] -> (Double, Maybe Double)
 predictGBDT m feats =
-  let base = gmBase m
-      lr = gmLearningRate m
-      applySt Stump{stFeature=j, stThreshold=thr, stLeftValue=l, stRightValue=r} =
-        let x = feats !! j
-         in if x <= thr then l else r
-      y = base + lr * sum (map applySt (gmStumps m))
-   in (y, gmSigma m)
+  let expected = gmFeatureDim m
+      actual = length feats
+   in
+    if actual /= expected
+      then error ("GBDT feature dimension mismatch: expected " ++ show expected ++ ", got " ++ show actual)
+      else
+        let base = gmBase m
+            lr = gmLearningRate m
+            applySt Stump{stFeature=j, stThreshold=thr, stLeftValue=l, stRightValue=r} =
+              let x = feats !! j
+               in if x <= thr then l else r
+            y = base + lr * sum (map applySt (gmStumps m))
+         in (y, gmSigma m)
+
+featureDimFromDataset :: [([Double], Double)] -> Int
+featureDimFromDataset dataset =
+  case map (length . fst) dataset of
+    [] -> 0
+    d : ds
+      | d <= 0 -> error "GBDT dataset has empty feature vectors"
+      | any (/= d) ds -> error "GBDT dataset has inconsistent feature dimensions"
+      | otherwise -> d
 
 trainGBDT :: Int -> Double -> [([Double], Double)] -> GBDTModel
 trainGBDT nTrees learningRate dataset
@@ -38,7 +54,8 @@ trainGBDT nTrees learningRate dataset
   | learningRate <= 0 = error "learningRate must be > 0"
   | null dataset = error "GBDT dataset is empty"
   | otherwise =
-      let ys = map snd dataset
+      let featureDim = featureDimFromDataset dataset
+          ys = map snd dataset
           base = mean ys
           preds0 = replicate (length ys) base
           (stumps, predsFinal) = go nTrees [] preds0
@@ -47,6 +64,7 @@ trainGBDT nTrees learningRate dataset
        in GBDTModel
             { gmBase = base
             , gmLearningRate = learningRate
+            , gmFeatureDim = featureDim
             , gmStumps = reverse stumps
             , gmSigma = Just sigma
             }

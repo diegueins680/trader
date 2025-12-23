@@ -44,7 +44,8 @@ trainPredictors :: Int -> V.Vector Double -> PredictorBundle
 trainPredictors lookbackBars trainPrices =
   let fs = mkFeatureSpec lookbackBars
       dataset = buildDataset fs trainPrices
-      gbdt = trainGBDT 60 0.1 dataset
+      (trainSet, calib) = splitCalib dataset
+      gbdt = trainGBDT 60 0.1 trainSet
       transformer = trainTransformer 5.0 512 dataset
       quant = trainQuantileModel 20 5e-2 1e-3 dataset
       hmmObs =
@@ -53,8 +54,7 @@ trainPredictors lookbackBars trainPrices =
         , Just y <- [forwardReturnAt trainPrices t]
         ]
       hmm = fitHMM3 10 hmmObs
-      -- Conformal: calibrate on the last 20% of the training dataset.
-      (_, calib) = splitCalib dataset
+      -- Conformal: calibrate on a holdout split (last 20%).
       absRes =
         [ abs (y - mu)
         | (x, y) <- calib
@@ -83,7 +83,8 @@ initHMMFilter pb obs = filterPosterior (pbHMM pb) obs
 splitCalib :: [a] -> ([a], [a])
 splitCalib xs =
   let n = length xs
-      k = max 1 (floor (0.2 * fromIntegral n))
+      k0 = max 1 (floor (0.2 * fromIntegral n))
+      k = if n < 2 then 0 else min (n - 1) k0
    in splitAt (n - k) xs
 
 -- | Sensor predictions at bar t (end of bar t) for forward return r_t.

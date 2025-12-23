@@ -18,7 +18,6 @@ splitTrainBacktest lookback backtestRatio xs =
       trainEndRaw = floor (fromIntegral n * (1 - backtestRatio) + 1e-9)
       minTrainEnd = lookback + 1
       maxTrainEnd = n - 2
-      trainEnd = min maxTrainEnd (max minTrainEnd trainEndRaw)
    in if backtestRatio <= 0 || backtestRatio >= 1
         then Left "--backtest-ratio must be between 0 and 1"
         else
@@ -32,10 +31,30 @@ splitTrainBacktest lookback backtestRatio xs =
                     n
                 )
             else
-              Right
-                Split
-                  { splitTrainEndRaw = trainEndRaw
-                  , splitTrainEnd = trainEnd
-                  , splitTrain = take trainEnd xs
-                  , splitBacktest = drop trainEnd xs
-                  }
+              if trainEndRaw < minTrainEnd
+                then
+                  Left
+                    ( printf
+                        "--backtest-ratio %.4f leaves only %d training bars; need at least %d (lookback=%d). Reduce --backtest-ratio or increase --bars."
+                        backtestRatio
+                        trainEndRaw
+                        minTrainEnd
+                        lookback
+                    )
+                else
+                  if trainEndRaw > maxTrainEnd
+                    then
+                      Left
+                        ( printf
+                            "--backtest-ratio %.4f leaves only %d backtest bars; need at least 2. Increase --backtest-ratio or increase --bars."
+                            backtestRatio
+                            (n - trainEndRaw)
+                        )
+                    else
+                      Right
+                        Split
+                          { splitTrainEndRaw = trainEndRaw
+                          , splitTrainEnd = trainEndRaw
+                          , splitTrain = take trainEndRaw xs
+                          , splitBacktest = drop trainEndRaw xs
+                          }

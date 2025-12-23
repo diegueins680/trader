@@ -15,7 +15,8 @@ Features
   - Transformer-style attention predictor (kNN attention)
   - HMM / regime model (3 regimes)
   - Quantile regression (q10/q50/q90)
-  - Conformal interval wrapper
+  - Conformal interval wrapper (calibrated on a holdout split)
+- Predictor training validates fixed feature dimensions to avoid silent mismatches.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, max drawdown) (`haskell/app/Trader/Metrics.hs`).
@@ -172,7 +173,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 - Normalization
   - `--normalization standard` one of `none|minmax|standard|log`
   - If the fit window is empty or only has non-finite values, `minmax`/`standard` fall back to no-op normalization.
-  - `log` normalization requires finite, positive values.
+  - `log` normalization falls back to no-op when the fit window is empty or contains non-finite/non-positive values.
 
 - LSTM
   - Lookback bars come from `--lookback-window`/`--lookback-bars`
@@ -238,10 +239,12 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day)
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
+  - Risk halts are evaluated on post-bar equity and can close open positions at the bar close.
   - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as the exit reason.
 
 - Metrics
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
+    - The split must leave at least `lookback+1` training bars and 2 backtest bars, otherwise it errors.
   - `--periods-per-year N` (default: inferred from `--interval`)
 
 - Output
@@ -250,6 +253,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
     - Backtest: `{ "mode": "backtest", "backtest": ... }` (includes `"baselines"` like `buy-hold` / `sma-cross(...)`, and `"trade"` if `--binance-trade` is set)
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
+    - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match (including neutral).
     - Latest signal output includes `closeDirection` to indicate the close-threshold direction (when available).
 
 Tests
@@ -337,8 +341,13 @@ State directory (recommended for persistence across deployments):
   - LSTM weights (for incremental training)
 - Per-feature `TRADER_*_DIR` variables override the state directory; set any of them to an empty string to disable that feature.
 - Docker image default: `TRADER_STATE_DIR=/var/lib/trader/state` (mount `/var/lib/trader` to durable storage to keep state across redeploys).
-- For App Runner and other managed deployments, mount EFS at `/var/lib/trader` and keep `TRADER_STATE_DIR` inside the mount.
-- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state` and validates the EFS mount.
+- For App Runner (no EFS support), use S3 persistence via `TRADER_STATE_S3_BUCKET` and keep `TRADER_STATE_DIR` for local-only state if desired.
+- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`.
+
+S3 state (recommended for App Runner):
+- Set `TRADER_STATE_S3_BUCKET` (optional `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`) to persist bot snapshots + optimizer top-combos in S3.
+- Requires AWS credentials or an App Runner instance role with S3 access.
+- Bot snapshots include orders/trades, so the UI can show history after restarts; other state (ops/journal/async/LSTM weights) still uses `TRADER_STATE_DIR`.
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
@@ -421,8 +430,9 @@ Multi-symbol notes:
 - `POST /bot/stop?symbol=BTCUSDT` stops one bot; omit `symbol` to stop all.
 
 Live safety (startup position):
-- When `botTrade=true`, `/bot/start` refuses to start if it detects an existing position for the symbol (long or short, depending on positioning).
-- To allow restarts to resume managing an existing position, set `"botAdoptExistingPosition": true`.
+- When `botTrade=true`, `/bot/start` adopts any existing position or open exchange orders for the symbol (long or short, subject to positioning).
+- `botAdoptExistingPosition` is now implied and ignored if provided.
+- If an existing position or open orders are detected, `/bot/start` waits for a top combo compatible with that operation before starting (e.g., shorts require `positioning=long-short`).
 
 Auto-optimize after each buy/sell operation:
 - Thresholds only: add `"sweepThreshold": true`

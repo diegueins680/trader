@@ -165,8 +165,8 @@ data OpenTrade = OpenTrade
 
 data BacktestResult = BacktestResult
   { brEquityCurve :: [Double]     -- length n
-  , brPositions :: [Double]       -- length n-1 (signed position size held for return t->t+1, -1..1)
-  , brAgreementOk :: [Bool]       -- length n-1 (only meaningful where both preds available)
+  , brPositions :: [Double]       -- length n-1 (signed position size at bar open for t->t+1, -1..1)
+  , brAgreementOk :: [Bool]       -- length n-1 (open-direction agreement; only meaningful where both preds available)
   , brPositionChanges :: !Int
   , brTrades :: [Trade]
   } deriving (Eq, Show)
@@ -782,10 +782,9 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                          in gateKalmanDir m confScore kalOpenDirRaw
                                   lstmOpenDir = direction openThr prev lp
                                   lstmCloseDir = direction closeThr prev lp
+                                  agreeOk = kalOpenDir == lstmOpenDir
                                   openAgreeDir =
-                                    if kalOpenDir == lstmOpenDir
-                                      then kalOpenDir
-                                      else Nothing
+                                    if agreeOk then kalOpenDir else Nothing
                                   closeAgreeDir =
                                     if kalCloseDirRaw == lstmCloseDir
                                       then kalCloseDirRaw
@@ -810,7 +809,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                             if closeAgreeDir == Just SideShort
                                               then (Just SideShort, posSize)
                                               else (Nothing, 0)
-                               in (openAgreeDir == Just SideLong || openAgreeDir == Just SideShort, desiredSide', desiredSize', edgeRaw)
+                               in (agreeOk, desiredSide', desiredSize', edgeRaw)
 
                         desiredSize0 =
                           if desiredSideRaw == Nothing
@@ -1118,8 +1117,41 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                in (Nothing, 0, exitEq, changesOut, Nothing, tradesOut, True)
                             else (posFinal, posSizeFinal, equityFinal, changesFinal, openTradeFinal, tradesFinal, False)
 
+                        -- Re-check risk after the bar and flatten at close if limits are breached.
+                        (posFinal3, posSizeFinal3, equityFinal3, changesFinal3, openTradeFinal3, tradesFinal3, haltReason2) =
+                          if dead2 || haltReason1 /= Nothing
+                            then (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, haltReason1)
+                            else
+                              let peakEqAfter = max peakEq1 equityFinal2
+                                  drawdownAfter =
+                                    if peakEqAfter > 0
+                                      then max 0 (1 - equityFinal2 / peakEqAfter)
+                                      else 0
+                                  dailyLossAfter =
+                                    if dayStartEq1 > 0
+                                      then max 0 (1 - equityFinal2 / dayStartEq1)
+                                      else 0
+                                  riskHaltReason2 =
+                                    case () of
+                                      _ | maybe False (\lim -> dailyLossAfter >= lim) maxDailyLossLim -> Just ExitMaxDailyLoss
+                                        | maybe False (\lim -> drawdownAfter >= lim) maxDrawdownLim -> Just ExitMaxDrawdown
+                                        | otherwise -> Nothing
+                               in case riskHaltReason2 of
+                                    Nothing -> (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Nothing)
+                                    Just r ->
+                                      if posFinal2 == Nothing
+                                        then (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Just r)
+                                        else
+                                          let eqExit = applyCost equityFinal2 posSizeFinal2
+                                              tradesAcc1 =
+                                                case openTradeFinal2 of
+                                                  Nothing -> tradesFinal2
+                                                  Just ot -> closeTradeAt (t + 1) r eqExit ot : tradesFinal2
+                                              changesOut = changesFinal2 + 1
+                                           in (Nothing, 0, eqExit, changesOut, Nothing, tradesAcc1, Just r)
+
                         exitedToFlat =
-                          posFinal2 == Nothing && (posAfterSwitch /= Nothing || posSide /= Nothing)
+                          posFinal3 == Nothing && (posAfterSwitch /= Nothing || posSide /= Nothing)
 
                         maxHoldCooldown =
                           if holdTooLong
@@ -1129,22 +1161,22 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                         cooldownAfterExit = max cooldownBars maxHoldCooldown
 
                         cooldownNext =
-                          if posFinal2 == Nothing
+                          if posFinal3 == Nothing
                             then if exitedToFlat then cooldownAfterExit else cooldownNext0
                             else 0
                      in
-                      ( posFinal2
-                      , posSizeFinal2
-                      , equityFinal2
-                      , equityFinal2 : eqAcc
+                      ( posFinal3
+                      , posSizeFinal3
+                      , equityFinal3
+                      , equityFinal3 : eqAcc
                       , (maybe 0 sideSign posAfterSwitch * posSizeAfterSwitch) : posAcc
                       , agreeOk : agreeAcc
-                      , changesFinal2
-                      , openTradeFinal2
-                      , tradesFinal2
+                      , changesFinal3
+                      , openTradeFinal3
+                      , tradesFinal3
                       , dead2
                       , cooldownNext
-                      , (max peakEq1 equityFinal2, dayKey1, dayStartEq1, haltReason1)
+                      , (max peakEq1 equityFinal3, dayKey1, dayStartEq1, haltReason2)
                       )
 
               (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev, _deadFinal, _cooldownFinal, _riskFinal) =

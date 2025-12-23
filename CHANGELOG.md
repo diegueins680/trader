@@ -4,10 +4,12 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 - Live bot: support multi-symbol bots via `botSymbols` and `TRADER_BOT_SYMBOLS`, with per-symbol status snapshots.
 - Live bot: auto-syncs to the latest top combo (poll interval `TRADER_BOT_COMBOS_POLL_SEC`) and applies it while running.
+- Live bot: always adopts existing positions on startup (`botAdoptExistingPosition` is now implicit).
+- Live bot: startup waits for the top combo compatible with adopted positions or open orders before running.
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
-- Deploy: quick AWS deploy now validates an EFS mount and ensures `TRADER_STATE_DIR` lives on it.
+- Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with trading only on Binance/Coinbase.
 - Exchange data: add Coinbase platform support for exchange klines and spot trading.
@@ -30,13 +32,17 @@ All notable changes to this project will be documented in this file.
 - Web UI: falls back to `GET` for async polling when `POST` hits proxy errors (e.g. 502/503).
 - Web UI: avoid optimizer combo apply crashes when compute limits are unavailable.
 - Backtests: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as trade exit reasons.
+- Backtests: risk halts now evaluate post-bar equity and can close positions at the bar close.
+- Backtests: `agreementOk` now counts open-direction agreement including neutral (no-signal) agreement.
+- Backtests: `--backtest-ratio` now errors if the split leaves too few training/backtest bars (no silent clamping).
 - Live bot: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` exit reasons even if a signal exit coincides.
 - Kalman market context now honors small `--kalman-market-top-n` values when enough symbols are available.
 - Tuning: sweep/optimization validates prediction lengths before scoring to avoid crashes.
 - Trading/Tuning: add blend method, min-edge/cost-aware edge gating, max-hold exits, trend/volatility sizing filters, and stress-weighted tune scoring.
 - Trading: max-hold exits now enforce a 1-bar cooldown before re-entry.
 - Trading: add signal-to-noise entry filter plus volatility-multiple stop-loss/take-profit/trailing options.
-- Normalization: `minmax`/`standard` fall back to no-op when the fit window is empty or only contains non-finite values; `log` requires finite, positive values.
+- Normalization: `minmax`/`standard` fall back to no-op when the fit window is empty or only contains non-finite values; `log` now falls back to no-op when the fit window is empty or contains non-finite/non-positive values.
+- Predictors: conformal intervals now calibrate on a holdout split; predictor training validates feature dimensions and fails fast on mismatches.
 - Web UI: improves async job not found handling with a clearer error after the grace period.
 - Web UI: fixes a startup crash when optimizer combos apply before API compute limits are available.
 - Web UI: show optimizer combo source (API vs static) and last update time.
@@ -60,6 +66,7 @@ All notable changes to this project will be documented in this file.
 - API: `/optimizer/run` now merges optimizer runs into `top-combos.json` (bounded by `TRADER_OPTIMIZER_MAX_COMBOS`).
 - API: allow `/optimizer/combos` to persist top-combos.json via `TRADER_OPTIMIZER_COMBOS_DIR`.
 - API: persist `/bot/status` snapshots via `TRADER_BOT_STATE_DIR` so the last state survives restarts.
+- API: optionally persist bot snapshots + optimizer combos to S3 via `TRADER_STATE_S3_BUCKET`.
 - API: add `TRADER_STATE_DIR` to persist ops/journal/bot state/optimizer combos/async jobs/LSTM weights under one shared directory.
 - Deploy: Docker image and quick AWS deploy default `TRADER_STATE_DIR` to `/var/lib/trader/state` (now configurable via `deploy-aws-quick.sh --state-dir`).
 - Deploy: when using CloudFront with a distribution ID, the quick AWS deploy script sets the UI API base to `/api` to avoid CORS.

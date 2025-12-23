@@ -52,9 +52,12 @@ fitNorm nt xs =
                   sigma = sqrt (var + 1e-8)
                in NSStandard mu sigma
         NormLog ->
-          if any (\v -> v <= 0 || not (isFinite v)) xs
-            then error "log normalization requires all prices finite and > 0"
-            else NSLog
+          case xs of
+            [] -> NSNone
+            _ ->
+              if any (\v -> v <= 0 || not (isFinite v)) xs
+                then NSNone
+                else NSLog
 
 forwardNorm :: NormState -> Double -> Double
 forwardNorm st x =

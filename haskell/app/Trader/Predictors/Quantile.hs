@@ -19,6 +19,15 @@ data QuantileModel = QuantileModel
   , qm90 :: LinModel
   } deriving (Eq, Show)
 
+featureDimFromDataset :: [([Double], Double)] -> Int
+featureDimFromDataset dataset =
+  case map (length . fst) dataset of
+    [] -> 0
+    d : ds
+      | d <= 0 -> error "quantile dataset has empty feature vectors"
+      | any (/= d) ds -> error "quantile dataset has inconsistent feature dimensions"
+      | otherwise -> d
+
 trainQuantileModel :: Int -> Double -> Double -> [([Double], Double)] -> QuantileModel
 trainQuantileModel epochs lr l2 dataset
   | epochs < 0 = error "epochs must be >= 0"
@@ -26,7 +35,7 @@ trainQuantileModel epochs lr l2 dataset
   | l2 < 0 = error "l2 must be >= 0"
   | null dataset = error "quantile dataset is empty"
   | otherwise =
-      let d = length (fst (head dataset))
+      let d = featureDimFromDataset dataset
           initM = LinModel { lmW = replicate d 0, lmB = 0 }
           qs0 = QuantileModel initM initM initM
        in iterate (epochStep lr l2 dataset) qs0 !! epochs
@@ -72,5 +81,9 @@ sigmaFromQ1090 q10 q90 =
    in max 1e-12 ((q90 - q10) / (2 * z))
 
 dot :: [Double] -> [Double] -> Double
-dot a b = sum (zipWith (*) a b)
-
+dot a b =
+  let la = length a
+      lb = length b
+   in if la /= lb
+        then error ("Quantile model feature dimension mismatch: expected " ++ show la ++ ", got " ++ show lb)
+        else sum (zipWith (*) a b)

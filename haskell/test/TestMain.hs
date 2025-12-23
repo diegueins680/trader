@@ -467,11 +467,8 @@ testTrainBacktestSplit = do
 
   let xs2 = [1 .. 60 :: Int]
   case splitTrainBacktest 50 0.9 xs2 of
-    Left e -> error e
-    Right s -> do
-      assert "adjusted for lookback" (splitTrainEndRaw s == 6 && splitTrainEnd s == 51)
-      assert "train size2" (length (splitTrain s) == 51)
-      assert "backtest size2" (length (splitBacktest s) == 9)
+    Left e -> assert "ratio too large" ("training bars" `isInfixOf` e)
+    Right _ -> error "expected splitTrainBacktest to reject ratios with too few training bars"
 
 testSweepThreshold :: IO ()
 testSweepThreshold = do
