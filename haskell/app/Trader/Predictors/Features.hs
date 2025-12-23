@@ -94,18 +94,22 @@ returnsEndingAt prices t k =
       let rs =
             [ let p0 = prices V.! i
                   p1 = prices V.! (i + 1)
-               in if p0 == 0 then 0 else (p1 / p0 - 1)
+               in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
             | i <- [t - k .. t - 1]
             ]
-       in Just rs
+       in sequence rs
 
 meanStd :: [Double] -> (Double, Double)
 meanStd xs =
   case xs of
     [] -> (0, 0)
     _ ->
-      let n = fromIntegral (length xs)
-          mu = sum xs / n
-          var = sum (map (\v -> (v - mu) * (v - mu)) xs) / n
+      let n = length xs
+          mu = sum xs / fromIntegral n
+          var =
+            if n < 2
+              then 0
+              else
+                let denom = fromIntegral (n - 1)
+                 in sum (map (\v -> (v - mu) * (v - mu)) xs) / denom
        in (mu, sqrt (var + 1e-12))
-

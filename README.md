@@ -17,6 +17,7 @@ Features
   - Quantile regression (q10/q50/q90)
   - Conformal interval wrapper (calibrated on a holdout split)
 - Predictor training validates fixed feature dimensions to avoid silent mismatches.
+- Predictor training uses a train/calibration split so held-out calibration data is excluded from model training.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, max drawdown) (`haskell/app/Trader/Metrics.hs`).

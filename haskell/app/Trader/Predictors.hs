@@ -45,13 +45,17 @@ trainPredictors lookbackBars trainPrices =
   let fs = mkFeatureSpec lookbackBars
       dataset = buildDataset fs trainPrices
       (trainSet, calib) = splitCalib dataset
-      gbdt = trainGBDT 60 0.1 trainSet
-      transformer = trainTransformer 5.0 512 dataset
-      quant = trainQuantileModel 20 5e-2 1e-3 dataset
+      trainSet' = if null trainSet then dataset else trainSet
+      trainLen = length trainSet'
+      trainPriceLen = min (V.length trainPrices) (lookbackBars + trainLen)
+      trainPrices' = V.slice 0 trainPriceLen trainPrices
+      gbdt = trainGBDT 60 0.1 trainSet'
+      transformer = trainTransformer 5.0 512 trainSet'
+      quant = trainQuantileModel 20 5e-2 1e-3 trainSet'
       hmmObs =
         [ y
-        | t <- [0 .. V.length trainPrices - 2]
-        , Just y <- [forwardReturnAt trainPrices t]
+        | t <- [0 .. V.length trainPrices' - 2]
+        , Just y <- [forwardReturnAt trainPrices' t]
         ]
       hmm = fitHMM3 10 hmmObs
       -- Conformal: calibrate on a holdout split (last 20%).
@@ -63,10 +67,10 @@ trainPredictors lookbackBars trainPrices =
       conformal = fitConformal 0.2 absRes
       tcnTargets =
         [ (t, y)
-        | t <- [0 .. V.length trainPrices - 2]
-        , Just y <- [forwardReturnAt trainPrices t]
+        | t <- [0 .. V.length trainPrices' - 2]
+        , Just y <- [forwardReturnAt trainPrices' t]
         ]
-      tcn = trainTCN lookbackBars trainPrices tcnTargets
+      tcn = trainTCN lookbackBars trainPrices' tcnTargets
    in PredictorBundle
         { pbFeatureSpec = fs
         , pbGBDT = gbdt
@@ -83,8 +87,11 @@ initHMMFilter pb obs = filterPosterior (pbHMM pb) obs
 splitCalib :: [a] -> ([a], [a])
 splitCalib xs =
   let n = length xs
-      k0 = max 1 (floor (0.2 * fromIntegral n))
-      k = if n < 2 then 0 else min (n - 1) k0
+      k0 = floor (0.2 * fromIntegral n)
+      k =
+        if n < 3
+          then 0
+          else min (n - 2) (max 1 k0)
    in splitAt (n - k) xs
 
 -- | Sensor predictions at bar t (end of bar t) for forward return r_t.
