@@ -99,6 +99,12 @@ docker push "${ECR_URI}:latest"
     - Or set `TRADER_STATE_DIR` to a shared mount to persist async jobs plus ops/journal/bot state/optimizer combos/LSTM weights.
       - For multi-instance deployments, ensure this path is a shared writable mount across all instances (otherwise polling can still return “Not found”).
 
+EFS mount example (App Runner):
+- Create an EFS file system (and access point) in the same VPC/subnets as App Runner.
+- App Runner service → Configuration → Storage → Add EFS volume.
+- Mount path: `/var/lib/trader` (read/write).
+- Keep `TRADER_STATE_DIR=/var/lib/trader/state` (default) or override it to match the mount.
+
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).
 
 Note (AWS CLI): when creating an App Runner service from a **private ECR** image, you must provide `AuthenticationConfiguration.AccessRoleArn` (an IAM role trusted by `build.apprunner.amazonaws.com` with the managed policy `AWSAppRunnerServicePolicyForECRAccess`). The repo’s `deploy-aws-quick.sh` script creates/reuses this role automatically.

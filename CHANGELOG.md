@@ -51,7 +51,7 @@ All notable changes to this project will be documented in this file.
 - API: allow `/optimizer/combos` to persist top-combos.json via `TRADER_OPTIMIZER_COMBOS_DIR`.
 - API: persist `/bot/status` snapshots via `TRADER_BOT_STATE_DIR` so the last state survives restarts.
 - API: add `TRADER_STATE_DIR` to persist ops/journal/bot state/optimizer combos/async jobs/LSTM weights under one shared directory.
-- Deploy: Docker image and quick AWS deploy default `TRADER_STATE_DIR` to `/var/lib/trader/state` so top combos and order history persist when `/var/lib/trader` is mounted.
+- Deploy: Docker image and quick AWS deploy default `TRADER_STATE_DIR` to `/var/lib/trader/state` (now configurable via `deploy-aws-quick.sh --state-dir`).
 - Deploy: when using CloudFront with a distribution ID, the quick AWS deploy script sets the UI API base to `/api` to avoid CORS.
 - Deploy: quick AWS deploy now prints the CloudFront domain and warns when `/api/*` behavior is missing.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.

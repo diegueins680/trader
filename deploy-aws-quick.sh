@@ -63,6 +63,7 @@ Usage:
 Flags:
   --region <region>                 AWS region (e.g. ap-northeast-1)
   --api-token <token>               API token (TRADER_API_TOKEN)
+  --state-dir <path>                State dir (default: /var/lib/trader/state; set empty to disable)
   --api-only                         Deploy API only
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
@@ -125,6 +126,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --api-token)
       TRADER_API_TOKEN="${2:-}"
+      shift 2
+      ;;
+    --state-dir)
+      TRADER_STATE_DIR="${2:-}"
       shift 2
       ;;
     --api-only)
@@ -743,6 +748,11 @@ main() {
   echo "Configuration:"
   echo "  Region: $AWS_REGION"
   echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
+  if [[ -n "${TRADER_STATE_DIR:-}" ]]; then
+    echo "  State Dir: ${TRADER_STATE_DIR}"
+  else
+    echo "  State Dir: (disabled)"
+  fi
   echo "  API Max Bars (LSTM): ${TRADER_API_MAX_BARS_LSTM}"
   if [[ "$DEPLOY_UI" == "true" ]]; then
     echo "  UI Bucket: ${UI_BUCKET:-"(not set)"}"
