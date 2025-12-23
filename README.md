@@ -1,10 +1,10 @@
-Haskell Trading Bot (Kalman + LSTM + Binance/Kraken/Poloniex)
+Haskell Trading Bot (Kalman + LSTM + Binance/Coinbase/Kraken/Poloniex)
 =============================================
 
 This repository contains a small Haskell trading demo that:
 - Predicts the next price using a small **LSTM**, and a **multi-sensor Kalman fusion** layer that combines multiple model outputs into a single latent expected return signal.
 - By default, only trades when Kalman and LSTM **agree on direction** (both predict up, or both predict down) — configurable via `--method`.
-- Can backtest on CSV data or pull klines from **Binance**, **Kraken**, or **Poloniex** (trading/keys are Binance-only).
+- Can backtest on CSV data or pull klines from **Binance**, **Coinbase**, **Kraken**, or **Poloniex** (trading is Binance-only).
 
 Features
 --------
@@ -19,7 +19,7 @@ Features
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, max drawdown) (`haskell/app/Trader/Metrics.hs`).
-- Data sources: CSV or exchange klines (Binance/Kraken/Poloniex).
+- Data sources: CSV or exchange klines (Binance/Coinbase/Kraken/Poloniex).
 - Sample dataset in `data/sample_prices.csv`.
 
 Quick start
@@ -62,22 +62,22 @@ cabal run trader-hs -- \
   --epochs 5
 ```
 
-Kraken example:
-```
-cd haskell
-cabal run trader-hs -- \
-  --symbol XBTUSD \
-  --platform kraken \
-  --interval 1h \
-  --epochs 5
-```
-
 Coinbase example (products use BASE-QUOTE, e.g. BTC-USD):
 ```
 cd haskell
 cabal run trader-hs -- \
   --symbol BTC-USD \
   --platform coinbase \
+  --interval 1h \
+  --epochs 5
+```
+
+Kraken example:
+```
+cd haskell
+cabal run trader-hs -- \
+  --symbol XBTUSD \
+  --platform kraken \
   --interval 1h \
   --epochs 5
 ```
@@ -164,10 +164,10 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
 
-- Coinbase API keys (optional; stored for signed endpoints when needed)
+- Coinbase API keys (optional; used for `/coinbase/keys` checks)
   - `--coinbase-api-key KEY` (default: none) or env `COINBASE_API_KEY`
   - `--coinbase-api-secret SECRET` (default: none) or env `COINBASE_API_SECRET`
-  - `--coinbase-api-passphrase PASS` (default: none) or env `COINBASE_API_PASSPHRASE`
+  - `--coinbase-api-passphrase PASSPHRASE` (default: none) or env `COINBASE_API_PASSPHRASE`
 
 - Normalization
   - `--normalization standard` one of `none|minmax|standard|log`
@@ -297,6 +297,7 @@ Endpoints:
 - `POST /optimizer/run` → runs the optimizer script, merges the run into `top-combos.json`, and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or minNotional)
+- `POST /coinbase/keys` → checks Coinbase key/secret/passphrase via a signed `/accounts` probe
 - `POST /binance/listenKey` → creates a Binance user-data listenKey (returns WebSocket URL)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
 - `POST /binance/listenKey/close` → closes a listenKey
@@ -307,7 +308,7 @@ Endpoints:
 Optimizer script tips:
 - `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
-- `--platform`/`--platforms` sample exchange platforms when using `--binance-symbol`/`--symbol` (default: binance).
+- `--platform`/`--platforms` sample exchange platforms when using `--binance-symbol`/`--symbol` (default: binance; supports coinbase/kraken/poloniex).
 - `--bars-auto-prob` and `--bars-distribution` tune how often bars=auto/all is sampled and how explicit bars are drawn.
 - `--min-hold-bars-min/max`, `--cooldown-bars-min/max`, and `--max-hold-bars-min/max` sample trade gating windows to reduce churn.
 - `--min-win-rate`, `--min-profit-factor`, and `--min-exposure` filter out low-quality candidates.
@@ -437,6 +438,7 @@ Note: `/bot/*` is stateful, and async endpoints persist job state to `TRADER_STA
 Web UI
 ------
 A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST API and visualizes signals/backtests (including the equity curve).
+The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, but trading/live bot remain Binance-only.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.

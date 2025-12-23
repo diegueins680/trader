@@ -13,6 +13,7 @@ export type ApiParams = {
   data?: string;
   priceColumn?: string;
   binanceSymbol?: string;
+  botSymbols?: string[];
   platform?: Platform;
   market?: Market;
   interval?: string;
@@ -190,6 +191,45 @@ export type BinanceListenKeyResponse = {
 };
 
 export type BinanceListenKeyKeepAliveResponse = { ok: boolean; atMs: number };
+
+export type BinanceTrade = {
+  symbol: string;
+  tradeId: number;
+  orderId?: number | null;
+  price: number;
+  qty: number;
+  quoteQty: number;
+  commission?: number | null;
+  commissionAsset?: string | null;
+  time: number;
+  isBuyer?: boolean | null;
+  isMaker?: boolean | null;
+  side?: string | null;
+  positionSide?: string | null;
+  realizedPnl?: number | null;
+};
+
+export type ApiBinanceTradesRequest = {
+  market?: Market;
+  binanceTestnet?: boolean;
+  binanceApiKey?: string;
+  binanceApiSecret?: string;
+  symbol?: string;
+  symbols?: string[];
+  limit?: number;
+  startTimeMs?: number;
+  endTimeMs?: number;
+  fromId?: number;
+};
+
+export type ApiBinanceTradesResponse = {
+  market: Market;
+  testnet: boolean;
+  symbols: string[];
+  allSymbols: boolean;
+  trades: BinanceTrade[];
+  fetchedAtMs: number;
+};
 
 export type BacktestMetrics = {
   finalEquity: number;
@@ -384,4 +424,15 @@ export type BotStatusStopped = {
   snapshotAtMs?: number;
 };
 
-export type BotStatus = BotStatusRunning | BotStatusStopped;
+export type BotStatusSingle = BotStatusRunning | BotStatusStopped;
+
+export type BotStatusMulti = {
+  running: boolean;
+  starting?: boolean;
+  multi: true;
+  bots: BotStatusSingle[];
+  errors?: Array<{ symbol: string; error: string }>;
+  snapshotAtMs?: number;
+};
+
+export type BotStatus = BotStatusSingle | BotStatusMulti;

@@ -4,6 +4,7 @@ import { clamp } from "./utils";
 
 export type FormState = {
   binanceSymbol: string;
+  botSymbols: string;
   platform: Platform;
   market: Market;
   interval: string;
@@ -93,6 +94,7 @@ export type FormState = {
 
 export const defaultForm: FormState = {
   binanceSymbol: "BTCUSDT",
+  botSymbols: "",
   platform: "binance",
   market: "spot",
   interval: "1h",
@@ -295,6 +297,7 @@ function normalizeTuneObjective(raw: unknown, fallback: string): string {
 export function normalizeFormState(raw: FormStateJson | null | undefined): FormState {
   const merged = { ...defaultForm, ...(raw ?? {}) };
   const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
+  const botSymbols = typeof rawRec.botSymbols === "string" ? rawRec.botSymbols : merged.botSymbols;
   const legacyThreshold = rawRec.threshold;
   const openThreshold = normalizeFiniteNumber(rawRec.openThreshold ?? legacyThreshold ?? merged.openThreshold, defaultForm.openThreshold, 0, 1e9);
   const closeThreshold = normalizeFiniteNumber(
@@ -315,6 +318,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
   return {
     ...mergedNoLegacy,
+    botSymbols,
     platform,
     interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, defaultForm.interval),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),

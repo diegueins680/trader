@@ -1,5 +1,7 @@
 import type {
   ApiError,
+  ApiBinanceTradesRequest,
+  ApiBinanceTradesResponse,
   ApiParams,
   ApiTradeResponse,
   BacktestResponse,
@@ -561,6 +563,23 @@ export async function binanceListenKeyClose(
   );
 }
 
+export async function binanceTrades(
+  baseUrl: string,
+  params: ApiBinanceTradesRequest,
+  opts?: FetchJsonOptions,
+): Promise<ApiBinanceTradesResponse> {
+  return fetchJson<ApiBinanceTradesResponse>(
+    baseUrl,
+    "/binance/trades",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
 export async function botStart(baseUrl: string, params: ApiParams, opts?: FetchJsonOptions): Promise<BotStatus> {
   return fetchJson<BotStatus>(
     baseUrl,
@@ -574,12 +593,16 @@ export async function botStart(baseUrl: string, params: ApiParams, opts?: FetchJ
   );
 }
 
-export async function botStop(baseUrl: string, opts?: FetchJsonOptions): Promise<BotStatus> {
-  return fetchJson<BotStatus>(baseUrl, "/bot/stop", { method: "POST" }, opts);
+export async function botStop(baseUrl: string, opts?: FetchJsonOptions, symbol?: string): Promise<BotStatus> {
+  const path = symbol ? `/bot/stop?symbol=${encodeURIComponent(symbol)}` : "/bot/stop";
+  return fetchJson<BotStatus>(baseUrl, path, { method: "POST" }, opts);
 }
 
-export async function botStatus(baseUrl: string, opts?: FetchJsonOptions, tail?: number): Promise<BotStatus> {
+export async function botStatus(baseUrl: string, opts?: FetchJsonOptions, tail?: number, symbol?: string): Promise<BotStatus> {
   const tailSafe = typeof tail === "number" && Number.isFinite(tail) ? Math.trunc(tail) : 0;
-  const path = tailSafe > 0 ? `/bot/status?tail=${tailSafe}` : "/bot/status";
+  const query = new URLSearchParams();
+  if (tailSafe > 0) query.set("tail", String(tailSafe));
+  if (symbol) query.set("symbol", symbol);
+  const path = query.size > 0 ? `/bot/status?${query.toString()}` : "/bot/status";
   return fetchJson<BotStatus>(baseUrl, path, { method: "GET" }, opts);
 }

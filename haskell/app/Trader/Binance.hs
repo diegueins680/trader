@@ -40,6 +40,7 @@ import Control.Applicative ((<|>))
 import Control.Exception (SomeException, throwIO, try)
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, object, withArray, (.:), (.=), withObject)
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
@@ -107,19 +108,19 @@ instance FromJSON BinanceTrade where
   parseJSON = withObject "BinanceTrade" $ \o -> do
     sym <- o .: "symbol"
     tradeId <- o .: "id"
-    orderId <- o .:? "orderId"
+    orderId <- o AT..:? "orderId"
     price <- parseDoubleField o "price"
     qty <- parseDoubleField o "qty"
     quoteQtyRaw <- parseMaybeDoubleField o "quoteQty"
     commission <- parseMaybeDoubleField o "commission"
-    commissionAsset <- o .:? "commissionAsset"
+    commissionAsset <- o AT..:? "commissionAsset"
     ts <- o .: "time"
-    isBuyerRaw <- o .:? "isBuyer"
-    buyerRaw <- o .:? "buyer"
-    isMakerRaw <- o .:? "isMaker"
-    makerRaw <- o .:? "maker"
-    sideRaw <- o .:? "side"
-    positionSide <- o .:? "positionSide"
+    isBuyerRaw <- o AT..:? "isBuyer"
+    buyerRaw <- o AT..:? "buyer"
+    isMakerRaw <- o AT..:? "isMaker"
+    makerRaw <- o AT..:? "maker"
+    sideRaw <- o AT..:? "side"
+    positionSide <- o AT..:? "positionSide"
     realizedPnl <- parseMaybeDoubleField o "realizedPnl"
     let isBuyer = isBuyerRaw <|> buyerRaw
         isMaker = isMakerRaw <|> makerRaw
@@ -222,12 +223,12 @@ parseDoubleText t =
 
 parseDoubleField :: Aeson.Object -> Text -> AT.Parser Double
 parseDoubleField o k = do
-  t <- o .: k
+  t <- o .: AK.fromText k
   parseDoubleText t
 
 parseMaybeDoubleField :: Aeson.Object -> Text -> AT.Parser (Maybe Double)
 parseMaybeDoubleField o k = do
-  mt <- o .:? k
+  mt <- o AT..:? AK.fromText k
   case mt of
     Nothing -> pure Nothing
     Just t -> Just <$> parseDoubleText t

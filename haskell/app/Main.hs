@@ -8,6 +8,7 @@ import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Exception (IOException, SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
+import Control.Monad (forM, forM_)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
@@ -20,7 +21,7 @@ import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (toList)
 import Data.Int (Int64)
 import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, nub, sortOn)
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Text (Text)
@@ -952,6 +953,34 @@ data ApiListenKeyResponse = ApiListenKeyResponse
 instance ToJSON ApiListenKeyResponse where
   toJSON = Aeson.genericToJSON (jsonOptions 3)
 
+data ApiBinanceTradesRequest = ApiBinanceTradesRequest
+  { abrMarket :: !(Maybe String)
+  , abrBinanceTestnet :: !(Maybe Bool)
+  , abrBinanceApiKey :: !(Maybe String)
+  , abrBinanceApiSecret :: !(Maybe String)
+  , abrSymbol :: !(Maybe String)
+  , abrSymbols :: !(Maybe [String])
+  , abrLimit :: !(Maybe Int)
+  , abrStartTimeMs :: !(Maybe Int64)
+  , abrEndTimeMs :: !(Maybe Int64)
+  , abrFromId :: !(Maybe Int64)
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON ApiBinanceTradesRequest where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 3)
+
+data ApiBinanceTradesResponse = ApiBinanceTradesResponse
+  { abtrMarket :: !String
+  , abtrTestnet :: !Bool
+  , abtrSymbols :: ![String]
+  , abtrAllSymbols :: !Bool
+  , abtrTrades :: ![BinanceTrade]
+  , abtrFetchedAtMs :: !Int64
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiBinanceTradesResponse where
+  toJSON = Aeson.genericToJSON (jsonOptions 4)
+
 jsonOptions :: Int -> Aeson.Options
 jsonOptions prefixLen =
   Aeson.defaultOptions
@@ -1696,6 +1725,22 @@ botStoppedSnapshotJson snap =
     , "snapshot" .= bssStatus snap
     ]
 
+botStoppedMultiJson :: [BotStatusSnapshot] -> Aeson.Value
+botStoppedMultiJson snaps =
+  let bots = map botStoppedSnapshotJson snaps
+      snapshotAt =
+        case snaps of
+          [] -> Nothing
+          _ -> Just (maximum (map bssSavedAtMs snaps))
+   in
+    object
+      ( [ "running" .= False
+        , "multi" .= True
+        , "bots" .= bots
+        ]
+          ++ maybe [] (\t -> ["snapshotAtMs" .= t]) snapshotAt
+      )
+
 botStateFileName :: FilePath
 botStateFileName = "bot-state.json"
 
@@ -1937,6 +1982,20 @@ resolveBotSymbols args p = do
   if null normalized
     then pure (Left "bot/start requires binanceSymbol or botSymbols")
     else pure (Right normalized)
+
+applyLatestTopCombo :: FilePath -> String -> Args -> IO Args
+applyLatestTopCombo optimizerTmp sym args = do
+  topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+  combosOrErr <- readTopCombosExport topJsonPath
+  case combosOrErr of
+    Left _ -> pure args
+    Right export ->
+      case bestTopComboForSymbol sym Nothing export of
+        Nothing -> pure args
+        Just combo ->
+          case applyTopComboForStart args combo of
+            Left _ -> pure args
+            Right args' -> pure args'
 
 botStartSymbol ::
   Bool ->
@@ -4980,6 +5039,7 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
                                        , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/binance/trades" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/coinbase/keys" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
@@ -5099,6 +5159,10 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
             ["binance", "keys"] ->
               case Wai.requestMethod req of
                 "POST" -> handleBinanceKeys baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["binance", "trades"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBinanceTrades baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["coinbase", "keys"] ->
               case Wai.requestMethod req of
@@ -6516,8 +6580,68 @@ handleBinanceListenKeyClose baseArgs req respond = do
                       now <- getTimestampMs
                       respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
-handleBotStart :: Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStart mOps limits metrics mJournal mBotStatePath baseArgs botCtrl req respond = do
+handleBinanceTrades :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceTrades baseArgs req respond = do
+  if argPlatform baseArgs /= PlatformBinance
+    then respond (jsonError status400 ("Binance trades require platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
+    else do
+      body <- Wai.strictRequestBody req
+      case eitherDecode body of
+        Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+        Right params -> do
+          let testnet = resolveTestnetForListenKey baseArgs (abrBinanceTestnet params)
+          case parseMarketForListenKey baseArgs (abrMarket params) of
+            Left e -> respond (jsonError status400 e)
+            Right market -> do
+              if market == MarketMargin && testnet
+                then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+                else do
+                  apiKey <- resolveEnv "BINANCE_API_KEY" (abrBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (abrBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                  let baseUrl =
+                        case market of
+                          MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                          _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  let symbolsRaw =
+                        case abrSymbols params of
+                          Just xs -> map trim xs
+                          Nothing ->
+                            case fmap trim (abrSymbol params) of
+                              Just s | not (null s) -> [s]
+                              _ -> []
+                      symbols = filter (not . null) (nub (map normalizeSymbol symbolsRaw))
+                      allSymbols = null symbols
+                      limit = abrLimit params
+                      startTime = abrStartTimeMs params
+                      endTime = abrEndTimeMs params
+                      fromId = abrFromId params
+                  if allSymbols && market /= MarketFutures
+                    then respond (jsonError status400 "binance trades require symbol for spot/margin markets")
+                    else do
+                      trades <- do
+                        if allSymbols
+                          then fetchAccountTrades env Nothing limit startTime endTime fromId
+                          else fmap concat $
+                            mapM
+                              (\sym -> fetchAccountTrades env (Just sym) limit startTime endTime fromId)
+                              symbols
+                      let tradesSorted = sortOn (negate . btTime) trades
+                      now <- getTimestampMs
+                      respond $
+                        jsonValue
+                          status200
+                          ApiBinanceTradesResponse
+                            { abtrMarket = marketCode market
+                            , abtrTestnet = testnet
+                            , abtrSymbols = symbols
+                            , abtrAllSymbols = allSymbols
+                            , abtrTrades = tradesSorted
+                            , abtrFetchedAtMs = now
+                            }
+
+handleBotStart :: Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
   body <- Wai.strictRequestBody req
   case eitherDecode body of
     Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
@@ -6525,88 +6649,189 @@ handleBotStart mOps limits metrics mJournal mBotStatePath baseArgs botCtrl req r
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
         Right args0 -> do
-          let args =
-                args0
-                  { argTradeOnly = True
-                  }
-          case validateApiComputeLimits limits args of
+          let argsBase = args0 { argTradeOnly = True }
+          symbolsOrErr <- resolveBotSymbols argsBase params
+          case symbolsOrErr of
             Left e -> respond (jsonError status400 e)
-            Right argsOk -> do
-              r <- botStart mOps metrics mJournal mBotStatePath botCtrl argsOk params
-              case r of
-                Left e -> respond (jsonError status400 e)
-                Right rt -> do
-                  now <- getTimestampMs
-                  let settings = bsrSettings rt
-                  journalWriteMaybe
-                    mJournal
-                    ( object
-                        [ "type" .= ("bot.start" :: String)
-                        , "atMs" .= now
-                        , "symbol" .= bsrSymbol rt
-                        , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
-                        , "interval" .= argInterval (bsrArgs rt)
-                        , "tradeEnabled" .= bsTradeEnabled (bsrSettings rt)
-                        ]
-                    )
-                  opsAppendMaybe
-                    mOps
-                    "bot.start"
-                    (Just (toJSON (sanitizeApiParams params)))
-                    (Just (argsPublicJson argsOk))
-                    ( Just
-                        ( object
-                            [ "symbol" .= bsrSymbol rt
-                            , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
-                            , "interval" .= argInterval (bsrArgs rt)
-                            , "tradeEnabled" .= bsTradeEnabled settings
-                            , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
-                            , "botPollSeconds" .= bsPollSeconds settings
-                            , "botOnlineEpochs" .= bsOnlineEpochs settings
-                            , "botTrainBars" .= bsTrainBars settings
-                            , "botMaxPoints" .= bsMaxPoints settings
-                            ]
-                        )
-                    )
-                    Nothing
-                  respond (jsonValue status202 (botStartingJson rt))
+            Right symbols -> do
+              let allowExisting = length symbols > 1
+              results <- forM symbols $ \sym -> do
+                let argsSym = argsBase { argBinanceSymbol = Just sym }
+                argsCombo <- applyLatestTopCombo optimizerTmp sym argsSym
+                case validateApiComputeLimits limits argsCombo of
+                  Left err -> pure (sym, Left err)
+                  Right argsOk -> do
+                    r <- botStartSymbol allowExisting mOps metrics mJournal mBotStateDir botCtrl argsOk params sym
+                    pure (sym, r)
 
-handleBotStop :: Maybe OpsStore -> Maybe Journal -> Maybe FilePath -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStop mOps mJournal mBotStatePath botCtrl respond = do
-  mSt <- botGetState botCtrl
-  _ <- botStop botCtrl
+              let errors =
+                    [ object ["symbol" .= sym, "error" .= err]
+                    | (sym, Left err) <- results
+                    ]
+              statuses <- forM [outcome | (_, Right outcome) <- results] $ \outcome ->
+                case bsoState outcome of
+                  BotStarting rt -> pure (botStartingJson rt)
+                  BotRunning rt -> do
+                    st <- readMVar (brStateVar rt)
+                    pure (botStatusJson st)
+
+              now <- getTimestampMs
+              forM_ [outcome | (_, Right outcome) <- results, bsoStarted outcome] $ \outcome ->
+                case bsoState outcome of
+                  BotStarting rt -> do
+                    let settings = bsrSettings rt
+                    journalWriteMaybe
+                      mJournal
+                      ( object
+                          [ "type" .= ("bot.start" :: String)
+                          , "atMs" .= now
+                          , "symbol" .= bsrSymbol rt
+                          , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
+                          , "interval" .= argInterval (bsrArgs rt)
+                          , "tradeEnabled" .= bsTradeEnabled (bsrSettings rt)
+                          ]
+                      )
+                    opsAppendMaybe
+                      mOps
+                      "bot.start"
+                      (Just (toJSON (sanitizeApiParams params)))
+                      (Just (argsPublicJson (bsrArgs rt)))
+                      ( Just
+                          ( object
+                              [ "symbol" .= bsrSymbol rt
+                              , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
+                              , "interval" .= argInterval (bsrArgs rt)
+                              , "tradeEnabled" .= bsTradeEnabled settings
+                              , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
+                              , "botPollSeconds" .= bsPollSeconds settings
+                              , "botOnlineEpochs" .= bsOnlineEpochs settings
+                              , "botTrainBars" .= bsTrainBars settings
+                              , "botMaxPoints" .= bsMaxPoints settings
+                              ]
+                          )
+                      )
+                      Nothing
+                  _ -> pure ()
+
+              if length symbols == 1 && null errors && length statuses == 1
+                then respond (jsonValue status202 (head statuses))
+                else
+                  if null statuses
+                    then
+                      case errors of
+                        (err:_) ->
+                          case err of
+                            Aeson.Object o ->
+                              case KM.lookup "error" o >>= AT.parseMaybe parseJSON of
+                                Just msg -> respond (jsonError status400 msg)
+                                Nothing -> respond (jsonError status400 "Failed to start bot.")
+                            _ -> respond (jsonError status400 "Failed to start bot.")
+                        [] -> respond (jsonError status400 "Failed to start bot.")
+                    else do
+                      let base = botStatusJsonMulti statuses
+                          payload =
+                            case base of
+                              Aeson.Object o ->
+                                let o' =
+                                      if null errors
+                                        then o
+                                        else KM.insert "errors" (toJSON errors) o
+                                 in Aeson.Object o'
+                              _ -> base
+                      respond (jsonValue status202 payload)
+
+handleBotStop :: Maybe OpsStore -> Maybe Journal -> Maybe FilePath -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStop mOps mJournal mBotStateDir botCtrl req respond = do
+  let mSymbol =
+        case lookup (BS.pack "symbol") (Wai.queryString req) of
+          Just (Just raw) -> Just (BS.unpack raw)
+          _ -> Nothing
+  stopped <- botStop botCtrl mSymbol
   now <- getTimestampMs
-  journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now])
-  opsAppendMaybe mOps "bot.stop" Nothing Nothing Nothing Nothing
-  case mSt of
-    Nothing -> respond (jsonValue status200 botStoppedJson)
-    Just st -> do
-      let snap =
-            BotStatusSnapshot
-              { bssSavedAtMs = now
-              , bssStatus = botStatusJson st
-              }
-      writeBotStatusSnapshotMaybe mBotStatePath snap
-      respond (jsonValue status200 (botStoppedSnapshotJson snap))
+  let stoppedSymbols = map botSymbol stopped
+  journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now, "symbols" .= stoppedSymbols])
+  opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing
+
+  let snaps =
+        [ BotStatusSnapshot
+            { bssSavedAtMs = now
+            , bssStatus = botStatusJson st
+            }
+        | st <- stopped
+        ]
+  forM_ stopped $ \st -> do
+    let snap =
+          BotStatusSnapshot
+            { bssSavedAtMs = now
+            , bssStatus = botStatusJson st
+            }
+    writeBotStatusSnapshotMaybe mBotStateDir (botSymbol st) snap
+
+  case snaps of
+    [] -> do
+      case mSymbol of
+        Nothing -> respond (jsonValue status200 botStoppedJson)
+        Just sym -> do
+          mSnap <- readBotStatusSnapshotMaybe mBotStateDir sym
+          case mSnap of
+            Nothing -> respond (jsonValue status200 botStoppedJson)
+            Just snap -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
+    [snap] -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
+    _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
 
 handleBotStatus :: BotController -> Maybe FilePath -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStatus botCtrl mBotStatePath req respond = do
-  let tailN =
-        case lookup (BS.pack "tail") (Wai.queryString req) of
+handleBotStatus botCtrl mBotStateDir req respond = do
+  let q = Wai.queryString req
+      tailN =
+        case lookup (BS.pack "tail") q of
           Just (Just raw) -> readMaybe (BS.unpack raw) >>= \n -> if n > 0 then Just n else Nothing
           _ -> Nothing
-  mrt <- readMVar (bcRuntime botCtrl)
-  case mrt of
+      mSymbol =
+        case lookup (BS.pack "symbol") q of
+          Just (Just raw) -> Just (BS.unpack raw)
+          _ -> Nothing
+
+  case mSymbol of
+    Just sym -> do
+      mSt <- botGetStateFor botCtrl sym
+      case mSt of
+        Just st -> do
+          let st' = maybe st (`botStateTail` st) tailN
+          respond (jsonValue status200 (botStatusJson st'))
+        Nothing -> do
+          mSnap <- readBotStatusSnapshotMaybe mBotStateDir sym
+          case mSnap of
+            Nothing -> respond (jsonValue status200 botStoppedJson)
+            Just snap -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
     Nothing -> do
-      mSnap <- readBotStatusSnapshotMaybe mBotStatePath
-      case mSnap of
-        Nothing -> respond (jsonValue status200 botStoppedJson)
-        Just snap -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
-    Just (BotStarting rt) -> respond (jsonValue status200 (botStartingJson rt))
-    Just (BotRunning rt) -> do
-      st <- readMVar (brStateVar rt)
-      let st' = maybe st (`botStateTail` st) tailN
-      respond (jsonValue status200 (botStatusJson st'))
+      mrt <- readMVar (bcRuntime botCtrl)
+      if HM.null mrt
+        then do
+          snaps <- readBotStatusSnapshotsMaybe mBotStateDir
+          case snaps of
+            [] -> respond (jsonValue status200 botStoppedJson)
+            [snap] -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
+            _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
+        else do
+          let entries = sortOn fst (HM.toList mrt)
+          if length entries == 1
+            then
+              case snd (head entries) of
+                BotStarting rt -> respond (jsonValue status200 (botStartingJson rt))
+                BotRunning rt -> do
+                  st <- readMVar (brStateVar rt)
+                  let st' = maybe st (`botStateTail` st) tailN
+                  respond (jsonValue status200 (botStatusJson st'))
+            else do
+              statuses <-
+                forM entries $ \(_sym, state) ->
+                  case state of
+                    BotStarting rt -> pure (botStartingJson rt)
+                    BotRunning rt -> do
+                      st <- readMVar (brStateVar rt)
+                      let st' = maybe st (`botStateTail` st) tailN
+                      pure (botStatusJson st')
+              respond (jsonValue status200 (botStatusJsonMulti statuses))
 
 argsFromApi :: Args -> ApiParams -> Either String Args
 argsFromApi baseArgs p = do

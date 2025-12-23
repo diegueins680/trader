@@ -4,8 +4,10 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with Binance-only trading/keys.
+- Exchange data: add Coinbase platform support for exchange klines (trading remains Binance-only).
 - Optimizer: add platform sampling (`--platforms`) and persist platform in top-combo outputs.
 - Web UI: add platform selector with per-exchange symbols/intervals and disable Binance-only actions when not on Binance.
+- Web UI: store and check API keys per platform (Binance/Coinbase) and show Coinbase symbol defaults.
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
 - Web UI: top combos now auto-apply when available to keep the form aligned with the top performer.
 - Web UI: idle live bot auto-starts after the top combo is applied.
@@ -58,5 +60,6 @@ All notable changes to this project will be documented in this file.
 - API: rounds `/binance/keys` test order quantities to the symbol step size to avoid precision errors.
 - API/UI: `/binance/keys` trade probes report `skipped` when no test order is attempted, and the UI shows `SKIP` instead of `FAIL`.
 - API: `/binance/keys` preflight checks minNotional when price data is available and only fetches symbol filters when needed.
+- API: add `/coinbase/keys` for Coinbase API key checks (includes passphrase).
 - API: enables async job persistence by default (local `.tmp/async`); set `TRADER_API_ASYNC_DIR` to override or disable.
 - Exchange data: Poloniex candles now use the `/markets/{symbol}/candles` API with `BASE_QUOTE` symbols (legacy `QUOTE_BASE` is auto-swapped).

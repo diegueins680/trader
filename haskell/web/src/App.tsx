@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ApiBinanceTradesResponse,
   ApiParams,
   ApiTradeResponse,
   BacktestResponse,
+  BinanceTrade,
   BinanceKeysStatus,
   BinanceListenKeyResponse,
   BotOrderEvent,
   BotStatus,
+  BotStatusMulti,
+  BotStatusSingle,
   CoinbaseKeysStatus,
   IntrabarFill,
   LatestSignal,
@@ -19,6 +23,7 @@ import type {
 import {
   HttpError,
   backtest,
+  binanceTrades,
   binanceKeysStatus,
   binanceListenKey,
   binanceListenKeyClose,
@@ -131,6 +136,49 @@ function isBinanceKeysStatus(status: KeysStatus): status is BinanceKeysStatus {
   return "market" in status;
 }
 
+function isBotStatusMulti(status: BotStatus): status is BotStatusMulti {
+  return "multi" in status && status.multi === true;
+}
+
+function botStatusSymbol(status: BotStatusSingle): string | null {
+  if (status.running) return status.symbol;
+  if (status.symbol) return status.symbol;
+  if (status.snapshot?.symbol) return status.snapshot.symbol;
+  return null;
+}
+
+function parseSymbolsInput(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[,\s]+/)) {
+    const sym = part.trim().toUpperCase();
+    if (!sym) continue;
+    if (seen.has(sym)) continue;
+    seen.add(sym);
+    out.push(sym);
+  }
+  return out;
+}
+
+function parseMaybeInt(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.trunc(n));
+}
+
+function parseTimeInputMs(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? n : null;
+  }
+  const parsed = Date.parse(trimmed);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 type UiState = {
   loading: boolean;
   error: string | null;
@@ -192,6 +240,12 @@ type ListenKeyUiState = {
   lastEvent: string | null;
   keepAliveAtMs: number | null;
   keepAliveError: string | null;
+};
+
+type BinanceTradesUiState = {
+  loading: boolean;
+  error: string | null;
+  response: ApiBinanceTradesResponse | null;
 };
 
 type TopCombosSource = "api" | "static";
@@ -648,6 +702,7 @@ export function App() {
   const platform = form.platform;
   const isBinancePlatform = platform === "binance";
   const isCoinbasePlatform = platform === "coinbase";
+  const keysSupported = isBinancePlatform || isCoinbasePlatform;
   const platformSymbolSet = PLATFORM_SYMBOL_SET[platform];
   const platformSymbols = PLATFORM_SYMBOLS[platform];
   const platformLabel = PLATFORM_LABELS[platform];
@@ -670,6 +725,13 @@ export function App() {
   const normalizedSymbol = form.binanceSymbol.trim().toUpperCase();
   const symbolIsCustom = !platformSymbolSet.has(normalizedSymbol);
   const symbolSelectValue = symbolIsCustom ? CUSTOM_SYMBOL_VALUE : normalizedSymbol;
+  const botSymbolsInput = useMemo(() => parseSymbolsInput(form.botSymbols), [form.botSymbols]);
+  const botStartSymbols = useMemo(() => {
+    if (botSymbolsInput.length > 0) return botSymbolsInput;
+    const fallback = form.binanceSymbol.trim().toUpperCase();
+    return fallback ? [fallback] : [];
+  }, [botSymbolsInput, form.binanceSymbol]);
+  const botMissingSymbol = botStartSymbols.length === 0;
 
   const [profiles, setProfiles] = useState<SavedProfiles>(() => {
     const raw = readJson<Record<string, FormStateJson>>(STORAGE_PROFILES_KEY) ?? {};
@@ -709,6 +771,18 @@ export function App() {
     error: null,
     status: { running: false },
   });
+  const [botSelectedSymbol, setBotSelectedSymbol] = useState<string | null>(null);
+
+  const [binanceTradesUi, setBinanceTradesUi] = useState<BinanceTradesUiState>({
+    loading: false,
+    error: null,
+    response: null,
+  });
+  const [binanceTradesSymbolsInput, setBinanceTradesSymbolsInput] = useState(() => form.binanceSymbol.trim());
+  const [binanceTradesLimit, setBinanceTradesLimit] = useState(200);
+  const [binanceTradesStartInput, setBinanceTradesStartInput] = useState("");
+  const [binanceTradesEndInput, setBinanceTradesEndInput] = useState("");
+  const [binanceTradesFromIdInput, setBinanceTradesFromIdInput] = useState("");
 
   const [botRt, setBotRt] = useState<BotRtUiState>({
     lastFetchAtMs: null,
@@ -756,6 +830,18 @@ export function App() {
     platform: null,
     checkedAtMs: null,
   });
+  const activeKeysStatus = keys.platform === platform ? keys.status : null;
+  const keysProvided =
+    activeKeysStatus
+      ? isCoinbaseKeysStatus(activeKeysStatus)
+        ? activeKeysStatus.hasApiKey && activeKeysStatus.hasApiSecret && activeKeysStatus.hasApiPassphrase
+        : activeKeysStatus.hasApiKey && activeKeysStatus.hasApiSecret
+      : null;
+  const keysProvidedLabel = keysProvided === null ? "unknown" : keysProvided ? "provided" : "missing";
+  const keysSigned = activeKeysStatus?.signed ?? null;
+  const keysTradeTest =
+    activeKeysStatus && isBinanceKeysStatus(activeKeysStatus) ? activeKeysStatus.tradeTest ?? null : null;
+  const keysCheckedAtMs = keys.platform === platform ? keys.checkedAtMs : null;
 
   const [cacheUi, setCacheUi] = useState<CacheUiState>({ loading: false, error: null, stats: null });
 
@@ -1524,10 +1610,44 @@ export function App() {
   ]);
 
   const orderRowKey = useCallback((e: BotOrderEvent) => `${e.atMs}-${e.index}-${e.opSide}`, []);
-  const botSnapshot = useMemo(() => (bot.status.running ? null : bot.status.snapshot ?? null), [bot.status]);
-  const botDisplay = bot.status.running ? bot.status : botSnapshot;
-  const botSnapshotAtMs = bot.status.running ? null : bot.status.snapshotAtMs ?? null;
+  const botEntries = useMemo<BotStatusSingle[]>(
+    () => (isBotStatusMulti(bot.status) ? bot.status.bots : [bot.status as BotStatusSingle]),
+    [bot.status],
+  );
+  const botEntriesWithSymbol = useMemo(
+    () =>
+      botEntries
+        .map((status) => {
+          const symbol = botStatusSymbol(status);
+          return symbol ? { symbol, status } : null;
+        })
+        .filter((entry): entry is { symbol: string; status: BotStatusSingle } => Boolean(entry)),
+    [botEntries],
+  );
+  const botStatusBySymbol = useMemo(() => new Map(botEntriesWithSymbol.map((entry) => [entry.symbol, entry.status])), [botEntriesWithSymbol]);
+  const botSymbolsActive = useMemo(() => botEntriesWithSymbol.map((entry) => entry.symbol), [botEntriesWithSymbol]);
+  const botSelectedStatus = useMemo(() => {
+    if (botEntriesWithSymbol.length === 0) return null;
+    const target = botSelectedSymbol ?? botEntriesWithSymbol[0]!.symbol;
+    return botStatusBySymbol.get(target) ?? null;
+  }, [botEntriesWithSymbol, botSelectedSymbol, botStatusBySymbol]);
+  const botSnapshot = useMemo(
+    () => (botSelectedStatus && !botSelectedStatus.running ? botSelectedStatus.snapshot ?? null : null),
+    [botSelectedStatus],
+  );
+  const botDisplay = botSelectedStatus?.running ? botSelectedStatus : botSnapshot;
+  const botSnapshotAtMs = botSelectedStatus?.running ? null : botSelectedStatus?.snapshotAtMs ?? null;
   const botHasSnapshot = botSnapshot !== null;
+
+  useEffect(() => {
+    if (botSymbolsActive.length === 0) {
+      if (botSelectedSymbol !== null) setBotSelectedSymbol(null);
+      return;
+    }
+    if (!botSelectedSymbol || !botSymbolsActive.includes(botSelectedSymbol)) {
+      setBotSelectedSymbol(botSymbolsActive[0]);
+    }
+  }, [botSelectedSymbol, botSymbolsActive]);
 
   const botOrdersView = useMemo(() => {
     const st = botDisplay;
@@ -1949,7 +2069,7 @@ export function App() {
 
       try {
         const p = keysParams;
-        if (isBinancePlatform && !p.binanceSymbol) throw new Error("Symbol is required.");
+        if (!p.binanceSymbol) throw new Error("Symbol is required.");
 
         const out = isBinancePlatform
           ? await binanceKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 })
@@ -2140,6 +2260,16 @@ export function App() {
         const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
         botStatusFetchedRef.current = true;
+        const selectedStatus = (() => {
+          if (!isBotStatusMulti(out)) return out;
+          if (out.bots.length === 0) return null;
+          if (botSelectedSymbol) {
+            const match = out.bots.find((entry) => botStatusSymbol(entry) === botSelectedSymbol);
+            if (match) return match;
+          }
+          return out.bots[0] ?? null;
+        })();
+        const selectedRunning = selectedStatus && selectedStatus.running ? selectedStatus : null;
         setBotRt((prev) => {
           const base: BotRtUiState = {
             ...prev,
@@ -2151,7 +2281,7 @@ export function App() {
 
           const rt = botRtRef.current;
 
-          if (!out.running) {
+          if (!selectedRunning) {
             botRtRef.current = {
               botKey: null,
               lastOpenTimeMs: null,
@@ -2176,7 +2306,8 @@ export function App() {
             };
           }
 
-          const botKey = `${out.market}:${out.symbol}:${out.interval}`;
+          const st = selectedRunning;
+          const botKey = `${st.market}:${st.symbol}:${st.interval}`;
           let feed = base.feed;
           let telemetry = base.telemetry;
           if (rt.botKey !== botKey) {
@@ -2195,7 +2326,7 @@ export function App() {
             rt.lastTelemetryPolledAtMs = null;
           }
 
-          const openTimes = out.openTimes;
+          const openTimes = st.openTimes;
           const lastOpen = openTimes[openTimes.length - 1] ?? null;
           const prevLastOpen = rt.lastOpenTimeMs;
           const newTimes = typeof prevLastOpen === "number" ? openTimes.filter((t) => t > prevLastOpen) : [];
@@ -2206,12 +2337,12 @@ export function App() {
 	            lastNewCandlesAtMs = finishedAtMs;
 	            const lastNew = newTimes[newTimes.length - 1]!;
 	            const idx = openTimes.lastIndexOf(lastNew);
-	            const closePx = idx >= 0 ? out.prices[idx] : null;
-	            const action = out.latestSignal.action;
-	            const pollMs = typeof out.pollLatencyMs === "number" && Number.isFinite(out.pollLatencyMs) ? Math.max(0, Math.round(out.pollLatencyMs)) : null;
-	            const batchMs = typeof out.lastBatchMs === "number" && Number.isFinite(out.lastBatchMs) ? Math.max(0, Math.round(out.lastBatchMs)) : null;
+	            const closePx = idx >= 0 ? st.prices[idx] : null;
+	            const action = st.latestSignal.action;
+	            const pollMs = typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? Math.max(0, Math.round(st.pollLatencyMs)) : null;
+	            const batchMs = typeof st.lastBatchMs === "number" && Number.isFinite(st.lastBatchMs) ? Math.max(0, Math.round(st.lastBatchMs)) : null;
 	            const batchSize =
-	              typeof out.lastBatchSize === "number" && Number.isFinite(out.lastBatchSize) ? Math.max(0, Math.round(out.lastBatchSize)) : null;
+	              typeof st.lastBatchSize === "number" && Number.isFinite(st.lastBatchSize) ? Math.max(0, Math.round(st.lastBatchSize)) : null;
 	            const perBarMs = batchMs !== null && batchSize && batchSize > 0 ? batchMs / batchSize : null;
 	            const msg =
 	              `candle +${newCount}: open ${fmtTimeMs(lastNew)}` +
@@ -2224,7 +2355,7 @@ export function App() {
 
           let lastKlineUpdatesAtMs: number | null = prev.lastKlineUpdatesAtMs;
           let klineUpdates = 0;
-          const fetchedLast = out.fetchedLastKline;
+          const fetchedLast = st.fetchedLastKline;
 	          if (fetchedLast && typeof fetchedLast.openTime === "number" && Number.isFinite(fetchedLast.openTime)) {
 	            const openTime = fetchedLast.openTime;
 	            const close = fetchedLast.close;
@@ -2243,12 +2374,12 @@ export function App() {
 	            }
 	          }
 
-	          const polledAtMs = typeof out.polledAtMs === "number" && Number.isFinite(out.polledAtMs) ? out.polledAtMs : null;
+	          const polledAtMs = typeof st.polledAtMs === "number" && Number.isFinite(st.polledAtMs) ? st.polledAtMs : null;
 	          if (polledAtMs !== null && polledAtMs !== rt.lastTelemetryPolledAtMs) {
 	            rt.lastTelemetryPolledAtMs = polledAtMs;
-	            const pollLatencyMs = typeof out.pollLatencyMs === "number" && Number.isFinite(out.pollLatencyMs) ? out.pollLatencyMs : null;
-	            const processedOpenTime = out.openTimes[out.openTimes.length - 1] ?? null;
-	            const processedClose = out.prices[out.prices.length - 1] ?? null;
+	            const pollLatencyMs = typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? st.pollLatencyMs : null;
+	            const processedOpenTime = st.openTimes[st.openTimes.length - 1] ?? null;
+	            const processedClose = st.prices[st.prices.length - 1] ?? null;
 	            const driftBps =
 	              fetchedLast &&
 	              typeof fetchedLast.openTime === "number" &&
@@ -2265,13 +2396,13 @@ export function App() {
 	            telemetry = [...telemetry, point].slice(-BOT_TELEMETRY_POINTS);
 	          }
 
-	          const openThr = out.openThreshold ?? out.threshold;
-	          const closeThr = out.closeThreshold ?? out.openThreshold ?? out.threshold;
-	          const tradeEnabled = out.settings?.tradeEnabled ?? null;
+	          const openThr = st.openThreshold ?? st.threshold;
+	          const closeThr = st.closeThreshold ?? st.openThreshold ?? st.threshold;
+	          const tradeEnabled = st.settings?.tradeEnabled ?? null;
 
-	          if (rt.lastMethod !== null && (out.method !== rt.lastMethod || openThr !== rt.lastOpenThreshold || closeThr !== rt.lastCloseThreshold)) {
+	          if (rt.lastMethod !== null && (st.method !== rt.lastMethod || openThr !== rt.lastOpenThreshold || closeThr !== rt.lastCloseThreshold)) {
 	            const msg =
-	              `params: ${methodLabel(out.method)}` +
+	              `params: ${methodLabel(st.method)}` +
 	              ` • open ${fmtPct(openThr, 3)}` +
 	              ` • close ${fmtPct(closeThr, 3)}` +
 	              (typeof tradeEnabled === "boolean" ? ` • trade ${tradeEnabled ? "ON" : "OFF"}` : "");
@@ -2282,19 +2413,19 @@ export function App() {
 	            feed = [{ atMs: finishedAtMs, message: `trade ${tradeEnabled ? "enabled" : "disabled"}` }, ...feed].slice(0, 50);
 	          }
 
-	          const err = out.error ?? null;
+	          const err = st.error ?? null;
 	          if (err && err !== rt.lastError) {
 	            feed = [{ atMs: finishedAtMs, message: `error: ${err}` }, ...feed].slice(0, 50);
 	          }
 
-          if (rt.lastHalted !== null && rt.lastHalted !== out.halted) {
-            feed = [{ atMs: finishedAtMs, message: out.halted ? `halted: ${out.haltReason ?? "true"}` : "resumed" }, ...feed].slice(0, 50);
+          if (rt.lastHalted !== null && rt.lastHalted !== st.halted) {
+            feed = [{ atMs: finishedAtMs, message: st.halted ? `halted: ${st.haltReason ?? "true"}` : "resumed" }, ...feed].slice(0, 50);
           }
 
 	          rt.lastOpenTimeMs = lastOpen;
 	          rt.lastError = err;
-	          rt.lastHalted = out.halted;
-	          rt.lastMethod = out.method;
+	          rt.lastHalted = st.halted;
+	          rt.lastMethod = st.method;
 	          rt.lastOpenThreshold = openThr;
 	          rt.lastCloseThreshold = closeThr;
 	          rt.lastTradeEnabled = typeof tradeEnabled === "boolean" ? tradeEnabled : null;
@@ -2335,7 +2466,7 @@ export function App() {
         if (requestId === botRequestSeqRef.current) botAbortRef.current = null;
       }
     },
-    [apiBase, authHeaders],
+    [apiBase, authHeaders, botSelectedSymbol],
   );
 
   type StartBotOptions = { auto?: boolean; forceAdopt?: boolean; silent?: boolean };
@@ -2399,6 +2530,7 @@ export function App() {
           botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
           botMaxPoints: clamp(Math.trunc(form.botMaxPoints), 100, 100000),
         };
+        if (botSymbolsInput.length > 0) payload.botSymbols = botSymbolsInput;
         const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         if (adoptOverride && !form.botAdoptExistingPosition) {
@@ -2445,6 +2577,7 @@ export function App() {
       apiBase,
       applyRateLimit,
       authHeaders,
+      botSymbolsInput,
       form.botMaxPoints,
       form.botAdoptExistingPosition,
       form.botOnlineEpochs,
@@ -2457,10 +2590,10 @@ export function App() {
     ],
   );
 
-  const stopLiveBot = useCallback(async () => {
+  const stopLiveBot = useCallback(async (symbol?: string) => {
     setBot((s) => ({ ...s, loading: true, error: null }));
     try {
-      const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 });
+      const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 }, symbol);
       setBot((s) => ({ ...s, loading: false, error: null, status: out }));
       botAutoStartSuppressedRef.current = true;
       showToast("Bot stopped");
@@ -6698,27 +6831,22 @@ export function App() {
             </div>
             <div className="cardBody">
               <div className="pillRow" style={{ marginBottom: 10 }}>
-                <span className="badge">
-                  Keys:{" "}
-                  {keys.status
-                    ? keys.status.hasApiKey && keys.status.hasApiSecret
-                      ? "provided"
-                      : "missing"
-                    : "unknown"}
-                </span>
-                <span className="badge">
-                  {marketLabel(form.market)}
-                  {form.binanceTestnet ? " testnet" : ""}
-                </span>
-                {keys.status?.signed ? <span className="badge">Signed: {keys.status.signed.ok ? "OK" : "FAIL"}</span> : null}
-                {keys.status?.tradeTest ? (
+                <span className="badge">Keys: {keysProvidedLabel}</span>
+                {isBinancePlatform ? (
+                  <span className="badge">
+                    {marketLabel(form.market)}
+                    {form.binanceTestnet ? " testnet" : ""}
+                  </span>
+                ) : null}
+                {keysSigned ? <span className="badge">Signed: {keysSigned.ok ? "OK" : "FAIL"}</span> : null}
+                {keysTradeTest ? (
                   <span className="badge">
                     Trade:{" "}
                     {form.market === "margin"
                       ? "N/A"
-                      : keys.status.tradeTest.skipped
+                      : keysTradeTest.skipped
                         ? "SKIP"
-                        : keys.status.tradeTest.ok
+                        : keysTradeTest.ok
                           ? "OK"
                           : "FAIL"}
                   </span>
@@ -6726,7 +6854,9 @@ export function App() {
               </div>
               {!isBinancePlatform ? (
                 <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)", marginBottom: 10 }}>
-                  Trading and key checks are Binance-only. Coinbase keys can be stored above but are not checked here.
+                  {isCoinbasePlatform
+                    ? "Trading is Binance-only. Coinbase keys can be checked here but trading is not supported."
+                    : "Trading is Binance-only. Key checks are supported on Binance and Coinbase."}
                 </div>
               ) : null}
 
@@ -6735,16 +6865,18 @@ export function App() {
                   className="btn"
                   type="button"
                   onClick={() => refreshKeys()}
-                  disabled={!isBinancePlatform || keys.loading || apiOk === "down" || apiOk === "auth"}
+                  disabled={!keysSupported || keys.loading || apiOk === "down" || apiOk === "auth"}
                 >
                   {keys.loading ? "Checking…" : "Check keys"}
                 </button>
                 <span className="hint">
-                  {!isBinancePlatform
-                    ? "Switch Platform to Binance to check keys."
-                    : keys.checkedAtMs
-                      ? `Last checked: ${fmtTimeMs(keys.checkedAtMs)}`
-                      : "Uses Binance signed endpoints + /order/test (no real order)."}
+                  {!keysSupported
+                    ? "Switch Platform to Binance or Coinbase to check keys."
+                    : keysCheckedAtMs
+                      ? `Last checked: ${fmtTimeMs(keysCheckedAtMs)}`
+                      : isBinancePlatform
+                        ? "Uses Binance signed endpoints + /order/test (no real order)."
+                        : "Uses Coinbase signed /accounts."}
                 </span>
               </div>
 
@@ -6754,23 +6886,29 @@ export function App() {
                 </pre>
               ) : null}
 
-              {keys.status ? (
+              {activeKeysStatus ? (
                 <>
                   <div className="kv">
-                    <div className="k">BINANCE_API_KEY / BINANCE_API_SECRET</div>
+                    <div className="k">
+                      {isCoinbaseKeysStatus(activeKeysStatus)
+                        ? "COINBASE_API_KEY / COINBASE_API_SECRET / COINBASE_API_PASSPHRASE"
+                        : "BINANCE_API_KEY / BINANCE_API_SECRET"}
+                    </div>
                     <div className="v">
-                      {keys.status.hasApiKey ? "present" : "missing"} / {keys.status.hasApiSecret ? "present" : "missing"}
+                      {activeKeysStatus.hasApiKey ? "present" : "missing"} / {activeKeysStatus.hasApiSecret ? "present" : "missing"}
+                      {isCoinbaseKeysStatus(activeKeysStatus)
+                        ? ` / ${activeKeysStatus.hasApiPassphrase ? "present" : "missing"}`
+                        : ""}
                     </div>
                   </div>
 
                   <div className="kv">
                     <div className="k">Signed check</div>
                     <div className="v">
-                      {keys.status.signed ? (
+                      {keysSigned ? (
                         <>
-                          {keys.status.signed.ok ? "OK" : "FAIL"}{" "}
-                          {keys.status.signed.code !== undefined ? `(${keys.status.signed.code}) ` : ""}
-                          {keys.status.signed.summary}
+                          {keysSigned.ok ? "OK" : "FAIL"} {keysSigned.code !== undefined ? `(${keysSigned.code}) ` : ""}
+                          {keysSigned.summary}
                         </>
                       ) : (
                         "—"
@@ -6778,20 +6916,22 @@ export function App() {
                     </div>
                   </div>
 
-                  <div className="kv">
-                    <div className="k">Trade permission</div>
-                    <div className="v">
-                      {keys.status.tradeTest ? (
-                        <>
-                          {keys.status.tradeTest.skipped ? "SKIP" : keys.status.tradeTest.ok ? "OK" : "FAIL"}{" "}
-                          {keys.status.tradeTest.code !== undefined ? `(${keys.status.tradeTest.code}) ` : ""}
-                          {keys.status.tradeTest.summary}
-                        </>
-                      ) : (
-                        "—"
-                      )}
+                  {isBinancePlatform ? (
+                    <div className="kv">
+                      <div className="k">Trade permission</div>
+                      <div className="v">
+                        {keysTradeTest ? (
+                          <>
+                            {keysTradeTest.skipped ? "SKIP" : keysTradeTest.ok ? "OK" : "FAIL"}{" "}
+                            {keysTradeTest.code !== undefined ? `(${keysTradeTest.code}) ` : ""}
+                            {keysTradeTest.summary}
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </>
               ) : (
                 <div className="hint" style={{ marginBottom: 10 }}>
