@@ -36,6 +36,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: show persisted live-bot snapshots when `/bot/status` is restored after restart.
 - Optimizer: adds a `--quality` preset plus CSV high/low auto-detection for deeper equity searches.
 - Optimizer: adds trade-quality filters (win rate, profit factor, exposure) and samples min-hold/cooldown bars for churn control.
+- Optimizer: adds min-signal-to-noise sampling plus Sharpe/walk-forward Sharpe filters, with `/optimizer/run` fields to match.
 - Optimizer: adds walk-forward/tune-stress sampling controls and propagates additional combo parameters (vol floors, vol caps, stress settings) through top-combo outputs.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.

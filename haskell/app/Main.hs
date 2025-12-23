@@ -636,6 +636,9 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrMinWinRate :: !(Maybe Double)
   , arrMinProfitFactor :: !(Maybe Double)
   , arrMinExposure :: !(Maybe Double)
+  , arrMinSharpe :: !(Maybe Double)
+  , arrMinWalkForwardSharpeMean :: !(Maybe Double)
+  , arrMaxWalkForwardSharpeStd :: !(Maybe Double)
   , arrTuneObjective :: !(Maybe String)
   , arrTunePenaltyMaxDrawdown :: !(Maybe Double)
   , arrTunePenaltyTurnover :: !(Maybe Double)
@@ -658,6 +661,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrMaxHoldBarsMax :: !(Maybe Int)
   , arrMinEdgeMin :: !(Maybe Double)
   , arrMinEdgeMax :: !(Maybe Double)
+  , arrMinSignalToNoiseMin :: !(Maybe Double)
+  , arrMinSignalToNoiseMax :: !(Maybe Double)
   , arrEdgeBufferMin :: !(Maybe Double)
   , arrEdgeBufferMax :: !(Maybe Double)
   , arrPCostAwareEdge :: !(Maybe Double)
@@ -4953,6 +4958,12 @@ prepareOptimizerArgs outputPath req = do
             maybeDoubleArg "--min-profit-factor" (fmap (max 0) (arrMinProfitFactor req))
           minExposureArgs =
             maybeDoubleArg "--min-exposure" (fmap clamp01 (arrMinExposure req))
+          minSharpeArgs =
+            maybeDoubleArg "--min-sharpe" (fmap (max 0) (arrMinSharpe req))
+          minWalkForwardSharpeMeanArgs =
+            maybeDoubleArg "--min-wf-sharpe-mean" (fmap (max 0) (arrMinWalkForwardSharpeMean req))
+          maxWalkForwardSharpeStdArgs =
+            maybeDoubleArg "--max-wf-sharpe-std" (fmap (max 0) (arrMaxWalkForwardSharpeStd req))
           tunePenaltyMaxDdArgs =
             maybeDoubleArg "--tune-penalty-max-drawdown" (fmap (max 0) (arrTunePenaltyMaxDrawdown req))
           tunePenaltyTurnoverArgs =
@@ -5016,6 +5027,9 @@ prepareOptimizerArgs outputPath req = do
           minEdgeArgs =
             maybeDoubleArg "--min-edge-min" (fmap (max 0) (arrMinEdgeMin req))
               ++ maybeDoubleArg "--min-edge-max" (fmap (max 0) (arrMinEdgeMax req))
+          minSignalToNoiseArgs =
+            maybeDoubleArg "--min-signal-to-noise-min" (fmap (max 0) (arrMinSignalToNoiseMin req))
+              ++ maybeDoubleArg "--min-signal-to-noise-max" (fmap (max 0) (arrMinSignalToNoiseMax req))
           edgeBufferArgs =
             maybeDoubleArg "--edge-buffer-min" (fmap (max 0) (arrEdgeBufferMin req))
               ++ maybeDoubleArg "--edge-buffer-max" (fmap (max 0) (arrEdgeBufferMax req))
@@ -5093,6 +5107,9 @@ prepareOptimizerArgs outputPath req = do
               ++ minWinRateArgs
               ++ minProfitFactorArgs
               ++ minExposureArgs
+              ++ minSharpeArgs
+              ++ minWalkForwardSharpeMeanArgs
+              ++ maxWalkForwardSharpeStdArgs
               ++ tunePenaltyMaxDdArgs
               ++ tunePenaltyTurnoverArgs
               ++ tuneStressVolMultArgs
@@ -5106,6 +5123,7 @@ prepareOptimizerArgs outputPath req = do
               ++ cooldownBarsArgs
               ++ maxHoldBarsArgs
               ++ minEdgeArgs
+              ++ minSignalToNoiseArgs
               ++ edgeBufferArgs
               ++ pCostAwareEdgeArgs
               ++ trendLookbackArgs

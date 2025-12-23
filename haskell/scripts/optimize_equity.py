@@ -164,6 +164,21 @@ def metric_profit_factor(metrics: Optional[Dict[str, Any]]) -> float:
     return 0.0
 
 
+def extract_walk_forward_summary(stdout_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(stdout_json, dict):
+        return None
+    bt = stdout_json.get("backtest")
+    if not isinstance(bt, dict):
+        return None
+    wf = bt.get("walkForward")
+    if not isinstance(wf, dict):
+        return None
+    summary = wf.get("summary")
+    if not isinstance(summary, dict):
+        return None
+    return summary
+
+
 def coerce_float_value(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -212,6 +227,12 @@ def apply_quality_preset(args: argparse.Namespace) -> None:
     args.min_win_rate = max(float(args.min_win_rate), 0.45)
     args.min_profit_factor = max(float(args.min_profit_factor), 1.1)
     args.min_exposure = max(float(args.min_exposure), 0.05)
+    args.min_sharpe = max(float(args.min_sharpe), 0.25)
+    args.min_wf_sharpe_mean = max(float(args.min_wf_sharpe_mean), 0.2)
+    if float(args.max_wf_sharpe_std) <= 0:
+        args.max_wf_sharpe_std = 1.5
+    args.min_signal_to_noise_min = max(float(args.min_signal_to_noise_min), 0.2)
+    args.min_signal_to_noise_max = max(float(args.min_signal_to_noise_max), 1.0)
     args.epochs_max = max(int(args.epochs_max), 50)
     args.hidden_size_max = max(int(args.hidden_size_max), 128)
     args.lr_max = max(float(args.lr_max), 5e-2)
@@ -270,6 +291,7 @@ class TrialParams:
     cooldown_bars: int
     max_hold_bars: Optional[int]
     min_edge: float
+    min_signal_to_noise: float
     edge_buffer: float
     cost_aware_edge: bool
     trend_lookback: int
@@ -299,6 +321,9 @@ class TrialParams:
     stop_loss: Optional[float]
     take_profit: Optional[float]
     trailing_stop: Optional[float]
+    stop_loss_vol_mult: Optional[float]
+    take_profit_vol_mult: Optional[float]
+    trailing_stop_vol_mult: Optional[float]
     max_drawdown: Optional[float]
     max_daily_loss: Optional[float]
     max_order_errors: Optional[int]
@@ -375,6 +400,7 @@ def build_command(
     if params.max_hold_bars is not None:
         cmd += ["--max-hold-bars", str(max(1, params.max_hold_bars))]
     cmd += ["--min-edge", f"{max(0.0, params.min_edge):.12g}"]
+    cmd += ["--min-signal-to-noise", f"{max(0.0, params.min_signal_to_noise):.12g}"]
     cmd += ["--edge-buffer", f"{max(0.0, params.edge_buffer):.12g}"]
     if params.cost_aware_edge:
         cmd += ["--cost-aware-edge"]
@@ -412,6 +438,12 @@ def build_command(
         cmd += ["--take-profit", f"{params.take_profit:.8f}"]
     if params.trailing_stop is not None:
         cmd += ["--trailing-stop", f"{params.trailing_stop:.8f}"]
+    if params.stop_loss_vol_mult is not None:
+        cmd += ["--stop-loss-vol-mult", f"{params.stop_loss_vol_mult:.8f}"]
+    if params.take_profit_vol_mult is not None:
+        cmd += ["--take-profit-vol-mult", f"{params.take_profit_vol_mult:.8f}"]
+    if params.trailing_stop_vol_mult is not None:
+        cmd += ["--trailing-stop-vol-mult", f"{params.trailing_stop_vol_mult:.8f}"]
     if params.max_drawdown is not None:
         cmd += ["--max-drawdown", f"{params.max_drawdown:.8f}"]
     if params.max_daily_loss is not None:
@@ -593,6 +625,7 @@ def trial_to_record(tr: TrialResult, symbol_label: Optional[str]) -> Dict[str, A
             "cooldownBars": tr.params.cooldown_bars,
             "maxHoldBars": tr.params.max_hold_bars,
             "minEdge": tr.params.min_edge,
+            "minSignalToNoise": tr.params.min_signal_to_noise,
             "edgeBuffer": tr.params.edge_buffer,
             "costAwareEdge": tr.params.cost_aware_edge,
             "trendLookback": tr.params.trend_lookback,
@@ -622,6 +655,9 @@ def trial_to_record(tr: TrialResult, symbol_label: Optional[str]) -> Dict[str, A
             "stopLoss": tr.params.stop_loss,
             "takeProfit": tr.params.take_profit,
             "trailingStop": tr.params.trailing_stop,
+            "stopLossVolMult": tr.params.stop_loss_vol_mult,
+            "takeProfitVolMult": tr.params.take_profit_vol_mult,
+            "trailingStopVolMult": tr.params.trailing_stop_vol_mult,
             "maxDrawdown": tr.params.max_drawdown,
             "maxDailyLoss": tr.params.max_daily_loss,
             "maxOrderErrors": tr.params.max_order_errors,
@@ -712,12 +748,14 @@ def sample_params(
     cooldown_bars_range: Tuple[int, int],
     max_hold_bars_range: Tuple[int, int],
     min_edge_range: Tuple[float, float],
+    min_signal_to_noise_range: Tuple[float, float],
     edge_buffer_range: Tuple[float, float],
     trend_lookback_range: Tuple[int, int],
     max_position_size_range: Tuple[float, float],
     vol_target_range: Tuple[float, float],
     vol_lookback_range: Tuple[int, int],
     vol_ewma_alpha_range: Tuple[float, float],
+    p_disable_vol_ewma_alpha: float,
     vol_floor_range: Tuple[float, float],
     vol_scale_max_range: Tuple[float, float],
     max_volatility_range: Tuple[float, float],
@@ -768,12 +806,18 @@ def sample_params(
     stop_range: Tuple[float, float],
     take_range: Tuple[float, float],
     trail_range: Tuple[float, float],
+    stop_vol_mult_range: Tuple[float, float],
+    take_vol_mult_range: Tuple[float, float],
+    trail_vol_mult_range: Tuple[float, float],
     method_weights: Dict[str, float],
     normalization_choices: List[str],
     blend_weight_range: Tuple[float, float],
     p_disable_stop: float,
     p_disable_tp: float,
     p_disable_trail: float,
+    p_disable_stop_vol_mult: float,
+    p_disable_tp_vol_mult: float,
+    p_disable_trail_vol_mult: float,
     p_disable_max_dd: float,
     p_disable_max_dl: float,
     p_disable_max_oe: float,
@@ -833,6 +877,9 @@ def sample_params(
             max_hold_bars = max_hold_sample
     min_edge_lo, min_edge_hi = min_edge_range
     min_edge = rng.uniform(min_edge_lo, min_edge_hi)
+    min_sn_lo, min_sn_hi = min_signal_to_noise_range
+    min_sn_lo, min_sn_hi = (min(min_sn_lo, min_sn_hi), max(min_sn_lo, min_sn_hi))
+    min_signal_to_noise = rng.uniform(min_sn_lo, min_sn_hi)
     edge_buffer_lo, edge_buffer_hi = edge_buffer_range
     edge_buffer = rng.uniform(edge_buffer_lo, edge_buffer_hi)
     if p_cost_aware_edge < 0:
@@ -853,7 +900,7 @@ def sample_params(
         vol_target = rng.uniform(vt_lo, vt_hi)
     vol_alpha_lo, vol_alpha_hi = vol_ewma_alpha_range
     vol_ewma_alpha = None
-    if max(vol_alpha_lo, vol_alpha_hi) > 0:
+    if max(vol_alpha_lo, vol_alpha_hi) > 0 and rng.random() >= clamp(p_disable_vol_ewma_alpha, 0.0, 1.0):
         va_lo = max(1e-6, min(vol_alpha_lo, vol_alpha_hi))
         va_hi = min(0.999, max(vol_alpha_lo, vol_alpha_hi))
         if va_hi >= va_lo:
@@ -952,6 +999,27 @@ def sample_params(
     take_profit = maybe(rng, p_disable_tp, lambda: log_uniform(rng, take_range[0], take_range[1]))
     trailing_stop = maybe(rng, p_disable_trail, lambda: log_uniform(rng, trail_range[0], trail_range[1]))
 
+    svm_lo, svm_hi = stop_vol_mult_range
+    stop_vol_mult = None
+    if max(svm_lo, svm_hi) > 0:
+        svm_min = max(1e-6, min(svm_lo, svm_hi))
+        svm_max = max(svm_min, max(svm_lo, svm_hi))
+        stop_vol_mult = maybe(rng, p_disable_stop_vol_mult, lambda: log_uniform(rng, svm_min, svm_max))
+
+    tvm_lo, tvm_hi = take_vol_mult_range
+    take_vol_mult = None
+    if max(tvm_lo, tvm_hi) > 0:
+        tvm_min = max(1e-6, min(tvm_lo, tvm_hi))
+        tvm_max = max(tvm_min, max(tvm_lo, tvm_hi))
+        take_vol_mult = maybe(rng, p_disable_tp_vol_mult, lambda: log_uniform(rng, tvm_min, tvm_max))
+
+    trvm_lo, trvm_hi = trail_vol_mult_range
+    trail_vol_mult = None
+    if max(trvm_lo, trvm_hi) > 0:
+        trvm_min = max(1e-6, min(trvm_lo, trvm_hi))
+        trvm_max = max(trvm_min, max(trvm_lo, trvm_hi))
+        trail_vol_mult = maybe(rng, p_disable_trail_vol_mult, lambda: log_uniform(rng, trvm_min, trvm_max))
+
     max_drawdown = maybe(rng, p_disable_max_dd, lambda: rng.uniform(max_dd_range[0], max_dd_range[1]))
     max_daily_loss = maybe(rng, p_disable_max_dl, lambda: rng.uniform(max_dl_range[0], max_dl_range[1]))
 
@@ -974,6 +1042,7 @@ def sample_params(
         cooldown_bars=cooldown_bars,
         max_hold_bars=max_hold_bars,
         min_edge=min_edge,
+        min_signal_to_noise=min_signal_to_noise,
         edge_buffer=edge_buffer,
         cost_aware_edge=cost_aware_edge,
         trend_lookback=trend_lookback,
@@ -994,6 +1063,9 @@ def sample_params(
         stop_loss=stop_loss,
         take_profit=take_profit,
         trailing_stop=trailing_stop,
+        stop_loss_vol_mult=stop_vol_mult,
+        take_profit_vol_mult=take_vol_mult,
+        trailing_stop_vol_mult=trail_vol_mult,
         max_drawdown=max_drawdown,
         max_daily_loss=max_daily_loss,
         max_order_errors=max_order_errors,
@@ -1115,6 +1187,24 @@ def main(argv: List[str]) -> int:
         type=float,
         default=0.0,
         help="Skip candidates with exposure below this threshold (default: 0).",
+    )
+    parser.add_argument(
+        "--min-sharpe",
+        type=float,
+        default=0.0,
+        help="Skip candidates with Sharpe below this threshold (default: 0).",
+    )
+    parser.add_argument(
+        "--min-wf-sharpe-mean",
+        type=float,
+        default=0.0,
+        help="Skip candidates with walk-forward sharpeMean below this threshold (default: 0).",
+    )
+    parser.add_argument(
+        "--max-wf-sharpe-std",
+        type=float,
+        default=0.0,
+        help="Skip candidates with walk-forward sharpeStd above this threshold (default: 0=disabled).",
     )
     parser.add_argument(
         "--tune-objective",
@@ -1259,6 +1349,18 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--max-hold-bars-max", type=int, default=0, help="Max max-hold-bars when sampling (default: 0=disabled).")
     parser.add_argument("--min-edge-min", type=float, default=0.0, help="Min min-edge when sampling (default: 0).")
     parser.add_argument("--min-edge-max", type=float, default=0.0, help="Max min-edge when sampling (default: 0).")
+    parser.add_argument(
+        "--min-signal-to-noise-min",
+        type=float,
+        default=0.0,
+        help="Min min-signal-to-noise when sampling (default: 0=disabled).",
+    )
+    parser.add_argument(
+        "--min-signal-to-noise-max",
+        type=float,
+        default=0.0,
+        help="Max min-signal-to-noise when sampling (default: 0=disabled).",
+    )
     parser.add_argument("--edge-buffer-min", type=float, default=0.0, help="Min edge-buffer when sampling (default: 0).")
     parser.add_argument("--edge-buffer-max", type=float, default=0.0, help="Max edge-buffer when sampling (default: 0).")
     parser.add_argument(
@@ -1350,6 +1452,12 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--vol-lookback-max", type=int, default=20, help="Max vol-lookback when sampling (default: 20).")
     parser.add_argument("--vol-ewma-alpha-min", type=float, default=0.0, help="Min vol-ewma-alpha when sampling (default: 0=disabled).")
     parser.add_argument("--vol-ewma-alpha-max", type=float, default=0.0, help="Max vol-ewma-alpha when sampling (default: 0=disabled).")
+    parser.add_argument(
+        "--p-disable-vol-ewma-alpha",
+        type=float,
+        default=0.0,
+        help="Probability vol-ewma-alpha is disabled when sampling (default: 0).",
+    )
     parser.add_argument("--vol-floor-min", type=float, default=0.0, help="Min vol-floor when sampling (default: 0).")
     parser.add_argument("--vol-floor-max", type=float, default=0.0, help="Max vol-floor when sampling (default: 0).")
     parser.add_argument("--vol-scale-max-min", type=float, default=1.0, help="Min vol-scale-max when sampling (default: 1).")
@@ -1389,6 +1497,23 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--p-disable-stop", type=float, default=0.5, help="Probability stop-loss is disabled (default: 0.5).")
     parser.add_argument("--p-disable-tp", type=float, default=0.5, help="Probability take-profit is disabled (default: 0.5).")
     parser.add_argument("--p-disable-trail", type=float, default=0.6, help="Probability trailing-stop is disabled (default: 0.6).")
+
+    parser.add_argument("--stop-vol-mult-min", type=float, default=0.0, help="Min stop-loss vol-mult when enabled (default: 0=disabled).")
+    parser.add_argument("--stop-vol-mult-max", type=float, default=0.0, help="Max stop-loss vol-mult when enabled (default: 0=disabled).")
+    parser.add_argument("--tp-vol-mult-min", type=float, default=0.0, help="Min take-profit vol-mult when enabled (default: 0=disabled).")
+    parser.add_argument("--tp-vol-mult-max", type=float, default=0.0, help="Max take-profit vol-mult when enabled (default: 0=disabled).")
+    parser.add_argument("--trail-vol-mult-min", type=float, default=0.0, help="Min trailing-stop vol-mult when enabled (default: 0=disabled).")
+    parser.add_argument("--trail-vol-mult-max", type=float, default=0.0, help="Max trailing-stop vol-mult when enabled (default: 0=disabled).")
+
+    parser.add_argument(
+        "--p-disable-stop-vol-mult", type=float, default=0.5, help="Probability stop-loss vol-mult is disabled (default: 0.5)."
+    )
+    parser.add_argument(
+        "--p-disable-tp-vol-mult", type=float, default=0.5, help="Probability take-profit vol-mult is disabled (default: 0.5)."
+    )
+    parser.add_argument(
+        "--p-disable-trail-vol-mult", type=float, default=0.6, help="Probability trailing-stop vol-mult is disabled (default: 0.6)."
+    )
 
     parser.add_argument("--p-disable-max-dd", type=float, default=0.9, help="Probability max-drawdown is disabled (default: 0.9).")
     parser.add_argument("--p-disable-max-dl", type=float, default=0.9, help="Probability max-daily-loss is disabled (default: 0.9).")
@@ -1572,6 +1697,15 @@ def main(argv: List[str]) -> int:
     tp_max = float(args.tp_max)
     trail_min = float(args.trail_min)
     trail_max = float(args.trail_max)
+    stop_vol_mult_min = max(0.0, float(args.stop_vol_mult_min))
+    stop_vol_mult_max = max(stop_vol_mult_min, float(args.stop_vol_mult_max))
+    stop_vol_mult_range = (stop_vol_mult_min, stop_vol_mult_max)
+    tp_vol_mult_min = max(0.0, float(args.tp_vol_mult_min))
+    tp_vol_mult_max = max(tp_vol_mult_min, float(args.tp_vol_mult_max))
+    tp_vol_mult_range = (tp_vol_mult_min, tp_vol_mult_max)
+    trail_vol_mult_min = max(0.0, float(args.trail_vol_mult_min))
+    trail_vol_mult_max = max(trail_vol_mult_min, float(args.trail_vol_mult_max))
+    trail_vol_mult_range = (trail_vol_mult_min, trail_vol_mult_max)
 
     fee_min = max(0.0, float(args.fee_min))
     fee_max = max(fee_min, float(args.fee_max))
@@ -1588,6 +1722,8 @@ def main(argv: List[str]) -> int:
     max_hold_max = max(max_hold_min, int(args.max_hold_bars_max))
     min_edge_min = max(0.0, float(args.min_edge_min))
     min_edge_max = max(min_edge_min, float(args.min_edge_max))
+    min_signal_to_noise_min = max(0.0, float(args.min_signal_to_noise_min))
+    min_signal_to_noise_max = max(min_signal_to_noise_min, float(args.min_signal_to_noise_max))
     edge_buffer_min = max(0.0, float(args.edge_buffer_min))
     edge_buffer_max = max(edge_buffer_min, float(args.edge_buffer_max))
     p_cost_aware_edge = float(args.p_cost_aware_edge)
@@ -1636,6 +1772,7 @@ def main(argv: List[str]) -> int:
     vol_ewma_alpha_min = max(0.0, float(args.vol_ewma_alpha_min))
     vol_ewma_alpha_max = max(vol_ewma_alpha_min, float(args.vol_ewma_alpha_max))
     vol_ewma_alpha_range = (vol_ewma_alpha_min, vol_ewma_alpha_max)
+    p_disable_vol_ewma_alpha = clamp(float(args.p_disable_vol_ewma_alpha), 0.0, 1.0)
     vol_floor_min = max(0.0, float(args.vol_floor_min))
     vol_floor_max = max(vol_floor_min, float(args.vol_floor_max))
     vol_floor_range = (vol_floor_min, vol_floor_max)
@@ -1710,6 +1847,9 @@ def main(argv: List[str]) -> int:
     min_win_rate = max(0.0, float(args.min_win_rate))
     min_profit_factor = max(0.0, float(args.min_profit_factor))
     min_exposure = max(0.0, float(args.min_exposure))
+    min_sharpe = max(0.0, float(args.min_sharpe))
+    min_wf_sharpe_mean = max(0.0, float(args.min_wf_sharpe_mean))
+    max_wf_sharpe_std = max(0.0, float(args.max_wf_sharpe_std))
     for i in range(1, trials + 1):
         params = sample_params(
             rng=rng,
@@ -1726,12 +1866,14 @@ def main(argv: List[str]) -> int:
             cooldown_bars_range=(cooldown_min, cooldown_max),
             max_hold_bars_range=(max_hold_min, max_hold_max),
             min_edge_range=(min_edge_min, min_edge_max),
+            min_signal_to_noise_range=(min_signal_to_noise_min, min_signal_to_noise_max),
             edge_buffer_range=(edge_buffer_min, edge_buffer_max),
             trend_lookback_range=(trend_lookback_min, trend_lookback_max),
             max_position_size_range=max_position_size_range,
             vol_target_range=vol_target_range,
             vol_lookback_range=vol_lookback_range,
             vol_ewma_alpha_range=vol_ewma_alpha_range,
+            p_disable_vol_ewma_alpha=p_disable_vol_ewma_alpha,
             vol_floor_range=vol_floor_range,
             vol_scale_max_range=vol_scale_max_range,
             max_volatility_range=max_volatility_range,
@@ -1782,12 +1924,18 @@ def main(argv: List[str]) -> int:
             stop_range=(stop_min, stop_max),
             take_range=(tp_min, tp_max),
             trail_range=(trail_min, trail_max),
+            stop_vol_mult_range=stop_vol_mult_range,
+            take_vol_mult_range=tp_vol_mult_range,
+            trail_vol_mult_range=trail_vol_mult_range,
             method_weights=method_weights,
             normalization_choices=normalization_choices,
             blend_weight_range=blend_weight_range,
             p_disable_stop=clamp(float(args.p_disable_stop), 0.0, 1.0),
             p_disable_tp=clamp(float(args.p_disable_tp), 0.0, 1.0),
             p_disable_trail=clamp(float(args.p_disable_trail), 0.0, 1.0),
+            p_disable_stop_vol_mult=clamp(float(args.p_disable_stop_vol_mult), 0.0, 1.0),
+            p_disable_tp_vol_mult=clamp(float(args.p_disable_tp_vol_mult), 0.0, 1.0),
+            p_disable_trail_vol_mult=clamp(float(args.p_disable_trail_vol_mult), 0.0, 1.0),
             p_disable_max_dd=clamp(float(args.p_disable_max_dd), 0.0, 1.0),
             p_disable_max_dl=clamp(float(args.p_disable_max_dl), 0.0, 1.0),
             p_disable_max_oe=clamp(float(args.p_disable_max_oe), 0.0, 1.0),
@@ -1834,12 +1982,39 @@ def main(argv: List[str]) -> int:
                             eligible = False
                             filter_reason = f"exposure<{min_exposure:.3f}"
                         else:
-                            score = objective_score(
-                                tr.metrics or {},
-                                objective=objective,
-                                penalty_max_drawdown=float(args.penalty_max_drawdown),
-                                penalty_turnover=float(args.penalty_turnover),
-                            )
+                            sharpe = metric_float(tr.metrics, "sharpe", 0.0)
+                            if min_sharpe > 0 and sharpe < min_sharpe:
+                                eligible = False
+                                filter_reason = f"sharpe<{min_sharpe:.3f}"
+                            else:
+                                if min_wf_sharpe_mean > 0 or max_wf_sharpe_std > 0:
+                                    wf_summary = extract_walk_forward_summary(tr.stdout_json)
+                                    if not wf_summary:
+                                        eligible = False
+                                        filter_reason = "walkForwardMissing"
+                                    else:
+                                        wf_sharpe_mean = metric_float(wf_summary, "sharpeMean", 0.0)
+                                        wf_sharpe_std = metric_float(wf_summary, "sharpeStd", 0.0)
+                                        if min_wf_sharpe_mean > 0 and wf_sharpe_mean < min_wf_sharpe_mean:
+                                            eligible = False
+                                            filter_reason = f"wfSharpeMean<{min_wf_sharpe_mean:.3f}"
+                                        elif max_wf_sharpe_std > 0 and wf_sharpe_std > max_wf_sharpe_std:
+                                            eligible = False
+                                            filter_reason = f"wfSharpeStd>{max_wf_sharpe_std:.3f}"
+                                        else:
+                                            score = objective_score(
+                                                tr.metrics or {},
+                                                objective=objective,
+                                                penalty_max_drawdown=float(args.penalty_max_drawdown),
+                                                penalty_turnover=float(args.penalty_turnover),
+                                            )
+                                else:
+                                    score = objective_score(
+                                        tr.metrics or {},
+                                        objective=objective,
+                                        penalty_max_drawdown=float(args.penalty_max_drawdown),
+                                        penalty_turnover=float(args.penalty_turnover),
+                                    )
         tr = replace(tr, eligible=eligible, filter_reason=filter_reason, objective=objective, score=score)
 
         if out_fh is not None:
@@ -1882,6 +2057,12 @@ def main(argv: List[str]) -> int:
             hints.append("--min-profit-factor")
         if min_exposure > 0:
             hints.append("--min-exposure")
+        if min_sharpe > 0:
+            hints.append("--min-sharpe")
+        if min_wf_sharpe_mean > 0:
+            hints.append("--min-wf-sharpe-mean")
+        if max_wf_sharpe_std > 0:
+            hints.append("--max-wf-sharpe-std")
         if hints:
             msg += " (Try lowering " + ", ".join(hints) + ".)"
         print(msg, file=sys.stderr)
@@ -1904,6 +2085,7 @@ def main(argv: List[str]) -> int:
     print(f"  cooldownBars: {b.params.cooldown_bars}")
     print(f"  maxHoldBars:  {b.params.max_hold_bars}")
     print(f"  minEdge:      {b.params.min_edge}")
+    print(f"  minSignalToNoise:{b.params.min_signal_to_noise}")
     print(f"  edgeBuffer:   {b.params.edge_buffer}")
     print(f"  costAwareEdge:{b.params.cost_aware_edge}")
     print(f"  trendLookback:{b.params.trend_lookback}")
@@ -1934,6 +2116,9 @@ def main(argv: List[str]) -> int:
     print(f"  stopLoss:      {b.params.stop_loss}")
     print(f"  takeProfit:    {b.params.take_profit}")
     print(f"  trailingStop:  {b.params.trailing_stop}")
+    print(f"  stopLossVolMult:   {b.params.stop_loss_vol_mult}")
+    print(f"  takeProfitVolMult: {b.params.take_profit_vol_mult}")
+    print(f"  trailingStopVolMult:{b.params.trailing_stop_vol_mult}")
     print(f"  maxDrawdown:   {b.params.max_drawdown}")
     print(f"  maxDailyLoss:  {b.params.max_daily_loss}")
     print(f"  maxOrderErrors:{b.params.max_order_errors}")
@@ -1998,6 +2183,7 @@ def main(argv: List[str]) -> int:
                     "cooldownBars": tr.params.cooldown_bars,
                     "maxHoldBars": tr.params.max_hold_bars,
                     "minEdge": tr.params.min_edge,
+                    "minSignalToNoise": tr.params.min_signal_to_noise,
                     "edgeBuffer": tr.params.edge_buffer,
                     "costAwareEdge": tr.params.cost_aware_edge,
                     "trendLookback": tr.params.trend_lookback,
