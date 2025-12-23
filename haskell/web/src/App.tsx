@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
   ApiParams,
   ApiTradeResponse,
@@ -1626,6 +1627,18 @@ export function App() {
   );
   const botStatusBySymbol = useMemo(() => new Map(botEntriesWithSymbol.map((entry) => [entry.symbol, entry.status])), [botEntriesWithSymbol]);
   const botSymbolsActive = useMemo(() => botEntriesWithSymbol.map((entry) => entry.symbol), [botEntriesWithSymbol]);
+  const botActiveSymbols = useMemo(
+    () =>
+      botEntriesWithSymbol
+        .filter((entry) => entry.status.running || (!entry.status.running && entry.status.starting === true))
+        .map((entry) => entry.symbol),
+    [botEntriesWithSymbol],
+  );
+  const botActiveSymbolSet = useMemo(() => new Set(botActiveSymbols), [botActiveSymbols]);
+  const botHasNewSymbols = useMemo(
+    () => (botStartSymbols.length > 0 ? botStartSymbols.some((sym) => !botActiveSymbolSet.has(sym)) : false),
+    [botActiveSymbolSet, botStartSymbols],
+  );
   const botSelectedStatus = useMemo(() => {
     if (botEntriesWithSymbol.length === 0) return null;
     const target = botSelectedSymbol ?? botEntriesWithSymbol[0]!.symbol;
@@ -1645,7 +1658,7 @@ export function App() {
       return;
     }
     if (!botSelectedSymbol || !botSymbolsActive.includes(botSelectedSymbol)) {
-      setBotSelectedSymbol(botSymbolsActive[0]);
+      setBotSelectedSymbol(botSymbolsActive[0] ?? null);
     }
   }, [botSelectedSymbol, botSymbolsActive]);
 
@@ -2260,7 +2273,7 @@ export function App() {
         const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
         botStatusFetchedRef.current = true;
-        const selectedStatus = (() => {
+        const selectedStatus: BotStatusSingle | null = (() => {
           if (!isBotStatusMulti(out)) return out;
           if (out.bots.length === 0) return null;
           if (botSelectedSymbol) {
@@ -2604,6 +2617,79 @@ export function App() {
       showToast("Bot stop failed");
     }
   }, [apiBase, authHeaders, showToast]);
+
+  const binanceTradesSymbols = useMemo(() => parseSymbolsInput(binanceTradesSymbolsInput), [binanceTradesSymbolsInput]);
+  const binanceTradesStartMs = useMemo(() => parseTimeInputMs(binanceTradesStartInput), [binanceTradesStartInput]);
+  const binanceTradesEndMs = useMemo(() => parseTimeInputMs(binanceTradesEndInput), [binanceTradesEndInput]);
+  const binanceTradesFromId = useMemo(() => parseMaybeInt(binanceTradesFromIdInput), [binanceTradesFromIdInput]);
+  const binanceTradesLimitSafe = useMemo(
+    () => clamp(Math.trunc(binanceTradesLimit), 1, 1000),
+    [binanceTradesLimit],
+  );
+  const binanceTradesInputError = useMemo(
+    () =>
+      firstReason(
+        !isBinancePlatform ? "Binance account trades require platform=binance." : null,
+        form.market !== "futures" && binanceTradesSymbols.length === 0 ? "Symbol is required for spot/margin trades." : null,
+        binanceTradesStartInput.trim() && binanceTradesStartMs === null
+          ? "Start time must be a unix ms timestamp or ISO date."
+          : null,
+        binanceTradesEndInput.trim() && binanceTradesEndMs === null ? "End time must be a unix ms timestamp or ISO date." : null,
+        binanceTradesStartMs !== null && binanceTradesEndMs !== null && binanceTradesEndMs < binanceTradesStartMs
+          ? "End time must be after start time."
+          : null,
+        binanceTradesFromIdInput.trim() && binanceTradesFromId === null ? "From ID must be a number." : null,
+      ),
+    [
+      binanceTradesEndInput,
+      binanceTradesEndMs,
+      binanceTradesFromId,
+      binanceTradesFromIdInput,
+      binanceTradesStartInput,
+      binanceTradesStartMs,
+      binanceTradesSymbols.length,
+      form.market,
+      isBinancePlatform,
+    ],
+  );
+
+  const fetchBinanceTrades = useCallback(async () => {
+    setBinanceTradesUi((s) => ({ ...s, loading: true, error: null }));
+    if (binanceTradesInputError) {
+      setBinanceTradesUi((s) => ({ ...s, loading: false, error: binanceTradesInputError }));
+      return;
+    }
+    try {
+      const params: ApiBinanceTradesRequest = {
+        market: form.market,
+        binanceTestnet: form.binanceTestnet,
+        ...(binanceTradesSymbols.length === 1 ? { symbol: binanceTradesSymbols[0] } : {}),
+        ...(binanceTradesSymbols.length > 1 ? { symbols: binanceTradesSymbols } : {}),
+        ...(binanceTradesLimitSafe > 0 ? { limit: binanceTradesLimitSafe } : {}),
+        ...(binanceTradesStartMs !== null ? { startTimeMs: binanceTradesStartMs } : {}),
+        ...(binanceTradesEndMs !== null ? { endTimeMs: binanceTradesEndMs } : {}),
+        ...(binanceTradesFromId !== null ? { fromId: binanceTradesFromId } : {}),
+      };
+      const out = await binanceTrades(apiBase, withBinanceKeys(params), { headers: authHeaders, timeoutMs: 30_000 });
+      setBinanceTradesUi({ loading: false, error: null, response: out });
+    } catch (e) {
+      if (isAbortError(e)) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      setBinanceTradesUi((s) => ({ ...s, loading: false, error: msg }));
+    }
+  }, [
+    apiBase,
+    authHeaders,
+    binanceTradesEndMs,
+    binanceTradesFromId,
+    binanceTradesInputError,
+    binanceTradesLimitSafe,
+    binanceTradesStartMs,
+    binanceTradesSymbols,
+    form.binanceTestnet,
+    form.market,
+    withBinanceKeys,
+  ]);
 
   useEffect(() => {
     if (apiOk !== "ok") return;
@@ -3198,22 +3284,21 @@ export function App() {
       : hiddenSizeExceedsApi
         ? `Hidden size exceeds API limit (max ${apiComputeLimits?.maxHiddenSize ?? "?"}). Reduce hidden size or switch to method=10 (Kalman-only).`
         : null;
-  const requestIssueDetails = useMemo(
-    () =>
-      buildRequestIssueDetails({
-        rateLimitReason,
-        apiStatusIssue,
-        apiBlockedReason,
-        apiTargetId: "section-api",
-        missingSymbol,
-        symbolTargetId: "symbol",
-        missingInterval,
-        intervalTargetId: "interval",
-        lookbackError: lookbackState.error,
-        lookbackTargetId: lookbackState.overrideOn ? "lookbackBars" : "lookbackWindow",
-        apiLimitsReason,
-        apiLimitsTargetId: barsExceedsApi ? "bars" : epochsExceedsApi ? "epochs" : hiddenSizeExceedsApi ? "hiddenSize" : undefined,
-      }),
+  const requestIssueInput = useMemo(
+    () => ({
+      rateLimitReason,
+      apiStatusIssue,
+      apiBlockedReason,
+      apiTargetId: "section-api",
+      missingSymbol,
+      symbolTargetId: "symbol",
+      missingInterval,
+      intervalTargetId: "interval",
+      lookbackError: lookbackState.error,
+      lookbackTargetId: lookbackState.overrideOn ? "lookbackBars" : "lookbackWindow",
+      apiLimitsReason,
+      apiLimitsTargetId: barsExceedsApi ? "bars" : epochsExceedsApi ? "epochs" : hiddenSizeExceedsApi ? "hiddenSize" : undefined,
+    }),
     [
       apiBlockedReason,
       apiLimitsReason,
@@ -3227,6 +3312,16 @@ export function App() {
       missingSymbol,
       rateLimitReason,
     ],
+  );
+  const requestIssueDetails = useMemo(() => buildRequestIssueDetails(requestIssueInput), [requestIssueInput]);
+  const botIssueDetails = useMemo(
+    () =>
+      buildRequestIssueDetails({
+        ...requestIssueInput,
+        missingSymbol: botMissingSymbol,
+        symbolTargetId: "botSymbols",
+      }),
+    [botMissingSymbol, requestIssueInput],
   );
   const requestIssues = useMemo(() => requestIssueDetails.map((issue) => issue.message), [requestIssueDetails]);
   const primaryIssue = requestIssueDetails[0] ?? null;
@@ -5225,7 +5320,11 @@ export function App() {
                     >
                       {bot.loading || botStarting ? "Starting…" : bot.status.running ? "Running" : "Start live bot"}
                     </button>
-                    <button className="btn btnDanger" disabled={bot.loading || (!bot.status.running && !botStarting)} onClick={stopLiveBot}>
+                    <button
+                      className="btn btnDanger"
+                      disabled={bot.loading || (!bot.status.running && !botStarting)}
+                      onClick={() => void stopLiveBot()}
+                    >
                       Stop bot
                     </button>
                     <button className="btn" disabled={bot.loading || Boolean(apiBlockedReason)} onClick={() => refreshBot()} title={apiBlockedReason ?? undefined}>
