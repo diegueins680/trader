@@ -2200,6 +2200,22 @@ export function App() {
         if (isAbortError(e)) return;
         let msg = e instanceof Error ? e.message : String(e);
         if (isTimeoutError(e)) msg = "Bot status timed out. Try again.";
+        if (e instanceof HttpError && typeof e.payload === "string") {
+          const payload = e.payload;
+          if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
+            msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+          }
+        }
+        if (e instanceof HttpError && (e.status === 502 || e.status === 503)) {
+          msg = apiBase.startsWith("/api")
+            ? "CloudFront `/api/*` proxy is unavailable (502/503). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/GET/OPTIONS, or set apiBaseUrl in trader-config.js to https://<your-api-host>."
+            : "API gateway unavailable (502/503). Try again, or check the API logs.";
+        }
+        if (e instanceof HttpError && e.status === 504) {
+          msg = apiBase.startsWith("/api")
+            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, or set apiBaseUrl in trader-config.js to https://<your-api-host>."
+            : "API gateway timed out (504). Try again, or reduce bars/epochs, or scale the API.";
+        }
         setBot((s) => ({ ...s, loading: false, error: msg }));
 
         setApiOk((prev) => {
@@ -2230,11 +2246,19 @@ export function App() {
       const formatStartError = (err: unknown) => {
         let msg = err instanceof Error ? err.message : String(err);
         let showErrorToast = !silent;
+        if (isTimeoutError(err)) msg = "Bot start timed out. Try again.";
         if (err instanceof HttpError && err.status === 429) {
           const untilMs = applyRateLimit(err, { silent });
           msg = `Rate limited. Try again ${fmtEtaMs(Math.max(0, untilMs - Date.now()))}.`;
           showErrorToast = false;
-        } else if (err instanceof HttpError && err.payload && typeof err.payload === "object") {
+        }
+        if (err instanceof HttpError && err.status !== 429 && typeof err.payload === "string") {
+          const payload = err.payload;
+          if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
+            msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+          }
+        }
+        if (err instanceof HttpError && err.status !== 429 && err.payload && typeof err.payload === "object") {
           try {
             let detail = JSON.stringify(err.payload, null, 2);
             if (detail.length > 2000) detail = `${detail.slice(0, 1997)}...`;
@@ -2242,6 +2266,16 @@ export function App() {
           } catch {
             // ignore
           }
+        }
+        if (err instanceof HttpError && (err.status === 502 || err.status === 503)) {
+          msg = apiBase.startsWith("/api")
+            ? "CloudFront `/api/*` proxy is unavailable (502/503). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/GET/OPTIONS, or set apiBaseUrl in trader-config.js to https://<your-api-host>."
+            : "API gateway unavailable (502/503). Try again, or check the API logs.";
+        }
+        if (err instanceof HttpError && err.status === 504) {
+          msg = apiBase.startsWith("/api")
+            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, or set apiBaseUrl in trader-config.js to https://<your-api-host>."
+            : "API gateway timed out (504). Try again, or reduce bars/epochs, or scale the API.";
         }
         return { msg, showErrorToast };
       };
@@ -2958,10 +2992,12 @@ export function App() {
   const extraIssueCount = Math.max(0, requestIssueDetails.length - 1);
   const requestDisabledReason = primaryIssue?.disabledMessage ?? primaryIssue?.message ?? null;
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
-  const botStarting = bot.status.running ? false : bot.status.starting === true;
+  const botStarting = apiOk === "ok" && !bot.error && !bot.status.running && bot.status.starting === true;
   const botStartBlockedReason = firstReason(
     !isBinancePlatform ? "Live bot is supported on Binance only." : null,
-    form.positioning === "long-short" ? "Live bot supports Long/Flat only." : null,
+    form.positioning === "long-short" && form.market !== "futures"
+      ? "Live bot long/short requires the Futures market."
+      : null,
     requestDisabledReason,
   );
   const botStartBlocked = bot.loading || botStarting || Boolean(botStartBlockedReason);
@@ -3901,7 +3937,7 @@ export function App() {
                   }
                 >
                   {form.positioning === "long-short"
-                    ? `${form.market !== "futures" ? "Long/Short trading requires Futures market when trading is armed. " : ""}Live bot runs Long/Flat only.`
+                    ? `${form.market !== "futures" ? "Long/Short trading requires Futures market when trading is armed. " : ""}Live bot supports Long/Short on futures.`
                     : "Down signals go FLAT (long/flat) or SHORT (long/short)."}
                 </div>
               </div>

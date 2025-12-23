@@ -301,7 +301,7 @@ opts = do
       ( long "positioning"
           <> value LongFlat
           <> showDefaultWith positioningCode
-          <> help "Positioning: long-flat (default) or long-short (experimental; futures-only for live orders)"
+          <> help "Positioning: long-flat (default) or long-short (futures-only when trading)"
       )
   argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
   argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
@@ -414,7 +414,6 @@ validateArgs args0 = do
   ensure "Provide only one of --data or --binance-symbol" (not (present (argData args) && present (argBinanceSymbol args)))
   ensure "Provide a data source: --data or --binance-symbol (unless using --serve)" (argServe args || present (argData args) || present (argBinanceSymbol args))
   ensure "--json cannot be used with --serve" (not (argJson args && argServe args))
-  ensure "--positioning long-short is not supported with --serve (live bot is long-flat only)" (not (argServe args && argPositioning args == LongShort))
   ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
   ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)
   let isBinance = argPlatform args == PlatformBinance

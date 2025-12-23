@@ -150,6 +150,7 @@ import Trader.Trading
   , EnsembleConfig(..)
   , IntrabarFill(..)
   , Positioning(..)
+  , PositionSide(..)
   , StepMeta(..)
   , Trade(..)
   , exitReasonFromCode
@@ -1392,6 +1393,15 @@ instance FromJSON TopCombo where
       <*> o Aeson..:? "closeThreshold"
       <*> pure params
 
+data BotOpenTrade = BotOpenTrade
+  { botOpenEntryIndex :: !Int
+  , botOpenEntryEquity :: !Double
+  , botOpenHoldingPeriods :: !Int
+  , botOpenEntryPrice :: !Double
+  , botOpenTrail :: !Double
+  , botOpenSide :: !PositionSide
+  } deriving (Eq, Show)
+
 data BotState = BotState
   { botArgs :: !Args
   , botSettings :: !BotSettings
@@ -1407,7 +1417,7 @@ data BotState = BotState
   , botOps :: ![BotOp]
   , botOrders :: ![BotOrderEvent]
   , botTrades :: ![Trade]
-  , botOpenTrade :: !(Maybe (Int, Double, Int, Double, Double)) -- (entryIdx, entryEq, holdingPeriods, entryPrice, trailHigh)
+  , botOpenTrade :: !(Maybe BotOpenTrade)
   , botCooldownLeft :: !Int
   , botLatestSignal :: !LatestSignal
   , botLastOrder :: !(Maybe ApiOrderResult)
@@ -1566,6 +1576,13 @@ botStateTail tailN st =
               | e <- botOrders st
               , boeIndex e >= dropCount
               ]
+            openTradeShifted =
+              case botOpenTrade st of
+                Nothing -> Nothing
+                Just ot ->
+                  if botOpenEntryIndex ot >= dropCount
+                    then Just ot { botOpenEntryIndex = botOpenEntryIndex ot - dropCount }
+                    else Nothing
          in
           st
             { botPrices = V.drop dropCount (botPrices st)
@@ -1577,6 +1594,7 @@ botStateTail tailN st =
             , botOps = opsShifted
             , botOrders = ordersShifted
             , botTrades = tradesShifted
+            , botOpenTrade = openTradeShifted
             , botStartIndex = botStartIndex st + dropCount
             }
 
@@ -1732,9 +1750,10 @@ fetchLongFlatAccountPos args env sym =
   case argBinanceMarket args of
     MarketFutures -> do
       posAmt <- fetchFuturesPositionAmt env sym
-      if posAmt < 0
+      let pos = accountPosSign posAmt
+      if pos < 0
         then throwIO (userError ("bot/start positioning=long-flat cannot start with a short futures positionAmt=" ++ show posAmt))
-        else pure (if posAmt > 0 then 1 else 0)
+        else pure (if pos > 0 then 1 else 0)
     _ -> do
       let (baseAsset, _quoteAsset) = splitSymbol sym
       mSf <- tryFetchFilters
@@ -1757,6 +1776,26 @@ fetchLongFlatAccountPos args env sym =
         Nothing -> baseBal > 0
         Just minQ -> baseBal >= minQ
 
+accountPosSign :: Double -> Int
+accountPosSign posAmt
+  | posAmt > 1e-12 = 1
+  | posAmt < -1e-12 = -1
+  | otherwise = 0
+
+fetchLongShortAccountPos :: Args -> BinanceEnv -> String -> IO Int
+fetchLongShortAccountPos args env sym =
+  case argBinanceMarket args of
+    MarketFutures -> do
+      posAmt <- fetchFuturesPositionAmt env sym
+      pure (accountPosSign posAmt)
+    _ -> throwIO (userError "bot/start positioning=long-short requires market=futures")
+
+fetchBotAccountPos :: Args -> BinanceEnv -> String -> IO Int
+fetchBotAccountPos args env sym =
+  case argPositioning args of
+    LongFlat -> fetchLongFlatAccountPos args env sym
+    LongShort -> fetchLongShortAccountPos args env sym
+
 preflightBotStart :: Args -> BotSettings -> String -> IO (Either String ())
 preflightBotStart args settings sym =
   if not (bsTradeEnabled settings)
@@ -1765,18 +1804,22 @@ preflightBotStart args settings sym =
       r <- try $ do
         env <- makeBinanceEnv args
         ensureBinanceKeysPresent env
-        pos <- fetchLongFlatAccountPos args env sym
-        if pos == 1 && not (bsAdoptExistingPosition settings)
+        pos <- fetchBotAccountPos args env sym
+        if pos /= 0 && not (bsAdoptExistingPosition settings)
           then
-            pure
-              ( Left
-                  ( "Refusing to start: existing long position detected for "
-                      ++ sym
-                      ++ " ("
-                      ++ marketCode (argBinanceMarket args)
-                      ++ "). Flatten first, or set botAdoptExistingPosition=true."
-                  )
-              )
+            let sideLabel = if pos > 0 then "long" else "short"
+             in
+              pure
+                ( Left
+                    ( "Refusing to start: existing "
+                        ++ sideLabel
+                        ++ " position detected for "
+                        ++ sym
+                        ++ " ("
+                        ++ marketCode (argBinanceMarket args)
+                        ++ "). Flatten first, or set botAdoptExistingPosition=true."
+                    )
+                )
           else pure (Right ())
       case r of
         Left ex -> pure (Left (snd (exceptionToHttp ex)))
@@ -1904,18 +1947,22 @@ initBotState args settings sym = do
     if tradeEnabled
       then do
         ensureBinanceKeysPresent env
-        pos <- fetchLongFlatAccountPos args env sym
-        if pos == 1 && not (bsAdoptExistingPosition settings)
+        pos <- fetchBotAccountPos args env sym
+        if pos /= 0 && not (bsAdoptExistingPosition settings)
           then
-            throwIO
-              ( userError
-                  ( "Refusing to start: existing long position detected for "
-                      ++ sym
-                      ++ " ("
-                      ++ marketCode (argBinanceMarket args)
-                      ++ "). Flatten first, or set botAdoptExistingPosition=true."
-                  )
-              )
+            let sideLabel = if pos > 0 then "long" else "short"
+             in
+              throwIO
+                ( userError
+                    ( "Refusing to start: existing "
+                        ++ sideLabel
+                        ++ " position detected for "
+                        ++ sym
+                        ++ " ("
+                        ++ marketCode (argBinanceMarket args)
+                        ++ "). Flatten first, or set botAdoptExistingPosition=true."
+                    )
+                )
           else pure pos
       else pure 0
   let initBars = clampInt 2 1000 (max 2 (resolveBarsForBinance args))
@@ -2027,19 +2074,47 @@ initBotState args settings sym = do
           MethodKalmanOnly -> kalCloseDirRaw == Just 1
           MethodLstmOnly -> lstmCloseDir == Just 1
           MethodBlend -> blendCloseDir == Just 1
+      wantShortClose =
+        case argMethod args of
+          MethodBoth -> closeAgreeDir == Just (-1)
+          MethodKalmanOnly -> kalCloseDirRaw == Just (-1)
+          MethodLstmOnly -> lstmCloseDir == Just (-1)
+          MethodBlend -> blendCloseDir == Just (-1)
+      allowShort = argPositioning args == LongShort
 
       desiredPosSignal =
-        if startPos0 == 1
-          then if wantLongClose then 1 else 0
-          else
+        case startPos0 of
+          1 ->
+            if wantLongClose
+              then 1
+              else
+                case (allowShort, lsChosenDir latest0Raw) of
+                  (True, Just (-1)) -> -1
+                  _ -> 0
+          (-1) ->
+            if wantShortClose
+              then -1
+              else
+                case (allowShort, lsChosenDir latest0Raw) of
+                  (True, Just 1) -> 1
+                  _ -> 0
+          _ ->
             case lsChosenDir latest0Raw of
               Just 1 -> 1
+              Just (-1) | allowShort -> -1
               _ -> 0
 
       latest =
-        if startPos0 == 1 && desiredPosSignal == 0 && lsChosenDir latest0Raw /= Just (-1)
-          then latest0Raw { lsChosenDir = Just (-1), lsAction = "FLAT (close)" }
-          else latest0Raw
+        case (startPos0, desiredPosSignal) of
+          (1, 0) ->
+            if lsChosenDir latest0Raw /= Just (-1)
+              then latest0Raw { lsChosenDir = Just (-1), lsAction = "FLAT (close)" }
+              else latest0Raw
+          (-1, 0) ->
+            if lsChosenDir latest0Raw /= Just 1
+              then latest0Raw { lsChosenDir = Just 1, lsAction = "FLAT (close)" }
+              else latest0Raw
+          _ -> latest0Raw
 
       baseEq = 1.0
       eq0 = V.replicate n baseEq
@@ -2047,20 +2122,25 @@ initBotState args settings sym = do
       lastOt = V.last openV
       wantSwitch = desiredPosSignal /= startPos0
       opSide =
-        if startPos0 == 0 && desiredPosSignal == 1
+        if desiredPosSignal > startPos0
           then "BUY"
           else "SELL"
 
   mOrder <-
     if wantSwitch
-      then Just <$> placeIfEnabled args settings latest env sym
+      then
+        if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
+          then Just <$> placeCloseIfEnabled args settings latest env sym
+          else Just <$> placeIfEnabled args settings latest env sym
       else pure Nothing
 
   let orderSent = maybe False aorSent mOrder
       alreadyMsg =
         case mOrder of
           Nothing -> False
-          Just o -> aorMessage o == "No order: already long." || aorMessage o == "No order: already flat."
+          Just o ->
+            let msg = aorMessage o
+             in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
       appliedSwitch =
         if not tradeEnabled
           then True
@@ -2081,11 +2161,14 @@ initBotState args settings sym = do
           else eq0
       pos1 = pos0 V.// [(n - 1, desiredPos)]
       openTrade =
-        if desiredPos == 1
-          then
+        case desiredPos of
+          1 ->
             let px = V.last pricesV
-             in Just (n - 1, eq1 V.! (n - 1), 0, px, px)
-          else Nothing
+             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px px SideLong)
+          (-1) ->
+            let px = V.last pricesV
+             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px px SideShort)
+          _ -> Nothing
       ops =
         if wantSwitch && appliedSwitch
           then [BotOp (n - 1) opSide (V.last pricesV)]
@@ -2119,9 +2202,9 @@ initBotState args settings sym = do
             let openTradeShifted =
                   case openTrade of
                     Nothing -> Nothing
-                    Just (ei, eq0, hold, entryPx, trailHigh) ->
-                      if ei >= dropCount
-                        then Just (ei - dropCount, eq0, hold, entryPx, trailHigh)
+                    Just ot ->
+                      if botOpenEntryIndex ot >= dropCount
+                        then Just ot { botOpenEntryIndex = botOpenEntryIndex ot - dropCount }
                         else Nothing
                 opsShifted =
                   [ op { boIndex = boIndex op - dropCount }
@@ -2262,7 +2345,7 @@ botOptimizeAfterOperation st = do
                   , ecMaxDrawdown = argMaxDrawdown args
                   , ecMaxDailyLoss = argMaxDailyLoss args
                   , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
-                  , ecPositioning = LongFlat
+                  , ecPositioning = argPositioning args
                   , ecIntrabarFill = argIntrabarFill args
                   , ecMaxPositionSize = argMaxPositionSize args
                   , ecMinEdge = minEdge
@@ -2356,7 +2439,6 @@ botApplyOptimizerUpdate st upd = do
         (bouArgs upd)
           { argOptimizeOperations = False
           , argSweepThreshold = False
-          , argPositioning = LongFlat
           }
       lookback' = max 2 (bouLookback upd)
       pricesV = botPrices st
@@ -3270,14 +3352,41 @@ botApplyKline mOps metrics mJournal st k = do
   let prevPrice = pricesPrev V.! (nPrev - 1)
       prevEq = botEquityCurve st V.! (nPrev - 1)
       prevPos = botPositions st V.! (nPrev - 1)
+      markToMarket side basePx px =
+        if basePx == 0
+          then 1
+          else
+            case side of
+              SideLong -> px / basePx
+              SideShort -> 2 - px / basePx
       eqAfterReturn =
-        if prevPos == 1 && prevPrice > 0
-          then prevEq * (priceNew / prevPrice)
-          else prevEq
+        case prevPos of
+          1 | prevPrice > 0 -> prevEq * markToMarket SideLong prevPrice priceNew
+          (-1) | prevPrice > 0 -> prevEq * markToMarket SideShort prevPrice priceNew
+          _ -> prevEq
       openTrade1 =
-        case (prevPos, botOpenTrade st) of
-          (1, Just (ei, eq0, hold, entryPx, trailHigh)) -> Just (ei, eq0, hold + 1, entryPx, max trailHigh priceNew)
-          _ -> Nothing
+        case botOpenTrade st of
+          Nothing -> Nothing
+          Just ot ->
+            let side = botOpenSide ot
+                expectedPos =
+                  case side of
+                    SideLong -> 1
+                    SideShort -> -1
+             in
+              if prevPos /= expectedPos
+                then Nothing
+                else
+                  let trail1 =
+                        case side of
+                          SideLong -> max (botOpenTrail ot) priceNew
+                          SideShort -> min (botOpenTrail ot) priceNew
+                   in
+                    Just
+                      ot
+                        { botOpenHoldingPeriods = botOpenHoldingPeriods ot + 1
+                        , botOpenTrail = trail1
+                        }
       dayMs = 86400000 :: Int64
       dayKeyNew = openTimeNew `div` dayMs
       (dayKey1, dayStartEq1) =
@@ -3392,62 +3501,128 @@ botApplyKline mOps metrics mJournal st k = do
           MethodKalmanOnly -> kalCloseDirRaw == Just 1
           MethodLstmOnly -> lstmCloseDir == Just 1
           MethodBlend -> blendCloseDir == Just 1
+      wantShortClose =
+        case argMethod args of
+          MethodBoth -> closeAgreeDir == Just (-1)
+          MethodKalmanOnly -> kalCloseDirRaw == Just (-1)
+          MethodLstmOnly -> lstmCloseDir == Just (-1)
+          MethodBlend -> blendCloseDir == Just (-1)
+      allowShort = argPositioning args == LongShort
 
       desiredPosSignal =
-        if prevPos == 1
-          then if wantLongClose then 1 else 0
-          else
+        case prevPos of
+          1 ->
+            if wantLongClose
+              then 1
+              else
+                case (allowShort, lsChosenDir latest0Raw) of
+                  (True, Just (-1)) -> -1
+                  _ -> 0
+          (-1) ->
+            if wantShortClose
+              then -1
+              else
+                case (allowShort, lsChosenDir latest0Raw) of
+                  (True, Just 1) -> 1
+                  _ -> 0
+          _ ->
             case lsChosenDir latest0Raw of
               Just 1 -> 1
+              Just (-1) | allowShort -> -1
               _ -> 0
 
       -- If we decide to exit based on closeThreshold (even if openThreshold signal is neutral),
-      -- force chosenDir=-1 so a SELL can actually be placed when trade is enabled.
+      -- force chosenDir to the exit side so a closing order can be placed when trading is enabled.
       latest0 =
-        if prevPos == 1 && desiredPosSignal == 0 && lsChosenDir latest0Raw /= Just (-1)
-          then latest0Raw { lsChosenDir = Just (-1), lsAction = "FLAT (close)" }
-          else latest0Raw
+        case (prevPos, desiredPosSignal) of
+          (1, 0) ->
+            if lsChosenDir latest0Raw /= Just (-1)
+              then latest0Raw { lsChosenDir = Just (-1), lsAction = "FLAT (close)" }
+              else latest0Raw
+          (-1, 0) ->
+            if lsChosenDir latest0Raw /= Just 1
+              then latest0Raw { lsChosenDir = Just 1, lsAction = "FLAT (close)" }
+              else latest0Raw
+          _ -> latest0Raw
 
-      bracketExitReason entryPx trailHigh =
-        let mTpPx =
-              case argTakeProfit args of
-                Just tp | tp > 0 -> Just (entryPx * (1 + tp))
-                _ -> Nothing
-            mSlPx =
-              case argStopLoss args of
-                Just sl | sl > 0 -> Just (entryPx * (1 - sl))
-                _ -> Nothing
-            mTsPx =
-              case argTrailingStop args of
-                Just ts | ts > 0 -> Just (trailHigh * (1 - ts))
-                _ -> Nothing
-
-            tpHit = maybe False (\tpPx -> priceNew >= tpPx) mTpPx
-            (mStopPx, stopWhy) =
-              case (mSlPx, mTsPx) of
-                (Nothing, Nothing) -> (Nothing, Nothing)
-                (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
-                (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
-                (Just slPx, Just tsPx) ->
-                  if tsPx > slPx
-                    then (Just tsPx, Just "TRAILING_STOP")
-                    else (Just slPx, Just "STOP_LOSS")
-            stopHit = maybe False (\stPx -> priceNew <= stPx) mStopPx
+      bracketExitReason side entryPx trail =
+        let (tpHit, stopHit, stopWhy) =
+              case side of
+                SideLong ->
+                  let mTp =
+                        case argTakeProfit args of
+                          Just tp | tp > 0 -> Just (entryPx * (1 + tp))
+                          _ -> Nothing
+                      mSl =
+                        case argStopLoss args of
+                          Just sl | sl > 0 -> Just (entryPx * (1 - sl))
+                          _ -> Nothing
+                      mTs =
+                        case argTrailingStop args of
+                          Just ts | ts > 0 -> Just (trail * (1 - ts))
+                          _ -> Nothing
+                      (mStop, why) =
+                        case (mSl, mTs) of
+                          (Nothing, Nothing) -> (Nothing, Nothing)
+                          (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                          (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                          (Just slPx, Just tsPx) ->
+                            if tsPx > slPx
+                              then (Just tsPx, Just "TRAILING_STOP")
+                              else (Just slPx, Just "STOP_LOSS")
+                      tpOk = maybe False (\tpPx -> priceNew >= tpPx) mTp
+                      stopOk = maybe False (\stPx -> priceNew <= stPx) mStop
+                   in (tpOk, stopOk, why)
+                SideShort ->
+                  let mTp =
+                        case argTakeProfit args of
+                          Just tp | tp > 0 -> Just (entryPx * (1 - tp))
+                          _ -> Nothing
+                      mSl =
+                        case argStopLoss args of
+                          Just sl | sl > 0 -> Just (entryPx * (1 + sl))
+                          _ -> Nothing
+                      mTs =
+                        case argTrailingStop args of
+                          Just ts | ts > 0 -> Just (trail * (1 + ts))
+                          _ -> Nothing
+                      (mStop, why) =
+                        case (mSl, mTs) of
+                          (Nothing, Nothing) -> (Nothing, Nothing)
+                          (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                          (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                          (Just slPx, Just tsPx) ->
+                            if tsPx < slPx
+                              then (Just tsPx, Just "TRAILING_STOP")
+                              else (Just slPx, Just "STOP_LOSS")
+                      tpOk = maybe False (\tpPx -> priceNew <= tpPx) mTp
+                      stopOk = maybe False (\stPx -> priceNew >= stPx) mStop
+                   in (tpOk, stopOk, why)
          in if tpHit then Just "TAKE_PROFIT" else if stopHit then stopWhy else Nothing
 
       mBracketExit =
-        case (prevPos, openTrade1) of
-          (1, Just (_ei, _eq0, _hold, entryPx, trailHigh)) -> bracketExitReason entryPx trailHigh
+        case openTrade1 of
+          Just ot ->
+            let side = botOpenSide ot
+                expectedPos =
+                  case side of
+                    SideLong -> 1
+                    SideShort -> -1
+             in
+              if prevPos == expectedPos
+                then bracketExitReason side (botOpenEntryPrice ot) (botOpenTrail ot)
+                else Nothing
           _ -> Nothing
 
       (latestPre, desiredPosPre, mExitReasonPre) =
         case mBracketExit of
           Just why ->
-            let sigExit = latest0 { lsChosenDir = Just (-1), lsAction = "EXIT_" ++ why }
+            let closeDir = if prevPos > 0 then Just (-1) else Just 1
+                sigExit = latest0 { lsChosenDir = closeDir, lsAction = "EXIT_" ++ why }
              in (sigExit, 0, Just why)
           Nothing ->
             let exitReason =
-                  if prevPos == 1 && desiredPosSignal == 0
+                  if prevPos /= 0 && desiredPosSignal /= prevPos
                     then Just "SIGNAL"
                     else Nothing
              in (latest0, desiredPosSignal, exitReason)
@@ -3459,11 +3634,13 @@ botApplyKline mOps metrics mJournal st k = do
                 latestHalt =
                   case (prevPos, why) of
                     (1, Just r) -> latestPre { lsChosenDir = Just (-1), lsAction = "EXIT_" ++ r }
+                    (-1, Just r) -> latestPre { lsChosenDir = Just 1, lsAction = "EXIT_" ++ r }
                     (0, Just r) -> latestPre { lsChosenDir = Nothing, lsAction = "HALTED_" ++ r }
                     _ -> latestPre
                 exitReason =
                   case (prevPos, why) of
                     (1, Just r) -> Just r
+                    (-1, Just r) -> Just r
                     _ -> mExitReasonPre
              in (latestHalt, 0, exitReason)
           else (latestPre, desiredPosPre, mExitReasonPre)
@@ -3471,7 +3648,7 @@ botApplyKline mOps metrics mJournal st k = do
       holdBars =
         case openTrade1 of
           Nothing -> 0
-          Just (_ei, _eq0, hold, _entryPx, _trailHigh) -> hold
+          Just ot -> botOpenHoldingPeriods ot
 
       minHoldBars = max 0 (argMinHoldBars args)
       maxHoldBars =
@@ -3483,22 +3660,24 @@ botApplyKline mOps metrics mJournal st k = do
       cooldownBlocked = prevPos == 0 && cooldownLeft0 > 0
 
       (latest1, desiredPosWanted1, mExitReason1) =
-        if prevPos == 1 && desiredPosWanted0b == 0 && mExitReason0b == Just "SIGNAL" && holdBars < minHoldBars
-          then (latest0b { lsAction = "HOLD_MIN_HOLD" }, 1, Nothing)
+        if prevPos /= 0 && desiredPosWanted0b == 0 && mExitReason0b == Just "SIGNAL" && holdBars < minHoldBars
+          then (latest0b { lsAction = "HOLD_MIN_HOLD" }, prevPos, Nothing)
           else (latest0b, desiredPosWanted0b, mExitReason0b)
 
       holdTooLong =
         case maxHoldBars of
           Nothing -> False
-          Just lim -> prevPos == 1 && holdBars >= lim && desiredPosWanted1 == 1
+          Just lim -> prevPos /= 0 && holdBars >= lim && desiredPosWanted1 == prevPos
 
       (latest2, desiredPosWanted2, mExitReason2) =
         if holdTooLong
-          then (latest1 { lsChosenDir = Just (-1), lsAction = "EXIT_MAX_HOLD" }, 0, Just "MAX_HOLD")
+          then
+            let closeDir = if prevPos > 0 then Just (-1) else Just 1
+             in (latest1 { lsChosenDir = closeDir, lsAction = "EXIT_MAX_HOLD" }, 0, Just "MAX_HOLD")
           else (latest1, desiredPosWanted1, mExitReason1)
 
       (latest, desiredPosWanted, mExitReason) =
-        if prevPos == 0 && desiredPosWanted2 == 1 && cooldownBlocked
+        if prevPos == 0 && desiredPosWanted2 /= 0 && cooldownBlocked
           then (latest2 { lsAction = "HOLD_COOLDOWN" }, 0, Nothing)
           else (latest2, desiredPosWanted2, mExitReason2)
 
@@ -3521,16 +3700,20 @@ botApplyKline mOps metrics mJournal st k = do
           , haltedAt1
           )
       else do
-        o <- placeIfEnabled args settings latest (botEnv st) (botSymbol st)
+        o <-
+          if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
+            then placeCloseIfEnabled args settings latest (botEnv st) (botSymbol st)
+            else placeIfEnabled args settings latest (botEnv st) (botSymbol st)
         let opSide =
-              if prevPos == 0 && desiredPosWanted == 1
+              if desiredPosWanted > prevPos
                 then "BUY"
                 else "SELL"
             orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now o
             ordersNew = botOrders st ++ [orderEv]
             tradeEnabled = bsTradeEnabled settings
             alreadyMsg =
-              aorMessage o == "No order: already long." || aorMessage o == "No order: already flat."
+              let msg = aorMessage o
+               in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
             appliedSwitch =
               if not tradeEnabled
                 then True
@@ -3549,27 +3732,41 @@ botApplyKline mOps metrics mJournal st k = do
               if appliedSwitch
                 then botOps st ++ [BotOp nPrev opSide priceNew]
                 else botOps st
+            openTradeFor side eqEntry =
+              BotOpenTrade
+                { botOpenEntryIndex = nPrev
+                , botOpenEntryEquity = eqEntry
+                , botOpenHoldingPeriods = 0
+                , botOpenEntryPrice = priceNew
+                , botOpenTrail = priceNew
+                , botOpenSide = side
+                }
+            closeTradeAt exitEq ot =
+              Trade
+                { trEntryIndex = botOpenEntryIndex ot
+                , trExitIndex = nPrev
+                , trEntryEquity = botOpenEntryEquity ot
+                , trExitEquity = exitEq
+                , trReturn = exitEq / botOpenEntryEquity ot - 1
+                , trHoldingPeriods = botOpenHoldingPeriods ot
+                , trExitReason = exitReasonFromCode <$> mExitReason
+                }
+            closeTrades =
+              case openTrade1 of
+                Nothing -> botTrades st
+                Just ot -> botTrades st ++ [closeTradeAt eqAfterFee ot]
             (openTradeNew, tradesNew) =
               if not appliedSwitch
                 then (openTrade1, botTrades st)
                 else
-                  if opSide == "BUY"
-                    then (Just (nPrev, eqAfterFee, 0, priceNew, priceNew), botTrades st)
-                    else
-                      case openTrade1 of
-                        Just (ei, entryEq, hold, _entryPx, _trailHigh) ->
-                          let tr =
-                                Trade
-                                  { trEntryIndex = ei
-                                  , trExitIndex = nPrev
-                                  , trEntryEquity = entryEq
-                                  , trExitEquity = eqAfterFee
-                                  , trReturn = eqAfterFee / entryEq - 1
-                                  , trHoldingPeriods = hold
-                                  , trExitReason = exitReasonFromCode <$> mExitReason
-                                  }
-                           in (Nothing, botTrades st ++ [tr])
-                        Nothing -> (Nothing, botTrades st)
+                  case (prevPos, posNew) of
+                    (0, 1) -> (Just (openTradeFor SideLong eqAfterFee), botTrades st)
+                    (0, -1) -> (Just (openTradeFor SideShort eqAfterFee), botTrades st)
+                    (1, 0) -> (Nothing, closeTrades)
+                    (-1, 0) -> (Nothing, closeTrades)
+                    (1, -1) -> (Just (openTradeFor SideShort eqAfterFee), closeTrades)
+                    (-1, 1) -> (Just (openTradeFor SideLong eqAfterFee), closeTrades)
+                    _ -> (openTrade1, botTrades st)
             errors0 = botConsecutiveOrderErrors st
             errors1 =
               if tradeEnabled
@@ -3657,7 +3854,7 @@ botApplyKline mOps metrics mJournal st k = do
           else 0
       cooldownLeftNext =
         if posFinal == 0
-          then if prevPos == 1 then cooldownBars else cooldownDec
+          then if prevPos /= 0 then cooldownBars else cooldownDec
           else 0
       eqV1 = V.snoc (botEquityCurve st) eqFinal
       posV1 = V.snoc (botPositions st) posFinal
@@ -3680,9 +3877,9 @@ botApplyKline mOps metrics mJournal st k = do
                 openTradeShifted =
                   case openTrade' of
                     Nothing -> Nothing
-                    Just (ei, eq0, hold, entryPx, trailHigh) ->
-                      if ei >= dropCount
-                        then Just (ei - dropCount, eq0, hold, entryPx, trailHigh)
+                    Just ot ->
+                      if botOpenEntryIndex ot >= dropCount
+                        then Just ot { botOpenEntryIndex = botOpenEntryIndex ot - dropCount }
                         else Nothing
                 opsShifted =
                   [ op { boIndex = boIndex op - dropCount }
@@ -3770,6 +3967,18 @@ placeIfEnabled args settings sig env sym =
   if not (bsTradeEnabled settings)
     then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
     else placeOrderForSignalBot args sym sig env
+
+placeCloseIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
+placeCloseIfEnabled args settings sig env sym =
+  if not (bsTradeEnabled settings)
+    then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
+    else placeBotCloseOrder args sym sig env
+
+placeBotCloseOrder :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
+placeBotCloseOrder args sym sig env =
+  let args' = args { argPositioning = LongFlat }
+      sig' = sig { lsChosenDir = Just (-1) }
+   in placeOrderForSignalEx args' sym sig' env Nothing False
 
 runRestApi :: Args -> IO ()
 runRestApi baseArgs = do
@@ -6167,50 +6376,47 @@ handleBotStart mOps limits metrics mJournal mBotStatePath baseArgs botCtrl req r
                 args0
                   { argTradeOnly = True
                   }
-          if argPositioning args /= LongFlat
-            then respond (jsonError status400 "bot/start currently supports positioning=long-flat only")
-            else
-              case validateApiComputeLimits limits args of
+          case validateApiComputeLimits limits args of
+            Left e -> respond (jsonError status400 e)
+            Right argsOk -> do
+              r <- botStart mOps metrics mJournal mBotStatePath botCtrl argsOk params
+              case r of
                 Left e -> respond (jsonError status400 e)
-                Right argsOk -> do
-                  r <- botStart mOps metrics mJournal mBotStatePath botCtrl argsOk params
-                  case r of
-                    Left e -> respond (jsonError status400 e)
-                    Right rt -> do
-                      now <- getTimestampMs
-                      let settings = bsrSettings rt
-                      journalWriteMaybe
-                        mJournal
+                Right rt -> do
+                  now <- getTimestampMs
+                  let settings = bsrSettings rt
+                  journalWriteMaybe
+                    mJournal
+                    ( object
+                        [ "type" .= ("bot.start" :: String)
+                        , "atMs" .= now
+                        , "symbol" .= bsrSymbol rt
+                        , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
+                        , "interval" .= argInterval (bsrArgs rt)
+                        , "tradeEnabled" .= bsTradeEnabled (bsrSettings rt)
+                        ]
+                    )
+                  opsAppendMaybe
+                    mOps
+                    "bot.start"
+                    (Just (toJSON (sanitizeApiParams params)))
+                    (Just (argsPublicJson argsOk))
+                    ( Just
                         ( object
-                            [ "type" .= ("bot.start" :: String)
-                            , "atMs" .= now
-                            , "symbol" .= bsrSymbol rt
+                            [ "symbol" .= bsrSymbol rt
                             , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
                             , "interval" .= argInterval (bsrArgs rt)
-                            , "tradeEnabled" .= bsTradeEnabled (bsrSettings rt)
+                            , "tradeEnabled" .= bsTradeEnabled settings
+                            , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
+                            , "botPollSeconds" .= bsPollSeconds settings
+                            , "botOnlineEpochs" .= bsOnlineEpochs settings
+                            , "botTrainBars" .= bsTrainBars settings
+                            , "botMaxPoints" .= bsMaxPoints settings
                             ]
                         )
-                      opsAppendMaybe
-                        mOps
-                        "bot.start"
-                        (Just (toJSON (sanitizeApiParams params)))
-                        (Just (argsPublicJson argsOk))
-                        ( Just
-                            ( object
-                                [ "symbol" .= bsrSymbol rt
-                                , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
-                                , "interval" .= argInterval (bsrArgs rt)
-                                , "tradeEnabled" .= bsTradeEnabled settings
-                                , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
-                                , "botPollSeconds" .= bsPollSeconds settings
-                                , "botOnlineEpochs" .= bsOnlineEpochs settings
-                                , "botTrainBars" .= bsTrainBars settings
-                                , "botMaxPoints" .= bsMaxPoints settings
-                                ]
-                            )
-                        )
-                        Nothing
-                      respond (jsonValue status202 (botStartingJson rt))
+                    )
+                    Nothing
+                  respond (jsonValue status202 (botStartingJson rt))
 
 handleBotStop :: Maybe OpsStore -> Maybe Journal -> Maybe FilePath -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStop mOps mJournal mBotStatePath botCtrl respond = do

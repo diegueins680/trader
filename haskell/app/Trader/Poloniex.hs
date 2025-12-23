@@ -26,6 +26,9 @@ data PoloniexCandle = PoloniexCandle
 poloniexBaseUrl :: String
 poloniexBaseUrl = "https://poloniex.com/public"
 
+poloniexTimeoutMicros :: Int
+poloniexTimeoutMicros = 15 * 1000000
+
 fetchPoloniexCandles :: String -> Int -> Int -> IO [PoloniexCandle]
 fetchPoloniexCandles pair periodSec bars = do
   mgr <- newManager tlsManagerSettings
@@ -43,7 +46,15 @@ fetchPoloniexCandles pair periodSec bars = do
           , ("end", Just (BS.pack (show end)))
           ]
           req0
-  resp <- httpLbs req mgr
+  let req' =
+        req
+          { requestHeaders =
+              ("User-Agent", BS.pack "trader-hs/0.1")
+                : ("Accept", BS.pack "application/json")
+                : requestHeaders req
+          , responseTimeout = responseTimeoutMicro poloniexTimeoutMicros
+          }
+  resp <- httpLbs req' mgr
   let code = statusCode (responseStatus resp)
   if code < 200 || code >= 300
     then throwIO (userError ("Poloniex chart request failed (HTTP " ++ show code ++ ")"))

@@ -32,11 +32,14 @@ All notable changes to this project will be documented in this file.
 - Web UI: show optimizer combo source (API vs static) and last update time.
 - Web UI: optimizer combo loads preserve the current positioning unless the combo explicitly specifies one.
 - Web UI: hides the Agree overlay for LSTM-only backtests and clarifies bars=0 combo behavior.
+- Web UI: optimizer combo refresh errors keep the last known combos visible with a warning.
 - API/Trading: latest signals include `closeDirection`, and live order decisions respect `closeThreshold` for exits.
 - Web UI: manual Method/open/close edits are preserved when optimizer combos or optimize/sweep results apply.
 - Web UI: optimizer combos now persist/show the operations that produced each top result on hover.
 - Web UI: add auto-apply toggle with last-applied marker, manual override lock/unlock hints, and a cross-origin API base warning.
 - Web UI: show persisted live-bot snapshots when `/bot/status` is restored after restart.
+- Web UI: live bot start/status errors surface CloudFront `/api/*` proxy hints and avoid a stuck `Starting...` state when the API is down.
+- Live bot: support long/short positioning on Binance futures (including adopting/closing existing short positions).
 - Optimizer: adds a `--quality` preset plus CSV high/low auto-detection for deeper equity searches.
 - Optimizer: adds trade-quality filters (win rate, profit factor, exposure) and samples min-hold/cooldown bars for churn control.
 - Optimizer: adds min-signal-to-noise sampling plus Sharpe/walk-forward Sharpe filters, with `/optimizer/run` fields to match.

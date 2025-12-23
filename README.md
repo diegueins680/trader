@@ -172,7 +172,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
     - `--blend-weight 0.5` Kalman weight for `blend` (`0..1`, default: `0.5`)
-  - `--positioning long-flat` (default) or `--positioning long-short` (allows short positions in backtests; if trading, requires `--futures`; live bot is long-flat only)
+- `--positioning long-flat` (default) or `--positioning long-short` (allows short positions; trading/live bot requires `--futures`)
   - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
@@ -374,8 +374,8 @@ curl -s -X POST http://127.0.0.1:8080/bot/start \
 ```
 
 Live safety (startup position):
-- When `botTrade=true`, `/bot/start` refuses to start if it detects an existing long position for the symbol (to avoid running “flat” while the account is already long).
-- To allow restarts to resume managing an existing long, set `"botAdoptExistingPosition": true`.
+- When `botTrade=true`, `/bot/start` refuses to start if it detects an existing position for the symbol (long or short, depending on positioning).
+- To allow restarts to resume managing an existing position, set `"botAdoptExistingPosition": true`.
 
 Auto-optimize after each buy/sell operation:
 - Thresholds only: add `"sweepThreshold": true`
@@ -394,7 +394,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
 - `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), or `"blend"` (weighted average; see `--blend-weight`).
-- `positioning` is `"long-flat"` (default) or `"long-short"` (shorts require futures when placing orders; live bot is long-flat only).
+- `positioning` is `"long-flat"` (default) or `"long-short"` (shorts require futures when placing orders or running the live bot).
 
 Deploy to AWS
 -------------
@@ -411,6 +411,7 @@ Optimizer combos only override Positioning when they include it; otherwise the c
 The UI shows whether combos are coming from the live API or the static fallback, plus their last update time.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
+If a refresh fails, the last known combos remain visible with a warning banner.
 Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
@@ -448,6 +449,7 @@ Timeouts:
 - Frontend (dev proxy): set `TRADER_UI_PROXY_TIMEOUT_MS` to increase the Vite `/api` proxy timeout.
 
 Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors.
+If live bot start/status returns 502/503/504, verify the `/api/*` proxy target or set `apiBaseUrl` to your backend host.
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
@@ -465,6 +467,6 @@ Troubleshooting: “No live operations yet”
 
 Assumptions and limitations
 ---------------------------
-- The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests); it includes basic sizing/filters but is not a full portfolio/risk system or detailed transaction-cost model.
+- The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests/live bot); it includes basic sizing/filters but is not a full portfolio/risk system or detailed transaction-cost model.
 - Live order placement attempts to fetch/apply symbol filters (minQty/step size/minNotional), but is not exhaustive and may still be rejected by the exchange.
 - This code is for experimentation and education only; it is **not** production-ready nor financial advice.

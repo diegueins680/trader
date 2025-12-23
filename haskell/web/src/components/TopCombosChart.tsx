@@ -107,14 +107,14 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
   if (loading) {
     return <div className="hint">Looking for optimizer combos…</div>;
   }
-  if (error) {
-    return (
-      <div className="hint" style={{ color: "rgba(239, 68, 68, 0.85)" }}>
-        {error}
-      </div>
-    );
-  }
   if (combos.length === 0) {
+    if (error) {
+      return (
+        <div className="hint" style={{ color: "rgba(239, 68, 68, 0.85)" }}>
+          {error}
+        </div>
+      );
+    }
     return (
       <div className="hint">
         No combos available yet. Run the optimizer script with <code>--top-json haskell/web/public/top-combos.json</code> (or your own path) and refresh the UI.
@@ -132,6 +132,11 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
 
   return (
     <div className="topCombosChart">
+      {error ? (
+        <div className="hint" style={{ color: "rgba(239, 68, 68, 0.85)" }}>
+          {error} Showing last known combos.
+        </div>
+      ) : null}
       {combos.map((combo) => {
         const barsLabel = combo.params.bars <= 0 ? "auto" : combo.params.bars.toString();
         const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
