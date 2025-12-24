@@ -125,3 +125,62 @@ test-suite trader-tests
                      , text
                      , time
                      , vector >=0.12
+
+benchmark trader-bench
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      bench, app
+  main-is:             BenchMain.hs
+  other-modules:       Trader.Binance
+                     , Trader.Coinbase
+                     , Trader.App.Args
+                     , Trader.BinanceIntervals
+                     , Trader.Duration
+                     , Trader.KalmanFusion
+                     , Trader.Kalman3
+                     , Trader.Kraken
+                     , Trader.LSTM
+                     , Trader.Metrics
+                     , Trader.Method
+                     , Trader.MarketContext
+                     , Trader.Normalization
+                     , Trader.Optimization
+                     , Trader.OnlineStats
+                     , Trader.Poloniex
+                     , Trader.Predictors
+                     , Trader.Predictors.Types
+                     , Trader.Predictors.Features
+                     , Trader.Predictors.GBDT
+                     , Trader.Predictors.TCN
+                     , Trader.Predictors.Transformer
+                     , Trader.Predictors.Quantile
+                     , Trader.Predictors.Conformal
+                     , Trader.Predictors.HMM
+                     , Trader.Platform
+                     , Trader.SensorVariance
+                     , Trader.Split
+                     , Trader.Symbol
+                     , Trader.Text
+                     , Trader.Trading
+                     , Paths_trader
+  default-language:    Haskell2010
+  build-depends:       base >=4.14 && <4.20
+                     , aeson >=1.5
+                     , bytestring >=0.10
+                     , base16-bytestring
+                     , cassava >=0.5
+                     , cryptonite
+                     , directory
+                     , filepath
+                     , memory
+                     , http-client
+                     , http-client-tls
+                     , http-types
+                     , containers
+                     , unordered-containers
+                     , optparse-applicative >=0.17
+                     , random >=1.2
+                     , process
+                     , ad >=4.4
+                     , text
+                     , time
+                     , vector >=0.12

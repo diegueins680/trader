@@ -20,7 +20,7 @@ import Data.ByteArray (convert)
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (toList)
 import Data.Int (Int64)
-import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, nub, sortOn)
+import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
@@ -136,7 +136,7 @@ import Trader.Optimization
   , sweepThresholdWithHLWith
   )
 import Trader.Split (Split(..), splitTrainBacktest)
-import Trader.Text (normalizeKey, trim)
+import Trader.Text (dedupeStable, normalizeKey, trim)
 import Trader.App.Args
   ( Args(..)
   , argBinanceMarket
@@ -2088,7 +2088,7 @@ resolveBotSymbols args p = do
               [] -> symbolsFallback
               xs -> xs
           xs -> xs
-      normalized = filter (not . null) (nub (map normalizeSymbol raw))
+      normalized = filter (not . null) (dedupeStable (map normalizeSymbol raw))
   if null normalized
     then pure (Left "bot/start requires binanceSymbol or botSymbols")
     else pure (Right normalized)
@@ -2150,7 +2150,7 @@ selectCompatibleTopComboArgs limits sym args req export =
               then
                 case validateApiComputeLimits limits args' of
                   Left _ -> pick rest
-                  Right () -> Just args'
+                  Right args'' -> Just args''
               else pick rest
    in pick sortedCombos
 
@@ -2186,6 +2186,15 @@ resolveAdoptionRequirement :: Args -> String -> IO (Either String AdoptRequireme
 resolveAdoptionRequirement args sym = do
   r <- try $ do
     env <- makeBinanceEnv args
+    resolveAdoptionRequirementWithEnv args env sym
+  pure $
+    case r of
+      Left ex -> Left (snd (exceptionToHttp ex))
+      Right reqOrErr -> reqOrErr
+
+resolveAdoptionRequirementWithEnv :: Args -> BinanceEnv -> String -> IO (Either String AdoptRequirement)
+resolveAdoptionRequirementWithEnv args env sym = do
+  r <- try $ do
     ensureBinanceKeysPresent env
     pos <- fetchAdoptableAccountPos args env sym
     orders <- fetchOpenOrders env sym
@@ -2196,6 +2205,15 @@ resolveAdoptionRequirement args sym = do
     case r of
       Left ex -> Left (snd (exceptionToHttp ex))
       Right req -> Right req
+
+adoptRequirementLongShortOverride :: Args -> AdoptRequirement -> Maybe Double
+adoptRequirementLongShortOverride args req
+  | not (arActive req) = Nothing
+  | argBinanceMarket args == MarketFutures =
+      if arRequiresLongShort req
+        then Just 1.0
+        else Nothing
+  | otherwise = Just 0.0
 
 botStartSymbol ::
   Bool ->
@@ -3487,6 +3505,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                             sym <- pickRandom symbols
                             interval <- pickRandom intervals
                             let csvPath = optimizerTmp </> ("auto-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
+                                argsSym = baseArgs { argBinanceSymbol = Just sym }
 
                             ksOrErr <- try (fetchKlines env sym interval maxPoints) :: IO (Either SomeException [Kline])
                             case ksOrErr of
@@ -3505,6 +3524,10 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                     ts <- fmap (floor . (* 1000)) getPOSIXTime
                                     randId <- randomIO :: IO Word64
                                     seedId <- randomIO :: IO Word64
+                                    adoptOverride <-
+                                      fmap
+                                        (either (const Nothing) (adoptRequirementLongShortOverride argsSym))
+                                        (resolveAdoptionRequirementWithEnv argsSym env sym)
                                     let recordsPath = optimizerTmp </> printf "optimizer-auto-%d-%016x.jsonl" (ts :: Integer) randId
                                         seed = fromIntegral (seedId `mod` 2000000000)
                                         cliArgs =
@@ -3542,8 +3565,12 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                           , exePath
                                           , "--disable-lstm-persistence"
                                           ]
+                                        cliArgs' =
+                                          case adoptOverride of
+                                            Nothing -> cliArgs
+                                            Just pLongShort -> cliArgs ++ ["--p-long-short", show pLongShort]
 
-                                    runResult <- runOptimizerProcess projectRoot recordsPath cliArgs
+                                    runResult <- runOptimizerProcess projectRoot recordsPath cliArgs'
                                     case runResult of
                                       Left (msg, out, err) -> do
                                         now <- getTimestampMs
@@ -5587,11 +5614,14 @@ parsePlatformsArg raw =
         else traverse parsePlatform parsed
 
 pickRandom :: [a] -> IO a
-pickRandom xs = do
-  r <- randomIO :: IO Word64
-  let len = max 1 (length xs)
-      idx = fromIntegral (r `mod` fromIntegral len)
-  pure (xs !! idx)
+pickRandom xs =
+  case xs of
+    [] -> error "pickRandom: empty list"
+    _ -> do
+      r <- randomIO :: IO Word64
+      let len = length xs
+          idx = fromIntegral (r `mod` fromIntegral len)
+      pure (xs !! idx)
 
 pickDefaultString :: String -> Maybe String -> String
 pickDefaultString def mb =
@@ -6935,7 +6965,7 @@ handleBinanceTrades baseArgs req respond = do
                             case fmap trim (abrSymbol params) of
                               Just s | not (null s) -> [s]
                               _ -> []
-                      symbols = filter (not . null) (nub (map normalizeSymbol symbolsRaw))
+                      symbols = filter (not . null) (dedupeStable (map normalizeSymbol symbolsRaw))
                       allSymbols = null symbols
                       limit = abrLimit params
                       startTime = abrStartTimeMs params

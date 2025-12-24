@@ -8,6 +8,7 @@ module Trader.Predictors.HMM
   ) where
 
 import Data.List (foldl')
+import qualified Data.Vector as V
 
 import Trader.Predictors.Types (RegimeProbs(..))
 
@@ -41,7 +42,7 @@ fitHMM3 iters obs
           mus0 = [mu0 - s0, mu0, mu0 + s0]
           vars0 = [s0 * s0, s0 * s0, max 1e-8 (4 * s0 * s0)]
           base0 = HMM3 { hmmPi = pi0, hmmA = a0, hmmMu = mus0, hmmVar = vars0, hmmTrendIx = 0, hmmMrIx = 1, hmmHighVolIx = 2 }
-          fitted = iterate (emStep obs) base0 !! iters
+          fitted = applyN iters (emStep obs) base0
        in remapRegimes fitted
 
 defaultHMM :: HMM3
@@ -110,8 +111,7 @@ updatePosterior hmm predState obs =
 
 emStep :: [Double] -> HMM3 -> HMM3
 emStep obs hmm =
-  let tMax = length obs
-      (alphas, cs) = forwardScaled hmm obs
+  let (alphas, cs) = forwardScaled hmm obs
       betas = backwardScaled hmm obs cs
       gammas = zipWith (\a b -> normalize (zipWith (*) a b)) alphas betas
       xis = xiList hmm obs alphas betas cs
@@ -143,45 +143,53 @@ backwardScaled hmm obs cs =
   case obs of
     [] -> []
     _ ->
-      let tMax = length obs
+      let obsV = V.fromList obs
+          csV = V.fromList cs
+          tMax = V.length obsV
           betaT = replicate 3 1
           go t acc betaNext
             | t < 0 = acc
             | otherwise =
-                let oNext = obs !! (t + 1)
+                let oNext = obsV V.! (t + 1)
                     likeNext = emissions hmm oNext
                     betaUn =
                       [ sum [ (hmmA hmm !! i !! j) * (likeNext !! j) * (betaNext !! j) | j <- [0..2] ]
                       | i <- [0..2]
                       ]
-                    beta = map (/ (cs !! (t + 1))) betaUn
+                    beta = map (/ (csV V.! (t + 1))) betaUn
                  in go (t - 1) (beta : acc) beta
        in go (tMax - 2) [betaT] betaT
 
 xiList :: HMM3 -> [Double] -> [[Double]] -> [[Double]] -> [Double] -> [[[Double]]]
 xiList hmm obs alphas betas cs =
-  let tMax = length obs
-   in [ xiAt t | t <- [0 .. tMax - 2] ]
-  where
-    xiAt t =
-      let aT = alphas !! t
-          bNext = betas !! (t + 1)
-          oNext = obs !! (t + 1)
-          likeNext = emissions hmm oNext
-          denom = max 1e-300 (cs !! (t + 1))
-          un =
-            [ [ aT !! i * (hmmA hmm !! i !! j) * (likeNext !! j) * (bNext !! j) / denom
-              | j <- [0..2]
+  let obsV = V.fromList obs
+      alphasV = V.fromList alphas
+      betasV = V.fromList betas
+      csV = V.fromList cs
+      tMax = V.length obsV
+      xiAt t =
+        let aT = alphasV V.! t
+            bNext = betasV V.! (t + 1)
+            oNext = obsV V.! (t + 1)
+            likeNext = emissions hmm oNext
+            denom = max 1e-300 (csV V.! (t + 1))
+            un =
+              [ [ aT !! i * (hmmA hmm !! i !! j) * (likeNext !! j) * (bNext !! j) / denom
+                | j <- [0..2]
+                ]
+              | i <- [0..2]
               ]
-            | i <- [0..2]
-            ]
-          z = sum (map sum un)
-       in if z == 0 then un else map (map (/ z)) un
+            z = sum (map sum un)
+         in if z == 0 then un else map (map (/ z)) un
+   in [ xiAt t | t <- [0 .. tMax - 2] ]
 
 updateA :: [[Double]] -> [[[Double]]] -> [[Double]]
 updateA gammas xis =
-  let denom i = sum [ (gammas !! t) !! i | t <- [0 .. length gammas - 2] ] + 1e-12
-      num i j = sum [ (xis !! t) !! i !! j | t <- [0 .. length xis - 1] ]
+  let gammasV = V.fromList gammas
+      xisV = V.fromList xis
+      tMax = V.length gammasV
+      denom i = sum [ (gammasV V.! t) !! i | t <- [0 .. tMax - 2] ] + 1e-12
+      num i j = sum [ (xisV V.! t) !! i !! j | t <- [0 .. V.length xisV - 1] ]
       row i =
         let r = [ num i j / denom i | j <- [0..2] ]
          in normalize r
@@ -189,12 +197,15 @@ updateA gammas xis =
 
 updateEmissions :: [Double] -> [[Double]] -> ([Double], [Double])
 updateEmissions obs gammas =
-  let denom k = sum [ (gammas !! t) !! k | t <- [0 .. length gammas - 1] ] + 1e-12
-      mu k = sum [ (gammas !! t) !! k * (obs !! t) | t <- [0 .. length gammas - 1] ] / denom k
+  let obsV = V.fromList obs
+      gammasV = V.fromList gammas
+      tMax = V.length gammasV
+      denom k = sum [ (gammasV V.! t) !! k | t <- [0 .. tMax - 1] ] + 1e-12
+      mu k = sum [ (gammasV V.! t) !! k * (obsV V.! t) | t <- [0 .. tMax - 1] ] / denom k
       mus = [ mu k | k <- [0..2] ]
       var k =
         let mk = mus !! k
-         in sum [ (gammas !! t) !! k * ((obs !! t) - mk) ^ (2 :: Int) | t <- [0 .. length gammas - 1] ] / denom k + 1e-8
+         in sum [ (gammasV V.! t) !! k * ((obsV V.! t) - mk) ^ (2 :: Int) | t <- [0 .. tMax - 1] ] / denom k + 1e-8
       vars = [ var k | k <- [0..2] ]
    in (mus, vars)
 
@@ -241,3 +252,11 @@ argmax xs =
           (0, head xs)
           (zip [0..] xs)
 
+applyN :: Int -> (a -> a) -> a -> a
+applyN n f x0 = go n x0
+  where
+    go k x
+      | k <= 0 = x
+      | otherwise =
+          let x' = f x
+           in x' `seq` go (k - 1) x'

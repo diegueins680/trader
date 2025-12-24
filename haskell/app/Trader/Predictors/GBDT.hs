@@ -5,8 +5,11 @@ module Trader.Predictors.GBDT
   , predictGBDT
   ) where
 
-import Data.List (minimumBy, sort, nub)
+import Data.List (minimumBy, sort)
 import Data.Ord (comparing)
+import qualified Data.Vector as V
+
+import Trader.Text (dedupeStable)
 
 data Stump = Stump
   { stFeature :: !Int
@@ -31,10 +34,11 @@ predictGBDT m feats =
     if actual /= expected
       then error ("GBDT feature dimension mismatch: expected " ++ show expected ++ ", got " ++ show actual)
       else
-        let base = gmBase m
+        let featsV = V.fromList feats
+            base = gmBase m
             lr = gmLearningRate m
             applySt Stump{stFeature=j, stThreshold=thr, stLeftValue=l, stRightValue=r} =
-              let x = feats !! j
+              let x = featsV V.! j
                in if x <= thr then l else r
             y = base + lr * sum (map applySt (gmStumps m))
          in (y, gmSigma m)
@@ -55,12 +59,20 @@ trainGBDT nTrees learningRate dataset
   | null dataset = error "GBDT dataset is empty"
   | otherwise =
       let featureDim = featureDimFromDataset dataset
-          ys = map snd dataset
-          base = mean ys
-          preds0 = replicate (length ys) base
+          featsAll = V.fromList (map (V.fromList . fst) dataset)
+          ys = V.fromList (map snd dataset)
+          base = meanV ys
+          preds0 = V.replicate (V.length ys) base
+          go 0 acc preds = (acc, preds)
+          go k acc preds =
+            let residuals = V.zipWith (-) ys preds
+                stump = fitStump featsAll residuals
+                stumpOut = V.map (stumpPredict stump) featsAll
+                preds' = V.zipWith (+) preds (V.map (* learningRate) stumpOut)
+             in go (k - 1) (stump : acc) preds'
           (stumps, predsFinal) = go nTrees [] preds0
-          residuals = zipWith (-) ys predsFinal
-          sigma = sqrt (mean (map (\e -> e * e) residuals) + 1e-12)
+          residuals = V.zipWith (-) ys predsFinal
+          sigma = sqrt (meanV (V.map (\e -> e * e) residuals) + 1e-12)
        in GBDTModel
             { gmBase = base
             , gmLearningRate = learningRate
@@ -68,25 +80,14 @@ trainGBDT nTrees learningRate dataset
             , gmStumps = reverse stumps
             , gmSigma = Just sigma
             }
-  where
-    featsAll = map fst dataset
-    ys = map snd dataset
 
-    go 0 acc preds = (acc, preds)
-    go k acc preds =
-      let residuals = zipWith (-) ys preds
-          stump = fitStump featsAll residuals
-          stumpOut = map (stumpPredict stump) featsAll
-          preds' = zipWith (+) preds (map (* learningRate) stumpOut)
-       in go (k - 1) (stump : acc) preds'
-
-stumpPredict :: Stump -> [Double] -> Double
+stumpPredict :: Stump -> V.Vector Double -> Double
 stumpPredict Stump{stFeature=j, stThreshold=thr, stLeftValue=l, stRightValue=r} feats =
-  if feats !! j <= thr then l else r
+  if feats V.! j <= thr then l else r
 
-fitStump :: [[Double]] -> [Double] -> Stump
+fitStump :: V.Vector (V.Vector Double) -> V.Vector Double -> Stump
 fitStump feats residuals =
-  let d = length (head feats)
+  let d = V.length (V.head feats)
       candidates = [ bestForFeature j | j <- [0 .. d - 1] ]
    in minimumBy (comparing snd) candidates |> fst
   where
@@ -94,8 +95,8 @@ fitStump feats residuals =
 
     bestForFeature :: Int -> (Stump, Double)
     bestForFeature j =
-      let xs = map (!! j) feats
-          thrs = candidateThresholds xs
+      let xs = V.map (V.! j) feats
+          thrs = candidateThresholds (V.toList xs)
           options =
             [ let (lRes, rRes) = splitOnThreshold thr xs residuals
                   lMean = if null lRes then 0 else mean lRes
@@ -109,8 +110,8 @@ fitStump feats residuals =
             ]
        in case options of
             [] ->
-              let mu = mean residuals
-               in (Stump { stFeature = j, stThreshold = 0, stLeftValue = mu, stRightValue = mu }, sumSqErr mu residuals)
+              let mu = meanV residuals
+               in (Stump { stFeature = j, stThreshold = 0, stLeftValue = mu, stRightValue = mu }, sumSqErr mu (V.toList residuals))
             _ -> minimumBy (comparing snd) options
 
 candidateThresholds :: [Double] -> [Double]
@@ -123,20 +124,26 @@ candidateThresholds xs =
         else
           let ix q = max 1 (min (n - 2) (floor (fromIntegral q * fromIntegral n / fromIntegral buckets)))
               thrs = [ s !! ix q | q <- [1 .. buckets - 2] ]
-           in nub thrs
+           in dedupeStable thrs
 
-splitOnThreshold :: Double -> [Double] -> [Double] -> ([Double], [Double])
+splitOnThreshold :: Double -> V.Vector Double -> V.Vector Double -> ([Double], [Double])
 splitOnThreshold thr xs residuals =
-  foldr
-    (\(x, r) (l, rr) -> if x <= thr then (r : l, rr) else (l, r : rr))
+  V.foldl'
+    (\(l, rr) (x, r) -> if x <= thr then (r : l, rr) else (l, r : rr))
     ([], [])
-    (zip xs residuals)
+    (V.zip xs residuals)
 
 mean :: [Double] -> Double
 mean xs =
   case xs of
     [] -> 0
     _ -> sum xs / fromIntegral (length xs)
+
+meanV :: V.Vector Double -> Double
+meanV xs =
+  if V.null xs
+    then 0
+    else V.sum xs / fromIntegral (V.length xs)
 
 sumSqErr :: Double -> [Double] -> Double
 sumSqErr mu xs = sum (map (\x -> let e = x - mu in e * e) xs)

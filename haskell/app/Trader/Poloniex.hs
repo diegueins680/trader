@@ -11,14 +11,14 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import Data.Char (toUpper)
 import Data.Int (Int64)
-import Data.List (nub, sortOn)
+import Data.List (sortOn)
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
-import Trader.Text (trim)
+import Trader.Text (dedupeStable, trim)
 
 data PoloniexCandle = PoloniexCandle
   { pcOpenTime :: !Int64
@@ -178,7 +178,7 @@ poloniexSymbolCandidates raw =
           (trim raw)
       parts = filter (not . null) (splitOnUnderscore cleaned)
    in case parts of
-        [a, b] -> nub [a ++ "_" ++ b, b ++ "_" ++ a]
+        [a, b] -> dedupeStable [a ++ "_" ++ b, b ++ "_" ++ a]
         _ -> [cleaned]
 
 splitOnUnderscore :: String -> [String]

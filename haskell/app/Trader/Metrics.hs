@@ -55,34 +55,44 @@ computeMetrics periodsPerYear br =
       maxDd = abs (min 0 (minDrawdown eq))
 
       trades = brTrades br
-      tradeReturns = map trReturn trades
-      tradePnL = map (\t -> trExitEquity t - trEntryEquity t) trades
-      wins = length (filter (> 0) tradeReturns)
-      winRate = if null tradeReturns then 0 else fromIntegral wins / fromIntegral (length tradeReturns)
-      grossProfits = sum (filter (> 0) tradePnL)
-      grossLosses = abs (sum (filter (< 0) tradePnL))
+      tradeCount = length trades
+      (wins, sumReturns, grossProfits, grossLossSum, totalHold, roundTrips) =
+        foldl'
+          (\(w, rSum, gp, gl, hold, rt) t ->
+              let r = trReturn t
+                  pnl = trExitEquity t - trEntryEquity t
+                  w' = if r > 0 then w + 1 else w
+                  gp' = if pnl > 0 then gp + pnl else gp
+                  gl' = if pnl < 0 then gl + pnl else gl
+                  hold' = hold + trHoldingPeriods t
+                  rt' = if trEntryIndex t < trExitIndex t then rt + 1 else rt
+               in (w', rSum + r, gp', gl', hold', rt')
+          )
+          (0, 0, 0, 0, 0, 0)
+          trades
+      winRate = if tradeCount == 0 then 0 else fromIntegral wins / fromIntegral tradeCount
+      grossLosses = abs grossLossSum
       profitFactor =
         if grossLosses > 0
           then Just (grossProfits / grossLosses)
           else if grossProfits > 0
             then Nothing
             else Just 0
-      avgTrade = if null tradeReturns then 0 else mean tradeReturns
-      holding = map trHoldingPeriods trades
-      avgHold = if null holding then 0 else fromIntegral (sum holding) / fromIntegral (length holding)
+      avgTrade = if tradeCount == 0 then 0 else sumReturns / fromIntegral tradeCount
+      avgHold = if tradeCount == 0 then 0 else fromIntegral totalHold / fromIntegral tradeCount
 
       exposure =
         let pos = brPositions br
-         in if null pos then 0 else sum (map abs pos) / fromIntegral (length pos)
+         in if null pos then 0 else foldl' (\acc v -> acc + abs v) 0 pos / fromIntegral (length pos)
 
       agree =
         let flags = brAgreementOk br
             total = length flags
-         in if total == 0 then 0 else fromIntegral (length (filter id flags)) / fromIntegral total
+            agrees = foldl' (\acc f -> if f then acc + 1 else acc) 0 flags
+         in if total == 0 then 0 else fromIntegral agrees / fromIntegral total
 
       positionChanges = brPositionChanges br
       turnover = if periods == 0 then 0 else fromIntegral positionChanges / fromIntegral periods
-      roundTrips = length (filter (\t -> trEntryIndex t < trExitIndex t) trades)
    in BacktestMetrics
         { bmPeriods = periods
         , bmFinalEquity = finalEq
@@ -92,7 +102,7 @@ computeMetrics periodsPerYear br =
         , bmSharpe = sharpe
         , bmMaxDrawdown = maxDd
         , bmPositionChanges = positionChanges
-        , bmTradeCount = length trades
+        , bmTradeCount = tradeCount
         , bmRoundTrips = roundTrips
         , bmWinRate = winRate
         , bmGrossProfit = grossProfits

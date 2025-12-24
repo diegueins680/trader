@@ -88,20 +88,23 @@ outer x y = [ map (* xi) y | xi <- x ]
 
 addDiag :: Double -> [[Double]] -> [[Double]]
 addDiag lambda m =
-  [ [ if i == j then m !! i !! j + lambda else m !! i !! j | j <- [0 .. n - 1] ]
-  | i <- [0 .. n - 1]
+  [ [ if i == j then v + lambda else v | (j, v) <- zip [0..] row ]
+  | (i, row) <- zip [0..] m
   ]
-  where
-    n = length m
 
 solveLinear :: [[Double]] -> [Double] -> [Double]
 solveLinear a b =
   let n = length a
-      aug0 = zipWith (\row bi -> row ++ [bi]) a b
+      aug0 = toMatrix (zipWith (\row bi -> row ++ [bi]) a b)
       aug = forwardElimination n aug0
-   in backSubstitution n aug
+   in V.toList (backSubstitution n aug)
 
-forwardElimination :: Int -> [[Double]] -> [[Double]]
+type Matrix = V.Vector (V.Vector Double)
+
+toMatrix :: [[Double]] -> Matrix
+toMatrix = V.fromList . map V.fromList
+
+forwardElimination :: Int -> Matrix -> Matrix
 forwardElimination n = go 0
   where
     eps = 1e-12
@@ -109,52 +112,50 @@ forwardElimination n = go 0
     go k m
       | k >= n = m
       | otherwise =
-          let pivotRow = argMaxAbs (\row -> abs (row !! k)) [k .. n - 1] m
+          let pivotRow = argMaxAbs (\row -> abs (row V.! k)) [k .. n - 1] m
               m1 = swapRows k pivotRow m
-              pivot = (m1 !! k) !! k
+              rowK = m1 V.! k
+              pivot = rowK V.! k
            in if abs pivot < eps
                 then error "Singular matrix in solveLinear"
                 else
                   let m2 =
-                        [ if i <= k
-                            then m1 !! i
-                            else
-                              let row = m1 !! i
-                                  factor = (row !! k) / pivot
-                                  rowK = m1 !! k
-                               in [ if j < k then row !! j else row !! j - factor * rowK !! j | j <- [0 .. n] ]
-                        | i <- [0 .. n - 1]
-                        ]
+                        V.imap
+                          (\i row ->
+                              if i <= k
+                                then row
+                                else
+                                  let factor = (row V.! k) / pivot
+                                   in V.imap
+                                        (\j v -> if j < k then v else v - factor * (rowK V.! j))
+                                        row
+                          )
+                          m1
                    in go (k + 1) m2
 
-backSubstitution :: Int -> [[Double]] -> [Double]
+backSubstitution :: Int -> Matrix -> V.Vector Double
 backSubstitution n m =
-  let rhs i = (m !! i) !! n
-      coeff i j = (m !! i) !! j
-      go i acc =
+  let go i acc =
         if i < 0
-          then acc
+          then V.fromList acc
           else
-            let s = sum [ coeff i j * (acc !! (j - i - 1)) | j <- [i + 1 .. n - 1] ]
-                x = (rhs i - s) / coeff i i
+            let row = m V.! i
+                rhs = row V.! n
+                coeffs = V.toList (V.slice (i + 1) (n - i - 1) row)
+                s = sum (zipWith (*) coeffs acc)
+                x = (rhs - s) / (row V.! i)
              in go (i - 1) (x : acc)
    in go (n - 1) []
 
-argMaxAbs :: (a -> Double) -> [Int] -> [a] -> Int
+argMaxAbs :: (V.Vector Double -> Double) -> [Int] -> Matrix -> Int
 argMaxAbs f is xs =
   case is of
     [] -> error "argMaxAbs: empty"
     (i0:rest) ->
-      let v0 = f (xs !! i0)
-       in fst $ foldl' (\(ib, vb) i -> let v = f (xs !! i) in if v > vb then (i, v) else (ib, vb)) (i0, v0) rest
+      let v0 = f (xs V.! i0)
+       in fst $ foldl' (\(ib, vb) i -> let v = f (xs V.! i) in if v > vb then (i, v) else (ib, vb)) (i0, v0) rest
 
-swapRows :: Int -> Int -> [[a]] -> [[a]]
+swapRows :: Int -> Int -> Matrix -> Matrix
 swapRows i j rows
   | i == j = rows
-  | otherwise =
-      [ rowAt k | k <- [0 .. length rows - 1] ]
-  where
-    rowAt k
-      | k == i = rows !! j
-      | k == j = rows !! i
-      | otherwise = rows !! k
+  | otherwise = rows V.// [(i, rows V.! j), (j, rows V.! i)]
