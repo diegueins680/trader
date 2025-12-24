@@ -15,8 +15,9 @@ Features
   - Transformer-style attention predictor (kNN attention)
   - HMM / regime model (3 regimes)
   - Quantile regression (q10/q50/q90)
-  - Conformal interval wrapper (calibrated on a holdout split)
+  - Conformal interval wrapper (calibrated on a holdout split, sigma derived from alpha; omitted when calibration is empty)
 - Predictor training validates fixed feature dimensions to avoid silent mismatches.
+- Quantile outputs clamp the median inside the q10/q90 bounds and omit sigma when the interval is invalid.
 - Predictor training uses a train/calibration split so held-out calibration data is excluded from model training.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
@@ -36,6 +37,14 @@ Print the CLI version:
 ```
 cd haskell
 cabal run trader-hs -- --version
+```
+
+Benchmarks (dev)
+----------------
+Run the predictor microbench harness:
+```
+cd haskell
+cabal run bench:trader-bench -- --samples 5000 --features 16 --trees 50
 ```
 
 Example backtest with tighter model settings:

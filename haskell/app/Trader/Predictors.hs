@@ -154,7 +154,7 @@ predictSensors pb prices hmmFilt t =
               [ ( SensorConformal
                 , SensorOutput
                     { soMu = mu
-                    , soSigma = Just sig
+                    , soSigma = sig
                     , soRegimes = Nothing
                     , soQuantiles = Nothing
                     , soInterval = Just (Interval lo hi)

@@ -38,7 +38,7 @@ trainQuantileModel epochs lr l2 dataset
       let d = featureDimFromDataset dataset
           initM = LinModel { lmW = replicate d 0, lmB = 0 }
           qs0 = QuantileModel initM initM initM
-       in iterate (epochStep lr l2 dataset) qs0 !! epochs
+       in applyN epochs (epochStep lr l2 dataset) qs0
 
 predictQuantiles :: QuantileModel -> [Double] -> (Double, Double, Double, Double, Maybe Double)
 predictQuantiles qm x =
@@ -46,8 +46,9 @@ predictQuantiles qm x =
       q50' = predictLin (qm50 qm) x
       q90' = predictLin (qm90 qm) x
       (lo, hi) = if q10' <= q90' then (q10', q90') else (q90', q10')
+      q50 = min hi (max lo q50')
       sigma = sigmaFromQ1090 lo hi
-   in (lo, q50', hi, q50', Just sigma)
+   in (lo, q50, hi, q50, sigma)
 
 predictLin :: LinModel -> [Double] -> Double
 predictLin m x = dot (lmW m) x + lmB m
@@ -75,10 +76,14 @@ sgdOne lr l2 x y qm =
           b' = lmB m - lr * g
        in LinModel { lmW = w', lmB = b' }
 
-sigmaFromQ1090 :: Double -> Double -> Double
+sigmaFromQ1090 :: Double -> Double -> Maybe Double
 sigmaFromQ1090 q10 q90 =
   let z = 1.281551565545 -- Phi^{-1}(0.9)
-   in max 1e-12 ((q90 - q10) / (2 * z))
+      width = q90 - q10
+   in
+    if not (isFinite width) || width <= 0
+      then Nothing
+      else Just (width / (2 * z))
 
 dot :: [Double] -> [Double] -> Double
 dot a b =
@@ -87,3 +92,15 @@ dot a b =
    in if la /= lb
         then error ("Quantile model feature dimension mismatch: expected " ++ show la ++ ", got " ++ show lb)
         else sum (zipWith (*) a b)
+
+isFinite :: Double -> Bool
+isFinite x = not (isNaN x || isInfinite x)
+
+applyN :: Int -> (a -> a) -> a -> a
+applyN n f x0 = go n x0
+  where
+    go k x
+      | k <= 0 = x
+      | otherwise =
+          let x' = f x
+           in x' `seq` go (k - 1) x'

@@ -43,8 +43,12 @@ All notable changes to this project will be documented in this file.
 - Trading: add signal-to-noise entry filter plus volatility-multiple stop-loss/take-profit/trailing options.
 - Normalization: `minmax`/`standard` fall back to no-op when the fit window is empty or only contains non-finite values; `log` now falls back to no-op when the fit window is empty or contains non-finite/non-positive values.
 - Predictors: conformal intervals now calibrate on a holdout split; predictor training validates feature dimensions and fails fast on mismatches.
+- Predictors: conformal sigma is omitted when calibration is empty or interval width is invalid; quantile sigma is omitted when q10/q90 are invalid or identical.
+- Predictors: conformal sigma now derives from alpha with a conformal quantile rank; quantile medians are clamped inside q10/q90.
 - Predictors: training now excludes the calibration split for all models to avoid leakage.
 - Predictors: feature windows now drop zero-price returns and use sample variance for volatility features.
+- Predictors: add a lightweight benchmark harness (`trader-bench`) for quick performance checks.
+- Performance: reduce list indexing and allocation hotspots in predictors, metrics, and symbol dedupe.
 - Web UI: improves async job not found handling with a clearer error after the grace period.
 - Web UI: fixes a startup crash when optimizer combos apply before API compute limits are available.
 - Web UI: show optimizer combo source (API vs static) and last update time.
