@@ -9,8 +9,10 @@ All notable changes to this project will be documented in this file.
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
+- Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
+- Deploy: quick AWS deploy now exports `TRADER_API_MAX_HIDDEN_SIZE` (defaults to 50) for larger LSTM models.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with trading only on Binance/Coinbase.
 - Exchange data: add Coinbase platform support for exchange klines and spot trading.
@@ -64,6 +66,8 @@ All notable changes to this project will be documented in this file.
 - Web UI: add auto-apply toggle with last-applied marker, manual override lock/unlock hints, and a cross-origin API base warning.
 - Web UI: show persisted live-bot snapshots when `/bot/status` is restored after restart.
 - Live bot/UI: `/bot/status` includes `startingReason` and the UI surfaces when startup is waiting for a compatible top combo.
+- API: `/bot/status` now caps the `tail` parameter to 5000 points.
+- API: `/bot/start` error responses include per-symbol errors when all requested symbols fail.
 - Web UI: live bot start/status errors surface CloudFront `/api/*` proxy hints and avoid a stuck `Starting...` state when the API is down.
 - Live bot: support long/short positioning on Binance futures (including adopting/closing existing short positions).
 - Optimizer: adds a `--quality` preset plus CSV high/low auto-detection for deeper equity searches.

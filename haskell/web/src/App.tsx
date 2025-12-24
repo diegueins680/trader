@@ -160,12 +160,45 @@ function parseSymbolsInput(raw: string): string[] {
   return out;
 }
 
+function symbolFormatPattern(platform: Platform): RegExp {
+  switch (platform) {
+    case "coinbase":
+      return /^[A-Z0-9]+-[A-Z0-9]+$/;
+    case "poloniex":
+      return /^[A-Z0-9]+_[A-Z0-9]+$/;
+    case "binance":
+    case "kraken":
+    default:
+      return /^[A-Z0-9]{3,30}$/;
+  }
+}
+
+function symbolFormatExample(platform: Platform): string {
+  switch (platform) {
+    case "coinbase":
+      return "BTC-USD";
+    case "poloniex":
+      return "BTC_USDT";
+    case "kraken":
+      return "XBTUSD";
+    case "binance":
+    default:
+      return "BTCUSDT";
+  }
+}
+
+function invalidSymbolsForPlatform(platform: Platform, symbols: string[]): string[] {
+  const pattern = symbolFormatPattern(platform);
+  return symbols.filter((sym) => !pattern.test(sym));
+}
+
 function parseMaybeInt(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const n = Number(trimmed);
   if (!Number.isFinite(n)) return null;
-  return Math.max(0, Math.trunc(n));
+  const rounded = Math.trunc(n);
+  return rounded < 0 ? null : rounded;
 }
 
 function normalizeIsoInput(raw: string): string | null {
@@ -745,9 +778,21 @@ export function App() {
         ? Boolean(binanceApiKey.trim() || binanceApiSecret.trim())
         : false;
   const normalizedSymbol = form.binanceSymbol.trim().toUpperCase();
+  const symbolFormatError = useMemo(() => {
+    if (!normalizedSymbol) return null;
+    return symbolFormatPattern(platform).test(normalizedSymbol)
+      ? null
+      : `Symbol must match ${platformLabel} format (e.g., ${symbolFormatExample(platform)}).`;
+  }, [normalizedSymbol, platform, platformLabel]);
   const symbolIsCustom = !platformSymbolSet.has(normalizedSymbol);
   const symbolSelectValue = symbolIsCustom ? CUSTOM_SYMBOL_VALUE : normalizedSymbol;
   const botSymbolsInput = useMemo(() => parseSymbolsInput(form.botSymbols), [form.botSymbols]);
+  const botSymbolsInvalid = useMemo(() => invalidSymbolsForPlatform("binance", botSymbolsInput), [botSymbolsInput]);
+  const botSymbolsFormatError = useMemo(() => {
+    if (botSymbolsInvalid.length === 0) return null;
+    const invalidList = botSymbolsInvalid.join(", ");
+    return `Bot symbols must match Binance format (e.g., ${symbolFormatExample("binance")}). Invalid: ${invalidList}.`;
+  }, [botSymbolsInvalid]);
   const botStartSymbols = useMemo(() => {
     if (botSymbolsInput.length > 0) return botSymbolsInput;
     const fallback = form.binanceSymbol.trim().toUpperCase();
@@ -2675,6 +2720,10 @@ export function App() {
   }, [apiBase, authHeaders, showToast]);
 
   const binanceTradesSymbols = useMemo(() => parseSymbolsInput(binanceTradesSymbolsInput), [binanceTradesSymbolsInput]);
+  const binanceTradesSymbolsInvalid = useMemo(
+    () => invalidSymbolsForPlatform("binance", binanceTradesSymbols),
+    [binanceTradesSymbols],
+  );
   const binanceTradesStartMs = useMemo(() => parseTimeInputMs(binanceTradesStartInput), [binanceTradesStartInput]);
   const binanceTradesEndMs = useMemo(() => parseTimeInputMs(binanceTradesEndInput), [binanceTradesEndInput]);
   const binanceTradesFromId = useMemo(() => parseMaybeInt(binanceTradesFromIdInput), [binanceTradesFromIdInput]);
@@ -2687,6 +2736,9 @@ export function App() {
       firstReason(
         !isBinancePlatform ? "Binance account trades require platform=binance." : null,
         form.market !== "futures" && binanceTradesSymbols.length === 0 ? "Symbol is required for spot/margin trades." : null,
+        binanceTradesSymbolsInvalid.length > 0
+          ? `Symbols must match Binance format (e.g., ${symbolFormatExample("binance")}). Invalid: ${binanceTradesSymbolsInvalid.join(", ")}.`
+          : null,
         binanceTradesStartInput.trim() && binanceTradesStartMs === null
           ? "Start time must be a unix ms timestamp or ISO date."
           : null,
@@ -2694,7 +2746,7 @@ export function App() {
         binanceTradesStartMs !== null && binanceTradesEndMs !== null && binanceTradesEndMs < binanceTradesStartMs
           ? "End time must be after start time."
           : null,
-        binanceTradesFromIdInput.trim() && binanceTradesFromId === null ? "From ID must be a number." : null,
+        binanceTradesFromIdInput.trim() && binanceTradesFromId === null ? "From ID must be a non-negative integer." : null,
       ),
     [
       binanceTradesEndInput,
@@ -2704,6 +2756,7 @@ export function App() {
       binanceTradesStartInput,
       binanceTradesStartMs,
       binanceTradesSymbols.length,
+      binanceTradesSymbolsInvalid,
       form.market,
       isBinancePlatform,
     ],
@@ -3357,6 +3410,7 @@ export function App() {
       apiTargetId: "section-api",
       missingSymbol,
       symbolTargetId: "symbol",
+      symbolError: symbolFormatError,
       missingInterval,
       intervalTargetId: "interval",
       lookbackError: lookbackState.error,
@@ -3376,6 +3430,7 @@ export function App() {
       missingInterval,
       missingSymbol,
       rateLimitReason,
+      symbolFormatError,
     ],
   );
   const requestIssueDetails = useMemo(() => buildRequestIssueDetails(requestIssueInput), [requestIssueInput]);
@@ -3385,8 +3440,9 @@ export function App() {
         ...requestIssueInput,
         missingSymbol: botMissingSymbol,
         symbolTargetId: "botSymbols",
+        symbolError: botSymbolsFormatError,
       }),
-    [botMissingSymbol, requestIssueInput],
+    [botMissingSymbol, botSymbolsFormatError, requestIssueInput],
   );
   const requestIssues = useMemo(() => requestIssueDetails.map((issue) => issue.message), [requestIssueDetails]);
   const primaryIssue = requestIssueDetails[0] ?? null;
@@ -4147,7 +4203,7 @@ export function App() {
               </label>
               <select
                 id="symbol"
-                className={missingSymbol ? "select selectError" : "select"}
+                className={missingSymbol || Boolean(symbolFormatError) ? "select selectError" : "select"}
                 value={symbolSelectValue}
                 onChange={(e) => {
                   const next = e.target.value;
@@ -4169,7 +4225,7 @@ export function App() {
               {symbolIsCustom ? (
                 <input
                   id="symbolCustom"
-                  className={missingSymbol ? "input inputError" : "input"}
+                  className={missingSymbol || Boolean(symbolFormatError) ? "input inputError" : "input"}
                   value={form.binanceSymbol}
                   onChange={(e) => {
                     const next = e.target.value.toUpperCase();
@@ -4181,14 +4237,16 @@ export function App() {
                   aria-label="Custom trading pair"
                 />
               ) : null}
-              <div className="hint" style={missingSymbol ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
+              <div className="hint" style={missingSymbol || symbolFormatError ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
                 {missingSymbol
                   ? "Required."
-                  : symbolIsCustom
-                    ? isCoinbasePlatform
-                      ? "Type any Coinbase product ID (e.g., BTC-USD)."
-                      : `Type any ${platformLabel} symbol.`
-                    : `Pick a common ${platformLabel} pair or choose Custom to type another symbol.`}
+                  : symbolFormatError
+                    ? symbolFormatError
+                    : symbolIsCustom
+                      ? isCoinbasePlatform
+                        ? "Type any Coinbase product ID (e.g., BTC-USD)."
+                        : `Type any ${platformLabel} symbol.`
+                      : `Pick a common ${platformLabel} pair or choose Custom to type another symbol.`}
               </div>
             </div>
 
@@ -5455,6 +5513,11 @@ export function App() {
                       <div className="hint">
                         Comma-separated list for multi-symbol bots. Leave blank to use the Symbol from Market settings.
                       </div>
+                      {botSymbolsFormatError ? (
+                        <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                          {botSymbolsFormatError}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <div className="hint">

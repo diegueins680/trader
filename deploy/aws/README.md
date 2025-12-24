@@ -97,7 +97,7 @@ docker push "${ECR_URI}:latest"
     - `TRADER_API_MAX_ASYNC_RUNNING` (default: `1`)
     - `TRADER_API_MAX_BARS_LSTM` (default: `1000`)
     - `TRADER_API_MAX_EPOCHS` (default: `100`)
-    - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`)
+    - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`; set to `50` to allow larger LSTM hidden sizes)
   - Async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
     - `TRADER_API_ASYNC_DIR` (shared mount; App Runner has no volume support). Docker image default: `/var/lib/trader/async`.
     - Or set `TRADER_STATE_DIR` to a shared mount to persist async jobs plus ops/journal/bot state/optimizer combos/LSTM weights.

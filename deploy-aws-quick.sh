@@ -24,6 +24,7 @@ NC='\033[0m' # No Color
 AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 TRADER_API_TOKEN="${TRADER_API_TOKEN:-}"
 TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
+TRADER_API_MAX_HIDDEN_SIZE="${TRADER_API_MAX_HIDDEN_SIZE:-50}"
 TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
 TRADER_STATE_S3_REGION="${TRADER_STATE_S3_REGION:-}"
@@ -90,6 +91,7 @@ Environment variables (equivalents):
   TRADER_STATE_S3_PREFIX
   TRADER_STATE_S3_REGION
   TRADER_API_MAX_BARS_LSTM
+  TRADER_API_MAX_HIDDEN_SIZE
   TRADER_UI_BUCKET / S3_BUCKET
   TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID / CLOUDFRONT_DISTRIBUTION_ID
   TRADER_UI_SKIP_BUILD
@@ -545,6 +547,9 @@ create_app_runner() {
   if [[ -n "${TRADER_API_MAX_BARS_LSTM:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_BARS_LSTM\":\"${TRADER_API_MAX_BARS_LSTM}\""
   fi
+  if [[ -n "${TRADER_API_MAX_HIDDEN_SIZE:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_HIDDEN_SIZE\":\"${TRADER_API_MAX_HIDDEN_SIZE}\""
+  fi
   if [[ -n "$TRADER_API_TOKEN" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_TOKEN\":\"${TRADER_API_TOKEN}\""
   fi
@@ -808,6 +813,7 @@ main() {
     echo "  App Runner Instance Role: ${APP_RUNNER_INSTANCE_ROLE_ARN}"
   fi
   echo "  API Max Bars (LSTM): ${TRADER_API_MAX_BARS_LSTM}"
+  echo "  API Max Hidden Size: ${TRADER_API_MAX_HIDDEN_SIZE}"
   if [[ "$DEPLOY_UI" == "true" ]]; then
     echo "  UI Bucket: ${UI_BUCKET:-"(not set)"}"
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then

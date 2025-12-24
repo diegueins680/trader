@@ -7,7 +7,7 @@ export type IntrabarFill = "stop-first" | "take-profit-first";
 
 export type DirectionLabel = "UP" | "DOWN" | null;
 
-export type ApiError = { error: string; hint?: string | null };
+export type ApiError = { error: string; hint?: string | null; errors?: Array<{ symbol: string; error: string }> };
 
 export type ApiParams = {
   data?: string;

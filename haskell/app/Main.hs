@@ -1682,6 +1682,9 @@ botStateTail tailN st =
             , botStartIndex = botStartIndex st + dropCount
             }
 
+botStatusTailMax :: Int
+botStatusTailMax = 5000
+
 botStartingJson :: BotStartRuntime -> Aeson.Value
 botStartingJson rt =
   object
@@ -7097,14 +7100,18 @@ handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs b
                   if null statuses
                     then
                       case errors of
-                        (err:_) ->
-                          case err of
-                            Aeson.Object o ->
-                              case KM.lookup "error" o >>= AT.parseMaybe parseJSON of
-                                Just msg -> respond (jsonError status400 msg)
-                                Nothing -> respond (jsonError status400 "Failed to start bot.")
-                            _ -> respond (jsonError status400 "Failed to start bot.")
                         [] -> respond (jsonError status400 "Failed to start bot.")
+                        errs -> do
+                          let errorMsgFromValue err =
+                                case err of
+                                  Aeson.Object o -> KM.lookup "error" o >>= AT.parseMaybe parseJSON
+                                  _ -> Nothing
+                              msg =
+                                case errs of
+                                  [err] -> fromMaybe "Failed to start bot." (errorMsgFromValue err)
+                                  _ -> "Failed to start bot."
+                              payload = object ["error" .= msg, "errors" .= errs]
+                          respond (jsonValue status400 payload)
                     else do
                       let base = botStatusJsonMulti statuses
                           payload =
@@ -7162,7 +7169,7 @@ handleBotStatus botCtrl mBotStateDir req respond = do
   let q = Wai.queryString req
       tailN =
         case lookup (BS.pack "tail") q of
-          Just (Just raw) -> readMaybe (BS.unpack raw) >>= \n -> if n > 0 then Just n else Nothing
+          Just (Just raw) -> readMaybe (BS.unpack raw) >>= \n -> if n > 0 then Just (min n botStatusTailMax) else Nothing
           _ -> Nothing
       mSymbol =
         case lookup (BS.pack "symbol") q of

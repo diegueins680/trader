@@ -104,6 +104,7 @@ export type RequestIssueDetailsInput = {
   apiBlockedReason?: string | null;
   apiTargetId?: string;
   missingSymbol?: boolean;
+  symbolError?: string | null;
   symbolTargetId?: string;
   missingInterval?: boolean;
   intervalTargetId?: string;
@@ -124,6 +125,7 @@ export function buildRequestIssueDetails(input: RequestIssueDetailsInput): Reque
     });
   }
   if (input.missingSymbol) issues.push({ message: "Symbol is required.", targetId: input.symbolTargetId });
+  else if (input.symbolError) issues.push({ message: input.symbolError, targetId: input.symbolTargetId });
   if (input.missingInterval) issues.push({ message: "Interval is required.", targetId: input.intervalTargetId });
   if (input.lookbackError) issues.push({ message: input.lookbackError, targetId: input.lookbackTargetId });
   if (input.apiLimitsReason) issues.push({ message: input.apiLimitsReason, targetId: input.apiLimitsTargetId });
