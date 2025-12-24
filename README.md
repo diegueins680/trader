@@ -340,6 +340,7 @@ Optimizer script tips:
 - `--lr-min/max`, `--patience-max`, `--grad-clip-min/max`, and `--p-disable-grad-clip` tune LSTM training hyperparameters.
 - `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective (`--tune-stress-*-min/max` lets it sample ranges).
 - `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
+- Auto optimizer biases `--p-long-short` to match existing open positions/orders (short requires long-short; spot/margin suppresses long-short).
 - `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minSignalToNoiseMin`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `kalmanZMinMin`, `lrMin`, `platforms`).
 
 State directory (recommended for persistence across deployments):
@@ -478,7 +479,7 @@ The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`);
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
-The UI shows whether combos are coming from the live API or the static fallback, plus their last update time.
+The UI shows whether combos are coming from the live API or the static fallback, their last update time, and how many combos are displayed.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 If a refresh fails, the last known combos remain visible with a warning banner.

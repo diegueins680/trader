@@ -53,6 +53,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: improves async job not found handling with a clearer error after the grace period.
 - Web UI: fixes a startup crash when optimizer combos apply before API compute limits are available.
 - Web UI: show optimizer combo source (API vs static) and last update time.
+- Web UI: show optimizer combo counts and increase the default list to 12 combos.
 - Web UI: optimizer combo loads preserve the current positioning unless the combo explicitly specifies one.
 - Web UI: hides the Agree overlay for LSTM-only backtests and clarifies bars=0 combo behavior.
 - Web UI: optimizer combo refresh errors keep the last known combos visible with a warning.
@@ -67,6 +68,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: adds trade-quality filters (win rate, profit factor, exposure) and samples min-hold/cooldown bars for churn control.
 - Optimizer: adds min-signal-to-noise sampling plus Sharpe/walk-forward Sharpe filters, with `/optimizer/run` fields to match.
 - Optimizer: adds walk-forward/tune-stress sampling controls and propagates additional combo parameters (vol floors, vol caps, stress settings) through top-combo outputs.
+- Optimizer: auto optimizer biases long-short sampling to match existing open positions/orders so compatible combos appear sooner.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - Optimizer/API: expose intrabar fill probability, bracket-stop ranges (incl. vol-mult), confidence gating, and LSTM training sampling controls to `/optimizer/run`.
 - API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.
