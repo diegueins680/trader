@@ -1003,6 +1003,56 @@ data ApiBinanceTradesResponse = ApiBinanceTradesResponse
 instance ToJSON ApiBinanceTradesResponse where
   toJSON = Aeson.genericToJSON (jsonOptions 4)
 
+data ApiBinancePositionsRequest = ApiBinancePositionsRequest
+  { abpMarket :: !(Maybe String)
+  , abpBinanceTestnet :: !(Maybe Bool)
+  , abpBinanceApiKey :: !(Maybe String)
+  , abpBinanceApiSecret :: !(Maybe String)
+  , abpInterval :: !(Maybe String)
+  , abpLimit :: !(Maybe Int)
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON ApiBinancePositionsRequest where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 3)
+
+data ApiBinancePosition = ApiBinancePosition
+  { abpSymbol :: !String
+  , abpPositionAmt :: !Double
+  , abpEntryPrice :: !Double
+  , abpMarkPrice :: !Double
+  , abpUnrealizedPnl :: !Double
+  , abpLiquidationPrice :: !(Maybe Double)
+  , abpBreakEvenPrice :: !(Maybe Double)
+  , abpLeverage :: !Double
+  , abpMarginType :: !(Maybe String)
+  , abpPositionSide :: !(Maybe String)
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiBinancePosition where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+data ApiBinancePositionChart = ApiBinancePositionChart
+  { abpcSymbol :: !String
+  , abpcOpenTimes :: ![Int64]
+  , abpcPrices :: ![Double]
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiBinancePositionChart where
+  toJSON = Aeson.genericToJSON (jsonOptions 4)
+
+data ApiBinancePositionsResponse = ApiBinancePositionsResponse
+  { abprMarket :: !String
+  , abprTestnet :: !Bool
+  , abprInterval :: !String
+  , abprLimit :: !Int
+  , abprPositions :: ![ApiBinancePosition]
+  , abprCharts :: ![ApiBinancePositionChart]
+  , abprFetchedAtMs :: !Int64
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON ApiBinancePositionsResponse where
+  toJSON = Aeson.genericToJSON (jsonOptions 4)
+
 jsonOptions :: Int -> Aeson.Options
 jsonOptions prefixLen =
   Aeson.defaultOptions
@@ -5530,6 +5580,7 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotSt
                                        , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/trades" :: String)]
+                                       , object ["method" .= ("POST" :: String), "path" .= ("/binance/positions" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/coinbase/keys" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
@@ -5649,6 +5700,10 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotSt
             ["binance", "keys"] ->
               case Wai.requestMethod req of
                 "POST" -> handleBinanceKeys reqLimits baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["binance", "positions"] ->
+              case Wai.requestMethod req of
+                "POST" -> handleBinancePositions reqLimits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "trades"] ->
               case Wai.requestMethod req of
@@ -7292,6 +7347,77 @@ handleBinanceTrades reqLimits baseArgs req respond = do
                             , abtrAllSymbols = allSymbols
                             , abtrTrades = tradesSorted
                             , abtrFetchedAtMs = now
+                            }
+
+handleBinancePositions :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinancePositions reqLimits baseArgs req respond = do
+  if argPlatform baseArgs /= PlatformBinance
+    then respond (jsonError status400 ("Binance positions require platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
+    else do
+      payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+      case payloadOrErr of
+        Left resp -> respond resp
+        Right params -> do
+          let testnet = resolveTestnetForListenKey baseArgs (abpBinanceTestnet params)
+          case parseMarketForListenKey baseArgs (abpMarket params) of
+            Left e -> respond (jsonError status400 e)
+            Right market -> do
+              if market /= MarketFutures
+                then respond (jsonError status400 "binance positions require market=futures")
+                else do
+                  apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                  let baseUrl = if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
+                  case r of
+                    Left ex ->
+                      let (st, msg) = exceptionToHttp ex
+                       in respond (jsonError st msg)
+                    Right positions -> do
+                      let interval = fromMaybe (argInterval baseArgs) (abpInterval params)
+                          limitRaw = fromMaybe 120 (abpLimit params)
+                          limitSafe = max 10 (min 1000 limitRaw)
+                          openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
+                          toApiPosition p =
+                            ApiBinancePosition
+                              { abpSymbol = fprSymbol p
+                              , abpPositionAmt = fprPositionAmt p
+                              , abpEntryPrice = fprEntryPrice p
+                              , abpMarkPrice = fprMarkPrice p
+                              , abpUnrealizedPnl = fprUnrealizedProfit p
+                              , abpLiquidationPrice = fprLiquidationPrice p
+                              , abpBreakEvenPrice = fprBreakEvenPrice p
+                              , abpLeverage = fprLeverage p
+                              , abpMarginType = fprMarginType p
+                              , abpPositionSide = fprPositionSide p
+                              }
+                      chartsRaw <-
+                        forM openPositions $ \pos -> do
+                          let sym = fprSymbol pos
+                          kr <- try (fetchKlines env sym interval limitSafe) :: IO (Either SomeException [Kline])
+                          pure $
+                            case kr of
+                              Left _ -> Nothing
+                              Right ks ->
+                                Just
+                                  ApiBinancePositionChart
+                                    { abpcSymbol = sym
+                                    , abpcOpenTimes = map kOpenTime ks
+                                    , abpcPrices = map kClose ks
+                                    }
+                      now <- getTimestampMs
+                      respond $
+                        jsonValue
+                          status200
+                          ApiBinancePositionsResponse
+                            { abprMarket = marketCode market
+                            , abprTestnet = testnet
+                            , abprInterval = interval
+                            , abprLimit = limitSafe
+                            , abprPositions = map toApiPosition openPositions
+                            , abprCharts = catMaybes chartsRaw
+                            , abprFetchedAtMs = now
                             }
 
 handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived

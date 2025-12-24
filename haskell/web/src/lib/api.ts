@@ -1,5 +1,7 @@
 import type {
   ApiError,
+  ApiBinancePositionsRequest,
+  ApiBinancePositionsResponse,
   ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
   ApiParams,
@@ -554,6 +556,23 @@ export async function binanceListenKeyClose(
   return fetchJson<BinanceListenKeyKeepAliveResponse>(
     baseUrl,
     "/binance/listenKey/close",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
+export async function binancePositions(
+  baseUrl: string,
+  params: ApiBinancePositionsRequest,
+  opts?: FetchJsonOptions,
+): Promise<ApiBinancePositionsResponse> {
+  return fetchJson<ApiBinancePositionsResponse>(
+    baseUrl,
+    "/binance/positions",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -209,6 +209,44 @@ export type BinanceTrade = {
   realizedPnl?: number | null;
 };
 
+export type BinancePosition = {
+  symbol: string;
+  positionAmt: number;
+  entryPrice: number;
+  markPrice: number;
+  unrealizedPnl: number;
+  liquidationPrice?: number | null;
+  breakEvenPrice?: number | null;
+  leverage?: number | null;
+  marginType?: string | null;
+  positionSide?: string | null;
+};
+
+export type BinancePositionChart = {
+  symbol: string;
+  openTimes: number[];
+  prices: number[];
+};
+
+export type ApiBinancePositionsRequest = {
+  market?: Market;
+  binanceTestnet?: boolean;
+  binanceApiKey?: string;
+  binanceApiSecret?: string;
+  interval?: string;
+  limit?: number;
+};
+
+export type ApiBinancePositionsResponse = {
+  market: Market;
+  testnet: boolean;
+  interval: string;
+  limit: number;
+  positions: BinancePosition[];
+  charts: BinancePositionChart[];
+  fetchedAtMs: number;
+};
+
 export type ApiBinanceTradesRequest = {
   market?: Market;
   binanceTestnet?: boolean;

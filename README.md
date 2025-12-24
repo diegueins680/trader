@@ -208,8 +208,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--close-threshold 0.001` exit/close threshold (fractional deadband; defaults to open-threshold when omitted)
     - Live order placement uses `close-threshold` to decide exits when already in position, mirroring backtest logic.
   - `--min-edge F` minimum predicted return magnitude required to enter (`0` disables)
-  - `--min-signal-to-noise F` optional: require edge / per-bar sigma >= `F` (`0` disables)
-    - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread
+  - `--min-signal-to-noise F` require edge / per-bar sigma >= `F` (`0` disables; default: `0.5`)
+    - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread (default on; disable with `--no-cost-aware-edge`)
     - `--edge-buffer F` optional extra buffer added on top of cost-aware edge
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average)
     - When using `--method 10`, the LSTM is disabled (not trained).
@@ -237,18 +237,22 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--stop-loss-vol-mult F` optional: stop loss as per-bar sigma multiple (`0` disables; overrides `--stop-loss` when vol estimate is available)
   - `--take-profit-vol-mult F` optional: take profit as per-bar sigma multiple (`0` disables; overrides `--take-profit` when vol estimate is available)
   - `--trailing-stop-vol-mult F` optional: trailing stop as per-bar sigma multiple (`0` disables; overrides `--trailing-stop` when vol estimate is available)
-  - `--min-hold-bars N` optional: minimum holding periods before allowing a signal-based exit (`0` disables; bracket exits still apply)
-  - `--cooldown-bars N` optional: after an exit to flat, wait `N` bars before allowing a new entry (`0` disables)
-  - `--max-hold-bars N` optional: force exit after holding for `N` bars (`0` disables; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
-  - `--trend-lookback N` optional: simple moving average filter for entries (`0` disables)
+  - `--min-hold-bars N` minimum holding periods before allowing a signal-based exit (`0` disables; default: `2`; bracket exits still apply)
+  - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `1`)
+  - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `48`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
+  - `--trend-lookback N` simple moving average filter for entries (`0` disables; default: `20`)
   - `--max-position-size F` optional: cap position size/leverage (`1` = full size)
-  - `--vol-target F` optional: target annualized volatility for position sizing
+  - `--vol-target F` target annualized volatility for position sizing (`0` disables; default: `1.0`)
     - `--vol-lookback N` realized-vol lookback window (bars) when EWMA alpha is not set
     - `--vol-ewma-alpha F` use EWMA volatility estimate (overrides lookback)
-    - `--vol-floor F` annualized vol floor for sizing
+    - `--vol-floor F` annualized vol floor for sizing (default: `0.1`)
     - `--vol-scale-max F` cap volatility scaling (limits leverage)
-    - `--max-volatility F` optional: block entries when annualized vol exceeds this
+    - `--max-volatility F` block entries when annualized vol exceeds this (`0` disables; default: `2.0`)
   - Entries that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
+  - `--kalman-z-min 0.5` minimum Kalman |mean|/std required to treat Kalman as directional (`0` disables)
+  - `--kalman-z-max 3` Z-score mapped to full position size when confidence sizing is enabled
+  - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
+  - `--min-position-size 0.1` minimum entry size when confidence sizing is enabled (`0..1`)
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures

@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Strategy defaults: enable cost-aware edge + confidence sizing by default, add `--no-cost-aware-edge`/`--no-confidence-sizing` opt-outs, and raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, vol target/floor/max-vol, Kalman z-min, min position size).
 - Observability: add Discord-compatible webhook notifications for bot/trade events via `TRADER_WEBHOOK_URL` (filter with `TRADER_WEBHOOK_EVENTS`).
 - Live bot: support multi-symbol bots via `botSymbols` and `TRADER_BOT_SYMBOLS`, with per-symbol status snapshots.
 - Live bot: auto-syncs to the latest top combo (poll interval `TRADER_BOT_COMBOS_POLL_SEC`) and applies it while running.

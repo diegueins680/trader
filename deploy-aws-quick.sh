@@ -821,9 +821,9 @@ ensure_cloudfront_api_behavior() {
   local cache_policy_id
   local origin_request_policy_id
   cache_policy_id="$(get_managed_cache_policy_id "Managed-CachingDisabled")"
-  origin_request_policy_id="$(get_managed_origin_request_policy_id "Managed-AllViewer")"
+  origin_request_policy_id="$(get_managed_origin_request_policy_id "Managed-AllViewerExceptHostHeader")"
   if [[ -z "$origin_request_policy_id" || "$origin_request_policy_id" == "None" ]]; then
-    origin_request_policy_id="$(get_managed_origin_request_policy_id "Managed-AllViewerExceptHostHeader")"
+    origin_request_policy_id="$(get_managed_origin_request_policy_id "Managed-AllViewer")"
   fi
   if [[ -z "$cache_policy_id" || "$cache_policy_id" == "None" || -z "$origin_request_policy_id" || "$origin_request_policy_id" == "None" ]]; then
     echo -e "${YELLOW}CloudFront warning: managed cache/origin request policy not found; using legacy forwarding.${NC}" >&2

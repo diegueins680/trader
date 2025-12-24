@@ -10,6 +10,7 @@ module Trader.Binance
   , SymbolFilters(..)
   , Ticker24h(..)
   , BinanceOpenOrder(..)
+  , FuturesPositionRisk(..)
   , fetchTickerPrice
   , fetchTickers24h
   , fetchTopSymbolsByQuoteVolume
@@ -31,6 +32,7 @@ module Trader.Binance
   , fetchFreeBalance
   , fetchFuturesAvailableBalance
   , fetchFuturesPositionAmt
+  , fetchFuturesPositionRisks
   , fetchOpenOrders
   , cancelFuturesOpenOrdersByClientPrefix
   , createListenKey
@@ -1057,6 +1059,76 @@ instance FromJSON FuturesPosition where
     amtTxt <- o .: "positionAmt"
     amt <- parseDoubleText amtTxt
     pure FuturesPosition { fpSymbol = sym, fpPositionAmt = amt }
+
+data FuturesPositionRisk = FuturesPositionRisk
+  { fprSymbol :: !String
+  , fprPositionAmt :: !Double
+  , fprEntryPrice :: !Double
+  , fprMarkPrice :: !Double
+  , fprUnrealizedProfit :: !Double
+  , fprLiquidationPrice :: !(Maybe Double)
+  , fprBreakEvenPrice :: !(Maybe Double)
+  , fprLeverage :: !Double
+  , fprMarginType :: !(Maybe String)
+  , fprPositionSide :: !(Maybe String)
+  } deriving (Eq, Show)
+
+instance FromJSON FuturesPositionRisk where
+  parseJSON = withObject "FuturesPositionRisk" $ \o -> do
+    sym <- o .: "symbol"
+    positionAmt <- parseDoubleField o "positionAmt"
+    entryPrice <- parseDoubleField o "entryPrice"
+    markPrice <- parseDoubleField o "markPrice"
+    unrealizedProfit <- parseDoubleField o "unRealizedProfit"
+    liquidationPrice <- parseMaybeDoubleField o "liquidationPrice"
+    breakEvenPrice <- parseMaybeDoubleField o "breakEvenPrice"
+    leverage <- parseDoubleField o "leverage"
+    marginType <- o AT..:? "marginType"
+    positionSide <- o AT..:? "positionSide"
+    pure
+      FuturesPositionRisk
+        { fprSymbol = sym
+        , fprPositionAmt = positionAmt
+        , fprEntryPrice = entryPrice
+        , fprMarkPrice = markPrice
+        , fprUnrealizedProfit = unrealizedProfit
+        , fprLiquidationPrice = liquidationPrice
+        , fprBreakEvenPrice = breakEvenPrice
+        , fprLeverage = leverage
+        , fprMarginType = marginType
+        , fprPositionSide = positionSide
+        }
+
+fetchFuturesPositionRisks :: BinanceEnv -> IO [FuturesPositionRisk]
+fetchFuturesPositionRisks env = do
+  if beMarket env /= MarketFutures
+    then throwIO (userError "fetchFuturesPositionRisks requires MarketFutures")
+    else pure ()
+  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+  ts <- getTimestampMs
+
+  let params =
+        [ ("timestamp", BS.pack (show ts))
+        , ("recvWindow", "5000")
+        ]
+      queryToSign = renderSimpleQuery False params
+      sig = signQuery secret queryToSign
+      paramsSigned = params ++ [("signature", sig)]
+      qs = renderSimpleQuery True paramsSigned
+
+  req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/positionRisk")
+  let req =
+        req0
+          { method = "GET"
+          , queryString = qs
+          , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+          }
+  resp <- httpLbs req (beManager env)
+  ensure2xx "futures/positionRisk" resp
+  case eitherDecode (responseBody resp) of
+    Left e -> throwIO (userError ("Failed to decode futures positionRisk: " ++ e))
+    Right positions -> pure positions
 
 renderDouble :: Double -> BS.ByteString
 renderDouble x =

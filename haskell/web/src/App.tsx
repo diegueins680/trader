@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ApiBinancePositionsRequest,
+  ApiBinancePositionsResponse,
   ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
   ApiParams,
@@ -7,6 +9,7 @@ import type {
   BacktestResponse,
   BinanceKeysStatus,
   BinanceListenKeyResponse,
+  BinancePositionChart,
   BotOrderEvent,
   BotStatus,
   BotStatusMulti,
@@ -23,6 +26,7 @@ import type {
 import {
   HttpError,
   backtest,
+  binancePositions,
   binanceTrades,
   binanceKeysStatus,
   binanceListenKey,
@@ -227,6 +231,31 @@ function parseTimeInputMs(raw: string): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function buildPositionSeries(prices: number[], side: number): number[] {
+  if (prices.length === 0) return [];
+  if (!Number.isFinite(side) || side === 0) return Array.from({ length: prices.length }, () => 0);
+  const dir = side > 0 ? 1 : -1;
+  return Array.from({ length: prices.length }, () => dir);
+}
+
+function buildEquityCurve(prices: number[], side: number): number[] {
+  if (prices.length === 0) return [];
+  const dir = side > 0 ? 1 : side < 0 ? -1 : 0;
+  const out = [1];
+  for (let i = 1; i < prices.length; i += 1) {
+    const prev = prices[i - 1] ?? 0;
+    const cur = prices[i] ?? prev;
+    const last = out[out.length - 1] ?? 1;
+    if (!Number.isFinite(prev) || !Number.isFinite(cur) || prev === 0 || cur === 0 || dir === 0) {
+      out.push(last);
+      continue;
+    }
+    const ratio = dir > 0 ? cur / prev : prev / cur;
+    out.push(last * ratio);
+  }
+  return out;
+}
+
 function listenKeyKeepAliveIntervalMs(keepAliveMs: number): number {
   // Refresh slightly ahead of expiry to avoid jitter.
   return Math.max(60_000, Math.round(keepAliveMs * 0.9));
@@ -299,6 +328,12 @@ type BinanceTradesUiState = {
   loading: boolean;
   error: string | null;
   response: ApiBinanceTradesResponse | null;
+};
+
+type BinancePositionsUiState = {
+  loading: boolean;
+  error: string | null;
+  response: ApiBinancePositionsResponse | null;
 };
 
 type TopCombosSource = "api" | "static";
@@ -850,6 +885,13 @@ export function App() {
   const [binanceTradesStartInput, setBinanceTradesStartInput] = useState("");
   const [binanceTradesEndInput, setBinanceTradesEndInput] = useState("");
   const [binanceTradesFromIdInput, setBinanceTradesFromIdInput] = useState("");
+
+  const [binancePositionsUi, setBinancePositionsUi] = useState<BinancePositionsUiState>({
+    loading: false,
+    error: null,
+    response: null,
+  });
+  const [binancePositionsBars, setBinancePositionsBars] = useState(200);
 
   const [botRt, setBotRt] = useState<BotRtUiState>({
     lastFetchAtMs: null,
@@ -1941,24 +1983,46 @@ export function App() {
 
   const scrollToResult = useCallback((kind: RequestKind) => {
     const ref = kind === "signal" ? signalRef : kind === "backtest" ? backtestRef : tradeRef;
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const prefersReducedMotion =
+      typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+    ref.current?.scrollIntoView({ behavior, block: "start" });
   }, []);
   const scrollToSection = useCallback((id?: string) => {
     if (!id || typeof document === "undefined") return;
     const el = document.getElementById(id);
     if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    const prefersReducedMotion =
+      typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+    el.scrollIntoView({ behavior, block: "start" });
+
+    const focusSelector =
+      "input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const focusTarget = el.matches(focusSelector) ? el : el.querySelector<HTMLElement>(focusSelector);
+    if (focusTarget) {
+      focusTarget.focus({ preventScroll: true });
+    } else {
+      if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+      el.focus({ preventScroll: true });
+    }
+
     if (sectionFlashRef.current && sectionFlashRef.current !== el) {
       sectionFlashRef.current.classList.remove("sectionFlash");
     }
     sectionFlashRef.current = el;
-    el.classList.remove("sectionFlash");
-    void el.offsetWidth;
-    el.classList.add("sectionFlash");
-    if (sectionFlashTimeoutRef.current) window.clearTimeout(sectionFlashTimeoutRef.current);
-    sectionFlashTimeoutRef.current = window.setTimeout(() => {
+    if (sectionFlashTimeoutRef.current) {
+      window.clearTimeout(sectionFlashTimeoutRef.current);
+      sectionFlashTimeoutRef.current = null;
+    }
+    if (!prefersReducedMotion) {
       el.classList.remove("sectionFlash");
-    }, 1200);
+      void el.offsetWidth;
+      el.classList.add("sectionFlash");
+      sectionFlashTimeoutRef.current = window.setTimeout(() => {
+        el.classList.remove("sectionFlash");
+      }, 1200);
+    }
   }, []);
 
   useEffect(() => {
@@ -2638,7 +2702,7 @@ export function App() {
         const payload: ApiParams = {
           ...tradeParams,
           botTrade: form.tradeArmed,
-          botAdoptExistingPosition: adoptOverride || form.botAdoptExistingPosition,
+          botAdoptExistingPosition: true,
           ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
           botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
           botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
@@ -2762,6 +2826,25 @@ export function App() {
     ],
   );
 
+  const binancePositionsBarsError = useMemo(() => {
+    if (!Number.isFinite(binancePositionsBars)) return "Chart bars must be a number.";
+    if (binancePositionsBars <= 0) return "Chart bars must be greater than zero.";
+    return null;
+  }, [binancePositionsBars]);
+  const binancePositionsLimitSafe = useMemo(
+    () => clamp(Math.trunc(binancePositionsBars), 10, 1000),
+    [binancePositionsBars],
+  );
+  const binancePositionsInputError = useMemo(
+    () =>
+      firstReason(
+        !isBinancePlatform ? "Binance positions require platform=binance." : null,
+        form.market !== "futures" ? "Binance positions are supported for futures only." : null,
+        binancePositionsBarsError,
+      ),
+    [binancePositionsBarsError, form.market, isBinancePlatform],
+  );
+
   const fetchBinanceTrades = useCallback(async () => {
     setBinanceTradesUi((s) => ({ ...s, loading: true, error: null }));
     if (binanceTradesInputError) {
@@ -2799,6 +2882,48 @@ export function App() {
     form.market,
     withBinanceKeys,
   ]);
+
+  const fetchBinancePositions = useCallback(async () => {
+    setBinancePositionsUi((s) => ({ ...s, loading: true, error: null }));
+    if (binancePositionsInputError) {
+      setBinancePositionsUi((s) => ({ ...s, loading: false, error: binancePositionsInputError }));
+      return;
+    }
+    try {
+      const params: ApiBinancePositionsRequest = {
+        market: form.market,
+        binanceTestnet: form.binanceTestnet,
+        interval: form.interval.trim(),
+        limit: binancePositionsLimitSafe,
+      };
+      const out = await binancePositions(apiBase, withBinanceKeys(params), { headers: authHeaders, timeoutMs: 30_000 });
+      setBinancePositionsUi({ loading: false, error: null, response: out });
+    } catch (e) {
+      if (isAbortError(e)) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      setBinancePositionsUi((s) => ({ ...s, loading: false, error: msg }));
+    }
+  }, [
+    apiBase,
+    authHeaders,
+    binancePositionsInputError,
+    binancePositionsLimitSafe,
+    form.binanceTestnet,
+    form.interval,
+    form.market,
+    withBinanceKeys,
+  ]);
+
+  const binancePositionsList = useMemo(() => {
+    const raw = binancePositionsUi.response?.positions ?? [];
+    return [...raw].sort((a, b) => a.symbol.localeCompare(b.symbol));
+  }, [binancePositionsUi.response?.positions]);
+  const binancePositionsCharts = useMemo(() => {
+    const charts = binancePositionsUi.response?.charts ?? [];
+    const map = new Map<string, BinancePositionChart>();
+    for (const chart of charts) map.set(chart.symbol, chart);
+    return map;
+  }, [binancePositionsUi.response?.charts]);
 
   useEffect(() => {
     if (apiOk !== "ok") return;
@@ -3590,6 +3715,7 @@ export function App() {
     { id: "section-optimization", label: "Optimization" },
     { id: "section-livebot", label: "Live bot" },
     { id: "section-trade", label: "Trade" },
+    { id: "section-positions", label: "Positions" },
   ];
 
   return (
@@ -3758,7 +3884,7 @@ export function App() {
             </div>
             <div className="row" style={{ gridTemplateColumns: "1fr" }} id="section-api">
               <div className="field">
-                <label className="label">API</label>
+                <div className="label">API</div>
                 <div className="kv">
                   <div className="k">Base URL</div>
                   <div className="v">
@@ -3866,7 +3992,7 @@ export function App() {
             {apiOk === "down" || apiOk === "auth" ? (
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
                 <div className="field">
-                  <label className="label">Connection</label>
+                  <div className="label">Connection</div>
                   <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
                     {apiOk === "down"
                       ? showLocalStartHelp
@@ -3899,7 +4025,7 @@ export function App() {
 
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
-                <label className="label">{platformKeyLabel}</label>
+                <div className="label">{platformKeyLabel}</div>
                 <div
                   className="row"
                   style={{
@@ -3916,6 +4042,7 @@ export function App() {
                       if (platformKeyMode === "coinbase") setCoinbaseApiKey(next);
                       else if (platformKeyMode === "binance") setBinanceApiKey(next);
                     }}
+                    aria-label={platformKeyMode === "coinbase" ? "Coinbase API key" : platformKeyMode === "binance" ? "Binance API key" : "API key"}
                     placeholder={
                       platformKeyMode === "coinbase" ? "COINBASE_API_KEY" : platformKeyMode === "binance" ? "BINANCE_API_KEY" : "Select Binance/Coinbase"
                     }
@@ -3934,6 +4061,9 @@ export function App() {
                       if (platformKeyMode === "coinbase") setCoinbaseApiSecret(next);
                       else if (platformKeyMode === "binance") setBinanceApiSecret(next);
                     }}
+                    aria-label={
+                      platformKeyMode === "coinbase" ? "Coinbase API secret" : platformKeyMode === "binance" ? "Binance API secret" : "API secret"
+                    }
                     placeholder={
                       platformKeyMode === "coinbase" ? "COINBASE_API_SECRET" : platformKeyMode === "binance" ? "BINANCE_API_SECRET" : "Select Binance/Coinbase"
                     }
@@ -3949,6 +4079,7 @@ export function App() {
                       type={revealSecrets ? "text" : "password"}
                       value={coinbaseApiPassphrase}
                       onChange={(e) => setCoinbaseApiPassphrase(e.target.value)}
+                      aria-label="Coinbase API passphrase"
                       placeholder="COINBASE_API_PASSPHRASE"
                       spellCheck={false}
                       autoCapitalize="none"
@@ -4000,9 +4131,9 @@ export function App() {
 
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
-                <label className="label">Profiles</label>
+                <div className="label">Profiles</div>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr", alignItems: "center" }}>
-                  <select className="select" value={profileSelected} onChange={(e) => setProfileSelected(e.target.value)}>
+                  <select className="select" value={profileSelected} onChange={(e) => setProfileSelected(e.target.value)} aria-label="Saved profiles">
                     <option value="">{profileNames.length ? "Select saved profile…" : "No profiles yet"}</option>
                     {profileNames.map((name) => (
                       <option key={name} value={name}>
@@ -4016,6 +4147,7 @@ export function App() {
                     onChange={(e) => setProfileName(e.target.value)}
                     placeholder="New profile name"
                     spellCheck={false}
+                    aria-label="New profile name"
                   />
                 </div>
                 <div className="actions" style={{ marginTop: 10 }}>
@@ -4060,7 +4192,7 @@ export function App() {
 
           <div className="row" style={{ gridTemplateColumns: "1fr" }}>
             <div className="field">
-              <label className="label">Optimizer combos</label>
+              <div className="label">Optimizer combos</div>
               {(() => {
                 const updatedAtMs = topCombosMeta.generatedAtMs;
                 const updatedLabel = updatedAtMs ? fmtTimeMs(updatedAtMs) : "—";
@@ -4762,7 +4894,7 @@ export function App() {
             </div>
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
-                <label className="label">Bracket exits (fractions)</label>
+              <div className="label">Bracket exits (fractions)</div>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
                   <div className="field">
                     <label className="label" htmlFor="stopLoss">
@@ -4893,7 +5025,7 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
               <div className="field">
-                <label className="label">Trade pacing (bars)</label>
+              <div className="label">Trade pacing (bars)</div>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
                   <div className="field">
                     <label className="label" htmlFor="minHoldBars">
@@ -4956,7 +5088,7 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
               <div className="field">
-                <label className="label">Sizing + filters</label>
+              <div className="label">Sizing + filters</div>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
                   <div className="field">
                     <label className="label" htmlFor="trendLookback">
@@ -5111,7 +5243,7 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
               <div className="field">
-                <label className="label">Risk kill-switches</label>
+              <div className="label">Risk kill-switches</div>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
                   <div className="field">
                     <label className="label" htmlFor="maxDrawdown">
@@ -5225,7 +5357,7 @@ export function App() {
             </div>
             <div className="row">
               <div className="field">
-                <label className="label">Optimization</label>
+              <div className="label">Optimization</div>
                 <div className="pillRow">
                   <label className="pill">
                     <input
@@ -5409,7 +5541,7 @@ export function App() {
                 </div>
               </div>
               <div className="field">
-                <label className="label">Options</label>
+              <div className="label">Options</div>
                 <div className="pillRow">
                   <label className="pill">
                     <input
@@ -5453,6 +5585,7 @@ export function App() {
                     value={form.autoRefreshSec}
                     onChange={(e) => setForm((f) => ({ ...f, autoRefreshSec: numFromInput(e.target.value, f.autoRefreshSec) }))}
                     disabled={!form.autoRefresh}
+                    aria-label="Auto-refresh interval in seconds"
                   />{" "}
                   seconds.{!form.autoRefresh ? " Enable Auto-refresh to use this interval." : ""}{" "}
                   {form.bypassCache ? "Bypass cache adds Cache-Control: no-cache." : ""}
@@ -5463,7 +5596,7 @@ export function App() {
             <div style={{ marginTop: 14 }} id="section-livebot">
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
                 <div className="field">
-                  <label className="label">Live bot</label>
+                  <div className="label">Live bot</div>
                   <div className="actions" style={{ marginTop: 0 }}>
                     <button
                       className="btn btnPrimary"
@@ -5568,7 +5701,7 @@ export function App() {
                     </div>
                     <div className="row" style={{ marginTop: 12 }}>
                       <div className="field">
-                        <label className="label">Startup position</label>
+                        <div className="label">Startup position</div>
                         <div className="pillRow">
                           <label className="pill">
                             <input
@@ -5640,7 +5773,7 @@ export function App() {
             <div style={{ marginTop: 14 }} id="section-trade">
               <div className="row">
                 <div className="field">
-                  <label className="label">Trade controls</label>
+                  <div className="label">Trade controls</div>
                   <div className="pillRow">
                     <label className="pill">
                       <input
@@ -5730,7 +5863,7 @@ export function App() {
                   ) : null}
                 </div>
                 <div className="field">
-                  <label className="label">Order sizing</label>
+                  <div className="label">Order sizing</div>
                   <div className="hint" style={orderSizing.conflicts ? { color: "rgba(239, 68, 68, 0.9)" } : undefined}>
                     {orderSizing.conflicts ? `Multiple sizing inputs are set (${orderSizing.active.join(", ")}). ` : ""}
                     {orderSizing.hint}
@@ -7053,8 +7186,121 @@ export function App() {
                     );
                   })()}
                 </>
+          ) : (
+            <div className="hint">No signal yet.</div>
+          )}
+        </div>
+      </div>
+
+          <div className="card" id="section-positions">
+            <div className="cardHeader">
+              <h2 className="cardTitle">Open positions</h2>
+              <p className="cardSubtitle">Charts for every open Binance futures position (positionRisk + klines).</p>
+            </div>
+            <div className="cardBody">
+              <div className="row" style={{ marginBottom: 10 }}>
+                <div className="field">
+                  <label className="label" htmlFor="positionsBars">
+                    Chart bars
+                  </label>
+                  <input
+                    id="positionsBars"
+                    className={binancePositionsBarsError ? "input inputError" : "input"}
+                    type="number"
+                    min={10}
+                    max={1000}
+                    value={binancePositionsBars}
+                    onChange={(e) => setBinancePositionsBars(numFromInput(e.target.value, binancePositionsBars))}
+                  />
+                  <div className="hint">Uses the current interval ({form.interval}).</div>
+                </div>
+                <div className="field">
+                  <div className="label">Actions</div>
+                  <div className="actions" style={{ marginTop: 0 }}>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => void fetchBinancePositions()}
+                      disabled={binancePositionsUi.loading || apiOk !== "ok" || Boolean(binancePositionsInputError)}
+                    >
+                      {binancePositionsUi.loading ? "Refreshing…" : "Refresh positions"}
+                    </button>
+                    {binancePositionsUi.response ? (
+                      <span className="badge">Updated {fmtTimeMs(binancePositionsUi.response.fetchedAtMs)}</span>
+                    ) : null}
+                    <span className="badge">{binancePositionsList.length} positions</span>
+                  </div>
+                  {binancePositionsInputError ? (
+                    <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)" }}>
+                      {binancePositionsInputError}
+                    </div>
+                  ) : (
+                    <div className="hint">Requires Binance API keys with futures access.</div>
+                  )}
+                </div>
+              </div>
+
+              {binancePositionsUi.error ? (
+                <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 10 }}>
+                  {binancePositionsUi.error}
+                </pre>
+              ) : null}
+
+              {binancePositionsUi.response ? (
+                binancePositionsList.length === 0 ? (
+                  <div className="hint">No open futures positions detected.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 18 }}>
+                    {binancePositionsList.map((pos) => {
+                      const chart = binancePositionsCharts.get(pos.symbol);
+                      const prices = chart?.prices ?? [];
+                      const positionAmt = pos.positionAmt;
+                      const posDir = positionAmt > 0 ? 1 : -1;
+                      const sideRaw = pos.positionSide?.toUpperCase();
+                      const sideLabel = sideRaw && sideRaw !== "BOTH" ? sideRaw : posDir > 0 ? "LONG" : "SHORT";
+                      const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
+                      const positionsSeries = buildPositionSeries(prices, posDir);
+                      const equityCurve = buildEquityCurve(prices, posDir);
+                      return (
+                        <div key={pos.symbol}>
+                          <div className="pillRow" style={{ marginBottom: 10 }}>
+                            <span className="badge badgeStrong">{pos.symbol}</span>
+                            <span className={`badge ${posDir > 0 ? "badgeLong" : "badgeFlat"}`}>{sideLabel}</span>
+                            <span className="badge">size {fmtNum(Math.abs(positionAmt), 6)}</span>
+                            <span className="badge">entry {fmtNum(pos.entryPrice, 6)}</span>
+                            <span className="badge">mark {fmtNum(pos.markPrice, 6)}</span>
+                            <span className={pnlClass}>PNL {fmtMoney(pos.unrealizedPnl, 4)}</span>
+                            {typeof pos.breakEvenPrice === "number" && Number.isFinite(pos.breakEvenPrice) && pos.breakEvenPrice > 0 ? (
+                              <span className="badge">break-even {fmtNum(pos.breakEvenPrice, 6)}</span>
+                            ) : null}
+                            {typeof pos.liquidationPrice === "number" && Number.isFinite(pos.liquidationPrice) && pos.liquidationPrice > 0 ? (
+                              <span className="badge">liq {fmtNum(pos.liquidationPrice, 6)}</span>
+                            ) : null}
+                            {typeof pos.leverage === "number" && Number.isFinite(pos.leverage) ? (
+                              <span className="badge">lev {fmtNum(pos.leverage, 2)}x</span>
+                            ) : null}
+                            {pos.marginType ? <span className="badge">{pos.marginType}</span> : null}
+                          </div>
+                          {prices.length > 1 ? (
+                            <BacktestChart
+                              prices={prices}
+                              equityCurve={equityCurve}
+                              positions={positionsSeries}
+                              trades={[]}
+                              height={260}
+                            />
+                          ) : (
+                            <div className="chart" style={{ height: 220 }}>
+                              <div className="chartEmpty">No chart data available.</div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               ) : (
-                <div className="hint">No signal yet.</div>
+                <div className="hint">No positions loaded yet.</div>
               )}
             </div>
           </div>
