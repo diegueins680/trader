@@ -15,8 +15,9 @@ Features
   - Transformer-style attention predictor (kNN attention)
   - HMM / regime model (3 regimes)
   - Quantile regression (q10/q50/q90)
-  - Conformal interval wrapper (calibrated on a holdout split, sigma derived from alpha; omitted when calibration is empty)
+- Conformal interval wrapper (calibrated on a holdout split, sigma derived from alpha; omitted when calibration is empty)
 - Predictor training validates fixed feature dimensions to avoid silent mismatches.
+- Predictor outputs omit GBDT/quantile/conformal when the feature dataset is empty (e.g., insufficient history).
 - Quantile outputs clamp the median inside the q10/q90 bounds and omit sigma when the interval is invalid.
 - Predictor training uses a train/calibration split so held-out calibration data is excluded from model training.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).

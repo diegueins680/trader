@@ -26,7 +26,7 @@ import Trader.Predictors.Features (FeatureSpec, mkFeatureSpec, featuresAt, forwa
 import Trader.Predictors.GBDT (GBDTModel(..), trainGBDT, predictGBDT)
 import Trader.Predictors.TCN (TCNModel(..), trainTCN, predictTCN)
 import Trader.Predictors.Transformer (TransformerModel(..), trainTransformer, predictTransformer)
-import Trader.Predictors.Quantile (QuantileModel(..), trainQuantileModel, predictQuantiles)
+import Trader.Predictors.Quantile (LinModel(..), QuantileModel(..), trainQuantileModel, predictQuantiles)
 import Trader.Predictors.Conformal (ConformalModel(..), fitConformal, predictInterval)
 import Trader.Predictors.HMM (HMM3(..), HMMFilter(..), fitHMM3, filterPosterior, predictNextFromPosterior, updatePosterior)
 
@@ -49,9 +49,25 @@ trainPredictors lookbackBars trainPrices =
       trainLen = length trainSet'
       trainPriceLen = min (V.length trainPrices) (lookbackBars + trainLen)
       trainPrices' = V.slice 0 trainPriceLen trainPrices
-      gbdt = trainGBDT 60 0.1 trainSet'
+      (gbdt, quant) =
+        if null trainSet'
+          then
+            let emptyGbdt =
+                  GBDTModel
+                    { gmBase = 0
+                    , gmLearningRate = 0
+                    , gmFeatureDim = 0
+                    , gmStumps = []
+                    , gmSigma = Nothing
+                    }
+                emptyLin = LinModel { lmW = [], lmB = 0 }
+                emptyQuant = QuantileModel emptyLin emptyLin emptyLin
+             in (emptyGbdt, emptyQuant)
+          else
+            ( trainGBDT 60 0.1 trainSet'
+            , trainQuantileModel 20 5e-2 1e-3 trainSet'
+            )
       transformer = trainTransformer 5.0 512 trainSet'
-      quant = trainQuantileModel 20 5e-2 1e-3 trainSet'
       hmmObs =
         [ y
         | t <- [0 .. V.length trainPrices' - 2]
@@ -106,13 +122,18 @@ predictSensors
 predictSensors pb prices hmmFilt t =
   let fs = pbFeatureSpec pb
       feat = featuresAt fs prices t
+      gbdtReady = gmFeatureDim (pbGBDT pb) > 0
+      quantReady = not (null (lmW (qm50 (pbQuantile pb))))
 
       gbdtOut =
         case feat of
           Nothing -> []
           Just x ->
-            let (mu, sig) = predictGBDT (pbGBDT pb) x
-             in [(SensorGBT, SensorOutput { soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing })]
+            if not gbdtReady
+              then []
+              else
+                let (mu, sig) = predictGBDT (pbGBDT pb) x
+                 in [(SensorGBT, SensorOutput { soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing })]
 
       tcnOut =
         case predictTCN (pbTCN pb) prices t of
@@ -131,36 +152,42 @@ predictSensors pb prices hmmFilt t =
         case feat of
           Nothing -> []
           Just x ->
-            let (q10', q50', q90', mu, sig) = predictQuantiles (pbQuantile pb) x
-             in
-              [ ( SensorQuantile
-                , SensorOutput
-                    { soMu = mu
-                    , soSigma = sig
-                    , soRegimes = Nothing
-                    , soQuantiles = Just (Quantiles q10' q50' q90')
-                    , soInterval = Nothing
-                    }
-                )
-              ]
+            if not quantReady
+              then []
+              else
+                let (q10', q50', q90', mu, sig) = predictQuantiles (pbQuantile pb) x
+                 in
+                  [ ( SensorQuantile
+                    , SensorOutput
+                        { soMu = mu
+                        , soSigma = sig
+                        , soRegimes = Nothing
+                        , soQuantiles = Just (Quantiles q10' q50' q90')
+                        , soInterval = Nothing
+                        }
+                    )
+                  ]
 
       conformalOut =
         case feat of
           Nothing -> []
           Just x ->
-            let (mu, _) = predictGBDT (pbGBDT pb) x
-                (lo, hi, sig) = predictInterval (pbConformal pb) mu
-             in
-              [ ( SensorConformal
-                , SensorOutput
-                    { soMu = mu
-                    , soSigma = sig
-                    , soRegimes = Nothing
-                    , soQuantiles = Nothing
-                    , soInterval = Just (Interval lo hi)
-                    }
-                )
-              ]
+            if not gbdtReady
+              then []
+              else
+                let (mu, _) = predictGBDT (pbGBDT pb) x
+                    (lo, hi, sig) = predictInterval (pbConformal pb) mu
+                 in
+                  [ ( SensorConformal
+                    , SensorOutput
+                        { soMu = mu
+                        , soSigma = sig
+                        , soRegimes = Nothing
+                        , soQuantiles = Nothing
+                        , soInterval = Just (Interval lo hi)
+                        }
+                    )
+                  ]
 
       (reg, hmmMu, hmmSigma, predState) = predictNextFromPosterior (pbHMM pb) hmmFilt
       hmmOut =

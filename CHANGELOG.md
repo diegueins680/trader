@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - Predictors: conformal sigma is omitted when calibration is empty or interval width is invalid; quantile sigma is omitted when q10/q90 are invalid or identical.
 - Predictors: conformal sigma now derives from alpha with a conformal quantile rank; quantile medians are clamped inside q10/q90.
 - Predictors: training now excludes the calibration split for all models to avoid leakage.
+- Predictors: skip GBDT/quantile/conformal outputs when the feature dataset is empty to avoid crashes.
 - Predictors: feature windows now drop zero-price returns and use sample variance for volatility features.
 - Predictors: add a lightweight benchmark harness (`trader-bench`) for quick performance checks.
 - Performance: reduce list indexing and allocation hotspots in predictors, metrics, and symbol dedupe.
