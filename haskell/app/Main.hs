@@ -5614,7 +5614,7 @@ readRequestBodyLimited maxBytes req = do
       maxBytesWord = fromIntegral maxBytes' :: Word64
       tooLarge = requestBodyTooLargeMessage maxBytes'
       go acc chunks = do
-        chunk <- Wai.requestBody req
+        chunk <- Wai.getRequestBodyChunk req
         if BS.null chunk
           then pure (Right (BL.fromChunks (reverse chunks)))
           else do
