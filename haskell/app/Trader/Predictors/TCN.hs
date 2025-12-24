@@ -16,21 +16,24 @@ data TCNModel = TCNModel
   } deriving (Eq, Show)
 
 tcnFeaturesAt :: [Int] -> Int -> V.Vector Double -> Int -> Maybe [Double]
-tcnFeaturesAt dilations kernelSize prices t = do
-  let maxLag = maximum (map (\d -> 1 + d * (kernelSize - 1)) dilations)
-  if t < maxLag || t >= V.length prices
+tcnFeaturesAt dilations kernelSize prices t =
+  if null dilations || kernelSize <= 0
     then Nothing
-    else do
-      let retLag lag =
-            let p0 = prices V.! (t - lag)
-                p1 = prices V.! (t - lag + 1)
-             in if p0 == 0 then 0 else (p1 / p0 - 1)
-          feats =
-            [ retLag (1 + d * k)
-            | d <- dilations
-            , k <- [0 .. kernelSize - 1]
-            ]
-      pure feats
+    else
+      let maxLag = maximum (map (\d -> 1 + d * (kernelSize - 1)) dilations)
+       in if t < maxLag || t >= V.length prices
+            then Nothing
+            else
+              let retLag lag =
+                    let p0 = prices V.! (t - lag)
+                        p1 = prices V.! (t - lag + 1)
+                     in if p0 == 0 then 0 else (p1 / p0 - 1)
+                  feats =
+                    [ retLag (1 + d * k)
+                    | d <- dilations
+                    , k <- [0 .. kernelSize - 1]
+                    ]
+               in Just feats
 
 predictTCN :: TCNModel -> V.Vector Double -> Int -> Maybe (Double, Maybe Double)
 predictTCN m prices t = do

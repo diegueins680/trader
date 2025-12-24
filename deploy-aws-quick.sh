@@ -779,6 +779,201 @@ describe_cloudfront_distribution() {
   fi
 }
 
+get_managed_cache_policy_id() {
+  local name="$1"
+  aws cloudfront list-cache-policies \
+    --type managed \
+    --query "CachePolicyList.Items[?CachePolicy.CachePolicyConfig.Name=='${name}'].CachePolicy.Id | [0]" \
+    --output text 2>/dev/null || true
+}
+
+get_managed_origin_request_policy_id() {
+  local name="$1"
+  aws cloudfront list-origin-request-policies \
+    --type managed \
+    --query "OriginRequestPolicyList.Items[?OriginRequestPolicy.OriginRequestPolicyConfig.Name=='${name}'].OriginRequestPolicy.Id | [0]" \
+    --output text 2>/dev/null || true
+}
+
+ensure_cloudfront_api_behavior() {
+  local dist_id="$1"
+  local api_url="$2"
+
+  if [[ -z "$api_url" || "$api_url" == "/api" ]]; then
+    echo -e "${RED}✗ CloudFront /api/* behavior needs a full API URL (got '${api_url:-"(empty)"}').${NC}" >&2
+    echo "Set --api-url or --service-arn, or deploy the API in the same run so the URL can be discovered." >&2
+    return 1
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo -e "${RED}✗ python3 not found (required to update CloudFront config).${NC}" >&2
+    return 1
+  fi
+
+  local api_domain="${api_url#https://}"
+  api_domain="${api_domain#http://}"
+  api_domain="${api_domain%%/*}"
+  if [[ -z "$api_domain" ]]; then
+    echo -e "${RED}✗ Unable to parse API domain from '${api_url}'.${NC}" >&2
+    return 1
+  fi
+
+  local cache_policy_id
+  local origin_request_policy_id
+  cache_policy_id="$(get_managed_cache_policy_id "Managed-CachingDisabled")"
+  origin_request_policy_id="$(get_managed_origin_request_policy_id "Managed-AllViewer")"
+  if [[ -z "$origin_request_policy_id" || "$origin_request_policy_id" == "None" ]]; then
+    origin_request_policy_id="$(get_managed_origin_request_policy_id "Managed-AllViewerExceptHostHeader")"
+  fi
+  if [[ -z "$cache_policy_id" || "$cache_policy_id" == "None" || -z "$origin_request_policy_id" || "$origin_request_policy_id" == "None" ]]; then
+    echo -e "${YELLOW}CloudFront warning: managed cache/origin request policy not found; using legacy forwarding.${NC}" >&2
+    cache_policy_id=""
+    origin_request_policy_id=""
+  fi
+
+  local tmp_json
+  local tmp_cfg
+  tmp_json="$(mktemp)"
+  tmp_cfg="$(mktemp)"
+  aws cloudfront get-distribution-config --id "$dist_id" > "$tmp_json"
+  local etag
+  etag="$(python3 - "$tmp_json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+print(data["ETag"])
+PY
+)"
+
+  local changed
+  changed="$(python3 - "$tmp_json" "$tmp_cfg" "$api_domain" "$cache_policy_id" "$origin_request_policy_id" <<'PY'
+import copy
+import json
+import sys
+
+config_path, out_path, api_domain, cache_policy_id, origin_request_policy_id = sys.argv[1:6]
+cache_policy_id = cache_policy_id or None
+origin_request_policy_id = origin_request_policy_id or None
+
+with open(config_path) as f:
+    data = json.load(f)
+
+original = data["DistributionConfig"]
+config = copy.deepcopy(original)
+
+origins = config.setdefault("Origins", {"Quantity": 0, "Items": []})
+origin_items = origins.get("Items") or []
+origins["Items"] = origin_items
+
+origin_id = None
+for origin in origin_items:
+    if origin.get("DomainName") == api_domain:
+        origin_id = origin.get("Id")
+        break
+
+if origin_id is None:
+    base_id = "trader-api-origin"
+    used_ids = {origin.get("Id") for origin in origin_items}
+    origin_id = base_id
+    counter = 1
+    while origin_id in used_ids:
+        origin_id = f"{base_id}-{counter}"
+        counter += 1
+    origin_items.append(
+        {
+            "Id": origin_id,
+            "DomainName": api_domain,
+            "OriginPath": "",
+            "CustomHeaders": {"Quantity": 0},
+            "CustomOriginConfig": {
+                "HTTPPort": 80,
+                "HTTPSPort": 443,
+                "OriginProtocolPolicy": "https-only",
+                "OriginSslProtocols": {"Quantity": 1, "Items": ["TLSv1.2"]},
+                "OriginReadTimeout": 30,
+                "OriginKeepaliveTimeout": 5,
+            },
+        }
+    )
+
+origins["Quantity"] = len(origin_items)
+
+cache_behaviors = config.setdefault("CacheBehaviors", {"Quantity": 0})
+behavior_items = cache_behaviors.get("Items") or []
+cache_behaviors["Items"] = behavior_items
+
+api_behavior = None
+for behavior in behavior_items:
+    if behavior.get("PathPattern") == "/api/*":
+        api_behavior = behavior
+        break
+
+if api_behavior is None:
+    api_behavior = copy.deepcopy(config["DefaultCacheBehavior"])
+    api_behavior["PathPattern"] = "/api/*"
+    behavior_items.append(api_behavior)
+
+cache_behaviors["Quantity"] = len(behavior_items)
+
+api_behavior["TargetOriginId"] = origin_id
+api_behavior["ViewerProtocolPolicy"] = "redirect-to-https"
+api_behavior["AllowedMethods"] = {
+    "Quantity": 7,
+    "Items": ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"],
+    "CachedMethods": {"Quantity": 3, "Items": ["GET", "HEAD", "OPTIONS"]},
+}
+
+if cache_policy_id and origin_request_policy_id:
+    api_behavior["CachePolicyId"] = cache_policy_id
+    api_behavior["OriginRequestPolicyId"] = origin_request_policy_id
+    api_behavior.pop("ForwardedValues", None)
+    api_behavior.pop("MinTTL", None)
+    api_behavior.pop("DefaultTTL", None)
+    api_behavior.pop("MaxTTL", None)
+else:
+    api_behavior.pop("CachePolicyId", None)
+    api_behavior.pop("OriginRequestPolicyId", None)
+    api_behavior["ForwardedValues"] = {
+        "QueryString": True,
+        "Cookies": {"Forward": "all"},
+        "Headers": {
+            "Quantity": 4,
+            "Items": ["Authorization", "X-API-Key", "Content-Type", "Accept"],
+        },
+    }
+    api_behavior["MinTTL"] = 0
+    api_behavior["DefaultTTL"] = 0
+    api_behavior["MaxTTL"] = 0
+
+if config == original:
+    print("false")
+    sys.exit(0)
+
+with open(out_path, "w") as f:
+    json.dump(config, f, indent=2, sort_keys=False)
+
+print("true")
+PY
+)"
+
+  if [[ "$changed" != "true" ]]; then
+    echo -e "${GREEN}✓ CloudFront /api/* behavior already configured${NC}" >&2
+    rm -f "$tmp_json" "$tmp_cfg"
+    return 0
+  fi
+
+  echo "Updating CloudFront /api/* behavior..." >&2
+  aws cloudfront update-distribution \
+    --id "$dist_id" \
+    --if-match "$etag" \
+    --distribution-config "file://${tmp_cfg}" >/dev/null
+  echo -e "${GREEN}✓ CloudFront /api/* behavior updated${NC}" >&2
+
+  rm -f "$tmp_json" "$tmp_cfg"
+}
+
 # Main execution
 main() {
   local need_docker="false"
@@ -850,6 +1045,9 @@ main() {
   fi
 
   if [[ "$DEPLOY_UI" == "true" ]]; then
+    if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+      ensure_cloudfront_api_behavior "$UI_DISTRIBUTION_ID" "$api_url"
+    fi
     ui_api_url="$api_url"
     if [[ -n "${ui_api_url_override:-}" ]]; then
       ui_api_url="$ui_api_url_override"

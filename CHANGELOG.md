@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
 - Deploy: quick AWS deploy now exports `TRADER_API_MAX_HIDDEN_SIZE` (defaults to 50) for larger LSTM models.
+- Deploy: quick AWS deploy auto-configures CloudFront `/api/*` behavior to route to the API and disable caching.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with trading only on Binance/Coinbase.
 - Exchange data: add Coinbase platform support for exchange klines and spot trading.
@@ -67,6 +68,10 @@ All notable changes to this project will be documented in this file.
 - Web UI: show persisted live-bot snapshots when `/bot/status` is restored after restart.
 - Live bot/UI: `/bot/status` includes `startingReason` and the UI surfaces when startup is waiting for a compatible top combo.
 - API: `/bot/status` now caps the `tail` parameter to 5000 points.
+- API: enforce `TRADER_API_MAX_BODY_BYTES` for request payloads (default 1048576 bytes).
+- API: `/optimizer/run` responses now truncate stdout/stderr to `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000 bytes).
+- API: classify internal `ErrorCall` failures as server errors instead of client errors.
+- Predictors: guard empty TCN dilations to avoid crashes.
 - API: `/bot/start` error responses include per-symbol errors when all requested symbols fail.
 - Web UI: live bot start/status errors surface CloudFront `/api/*` proxy hints and avoid a stuck `Starting...` state when the API is down.
 - Live bot: support long/short positioning on Binance futures (including adopting/closing existing short positions).
