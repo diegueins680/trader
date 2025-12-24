@@ -166,7 +166,7 @@ data OpenTrade = OpenTrade
 data BacktestResult = BacktestResult
   { brEquityCurve :: [Double]     -- length n
   , brPositions :: [Double]       -- length n-1 (signed position size at bar open for t->t+1, -1..1)
-  , brAgreementOk :: [Bool]       -- length n-1 (open-direction agreement; only meaningful where both preds available)
+  , brAgreementOk :: [Bool]       -- length n-1 (open-direction agreement when both models emit a direction)
   , brPositionChanges :: !Int
   , brTrades :: [Trade]
   } deriving (Eq, Show)
@@ -355,27 +355,30 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                 if V.length highsV /= n || V.length lowsV /= n
                   then error "high/low vectors must match closes length"
                   else
-                    if maybe False (\mv -> V.length mv < stepCount) mMetaV
-                      then error "meta vector too short for simulateEnsembleLongFlatVWithHL"
+                    if lookback >= n
+                      then error "lookback must be less than number of prices"
                       else
-                        if V.length kalPredNextV < kalNeed
-                          then
-                            error
-                              ( "kalPredNext too short: need at least "
-                                  ++ show kalNeed
-                                  ++ ", got "
-                                  ++ show (V.length kalPredNextV)
-                              )
+                        if maybe False (\mv -> V.length mv < stepCount) mMetaV
+                          then error "meta vector too short for simulateEnsembleLongFlatVWithHL"
                           else
-                            if V.length lstmPredNextV < lstmNeed
+                            if V.length kalPredNextV < kalNeed
                               then
                                 error
-                                  ( "lstmPredNext too short: need at least "
-                                      ++ show lstmNeed
+                                  ( "kalPredNext too short: need at least "
+                                      ++ show kalNeed
                                       ++ ", got "
-                                      ++ show (V.length lstmPredNextV)
+                                      ++ show (V.length kalPredNextV)
                                   )
-                              else ()
+                              else
+                                if V.length lstmPredNextV < lstmNeed
+                                  then
+                                    error
+                                      ( "lstmPredNext too short: need at least "
+                                          ++ show lstmNeed
+                                          ++ ", got "
+                                          ++ show (V.length lstmPredNextV)
+                                      )
+                                  else ()
 
               perSideCost =
                 let fee = max 0 (ecFee cfg)
@@ -508,9 +511,21 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
 
               volOkAt :: Int -> Bool
               volOkAt t =
-                case (maxVolatility, volEstimateAt t) of
-                  (Just maxVol, Just vol) -> vol <= maxVol
-                  _ -> True
+                case maxVolatility of
+                  Nothing -> True
+                  Just maxVol ->
+                    case volEstimateAt t of
+                      Just vol -> vol <= maxVol
+                      Nothing -> False
+
+              volTargetReadyAt :: Int -> Bool
+              volTargetReadyAt t =
+                case volTarget of
+                  Nothing -> True
+                  Just _ ->
+                    case volEstimateAt t of
+                      Just _ -> True
+                      Nothing -> False
 
               signalToNoiseOkAt :: Int -> Double -> Bool
               signalToNoiseOkAt t edge =
@@ -519,7 +534,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                   else
                     case volPerBarAt t of
                       Just vol | vol > 0 -> edge / vol >= minSignalToNoise
-                      _ -> True
+                      _ -> False
 
               trendOkAt :: Int -> PositionSide -> Bool
               trendOkAt t side =
@@ -716,12 +731,14 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                     )
                   else
                     let (peakEq0, dayKey0, dayStartEq0, haltReason0) = riskState0
-                        (dayKey1, dayStartEq1) =
+                        (dayKey1, dayStartEq1, dayChanged) =
                           case intervalSeconds of
-                            Nothing -> (dayKey0, dayStartEq0)
+                            Nothing -> (dayKey0, dayStartEq0, False)
                             Just _ ->
                               let dk = dayKeyAt t
-                               in if dk /= dayKey0 then (dk, equity) else (dayKey0, dayStartEq0)
+                                  changed = dk /= dayKey0
+                                  dayStart = if changed then equity else dayStartEq0
+                               in (dk, dayStart, changed)
                         peakEq1 = max peakEq0 equity
                         drawdown =
                           if peakEq1 > 0
@@ -731,8 +748,12 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                           if dayStartEq1 > 0
                             then max 0 (1 - equity / dayStartEq1)
                             else 0
+                        haltReasonBase =
+                          case (haltReason0, dayChanged) of
+                            (Just ExitMaxDailyLoss, True) -> Nothing
+                            _ -> haltReason0
                         riskHaltReason =
-                          case haltReason0 of
+                          case haltReasonBase of
                             Just _ -> Nothing
                             Nothing ->
                               case () of
@@ -740,7 +761,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                   | maybe False (\lim -> drawdown >= lim) maxDrawdownLim -> Just ExitMaxDrawdown
                                   | otherwise -> Nothing
                         haltReason1 =
-                          case haltReason0 of
+                          case haltReasonBase of
                             Just r -> Just r
                             Nothing -> riskHaltReason
                         halted = haltReason1 /= Nothing
@@ -774,20 +795,29 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                   edgeRaw = min (edgePred kp) (edgePred lp)
                                   kalOpenDirRaw = direction openThr prev kp
                                   kalCloseDirRaw = direction closeThr prev kp
-                                  (kalOpenDir, kalSize) =
+                                  (kalOpenDir, kalSize, kalCloseDir) =
                                     case metaAt t of
-                                      Nothing -> (kalOpenDirRaw, if kalOpenDirRaw == Nothing then 0 else 1)
+                                      Nothing ->
+                                        ( kalOpenDirRaw
+                                        , if kalOpenDirRaw == Nothing then 0 else 1
+                                        , kalCloseDirRaw
+                                        )
                                       Just m ->
                                         let confScore = confidenceScoreKalman m
-                                         in gateKalmanDir m confScore kalOpenDirRaw
+                                            (openDir, openSize) = gateKalmanDir m confScore kalOpenDirRaw
+                                            (closeDir, _) = gateKalmanDir m confScore kalCloseDirRaw
+                                         in (openDir, openSize, closeDir)
                                   lstmOpenDir = direction openThr prev lp
                                   lstmCloseDir = direction closeThr prev lp
-                                  agreeOk = kalOpenDir == lstmOpenDir
+                                  agreeOk =
+                                    case (kalOpenDir, lstmOpenDir) of
+                                      (Just a, Just b) -> a == b
+                                      _ -> False
                                   openAgreeDir =
                                     if agreeOk then kalOpenDir else Nothing
                                   closeAgreeDir =
-                                    if kalCloseDirRaw == lstmCloseDir
-                                      then kalCloseDirRaw
+                                    if kalCloseDir == lstmCloseDir
+                                      then kalCloseDir
                                       else Nothing
 
                                   desiredFromOpen dir =
@@ -833,8 +863,13 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             then signalToNoiseOkAt t (max 0 edgeRaw)
                             else True
 
+                        volTargetReady =
+                          if needsEntry
+                            then volTargetReadyAt t
+                            else True
+
                         (desiredSide1, desiredSize1) =
-                          if not trendOk || not volOk || not snrOk
+                          if not trendOk || not volOk || not snrOk || not volTargetReady
                             then (Nothing, 0)
                             else (desiredSide0, desiredSize0)
 

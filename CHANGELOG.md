@@ -8,7 +8,9 @@ All notable changes to this project will be documented in this file.
 - Live bot: always adopts existing positions on startup (`botAdoptExistingPosition` is now implicit).
 - Live bot: startup waits for the top combo compatible with adopted positions or open orders before running.
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
+- API: add `/binance/positions` for open Binance futures positions plus chart-ready klines.
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
+- Web UI: add an open positions panel with charts for every Binance futures position.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
@@ -28,6 +30,7 @@ All notable changes to this project will be documented in this file.
 - API: futures MIN_NOTIONAL parsing now honors the `notional` field to skip trade tests below minNotional.
 - Web UI: API panel adds base URL copy + /health open shortcuts; loading a profile clears manual override locks.
 - Web UI: add quick-jump buttons in the config panel to navigate major sections.
+- Web UI: improve keyboard navigation with focus-on-jump shortcuts, clearer focus rings, and reduced-motion friendly scrolling.
 - Web UI: Data Log adds an auto-scroll toggle to keep the latest entries visible.
 - Web UI: Data Log adds label filtering with copy-shown support plus clear-filter/jump-to-latest actions.
 - Web UI: numeric inputs accept comma decimals and strip thousands separators; auto-refresh interval input disables when off.
@@ -38,7 +41,10 @@ All notable changes to this project will be documented in this file.
 - Web UI: avoid optimizer combo apply crashes when compute limits are unavailable.
 - Backtests: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as trade exit reasons.
 - Backtests: risk halts now evaluate post-bar equity and can close positions at the bar close.
-- Backtests: `agreementOk` now counts open-direction agreement including neutral (no-signal) agreement.
+- Backtests: `agreementOk` now counts open-direction agreement only when both models emit a direction.
+- Backtests: error when lookback bars are not less than the total bar count (prevents silent no-trade runs).
+- Trading: daily-loss halts reset at UTC day boundaries.
+- Trading: entries gated by `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` now wait for a volatility estimate.
 - Backtests: `--backtest-ratio` now errors if the split leaves too few training/backtest bars (no silent clamping).
 - Live bot: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` exit reasons even if a signal exit coincides.
 - Kalman market context now honors small `--kalman-market-top-n` values when enough symbols are available.

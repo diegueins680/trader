@@ -159,6 +159,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 - `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or 500 for exchanges; CSV also supports `0` = all; Binance 2..1000)
   - `--lookback-window 24h` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
+  - Lookback must be less than the total number of bars, otherwise the backtest errors.
 
 - Trading (Binance + Coinbase spot)
   - Trading flags apply only when `--platform binance` or `--platform coinbase` (Coinbase is spot-only and has no test endpoint).
@@ -247,8 +248,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--vol-floor F` annualized vol floor for sizing
     - `--vol-scale-max F` cap volatility scaling (limits leverage)
     - `--max-volatility F` optional: block entries when annualized vol exceeds this
+  - Entries that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
-  - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day)
+  - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
   - Risk halts are evaluated on post-bar equity and can close open positions at the bar close.
   - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as the exit reason.
@@ -264,7 +266,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
     - Backtest: `{ "mode": "backtest", "backtest": ... }` (includes `"baselines"` like `buy-hold` / `sma-cross(...)`, and `"trade"` if `--binance-trade` is set)
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
-    - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match (including neutral).
+    - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match with non-neutral directions.
     - Latest signal output includes `closeDirection` to indicate the close-threshold direction (when available).
 
 Tests
@@ -313,6 +315,7 @@ Endpoints:
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or minNotional)
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
+- `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting
 - `POST /coinbase/keys` → checks Coinbase key/secret/passphrase via a signed `/accounts` probe
 - `POST /binance/listenKey` → creates a Binance user-data listenKey (returns WebSocket URL)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
@@ -502,11 +505,13 @@ Manual edits to Method/open/close thresholds are preserved when optimizer combos
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
+The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions`.
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
+Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.
 The configuration panel keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
 When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` to avoid CORS issues. The quick AWS deploy script now creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
 The UI auto-applies top combos when available and shows when a combo auto-applied; if the live bot is idle it auto-starts after the top combo applies, and manual override locks include an unlock button to let combos update those fields again.
