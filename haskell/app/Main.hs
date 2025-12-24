@@ -39,7 +39,8 @@ import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef,
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
-import Network.HTTP.Client (HttpException)
+import Network.HTTP.Client (HttpException, Manager, Request, RequestBody(..), Response, httpLbs, newManager, parseRequest, requestBody, requestHeaders, method, responseTimeout, responseTimeoutMicro)
+import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
@@ -49,7 +50,7 @@ import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirecto
 import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode(..), die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
-import System.IO (IOMode(ReadMode), hFlush, hGetLine, hIsEOF, hPutStrLn, stderr, stdout, withFile)
+import System.IO (Handle, IOMode(ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, openTempFile, stderr, stdout, withFile)
 import System.IO.Error (ioeGetErrorString, isUserError)
 import System.Process (CreateProcess(..), proc, readCreateProcessWithExitCode)
 import System.Random (randomIO)
@@ -63,6 +64,7 @@ import Trader.Binance
   , BinanceMarket(..)
   , BinanceOrderMode(..)
   , BinanceTrade(..)
+  , FuturesPositionRisk(..)
   , OrderSide(..)
   , BinanceOpenOrder(..)
   , SymbolFilters(..)
@@ -79,6 +81,7 @@ import Trader.Binance
   , fetchFreeBalance
   , fetchFuturesAvailableBalance
   , fetchFuturesPositionAmt
+  , fetchFuturesPositionRisks
   , fetchOpenOrders
   , cancelFuturesOpenOrdersByClientPrefix
   , fetchSymbolFilters
@@ -103,6 +106,7 @@ import Trader.LSTM
   , predictNext
   , predictSeriesNext
   )
+import Trader.LstmPersistence (lstmModelKey)
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
 import Trader.MarketContext (MarketModel, buildMarketModel, marketMeasurementAt)
 import Trader.BinanceIntervals (binanceIntervals)
@@ -514,9 +518,10 @@ main = do
       Left e -> die (e ++ "\n\nRun with --help for usage.")
       Right ok -> pure ok
 
+  mWebhook <- newWebhookFromEnv
   r <- try $ do
     if argServe args'
-      then runRestApi args'
+      then runRestApi args' mWebhook
       else do
         (series, mBinanceEnv) <- loadPrices args'
         let prices = psClose series
@@ -524,8 +529,8 @@ main = do
 
         let lookback = argLookback args'
         if argTradeOnly args'
-          then runTradeOnly args' lookback prices mBinanceEnv
-          else runBacktestPipeline args' lookback series mBinanceEnv
+          then runTradeOnly mWebhook args' lookback prices mBinanceEnv
+          else runBacktestPipeline mWebhook args' lookback series mBinanceEnv
   case (r :: Either SomeException ()) of
     Left ex -> do
       let (_, msg) = exceptionToHttp ex
@@ -1142,6 +1147,143 @@ journalWriteMaybe mj v =
   case mj of
     Nothing -> pure ()
     Just j -> journalWrite j v
+
+data Webhook = Webhook
+  { whRequest :: !Request
+  , whManager :: !Manager
+  , whEvents :: !(Maybe [String])
+  }
+
+data WebhookEvent = WebhookEvent
+  { weType :: !String
+  , weContent :: !String
+  } deriving (Eq, Show)
+
+webhookMaxMessageLen :: Int
+webhookMaxMessageLen = 300
+
+normalizeWebhookEvent :: String -> String
+normalizeWebhookEvent = map toLower . trim
+
+parseWebhookEvents :: Maybe String -> Maybe [String]
+parseWebhookEvents raw =
+  case raw of
+    Nothing -> Nothing
+    Just s ->
+      let events = filter (not . null) (map normalizeWebhookEvent (splitEnvList s))
+       in Just events
+
+newWebhookFromEnv :: IO (Maybe Webhook)
+newWebhookFromEnv = do
+  mUrl <- lookupEnv "TRADER_WEBHOOK_URL"
+  case trim <$> mUrl of
+    Just url | not (null url) -> do
+      eventsEnv <- lookupEnv "TRADER_WEBHOOK_EVENTS"
+      req0 <- parseRequest url
+      manager <- newManager tlsManagerSettings
+      let req =
+            req0
+              { method = "POST"
+              , requestHeaders = ("Content-Type", "application/json") : requestHeaders req0
+              , responseTimeout = responseTimeoutMicro (5 * 1000000)
+              }
+      pure (Just (Webhook req manager (parseWebhookEvents eventsEnv)))
+    _ -> pure Nothing
+
+webhookAllows :: Webhook -> String -> Bool
+webhookAllows wh ev =
+  case whEvents wh of
+    Nothing -> True
+    Just allowed -> normalizeWebhookEvent ev `elem` allowed
+
+webhookNotifyMaybe :: Maybe Webhook -> WebhookEvent -> IO ()
+webhookNotifyMaybe mWh ev =
+  case mWh of
+    Nothing -> pure ()
+    Just wh ->
+      when (webhookAllows wh (weType ev)) $ do
+        _ <- forkIO (webhookSend wh ev)
+        pure ()
+
+webhookNotifyMaybeSync :: Maybe Webhook -> WebhookEvent -> IO ()
+webhookNotifyMaybeSync mWh ev =
+  case mWh of
+    Nothing -> pure ()
+    Just wh ->
+      when (webhookAllows wh (weType ev)) $ webhookSend wh ev
+
+webhookSend :: Webhook -> WebhookEvent -> IO ()
+webhookSend wh ev = do
+  let payload = object ["content" .= weContent ev]
+      req = (whRequest wh) { requestBody = RequestBodyLBS (encode payload) }
+  _ <- try (httpLbs req (whManager wh)) :: IO (Either SomeException (Response BL.ByteString))
+  pure ()
+
+sanitizeWebhookText :: Int -> String -> String
+sanitizeWebhookText maxLen raw =
+  let cleaned = map (\c -> if c == '\n' || c == '\r' then ' ' else c) raw
+      trimmed = trim cleaned
+      limit = max 0 maxLen
+   in if length trimmed <= limit || limit < 4
+        then trimmed
+        else take (limit - 3) trimmed ++ "..."
+
+webhookEventBotStarted :: Args -> String -> WebhookEvent
+webhookEventBotStarted args sym =
+  let market = marketCode (argBinanceMarket args)
+      summary = printf "bot.started %s (%s) interval=%s" sym market (argInterval args)
+   in WebhookEvent "bot.started" summary
+
+webhookEventBotStartFailed :: Args -> String -> SomeException -> WebhookEvent
+webhookEventBotStartFailed args sym ex =
+  let market = marketCode (argBinanceMarket args)
+      err = sanitizeWebhookText webhookMaxMessageLen (show ex)
+      summary = printf "bot.start_failed %s (%s) error=%s" sym market err
+   in WebhookEvent "bot.start_failed" summary
+
+webhookEventBotStop :: [String] -> WebhookEvent
+webhookEventBotStop syms =
+  let label =
+        if null syms
+          then "none"
+          else intercalate "," syms
+   in WebhookEvent "bot.stop" ("bot.stop symbols=" ++ label)
+
+webhookEventBotOrder :: Args -> String -> String -> Double -> ApiOrderResult -> WebhookEvent
+webhookEventBotOrder args sym side price order =
+  let market = marketCode (argBinanceMarket args)
+      status :: String
+      status = if aorSent order then "sent" else "not_sent"
+      msg = sanitizeWebhookText 200 (aorMessage order)
+      summary = printf "bot.order %s (%s) %s @ %.6f %s msg=%s" sym market side price status msg
+   in WebhookEvent "bot.order" summary
+
+webhookEventBotHalt :: Args -> String -> String -> Double -> Double -> Int -> WebhookEvent
+webhookEventBotHalt args sym reason drawdown dailyLoss orderErrors =
+  let market = marketCode (argBinanceMarket args)
+      reason' = sanitizeWebhookText webhookMaxMessageLen reason
+      summary =
+        printf
+          "bot.halt %s (%s) reason=%s drawdown=%.3f dailyLoss=%.3f orderErrors=%d"
+          sym
+          market
+          reason'
+          drawdown
+          dailyLoss
+          orderErrors
+   in WebhookEvent "bot.halt" summary
+
+webhookEventTradeOrder :: Args -> LatestSignal -> ApiOrderResult -> WebhookEvent
+webhookEventTradeOrder args sig order =
+  let sym = fromMaybe "unknown" (argBinanceSymbol args)
+      platform = platformCode (argPlatform args)
+      market = marketCode (argBinanceMarket args)
+      action = sanitizeWebhookText 40 (lsAction sig)
+      status :: String
+      status = if aorSent order then "sent" else "not_sent"
+      msg = sanitizeWebhookText 200 (aorMessage order)
+      summary = printf "trade.order %s (%s/%s) %s %s msg=%s" sym platform market action status msg
+   in WebhookEvent "trade.order" summary
 
 -- Persistent operation history (JSONL; safe to rebuild state from the log).
 
@@ -2228,6 +2370,7 @@ botStartSymbol ::
   Maybe OpsStore ->
   Metrics ->
   Maybe Journal ->
+  Maybe Webhook ->
   Maybe FilePath ->
   FilePath ->
   ApiComputeLimits ->
@@ -2237,7 +2380,7 @@ botStartSymbol ::
   ApiParams ->
   String ->
   IO (Either String BotStartOutcome)
-botStartSymbol allowExisting mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq ctrl args p symRaw =
+botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl args p symRaw =
   if not (platformSupportsLiveBot (argPlatform args))
     then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
     else
@@ -2269,7 +2412,7 @@ botStartSymbol allowExisting mOps metrics mJournal mBotStateDir optimizerTmp lim
                           Left e | not (arActive adoptReq) -> pure (mrt, Left e)
                           Left _ -> do
                             stopSig <- newEmptyMVar
-                            tid <- forkIO (botStartWorker mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
+                            tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
                             let rt =
                                   BotStartRuntime
                                     { bsrThreadId = tid
@@ -2284,7 +2427,7 @@ botStartSymbol allowExisting mOps metrics mJournal mBotStateDir optimizerTmp lim
                             pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
                           Right () -> do
                             stopSig <- newEmptyMVar
-                            tid <- forkIO (botStartWorker mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
+                            tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
                             let rt =
                                   BotStartRuntime
                                     { bsrThreadId = tid
@@ -2302,6 +2445,7 @@ botStartWorker ::
   Maybe OpsStore ->
   Metrics ->
   Maybe Journal ->
+  Maybe Webhook ->
   Maybe FilePath ->
   FilePath ->
   ApiComputeLimits ->
@@ -2312,7 +2456,7 @@ botStartWorker ::
   String ->
   MVar () ->
   IO ()
-botStartWorker mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq ctrl args settings sym stopSig = do
+botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl args settings sym stopSig = do
   tid <- myThreadId
   let doStart baseArgs = do
         argsFinal <-
@@ -2329,6 +2473,7 @@ botStartWorker mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq c
       now <- getTimestampMs
       journalWriteMaybe mJournal (object ["type" .= ("bot.start_failed" :: String), "atMs" .= now, "error" .= show ex])
       opsAppendMaybe mOps "bot.start_failed" Nothing (Just (argsPublicJson args)) (Just (object ["error" .= show ex])) Nothing
+      webhookNotifyMaybe mWebhook (webhookEventBotStartFailed args sym ex)
       modifyMVar_ (bcRuntime ctrl) $ \mrt ->
         case HM.lookup sym mrt of
           Just (BotStarting rt) | bsrThreadId rt == tid -> pure (HM.delete sym mrt)
@@ -2345,6 +2490,7 @@ botStartWorker mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq c
         (Just (argsPublicJson (botArgs st0)))
         (Just (object ["symbol" .= botSymbol st0, "market" .= marketCode (argBinanceMarket (botArgs st0)), "interval" .= argInterval (botArgs st0)]))
         (Just eq0)
+      webhookNotifyMaybe mWebhook (webhookEventBotStarted (botArgs st0) (botSymbol st0))
       stVar <- newMVar st0
       persistBotStatusMaybe mBotStateDir st0
       optimizerStopSig <- newEmptyMVar
@@ -2363,7 +2509,7 @@ botStartWorker mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq c
               pure (HM.insert sym (BotRunning (BotRuntime tid stVar stopSig (Just optimizerRt))) mrt, True)
             _ -> pure (mrt, False)
       if startOk
-        then botLoop mOps metrics mJournal mBotStateDir ctrl stVar stopSig (Just optimizerPending)
+        then botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig (Just optimizerPending)
         else do
           _ <- tryPutMVar optimizerStopSig ()
           killThread optimizerTid
@@ -3653,8 +3799,8 @@ makeCoinbaseEnv args = do
   apiPassphrase <- resolveEnv "COINBASE_API_PASSPHRASE" (argCoinbaseApiPassphrase args)
   newCoinbaseEnv (BS.pack <$> apiKey) (BS.pack <$> apiSecret) (BS.pack <$> apiPassphrase)
 
-botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe FilePath -> BotController -> MVar BotState -> MVar () -> Maybe (MVar (Maybe BotOptimizerUpdate)) -> IO ()
-botLoop mOps metrics mJournal mBotStateDir ctrl stVar stopSig mOptimizerPending = do
+botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> BotController -> MVar BotState -> MVar () -> Maybe (MVar (Maybe BotOptimizerUpdate)) -> IO ()
+botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig mOptimizerPending = do
   tid <- myThreadId
   sym <- botSymbol <$> readMVar stVar
   let sleepSec s = threadDelay (max 1 s * 1000000)
@@ -3720,7 +3866,7 @@ botLoop mOps metrics mJournal mBotStateDir ctrl stVar stopSig mOptimizerPending 
                     loop
                   else do
                     tProc0 <- getTimestampMs
-                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal s0 k) (pure stPolled) newKs
+                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal mWebhook s0 k) (pure stPolled) newKs
                     tProc1 <- getTimestampMs
                     let batchMs = max 0 (fromIntegral (tProc1 - tProc0) :: Int)
                         batchSize = length newKs
@@ -3748,17 +3894,17 @@ botLoop mOps metrics mJournal mBotStateDir ctrl stVar stopSig mOptimizerPending 
 
   loop `finally` cleanup
 
-botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> BotState -> Kline -> IO BotState
-botApplyKlineSafe mOps metrics mJournal st k = do
-  r <- try (botApplyKline mOps metrics mJournal st k) :: IO (Either SomeException BotState)
+botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> BotState -> Kline -> IO BotState
+botApplyKlineSafe mOps metrics mJournal mWebhook st k = do
+  r <- try (botApplyKline mOps metrics mJournal mWebhook st k) :: IO (Either SomeException BotState)
   case r of
     Right st' -> pure st'
     Left ex -> do
       now <- getTimestampMs
       pure st { botError = Just (show ex), botUpdatedAtMs = now, botLastOpenTime = kOpenTime k }
 
-botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> BotState -> Kline -> IO BotState
-botApplyKline mOps metrics mJournal st k = do
+botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> BotState -> Kline -> IO BotState
+botApplyKline mOps metrics mJournal mWebhook st k = do
   now <- getTimestampMs
   let args = botArgs st
       lookback = botLookback st
@@ -4231,6 +4377,7 @@ botApplyKline mOps metrics mJournal st k = do
               )
           )
           (Just eqAfterFee)
+        webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew o)
 
         pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
 
@@ -4269,6 +4416,7 @@ botApplyKline mOps metrics mJournal st k = do
             )
         )
         (Just eqFinal)
+      webhookNotifyMaybe mWebhook (webhookEventBotHalt args (botSymbol st) r drawdown dailyLoss orderErrors1)
     _ -> pure ()
 
   let cooldownDec =
@@ -4403,8 +4551,8 @@ placeBotCloseOrder args sym sig env =
       sig' = sig { lsChosenDir = Just (-1) }
    in placeOrderForSignalEx args' sym sig' env Nothing False
 
-runRestApi :: Args -> IO ()
-runRestApi baseArgs = do
+runRestApi :: Args -> Maybe Webhook -> IO ()
+runRestApi baseArgs mWebhook = do
   mCommit <- getBuildCommit
   let buildInfo = BuildInfo traderVersion mCommit
   apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
@@ -4547,7 +4695,7 @@ runRestApi baseArgs = do
   hFlush stdout
   res <-
     ( try
-        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps mBotStateDir limits reqLimits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
         IO (Either IOException ())
     )
   case res of
@@ -5292,6 +5440,7 @@ apiApp ::
   BotController ->
   Metrics ->
   Maybe Journal ->
+  Maybe Webhook ->
   Maybe OpsStore ->
   Maybe FilePath ->
   ApiComputeLimits ->
@@ -5301,7 +5450,7 @@ apiApp ::
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir limits reqLimits apiCache asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache asyncStores projectRoot optimizerTmp req respond = do
   startMs <- getTimestampMs
   let rawPath = Wai.pathInfo req
       path =
@@ -5465,11 +5614,11 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade"] ->
               case Wai.requestMethod req of
-                "POST" -> handleTrade reqLimits mOps limits metrics mJournal baseArgs req respondCors
+                "POST" -> handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade", "async"] ->
               case Wai.requestMethod req of
-                "POST" -> handleTradeAsync reqLimits mOps limits (asTrade asyncStores) metrics mJournal baseArgs req respondCors
+                "POST" -> handleTradeAsync reqLimits mOps limits (asTrade asyncStores) metrics mJournal mWebhook baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade", "async", jobId] ->
               case Wai.requestMethod req of
@@ -5523,11 +5672,11 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStart reqLimits mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
+                "POST" -> handleBotStart reqLimits mOps limits metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "stop"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStop mOps mJournal mBotStateDir botCtrl req respondCors
+                "POST" -> handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "status"] ->
               case Wai.requestMethod req of
@@ -6204,17 +6353,44 @@ runMergeTopCombos projectRoot topJsonPath recordsPath maxItems = do
   case dirResult of
     Left e -> pure (Left ("Failed to create top combos directory: " ++ show e, "", ""))
     Right _ -> do
+      s3TempPath <- writeS3TopCombosTemp topJsonPath
       let scriptPath = projectRoot </> "scripts" </> "merge_top_combos.py"
-          proc' =
-            (proc "python3" [scriptPath, "--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)])
-              { cwd = Just projectRoot
-              }
-      (exitCode, out, err) <- readCreateProcessWithExitCode proc' ""
+          baseArgs = [scriptPath, "--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)]
+          args = baseArgs ++ maybe [] (\p -> ["--from-top-json", p]) s3TempPath
+          proc' = (proc "python3" args) {cwd = Just projectRoot}
+          cleanup = maybe (pure ()) removeTempTopCombo s3TempPath
+      (exitCode, out, err) <- readCreateProcessWithExitCode proc' "" `finally` cleanup
       case exitCode of
         ExitSuccess -> do
           persistTopCombosMaybe topJsonPath
           pure (Right ())
         ExitFailure code -> pure (Left (printf "Merge script failed (exit %d)" code, out, err))
+
+writeS3TopCombosTemp :: FilePath -> IO (Maybe FilePath)
+writeS3TopCombosTemp topJsonPath = do
+  mS3 <- resolveS3State
+  case mS3 of
+    Nothing -> pure Nothing
+    Just st -> do
+      let key = s3TopCombosKey st
+      r <- s3GetObject st key
+      case r of
+        Left _ -> pure Nothing
+        Right Nothing -> pure Nothing
+        Right (Just contents) -> do
+          let dir = takeDirectory topJsonPath
+          tempResult <- try (openTempFile dir "top-combos-s3.json") :: IO (Either SomeException (FilePath, Handle))
+          case tempResult of
+            Left _ -> pure Nothing
+            Right (path, handle) -> do
+              _ <- try (BL.hPut handle contents) :: IO (Either SomeException ())
+              hClose handle
+              pure (Just path)
+
+removeTempTopCombo :: FilePath -> IO ()
+removeTempTopCombo path = do
+  _ <- try (removeFile path) :: IO (Either SomeException ())
+  pure ()
 
 readLastOptimizerRecord :: FilePath -> IO (Either String Aeson.Value)
 readLastOptimizerRecord path = do
@@ -6635,8 +6811,8 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
                 Left e -> respond (jsonError status429 e)
                 Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
 
-handleTrade :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleTrade reqLimits mOps limits metrics mJournal baseArgs req respond = do
+handleTrade :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond = do
   payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
   case payloadOrErr of
     Left resp -> respond resp
@@ -6683,10 +6859,11 @@ handleTrade reqLimits mOps limits metrics mJournal baseArgs req respond = do
                         (Just (argsPublicJson argsOk))
                         (Just (toJSON out))
                         Nothing
+                      webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsOk (atrSignal out) (atrOrder out))
                       respond (jsonValue status200 out)
 
-handleTradeAsync :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleTradeAsync reqLimits mOps limits store metrics mJournal baseArgs req respond = do
+handleTradeAsync :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs req respond = do
   payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
   case payloadOrErr of
     Left resp -> respond resp
@@ -6726,6 +6903,7 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal baseArgs req respo
                             ]
                         )
                       opsAppendMaybe mOps "trade.order" paramsJson argsJson (Just (toJSON out)) Nothing
+                      webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsOk (atrSignal out) (atrOrder out))
                       pure out
                   case r of
                     Left e -> respond (jsonError status429 e)
@@ -7116,8 +7294,8 @@ handleBinanceTrades reqLimits baseArgs req respond = do
                             , abtrFetchedAtMs = now
                             }
 
-handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStart reqLimits mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
+handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStart reqLimits mOps limits metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
   payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
   case payloadOrErr of
     Left resp -> respond resp
@@ -7149,7 +7327,7 @@ handleBotStart reqLimits mOps limits metrics mJournal mBotStateDir optimizerTmp 
                     case validateApiComputeLimits limits argsCombo of
                       Left err -> pure (sym, Left err)
                       Right argsOk -> do
-                        r <- botStartSymbol allowExisting mOps metrics mJournal mBotStateDir optimizerTmp limits adoptReq botCtrl argsOk params sym
+                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq botCtrl argsOk params sym
                         pure (sym, r)
 
               let errors =
@@ -7235,8 +7413,8 @@ handleBotStart reqLimits mOps limits metrics mJournal mBotStateDir optimizerTmp 
                               _ -> base
                       respond (jsonValue status202 payload)
 
-handleBotStop :: Maybe OpsStore -> Maybe Journal -> Maybe FilePath -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStop mOps mJournal mBotStateDir botCtrl req respond = do
+handleBotStop :: Maybe OpsStore -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
   let mSymbol =
         case lookup (BS.pack "symbol") (Wai.queryString req) of
           Just (Just raw) -> Just (BS.unpack raw)
@@ -7246,6 +7424,7 @@ handleBotStop mOps mJournal mBotStateDir botCtrl req respond = do
   let stoppedSymbols = map botSymbol stopped
   journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now, "symbols" .= stoppedSymbols])
   opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing
+  webhookNotifyMaybe mWebhook (webhookEventBotStop stoppedSymbols)
 
   let snaps =
         [ BotStatusSnapshot
@@ -8709,8 +8888,8 @@ metricsToJson m =
     , "turnover" .= bmTurnover m
     ]
 
-runTradeOnly :: Args -> Int -> [Double] -> Maybe BinanceEnv -> IO ()
-runTradeOnly args lookback prices mBinanceEnv = do
+runTradeOnly :: Maybe Webhook -> Args -> Int -> [Double] -> Maybe BinanceEnv -> IO ()
+runTradeOnly mWebhook args lookback prices mBinanceEnv = do
   signal <- computeTradeOnlySignal args lookback prices mBinanceEnv
   if argJson args
     then
@@ -8721,6 +8900,7 @@ runTradeOnly args lookback prices mBinanceEnv = do
               (Just s, Just e) -> pure (s, e)
               _ -> error "Internal: --binance-trade requires binanceSymbol data source."
           order <- placeOrderForSignal args sym signal env
+          webhookNotifyMaybeSync mWebhook (webhookEventTradeOrder args signal order)
           printJsonStdout (object ["mode" .= ("trade" :: String), "trade" .= ApiTradeResponse signal order])
         else printJsonStdout (object ["mode" .= ("signal" :: String), "signal" .= signal])
     else do
@@ -8728,10 +8908,10 @@ runTradeOnly args lookback prices mBinanceEnv = do
       let perSide = estimatedPerSideCost (argFee args) (argSlippage args) (argSpread args)
           roundTrip = estimatedRoundTripCost (argFee args) (argSlippage args) (argSpread args)
       printCostGuidance (argOpenThreshold args) (argCloseThreshold args) perSide roundTrip
-      maybeSendOrder args mBinanceEnv signal
+      maybeSendOrder mWebhook args mBinanceEnv signal
 
-runBacktestPipeline :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
-runBacktestPipeline args lookback series mBinanceEnv = do
+runBacktestPipeline :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
+runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
   let prices = psClose series
   summary <- computeBacktestSummary args lookback series mBinanceEnv
   if argJson args
@@ -8744,6 +8924,7 @@ runBacktestPipeline args lookback series mBinanceEnv = do
               (Just s, Just e) -> pure (s, e)
               _ -> error "Internal: --binance-trade requires binanceSymbol data source."
           order <- placeOrderForSignal args sym (bsLatestSignal summary) env
+          webhookNotifyMaybeSync mWebhook (webhookEventTradeOrder args (bsLatestSignal summary) order)
           printJsonStdout (object ["mode" .= ("backtest" :: String), "backtest" .= base, "trade" .= ApiTradeResponse (bsLatestSignal summary) order])
         else printJsonStdout (object ["mode" .= ("backtest" :: String), "backtest" .= base])
     else do
@@ -8865,7 +9046,7 @@ runBacktestPipeline args lookback series mBinanceEnv = do
             )
 
       printLatestSignalSummary (bsLatestSignal summary)
-      maybeSendOrder args mBinanceEnv (bsLatestSignal summary)
+      maybeSendOrder mWebhook args mBinanceEnv (bsLatestSignal summary)
 
 printJsonStdout :: ToJSON a => a -> IO ()
 printJsonStdout v = BS.putStrLn (BL.toStrict (encode v))
@@ -8977,32 +9158,6 @@ resolveLstmWeightsDir = do
     Nothing -> do
       mStateDir <- stateSubdirFromEnv "lstm"
       pure (Just (fromMaybe defaultLstmWeightsDir mStateDir))
-
-safeCanonicalizePath :: FilePath -> IO FilePath
-safeCanonicalizePath path = do
-  r <- try (canonicalizePath path) :: IO (Either SomeException FilePath)
-  pure (either (const path) id r)
-
-lstmModelKey :: Args -> Int -> IO String
-lstmModelKey args lookback = do
-  src <-
-    case (argBinanceSymbol args, argData args) of
-      (Just sym, _) -> pure ("binance:" ++ marketCode (argBinanceMarket args) ++ ":" ++ sym)
-      (Nothing, Just path0) -> do
-        path <- safeCanonicalizePath path0
-        pure ("csv:" ++ path ++ ":" ++ argPriceCol args)
-      _ -> pure "unknown"
-  pure
-    ( intercalate
-        "|"
-        [ "v1"
-        , src
-        , "interval=" ++ argInterval args
-        , "norm=" ++ show (argNormalization args)
-        , "hidden=" ++ show (argHiddenSize args)
-        , "lookback=" ++ show lookback
-        ]
-    )
 
 hashKeyHex :: String -> String
 hashKeyHex s =
@@ -10246,8 +10401,8 @@ printCostGuidance openThr closeThr perSide roundTrip = do
         )
     else pure ()
 
-maybeSendOrder :: Args -> Maybe BinanceEnv -> LatestSignal -> IO ()
-maybeSendOrder args mBinanceEnv sig =
+maybeSendOrder :: Maybe Webhook -> Args -> Maybe BinanceEnv -> LatestSignal -> IO ()
+maybeSendOrder mWebhook args mBinanceEnv sig =
   case argPlatform args of
     PlatformBinance ->
       case (argBinanceSymbol args, mBinanceEnv) of
@@ -10255,6 +10410,7 @@ maybeSendOrder args mBinanceEnv sig =
           | argBinanceTrade args -> do
               res <- placeOrderForSignal args sym sig env
               putStrLn (aorMessage res)
+              webhookNotifyMaybeSync mWebhook (webhookEventTradeOrder args sig res)
           | otherwise -> pure ()
         _ -> pure ()
     PlatformCoinbase ->
@@ -10267,6 +10423,7 @@ maybeSendOrder args mBinanceEnv sig =
                 Right env -> do
                   res <- placeCoinbaseOrderForSignal args sym sig env
                   putStrLn (aorMessage res)
+                  webhookNotifyMaybeSync mWebhook (webhookEventTradeOrder args sig res)
           | otherwise -> pure ()
         _ -> pure ()
     _ -> pure ()

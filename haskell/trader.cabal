@@ -17,6 +17,7 @@ executable trader-hs
                      , Trader.Kalman3
                      , Trader.Kraken
                      , Trader.LSTM
+                     , Trader.LstmPersistence
                      , Trader.Metrics
                      , Trader.Method
                      , Trader.MarketContext
@@ -80,6 +81,7 @@ test-suite trader-tests
                      , Trader.Kalman3
                      , Trader.Kraken
                      , Trader.LSTM
+                     , Trader.LstmPersistence
                      , Trader.Metrics
                      , Trader.Method
                      , Trader.MarketContext
@@ -139,6 +141,7 @@ benchmark trader-bench
                      , Trader.Kalman3
                      , Trader.Kraken
                      , Trader.LSTM
+                     , Trader.LstmPersistence
                      , Trader.Metrics
                      , Trader.Method
                      , Trader.MarketContext

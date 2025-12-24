@@ -7,8 +7,10 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.List (isInfixOf)
 import qualified Data.Vector as V
+import Options.Applicative (ParserResult(..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
 import System.Exit (exitFailure, exitSuccess)
 
+import Trader.App.Args (Args, argLookback, opts, validateArgs)
 import Trader.Binance
   ( BinanceMarket(..)
   , BinanceOrderMode(..)
@@ -23,6 +25,7 @@ import Trader.Duration (lookbackBarsFrom)
 import Trader.KalmanFusion (Kalman1(..), initKalman1, updateMulti)
 import Trader.Kalman3 (Vec3(..), Kalman3(..), constantAcceleration1D, step, forecastNextConstantAcceleration1D, runConstantAcceleration1D, KalmanRun(..))
 import Trader.LSTM (LSTMConfig(..), LSTMModel(..), trainLSTM, buildSequences, evaluateLoss)
+import Trader.LstmPersistence (lstmModelKey)
 import Trader.Method (Method(..), parseMethod, selectPredictions)
 import Trader.MarketContext (fitLinearRange)
 import Trader.Metrics (computeMetrics, bmGrossLoss, bmGrossProfit, bmMaxDrawdown, bmProfitFactor, bmTotalReturn)
@@ -61,6 +64,7 @@ main = do
     , run "kalman innovation sign" testKalmanInnovationSign
     , run "forward return sign" testForwardReturnSign
     , run "lstm training improves loss" testLstmImprovesLoss
+    , run "lstm key uses platform" testLstmModelKeyPlatform
     , run "ensemble agreement gate" testAgreementGate
     , run "min-hold blocks exit" testMinHoldBars
     , run "max-hold forces exit" testMaxHoldBars
@@ -101,6 +105,19 @@ assert msg cond =
 assertApprox :: String -> Double -> Double -> Double -> IO ()
 assertApprox msg eps a b =
   assert msg (abs (a - b) <= eps)
+
+parseArgs :: [String] -> IO Args
+parseArgs argv = do
+  let parser = info (opts <**> helper) fullDesc
+  case execParserPure defaultPrefs parser argv of
+    Success args ->
+      case validateArgs args of
+        Left err -> error err
+        Right ok -> pure ok
+    Failure failure ->
+      let (msg, _) = renderFailure failure "trader-tests"
+       in error msg
+    CompletionInvoked _ -> error "Unexpected completion"
 
 baseEnsembleConfig :: EnsembleConfig
 baseEnsembleConfig =
@@ -266,6 +283,42 @@ testLstmImprovesLoss = do
       l0 = evaluateLoss lookback hidden dataset (lmParams m0)
       l1 = evaluateLoss lookback hidden dataset (lmParams m1)
   assert ("loss did not decrease: " ++ show (l0, l1)) (l1 < l0)
+
+testLstmModelKeyPlatform :: IO ()
+testLstmModelKeyPlatform = do
+  argsBinance <-
+    parseArgs
+      [ "--symbol"
+      , "BTCUSDT"
+      , "--platform"
+      , "binance"
+      , "--interval"
+      , "1h"
+      , "--bars"
+      , "100"
+      , "--lookback-bars"
+      , "10"
+      ]
+  argsCoinbase <-
+    parseArgs
+      [ "--symbol"
+      , "BTCUSDT"
+      , "--platform"
+      , "coinbase"
+      , "--interval"
+      , "1h"
+      , "--bars"
+      , "100"
+      , "--lookback-bars"
+      , "10"
+      ]
+  let lookbackB = argLookback argsBinance
+      lookbackC = argLookback argsCoinbase
+  keyBinance <- lstmModelKey argsBinance lookbackB
+  keyCoinbase <- lstmModelKey argsCoinbase lookbackC
+  assert "lstm key should differ across platforms" (keyBinance /= keyCoinbase)
+  assert "lstm key should include binance prefix" ("binance:" `isInfixOf` keyBinance)
+  assert "lstm key should include coinbase prefix" ("coinbase:" `isInfixOf` keyCoinbase)
 
 testAgreementGate :: IO ()
 testAgreementGate = do

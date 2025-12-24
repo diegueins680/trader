@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Observability: add Discord-compatible webhook notifications for bot/trade events via `TRADER_WEBHOOK_URL` (filter with `TRADER_WEBHOOK_EVENTS`).
 - Live bot: support multi-symbol bots via `botSymbols` and `TRADER_BOT_SYMBOLS`, with per-symbol status snapshots.
 - Live bot: auto-syncs to the latest top combo (poll interval `TRADER_BOT_COMBOS_POLL_SEC`) and applies it while running.
 - Live bot: always adopts existing positions on startup (`botAdoptExistingPosition` is now implicit).
@@ -71,6 +72,7 @@ All notable changes to this project will be documented in this file.
 - API: enforce `TRADER_API_MAX_BODY_BYTES` for request payloads (default 1048576 bytes).
 - API: `/optimizer/run` responses now truncate stdout/stderr to `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000 bytes).
 - API: classify internal `ErrorCall` failures as server errors instead of client errors.
+- Optimizer: S3-persisted top combos are merged into new optimizer runs to keep best-ever results.
 - Predictors: guard empty TCN dilations to avoid crashes.
 - API: `/bot/start` error responses include per-symbol errors when all requested symbols fail.
 - Web UI: live bot start/status errors surface CloudFront `/api/*` proxy hints and avoid a stuck `Starting...` state when the API is down.
@@ -82,6 +84,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: auto optimizer biases long-short sampling to match existing open positions/orders so compatible combos appear sooner.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - Optimizer/API: expose intrabar fill probability, bracket-stop ranges (incl. vol-mult), confidence gating, and LSTM training sampling controls to `/optimizer/run`.
+- LSTM: persistence keys now include exchange platform to avoid cross-exchange weight reuse.
 - API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.
 - API: `/optimizer/run` now merges optimizer runs into `top-combos.json` (bounded by `TRADER_OPTIMIZER_MAX_COMBOS`).
 - API: allow `/optimizer/combos` to persist top-combos.json via `TRADER_OPTIMIZER_COMBOS_DIR`.

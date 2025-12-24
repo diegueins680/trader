@@ -369,6 +369,12 @@ Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
 - If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/journal`.
 
+Optional webhooks (Discord-compatible):
+- Set `TRADER_WEBHOOK_URL` to send notifications for live-bot and trade events.
+- Payload: JSON with a `content` string (Discord webhook compatible).
+- `TRADER_WEBHOOK_EVENTS` (comma-separated) filters which events are sent; when unset, all webhook events are sent.
+- Event types: `bot.started`, `bot.start_failed`, `bot.stop`, `bot.order`, `bot.halt`, `trade.order`.
+
 Optional ops persistence (powers `GET /ops` and the “operations” history):
 - Set `TRADER_OPS_DIR` to a writable directory (writes `ops.jsonl`)
 - If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/ops`.
@@ -386,6 +392,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - Set `TRADER_OPTIMIZER_COMBOS_DIR` to a writable directory (writes `top-combos.json`)
 - When unset, defaults to `TRADER_STATE_DIR/optimizer` (if set) or `.tmp/optimizer` (local only).
 - `TRADER_OPTIMIZER_MAX_COMBOS` (default: `50`) caps the merged combo list size
+- When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained.
 
 Async-job persistence (default on; recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
 - Default directory: `TRADER_STATE_DIR/async` (if set) or `.tmp/async` (local only). Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it), or set it empty to disable.
@@ -404,6 +411,7 @@ Optional LSTM weight persistence (recommended for faster repeated backtests):
 - `TRADER_LSTM_WEIGHTS_DIR` (default: `TRADER_STATE_DIR/lstm` if set, else `.tmp/lstm`) directory to persist LSTM weights between runs (set to an empty string to disable)
   - Used by both backtests and the live bot (online fine-tuning).
   - The persisted seed is only used when it was trained on **≤** the current training window (prevents lookahead leakage when you change tune/backtest splits).
+  - Keys include the data source (platform+symbol, plus Binance market), interval, normalization, hidden size, and lookback.
 
 Examples:
 ```
@@ -500,7 +508,7 @@ Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
 The configuration panel keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
-When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` to avoid CORS issues. The quick AWS deploy script now creates/updates the `/api/*` behavior to point at the API origin (and disables caching/forwards auth headers) when a distribution ID is provided.
+When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` to avoid CORS issues. The quick AWS deploy script now creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
 The UI auto-applies top combos when available and shows when a combo auto-applied; if the live bot is idle it auto-starts after the top combo applies, and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
