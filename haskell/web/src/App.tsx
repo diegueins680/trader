@@ -256,6 +256,7 @@ type TopCombosMeta = {
   payloadSource: string | null;
   payloadSources: string[] | null;
   fallbackReason: string | null;
+  comboCount: number | null;
 };
 
 type OrderSideFilter = "ALL" | "BUY" | "SELL";
@@ -284,6 +285,7 @@ type ManualOverrideKey = "method" | "openThreshold" | "closeThreshold";
 
 const CUSTOM_SYMBOL_VALUE = "__custom__";
 const TOP_COMBOS_POLL_MS = 30_000;
+const TOP_COMBOS_DISPLAY_MAX = 12;
 const MIN_LOOKBACK_BARS = 2;
 
 const DURATION_UNITS: Array<{ unit: string; seconds: number }> = [
@@ -883,6 +885,7 @@ export function App() {
     payloadSource: null,
     payloadSources: null,
     fallbackReason: null,
+    comboCount: null,
   });
   const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
@@ -3110,8 +3113,9 @@ export function App() {
           if (eq !== 0) return eq;
           return a.id - b.id;
         });
-        const limited = sanitized.slice(0, 5);
+        const limited = sanitized.slice(0, TOP_COMBOS_DISPLAY_MAX);
         setTopCombos(limited);
+        const comboCount = rawCombos.length;
         const generatedAtMsRaw = payloadRec.generatedAtMs;
         const generatedAtMs =
           typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
@@ -3126,7 +3130,14 @@ export function App() {
           .map((src) => (typeof src === "string" ? src.trim() : ""))
           .filter((src) => src.length > 0);
         const payloadSourcesFinal = payloadSources.length > 0 ? payloadSources : payloadSourceRaw ? [payloadSourceRaw] : null;
-        setTopCombosMeta({ source, generatedAtMs, payloadSource: payloadSourceRaw, payloadSources: payloadSourcesFinal, fallbackReason });
+        setTopCombosMeta({
+          source,
+          generatedAtMs,
+          payloadSource: payloadSourceRaw,
+          payloadSources: payloadSourcesFinal,
+          fallbackReason,
+          comboCount,
+        });
         setTopCombosError(null);
         const topCombo = limited[0];
         if (topCombo) {
@@ -3976,13 +3987,25 @@ export function App() {
                     : payloadSource
                       ? ` • payload ${payloadSource}`
                       : "";
+                const displayCount = topCombos.length;
+                const comboCount = topCombosMeta.comboCount;
+                const countLabel =
+                  comboCount != null && comboCount > displayCount
+                    ? `Showing ${displayCount} of ${comboCount} combos`
+                    : `Showing ${displayCount} combo${displayCount === 1 ? "" : "s"}`;
                 return (
-                  <div className="hint" style={{ marginBottom: 8 }}>
-                    {sourceLabel}
-                    {reason ? ` (${reason})` : ""}
-                    {payloadLabel}
-                    {" • "}updated {updatedLabel}
-                    {ageLabel ? ` (${ageLabel} ago)` : ""}
+                  <div style={{ marginBottom: 8 }}>
+                    <div className="hint">
+                      {sourceLabel}
+                      {reason ? ` (${reason})` : ""}
+                      {payloadLabel}
+                    </div>
+                    <div className="hint">
+                      Last updated {updatedLabel}
+                      {ageLabel ? ` (${ageLabel} ago)` : ""}
+                      {" • "}
+                      {countLabel}
+                    </div>
                   </div>
                 );
               })()}
