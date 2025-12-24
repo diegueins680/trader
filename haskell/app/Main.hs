@@ -7102,10 +7102,12 @@ handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs b
                       case errors of
                         [] -> respond (jsonError status400 "Failed to start bot.")
                         errs -> do
-                          let errorMsgFromValue err =
+                          let errorMsgFromValue :: Aeson.Value -> Maybe String
+                              errorMsgFromValue err =
                                 case err of
                                   Aeson.Object o -> KM.lookup "error" o >>= AT.parseMaybe parseJSON
                                   _ -> Nothing
+                              msg :: String
                               msg =
                                 case errs of
                                   [err] -> fromMaybe "Failed to start bot." (errorMsgFromValue err)
