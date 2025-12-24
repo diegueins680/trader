@@ -168,6 +168,19 @@ function parseMaybeInt(raw: string): number | null {
   return Math.max(0, Math.trunc(n));
 }
 
+function normalizeIsoInput(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return `${trimmed}T00:00:00Z`;
+  if (
+    !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/.test(
+      trimmed,
+    )
+  ) {
+    return null;
+  }
+  return trimmed.replace(" ", "T");
+}
+
 function parseTimeInputMs(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -175,8 +188,15 @@ function parseTimeInputMs(raw: string): number | null {
     const n = Number(trimmed);
     return Number.isFinite(n) ? n : null;
   }
-  const parsed = Date.parse(trimmed);
+  const iso = normalizeIsoInput(trimmed);
+  if (!iso) return null;
+  const parsed = Date.parse(iso);
   return Number.isNaN(parsed) ? null : parsed;
+}
+
+function listenKeyKeepAliveIntervalMs(keepAliveMs: number): number {
+  // Refresh slightly ahead of expiry to avoid jitter.
+  return Math.max(60_000, Math.round(keepAliveMs * 0.9));
 }
 
 type UiState = {
@@ -1657,6 +1677,11 @@ export function App() {
     return botStatusBySymbol.get(target) ?? null;
   }, [botEntriesWithSymbol, botSelectedSymbol, botStatusBySymbol]);
   const botStartErrors = useMemo(() => (isBotStatusMulti(bot.status) ? bot.status.errors ?? [] : []), [bot.status]);
+  const botStartingReason = useMemo(() => {
+    if (!botSelectedStatus || botSelectedStatus.running) return null;
+    if (botSelectedStatus.starting !== true) return null;
+    return botSelectedStatus.startingReason ?? null;
+  }, [botSelectedStatus]);
   const botSnapshot = useMemo(
     () => (botSelectedStatus && !botSelectedStatus.running ? botSelectedStatus.snapshot ?? null : null),
     [botSelectedStatus],
@@ -2263,7 +2288,7 @@ export function App() {
       });
 
       void keepAliveListenKeyStream(out, { silent: true });
-      const intervalMs = Math.max(60_000, Math.round(out.keepAliveMs * 0.9));
+      const intervalMs = listenKeyKeepAliveIntervalMs(out.keepAliveMs);
       listenKeyKeepAliveTimerRef.current = window.setInterval(() => void keepAliveListenKeyStream(out, { silent: true }), intervalMs);
 
       showToast("Listen key started");
@@ -3373,6 +3398,13 @@ export function App() {
   const botStartPrimaryIssue = botIssueDetails[0] ?? null;
   const botStartDisabledReason = botStartPrimaryIssue?.disabledMessage ?? botStartPrimaryIssue?.message ?? null;
   const botStarting = apiOk === "ok" && !bot.error && botAnyStarting;
+  const botStartingHint = useMemo(() => {
+    if (!botStarting) return null;
+    if (botStartingReason) {
+      return `Bot is starting… ${botStartingReason} Use “Refresh” to check status.`;
+    }
+    return "Bot is starting… (initializing model). Use “Refresh” to check status.";
+  }, [botStarting, botStartingReason]);
   const botStartBlockedReason = firstReason(
     !isBinancePlatform ? "Live bot is supported on Binance only." : null,
     form.positioning === "long-short" && form.market !== "futures"
@@ -6582,7 +6614,7 @@ export function App() {
               ) : (
                 <div className="hint">
                   {botStarting
-                    ? "Bot is starting… (initializing model). Use “Refresh” to check status."
+                    ? botStartingHint ?? "Bot is starting… (initializing model). Use “Refresh” to check status."
                     : botStartBlockedReason
                       ? `Bot is stopped. Start live bot is disabled: ${botStartBlockedReason}`
                       : "Bot is stopped. Use “Start live bot” on the left."}

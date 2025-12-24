@@ -1412,6 +1412,7 @@ data BotStartRuntime = BotStartRuntime
   , bsrSettings :: !BotSettings
   , bsrSymbol :: !String
   , bsrRequestedAtMs :: !Int64
+  , bsrStartReason :: !String
   }
 
 data BotStartOutcome = BotStartOutcome
@@ -1686,6 +1687,7 @@ botStartingJson rt =
   object
     [ "running" .= False
     , "starting" .= True
+    , "startingReason" .= bsrStartReason rt
     , "symbol" .= bsrSymbol rt
     , "interval" .= argInterval (bsrArgs rt)
     , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
@@ -1695,6 +1697,12 @@ botStartingJson rt =
     , "closeThreshold" .= argCloseThreshold (bsrArgs rt)
     , "startedAtMs" .= bsrRequestedAtMs rt
     ]
+
+botStartReasonFromAdopt :: AdoptRequirement -> String
+botStartReasonFromAdopt req =
+  if arActive req
+    then "Waiting for a compatible top combo to adopt existing positions or orders."
+    else "Initializing model."
 
 botStoppedJson :: Aeson.Value
 botStoppedJson =
@@ -2244,6 +2252,7 @@ botStartSymbol allowExisting mOps metrics mJournal mBotStateDir optimizerTmp lim
                 Right settings -> do
                   let sym = normalizeSymbol symRaw
                       argsSym = args { argBinanceSymbol = Just sym }
+                      startReason = botStartReasonFromAdopt adoptReq
                   now <- getTimestampMs
                   modifyMVar (bcRuntime ctrl) $ \mrt ->
                     case HM.lookup sym mrt of
@@ -2269,6 +2278,7 @@ botStartSymbol allowExisting mOps metrics mJournal mBotStateDir optimizerTmp lim
                                     , bsrSettings = settings
                                     , bsrSymbol = sym
                                     , bsrRequestedAtMs = now
+                                    , bsrStartReason = startReason
                                     }
                                 st = BotStarting rt
                             pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
@@ -2283,6 +2293,7 @@ botStartSymbol allowExisting mOps metrics mJournal mBotStateDir optimizerTmp lim
                                     , bsrSettings = settings
                                     , bsrSymbol = sym
                                     , bsrRequestedAtMs = now
+                                    , bsrStartReason = startReason
                                     }
                                 st = BotStarting rt
                             pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
@@ -7080,9 +7091,9 @@ handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs b
                       Nothing
                   _ -> pure ()
 
-              if length symbols == 1 && null errors && length statuses == 1
-                then respond (jsonValue status202 (head statuses))
-                else
+              case (symbols, errors, statuses) of
+                ([_], [], [status]) -> respond (jsonValue status202 status)
+                _ ->
                   if null statuses
                     then
                       case errors of
@@ -7181,15 +7192,15 @@ handleBotStatus botCtrl mBotStateDir req respond = do
             _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
         else do
           let entries = sortOn fst (HM.toList mrt)
-          if length entries == 1
-            then
-              case snd (head entries) of
+          case entries of
+            [(_sym, state)] ->
+              case state of
                 BotStarting rt -> respond (jsonValue status200 (botStartingJson rt))
                 BotRunning rt -> do
                   st <- readMVar (brStateVar rt)
                   let st' = maybe st (`botStateTail` st) tailN
                   respond (jsonValue status200 (botStatusJson st'))
-            else do
+            _ -> do
               statuses <-
                 forM entries $ \(_sym, state) ->
                   case state of

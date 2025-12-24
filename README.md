@@ -319,7 +319,7 @@ Endpoints:
 - `POST /binance/listenKey/close` → closes a listenKey
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol)
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
-- `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`)
+- `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`)
 
 Optimizer script tips:
 - `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
@@ -484,6 +484,7 @@ Manual edits to Method/open/close thresholds are preserved when optimizer combos
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
+Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).

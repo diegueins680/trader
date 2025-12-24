@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Live bot: startup waits for the top combo compatible with adopted positions or open orders before running.
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
+- Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
@@ -62,6 +63,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: optimizer combos now persist/show the operations that produced each top result on hover.
 - Web UI: add auto-apply toggle with last-applied marker, manual override lock/unlock hints, and a cross-origin API base warning.
 - Web UI: show persisted live-bot snapshots when `/bot/status` is restored after restart.
+- Live bot/UI: `/bot/status` includes `startingReason` and the UI surfaces when startup is waiting for a compatible top combo.
 - Web UI: live bot start/status errors surface CloudFront `/api/*` proxy hints and avoid a stuck `Starting...` state when the API is down.
 - Live bot: support long/short positioning on Binance futures (including adopting/closing existing short positions).
 - Optimizer: adds a `--quality` preset plus CSV high/low auto-detection for deeper equity searches.

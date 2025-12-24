@@ -411,6 +411,7 @@ export type BotStatusRunning = {
 export type BotStatusStopped = {
   running: false;
   starting?: boolean;
+  startingReason?: string;
   symbol?: string;
   interval?: string;
   market?: Market;
