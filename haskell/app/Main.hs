@@ -40,7 +40,7 @@ import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException)
-import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status429, status500, status502, statusCode)
+import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -1681,9 +1681,6 @@ botStateTail tailN st =
             , botOpenTrade = openTradeShifted
             , botStartIndex = botStartIndex st + dropCount
             }
-
-botStatusTailMax :: Int
-botStatusTailMax = 5000
 
 botStartingJson :: BotStartRuntime -> Aeson.Value
 botStartingJson rt =
@@ -4418,6 +4415,8 @@ runRestApi baseArgs = do
   maxBarsLstmEnv <- lookupEnv "TRADER_API_MAX_BARS_LSTM"
   maxEpochsEnv <- lookupEnv "TRADER_API_MAX_EPOCHS"
   maxHiddenSizeEnv <- lookupEnv "TRADER_API_MAX_HIDDEN_SIZE"
+  maxBodyBytesEnv <- lookupEnv "TRADER_API_MAX_BODY_BYTES"
+  maxOptimizerOutputBytesEnv <- lookupEnv "TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES"
   let timeoutSec =
         case timeoutEnv >>= readMaybe of
           Just n | n >= 0 -> n
@@ -4449,6 +4448,20 @@ runRestApi baseArgs = do
         case cacheMaxEnv >>= readMaybe of
           Just n | n >= 0 -> n
           _ -> 64 :: Int
+      maxBodyBytes =
+        case (maxBodyBytesEnv >>= readMaybe :: Maybe Int64) of
+          Just n | n > 0 -> n
+          _ -> defaultApiMaxBodyBytes
+      maxOptimizerOutputBytes =
+        case (maxOptimizerOutputBytesEnv >>= readMaybe :: Maybe Int) of
+          Just n | n > 0 -> n
+          _ -> defaultApiMaxOptimizerOutputBytes
+      reqLimits =
+        ApiRequestLimits
+          { arlMaxBodyBytes = maxBodyBytes
+          , arlMaxOptimizerOutputBytes = maxOptimizerOutputBytes
+          , arlMaxBotStatusTail = defaultApiMaxBotStatusTail
+          }
   -- With 1 vCPU (common in small ECS/Fargate tasks), long-running pure compute can starve the
   -- Warp accept loop and make even quick "poll" endpoints appear to hang.
   -- Ensure at least 2 capabilities so the server stays responsive while background work runs.
@@ -4476,6 +4489,13 @@ runRestApi baseArgs = do
         (aclMaxBarsLstm limits)
         (aclMaxEpochs limits)
         (aclMaxHiddenSize limits)
+    )
+  putStrLn
+    ( printf
+        "API request limits: maxBodyBytes=%d, maxOptimizerOutputBytes=%d, botStatusTailMax=%d"
+        (arlMaxBodyBytes reqLimits)
+        (arlMaxOptimizerOutputBytes reqLimits)
+        (arlMaxBotStatusTail reqLimits)
     )
   apiCache <- newApiCache cacheMaxEntries cacheTtlMs
   putStrLn
@@ -4527,7 +4547,7 @@ runRestApi baseArgs = do
   hFlush stdout
   res <-
     ( try
-        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps mBotStateDir limits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mOps mBotStateDir limits reqLimits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
         IO (Either IOException ())
     )
   case res of
@@ -5203,6 +5223,21 @@ data ApiComputeLimits = ApiComputeLimits
   , aclMaxHiddenSize :: !Int
   } deriving (Eq, Show)
 
+data ApiRequestLimits = ApiRequestLimits
+  { arlMaxBodyBytes :: !Int64
+  , arlMaxOptimizerOutputBytes :: !Int
+  , arlMaxBotStatusTail :: !Int
+  } deriving (Eq, Show)
+
+defaultApiMaxBodyBytes :: Int64
+defaultApiMaxBodyBytes = 1024 * 1024
+
+defaultApiMaxOptimizerOutputBytes :: Int
+defaultApiMaxOptimizerOutputBytes = 20000
+
+defaultApiMaxBotStatusTail :: Int
+defaultApiMaxBotStatusTail = 5000
+
 validateApiComputeLimits :: ApiComputeLimits -> Args -> Either String Args
 validateApiComputeLimits limits args =
   case argMethod args of
@@ -5260,12 +5295,13 @@ apiApp ::
   Maybe OpsStore ->
   Maybe FilePath ->
   ApiComputeLimits ->
+  ApiRequestLimits ->
   ApiCache ->
   AsyncStores ->
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir limits apiCache asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir limits reqLimits apiCache asyncStores projectRoot optimizerTmp req respond = do
   startMs <- getTimestampMs
   let rawPath = Wai.pathInfo req
       path =
@@ -5412,11 +5448,11 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["signal"] ->
               case Wai.requestMethod req of
-                "POST" -> handleSignal apiCache mOps limits baseArgs req respondCors
+                "POST" -> handleSignal reqLimits apiCache mOps limits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["signal", "async"] ->
               case Wai.requestMethod req of
-                "POST" -> handleSignalAsync apiCache mOps limits (asSignal asyncStores) baseArgs req respondCors
+                "POST" -> handleSignalAsync reqLimits apiCache mOps limits (asSignal asyncStores) baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["signal", "async", jobId] ->
               case Wai.requestMethod req of
@@ -5429,11 +5465,11 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade"] ->
               case Wai.requestMethod req of
-                "POST" -> handleTrade mOps limits metrics mJournal baseArgs req respondCors
+                "POST" -> handleTrade reqLimits mOps limits metrics mJournal baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade", "async"] ->
               case Wai.requestMethod req of
-                "POST" -> handleTradeAsync mOps limits (asTrade asyncStores) metrics mJournal baseArgs req respondCors
+                "POST" -> handleTradeAsync reqLimits mOps limits (asTrade asyncStores) metrics mJournal baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["trade", "async", jobId] ->
               case Wai.requestMethod req of
@@ -5446,11 +5482,11 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBacktest apiCache mOps limits baseArgs req respondCors
+                "POST" -> handleBacktest reqLimits apiCache mOps limits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest", "async"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBacktestAsync apiCache mOps limits (asBacktest asyncStores) baseArgs req respondCors
+                "POST" -> handleBacktestAsync reqLimits apiCache mOps limits (asBacktest asyncStores) baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest", "async", jobId] ->
               case Wai.requestMethod req of
@@ -5463,31 +5499,31 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "keys"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceKeys baseArgs req respondCors
+                "POST" -> handleBinanceKeys reqLimits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "trades"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceTrades baseArgs req respondCors
+                "POST" -> handleBinanceTrades reqLimits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["coinbase", "keys"] ->
               case Wai.requestMethod req of
-                "POST" -> handleCoinbaseKeys baseArgs req respondCors
+                "POST" -> handleCoinbaseKeys reqLimits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceListenKey baseArgs req respondCors
+                "POST" -> handleBinanceListenKey reqLimits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey", "keepAlive"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceListenKeyKeepAlive baseArgs req respondCors
+                "POST" -> handleBinanceListenKeyKeepAlive reqLimits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey", "close"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceListenKeyClose baseArgs req respondCors
+                "POST" -> handleBinanceListenKeyClose reqLimits baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
+                "POST" -> handleBotStart reqLimits mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "stop"] ->
               case Wai.requestMethod req of
@@ -5495,11 +5531,11 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mOps mBotStateDir li
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "status"] ->
               case Wai.requestMethod req of
-                "GET" -> handleBotStatus botCtrl mBotStateDir req respondCors
+                "GET" -> handleBotStatus reqLimits botCtrl mBotStateDir req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["optimizer", "run"] ->
               case Wai.requestMethod req of
-                "POST" -> handleOptimizerRun projectRoot optimizerTmp req respondCors
+                "POST" -> handleOptimizerRun reqLimits projectRoot optimizerTmp req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["optimizer", "combos"] ->
               case Wai.requestMethod req of
@@ -5544,9 +5580,9 @@ exceptionToHttp :: SomeException -> (Status, String)
 exceptionToHttp ex =
   case fromException ex of
     Just (ErrorCall msg) ->
-      if "Internal:" `isPrefixOf` msg
+      if isInternalErrorCall msg
         then
-          let msg' = dropWhile isSpace (drop (length ("Internal:" :: String)) msg)
+          let msg' = dropInternalPrefix msg
               suffix = if null msg' then "" else ": " ++ msg'
            in (status500, "Internal server error" ++ suffix)
         else (status400, msg)
@@ -5558,6 +5594,47 @@ exceptionToHttp ex =
           case (fromException ex :: Maybe HttpException) of
             Just httpEx -> (status502, show httpEx)
             Nothing -> (status500, show ex)
+  where
+    internalIndicators = ["Singular matrix", "missing output bias", "argMaxAbs: empty"]
+    isInternalErrorCall msg = "Internal:" `isPrefixOf` msg || any (`isInfixOf` msg) internalIndicators
+    dropInternalPrefix msg =
+      if "Internal:" `isPrefixOf` msg
+        then dropWhile isSpace (drop (length ("Internal:" :: String)) msg)
+        else msg
+
+requestBodyTooLargeMessage :: Int64 -> String
+requestBodyTooLargeMessage maxBytes =
+  "Request body too large (max "
+    ++ show maxBytes
+    ++ " bytes; set TRADER_API_MAX_BODY_BYTES to override)."
+
+readRequestBodyLimited :: Int64 -> Wai.Request -> IO (Either String BL.ByteString)
+readRequestBodyLimited maxBytes req = do
+  let maxBytes' = max 0 maxBytes
+      maxBytesWord = fromIntegral maxBytes' :: Word64
+      tooLarge = requestBodyTooLargeMessage maxBytes'
+      go acc chunks = do
+        chunk <- Wai.requestBody req
+        if BS.null chunk
+          then pure (Right (BL.fromChunks (reverse chunks)))
+          else do
+            let acc' = acc + fromIntegral (BS.length chunk)
+            if maxBytes' > 0 && acc' > maxBytes'
+              then pure (Left (requestBodyTooLargeMessage maxBytes'))
+              else go acc' (chunk : chunks)
+  case Wai.requestBodyLength req of
+    Wai.KnownLength len | maxBytes' > 0 && len > maxBytesWord -> pure (Left tooLarge)
+    _ -> go 0 []
+
+decodeRequestBodyLimited :: FromJSON a => ApiRequestLimits -> Wai.Request -> String -> IO (Either Wai.Response a)
+decodeRequestBodyLimited limits req errPrefix = do
+  bodyOrErr <- readRequestBodyLimited (arlMaxBodyBytes limits) req
+  case bodyOrErr of
+    Left msg -> pure (Left (jsonError status413 msg))
+    Right body ->
+      case eitherDecode body of
+        Left err -> pure (Left (jsonError status400 (errPrefix ++ err)))
+        Right payload -> pure (Right payload)
 
 textValue :: Status -> BL.ByteString -> Wai.Response
 textValue st body =
@@ -6085,6 +6162,20 @@ optimizerMaxCombosFromEnv = do
       Just n | n >= 1 -> n
       _ -> defaultOptimizerMaxCombos
 
+truncateProcessOutput :: Int -> String -> String
+truncateProcessOutput maxBytes raw =
+  let maxBytes' = max 0 maxBytes
+      bs = BS.pack raw
+      bsLen = BS.length bs
+   in if maxBytes' <= 0
+        then ""
+        else if bsLen <= maxBytes'
+          then raw
+          else
+            let kept = BS.drop (bsLen - maxBytes') bs
+                prefix = printf "... (truncated, showing last %d bytes)\n" maxBytes'
+             in prefix ++ BS.unpack kept
+
 runOptimizerProcess ::
   FilePath ->
   FilePath ->
@@ -6272,20 +6363,23 @@ applyTopComboForStart base combo = do
   pure args2
 
 handleOptimizerRun ::
+  ApiRequestLimits ->
   FilePath ->
   FilePath ->
   Wai.Request ->
   (Wai.Response -> IO Wai.ResponseReceived) ->
   IO Wai.ResponseReceived
-handleOptimizerRun projectRoot optimizerTmp req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left err -> respond (jsonError status400 ("Invalid optimizer payload: " ++ err))
+handleOptimizerRun reqLimits projectRoot optimizerTmp req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid optimizer payload: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right payload -> do
       ts <- fmap (floor . (* 1000)) getPOSIXTime
       randId <- randomIO :: IO Word64
       topJsonPath <- resolveOptimizerCombosPath optimizerTmp
       let recordsPath = optimizerTmp </> printf "optimizer-%d-%016x.jsonl" (ts :: Integer) randId
+          maxOutputBytes = arlMaxOptimizerOutputBytes reqLimits
+          truncateOut = truncateProcessOutput maxOutputBytes
       argsOrErr <- prepareOptimizerArgs recordsPath payload
       case argsOrErr of
         Left msg -> respond (jsonError status400 msg)
@@ -6293,14 +6387,27 @@ handleOptimizerRun projectRoot optimizerTmp req respond = do
           runResult <- runOptimizerProcess projectRoot recordsPath args
           case runResult of
             Left (msg, out, err) ->
-              respond (jsonValue status500 (object ["error" .= msg, "stdout" .= out, "stderr" .= err]))
+              respond
+                ( jsonValue
+                    status500
+                    (object ["error" .= msg, "stdout" .= truncateOut out, "stderr" .= truncateOut err])
+                )
             Right resp -> do
+              let resp' =
+                    resp
+                      { arrStdout = truncateOut (arrStdout resp)
+                      , arrStderr = truncateOut (arrStderr resp)
+                      }
               maxCombos <- optimizerMaxCombosFromEnv
               mergeResult <- runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos
               case mergeResult of
                 Left (msg, out, err) ->
-                  respond (jsonValue status500 (object ["error" .= msg, "stdout" .= out, "stderr" .= err]))
-                Right _ -> respond (jsonValue status200 resp)
+                  respond
+                    ( jsonValue
+                        status500
+                        (object ["error" .= msg, "stdout" .= truncateOut out, "stderr" .= truncateOut err])
+                    )
+                Right _ -> respond (jsonValue status200 resp')
 
 handleOptimizerCombos ::
   FilePath ->
@@ -6453,11 +6560,11 @@ handleOps mOps req respond =
       latestId <- readIORef (osNextId store)
       respond (jsonValue status200 (object ["enabled" .= True, "latestId" .= latestId, "maxInMemory" .= osMaxInMemory store, "ops" .= ops]))
 
-handleSignal :: ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleSignal apiCache mOps limits baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+handleSignal :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right params ->
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
@@ -6494,11 +6601,11 @@ handleSignal apiCache mOps limits baseArgs req respond = do
                     Nothing
                   respond (jsonValue status200 sig)
 
-handleSignalAsync :: ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore LatestSignal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleSignalAsync apiCache mOps limits store baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+handleSignalAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore LatestSignal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right params ->
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
@@ -6528,11 +6635,11 @@ handleSignalAsync apiCache mOps limits store baseArgs req respond = do
                 Left e -> respond (jsonError status429 e)
                 Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
 
-handleTrade :: Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleTrade mOps limits metrics mJournal baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+handleTrade :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleTrade reqLimits mOps limits metrics mJournal baseArgs req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right params ->
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
@@ -6578,11 +6685,11 @@ handleTrade mOps limits metrics mJournal baseArgs req respond = do
                         Nothing
                       respond (jsonValue status200 out)
 
-handleTradeAsync :: Maybe OpsStore -> ApiComputeLimits -> JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleTradeAsync mOps limits store metrics mJournal baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+handleTradeAsync :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleTradeAsync reqLimits mOps limits store metrics mJournal baseArgs req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right params ->
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
@@ -6631,11 +6738,11 @@ extractBacktestFinalEquity =
       m <- o AT..: "metrics"
       m AT..: "finalEquity"
 
-handleBacktest :: ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBacktest apiCache mOps limits baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+handleBacktest :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBacktest reqLimits apiCache mOps limits baseArgs req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right params ->
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
@@ -6673,11 +6780,11 @@ handleBacktest apiCache mOps limits baseArgs req respond = do
                     (extractBacktestFinalEquity out)
                   respond (jsonValue status200 out)
 
-handleBacktestAsync :: ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBacktestAsync apiCache mOps limits store baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+handleBacktestAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBacktestAsync reqLimits apiCache mOps limits store baseArgs req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right params ->
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
@@ -6778,11 +6885,11 @@ handleAsyncCancel store jobId respond = do
                 (object ["status" .= ("canceled" :: String), "createdAtMs" .= jeCreatedAtMs entry, "canceledAtMs" .= canceledAt])
             )
 
-handleBinanceKeys :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceKeys baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+handleBinanceKeys :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceKeys reqLimits baseArgs req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right params ->
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
@@ -6797,11 +6904,11 @@ handleBinanceKeys baseArgs req respond = do
                    in respond (jsonError st msg)
                 Right out -> respond (jsonValue status200 out)
 
-handleCoinbaseKeys :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleCoinbaseKeys baseArgs req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+handleCoinbaseKeys :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleCoinbaseKeys reqLimits baseArgs req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right params ->
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
@@ -6846,14 +6953,14 @@ binanceUserStreamWsUrl :: BinanceMarket -> Bool -> String -> String
 binanceUserStreamWsUrl market testnet listenKey =
   binanceUserStreamWsBase market testnet ++ "/" ++ listenKey
 
-handleBinanceListenKey :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKey baseArgs req respond = do
+handleBinanceListenKey :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKey reqLimits baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance listenKey requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
-      body <- Wai.strictRequestBody req
-      case eitherDecode body of
-        Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+      payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+      case payloadOrErr of
+        Left resp -> respond resp
         Right params -> do
           let testnet = resolveTestnetForListenKey baseArgs (alsBinanceTestnet params)
           case parseMarketForListenKey baseArgs (alsMarket params) of
@@ -6885,14 +6992,14 @@ handleBinanceListenKey baseArgs req respond = do
                               }
                       respond (jsonValue status200 resp)
 
-handleBinanceListenKeyKeepAlive :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKeyKeepAlive baseArgs req respond = do
+handleBinanceListenKeyKeepAlive :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKeyKeepAlive reqLimits baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance listenKey keepAlive requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
-      body <- Wai.strictRequestBody req
-      case eitherDecode body of
-        Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+      payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+      case payloadOrErr of
+        Left resp -> respond resp
         Right params -> do
           let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
           case parseMarketForListenKey baseArgs (alaMarket params) of
@@ -6917,14 +7024,14 @@ handleBinanceListenKeyKeepAlive baseArgs req respond = do
                       now <- getTimestampMs
                       respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
-handleBinanceListenKeyClose :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKeyClose baseArgs req respond = do
+handleBinanceListenKeyClose :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKeyClose reqLimits baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance listenKey close requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
-      body <- Wai.strictRequestBody req
-      case eitherDecode body of
-        Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+      payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+      case payloadOrErr of
+        Left resp -> respond resp
         Right params -> do
           let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
           case parseMarketForListenKey baseArgs (alaMarket params) of
@@ -6949,14 +7056,14 @@ handleBinanceListenKeyClose baseArgs req respond = do
                       now <- getTimestampMs
                       respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
-handleBinanceTrades :: Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceTrades baseArgs req respond = do
+handleBinanceTrades :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceTrades reqLimits baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance trades require platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
-      body <- Wai.strictRequestBody req
-      case eitherDecode body of
-        Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+      payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+      case payloadOrErr of
+        Left resp -> respond resp
         Right params -> do
           let testnet = resolveTestnetForListenKey baseArgs (abrBinanceTestnet params)
           case parseMarketForListenKey baseArgs (abrMarket params) of
@@ -7009,11 +7116,11 @@ handleBinanceTrades baseArgs req respond = do
                             , abtrFetchedAtMs = now
                             }
 
-handleBotStart :: Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
-  body <- Wai.strictRequestBody req
-  case eitherDecode body of
-    Left e -> respond (jsonError status400 ("Invalid JSON: " ++ e))
+handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStart reqLimits mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+  case payloadOrErr of
+    Left resp -> respond resp
     Right params ->
       case argsFromApi baseArgs params of
         Left e -> respond (jsonError status400 e)
@@ -7102,12 +7209,13 @@ handleBotStart mOps limits metrics mJournal mBotStateDir optimizerTmp baseArgs b
                       case errors of
                         [] -> respond (jsonError status400 "Failed to start bot.")
                         errs -> do
-                          let errorMsgFromValue :: Aeson.Value -> Maybe String
-                              errorMsgFromValue err =
+                          let errorMsgFromValue err =
                                 case err of
-                                  Aeson.Object o -> KM.lookup "error" o >>= AT.parseMaybe parseJSON
+                                  Aeson.Object o ->
+                                    case KM.lookup "error" o of
+                                      Just (Aeson.String t) -> Just (T.unpack t)
+                                      _ -> Nothing
                                   _ -> Nothing
-                              msg :: String
                               msg =
                                 case errs of
                                   [err] -> fromMaybe "Failed to start bot." (errorMsgFromValue err)
@@ -7166,12 +7274,13 @@ handleBotStop mOps mJournal mBotStateDir botCtrl req respond = do
     [snap] -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
     _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
 
-handleBotStatus :: BotController -> Maybe FilePath -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStatus botCtrl mBotStateDir req respond = do
+handleBotStatus :: ApiRequestLimits -> BotController -> Maybe FilePath -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStatus reqLimits botCtrl mBotStateDir req respond = do
   let q = Wai.queryString req
+      maxTail = arlMaxBotStatusTail reqLimits
       tailN =
         case lookup (BS.pack "tail") q of
-          Just (Just raw) -> readMaybe (BS.unpack raw) >>= \n -> if n > 0 then Just (min n botStatusTailMax) else Nothing
+          Just (Just raw) -> readMaybe (BS.unpack raw) >>= \n -> if n > 0 then Just (min n maxTail) else Nothing
           _ -> Nothing
       mSymbol =
         case lookup (BS.pack "symbol") q of
