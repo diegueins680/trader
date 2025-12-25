@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -421,6 +422,21 @@ def _write_top_json(path: Path, combos: List[Dict[str, Any]], max_items: int) ->
     path.write_text(json.dumps(export, indent=2) + "\n", encoding="utf-8")
 
 
+def _archive_top_json(history_dir: Optional[Path], out_path: Path) -> None:
+    if history_dir is None:
+        return
+    try:
+        history_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
+    stamp = int(time.time() * 1000)
+    archive_path = history_dir / f"top-combos-{stamp}.json"
+    try:
+        shutil.copy2(out_path, archive_path)
+    except OSError:
+        return
+
+
 def main(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(description="Merge optimizer outputs into a single top-combos.json for the web UI.")
     parser.add_argument(
@@ -442,7 +458,13 @@ def main(argv: List[str]) -> int:
         help="Additional top-combos JSON files to merge (repeatable).",
     )
     parser.add_argument("--out", type=str, default="", help="Output path (default: overwrite --top-json).")
-    parser.add_argument("--max", type=int, default=50, help="Max combos to keep (default: 50).")
+    parser.add_argument("--max", type=int, default=200, help="Max combos to keep (default: 200).")
+    parser.add_argument(
+        "--history-dir",
+        type=str,
+        default="",
+        help="Optional directory to write timestamped history snapshots.",
+    )
     parser.add_argument(
         "--copy-to-dist",
         action="store_true",
@@ -472,6 +494,8 @@ def main(argv: List[str]) -> int:
 
     merged = _merge_combos(sources)
     _write_top_json(out_path, merged, max_items=max(1, int(args.max)))
+    history_dir = Path(args.history_dir).expanduser() if args.history_dir else None
+    _archive_top_json(history_dir, out_path)
 
     if args.copy_to_dist:
         dist_dir = Path("haskell/web/dist")

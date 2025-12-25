@@ -6389,6 +6389,10 @@ s3TopCombosKey :: S3State -> String
 s3TopCombosKey st =
   s3KeyFor st ["optimizer", optimizerCombosFileName]
 
+s3TopCombosHistoryKey :: S3State -> Int64 -> String
+s3TopCombosHistoryKey st ts =
+  s3KeyFor st ["optimizer", "history", printf "top-combos-%d.json" ts]
+
 resolveOptimizerCombosPath :: FilePath -> IO FilePath
 resolveOptimizerCombosPath optimizerTmp = do
   mDir <- lookupEnv "TRADER_OPTIMIZER_COMBOS_DIR"
@@ -6398,8 +6402,20 @@ resolveOptimizerCombosPath optimizerTmp = do
       mStateDir <- stateSubdirFromEnv "optimizer"
       pure ((fromMaybe optimizerTmp mStateDir) </> optimizerCombosFileName)
 
+resolveOptimizerCombosHistoryDir :: FilePath -> IO (Maybe FilePath)
+resolveOptimizerCombosHistoryDir topJsonPath = do
+  mDir <- lookupEnv "TRADER_OPTIMIZER_COMBOS_HISTORY_DIR"
+  case trim <$> mDir of
+    Nothing -> pure (Just (takeDirectory topJsonPath </> "top-combos-history"))
+    Just dir ->
+      let lowered = map toLower dir
+       in
+        if null dir || lowered `elem` ["0", "false", "off", "no"]
+          then pure Nothing
+          else pure (Just dir)
+
 defaultOptimizerMaxCombos :: Int
-defaultOptimizerMaxCombos = 50
+defaultOptimizerMaxCombos = 200
 
 optimizerMaxCombosFromEnv :: IO Int
 optimizerMaxCombosFromEnv = do
@@ -6452,9 +6468,12 @@ runMergeTopCombos projectRoot topJsonPath recordsPath maxItems = do
     Left e -> pure (Left ("Failed to create top combos directory: " ++ show e, "", ""))
     Right _ -> do
       s3TempPath <- writeS3TopCombosTemp topJsonPath
+      historyDir <- resolveOptimizerCombosHistoryDir topJsonPath
       let scriptPath = projectRoot </> "scripts" </> "merge_top_combos.py"
           baseArgs = [scriptPath, "--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)]
-          args = baseArgs ++ maybe [] (\p -> ["--from-top-json", p]) s3TempPath
+          s3Args = maybe [] (\p -> ["--from-top-json", p]) s3TempPath
+          historyArgs = maybe [] (\dir -> ["--history-dir", dir]) historyDir
+          args = baseArgs ++ s3Args ++ historyArgs
           proc' = (proc "python3" args) {cwd = Just projectRoot}
           cleanup = maybe (pure ()) removeTempTopCombo s3TempPath
       (exitCode, out, err) <- readCreateProcessWithExitCode proc' "" `finally` cleanup
@@ -6567,7 +6586,19 @@ persistTopCombosMaybe path = do
         Left _ -> pure ()
         Right contents -> do
           _ <- s3PutObject st (s3TopCombosKey st) contents
+          persistTopCombosHistoryMaybe path st contents
           pure ()
+
+persistTopCombosHistoryMaybe :: FilePath -> S3State -> BL.ByteString -> IO ()
+persistTopCombosHistoryMaybe topJsonPath st contents = do
+  historyDir <- resolveOptimizerCombosHistoryDir topJsonPath
+  case historyDir of
+    Nothing -> pure ()
+    Just _ -> do
+      ts <- getTimestampMs
+      let key = s3TopCombosHistoryKey st ts
+      _ <- s3PutObject st key contents
+      pure ()
 
 topComboParamString :: String -> TopCombo -> Maybe String
 topComboParamString key combo =

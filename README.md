@@ -400,8 +400,9 @@ Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 Optional optimizer combo persistence (keeps `/optimizer/combos` data across restarts/deploys):
 - Set `TRADER_OPTIMIZER_COMBOS_DIR` to a writable directory (writes `top-combos.json`)
 - When unset, defaults to `TRADER_STATE_DIR/optimizer` (if set) or `.tmp/optimizer` (local only).
-- `TRADER_OPTIMIZER_MAX_COMBOS` (default: `50`) caps the merged combo list size
-- When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained.
+- `TRADER_OPTIMIZER_MAX_COMBOS` (default: `200`) caps the merged combo list size
+- `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
+- When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained, and history snapshots are written under `optimizer/history/`.
 
 Async-job persistence (default on; recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
 - Default directory: `TRADER_STATE_DIR/async` (if set) or `.tmp/async` (local only). Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it), or set it empty to disable.
@@ -519,7 +520,7 @@ Hover optimizer combos to inspect the operations captured for each top performer
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
 Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.
 The configuration panel keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
-When the UI is served via CloudFront with a `/api/*` behavior, set `apiBaseUrl` to `/api` to avoid CORS issues. The quick AWS deploy script now creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
+When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must be `/api` to avoid CORS issues (the quick AWS deploy script enforces this when a distribution ID is provided). The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
 The UI auto-applies top combos when available and shows when a combo auto-applied; if the live bot is idle it auto-starts after the top combo applies, and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
@@ -552,7 +553,7 @@ Timeouts:
 - Frontend (dev proxy): set `TRADER_UI_PROXY_TIMEOUT_MS` to increase the Vite `/api` proxy timeout.
 
 Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors.
-If live bot start/status returns 502/503/504, verify the `/api/*` proxy target or set `apiBaseUrl` to your backend host.
+If live bot start/status returns 502/503/504, verify the `/api/*` proxy target (CloudFront setups should keep `apiBaseUrl` at `/api` rather than switching to a cross-origin host).
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
