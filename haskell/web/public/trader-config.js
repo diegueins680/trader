@@ -4,8 +4,10 @@
 //
 // Example:
 // globalThis.__TRADER_CONFIG__ = {
-//   // Use "/api" when CloudFront proxies /api/* to your API origin.
-//   // Use "https://your-api-host" for direct API calls.
+//   // Use "/api" when CloudFront proxies /api/* to your API origin (deploy-aws-quick.sh enforces /api when a
+//   // distribution ID is provided). CloudFront is non-sticky, so keep the backend single-instance unless you
+//   // configure shared async storage (TRADER_API_ASYNC_DIR or TRADER_STATE_DIR).
+//   // Use "https://your-api-host" for direct API calls when you are not proxying via /api.
 //   apiBaseUrl: "/api",
 //   apiToken: "TRADER_API_TOKEN",
 //   timeoutsMs: {

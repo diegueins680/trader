@@ -7,6 +7,7 @@
 #
 # Optional: also deploy the web UI (S3 + optional CloudFront invalidation):
 #   bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" --ui-bucket "$S3_BUCKET" --distribution-id "$CF_ID"
+#   - When --distribution-id is set, the UI config apiBaseUrl is forced to /api (to avoid CORS).
 #
 # Notes:
 #   - If region is omitted, uses AWS_REGION/AWS_DEFAULT_REGION/aws-cli config, then ap-northeast-1.
@@ -76,8 +77,8 @@ Flags:
   --api-only                         Deploy API only
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
-  --distribution-id <id>            CloudFront distribution ID (optional)
-  --api-url <url>                   API base URL for UI config (UI-only; otherwise auto from App Runner)
+  --distribution-id <id>            CloudFront distribution ID (optional; forces UI apiBaseUrl to /api)
+  --api-url <url>                   API origin URL for UI-only deploys (also configures CloudFront /api/* behavior)
   --service-arn <arn>               App Runner service ARN to auto-discover API URL/token (UI-only convenience)
   --skip-ui-build                   Skip `npm run build` (uses existing dist dir)
   --ui-dist-dir <dir>               UI dist dir (default: haskell/web/dist)
@@ -1048,11 +1049,15 @@ main() {
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
       ensure_cloudfront_api_behavior "$UI_DISTRIBUTION_ID" "$api_url"
     fi
-    ui_api_url="$api_url"
-    if [[ -n "${ui_api_url_override:-}" ]]; then
-      ui_api_url="$ui_api_url_override"
-    elif [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+    if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+      if [[ -n "${ui_api_url_override:-}" && "${ui_api_url_override}" != "/api" ]]; then
+        echo -e "${YELLOW}Warning: --api-url override is ignored when --distribution-id is set (UI apiBaseUrl is forced to /api).${NC}" >&2
+      fi
       ui_api_url="/api"
+    elif [[ -n "${ui_api_url_override:-}" ]]; then
+      ui_api_url="$ui_api_url_override"
+    else
+      ui_api_url="$api_url"
     fi
     deploy_ui "$ui_api_url" "$api_token"
   fi

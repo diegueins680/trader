@@ -136,6 +136,10 @@ bash deploy-aws-quick.sh --ui-only \
   --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID"
 ```
 
+Notes:
+- When `--distribution-id` is set, the script forces `apiBaseUrl` to `/api` in `trader-config.js`; `--api-url` is used to configure the CloudFront `/api/*` origin.
+- CloudFront is non-sticky. Keep App Runner min=1/max=1 unless you have shared async job storage (`TRADER_API_ASYNC_DIR` or `TRADER_STATE_DIR`).
+
 ### Option B: Manual deploy (S3 website hosting)
 
 ```bash
@@ -147,7 +151,8 @@ TRADER_API_TARGET="${API_URL}" npm run build
 # Configure deploy-time API settings (edit this file before uploading to S3)
 cat > dist/trader-config.js <<EOF
 globalThis.__TRADER_CONFIG__ = {
-  apiBaseUrl: "${API_URL}",
+  // Use "/api" if CloudFront proxies /api/* to your API origin.
+  apiBaseUrl: "/api",
   apiToken: "${TRADER_API_TOKEN}",
 };
 EOF
@@ -182,6 +187,8 @@ aws s3api put-bucket-policy --bucket "$S3_BUCKET" --policy '{
 
 echo "UI: http://${S3_BUCKET}.s3-website-ap-northeast-1.amazonaws.com"
 ```
+
+If you are not using a CloudFront `/api/*` proxy, set `apiBaseUrl` to `${API_URL}` instead.
 
 ---
 

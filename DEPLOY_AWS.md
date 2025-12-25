@@ -325,12 +325,14 @@ The UI can discover the API in two ways:
 
 **Option A: CloudFront `/api/*` proxy (recommended)**
 - Configure CloudFront to forward `/api/*` to your API origin (App Runner/ALB/etc)
-- The UI will use `/api` by default (no extra UI config needed)
+- The UI must use `/api` (no extra UI config needed); `deploy-aws-quick.sh` forces this when a distribution ID is provided
 
 **Option B: Deploy-time config file**
 - Edit `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build) before uploading to S3:
-  - `apiBaseUrl`: `https://<your-api-host>` (or `/api`)
+  - `apiBaseUrl`: `/api` when CloudFront proxies `/api/*`, otherwise `https://<your-api-host>`
   - `apiToken`: the same value as backend `TRADER_API_TOKEN` (optional)
+
+CloudFront is non-sticky. If you run multiple backend instances, either keep it single-instance or ensure `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) points to a shared writable directory so async job polling works across instances.
 
 ---
 
