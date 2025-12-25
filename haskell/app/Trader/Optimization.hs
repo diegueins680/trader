@@ -438,7 +438,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                             kalF = V.slice t0 steps kalUsedV
                             lstmF = V.slice t0 steps lstmUsedV
                             metaF = fmap (\mv -> V.slice t0 steps mv) metaUsed
-                            btFold = simulateEnsembleVWithHL btCfg 1 pricesF highsF lowsF kalF lstmF metaF
+                            openTimesF = fmap (\ot -> V.slice t0 (steps + 1) ot) (ecOpenTimes btCfg)
+                            btCfgFold = btCfg { ecOpenTimes = openTimesF }
+                            btFold = simulateEnsembleVWithHL btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
                          in scoreBacktest cfg btFold
                       | (t0, t1) <- foldRs
                       , t1 >= t0

@@ -248,13 +248,14 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--vol-floor F` annualized vol floor for sizing (default: `0.1`)
     - `--vol-scale-max F` cap volatility scaling (limits leverage)
     - `--max-volatility F` block entries when annualized vol exceeds this (`0` disables; default: `2.0`)
-  - Entries that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
+  - Entries and latest-signal actions that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
   - `--kalman-z-min 0.5` minimum Kalman |mean|/std required to treat Kalman as directional (`0` disables)
   - `--kalman-z-max 3` Z-score mapped to full position size when confidence sizing is enabled
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
   - `--min-position-size 0.1` minimum entry size when confidence sizing is enabled (`0..1`)
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
+    - Backtests reset daily-loss using bar timestamps when available (exchange data or CSV time columns); otherwise they fall back to interval-based day keys.
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
   - Risk halts are evaluated on post-bar equity and can close open positions at the bar close.
   - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as the exit reason.
@@ -272,6 +273,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
     - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match with non-neutral directions.
     - Latest signal output includes `closeDirection` to indicate the close-threshold direction (when available).
+    - When confidence gating is enabled, `closeDirection` respects the gated Kalman direction (matching backtests).
 
 Tests
 -----

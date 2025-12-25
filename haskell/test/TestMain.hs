@@ -139,6 +139,7 @@ baseEnsembleConfig =
     , ecMaxDrawdown = Nothing
     , ecMaxDailyLoss = Nothing
     , ecIntervalSeconds = Nothing
+    , ecOpenTimes = Nothing
     , ecPositioning = LongFlat
     , ecIntrabarFill = StopFirst
     , ecMaxPositionSize = 1

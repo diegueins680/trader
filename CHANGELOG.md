@@ -44,8 +44,9 @@ All notable changes to this project will be documented in this file.
 - Backtests: risk halts now evaluate post-bar equity and can close positions at the bar close.
 - Backtests: `agreementOk` now counts open-direction agreement only when both models emit a direction.
 - Backtests: error when lookback bars are not less than the total bar count (prevents silent no-trade runs).
-- Trading: daily-loss halts reset at UTC day boundaries.
+- Trading: daily-loss halts reset at UTC day boundaries when bar timestamps are available (exchange/CSV timestamps; otherwise interval-based).
 - Trading: entries gated by `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` now wait for a volatility estimate.
+- Trading: latest signals now apply the same volatility gating and Kalman close-direction confidence gating as backtests.
 - Backtests: `--backtest-ratio` now errors if the split leaves too few training/backtest bars (no silent clamping).
 - Live bot: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` exit reasons even if a signal exit coincides.
 - Kalman market context now honors small `--kalman-market-top-n` values when enough symbols are available.

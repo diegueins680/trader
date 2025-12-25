@@ -21,6 +21,7 @@ module Trader.Trading
 
 import Data.Aeson (FromJSON(..), ToJSON(..), withText)
 import qualified Data.Aeson as Aeson
+import Data.Int (Int64)
 import Data.List (foldl')
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -48,6 +49,7 @@ data EnsembleConfig = EnsembleConfig
   , ecMaxDrawdown :: !(Maybe Double)   -- fraction, e.g. 0.2 (20%); halts and exits to flat
   , ecMaxDailyLoss :: !(Maybe Double)  -- fraction, e.g. 0.05 (5%); halts and exits to flat
   , ecIntervalSeconds :: !(Maybe Int)  -- required for daily-loss; inferred from CLI interval
+  , ecOpenTimes :: !(Maybe (V.Vector Int64)) -- optional bar open times (ms since epoch) for daily-loss day keys
   , ecPositioning :: !Positioning
   , ecIntrabarFill :: !IntrabarFill
   , ecMaxPositionSize :: !Double       -- 0..N, caps position sizing (1=full)
@@ -328,11 +330,17 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                   _ -> Nothing
               dayKeyAt :: Int -> Int
               dayKeyAt i =
-                case intervalSeconds of
-                  Nothing -> 0
-                  Just sec ->
-                    let tSec = fromIntegral i * fromIntegral sec :: Integer
-                     in fromIntegral (tSec `div` 86400)
+                case ecOpenTimes cfg of
+                  Just tsV
+                    | i >= 0 && i < V.length tsV ->
+                        let dayMs = 86400000 :: Int64
+                         in fromIntegral ((tsV V.! i) `div` dayMs)
+                  _ ->
+                    case intervalSeconds of
+                      Nothing -> 0
+                      Just sec ->
+                        let tSec = fromIntegral i * fromIntegral sec :: Integer
+                         in fromIntegral (tSec `div` 86400)
               direction thr prev pred =
                 let upEdge = prev * (1 + thr)
                     downEdge = prev * (1 - thr)
@@ -358,8 +366,11 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                     if lookback >= n
                       then error "lookback must be less than number of prices"
                       else
-                        if maybe False (\mv -> V.length mv < stepCount) mMetaV
-                          then error "meta vector too short for simulateEnsembleLongFlatVWithHL"
+                    if maybe False (\mv -> V.length mv < stepCount) mMetaV
+                      then error "meta vector too short for simulateEnsembleLongFlatVWithHL"
+                      else
+                        if maybe False (\ts -> V.length ts /= n) (ecOpenTimes cfg)
+                          then error "openTimes vector must match closes length"
                           else
                             if V.length kalPredNextV < kalNeed
                               then
