@@ -478,6 +478,9 @@ data BacktestSummary = BacktestSummary
   , bsVolFloor :: !Double
   , bsVolScaleMax :: !Double
   , bsMaxVolatility :: !(Maybe Double)
+  , bsRebalanceBars :: !Int
+  , bsRebalanceThreshold :: !Double
+  , bsFundingRate :: !Double
   , bsBlendWeight :: !Double
   , bsFee :: !Double
   , bsSlippage :: !Double
@@ -654,6 +657,9 @@ data ApiParams = ApiParams
   , apVolFloor :: Maybe Double
   , apVolScaleMax :: Maybe Double
   , apMaxVolatility :: Maybe Double
+  , apRebalanceBars :: Maybe Int
+  , apRebalanceThreshold :: Maybe Double
+  , apFundingRate :: Maybe Double
   , apBlendWeight :: Maybe Double
   , apMaxOrderErrors :: Maybe Int
   , apPeriodsPerYear :: Maybe Double
@@ -1510,6 +1516,9 @@ argsPublicJson args =
       , "volFloor" .= argVolFloor args
       , "volScaleMax" .= argVolScaleMax args
       , "maxVolatility" .= argMaxVolatility args
+      , "rebalanceBars" .= argRebalanceBars args
+      , "rebalanceThreshold" .= argRebalanceThreshold args
+      , "fundingRate" .= argFundingRate args
       , "blendWeight" .= argBlendWeight args
       , "tuneStressVolMult" .= argTuneStressVolMult args
       , "tuneStressShock" .= argTuneStressShock args
@@ -2367,6 +2376,13 @@ openOrdersRequireShort market orders =
                 Just Sell -> True
                 _ -> False
 
+positionRequiresLongShort :: FuturesPositionRisk -> Bool
+positionRequiresLongShort pos =
+  case fmap normalizeKey (fprPositionSide pos) of
+    Just "short" -> True
+    Just "long" -> False
+    _ -> accountPosSign (fprPositionAmt pos) < 0
+
 argsCompatibleWithAdoption :: Args -> AdoptRequirement -> Bool
 argsCompatibleWithAdoption args req
   | not (arActive req) = True
@@ -2423,6 +2439,50 @@ applyLatestTopCombo optimizerTmp limits sym args req = do
               case applyTopComboForStart args combo of
                 Left _ -> pure args
                 Right args' -> pure args'
+
+resolveOrphanOpenPositionSymbols :: ApiComputeLimits -> FilePath -> Args -> [String] -> IO [String]
+resolveOrphanOpenPositionSymbols limits optimizerTmp args requested =
+  if not (platformSupportsLiveBot (argPlatform args)) || argBinanceMarket args /= MarketFutures
+    then pure []
+    else do
+      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+      combosOrErr <- readTopCombosExport topJsonPath
+      case combosOrErr of
+        Left _ -> pure []
+        Right export -> do
+          positionsOrErr <-
+            ( try $ do
+                env <- makeBinanceEnv args
+                ensureBinanceKeysPresent env
+                fetchFuturesPositionRisks env
+            ) ::
+              IO (Either SomeException [FuturesPositionRisk])
+          case positionsOrErr of
+            Left _ -> pure []
+            Right positions -> do
+              let openPositions = filter (\p -> accountPosSign (fprPositionAmt p) /= 0) positions
+                  requestedNorm = map normalizeSymbol requested
+                  isRequested sym = normalizeSymbol sym `elem` requestedNorm
+                  openBySymbol =
+                    foldl'
+                      ( \acc pos ->
+                          let sym = normalizeSymbol (fprSymbol pos)
+                              requiresShort = positionRequiresLongShort pos
+                           in HM.insertWith (||) sym requiresShort acc
+                      )
+                      HM.empty
+                      openPositions
+                  hasCombo sym requiresShort =
+                    let adoptReq = AdoptRequirement True requiresShort
+                        argsSym = args { argBinanceSymbol = Just sym }
+                     in isJust (selectCompatibleTopComboArgs limits sym argsSym adoptReq export)
+                  orphans =
+                    [ sym
+                    | (sym, requiresShort) <- HM.toList openBySymbol
+                    , not (isRequested sym)
+                    , hasCombo sym requiresShort
+                    ]
+              pure (dedupeStable orphans)
 
 resolveAdoptionRequirement :: Args -> String -> IO (Either String AdoptRequirement)
 resolveAdoptionRequirement args sym = do
@@ -3078,6 +3138,9 @@ botOptimizeAfterOperation st = do
                   , ecVolFloor = argVolFloor args
                   , ecVolScaleMax = argVolScaleMax args
                   , ecMaxVolatility = argMaxVolatility args
+                  , ecRebalanceBars = argRebalanceBars args
+                  , ecRebalanceThreshold = argRebalanceThreshold args
+                  , ecFundingRate = argFundingRate args
                   , ecBlendWeight = argBlendWeight args
                   , ecKalmanZMin = argKalmanZMin args
                   , ecKalmanZMax = argKalmanZMax args
@@ -3391,6 +3454,10 @@ parseTopComboToArgs base combo = do
           Nothing -> Nothing
           Just v -> if v <= 0 then Nothing else Just v
 
+      rebalanceBars = max 0 (pickI "rebalanceBars" (argRebalanceBars base))
+      rebalanceThreshold = max 0 (pickD "rebalanceThreshold" (argRebalanceThreshold base))
+      fundingRate = pickD "fundingRate" (argFundingRate base)
+
       blendWeight = clamp01 (pickD "blendWeight" (argBlendWeight base))
       periodsPerYear =
         case pickMaybeMaybeDbl "periodsPerYear" (argPeriodsPerYear base) of
@@ -3440,6 +3507,9 @@ parseTopComboToArgs base combo = do
           , argVolFloor = volFloor
           , argVolScaleMax = volScaleMax
           , argMaxVolatility = maxVolatility
+          , argRebalanceBars = rebalanceBars
+          , argRebalanceThreshold = rebalanceThreshold
+          , argFundingRate = fundingRate
           , argBlendWeight = blendWeight
           , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
           , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
@@ -4940,6 +5010,9 @@ argsCacheJsonSignal args =
       , "volFloor" .= argVolFloor args
       , "volScaleMax" .= argVolScaleMax args
       , "maxVolatility" .= argMaxVolatility args
+      , "rebalanceBars" .= argRebalanceBars args
+      , "rebalanceThreshold" .= argRebalanceThreshold args
+      , "fundingRate" .= argFundingRate args
       , "blendWeight" .= argBlendWeight args
       , "kalmanZMin" .= argKalmanZMin args
       , "kalmanZMax" .= argKalmanZMax args
@@ -5025,6 +5098,9 @@ argsCacheJsonBacktest args =
       , "volFloor" .= argVolFloor args
       , "volScaleMax" .= argVolScaleMax args
       , "maxVolatility" .= argMaxVolatility args
+      , "rebalanceBars" .= argRebalanceBars args
+      , "rebalanceThreshold" .= argRebalanceThreshold args
+      , "fundingRate" .= argFundingRate args
       , "blendWeight" .= argBlendWeight args
       , "maxOrderErrors" .= argMaxOrderErrors args
       , "periodsPerYear" .= argPeriodsPerYear args
@@ -7504,15 +7580,31 @@ handleBotStart reqLimits mOps limits metrics mJournal mWebhook mBotStateDir opti
         Left e -> respond (jsonError status400 e)
         Right args0 -> do
           let argsBase = args0 { argTradeOnly = True }
+              tradeEnabled = maybe False id (apBotTrade params)
           symbolsOrErr <- resolveBotSymbols argsBase params
-          case symbolsOrErr of
-            Left e -> respond (jsonError status400 e)
-            Right symbols -> do
-              let allowExisting = length symbols > 1
-                  tradeEnabled = maybe False id (apBotTrade params)
+          let requestedSymbols =
+                case symbolsOrErr of
+                  Left _ -> []
+                  Right syms -> syms
+          orphanSymbols <-
+            if tradeEnabled && platformSupportsLiveBot (argPlatform argsBase)
+              then resolveOrphanOpenPositionSymbols limits optimizerTmp argsBase requestedSymbols
+              else pure []
+          let symbols = dedupeStable (requestedSymbols ++ orphanSymbols)
+              errorMsg =
+                case symbolsOrErr of
+                  Left e -> e
+                  Right _ -> "bot/start requires binanceSymbol or botSymbols"
+          if null symbols
+            then respond (jsonError status400 errorMsg)
+            else do
+              let allowExistingBase = length requestedSymbols > 1
+                  orphanNorm = map normalizeSymbol orphanSymbols
+                  allowExistingFor sym = allowExistingBase || normalizeSymbol sym `elem` orphanNorm
                   noAdoptRequirement = AdoptRequirement False False
               results <- forM symbols $ \sym -> do
                 let argsSym = argsBase { argBinanceSymbol = Just sym }
+                    allowExisting = allowExistingFor sym
                 adoptReqOrErr <-
                   if tradeEnabled && platformSupportsLiveBot (argPlatform argsSym)
                     then resolveAdoptionRequirement argsSym sym
@@ -7848,6 +7940,9 @@ argsFromApi baseArgs p = do
           , argVolFloor = pick (apVolFloor p) (argVolFloor baseArgs)
           , argVolScaleMax = pick (apVolScaleMax p) (argVolScaleMax baseArgs)
           , argMaxVolatility = pickMaybe (apMaxVolatility p) (argMaxVolatility baseArgs)
+          , argRebalanceBars = pick (apRebalanceBars p) (argRebalanceBars baseArgs)
+          , argRebalanceThreshold = pick (apRebalanceThreshold p) (argRebalanceThreshold baseArgs)
+          , argFundingRate = pick (apFundingRate p) (argFundingRate baseArgs)
           , argBlendWeight = pick (apBlendWeight p) (argBlendWeight baseArgs)
           , argMaxOrderErrors = pickMaybe (apMaxOrderErrors p) (argMaxOrderErrors baseArgs)
           , argPeriodsPerYear =
@@ -9030,6 +9125,9 @@ backtestSummaryJson summary =
     , "volFloor" .= bsVolFloor summary
     , "volScaleMax" .= bsVolScaleMax summary
     , "maxVolatility" .= bsMaxVolatility summary
+    , "rebalanceBars" .= bsRebalanceBars summary
+    , "rebalanceThreshold" .= bsRebalanceThreshold summary
+    , "fundingRate" .= bsFundingRate summary
     , "blendWeight" .= bsBlendWeight summary
     , "tuning" .= tuningJson
     , "costs" .= costsJson
@@ -9693,6 +9791,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecVolFloor = argVolFloor args
           , ecVolScaleMax = argVolScaleMax args
           , ecMaxVolatility = argMaxVolatility args
+          , ecRebalanceBars = argRebalanceBars args
+          , ecRebalanceThreshold = argRebalanceThreshold args
+          , ecFundingRate = argFundingRate args
           , ecBlendWeight = argBlendWeight args
           , ecKalmanZMin = argKalmanZMin args
           , ecKalmanZMax = argKalmanZMax args
@@ -9906,6 +10007,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsVolFloor = argVolFloor args
       , bsVolScaleMax = argVolScaleMax args
       , bsMaxVolatility = argMaxVolatility args
+      , bsRebalanceBars = argRebalanceBars args
+      , bsRebalanceThreshold = argRebalanceThreshold args
+      , bsFundingRate = argFundingRate args
       , bsBlendWeight = argBlendWeight args
       , bsFee = feeUsed
       , bsSlippage = slippageUsed
@@ -10335,7 +10439,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                                     Nothing -> 0
                                     Just _ -> 1
                             (dirUsed, mWhy) = gateKalmanDir openThr kalZ mReg mI mQ confScore dirRaw
-                            (closeDirUsed, _) = gateKalmanDir openThr kalZ mReg mI mQ confScore closeDirRaw
+                            (closeDirUsed, _) = gateKalmanDir closeThr kalZ mReg mI mQ confScore closeDirRaw
                             sizeUsed =
                               case dirUsed of
                                 Nothing -> 0
@@ -10403,6 +10507,25 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                   blendDir = blendNext >>= directionPrice openThr
                   lstmCloseDir = mLstmNext >>= directionPrice closeThr
                   blendCloseDir = blendNext >>= directionPrice closeThr
+                  (blendDirGated, blendCloseDirGated, blendPosSize, blendGateReason) =
+                    case (method, mKalZ, mConfidence) of
+                      (MethodBlend, Just kalZ, Just confScore) ->
+                        let sizeRaw =
+                              if argConfidenceSizing args
+                                then confScore
+                                else if blendDir == Nothing then 0 else 1
+                            (dirUsed, mWhy) =
+                              gateKalmanDir openThr kalZ mRegimes mConformal mQuantiles confScore blendDir
+                            (closeDirUsed, _) =
+                              gateKalmanDir closeThr kalZ mRegimes mConformal mQuantiles confScore blendCloseDir
+                            sizeUsed =
+                              case dirUsed of
+                                Nothing -> 0
+                                Just _ ->
+                                  let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                   in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                      _ -> (Nothing, Nothing, Nothing, Nothing)
                   closeDir =
                     case method of
                       MethodBoth ->
@@ -10411,7 +10534,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                           else Nothing
                       MethodKalmanOnly -> kalCloseDir
                       MethodLstmOnly -> lstmCloseDir
-                      MethodBlend -> blendCloseDir
+                      MethodBlend -> blendCloseDirGated
 
                   agreeDir =
                     if kalDir == lstmDir
@@ -10444,7 +10567,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                         case method of
                           MethodLstmOnly -> chosenDir1
                           _ ->
-                            case mPosSize of
+                            case tradePosSize of
                               Just sz | sz <= 0 -> Nothing
                               _ -> chosenDir1
 
@@ -10455,7 +10578,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                           Nothing -> 0
                           Just _ -> 1
                       _ ->
-                        case (chosenDir2, mPosSize) of
+                        case (chosenDir2, tradePosSize) of
                           (Just _, Just sz) -> sz
                           _ -> 0
 
@@ -10474,7 +10597,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                           then (Nothing, Just "MIN_SIZE")
                           else (chosenDir2, Nothing)
 
-                  gateReasonFinal = mPostGateReason <|> mSizeGateReason <|> mGateReason
+                  gateReasonFinal = mPostGateReason <|> mSizeGateReason <|> gateReasonForMethod
 
                   action =
                     let downAction =
@@ -10522,6 +10645,14 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                               Just why -> "HOLD (" ++ why ++ ")"
                               Nothing -> "HOLD (blend neutral)"
                   posSizeFinal = Just sizeFinal0
+                  tradePosSize =
+                    case method of
+                      MethodBlend -> blendPosSize
+                      _ -> mPosSize
+                  gateReasonForMethod =
+                    case method of
+                      MethodBlend -> blendGateReason
+                      _ -> mGateReason
                in LatestSignal
                     { lsMethod = method
                     , lsCurrentPrice = currentPrice

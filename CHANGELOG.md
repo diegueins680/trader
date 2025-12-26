@@ -8,10 +8,12 @@ All notable changes to this project will be documented in this file.
 - Live bot: auto-syncs to the latest top combo (poll interval `TRADER_BOT_COMBOS_POLL_SEC`) and applies it while running.
 - Live bot: always adopts existing positions on startup (`botAdoptExistingPosition` is now implicit).
 - Live bot: startup waits for the top combo compatible with adopted positions or open orders before running.
+- Live bot: `/bot/start` auto-adopts orphan open futures positions when a matching top combo exists.
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
 - API: add `/binance/positions` for open Binance futures positions plus chart-ready klines.
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
 - Web UI: add an open positions panel with charts for every Binance futures position.
+- Web UI: auto-load open positions charts on page load and interval/market changes.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
@@ -48,7 +50,9 @@ All notable changes to this project will be documented in this file.
 - Backtests: error when lookback bars are not less than the total bar count (prevents silent no-trade runs).
 - Trading: daily-loss halts reset at UTC day boundaries when bar timestamps are available (exchange/CSV timestamps; otherwise interval-based).
 - Trading: entries gated by `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` now wait for a volatility estimate.
-- Trading: latest signals now apply the same volatility gating and Kalman close-direction confidence gating as backtests.
+- Trading: latest signals now apply the same volatility gating and confidence close-direction gating (including blend) as backtests.
+- Trading: conformal/quantile confirmations use the close threshold when gating close signals.
+- Backtests: add volatility-targeted rebalancing (`--rebalance-bars`, `--rebalance-threshold`) and optional funding/borrow drag (`--funding-rate`).
 - Backtests: `--backtest-ratio` now errors if the split leaves too few training/backtest bars (no silent clamping).
 - Live bot: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` exit reasons even if a signal exit coincides.
 - Kalman market context now honors small `--kalman-market-top-n` values when enough symbols are available.

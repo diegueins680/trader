@@ -248,11 +248,15 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--vol-floor F` annualized vol floor for sizing (default: `0.1`)
     - `--vol-scale-max F` cap volatility scaling (limits leverage)
     - `--max-volatility F` block entries when annualized vol exceeds this (`0` disables; default: `2.0`)
+  - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables; backtests only)
+  - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables)
+  - `--funding-rate F` optional: annualized funding/borrow rate applied per bar in backtests (`0` disables; negative allowed)
   - Entries and latest-signal actions that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
   - `--kalman-z-min 0.5` minimum Kalman |mean|/std required to treat Kalman as directional (`0` disables)
   - `--kalman-z-max 3` Z-score mapped to full position size when confidence sizing is enabled
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
   - `--min-position-size 0.1` minimum entry size when confidence sizing is enabled (`0..1`)
+  - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
     - Backtests reset daily-loss using bar timestamps when available (exchange data or CSV time columns); otherwise they fall back to interval-based day keys.
@@ -273,7 +277,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
     - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match with non-neutral directions.
     - Latest signal output includes `closeDirection` to indicate the close-threshold direction (when available).
-    - When confidence gating is enabled, `closeDirection` respects the gated Kalman direction (matching backtests).
+    - When confidence gating is enabled, `closeDirection` respects the gated signal direction (matching backtests).
 
 Tests
 -----
@@ -470,6 +474,7 @@ Multi-symbol notes:
 
 Live safety (startup position):
 - When `botTrade=true`, `/bot/start` adopts any existing position or open exchange orders for the symbol (long or short, subject to positioning).
+- When `botTrade=true`, `/bot/start` also auto-starts bots for orphan open futures positions that have a matching top combo in `top-combos.json` (even if not listed in `botSymbols`).
 - `botAdoptExistingPosition` is now implied and ignored if provided.
 - If an existing position or open orders are detected, `/bot/start` waits for a top combo compatible with that operation before starting (e.g., shorts require `positioning=long-short`).
 
@@ -512,7 +517,7 @@ Manual edits to Method/open/close thresholds are preserved when optimizer combos
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
-The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions`.
+The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load and when interval/market changes).
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 Loading a profile clears manual override locks so combos can apply again.

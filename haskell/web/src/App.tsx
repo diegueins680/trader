@@ -892,6 +892,7 @@ export function App() {
     response: null,
   });
   const [binancePositionsBars, setBinancePositionsBars] = useState(200);
+  const binancePositionsAutoKeyRef = useRef<string | null>(null);
 
   const [botRt, setBotRt] = useState<BotRtUiState>({
     lastFetchAtMs: null,
@@ -2924,6 +2925,25 @@ export function App() {
     for (const chart of charts) map.set(chart.symbol, chart);
     return map;
   }, [binancePositionsUi.response?.charts]);
+
+  useEffect(() => {
+    if (apiOk !== "ok") return;
+    if (binancePositionsInputError) return;
+    const interval = form.interval.trim();
+    if (!interval) return;
+    const key = `${form.market}:${form.binanceTestnet ? "t" : "f"}:${interval}:${binancePositionsLimitSafe}`;
+    if (binancePositionsAutoKeyRef.current === key) return;
+    binancePositionsAutoKeyRef.current = key;
+    void fetchBinancePositions();
+  }, [
+    apiOk,
+    binancePositionsInputError,
+    binancePositionsLimitSafe,
+    fetchBinancePositions,
+    form.binanceTestnet,
+    form.interval,
+    form.market,
+  ]);
 
   useEffect(() => {
     if (apiOk !== "ok") return;
