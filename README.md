@@ -367,7 +367,7 @@ State directory (recommended for persistence across deployments):
 - Per-feature `TRADER_*_DIR` variables override the state directory; set any of them to an empty string to disable that feature.
 - Docker image default: `TRADER_STATE_DIR=/var/lib/trader/state` (mount `/var/lib/trader` to durable storage to keep state across redeploys).
 - For App Runner (no EFS support), use S3 persistence via `TRADER_STATE_S3_BUCKET` and keep `TRADER_STATE_DIR` for local-only state if desired.
-- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`.
+- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values.
 
 S3 state (recommended for App Runner):
 - Set `TRADER_STATE_S3_BUCKET` (optional `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`) to persist bot snapshots + optimizer top-combos in S3.

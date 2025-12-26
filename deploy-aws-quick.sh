@@ -518,6 +518,74 @@ create_app_runner() {
     fi
   fi
 
+  if [[ -n "$existing_service_arn" ]]; then
+    if [[ -z "${APP_RUNNER_INSTANCE_ROLE_ARN:-}" ]]; then
+      local existing_instance_role=""
+      existing_instance_role="$(
+        aws apprunner describe-service \
+          --service-arn "$existing_service_arn" \
+          --region "$AWS_REGION" \
+          --query 'Service.InstanceConfiguration.InstanceRoleArn' \
+          --output text 2>/dev/null || true
+      )"
+      if [[ "$existing_instance_role" == "None" ]]; then
+        existing_instance_role=""
+      fi
+      if [[ -n "$existing_instance_role" ]]; then
+        APP_RUNNER_INSTANCE_ROLE_ARN="$existing_instance_role"
+        echo -e "${YELLOW}✓ Reusing existing App Runner instance role${NC}" >&2
+      fi
+    fi
+
+    if [[ -z "${TRADER_STATE_S3_BUCKET:-}" ]]; then
+      local existing_bucket=""
+      existing_bucket="$(
+        aws apprunner describe-service \
+          --service-arn "$existing_service_arn" \
+          --region "$AWS_REGION" \
+          --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_STATE_S3_BUCKET' \
+          --output text 2>/dev/null || true
+      )"
+      if [[ "$existing_bucket" == "None" ]]; then
+        existing_bucket=""
+      fi
+      if [[ -n "$existing_bucket" ]]; then
+        TRADER_STATE_S3_BUCKET="$existing_bucket"
+        echo -e "${YELLOW}✓ Reusing existing TRADER_STATE_S3_BUCKET from service${NC}" >&2
+      fi
+
+      local existing_prefix=""
+      existing_prefix="$(
+        aws apprunner describe-service \
+          --service-arn "$existing_service_arn" \
+          --region "$AWS_REGION" \
+          --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_STATE_S3_PREFIX' \
+          --output text 2>/dev/null || true
+      )"
+      if [[ "$existing_prefix" == "None" ]]; then
+        existing_prefix=""
+      fi
+      if [[ -n "$existing_prefix" ]]; then
+        TRADER_STATE_S3_PREFIX="$existing_prefix"
+      fi
+
+      local existing_region=""
+      existing_region="$(
+        aws apprunner describe-service \
+          --service-arn "$existing_service_arn" \
+          --region "$AWS_REGION" \
+          --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_STATE_S3_REGION' \
+          --output text 2>/dev/null || true
+      )"
+      if [[ "$existing_region" == "None" ]]; then
+        existing_region=""
+      fi
+      if [[ -n "$existing_region" ]]; then
+        TRADER_STATE_S3_REGION="$existing_region"
+      fi
+    fi
+  fi
+
   echo "Ensuring App Runner ECR access role..." >&2
   local access_role_arn=""
   access_role_arn="$(ensure_apprunner_ecr_access_role)"

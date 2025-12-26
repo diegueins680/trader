@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
+- Deploy: quick AWS deploy reuses existing App Runner S3 state settings + instance role when updating a service unless new values are provided.
 - Deploy: quick AWS deploy now exports `TRADER_API_MAX_HIDDEN_SIZE` (defaults to 50) for larger LSTM models.
 - Deploy: quick AWS deploy auto-configures CloudFront `/api/*` behavior to route to the API and disable caching.
 - Deploy/UI: quick AWS deploy now forces UI `apiBaseUrl` to `/api` when CloudFront is configured and docs call out the single-instance requirement behind non-sticky proxies.
