@@ -58,6 +58,9 @@ export type OptimizationComboParams = {
   volFloor?: number | null;
   volScaleMax?: number | null;
   maxVolatility?: number | null;
+  rebalanceBars?: number | null;
+  rebalanceThreshold?: number | null;
+  fundingRate?: number | null;
   periodsPerYear?: number | null;
   walkForwardFolds?: number | null;
   tuneStressVolMult?: number | null;

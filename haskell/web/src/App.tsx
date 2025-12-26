@@ -527,6 +527,12 @@ function applyComboToForm(
   const volFloor = Math.max(0, coerceNumber(combo.params.volFloor ?? prev.volFloor, prev.volFloor));
   const volScaleMax = Math.max(0, coerceNumber(combo.params.volScaleMax ?? prev.volScaleMax, prev.volScaleMax));
   const maxVolatility = Math.max(0, coerceNumber(combo.params.maxVolatility ?? prev.maxVolatility, prev.maxVolatility));
+  const rebalanceBars = clampOptionalInt(combo.params.rebalanceBars ?? prev.rebalanceBars, 0, 1_000_000);
+  const rebalanceThreshold = Math.max(
+    0,
+    coerceNumber(combo.params.rebalanceThreshold ?? prev.rebalanceThreshold, prev.rebalanceThreshold),
+  );
+  const fundingRate = coerceNumber(combo.params.fundingRate ?? prev.fundingRate, prev.fundingRate);
   const blendWeight = clamp(coerceNumber(combo.params.blendWeight ?? prev.blendWeight, prev.blendWeight), 0, 1);
   const tuneStressVolMult = Math.max(0, coerceNumber(combo.params.tuneStressVolMult ?? prev.tuneStressVolMult, prev.tuneStressVolMult));
   const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
@@ -622,6 +628,9 @@ function applyComboToForm(
     volFloor,
     volScaleMax,
     maxVolatility,
+    rebalanceBars,
+    rebalanceThreshold,
+    fundingRate,
     blendWeight,
     kalmanZMin,
     kalmanZMax,
@@ -714,6 +723,9 @@ function formApplySignature(form: FormState): string {
     sigNumber(form.volFloor),
     sigNumber(form.volScaleMax),
     sigNumber(form.maxVolatility),
+    sigNumber(form.rebalanceBars),
+    sigNumber(form.rebalanceThreshold),
+    sigNumber(form.fundingRate),
     sigNumber(form.blendWeight),
     sigNumber(form.kalmanZMin),
     sigNumber(form.kalmanZMax),
@@ -1531,6 +1543,9 @@ export function App() {
     const volEwmaAlpha = volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : 0;
     const volLookbackRaw = Math.max(0, Math.trunc(form.volLookback));
     const volLookback = volTarget > 0 && volEwmaAlpha === 0 ? Math.max(2, volLookbackRaw) : volLookbackRaw;
+    const rebalanceBars = Math.max(0, Math.trunc(form.rebalanceBars));
+    const rebalanceThreshold = Math.max(0, form.rebalanceThreshold);
+    const fundingRate = Number.isFinite(form.fundingRate) ? form.fundingRate : 0;
     const tuneStressVolMult = form.tuneStressVolMult <= 0 ? 1 : form.tuneStressVolMult;
     const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
@@ -1599,6 +1614,9 @@ export function App() {
     if (volTarget > 0) base.volTarget = volTarget;
     if (volEwmaAlpha > 0) base.volEwmaAlpha = volEwmaAlpha;
     if (form.maxVolatility > 0) base.maxVolatility = Math.max(0, form.maxVolatility);
+    if (rebalanceBars > 0) base.rebalanceBars = rebalanceBars;
+    if (rebalanceThreshold > 0) base.rebalanceThreshold = rebalanceThreshold;
+    if (fundingRate !== 0) base.fundingRate = fundingRate;
 
     if (form.maxHighVolProb > 0) base.maxHighVolProb = clamp(form.maxHighVolProb, 0, 1);
     if (form.maxConformalWidth > 0) base.maxConformalWidth = Math.max(0, form.maxConformalWidth);
@@ -3123,6 +3141,16 @@ export function App() {
             typeof params.maxVolatility === "number" && Number.isFinite(params.maxVolatility)
               ? Math.max(0, params.maxVolatility)
               : null;
+          const rebalanceBars =
+            typeof params.rebalanceBars === "number" && Number.isFinite(params.rebalanceBars)
+              ? Math.max(0, Math.trunc(params.rebalanceBars))
+              : null;
+          const rebalanceThreshold =
+            typeof params.rebalanceThreshold === "number" && Number.isFinite(params.rebalanceThreshold)
+              ? Math.max(0, params.rebalanceThreshold)
+              : null;
+          const fundingRate =
+            typeof params.fundingRate === "number" && Number.isFinite(params.fundingRate) ? params.fundingRate : null;
           const periodsPerYear =
             typeof params.periodsPerYear === "number" && Number.isFinite(params.periodsPerYear)
               ? Math.max(0, params.periodsPerYear)
@@ -3280,6 +3308,9 @@ export function App() {
               volFloor,
               volScaleMax,
               maxVolatility,
+              rebalanceBars,
+              rebalanceThreshold,
+              fundingRate,
               periodsPerYear,
               blendWeight,
               walkForwardFolds,
@@ -3594,6 +3625,52 @@ export function App() {
   const extraIssueCount = Math.max(0, requestIssueDetails.length - 1);
   const requestDisabledReason = primaryIssue?.disabledMessage ?? primaryIssue?.message ?? null;
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
+  const handlePrimaryIssueFix = useCallback(() => {
+    const targetId = primaryIssue?.targetId;
+    if (!targetId) return;
+    if (apiComputeLimits && apiLstmEnabled) {
+      if (targetId === "bars" && barsExceedsApi) {
+        const maxBarsRaw = Math.trunc(apiComputeLimits.maxBarsLstm);
+        if (Number.isFinite(maxBarsRaw) && maxBarsRaw > 0) {
+          const maxBars = clamp(maxBarsRaw, MIN_LOOKBACK_BARS, 1000);
+          setForm((prev) => {
+            const currentBars = Math.trunc(prev.bars);
+            const nextBars = currentBars > 0 ? Math.min(currentBars, maxBars) : maxBars;
+            return nextBars === prev.bars ? prev : { ...prev, bars: nextBars };
+          });
+          showToast(`Bars set to ${maxBars} (API limit).`);
+        }
+      } else if (targetId === "epochs" && epochsExceedsApi) {
+        const maxEpochs = Math.trunc(apiComputeLimits.maxEpochs);
+        if (Number.isFinite(maxEpochs) && maxEpochs >= 0) {
+          setForm((prev) => {
+            const nextEpochs = clamp(Math.trunc(prev.epochs), 0, maxEpochs);
+            return nextEpochs === prev.epochs ? prev : { ...prev, epochs: nextEpochs };
+          });
+          showToast(`Epochs set to ${maxEpochs} (API limit).`);
+        }
+      } else if (targetId === "hiddenSize" && hiddenSizeExceedsApi) {
+        const maxHiddenSize = Math.trunc(apiComputeLimits.maxHiddenSize);
+        if (Number.isFinite(maxHiddenSize) && maxHiddenSize > 0) {
+          setForm((prev) => {
+            const nextHidden = clamp(Math.trunc(prev.hiddenSize), 1, maxHiddenSize);
+            return nextHidden === prev.hiddenSize ? prev : { ...prev, hiddenSize: nextHidden };
+          });
+          showToast(`Hidden size set to ${maxHiddenSize} (API limit).`);
+        }
+      }
+    }
+    scrollToSection(targetId);
+  }, [
+    apiComputeLimits,
+    apiLstmEnabled,
+    barsExceedsApi,
+    epochsExceedsApi,
+    hiddenSizeExceedsApi,
+    primaryIssue?.targetId,
+    scrollToSection,
+    showToast,
+  ]);
   const botAnyRunning = bot.status.running;
   const botAnyStarting = "starting" in bot.status && bot.status.starting === true;
   const botStartPrimaryIssue = botIssueDetails[0] ?? null;
@@ -3804,7 +3881,7 @@ export function App() {
                   <>
                     <span className="pill pillWarn">{primaryIssue.message}</span>
                     {primaryIssue.targetId ? (
-                      <button className="btnSmall" type="button" onClick={() => scrollToSection(primaryIssue.targetId)}>
+                      <button className="btnSmall" type="button" onClick={handlePrimaryIssueFix}>
                         Fix
                       </button>
                     ) : null}
@@ -5255,6 +5332,61 @@ export function App() {
                       placeholder="1"
                     />
                     <div className="hint">Caps volatility-based scaling.</div>
+                  </div>
+                </div>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 10 }}>
+                  <div className="field">
+                    <label className="label" htmlFor="rebalanceBars">
+                      Rebalance bars
+                    </label>
+                    <input
+                      id="rebalanceBars"
+                      className="input"
+                      type="number"
+                      step={1}
+                      min={0}
+                      value={form.rebalanceBars}
+                      onChange={(e) => setForm((f) => ({ ...f, rebalanceBars: numFromInput(e.target.value, f.rebalanceBars) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">
+                      {form.rebalanceBars > 0 ? `${Math.trunc(Math.max(0, form.rebalanceBars))} bars` : "0 disables"} • resize toward target
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="rebalanceThreshold">
+                      Rebalance threshold
+                    </label>
+                    <input
+                      id="rebalanceThreshold"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={form.rebalanceThreshold}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, rebalanceThreshold: numFromInput(e.target.value, f.rebalanceThreshold) }))
+                      }
+                      placeholder="0"
+                    />
+                    <div className="hint">
+                      {form.rebalanceThreshold > 0 ? form.rebalanceThreshold.toFixed(2) : "0 disables"} • min abs size delta
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="fundingRate">
+                      Funding rate (annualized)
+                    </label>
+                    <input
+                      id="fundingRate"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      value={form.fundingRate}
+                      onChange={(e) => setForm((f) => ({ ...f, fundingRate: numFromInput(e.target.value, f.fundingRate) }))}
+                      placeholder="0"
+                    />
+                    <div className="hint">{form.fundingRate !== 0 ? fmtPct(form.fundingRate, 2) : "0 disables"} • backtests only</div>
                   </div>
                 </div>
                 <div className="hint">Vol sizing scales position by target/realized volatility when vol target is set.</div>

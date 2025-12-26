@@ -43,6 +43,9 @@ export type FormState = {
   volFloor: number;
   volScaleMax: number;
   maxVolatility: number;
+  rebalanceBars: number;
+  rebalanceThreshold: number;
+  fundingRate: number;
   blendWeight: number;
   backtestRatio: number;
   tuneRatio: number;
@@ -133,6 +136,9 @@ export const defaultForm: FormState = {
   volFloor: 0.1,
   volScaleMax: 1,
   maxVolatility: 2,
+  rebalanceBars: 0,
+  rebalanceThreshold: 0,
+  fundingRate: 0,
   blendWeight: 0.5,
   backtestRatio: 0.2,
   tuneRatio: 0.2,
@@ -378,6 +384,14 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     volFloor: normalizeFiniteNumber(rawRec.volFloor ?? merged.volFloor, defaultForm.volFloor, 0, 1e9),
     volScaleMax: normalizeFiniteNumber(rawRec.volScaleMax ?? merged.volScaleMax, defaultForm.volScaleMax, 0, 1e9),
     maxVolatility: normalizeFiniteNumber(rawRec.maxVolatility ?? merged.maxVolatility, defaultForm.maxVolatility, 0, 1e9),
+    rebalanceBars: normalizeFiniteNumber(rawRec.rebalanceBars ?? merged.rebalanceBars, defaultForm.rebalanceBars, 0, 1e9),
+    rebalanceThreshold: normalizeFiniteNumber(
+      rawRec.rebalanceThreshold ?? merged.rebalanceThreshold,
+      defaultForm.rebalanceThreshold,
+      0,
+      1e9,
+    ),
+    fundingRate: normalizeFiniteNumber(rawRec.fundingRate ?? merged.fundingRate, defaultForm.fundingRate, -1e9, 1e9),
     blendWeight: normalizeFiniteNumber(rawRec.blendWeight ?? merged.blendWeight, defaultForm.blendWeight, 0, 1),
     maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
     maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
