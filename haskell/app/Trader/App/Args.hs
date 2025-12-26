@@ -117,6 +117,9 @@ data Args = Args
   , argVolFloor :: Double
   , argVolScaleMax :: Double
   , argMaxVolatility :: Maybe Double
+  , argRebalanceBars :: Int
+  , argRebalanceThreshold :: Double
+  , argFundingRate :: Double
   , argBlendWeight :: Double
   , argMaxOrderErrors :: Maybe Int
   , argPeriodsPerYear :: Maybe Double
@@ -385,6 +388,9 @@ opts = do
               <> help "Block entries when annualized vol exceeds this (0 disables)"
           )
       )
+  argRebalanceBars <- option auto (long "rebalance-bars" <> value 0 <> help "Rebalance position size every N bars when size targets change (0 disables)")
+  argRebalanceThreshold <- option auto (long "rebalance-threshold" <> value 0 <> help "Minimum abs size delta required to rebalance (0 disables)")
+  argFundingRate <- option auto (long "funding-rate" <> long "financing-rate" <> value 0 <> help "Annualized funding/borrow rate applied per bar in backtests (fraction; negative allowed)")
   argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend (0..1)")
   argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
   argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
@@ -616,6 +622,10 @@ validateArgs args0 = do
   case argMaxVolatility args of
     Nothing -> pure ()
     Just v -> ensure "--max-volatility must be >= 0" (v >= 0)
+  ensure "--rebalance-bars must be >= 0" (argRebalanceBars args >= 0)
+  ensure "--rebalance-threshold must be >= 0" (argRebalanceThreshold args >= 0)
+  let fundingRate = argFundingRate args
+  ensure "--funding-rate must be finite" (not (isNaN fundingRate || isInfinite fundingRate))
   ensure "--blend-weight must be between 0 and 1" (argBlendWeight args >= 0 && argBlendWeight args <= 1)
   case argMaxOrderErrors args of
     Nothing -> pure ()
