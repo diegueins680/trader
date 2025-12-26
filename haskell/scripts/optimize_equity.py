@@ -33,6 +33,15 @@ BINANCE_INTERVALS = [
     "1M",
 ]
 
+DEFAULT_BINANCE_INTERVALS = [
+    "1h",
+    "2h",
+    "4h",
+    "6h",
+    "12h",
+    "1d",
+]
+
 KRAKEN_INTERVALS = [
     "1m",
     "5m",
@@ -1212,9 +1221,9 @@ def main(argv: List[str]) -> int:
         default="",
         help="CSV column name for low (optional; requires --high-column; enables intrabar stops/TP/trailing).",
     )
-    parser.add_argument("--lookback-window", type=str, default="24h", help="Lookback window (default: 24h).")
+    parser.add_argument("--lookback-window", type=str, default="7d", help="Lookback window (default: 7d).")
     parser.add_argument("--backtest-ratio", type=float, default=0.2, help="Backtest holdout ratio (default: 0.2).")
-    parser.add_argument("--tune-ratio", type=float, default=0.2, help="Tune ratio for --sweep-threshold (default: 0.2).")
+    parser.add_argument("--tune-ratio", type=float, default=0.25, help="Tune ratio for --sweep-threshold (default: 0.25).")
     parser.add_argument("--trials", type=int, default=50, help="Number of trials (default: 50).")
     parser.add_argument("--seed", type=int, default=42, help="RNG seed (default: 42).")
     parser.add_argument("--timeout-sec", type=float, default=60.0, help="Per-trial timeout in seconds (default: 60).")
@@ -1237,21 +1246,21 @@ def main(argv: List[str]) -> int:
     parser.add_argument(
         "--objective",
         type=str,
-        default="final-equity",
+        default="equity-dd-turnover",
         choices=["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"],
-        help="Optimization objective used to select the best params/top-json (default: final-equity).",
+        help="Optimization objective used to select the best params/top-json (default: equity-dd-turnover).",
     )
     parser.add_argument(
         "--penalty-max-drawdown",
         type=float,
-        default=1.0,
-        help="Penalty weight for maxDrawdown (used by equity-dd* objectives; default: 1.0).",
+        default=1.5,
+        help="Penalty weight for maxDrawdown (used by equity-dd* objectives; default: 1.5).",
     )
     parser.add_argument(
         "--penalty-turnover",
         type=float,
-        default=0.0,
-        help="Penalty weight for turnover (used by equity-dd-turnover; default: 0.0).",
+        default=0.2,
+        help="Penalty weight for turnover (used by equity-dd-turnover; default: 0.2).",
     )
     parser.add_argument(
         "--min-round-trips",
@@ -1305,14 +1314,14 @@ def main(argv: List[str]) -> int:
     parser.add_argument(
         "--tune-penalty-max-drawdown",
         type=float,
-        default=1.0,
-        help="Penalty weight for max drawdown in tune scoring (default: 1.0).",
+        default=1.5,
+        help="Penalty weight for max drawdown in tune scoring (default: 1.5).",
     )
     parser.add_argument(
         "--tune-penalty-turnover",
         type=float,
-        default=0.1,
-        help="Penalty weight for turnover in tune scoring (default: 0.1).",
+        default=0.2,
+        help="Penalty weight for turnover in tune scoring (default: 0.2).",
     )
     parser.add_argument(
         "--tune-stress-vol-mult",
@@ -1371,14 +1380,14 @@ def main(argv: List[str]) -> int:
     parser.add_argument(
         "--walk-forward-folds-min",
         type=int,
-        default=5,
-        help="Min walk-forward folds when sampling (default: 5).",
+        default=7,
+        help="Min walk-forward folds when sampling (default: 7).",
     )
     parser.add_argument(
         "--walk-forward-folds-max",
         type=int,
-        default=5,
-        help="Max walk-forward folds when sampling (default: 5).",
+        default=7,
+        help="Max walk-forward folds when sampling (default: 7).",
     )
 
     interval_group = parser.add_mutually_exclusive_group()
@@ -1386,7 +1395,7 @@ def main(argv: List[str]) -> int:
     interval_group.add_argument(
         "--intervals",
         type=str,
-        default=",".join(BINANCE_INTERVALS),
+        default=",".join(DEFAULT_BINANCE_INTERVALS),
         help="Comma-separated intervals to sample.",
     )
     platform_group = parser.add_mutually_exclusive_group()
@@ -1414,65 +1423,65 @@ def main(argv: List[str]) -> int:
     )
     parser.add_argument("--epochs-min", type=int, default=0, help="Min epochs (default: 0).")
     parser.add_argument("--epochs-max", type=int, default=10, help="Max epochs (default: 10).")
-    parser.add_argument("--slippage-max", type=float, default=0.001, help="Max slippage per side (default: 0.001).")
-    parser.add_argument("--spread-max", type=float, default=0.001, help="Max total spread (default: 0.001).")
-    parser.add_argument("--fee-min", type=float, default=0.0, help="Min fee when sampling (default: 0).")
+    parser.add_argument("--slippage-max", type=float, default=0.0005, help="Max slippage per side (default: 0.0005).")
+    parser.add_argument("--spread-max", type=float, default=0.0005, help="Max total spread (default: 0.0005).")
+    parser.add_argument("--fee-min", type=float, default=0.0004, help="Min fee when sampling (default: 0.0004).")
     parser.add_argument("--fee-max", type=float, default=0.001, help="Max fee when sampling (default: 0.001).")
 
     parser.add_argument(
         "--open-threshold-min",
         type=float,
-        default=1e-5,
-        help="Min open-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 1e-5).",
+        default=5e-4,
+        help="Min open-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 0.0005).",
     )
     parser.add_argument(
         "--open-threshold-max",
         type=float,
-        default=1e-2,
-        help="Max open-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 1e-2).",
+        default=2e-2,
+        help="Max open-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 0.02).",
     )
     parser.add_argument(
         "--close-threshold-min",
         type=float,
-        default=1e-5,
-        help="Min close-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 1e-5).",
+        default=5e-4,
+        help="Min close-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 0.0005).",
     )
     parser.add_argument(
         "--close-threshold-max",
         type=float,
-        default=1e-2,
-        help="Max close-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 1e-2).",
+        default=2e-2,
+        help="Max close-threshold used as the base (and as the value when --no-sweep-threshold is set) (default: 0.02).",
     )
-    parser.add_argument("--min-hold-bars-min", type=int, default=0, help="Min min-hold-bars when sampling (default: 0).")
-    parser.add_argument("--min-hold-bars-max", type=int, default=0, help="Max min-hold-bars when sampling (default: 0).")
-    parser.add_argument("--cooldown-bars-min", type=int, default=0, help="Min cooldown-bars when sampling (default: 0).")
-    parser.add_argument("--cooldown-bars-max", type=int, default=0, help="Max cooldown-bars when sampling (default: 0).")
-    parser.add_argument("--max-hold-bars-min", type=int, default=0, help="Min max-hold-bars when sampling (default: 0=disabled).")
-    parser.add_argument("--max-hold-bars-max", type=int, default=0, help="Max max-hold-bars when sampling (default: 0=disabled).")
-    parser.add_argument("--min-edge-min", type=float, default=0.0, help="Min min-edge when sampling (default: 0).")
-    parser.add_argument("--min-edge-max", type=float, default=0.0, help="Max min-edge when sampling (default: 0).")
+    parser.add_argument("--min-hold-bars-min", type=int, default=2, help="Min min-hold-bars when sampling (default: 2).")
+    parser.add_argument("--min-hold-bars-max", type=int, default=8, help="Max min-hold-bars when sampling (default: 8).")
+    parser.add_argument("--cooldown-bars-min", type=int, default=1, help="Min cooldown-bars when sampling (default: 1).")
+    parser.add_argument("--cooldown-bars-max", type=int, default=3, help="Max cooldown-bars when sampling (default: 3).")
+    parser.add_argument("--max-hold-bars-min", type=int, default=24, help="Min max-hold-bars when sampling (default: 24).")
+    parser.add_argument("--max-hold-bars-max", type=int, default=72, help="Max max-hold-bars when sampling (default: 72).")
+    parser.add_argument("--min-edge-min", type=float, default=0.0002, help="Min min-edge when sampling (default: 0.0002).")
+    parser.add_argument("--min-edge-max", type=float, default=0.001, help="Max min-edge when sampling (default: 0.001).")
     parser.add_argument(
         "--min-signal-to-noise-min",
         type=float,
-        default=0.0,
-        help="Min min-signal-to-noise when sampling (default: 0=disabled).",
+        default=0.5,
+        help="Min min-signal-to-noise when sampling (default: 0.5).",
     )
     parser.add_argument(
         "--min-signal-to-noise-max",
         type=float,
-        default=0.0,
-        help="Max min-signal-to-noise when sampling (default: 0=disabled).",
+        default=1.2,
+        help="Max min-signal-to-noise when sampling (default: 1.2).",
     )
-    parser.add_argument("--edge-buffer-min", type=float, default=0.0, help="Min edge-buffer when sampling (default: 0).")
-    parser.add_argument("--edge-buffer-max", type=float, default=0.0, help="Max edge-buffer when sampling (default: 0).")
+    parser.add_argument("--edge-buffer-min", type=float, default=0.0001, help="Min edge-buffer when sampling (default: 0.0001).")
+    parser.add_argument("--edge-buffer-max", type=float, default=0.0005, help="Max edge-buffer when sampling (default: 0.0005).")
     parser.add_argument(
         "--p-cost-aware-edge",
         type=float,
         default=-1.0,
         help="Probability cost-aware-edge is enabled (-1=enable when edge-buffer>0).",
     )
-    parser.add_argument("--trend-lookback-min", type=int, default=0, help="Min trend-lookback when sampling (default: 0).")
-    parser.add_argument("--trend-lookback-max", type=int, default=0, help="Max trend-lookback when sampling (default: 0).")
+    parser.add_argument("--trend-lookback-min", type=int, default=20, help="Min trend-lookback when sampling (default: 20).")
+    parser.add_argument("--trend-lookback-max", type=int, default=60, help="Max trend-lookback when sampling (default: 60).")
 
     parser.add_argument("--p-long-short", type=float, default=0.2, help="Probability of long-short positioning (default: 0.2).")
     parser.add_argument(
@@ -1535,23 +1544,23 @@ def main(argv: List[str]) -> int:
         "--max-quantile-width-max", type=float, default=0.20, help="Max max-quantile-width when enabled (default: 0.20)."
     )
 
-    parser.add_argument("--p-confirm-conformal", type=float, default=0.1, help="Probability confirm-conformal is enabled (default: 0.1).")
-    parser.add_argument("--p-confirm-quantiles", type=float, default=0.1, help="Probability confirm-quantiles is enabled (default: 0.1).")
-    parser.add_argument("--p-confidence-sizing", type=float, default=0.15, help="Probability confidence-sizing is enabled (default: 0.15).")
-    parser.add_argument("--min-position-size-min", type=float, default=0.0, help="Min min-position-size when enabled (default: 0).")
-    parser.add_argument("--min-position-size-max", type=float, default=0.5, help="Max min-position-size when enabled (default: 0.5).")
-    parser.add_argument("--max-position-size-min", type=float, default=1.0, help="Min max-position-size when sampling (default: 1).")
-    parser.add_argument("--max-position-size-max", type=float, default=1.0, help="Max max-position-size when sampling (default: 1).")
-    parser.add_argument("--vol-target-min", type=float, default=0.0, help="Min vol-target when sampling (default: 0=disabled).")
-    parser.add_argument("--vol-target-max", type=float, default=0.0, help="Max vol-target when sampling (default: 0=disabled).")
+    parser.add_argument("--p-confirm-conformal", type=float, default=0.6, help="Probability confirm-conformal is enabled (default: 0.6).")
+    parser.add_argument("--p-confirm-quantiles", type=float, default=0.6, help="Probability confirm-quantiles is enabled (default: 0.6).")
+    parser.add_argument("--p-confidence-sizing", type=float, default=0.6, help="Probability confidence-sizing is enabled (default: 0.6).")
+    parser.add_argument("--min-position-size-min", type=float, default=0.1, help="Min min-position-size when enabled (default: 0.1).")
+    parser.add_argument("--min-position-size-max", type=float, default=0.3, help="Max min-position-size when enabled (default: 0.3).")
+    parser.add_argument("--max-position-size-min", type=float, default=0.6, help="Min max-position-size when sampling (default: 0.6).")
+    parser.add_argument("--max-position-size-max", type=float, default=0.9, help="Max max-position-size when sampling (default: 0.9).")
+    parser.add_argument("--vol-target-min", type=float, default=0.5, help="Min vol-target when sampling (default: 0.5).")
+    parser.add_argument("--vol-target-max", type=float, default=0.9, help="Max vol-target when sampling (default: 0.9).")
     parser.add_argument(
         "--p-disable-vol-target",
         type=float,
-        default=0.0,
-        help="Probability vol-target is disabled when sampling (default: 0).",
+        default=0.2,
+        help="Probability vol-target is disabled when sampling (default: 0.2).",
     )
     parser.add_argument("--vol-lookback-min", type=int, default=20, help="Min vol-lookback when sampling (default: 20).")
-    parser.add_argument("--vol-lookback-max", type=int, default=20, help="Max vol-lookback when sampling (default: 20).")
+    parser.add_argument("--vol-lookback-max", type=int, default=60, help="Max vol-lookback when sampling (default: 60).")
     parser.add_argument("--vol-ewma-alpha-min", type=float, default=0.0, help="Min vol-ewma-alpha when sampling (default: 0=disabled).")
     parser.add_argument("--vol-ewma-alpha-max", type=float, default=0.0, help="Max vol-ewma-alpha when sampling (default: 0=disabled).")
     parser.add_argument(
@@ -1560,21 +1569,17 @@ def main(argv: List[str]) -> int:
         default=0.0,
         help="Probability vol-ewma-alpha is disabled when sampling (default: 0).",
     )
-    parser.add_argument("--vol-floor-min", type=float, default=0.0, help="Min vol-floor when sampling (default: 0).")
-    parser.add_argument("--vol-floor-max", type=float, default=0.0, help="Max vol-floor when sampling (default: 0).")
+    parser.add_argument("--vol-floor-min", type=float, default=0.1, help="Min vol-floor when sampling (default: 0.1).")
+    parser.add_argument("--vol-floor-max", type=float, default=0.2, help="Max vol-floor when sampling (default: 0.2).")
     parser.add_argument("--vol-scale-max-min", type=float, default=1.0, help="Min vol-scale-max when sampling (default: 1).")
     parser.add_argument("--vol-scale-max-max", type=float, default=1.0, help="Max vol-scale-max when sampling (default: 1).")
-    parser.add_argument(
-        "--max-volatility-min", type=float, default=0.0, help="Min max-volatility when sampling (default: 0=disabled)."
-    )
-    parser.add_argument(
-        "--max-volatility-max", type=float, default=0.0, help="Max max-volatility when sampling (default: 0=disabled)."
-    )
+    parser.add_argument("--max-volatility-min", type=float, default=1.2, help="Min max-volatility when sampling (default: 1.2).")
+    parser.add_argument("--max-volatility-max", type=float, default=2.0, help="Max max-volatility when sampling (default: 2.0).")
     parser.add_argument(
         "--p-disable-max-volatility",
         type=float,
-        default=0.0,
-        help="Probability max-volatility is disabled when sampling (default: 0).",
+        default=0.2,
+        help="Probability max-volatility is disabled when sampling (default: 0.2).",
     )
     parser.add_argument(
         "--periods-per-year-min",

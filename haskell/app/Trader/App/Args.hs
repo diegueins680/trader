@@ -237,7 +237,7 @@ opts = do
       )
   argBinanceFutures <- switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders (Binance only)")
   argBinanceMargin <- switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance (Binance only)")
-  argInterval <- strOption (long "interval" <> long "binance-interval" <> value "5m" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)")
+  argInterval <- strOption (long "interval" <> long "binance-interval" <> value "1h" <> help "Bar interval / Binance kline interval (e.g., 1m, 5m, 1h, 1d)")
   argBars <-
     option
       (eitherReader parseBarsArg)
@@ -248,7 +248,7 @@ opts = do
           <> showDefaultWith (\mb -> maybe "auto" show mb)
           <> help "Number of bars/klines to use (auto/0=all CSV, exchange default=500; Binance supports 2..1000)"
       )
-  argLookbackWindow <- strOption (long "lookback-window" <> value "24h" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
+  argLookbackWindow <- strOption (long "lookback-window" <> value "7d" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
   argLookbackBars <- optional (option auto (long "lookback-bars" <> long "lookback" <> help "Override lookback bars (disables --lookback-window conversion)"))
   argBinanceTestnet <- switch (long "binance-testnet" <> help "Use Binance testnet base URL (public + signed endpoints; Binance only)")
   argBinanceApiKey <- optional (strOption (long "binance-api-key" <> help "Binance API key (or env BINANCE_API_KEY; Binance only)"))
@@ -267,9 +267,9 @@ opts = do
   argHiddenSize <- option auto (long "hidden-size" <> value 16 <> help "LSTM hidden size")
   argEpochs <- option auto (long "epochs" <> value 30 <> help "LSTM training epochs (Adam)")
   argLr <- option auto (long "lr" <> value 1e-3 <> help "LSTM learning rate")
-  argValRatio <- option auto (long "val-ratio" <> value 0.2 <> help "Validation split ratio (within training set)")
+  argValRatio <- option auto (long "val-ratio" <> value 0.3 <> help "Validation split ratio (within training set)")
   argBacktestRatio <- option auto (long "backtest-ratio" <> value 0.2 <> help "Backtest holdout ratio (last portion of series)")
-  argTuneRatio <- option auto (long "tune-ratio" <> value 0.2 <> help "When optimizing operations/threshold: tune on the last portion of the training split (avoids lookahead on the backtest split)")
+  argTuneRatio <- option auto (long "tune-ratio" <> value 0.25 <> help "When optimizing operations/threshold: tune on the last portion of the training split (avoids lookahead on the backtest split)")
   argTuneObjective <-
     option
       (eitherReader parseTuneObjective)
@@ -278,8 +278,8 @@ opts = do
           <> showDefaultWith tuneObjectiveCode
           <> help "Objective for --optimize-operations/--sweep-threshold: final-equity|sharpe|calmar|equity-dd|equity-dd-turnover"
       )
-  argTunePenaltyMaxDrawdown <- option auto (long "tune-penalty-max-drawdown" <> value 1.0 <> help "Penalty weight for max drawdown (used by equity-dd objectives)")
-  argTunePenaltyTurnover <- option auto (long "tune-penalty-turnover" <> value 0.1 <> help "Penalty weight for turnover (used by equity-dd-turnover)")
+  argTunePenaltyMaxDrawdown <- option auto (long "tune-penalty-max-drawdown" <> value 1.5 <> help "Penalty weight for max drawdown (used by equity-dd objectives)")
+  argTunePenaltyTurnover <- option auto (long "tune-penalty-turnover" <> value 0.2 <> help "Penalty weight for turnover (used by equity-dd-turnover)")
   argMinRoundTrips <-
     option
       auto
@@ -287,7 +287,7 @@ opts = do
           <> value 0
           <> help "When optimizing/sweeping, require at least N round trips in the tune split (0 disables; helps avoid 'no-trade' winners)"
       )
-  argWalkForwardFolds <- option auto (long "walk-forward-folds" <> value 5 <> help "Compute fold stats on tune/backtest windows (1 disables)")
+  argWalkForwardFolds <- option auto (long "walk-forward-folds" <> value 7 <> help "Compute fold stats on tune/backtest windows (1 disables)")
   argPatience <- option auto (long "patience" <> value 10 <> help "Early stopping patience (0 disables)")
   argGradClip <- optional (option auto (long "grad-clip" <> help "Gradient clipping max L2 norm"))
   argSeed <- option auto (long "seed" <> value 42 <> help "Random seed for LSTM init")
@@ -301,7 +301,7 @@ opts = do
           <> value 50
           <> help "Use the top-N symbols by 24h quote volume as an extra Kalman measurement (0 disables; Binance only)."
       )
-  argOpenThreshold <- option auto (long "open-threshold" <> long "threshold" <> value 0.001 <> help "Entry/open direction threshold (fractional deadband)")
+  argOpenThreshold <- option auto (long "open-threshold" <> long "threshold" <> value 0.002 <> help "Entry/open direction threshold (fractional deadband)")
   mCloseThreshold <- optional (option auto (long "close-threshold" <> help "Exit/close threshold (fractional deadband; defaults to open-threshold when omitted)"))
   argMethod <-
     option
@@ -322,9 +322,9 @@ opts = do
   argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
   argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
   argTradeOnly <- switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
-  argFee <- option auto (long "fee" <> value 0.0005 <> help "Fee applied when switching position")
-  argSlippage <- option auto (long "slippage" <> value 0.0 <> help "Slippage per side (fractional, e.g. 0.0002)")
-  argSpread <- option auto (long "spread" <> value 0.0 <> help "Bid-ask spread (fractional total; half applied per side)")
+  argFee <- option auto (long "fee" <> value 0.0008 <> help "Fee applied when switching position")
+  argSlippage <- option auto (long "slippage" <> value 0.0002 <> help "Slippage per side (fractional, e.g. 0.0002)")
+  argSpread <- option auto (long "spread" <> value 0.0002 <> help "Bid-ask spread (fractional total; half applied per side)")
   argIntrabarFill <-
     option
       (eitherReader parseIntrabarFill)
@@ -339,58 +339,58 @@ opts = do
   argStopLossVolMult <- option auto (long "stop-loss-vol-mult" <> value 0 <> help "Stop loss in per-bar sigma multiples (0 disables; overrides --stop-loss when vol estimate available)")
   argTakeProfitVolMult <- option auto (long "take-profit-vol-mult" <> value 0 <> help "Take profit in per-bar sigma multiples (0 disables; overrides --take-profit when vol estimate available)")
   argTrailingStopVolMult <- option auto (long "trailing-stop-vol-mult" <> value 0 <> help "Trailing stop in per-bar sigma multiples (0 disables; overrides --trailing-stop when vol estimate available)")
-  argMinHoldBars <- option auto (long "min-hold-bars" <> value 2 <> help "Minimum holding periods (bars) before allowing a signal-based exit (0 disables)")
-  argCooldownBars <- option auto (long "cooldown-bars" <> value 1 <> help "When flat after an exit, wait this many bars before allowing a new entry (0 disables)")
+  argMinHoldBars <- option auto (long "min-hold-bars" <> value 4 <> help "Minimum holding periods (bars) before allowing a signal-based exit (0 disables)")
+  argCooldownBars <- option auto (long "cooldown-bars" <> value 2 <> help "When flat after an exit, wait this many bars before allowing a new entry (0 disables)")
   argMaxHoldBars <-
     optional
-      ( option
-          auto
-          ( long "max-hold-bars"
-              <> value 48
+          ( option
+              auto
+              ( long "max-hold-bars"
+              <> value 36
               <> showDefault
               <> help "Force exit after holding for this many bars (0 disables; enforces 1-bar cooldown)"
           )
       )
   argMaxDrawdown <- optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
   argMaxDailyLoss <- optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
-  argMinEdge <- option auto (long "min-edge" <> value 0 <> help "Minimum predicted return magnitude required to enter (0 disables)")
-  argMinSignalToNoise <- option auto (long "min-signal-to-noise" <> value 0.5 <> help "Minimum edge/vol (per-bar sigma) required to enter (0 disables)")
+  argMinEdge <- option auto (long "min-edge" <> value 0.0004 <> help "Minimum predicted return magnitude required to enter (0 disables)")
+  argMinSignalToNoise <- option auto (long "min-signal-to-noise" <> value 0.8 <> help "Minimum edge/vol (per-bar sigma) required to enter (0 disables)")
   argCostAwareEdge <-
     defaultOnSwitch
       "cost-aware-edge"
       "no-cost-aware-edge"
       "Enable cost-aware min-edge gating (default on)."
       "Disable cost-aware min-edge gating."
-  argEdgeBuffer <- option auto (long "edge-buffer" <> value 0 <> help "Extra buffer added to cost-aware min-edge")
-  argTrendLookback <- option auto (long "trend-lookback" <> value 20 <> help "SMA lookback for trend filter (0 disables)")
-  argMaxPositionSize <- option auto (long "max-position-size" <> value 1 <> help "Cap position size/leverage (1 = full size)")
+  argEdgeBuffer <- option auto (long "edge-buffer" <> value 0.0002 <> help "Extra buffer added to cost-aware min-edge")
+  argTrendLookback <- option auto (long "trend-lookback" <> value 30 <> help "SMA lookback for trend filter (0 disables)")
+  argMaxPositionSize <- option auto (long "max-position-size" <> value 0.8 <> help "Cap position size/leverage (1 = full size)")
   argVolTarget <-
     optional
-      ( option
-          auto
-          ( long "vol-target"
-              <> value 1.0
+          ( option
+              auto
+              ( long "vol-target"
+              <> value 0.7
               <> showDefault
               <> help "Target annualized volatility for position sizing (0 disables)"
           )
       )
-  argVolLookback <- option auto (long "vol-lookback" <> value 20 <> help "Lookback window for realized vol sizing (bars)")
+  argVolLookback <- option auto (long "vol-lookback" <> value 30 <> help "Lookback window for realized vol sizing (bars)")
   argVolEwmaAlpha <- optional (option auto (long "vol-ewma-alpha" <> help "EWMA alpha for vol sizing (overrides vol-lookback)"))
-  argVolFloor <- option auto (long "vol-floor" <> value 0.1 <> help "Annualized vol floor for sizing")
+  argVolFloor <- option auto (long "vol-floor" <> value 0.15 <> help "Annualized vol floor for sizing")
   argVolScaleMax <- option auto (long "vol-scale-max" <> value 1 <> help "Max volatility scaling (caps leverage)")
   argMaxVolatility <-
     optional
-      ( option
-          auto
-          ( long "max-volatility"
-              <> value 2.0
+          ( option
+              auto
+              ( long "max-volatility"
+              <> value 1.5
               <> showDefault
               <> help "Block entries when annualized vol exceeds this (0 disables)"
           )
       )
-  argRebalanceBars <- option auto (long "rebalance-bars" <> value 0 <> help "Rebalance position size every N bars when size targets change (0 disables)")
-  argRebalanceThreshold <- option auto (long "rebalance-threshold" <> value 0 <> help "Minimum abs size delta required to rebalance (0 disables)")
-  argFundingRate <- option auto (long "funding-rate" <> long "financing-rate" <> value 0 <> help "Annualized funding/borrow rate applied per bar in backtests (fraction; negative allowed)")
+  argRebalanceBars <- option auto (long "rebalance-bars" <> value 24 <> help "Rebalance position size every N bars when size targets change (0 disables)")
+  argRebalanceThreshold <- option auto (long "rebalance-threshold" <> value 0.05 <> help "Minimum abs size delta required to rebalance (0 disables)")
+  argFundingRate <- option auto (long "funding-rate" <> long "financing-rate" <> value 0.1 <> help "Annualized funding/borrow rate applied per bar in backtests (fraction; negative allowed)")
   argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend (0..1)")
   argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
   argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
@@ -402,15 +402,25 @@ opts = do
   argMaxHighVolProb <- optional (option auto (long "max-high-vol-prob" <> help "If set, block trades when HMM high-vol regime prob exceeds this (0..1)"))
   argMaxConformalWidth <- optional (option auto (long "max-conformal-width" <> help "If set, block trades when conformal interval width exceeds this (return units)"))
   argMaxQuantileWidth <- optional (option auto (long "max-quantile-width" <> help "If set, block trades when quantile (q90-q10) width exceeds this (return units)"))
-  argConfirmConformal <- switch (long "confirm-conformal" <> help "Require conformal interval to agree with the chosen direction")
-  argConfirmQuantiles <- switch (long "confirm-quantiles" <> help "Require quantiles to agree with the chosen direction")
+  argConfirmConformal <-
+    defaultOnSwitch
+      "confirm-conformal"
+      "no-confirm-conformal"
+      "Require conformal interval to agree with the chosen direction (default on)."
+      "Disable conformal confirmation."
+  argConfirmQuantiles <-
+    defaultOnSwitch
+      "confirm-quantiles"
+      "no-confirm-quantiles"
+      "Require quantiles to agree with the chosen direction (default on)."
+      "Disable quantile confirmation."
   argConfidenceSizing <-
     defaultOnSwitch
       "confidence-sizing"
       "no-confidence-sizing"
       "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled (default on)."
       "Disable confidence sizing for entries."
-  argMinPositionSize <- option auto (long "min-position-size" <> value 0.1 <> help "If confidence-sizing yields a size below this, skip the trade (0..1)")
+  argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "If confidence-sizing yields a size below this, skip the trade (0..1)")
   argTuneStressVolMult <- option auto (long "tune-stress-vol-mult" <> value 1.0 <> help "Stress volatility multiplier for tune scoring (1 disables)")
   argTuneStressShock <- option auto (long "tune-stress-shock" <> value 0.0 <> help "Stress shock added to returns for tune scoring (0 disables)")
   argTuneStressWeight <- option auto (long "tune-stress-weight" <> value 0.0 <> help "Penalty weight for stress scenario in tune scoring (0 disables)")

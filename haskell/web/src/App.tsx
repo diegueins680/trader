@@ -2949,12 +2949,17 @@ export function App() {
     if (binancePositionsInputError) return;
     const interval = form.interval.trim();
     if (!interval) return;
-    const key = `${form.market}:${form.binanceTestnet ? "t" : "f"}:${interval}:${binancePositionsLimitSafe}`;
+    const authKey = `${apiBase}:${authHeaders ? "auth" : "noauth"}:${binanceApiKey.trim()}:${binanceApiSecret.trim()}`;
+    const key = `${form.market}:${form.binanceTestnet ? "t" : "f"}:${interval}:${binancePositionsLimitSafe}:${authKey}`;
     if (binancePositionsAutoKeyRef.current === key) return;
     binancePositionsAutoKeyRef.current = key;
     void fetchBinancePositions();
   }, [
     apiOk,
+    apiBase,
+    authHeaders,
+    binanceApiKey,
+    binanceApiSecret,
     binancePositionsInputError,
     binancePositionsLimitSafe,
     fetchBinancePositions,

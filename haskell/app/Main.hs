@@ -2478,7 +2478,7 @@ resolveOrphanOpenPositionSymbols limits optimizerTmp args requested =
                      in isJust (selectCompatibleTopComboArgs limits sym argsSym adoptReq export)
                   orphans =
                     [ sym
-                    | (sym, requiresShort) <- HM.toList openBySymbol
+                    | (sym, requiresShort) <- sortOn fst (HM.toList openBySymbol)
                     , not (isRequested sym)
                     , hasCombo sym requiresShort
                     ]
@@ -2823,7 +2823,37 @@ initBotState args settings sym = do
       -- Startup decision:
       -- - If we adopt an existing long, use closeThreshold (hysteresis) to decide hold/exit.
       -- - Otherwise, entry uses openThreshold via lsChosenDir.
-      closeDir = lsCloseDir latest0Raw
+      currentPrice = lsCurrentPrice latest0Raw
+      closeThr = max 0 (argCloseThreshold args)
+
+      directionAt thr pred =
+        let upEdge = currentPrice * (1 + thr)
+            downEdge = currentPrice * (1 - thr)
+         in if pred > upEdge
+              then Just (1 :: Int)
+              else if pred < downEdge then Just (-1) else Nothing
+
+      kalCloseDirRaw = lsKalmanNext latest0Raw >>= directionAt closeThr
+      lstmCloseDirRaw = lsLstmNext latest0Raw >>= directionAt closeThr
+      blendCloseDirRaw =
+        case (lsKalmanNext latest0Raw, lsLstmNext latest0Raw) of
+          (Just k, Just l) ->
+            let w = max 0 (min 1 (argBlendWeight args))
+                blend = w * k + (1 - w) * l
+             in directionAt closeThr blend
+          _ -> Nothing
+      closeAgreeDir =
+        if kalCloseDirRaw == lstmCloseDirRaw
+          then kalCloseDirRaw
+          else Nothing
+
+      closeDir =
+        case argMethod args of
+          MethodBoth -> closeAgreeDir
+          MethodKalmanOnly -> kalCloseDirRaw
+          MethodLstmOnly -> lstmCloseDirRaw
+          MethodBlend -> blendCloseDirRaw
+
       wantLongClose = closeDir == Just 1
       wantShortClose = closeDir == Just (-1)
       allowShort = argPositioning args == LongShort
@@ -3740,7 +3770,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                         case maxPointsEnv >>= readMaybe of
                           Just n | n >= 2 -> clampInt 2 1000 n
                           _ -> 1000
-                      lookbackWindow = pickDefaultString "24h" lookbackEnv
+                      lookbackWindow = pickDefaultString "7d" lookbackEnv
                       backtestRatio =
                         case backtestEnv >>= readMaybe of
                           Just n -> clamp01 n
@@ -3748,13 +3778,13 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                       tuneRatio =
                         case tuneEnv >>= readMaybe of
                           Just n -> clamp01 n
-                          _ -> 0.2
+                          _ -> 0.25
                       objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
                       objectiveRaw = fmap (map toLower . trim) objectiveEnv
                       objective =
                         case objectiveRaw of
                           Just v | v `elem` objectiveAllowed -> v
-                          _ -> "final-equity"
+                          _ -> "equity-dd-turnover"
                       symbols =
                         case symbolsEnv of
                           Just raw ->
@@ -3764,7 +3794,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                       intervalsRaw =
                         case intervalsEnv of
                           Just raw -> filter (isPlatformInterval PlatformBinance) (splitEnvList raw)
-                          Nothing -> binanceIntervals
+                          Nothing -> ["1h", "2h", "4h", "6h", "12h", "1d"]
                       intervals =
                         filter
                           (\v -> case lookbackBarsFrom v lookbackWindow of
@@ -4170,42 +4200,9 @@ botApplyKline mOps metrics mJournal mWebhook st k = do
       -- Stateful decision:
       -- - Entry uses openThreshold (direction-agreement gated).
       -- - Exit/hold uses closeThreshold (hysteresis), matching backtest logic.
-      currentPrice = lsCurrentPrice latest0Raw
-      closeThr = max 0 (argCloseThreshold args)
-
-      directionAt thr pred =
-        let upEdge = currentPrice * (1 + thr)
-            downEdge = currentPrice * (1 - thr)
-         in if pred > upEdge
-              then Just (1 :: Int)
-              else if pred < downEdge then Just (-1) else Nothing
-
-      kalCloseDirRaw = lsKalmanNext latest0Raw >>= directionAt closeThr
-      lstmCloseDir = lsLstmNext latest0Raw >>= directionAt closeThr
-      blendCloseDir =
-        case (lsKalmanNext latest0Raw, lsLstmNext latest0Raw) of
-          (Just k, Just l) ->
-            let w = max 0 (min 1 (argBlendWeight args))
-                blend = w * k + (1 - w) * l
-             in directionAt closeThr blend
-          _ -> Nothing
-      closeAgreeDir =
-        if kalCloseDirRaw == lstmCloseDir
-          then kalCloseDirRaw
-          else Nothing
-
-      wantLongClose =
-        case argMethod args of
-          MethodBoth -> closeAgreeDir == Just 1
-          MethodKalmanOnly -> kalCloseDirRaw == Just 1
-          MethodLstmOnly -> lstmCloseDir == Just 1
-          MethodBlend -> blendCloseDir == Just 1
-      wantShortClose =
-        case argMethod args of
-          MethodBoth -> closeAgreeDir == Just (-1)
-          MethodKalmanOnly -> kalCloseDirRaw == Just (-1)
-          MethodLstmOnly -> lstmCloseDir == Just (-1)
-          MethodBlend -> blendCloseDir == Just (-1)
+      closeDir = lsCloseDir latest0Raw
+      wantLongClose = closeDir == Just 1
+      wantShortClose = closeDir == Just (-1)
       allowShort = argPositioning args == LongShort
 
       desiredPosSignal =
@@ -4244,22 +4241,65 @@ botApplyKline mOps metrics mJournal mWebhook st k = do
               else latest0Raw
           _ -> latest0Raw
 
+      volPerBar =
+        case lsVolatility latest0Raw of
+          Just vol ->
+            let perBar = vol / sqrt (max 1e-12 (periodsPerYear args))
+             in if isNaN perBar || isInfinite perBar || perBar <= 0 then Nothing else Just perBar
+          _ -> Nothing
+
+      clampFrac x = min 0.999999 (max 0 x)
+
+      stopFromVol mult =
+        if mult <= 0
+          then Nothing
+          else
+            case volPerBar of
+              Just v ->
+                let frac = clampFrac (mult * v)
+                 in if isNaN frac || isInfinite frac || frac <= 0 then Nothing else Just frac
+              _ -> Nothing
+
+      stopLoss0 =
+        case stopFromVol (argStopLossVolMult args) of
+          Just v -> Just v
+          Nothing ->
+            case argStopLoss args of
+              Just v | v > 0 -> Just (clampFrac v)
+              _ -> Nothing
+
+      takeProfit0 =
+        case stopFromVol (argTakeProfitVolMult args) of
+          Just v -> Just v
+          Nothing ->
+            case argTakeProfit args of
+              Just v | v > 0 -> Just (clampFrac v)
+              _ -> Nothing
+
+      trailingStop0 =
+        case stopFromVol (argTrailingStopVolMult args) of
+          Just v -> Just v
+          Nothing ->
+            case argTrailingStop args of
+              Just v | v > 0 -> Just (clampFrac v)
+              _ -> Nothing
+
       bracketExitReason side entryPx trail =
         let (tpHit, stopHit, stopWhy) =
               case side of
                 SideLong ->
                   let mTp =
-                        case argTakeProfit args of
-                          Just tp | tp > 0 -> Just (entryPx * (1 + tp))
-                          _ -> Nothing
+                        case takeProfit0 of
+                          Just tp -> Just (entryPx * (1 + tp))
+                          Nothing -> Nothing
                       mSl =
-                        case argStopLoss args of
-                          Just sl | sl > 0 -> Just (entryPx * (1 - sl))
-                          _ -> Nothing
+                        case stopLoss0 of
+                          Just sl -> Just (entryPx * (1 - sl))
+                          Nothing -> Nothing
                       mTs =
-                        case argTrailingStop args of
-                          Just ts | ts > 0 -> Just (trail * (1 - ts))
-                          _ -> Nothing
+                        case trailingStop0 of
+                          Just ts -> Just (trail * (1 - ts))
+                          Nothing -> Nothing
                       (mStop, why) =
                         case (mSl, mTs) of
                           (Nothing, Nothing) -> (Nothing, Nothing)
@@ -4274,17 +4314,17 @@ botApplyKline mOps metrics mJournal mWebhook st k = do
                    in (tpOk, stopOk, why)
                 SideShort ->
                   let mTp =
-                        case argTakeProfit args of
-                          Just tp | tp > 0 -> Just (entryPx * (1 - tp))
-                          _ -> Nothing
+                        case takeProfit0 of
+                          Just tp -> Just (entryPx * (1 - tp))
+                          Nothing -> Nothing
                       mSl =
-                        case argStopLoss args of
-                          Just sl | sl > 0 -> Just (entryPx * (1 + sl))
-                          _ -> Nothing
+                        case stopLoss0 of
+                          Just sl -> Just (entryPx * (1 + sl))
+                          Nothing -> Nothing
                       mTs =
-                        case argTrailingStop args of
-                          Just ts | ts > 0 -> Just (trail * (1 + ts))
-                          _ -> Nothing
+                        case trailingStop0 of
+                          Just ts -> Just (trail * (1 + ts))
+                          Nothing -> Nothing
                       (mStop, why) =
                         case (mSl, mTs) of
                           (Nothing, Nothing) -> (Nothing, Nothing)
@@ -5934,7 +5974,7 @@ textValue st body =
     body
 
 defaultOptimizerIntervals :: String
-defaultOptimizerIntervals = platformIntervalsCsv PlatformBinance
+defaultOptimizerIntervals = intercalate "," ["1h", "2h", "4h", "6h", "12h", "1d"]
 
 defaultOptimizerNormalizations :: String
 defaultOptimizerNormalizations = "none,minmax,standard,log"
@@ -6175,14 +6215,14 @@ prepareOptimizerArgs outputPath req = do
             maybeIntArg "--walk-forward-folds-min" (fmap (max 1) (arrWalkForwardFoldsMin req))
               ++ maybeIntArg "--walk-forward-folds-max" (fmap (max 1) (arrWalkForwardFoldsMax req))
           intervalsVal = pickDefaultString defaultOptimizerIntervals (arrIntervals req)
-          lookbackVal = pickDefaultString "24h" (arrLookbackWindow req)
+          lookbackVal = pickDefaultString "7d" (arrLookbackWindow req)
           backtestRatioVal = clamp01 (fromMaybe 0.2 (arrBacktestRatio req))
-          tuneRatioVal = clamp01 (fromMaybe 0.2 (arrTuneRatio req))
+          tuneRatioVal = clamp01 (fromMaybe 0.25 (arrTuneRatio req))
           trialsVal = max 1 (fromMaybe 50 (arrTrials req))
           timeoutVal = max 1 (fromMaybe 60 (arrTimeoutSec req))
           seedVal = max 0 (fromMaybe 42 (arrSeed req))
-          slippageVal = max 0 (fromMaybe 0.001 (arrSlippageMax req))
-          spreadVal = max 0 (fromMaybe 0.001 (arrSpreadMax req))
+          slippageVal = max 0 (fromMaybe 0.0005 (arrSlippageMax req))
+          spreadVal = max 0 (fromMaybe 0.0005 (arrSpreadMax req))
           epochsMinRaw = fmap (max 0) (arrEpochsMin req)
           epochsMaxRaw = fmap (max 0) (arrEpochsMax req)
           epochsMaxNorm =

@@ -2,7 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
-- Strategy defaults: enable cost-aware edge + confidence sizing by default, add `--no-cost-aware-edge`/`--no-confidence-sizing` opt-outs, and raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, vol target/floor/max-vol, Kalman z-min, min position size).
+- Strategy defaults: move to `--interval 1h`/`--lookback-window 7d`, raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, max position size, vol target/floor/max-vol, Kalman z-min, min position size), and bump cost assumptions (fee/slippage/spread).
+- Strategy defaults: enable cost-aware edge, conformal/quantile confirmations, and confidence sizing by default, with `--no-cost-aware-edge`, `--no-confirm-conformal`, `--no-confirm-quantiles`, and `--no-confidence-sizing` opt-outs.
+- Optimizer defaults: switch to `equity-dd-turnover` with higher drawdown/turnover penalties, longer lookback windows, and 1h-1d interval sampling.
 - Observability: add Discord-compatible webhook notifications for bot/trade events via `TRADER_WEBHOOK_URL` (filter with `TRADER_WEBHOOK_EVENTS`).
 - Live bot: support multi-symbol bots via `botSymbols` and `TRADER_BOT_SYMBOLS`, with per-symbol status snapshots.
 - Live bot: auto-syncs to the latest top combo (poll interval `TRADER_BOT_COMBOS_POLL_SEC`) and applies it while running.
@@ -13,7 +15,7 @@ All notable changes to this project will be documented in this file.
 - API: add `/binance/positions` for open Binance futures positions plus chart-ready klines.
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
 - Web UI: add an open positions panel with charts for every Binance futures position.
-- Web UI: auto-load open positions charts on page load and interval/market changes.
+- Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
@@ -53,7 +55,9 @@ All notable changes to this project will be documented in this file.
 - Trading: entries gated by `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` now wait for a volatility estimate.
 - Trading: latest signals now apply the same volatility gating and confidence close-direction gating (including blend) as backtests.
 - Trading: conformal/quantile confirmations use the close threshold when gating close signals.
-- Live bot: startup close decisions now use the gated closeDirection logic to match backtests/latest signals.
+- Live bot: startup close decisions for adopted positions now use raw closeThreshold logic (ungated).
+- Live bot: close decisions now use the gated closeDirection logic during the run loop.
+- Live bot: bracket exits now honor stop-loss/take-profit/trailing vol-mult overrides.
 - Backtests: add volatility-targeted rebalancing (`--rebalance-bars`, `--rebalance-threshold`) and optional funding/borrow drag (`--funding-rate`).
 - Backtests: `--backtest-ratio` now errors if the split leaves too few training/backtest bars (no silent clamping).
 - Live bot: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` exit reasons even if a signal exit coincides.

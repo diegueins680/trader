@@ -54,13 +54,13 @@ cd haskell
 cabal run trader-hs -- \
   --data ../data/sample_prices.csv \
   --normalization standard \
-  --interval 5m \
-  --lookback-window 6h \
+  --interval 1h \
+  --lookback-window 7d \
   --hidden-size 8 \
   --epochs 10 \
-  --open-threshold 0.001 \
-  --close-threshold 0.001 \
-  --fee 0.0005
+  --open-threshold 0.002 \
+  --close-threshold 0.002 \
+  --fee 0.0008
 ```
 
 Using exchange klines
@@ -70,7 +70,7 @@ Fetch klines from an exchange instead of a CSV (default platform is Binance):
 cd haskell
 cabal run trader-hs -- \
   --binance-symbol BTCUSDT \
-  --interval 5m \
+  --interval 1h \
   --epochs 5
 ```
 
@@ -133,7 +133,7 @@ export BINANCE_API_KEY=...
 export BINANCE_API_SECRET=...
 cabal run trader-hs -- \
   --binance-symbol BTCUSDT \
-  --interval 5m \
+  --interval 1h \
   --epochs 5 \
   --trade-only \
   --binance-trade \
@@ -154,10 +154,10 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Coinbase products use `BASE-QUOTE` (for example `BTC-USD`).
     - Poloniex symbols use `BASE_QUOTE` (for example `BTC_USDT`); legacy `USDT_BTC` is auto-swapped.
 
-- Bars & lookback (defaults: `--interval 5m`, `--lookback-window 24h` → 288 bars, `--bars auto`)
-- `--interval 5m` (alias `--binance-interval`) bar interval / exchange kline interval
+- Bars & lookback (defaults: `--interval 1h`, `--lookback-window 7d` → 168 bars, `--bars auto`)
+- `--interval 1h` (alias `--binance-interval`) bar interval / exchange kline interval
 - `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or 500 for exchanges; CSV also supports `0` = all; Binance 2..1000)
-  - `--lookback-window 24h` lookback window duration (converted to bars)
+  - `--lookback-window 7d` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
   - Lookback must be less than the total number of bars, otherwise the backtest errors.
 
@@ -192,7 +192,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--hidden-size 16` hidden size
   - `--epochs 30` training epochs (Adam)
   - `--lr 1e-3` learning rate
-  - `--val-ratio 0.2` validation split ratio (within training set)
+  - `--val-ratio 0.3` validation split ratio (within training set)
   - `--patience 10` early stopping patience (`0` disables)
   - `--grad-clip N` (default: none) gradient clipping max L2 norm
   - `--seed 42` random seed for init
@@ -204,13 +204,13 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--kalman-market-top-n 50` optional market context measurement; skipped if fewer than `min(N, 5)` symbols are available
 
 - Strategy / costs
-  - `--open-threshold 0.001` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
-  - `--close-threshold 0.001` exit/close threshold (fractional deadband; defaults to open-threshold when omitted)
+  - `--open-threshold 0.002` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
+  - `--close-threshold 0.002` exit/close threshold (fractional deadband; defaults to open-threshold when omitted)
     - Live order placement uses `close-threshold` to decide exits when already in position, mirroring backtest logic.
   - `--min-edge F` minimum predicted return magnitude required to enter (`0` disables)
-  - `--min-signal-to-noise F` require edge / per-bar sigma >= `F` (`0` disables; default: `0.5`)
+  - `--min-signal-to-noise F` require edge / per-bar sigma >= `F` (`0` disables; default: `0.8`)
     - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread (default on; disable with `--no-cost-aware-edge`)
-    - `--edge-buffer F` optional extra buffer added on top of cost-aware edge
+    - `--edge-buffer 0.0002` optional extra buffer added on top of cost-aware edge
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
@@ -221,15 +221,15 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
   - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
     - `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
-  - `--tune-penalty-max-drawdown 1.0` penalty weight for max drawdown (used by `equity-dd*` objectives)
-  - `--tune-penalty-turnover 0.1` penalty weight for turnover (used by `equity-dd-turnover`)
+  - `--tune-penalty-max-drawdown 1.5` penalty weight for max drawdown (used by `equity-dd*` objectives)
+  - `--tune-penalty-turnover 0.2` penalty weight for turnover (used by `equity-dd-turnover`)
   - `--min-round-trips N` (default: `0`) when optimizing/sweeping, require at least `N` round trips in the tune split (helps avoid picking "no-trade" configs)
   - `--tune-stress-vol-mult F` volatility multiplier for stress scoring (`1` disables)
   - `--tune-stress-shock F` shock added to returns for stress scoring (`0` disables)
   - `--tune-stress-weight F` penalty weight for stress scoring (`0` disables)
-  - `--walk-forward-folds 5` number of folds used to score the tune split and report backtest variability (`1` disables)
+  - `--walk-forward-folds 7` number of folds used to score the tune split and report backtest variability (`1` disables)
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
-  - `--fee 0.0005` fee applied when switching position
+  - `--fee 0.0008` fee applied when switching position
   - The CLI also prints an estimated **round-trip cost** (fee + slippage + spread) and warns when thresholds are below it.
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
   - `--take-profit F` optional synthetic take profit (`0 < F < 1`)
@@ -237,25 +237,28 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--stop-loss-vol-mult F` optional: stop loss as per-bar sigma multiple (`0` disables; overrides `--stop-loss` when vol estimate is available)
   - `--take-profit-vol-mult F` optional: take profit as per-bar sigma multiple (`0` disables; overrides `--take-profit` when vol estimate is available)
   - `--trailing-stop-vol-mult F` optional: trailing stop as per-bar sigma multiple (`0` disables; overrides `--trailing-stop` when vol estimate is available)
-  - `--min-hold-bars N` minimum holding periods before allowing a signal-based exit (`0` disables; default: `2`; bracket exits still apply)
-  - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `1`)
-  - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `48`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
-  - `--trend-lookback N` simple moving average filter for entries (`0` disables; default: `20`)
-  - `--max-position-size F` optional: cap position size/leverage (`1` = full size)
-  - `--vol-target F` target annualized volatility for position sizing (`0` disables; default: `1.0`)
+  - Live-bot bracket exits honor the vol-mult overrides when exchange-native protection orders are not in use.
+  - `--min-hold-bars N` minimum holding periods before allowing a signal-based exit (`0` disables; default: `4`; bracket exits still apply)
+  - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
+  - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
+  - `--trend-lookback N` simple moving average filter for entries (`0` disables; default: `30`)
+  - `--max-position-size 0.8` cap position size/leverage (`1` = full size)
+  - `--vol-target F` target annualized volatility for position sizing (`0` disables; default: `0.7`)
     - `--vol-lookback N` realized-vol lookback window (bars) when EWMA alpha is not set
     - `--vol-ewma-alpha F` use EWMA volatility estimate (overrides lookback)
-    - `--vol-floor F` annualized vol floor for sizing (default: `0.1`)
+    - `--vol-floor F` annualized vol floor for sizing (default: `0.15`)
     - `--vol-scale-max F` cap volatility scaling (limits leverage)
-    - `--max-volatility F` block entries when annualized vol exceeds this (`0` disables; default: `2.0`)
+    - `--max-volatility F` block entries when annualized vol exceeds this (`0` disables; default: `1.5`)
   - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables; backtests only)
   - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables)
   - `--funding-rate F` optional: annualized funding/borrow rate applied per bar in backtests (`0` disables; negative allowed)
   - Entries and latest-signal actions that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
   - `--kalman-z-min 0.5` minimum Kalman |mean|/std required to treat Kalman as directional (`0` disables)
   - `--kalman-z-max 3` Z-score mapped to full position size when confidence sizing is enabled
+  - `--confirm-conformal` require conformal interval to agree with the chosen direction (default on; disable with `--no-confirm-conformal`)
+  - `--confirm-quantiles` require quantiles to agree with the chosen direction (default on; disable with `--no-confirm-quantiles`)
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
-  - `--min-position-size 0.1` minimum entry size when confidence sizing is enabled (`0..1`)
+  - `--min-position-size 0.15` minimum entry size when confidence sizing is enabled (`0..1`)
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
@@ -442,7 +445,7 @@ Optimize `method` and thresholds on the tune split (no orders):
 ```
 curl -s -X POST http://127.0.0.1:8080/backtest \
   -H 'Content-Type: application/json' \
-  -d '{"binanceSymbol":"BTCUSDT","interval":"5m","bars":1000,"optimizeOperations":true}'
+  -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":1000,"optimizeOperations":true}'
 ```
 
 ```
@@ -457,14 +460,14 @@ Start the live bot (paper mode; no orders):
 ```
 curl -s -X POST http://127.0.0.1:8080/bot/start \
   -H 'Content-Type: application/json' \
-  -d '{"binanceSymbol":"BTCUSDT","interval":"5m","bars":500,"method":"11","openThreshold":0.001,"closeThreshold":0.001,"fee":0.0005,"botOnlineEpochs":1,"botTrade":false}'
+  -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":500,"method":"11","openThreshold":0.002,"closeThreshold":0.002,"fee":0.0008,"botOnlineEpochs":1,"botTrade":false}'
 ```
 
 Start multiple symbols (auto-apply latest top combo per symbol):
 ```
 curl -s -X POST http://127.0.0.1:8080/bot/start \
   -H 'Content-Type: application/json' \
-  -d '{"botSymbols":["BTCUSDT","ETHUSDT"],"interval":"5m","bars":500,"method":"11","openThreshold":0.001,"closeThreshold":0.001,"fee":0.0005,"botOnlineEpochs":1,"botTrade":false}'
+  -d '{"botSymbols":["BTCUSDT","ETHUSDT"],"interval":"1h","bars":500,"method":"11","openThreshold":0.002,"closeThreshold":0.002,"fee":0.0008,"botOnlineEpochs":1,"botTrade":false}'
 ```
 
 Multi-symbol notes:
@@ -474,7 +477,8 @@ Multi-symbol notes:
 
 Live safety (startup position):
 - When `botTrade=true`, `/bot/start` adopts any existing position or open exchange orders for the symbol (long or short, subject to positioning).
-- Startup close decisions use the same gated `closeDirection` logic as backtests/latest signals.
+- Adopted positions use `closeThreshold` to decide hold/exit on startup (ungated by confidence filters).
+- Live bot exit decisions during the run loop use the gated `closeDirection` logic as well.
 - When `botTrade=true`, `/bot/start` also auto-starts bots for orphan open futures positions that have a matching top combo in `top-combos.json` (even if not listed in `botSymbols`).
 - `botAdoptExistingPosition` is now implied and ignored if provided.
 - If an existing position or open orders are detected, `/bot/start` waits for a top combo compatible with that operation before starting (e.g., shorts require `positioning=long-short`).
@@ -518,7 +522,7 @@ Manual edits to Method/open/close thresholds are preserved when optimizer combos
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
-The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load and when interval/market changes).
+The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load, interval/market changes, and Binance key/auth updates).
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
