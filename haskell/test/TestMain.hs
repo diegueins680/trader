@@ -400,6 +400,7 @@ testMetricsMaxDrawdown = do
           { brEquityCurve = [1.0, 1.1, 1.0]
           , brPositions = [1.0, 0.0]
           , brAgreementOk = [True, True]
+          , brAgreementValid = [True, True]
           , brPositionChanges = 2
           , brTrades = []
           }
@@ -434,6 +435,7 @@ testMetricsProfitFactorPnL = do
           { brEquityCurve = [1.0, 2.0, 1.0]
           , brPositions = [1.0, 0.0]
           , brAgreementOk = [True, True]
+          , brAgreementValid = [True, True]
           , brPositionChanges = 2
           , brTrades = [tr1, tr2]
           }

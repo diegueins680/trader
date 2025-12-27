@@ -7603,7 +7603,10 @@ export function App() {
                       const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
                       const positionsSeries = buildPositionSeries(prices, posDir);
                       const equityCurve = buildEquityCurve(prices, posDir);
-                      const statusLabel = status
+                      const tradeEnabled = status?.running
+                        ? status.settings?.tradeEnabled
+                        : status?.snapshot?.settings?.tradeEnabled;
+                      const statusLabelBase = status
                         ? status.running
                           ? "running"
                           : status.starting
@@ -7612,6 +7615,8 @@ export function App() {
                               ? "snapshot"
                               : "stopped"
                         : null;
+                      const statusLabel =
+                        statusLabelBase && tradeEnabled === false ? `${statusLabelBase} (trade off)` : statusLabelBase;
                       return (
                         <div key={`orphan-${pos.symbol}-${sideKey}`}>
                           <div className="pillRow" style={{ marginBottom: 10 }}>

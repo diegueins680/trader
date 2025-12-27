@@ -2618,6 +2618,8 @@ resolveOrphanOpenPositionSymbols limits optimizerTmp args requested =
                     [ sym
                     | (sym, requiresShort) <- sortOn fst (HM.toList openBySymbol)
                     , not (isRequested sym)
+                    , let summary = futuresPositionSummary sym openPositions
+                    , not (fpsHasLong summary && fpsHasShort summary)
                     , hasCombo sym requiresShort
                     ]
               pure (dedupeStable orphans)
@@ -2914,7 +2916,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                               Right _ -> clearError sym
                   loop = do
                     mrt <- readMVar (bcRuntime botCtrl)
-                    let missing = filter (`HM.notMember` mrt) symbols
+                    let missing = filter (not . (`HM.member` mrt)) symbols
                     mapM_ startSymbol missing
                     sleepSec pollSec
                     loop
@@ -7684,30 +7686,33 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
                   , argSweepThreshold = False
                   , argOptimizeOperations = False
                   }
-          case validateApiComputeLimits limits args of
+          case validateArgs args of
             Left e -> respond (jsonError status400 e)
-            Right argsOk -> do
-              let noCache = requestWantsNoCache req
-              r <-
-                try
-                  ( if noCache
-                      then computeLatestSignalFromArgs argsOk
-                      else computeLatestSignalFromArgsCached apiCache argsOk
-                  )
-                  :: IO (Either SomeException LatestSignal)
-              case r of
-                Left ex ->
-                  let (st, msg) = exceptionToHttp ex
-                   in respond (jsonError st msg)
-                Right sig -> do
-                  opsAppendMaybe
-                    mOps
-                    "signal"
-                    (Just (toJSON (sanitizeApiParams params)))
-                    (Just (argsPublicJson argsOk))
-                    (Just (toJSON sig))
-                    Nothing
-                  respond (jsonValue status200 sig)
+            Right args1 -> do
+              case validateApiComputeLimits limits args1 of
+                Left e -> respond (jsonError status400 e)
+                Right argsOk -> do
+                  let noCache = requestWantsNoCache req
+                  r <-
+                    try
+                      ( if noCache
+                          then computeLatestSignalFromArgs argsOk
+                          else computeLatestSignalFromArgsCached apiCache argsOk
+                      )
+                      :: IO (Either SomeException LatestSignal)
+                  case r of
+                    Left ex ->
+                      let (st, msg) = exceptionToHttp ex
+                       in respond (jsonError st msg)
+                    Right sig -> do
+                      opsAppendMaybe
+                        mOps
+                        "signal"
+                        (Just (toJSON (sanitizeApiParams params)))
+                        (Just (argsPublicJson argsOk))
+                        (Just (toJSON sig))
+                        Nothing
+                      respond (jsonValue status200 sig)
 
 handleSignalAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore LatestSignal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
@@ -7725,23 +7730,26 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
                   , argSweepThreshold = False
                   , argOptimizeOperations = False
                   }
-          case validateApiComputeLimits limits args of
+          case validateArgs args of
             Left e -> respond (jsonError status400 e)
-            Right argsOk -> do
-              let paramsJson = Just (toJSON (sanitizeApiParams params))
-                  argsJson = Just (argsPublicJson argsOk)
-                  noCache = requestWantsNoCache req
-              r <-
-                startJob store $ do
-                  sig <-
-                    if noCache
-                      then computeLatestSignalFromArgs argsOk
-                      else computeLatestSignalFromArgsCached apiCache argsOk
-                  opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing
-                  pure sig
-              case r of
-                Left e -> respond (jsonError status429 e)
-                Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
+            Right args1 -> do
+              case validateApiComputeLimits limits args1 of
+                Left e -> respond (jsonError status400 e)
+                Right argsOk -> do
+                  let paramsJson = Just (toJSON (sanitizeApiParams params))
+                      argsJson = Just (argsPublicJson argsOk)
+                      noCache = requestWantsNoCache req
+                  r <-
+                    startJob store $ do
+                      sig <-
+                        if noCache
+                          then computeLatestSignalFromArgs argsOk
+                          else computeLatestSignalFromArgsCached apiCache argsOk
+                      opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing
+                      pure sig
+                  case r of
+                    Left e -> respond (jsonError status429 e)
+                    Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 handleTrade :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond = do
@@ -9358,89 +9366,97 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
 
     placeFutures :: Maybe SymbolFilters -> String -> Int -> IO ApiOrderResult
     placeFutures mSf quoteAsset dir = do
-      posAmt <- fetchFuturesPositionAmt env sym
-      let protectPrefix = "trader_prot_"
-          volPerBar =
-            case lsVolatility sig of
-              Just vol ->
-                let perBar = vol / sqrt (max 1e-12 (periodsPerYear args))
-                 in if isNaN perBar || isInfinite perBar || perBar <= 0 then Nothing else Just perBar
-              _ -> Nothing
-          stopFromVol mult =
-            if mult <= 0
-              then Nothing
-              else
-                case volPerBar of
-                  Just v ->
-                    let frac = mult * v
-                        fracClamped = min 0.999999 (max 0 frac)
-                     in if isNaN fracClamped || isInfinite fracClamped || fracClamped <= 0
-                          then Nothing
-                          else Just fracClamped
+      summary <- fetchFuturesPositionSummary env sym
+      if fpsHasLong summary && fpsHasShort summary
+        then
+          pure
+            baseResult
+              { aorMessage = "No order: both long and short futures positions are open; flatten one side first."
+              }
+        else do
+          let posAmt = fpsNetAmt summary
+              protectPrefix = "trader_prot_"
+              volPerBar =
+                case lsVolatility sig of
+                  Just vol ->
+                    let perBar = vol / sqrt (max 1e-12 (periodsPerYear args))
+                     in if isNaN perBar || isInfinite perBar || perBar <= 0 then Nothing else Just perBar
                   _ -> Nothing
-          stopLoss0 =
-            case stopFromVol (argStopLossVolMult args) of
-              Just v -> Just v
-              Nothing ->
-                case argStopLoss args of
-                  Just v | v > 0 -> Just v
-                  _ -> Nothing
-          takeProfit0 =
-            case stopFromVol (argTakeProfitVolMult args) of
-              Just v -> Just v
-              Nothing ->
-                case argTakeProfit args of
-                  Just v | v > 0 -> Just v
-                  _ -> Nothing
-          protectionManaged = enableProtectionOrders && mode == OrderLive
-          protectionEnabled = protectionManaged && (isJust stopLoss0 || isJust takeProfit0)
-          normalizeStopPrice px =
-            case mSf >>= sfTickSize of
-              Nothing -> px
-              Just st -> quantizeDown st (max 0 px)
+              stopFromVol mult =
+                if mult <= 0
+                  then Nothing
+                  else
+                    case volPerBar of
+                      Just v ->
+                        let frac = mult * v
+                            fracClamped = min 0.999999 (max 0 frac)
+                         in if isNaN fracClamped || isInfinite fracClamped || fracClamped <= 0
+                              then Nothing
+                              else Just fracClamped
+                      _ -> Nothing
+              stopLoss0 =
+                case stopFromVol (argStopLossVolMult args) of
+                  Just v -> Just v
+                  Nothing ->
+                    case argStopLoss args of
+                      Just v | v > 0 -> Just v
+                      _ -> Nothing
+              takeProfit0 =
+                case stopFromVol (argTakeProfitVolMult args) of
+                  Just v -> Just v
+                  Nothing ->
+                    case argTakeProfit args of
+                      Just v | v > 0 -> Just v
+                      _ -> Nothing
+              protectionManaged = enableProtectionOrders && mode == OrderLive
+              protectionEnabled = protectionManaged && (isJust stopLoss0 || isJust takeProfit0)
+              normalizeStopPrice px =
+                case mSf >>= sfTickSize of
+                  Nothing -> px
+                  Just st -> quantizeDown st (max 0 px)
 
-          cancelProtectionOrders :: IO ()
-          cancelProtectionOrders =
-            if not protectionManaged
-              then pure ()
-              else do
-                _ <- try (cancelFuturesOpenOrdersByClientPrefix env sym protectPrefix) :: IO (Either SomeException Int)
-                pure ()
+              cancelProtectionOrders :: IO ()
+              cancelProtectionOrders =
+                if not protectionManaged
+                  then pure ()
+                  else do
+                    _ <- try (cancelFuturesOpenOrdersByClientPrefix env sym protectPrefix) :: IO (Either SomeException Int)
+                    pure ()
 
-          placeProtectionOrders :: Int -> Double -> IO (Either String ())
-          placeProtectionOrders protectDir entryPrice =
-            if not protectionEnabled
-              then pure (Right ())
-              else do
-                ts <- getTimestampMs
-                let mkCid suffix =
-                      let raw = protectPrefix ++ show ts ++ "_" ++ suffix
-                       in if length raw <= 36 then raw else take 36 raw
+              placeProtectionOrders :: Int -> Double -> IO (Either String ())
+              placeProtectionOrders protectDir entryPrice =
+                if not protectionEnabled
+                  then pure (Right ())
+                  else do
+                    ts <- getTimestampMs
+                    let mkCid suffix =
+                          let raw = protectPrefix ++ show ts ++ "_" ++ suffix
+                           in if length raw <= 36 then raw else take 36 raw
 
-                    place1 :: OrderSide -> String -> Double -> String -> IO (Either String ())
-                    place1 side orderType px suffix = do
-                      let cid = mkCid suffix
-                          px1 = normalizeStopPrice px
-                      r <- try (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
-                      pure $
-                        case r of
-                          Left ex -> Left (take 240 (show ex))
-                          Right _ -> Right ()
+                        place1 :: OrderSide -> String -> Double -> String -> IO (Either String ())
+                        place1 side orderType px suffix = do
+                          let cid = mkCid suffix
+                              px1 = normalizeStopPrice px
+                          r <- try (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
+                          pure $
+                            case r of
+                              Left ex -> Left (take 240 (show ex))
+                              Right _ -> Right ()
 
-                    (slSide, mSlPx, tpSide, mTpPx) =
-                      if protectDir < 0
-                        then
-                          ( Buy
-                          , (\sl -> entryPrice * (1 + sl)) <$> stopLoss0
-                          , Buy
-                          , (\tp -> entryPrice * (1 - tp)) <$> takeProfit0
-                          )
-                        else
-                          ( Sell
-                          , (\sl -> entryPrice * (1 - sl)) <$> stopLoss0
-                          , Sell
-                          , (\tp -> entryPrice * (1 + tp)) <$> takeProfit0
-                          )
+                        (slSide, mSlPx, tpSide, mTpPx) =
+                          if protectDir < 0
+                            then
+                              ( Buy
+                              , (\sl -> entryPrice * (1 + sl)) <$> stopLoss0
+                              , Buy
+                              , (\tp -> entryPrice * (1 - tp)) <$> takeProfit0
+                              )
+                            else
+                              ( Sell
+                              , (\sl -> entryPrice * (1 - sl)) <$> stopLoss0
+                              , Sell
+                              , (\tp -> entryPrice * (1 + tp)) <$> takeProfit0
+                              )
 
                 rSl <-
                   case mSlPx of
@@ -9496,96 +9512,96 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
               then "No order: computed quote is 0 (check futures balance / orderQuoteFraction / maxOrderQuote)."
               else "No order: futures requires orderQuantity or orderQuote."
 
-      case dir of
-        1 ->
-          if posAmt > 0
-            then
-              if protectionEnabled
-                then do
-                  cancelProtectionOrders
-                  r <- placeProtectionOrders 1 currentPrice
-                  pure $
-                    case r of
-                      Left e -> baseResult { aorMessage = "No market order: already long. " ++ e }
-                      Right () -> baseResult { aorMessage = "No market order: already long. Protection orders refreshed." }
-                else pure baseResult { aorMessage = "No order: already long." }
-            else
-              case mDesiredQtyRaw of
-                Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
-                Just q0 -> do
-                  cancelProtectionOrders
-                  let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
-                  case normalizeFuturesQty qtyToBuyRaw of
-                    Left e -> pure baseResult { aorMessage = "No order: " ++ e }
-                    Right q ->
-                      if q <= 0
-                        then pure baseResult { aorMessage = "No order: quantity is 0." }
-                        else do
-                          out <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
-                          if aorSent out && protectionEnabled
-                            then do
-                              let fillPx =
-                                    case (aorExecutedQty out, aorCummulativeQuoteQty out) of
-                                      (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
-                                      _ -> currentPrice
-                              r <- placeProtectionOrders 1 fillPx
-                              pure $
-                                case r of
-                                  Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
-                                  Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
-                            else pure out
-        (-1) ->
-          case argPositioning args of
-            LongShort ->
-              if posAmt < 0
+          case dir of
+            1 ->
+              if posAmt > 0
                 then
                   if protectionEnabled
                     then do
                       cancelProtectionOrders
-                      r <- placeProtectionOrders (-1) currentPrice
+                      r <- placeProtectionOrders 1 currentPrice
                       pure $
                         case r of
-                          Left e -> baseResult { aorMessage = "No market order: already short. " ++ e }
-                          Right () -> baseResult { aorMessage = "No market order: already short. Protection orders refreshed." }
-                    else pure baseResult { aorMessage = "No order: already short." }
+                          Left e -> baseResult { aorMessage = "No market order: already long. " ++ e }
+                          Right () -> baseResult { aorMessage = "No market order: already long. Protection orders refreshed." }
+                    else pure baseResult { aorMessage = "No order: already long." }
                 else
                   case mDesiredQtyRaw of
                     Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
                     Just q0 -> do
                       cancelProtectionOrders
-                      let qtyToSellRaw = if posAmt > 0 then posAmt + q0 else q0
-                      case normalizeFuturesQty qtyToSellRaw of
+                      let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
+                      case normalizeFuturesQty qtyToBuyRaw of
                         Left e -> pure baseResult { aorMessage = "No order: " ++ e }
                         Right q ->
                           if q <= 0
                             then pure baseResult { aorMessage = "No order: quantity is 0." }
                             else do
-                              out <- sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
+                              out <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
                               if aorSent out && protectionEnabled
                                 then do
                                   let fillPx =
                                         case (aorExecutedQty out, aorCummulativeQuoteQty out) of
                                           (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
                                           _ -> currentPrice
-                                  r <- placeProtectionOrders (-1) fillPx
+                                  r <- placeProtectionOrders 1 fillPx
                                   pure $
                                     case r of
                                       Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
                                       Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
                                 else pure out
-            LongFlat ->
-              if posAmt == 0
-                then do
-                  cancelProtectionOrders
-                  pure baseResult { aorMessage = "No order: already flat." }
-                else if posAmt > 0
-                  then do
-                    cancelProtectionOrders
-                    closeOrder "SELL" Sell (abs posAmt)
-                  else do
-                    cancelProtectionOrders
-                    closeOrder "BUY" Buy (abs posAmt)
-        _ -> pure baseResult { aorMessage = neutralMsg }
+            (-1) ->
+              case argPositioning args of
+                LongShort ->
+                  if posAmt < 0
+                    then
+                      if protectionEnabled
+                        then do
+                          cancelProtectionOrders
+                          r <- placeProtectionOrders (-1) currentPrice
+                          pure $
+                            case r of
+                              Left e -> baseResult { aorMessage = "No market order: already short. " ++ e }
+                              Right () -> baseResult { aorMessage = "No market order: already short. Protection orders refreshed." }
+                        else pure baseResult { aorMessage = "No order: already short." }
+                    else
+                      case mDesiredQtyRaw of
+                        Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
+                        Just q0 -> do
+                          cancelProtectionOrders
+                          let qtyToSellRaw = if posAmt > 0 then posAmt + q0 else q0
+                          case normalizeFuturesQty qtyToSellRaw of
+                            Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                            Right q ->
+                              if q <= 0
+                                then pure baseResult { aorMessage = "No order: quantity is 0." }
+                                else do
+                                  out <- sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
+                                  if aorSent out && protectionEnabled
+                                    then do
+                                      let fillPx =
+                                            case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                              (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                              _ -> currentPrice
+                                      r <- placeProtectionOrders (-1) fillPx
+                                      pure $
+                                        case r of
+                                          Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
+                                          Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
+                                    else pure out
+                LongFlat ->
+                  if posAmt == 0
+                    then do
+                      cancelProtectionOrders
+                      pure baseResult { aorMessage = "No order: already flat." }
+                    else if posAmt > 0
+                      then do
+                        cancelProtectionOrders
+                        closeOrder "SELL" Sell (abs posAmt)
+                      else do
+                        cancelProtectionOrders
+                        closeOrder "BUY" Buy (abs posAmt)
+            _ -> pure baseResult { aorMessage = neutralMsg }
 
     modeLabel m =
       case m of
@@ -10898,6 +10914,7 @@ baselineSimLongFlat perSideCost prices wantLong =
         { brEquityCurve = reverse eqRev'
         , brPositions = reverse posRev
         , brAgreementOk = replicate stepCount True
+        , brAgreementValid = replicate stepCount True
         , brPositionChanges = changesFinal'
         , brTrades = reverse tradesRev'
         }
@@ -11102,8 +11119,8 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                           (Just q, (-1)) -> q90 q < negate thr
                           _ -> False
 
-                  gateKalmanDir :: Double -> Double -> Maybe RegimeProbs -> Maybe Interval -> Maybe Quantiles -> Double -> Maybe Int -> (Maybe Int, Maybe String)
-                  gateKalmanDir thr kalZ mReg mI mQ confScore dirRaw =
+                  gateKalmanDir :: Bool -> Double -> Double -> Maybe RegimeProbs -> Maybe Interval -> Maybe Quantiles -> Double -> Maybe Int -> (Maybe Int, Maybe String)
+                  gateKalmanDir useSizing thr kalZ mReg mI mQ confScore dirRaw =
                     case dirRaw of
                       Nothing -> (Nothing, Nothing)
                       Just dir ->
@@ -11123,7 +11140,6 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                                 (Just maxW, Just q) -> quantileWidth q <= maxW
                                 (Just _, Nothing) -> False
                                 _ -> True
-                            confOk = confScore >= argMinPositionSize args
                          in if kalZ < zMin
                               then (Nothing, Just "KALMAN_Z")
                               else if not hvOk
@@ -11136,7 +11152,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                                       then (Nothing, Just "CONFORMAL_CONFIRM")
                                       else if not (confirmQuantiles thr mQ dir)
                                         then (Nothing, Just "QUANTILE_CONFIRM")
-                                        else if argConfidenceSizing args && not confOk
+                                        else if useSizing && confScore < argMinPositionSize args
                                           then (Nothing, Just "MIN_SIZE")
                                           else (Just dir, Nothing)
 
@@ -11184,8 +11200,8 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                                   case dirRaw of
                                     Nothing -> 0
                                     Just _ -> 1
-                            (dirUsed, mWhy) = gateKalmanDir openThr kalZ mReg mI mQ confScore dirRaw
-                            (closeDirUsed, _) = gateKalmanDir closeThr kalZ mReg mI mQ confScore closeDirRaw
+                            (dirUsed, mWhy) = gateKalmanDir (argConfidenceSizing args) openThr kalZ mReg mI mQ confScore dirRaw
+                            (closeDirUsed, _) = gateKalmanDir False closeThr kalZ mReg mI mQ confScore closeDirRaw
                             sizeUsed =
                               case dirUsed of
                                 Nothing -> 0
@@ -11261,9 +11277,9 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                                 then confScore
                                 else if blendDir == Nothing then 0 else 1
                             (dirUsed, mWhy) =
-                              gateKalmanDir openThr kalZ mRegimes mConformal mQuantiles confScore blendDir
+                              gateKalmanDir (argConfidenceSizing args) openThr kalZ mRegimes mConformal mQuantiles confScore blendDir
                             (closeDirUsed, _) =
-                              gateKalmanDir closeThr kalZ mRegimes mConformal mQuantiles confScore blendCloseDir
+                              gateKalmanDir False closeThr kalZ mRegimes mConformal mQuantiles confScore blendCloseDir
                             sizeUsed =
                               case dirUsed of
                                 Nothing -> 0
@@ -11331,7 +11347,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                   sizeScaled = baseSize * volScale
                   sizeCapped = min maxPositionSize (max 0 sizeScaled)
                   sizeFinal0 =
-                    if sizeCapped < argMinPositionSize args
+                    if argConfidenceSizing args && sizeCapped < argMinPositionSize args
                       then 0
                       else sizeCapped
 

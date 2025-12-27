@@ -16,17 +16,19 @@ All notable changes to this project will be documented in this file.
 - Live bot: always adopts existing positions on startup (`botAdoptExistingPosition` is now implicit).
 - Live bot: startup waits for the top combo compatible with adopted positions or open orders before running.
 - Live bot: `/bot/start` auto-adopts orphan open futures positions when a matching top combo exists.
-- Live bot/API: futures position checks now respect hedge-mode sides, and bot start/adoption rejects simultaneous long+short positions for the same symbol.
+- Live bot/API: futures position checks now respect hedge-mode sides; bot start/adoption and futures trade requests reject simultaneous long+short positions for the same symbol.
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
 - API: add `/binance/positions` for open Binance futures positions plus chart-ready klines.
+- API: `/signal` endpoints now validate request parameters the same way as CLI invocations.
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
 - Web UI: add an open positions panel with charts for every Binance futures position.
 - Web UI: orphaned operations panel now matches by market + hedge side and labels orphan reasons (market mismatch, stopped, trading disabled, side mismatch).
 - Web UI: add an orphaned operations panel that highlights open futures positions not currently adopted by a running bot.
 - Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates (including API token changes).
-- Web UI: open positions/orphaned operations cards key by position side and ignore bots with trade disabled when determining adoption.
+- Web UI: open positions/orphaned operations cards key by position side, ignore bots with trade disabled when determining adoption, and label trade-off bots explicitly.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).
+- Metrics: agreement rate now counts only bars where both models emit a direction (warm-up/no-signal bars excluded).
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
@@ -69,7 +71,7 @@ All notable changes to this project will be documented in this file.
 - Backtests: error when lookback bars are not less than the total bar count (prevents silent no-trade runs).
 - Trading: daily-loss halts reset at UTC day boundaries when bar timestamps are available (exchange/CSV timestamps; otherwise interval-based).
 - Trading: entries gated by `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` now wait for a volatility estimate.
-- Trading: latest signals now apply the same volatility gating and confidence close-direction gating (including blend) as backtests.
+- Trading: latest signals now apply the same volatility gating and confidence close-direction gating (including blend) as backtests, without applying min-position-size to exits.
 - Trading: conformal/quantile confirmations use the close threshold when gating close signals.
 - Trading: min-position-size only gates entries when confidence sizing is enabled, and close-direction gating no longer applies the min-position-size threshold.
 - Live bot: startup close decisions for adopted positions now use the gated closeDirection logic (matching the run loop).

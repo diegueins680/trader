@@ -87,8 +87,12 @@ computeMetrics periodsPerYear br =
 
       agree =
         let flags = brAgreementOk br
-            total = length flags
-            agrees = foldl' (\acc f -> if f then acc + 1 else acc) 0 flags
+            valids = brAgreementValid br
+            step (accOk, accTotal) (ok, valid) =
+              if valid
+                then (accOk + if ok then 1 else 0, accTotal + 1)
+                else (accOk, accTotal)
+            (agrees, total) = foldl' step (0, 0) (zip flags valids)
          in if total == 0 then 0 else fromIntegral agrees / fromIntegral total
 
       positionChanges = brPositionChanges br

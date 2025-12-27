@@ -177,7 +177,8 @@ data OpenTrade = OpenTrade
 data BacktestResult = BacktestResult
   { brEquityCurve :: [Double]     -- length n
   , brPositions :: [Double]       -- length n-1 (signed position size at bar open for t->t+1, -1..1)
-  , brAgreementOk :: [Bool]       -- length n-1 (open-direction agreement when both models emit a direction)
+  , brAgreementOk :: [Bool]       -- length n-1 (True when both models emit a direction and agree)
+  , brAgreementValid :: [Bool]    -- length n-1 (True when both models emit a direction)
   , brPositionChanges :: !Int
   , brTrades :: [Trade]
   } deriving (Eq, Show)
@@ -766,7 +767,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                     then (Nothing, 0)
                                     else (Just side, size0)
 
-              stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc, dead, cooldownLeft, riskState0) t =
+              stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, agreeValidAcc, changes, openTrade, tradesAcc, dead, cooldownLeft, riskState0) t =
                 if dead
                   then
                     ( Nothing
@@ -775,6 +776,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                     , equity : eqAcc
                     , 0 : posAcc
                     , False : agreeAcc
+                    , False : agreeValidAcc
                     , changes
                     , Nothing
                     , tradesAcc
@@ -835,9 +837,9 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             Just ot -> otHoldingPeriods ot
                         cooldownActive = posSide == Nothing && cooldownLeft > 0
                         cooldownNext0 = if posSide == Nothing then max 0 (cooldownLeft - 1) else 0
-                        (agreeOk, desiredSideRaw, desiredSizeRaw, edgeRaw, mOpenSignal) =
+                        (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, mOpenSignal) =
                           if t < startT
-                            then (False, posSide, posSize, 0, Nothing)
+                            then (False, False, posSide, posSize, 0, Nothing)
                             else
                               let kp = kalPredNextV V.! t
                                   lp = lstmPredNextV V.! (t - startT)
@@ -864,6 +866,10 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                          in (openDir, openSize, closeDir)
                                   lstmOpenDir = direction openThr prev lp
                                   lstmCloseDir = direction closeThr prev lp
+                                  agreeValid =
+                                    case (kalOpenDir, lstmOpenDir) of
+                                      (Just _, Just _) -> True
+                                      _ -> False
                                   agreeOk =
                                     case (kalOpenDir, lstmOpenDir) of
                                       (Just a, Just b) -> a == b
@@ -897,7 +903,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                             if closeAgreeDir == Just SideShort
                                               then (Just SideShort, posSize)
                                               else (Nothing, 0)
-                               in (agreeOk, desiredSide', desiredSize', edgeRaw, openSignal)
+                               in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, openSignal)
 
                         desiredSize0 =
                           if desiredSideRaw == Nothing
@@ -1326,6 +1332,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                       , equityFinal3 : eqAcc
                       , (maybe 0 sideSign posAfterSwitch * posSizeAfterSwitch) : posAcc
                       , agreeOk : agreeAcc
+                      , agreeValid : agreeValidAcc
                       , changesFinal3
                       , openTradeFinal3
                       , tradesFinal3
@@ -1334,13 +1341,14 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                       , (max peakEq1 equityFinal3, dayKey1, dayStartEq1, haltReason2)
                       )
 
-              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, changes, openTrade, tradesRev, _deadFinal, _cooldownFinal, _riskFinal) =
+              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, agreeValidRev, changes, openTrade, tradesRev, _deadFinal, _cooldownFinal, _riskFinal) =
                 foldl'
                   stepFn
                   ( Nothing :: Maybe PositionSide
                   , 0 :: Double
                   , 1.0
                   , [1.0]
+                  , []
                   , []
                   , []
                   , 0 :: Int
@@ -1377,6 +1385,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                 { brEquityCurve = eqCurve
                 , brPositions = reverse posRev
                 , brAgreementOk = reverse agreeRev
+                , brAgreementValid = reverse agreeValidRev
                 , brPositionChanges = changes
                 , brTrades = reverse tradesRev'
                 }

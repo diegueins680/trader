@@ -266,6 +266,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--confirm-quantiles` require quantiles to agree with the chosen direction (default on; disable with `--no-confirm-quantiles`)
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
   - `--min-position-size 0.15` minimum entry size when confidence sizing is enabled (`0..1`; ignored when confidence sizing is disabled)
+  - Close-direction gating ignores `--min-position-size` so exits are not blocked by low confidence.
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
@@ -285,7 +286,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
     - Backtest: `{ "mode": "backtest", "backtest": ... }` (includes `"baselines"` like `buy-hold` / `sma-cross(...)`, and `"trade"` if `--binance-trade` is set)
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
-    - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match with non-neutral directions.
+    - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match with non-neutral directions; agreement rate only counts bars where both models emit a non-neutral open direction.
     - Latest signal output includes `closeDirection` to indicate the close-threshold direction (when available).
     - When confidence gating is enabled, `closeDirection` respects the gated signal direction (matching backtests).
 
@@ -328,6 +329,7 @@ Endpoints:
 - `POST /trade` → returns the latest signal + attempts an order (Binance test orders by default; Coinbase is live-only)
 - `POST /trade/async` → starts an async trade job
 - `GET /trade/async/:jobId` → polls an async trade job (also accepts `POST` for proxy compatibility)
+- Signal endpoints validate request parameters the same way as the CLI; invalid ranges return 400.
 - `POST /backtest` → runs a backtest and returns summary metrics
 - `POST /backtest/async` → starts an async backtest job
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
@@ -525,7 +527,7 @@ Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
 - `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), or `"blend"` (weighted average; see `--blend-weight`).
 - `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
-- Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption.
+- Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption or futures trade requests.
 
 Deploy to AWS
 -------------
@@ -548,7 +550,7 @@ Combos can be previewed without applying; use Apply (or Apply top combo) to load
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load, interval/market changes, and Binance key/auth updates including API token changes).
-The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, and bots with `tradeEnabled=false` do not count as adopted.
+The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
