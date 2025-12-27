@@ -88,6 +88,7 @@ import {
 } from "./app/formState";
 import {
   actionBadgeClass,
+  buildOrphanedPositions,
   buildRequestIssueDetails,
   clamp,
   escapeSingleQuotes,
@@ -105,6 +106,7 @@ import {
   marketLabel,
   methodLabel,
   normalizeApiBaseUrlInput,
+  normalizeSymbolKey,
   numFromInput,
 } from "./app/utils";
 import { BacktestChart } from "./components/BacktestChart";
@@ -196,10 +198,6 @@ function invalidSymbolsForPlatform(platform: Platform, symbols: string[]): strin
   return symbols.filter((sym) => !pattern.test(sym));
 }
 
-function normalizeSymbolKey(raw: string): string {
-  return raw.trim().toUpperCase();
-}
-
 function parseMaybeInt(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -258,6 +256,15 @@ function buildEquityCurve(prices: number[], side: number): number[] {
     out.push(last * ratio);
   }
   return out;
+}
+
+function positionSideInfo(positionAmt: number, positionSide?: string | null): { dir: number; label: string; key: string } {
+  const raw = positionSide?.trim().toUpperCase();
+  const side = raw && raw !== "BOTH" ? raw : null;
+  const dir = side === "SHORT" ? -1 : side === "LONG" ? 1 : positionAmt > 0 ? 1 : positionAmt < 0 ? -1 : 0;
+  const label = side ?? (dir > 0 ? "LONG" : dir < 0 ? "SHORT" : "FLAT");
+  const key = side ?? (dir > 0 ? "LONG" : dir < 0 ? "SHORT" : "FLAT");
+  return { dir, label, key };
 }
 
 function listenKeyKeepAliveIntervalMs(keepAliveMs: number): number {
@@ -537,8 +544,10 @@ function applyComboToForm(
     coerceNumber(combo.params.rebalanceThreshold ?? prev.rebalanceThreshold, prev.rebalanceThreshold),
   );
   const rebalanceGlobal = combo.params.rebalanceGlobal ?? prev.rebalanceGlobal;
+  const rebalanceResetOnSignal = combo.params.rebalanceResetOnSignal ?? prev.rebalanceResetOnSignal;
   const fundingRate = coerceNumber(combo.params.fundingRate ?? prev.fundingRate, prev.fundingRate);
   const fundingBySide = combo.params.fundingBySide ?? prev.fundingBySide;
+  const fundingOnOpen = combo.params.fundingOnOpen ?? prev.fundingOnOpen;
   const blendWeight = clamp(coerceNumber(combo.params.blendWeight ?? prev.blendWeight, prev.blendWeight), 0, 1);
   const tuneStressVolMult = Math.max(0, coerceNumber(combo.params.tuneStressVolMult ?? prev.tuneStressVolMult, prev.tuneStressVolMult));
   const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
@@ -637,8 +646,10 @@ function applyComboToForm(
     rebalanceBars,
     rebalanceThreshold,
     rebalanceGlobal,
+    rebalanceResetOnSignal,
     fundingRate,
     fundingBySide,
+    fundingOnOpen,
     blendWeight,
     kalmanZMin,
     kalmanZMax,
@@ -734,8 +745,10 @@ function formApplySignature(form: FormState): string {
     sigNumber(form.rebalanceBars),
     sigNumber(form.rebalanceThreshold),
     sigBool(form.rebalanceGlobal),
+    sigBool(form.rebalanceResetOnSignal),
     sigNumber(form.fundingRate),
     sigBool(form.fundingBySide),
+    sigBool(form.fundingOnOpen),
     sigNumber(form.blendWeight),
     sigNumber(form.kalmanZMin),
     sigNumber(form.kalmanZMax),
@@ -1564,7 +1577,9 @@ export function App() {
     const rebalanceThreshold = Math.max(0, form.rebalanceThreshold);
     const fundingRate = Number.isFinite(form.fundingRate) ? form.fundingRate : 0;
     const rebalanceGlobal = form.rebalanceGlobal;
+    const rebalanceResetOnSignal = form.rebalanceResetOnSignal;
     const fundingBySide = form.fundingBySide;
+    const fundingOnOpen = form.fundingOnOpen;
     const tuneStressVolMult = form.tuneStressVolMult <= 0 ? 1 : form.tuneStressVolMult;
     const minPositionSize = clamp(form.minPositionSize, 0, 1);
     const base: ApiParams = {
@@ -1607,8 +1622,10 @@ export function App() {
       rebalanceBars,
       rebalanceThreshold,
       rebalanceGlobal,
+      rebalanceResetOnSignal,
       fundingRate,
       fundingBySide,
+      fundingOnOpen,
       blendWeight: clamp(form.blendWeight, 0, 1),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       tuneRatio: clamp(form.tuneRatio, 0, 0.99),
@@ -1776,10 +1793,6 @@ export function App() {
     [botEntries],
   );
   const botStatusBySymbol = useMemo(() => new Map(botEntriesWithSymbol.map((entry) => [entry.symbol, entry.status])), [botEntriesWithSymbol]);
-  const botStatusBySymbolNormalized = useMemo(
-    () => new Map(botEntriesWithSymbol.map((entry) => [normalizeSymbolKey(entry.symbol), entry.status])),
-    [botEntriesWithSymbol],
-  );
   const botSymbolsActive = useMemo(() => botEntriesWithSymbol.map((entry) => entry.symbol), [botEntriesWithSymbol]);
   const botSymbolOptions = useMemo(
     () =>
@@ -1798,10 +1811,14 @@ export function App() {
         .map((entry) => entry.symbol),
     [botEntriesWithSymbol],
   );
-  const botActiveSymbolSet = useMemo(() => new Set(botActiveSymbols), [botActiveSymbols]);
+  const botActiveSymbolSet = useMemo(
+    () => new Set(botActiveSymbols.map((sym) => normalizeSymbolKey(sym))),
+    [botActiveSymbols],
+  );
+  const botStartSymbolsNormalized = useMemo(() => botStartSymbols.map((sym) => normalizeSymbolKey(sym)), [botStartSymbols]);
   const botHasNewSymbols = useMemo(
-    () => (botStartSymbols.length > 0 ? botStartSymbols.some((sym) => !botActiveSymbolSet.has(sym)) : false),
-    [botActiveSymbolSet, botStartSymbols],
+    () => (botStartSymbolsNormalized.length > 0 ? botStartSymbolsNormalized.some((sym) => !botActiveSymbolSet.has(sym)) : false),
+    [botActiveSymbolSet, botStartSymbolsNormalized],
   );
   const botSelectedStatus = useMemo(() => {
     if (botEntriesWithSymbol.length === 0) return null;
@@ -2969,23 +2986,20 @@ export function App() {
     for (const chart of charts) map.set(chart.symbol, chart);
     return map;
   }, [binancePositionsUi.response?.charts]);
-  const orphanPositions = useMemo(() => {
-    if (binancePositionsList.length === 0) return [];
-    return binancePositionsList
-      .map((pos) => {
-        const status = botStatusBySymbolNormalized.get(normalizeSymbolKey(pos.symbol)) ?? null;
-        const adopted = status ? status.running || status.starting === true : false;
-        return adopted ? null : { pos, status };
-      })
-      .filter((entry): entry is { pos: (typeof binancePositionsList)[number]; status: BotStatusSingle | null } => Boolean(entry));
-  }, [binancePositionsList, botStatusBySymbolNormalized]);
+  const orphanPositions = useMemo(
+    () =>
+      buildOrphanedPositions(binancePositionsList, botEntriesWithSymbol, {
+        market: binancePositionsUi.response?.market ?? form.market,
+      }),
+    [binancePositionsList, binancePositionsUi.response?.market, botEntriesWithSymbol, form.market],
+  );
 
   useEffect(() => {
     if (apiOk !== "ok") return;
     if (binancePositionsInputError) return;
     const interval = form.interval.trim();
     if (!interval) return;
-    const authKey = `${apiBase}:${authHeaders ? "auth" : "noauth"}:${binanceApiKey.trim()}:${binanceApiSecret.trim()}`;
+    const authKey = `${apiBase}:${apiToken.trim()}:${binanceApiKey.trim()}:${binanceApiSecret.trim()}`;
     const key = `${form.market}:${form.binanceTestnet ? "t" : "f"}:${interval}:${binancePositionsLimitSafe}:${authKey}`;
     if (binancePositionsAutoKeyRef.current === key) return;
     binancePositionsAutoKeyRef.current = key;
@@ -2994,6 +3008,7 @@ export function App() {
     apiOk,
     apiBase,
     authHeaders,
+    apiToken,
     binanceApiKey,
     binanceApiSecret,
     binancePositionsInputError,
@@ -3191,9 +3206,11 @@ export function App() {
               ? Math.max(0, params.rebalanceThreshold)
               : null;
           const rebalanceGlobal = typeof params.rebalanceGlobal === "boolean" ? params.rebalanceGlobal : null;
+          const rebalanceResetOnSignal = typeof params.rebalanceResetOnSignal === "boolean" ? params.rebalanceResetOnSignal : null;
           const fundingRate =
             typeof params.fundingRate === "number" && Number.isFinite(params.fundingRate) ? params.fundingRate : null;
           const fundingBySide = typeof params.fundingBySide === "boolean" ? params.fundingBySide : null;
+          const fundingOnOpen = typeof params.fundingOnOpen === "boolean" ? params.fundingOnOpen : null;
           const periodsPerYear =
             typeof params.periodsPerYear === "number" && Number.isFinite(params.periodsPerYear)
               ? Math.max(0, params.periodsPerYear)
@@ -3356,6 +3373,8 @@ export function App() {
               rebalanceGlobal,
               fundingRate,
               fundingBySide,
+              rebalanceResetOnSignal,
+              fundingOnOpen,
               periodsPerYear,
               blendWeight,
               walkForwardFolds,
@@ -5452,7 +5471,25 @@ export function App() {
                     Funding by side
                   </label>
                 </div>
-                <div className="hint">Defaults: rebalancing anchors to entry age and funding is side-agnostic.</div>
+                <div className="pillRow" style={{ marginTop: 6 }}>
+                  <label className="pill">
+                    <input
+                      type="checkbox"
+                      checked={form.rebalanceResetOnSignal}
+                      onChange={(e) => setForm((f) => ({ ...f, rebalanceResetOnSignal: e.target.checked }))}
+                    />
+                    Reset rebalance on signal
+                  </label>
+                  <label className="pill">
+                    <input
+                      type="checkbox"
+                      checked={form.fundingOnOpen}
+                      onChange={(e) => setForm((f) => ({ ...f, fundingOnOpen: e.target.checked }))}
+                    />
+                    Funding on open bar
+                  </label>
+                </div>
+                <div className="hint">Defaults: rebalancing anchors to entry age; funding is side-agnostic and only charged if the position survives the bar.</div>
                 <div className="hint">Vol sizing scales position by target/realized volatility when vol target is set.</div>
               </div>
             </div>
@@ -7471,14 +7508,15 @@ export function App() {
                       const chart = binancePositionsCharts.get(pos.symbol);
                       const prices = chart?.prices ?? [];
                       const positionAmt = pos.positionAmt;
-                      const posDir = positionAmt > 0 ? 1 : -1;
-                      const sideRaw = pos.positionSide?.toUpperCase();
-                      const sideLabel = sideRaw && sideRaw !== "BOTH" ? sideRaw : posDir > 0 ? "LONG" : "SHORT";
+                      const sideInfo = positionSideInfo(positionAmt, pos.positionSide);
+                      const posDir = sideInfo.dir;
+                      const sideLabel = sideInfo.label;
+                      const sideKey = sideInfo.key;
                       const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
                       const positionsSeries = buildPositionSeries(prices, posDir);
                       const equityCurve = buildEquityCurve(prices, posDir);
                       return (
-                        <div key={pos.symbol}>
+                        <div key={`${pos.symbol}:${sideKey}`}>
                           <div className="pillRow" style={{ marginBottom: 10 }}>
                             <span className="badge badgeStrong">{pos.symbol}</span>
                             <span className={`badge ${posDir > 0 ? "badgeLong" : "badgeFlat"}`}>{sideLabel}</span>
@@ -7528,7 +7566,9 @@ export function App() {
             </div>
             <div className="cardBody">
               <div className="pillRow" style={{ marginBottom: 10 }}>
-                <span className="badge">{orphanPositions.length} orphaned</span>
+                <span className="badge">
+                  {binancePositionsUi.response ? orphanPositions.length : "—"} orphaned
+                </span>
                 {binancePositionsUi.response ? (
                   <span className="badge">Updated {fmtTimeMs(binancePositionsUi.response.fetchedAtMs)}</span>
                 ) : null}
@@ -7552,13 +7592,14 @@ export function App() {
                   <div className="hint">No orphaned operations detected.</div>
                 ) : (
                   <div style={{ display: "grid", gap: 18 }}>
-                    {orphanPositions.map(({ pos, status }) => {
+                    {orphanPositions.map(({ pos, status, reason }) => {
                       const chart = binancePositionsCharts.get(pos.symbol);
                       const prices = chart?.prices ?? [];
                       const positionAmt = pos.positionAmt;
-                      const posDir = positionAmt > 0 ? 1 : -1;
-                      const sideRaw = pos.positionSide?.toUpperCase();
-                      const sideLabel = sideRaw && sideRaw !== "BOTH" ? sideRaw : posDir > 0 ? "LONG" : "SHORT";
+                      const sideInfo = positionSideInfo(positionAmt, pos.positionSide);
+                      const posDir = sideInfo.dir;
+                      const sideLabel = sideInfo.label;
+                      const sideKey = sideInfo.key;
                       const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
                       const positionsSeries = buildPositionSeries(prices, posDir);
                       const equityCurve = buildEquityCurve(prices, posDir);
@@ -7570,13 +7611,14 @@ export function App() {
                             : status.snapshot
                               ? "snapshot"
                               : "stopped"
-                        : "no bot";
+                        : null;
                       return (
-                        <div key={`orphan-${pos.symbol}`}>
+                        <div key={`orphan-${pos.symbol}-${sideKey}`}>
                           <div className="pillRow" style={{ marginBottom: 10 }}>
                             <span className="badge badgeStrong">{pos.symbol}</span>
                             <span className={`badge ${posDir > 0 ? "badgeLong" : "badgeFlat"}`}>{sideLabel}</span>
-                            <span className="badge">{statusLabel}</span>
+                            {statusLabel ? <span className="badge">{statusLabel}</span> : null}
+                            <span className="badge">{reason}</span>
                             <span className="badge">size {fmtNum(Math.abs(positionAmt), 6)}</span>
                             <span className="badge">entry {fmtNum(pos.entryPrice, 6)}</span>
                             <span className="badge">mark {fmtNum(pos.markPrice, 6)}</span>

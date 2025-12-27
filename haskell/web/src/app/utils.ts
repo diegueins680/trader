@@ -1,4 +1,4 @@
-import type { Market, Method } from "../lib/types";
+import type { BotStatusSingle, Market, Method } from "../lib/types";
 import { fmtNum } from "../lib/format";
 import { DATA_LOG_BAR_SERIES_KEYS } from "./constants";
 
@@ -55,6 +55,99 @@ export function normalizeApiBaseUrlInput(raw: string): string {
 
   const scheme = isLocal ? "http" : port && port !== "443" ? "http" : "https";
   return `${scheme}://${normalizeAuthority()}${rest}`;
+}
+
+export function normalizeSymbolKey(raw: string): string {
+  return raw.trim().toUpperCase();
+}
+
+export function normalizePositionSide(raw: string | null | undefined): "LONG" | "SHORT" | "BOTH" | null {
+  if (!raw) return null;
+  const value = raw.trim().toUpperCase();
+  if (value === "LONG" || value === "SHORT" || value === "BOTH") return value;
+  return null;
+}
+
+export function positionSideFromAmount(amount: number): "LONG" | "SHORT" | null {
+  if (!Number.isFinite(amount) || amount === 0) return null;
+  return amount > 0 ? "LONG" : "SHORT";
+}
+
+export function botPositionSide(status: BotStatusSingle): "LONG" | "SHORT" | null {
+  const positions = status.running ? status.positions : status.snapshot?.positions;
+  if (!positions || positions.length === 0) return null;
+  const last = positions[positions.length - 1];
+  if (!Number.isFinite(last) || Math.abs(last) <= 1e-12) return null;
+  return last > 0 ? "LONG" : "SHORT";
+}
+
+export function botTradeEnabled(status: BotStatusSingle): boolean | null {
+  if (status.running) return status.settings?.tradeEnabled ?? null;
+  return status.snapshot?.settings?.tradeEnabled ?? null;
+}
+
+export type OrphanedPosition<T> = { pos: T; status: BotStatusSingle | null; reason: string };
+
+type OrphanedPositionsOptions = { market?: Market | null };
+
+function botStatusMarket(status: BotStatusSingle): Market | null {
+  if (status.running) return status.market;
+  return status.market ?? status.snapshot?.market ?? null;
+}
+
+function uniqueSides(sides: Array<"LONG" | "SHORT">): Array<"LONG" | "SHORT"> {
+  return Array.from(new Set(sides));
+}
+
+export function buildOrphanedPositions<T extends { symbol: string; positionAmt: number; positionSide?: string | null }>(
+  positions: T[],
+  botEntries: Array<{ symbol: string; status: BotStatusSingle }>,
+  opts?: OrphanedPositionsOptions,
+): Array<OrphanedPosition<T>> {
+  if (positions.length === 0) return [];
+  const targetMarket = opts?.market ?? null;
+  const statusesBySymbol = new Map<string, BotStatusSingle[]>();
+  const otherMarketSymbols = new Set<string>();
+  for (const entry of botEntries) {
+    const market = botStatusMarket(entry.status);
+    const key = normalizeSymbolKey(entry.symbol);
+    if (targetMarket && market && market !== targetMarket) otherMarketSymbols.add(key);
+    if (targetMarket && market !== targetMarket) continue;
+    const list = statusesBySymbol.get(key);
+    if (list) list.push(entry.status);
+    else statusesBySymbol.set(key, [entry.status]);
+  }
+
+  return positions
+    .map((pos): OrphanedPosition<T> | null => {
+      const statuses = statusesBySymbol.get(normalizeSymbolKey(pos.symbol)) ?? [];
+      const activeStatuses = statuses.filter((status) => status.running || status.starting === true);
+      const activeTradingStatuses = activeStatuses.filter((status) => botTradeEnabled(status) !== false);
+      const sideRaw = normalizePositionSide(pos.positionSide);
+      const posSide = sideRaw && sideRaw !== "BOTH" ? sideRaw : positionSideFromAmount(pos.positionAmt);
+      const activeSides = uniqueSides(
+        activeTradingStatuses
+          .map((status) => botPositionSide(status))
+          .filter((side): side is "LONG" | "SHORT" => Boolean(side)),
+      );
+      const adopted = posSide != null && activeSides.some((side) => side === posSide);
+      if (adopted) return null;
+      let reason = "no bot";
+      if (targetMarket && statuses.length === 0 && otherMarketSymbols.has(normalizeSymbolKey(pos.symbol))) reason = "market mismatch";
+      else if (statuses.length > 0 && activeStatuses.length === 0) reason = "bot stopped";
+      else if (statuses.length > 0 && activeStatuses.length > 0 && activeTradingStatuses.length === 0) reason = "trading disabled";
+      else if (statuses.length > 0 && activeStatuses.length > 0 && posSide == null) reason = "position side unknown";
+      else if (statuses.length > 0 && activeStatuses.length > 0 && activeSides.length === 0) reason = "bot side unknown";
+      else if (activeSides.length > 0) reason = `side mismatch (bot ${activeSides.join("/")})`;
+      const status: BotStatusSingle | null =
+        activeStatuses.length > 0
+          ? activeStatuses.find((entry) => entry.running) ?? activeStatuses[0]
+          : statuses.length > 0
+            ? statuses[0]
+            : null;
+      return { pos, status, reason };
+    })
+    .filter((entry): entry is OrphanedPosition<T> => Boolean(entry));
 }
 
 export function clamp(n: number, lo: number, hi: number): number {

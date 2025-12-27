@@ -12,14 +12,17 @@ All notable changes to this project will be documented in this file.
 - Live bot: always adopts existing positions on startup (`botAdoptExistingPosition` is now implicit).
 - Live bot: startup waits for the top combo compatible with adopted positions or open orders before running.
 - Live bot: `/bot/start` auto-adopts orphan open futures positions when a matching top combo exists.
+- Live bot/API: futures position checks now respect hedge-mode sides, and bot start/adoption rejects simultaneous long+short positions for the same symbol.
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
 - API: add `/binance/positions` for open Binance futures positions plus chart-ready klines.
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
 - Web UI: add an open positions panel with charts for every Binance futures position.
+- Web UI: orphaned operations panel now matches by market + hedge side and labels orphan reasons (market mismatch, stopped, trading disabled, side mismatch).
 - Web UI: add an orphaned operations panel that highlights open futures positions not currently adopted by a running bot.
-- Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates.
+- Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates (including API token changes).
+- Web UI: open positions/orphaned operations cards key by position side and ignore bots with trade disabled when determining adoption.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
-- Backtests: add `--rebalance-global` and `--funding-by-side` toggles to opt into global rebalance cadence and side-signed funding.
+- Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
@@ -34,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - Exchange data: add Coinbase platform support for exchange klines and spot trading.
 - Trading: Coinbase spot orders now supported via `/trade` and `--binance-trade` (live-only; no test endpoint).
 - Optimizer: add platform sampling (`--platforms`) and persist platform in top-combo outputs.
+- Optimizer: allow `merge-top-combos --max 0` to emit an empty combo list.
 - Web UI: add platform selector with per-exchange symbols/intervals and disable Binance-only actions when not on Binance.
 - Web UI: store and check API keys per platform (Binance/Coinbase) and show Coinbase symbol defaults.
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
@@ -59,6 +63,7 @@ All notable changes to this project will be documented in this file.
 - Trading: entries gated by `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` now wait for a volatility estimate.
 - Trading: latest signals now apply the same volatility gating and confidence close-direction gating (including blend) as backtests.
 - Trading: conformal/quantile confirmations use the close threshold when gating close signals.
+- Trading: min-position-size only gates entries when confidence sizing is enabled, and close-direction gating no longer applies the min-position-size threshold.
 - Live bot: startup close decisions for adopted positions now use the gated closeDirection logic (matching the run loop).
 - Live bot: close decisions now use the gated closeDirection logic during the run loop.
 - Live bot: bracket exits now honor stop-loss/take-profit/trailing vol-mult overrides.
@@ -113,6 +118,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: threshold sweep tie-breakers now prefer higher final equity, then lower turnover/more round trips, and avoid inverted hysteresis unless equity is unchanged.
 - Optimizer: top-combo merges compare scores only within the same objective, fall back to final equity across objectives, and break ties by final equity.
 - Optimizer: truncated trial errors now use the legacy ellipsis marker (`…`).
+- Optimizer: accept numeric strings for backtest numeric fields and treat invalid threshold values as schema errors.
+- Optimizer: pretty-printed JSON output now uses stable, sorted keys.
 - LSTM: persistence keys now include exchange platform to avoid cross-exchange weight reuse.
 - Optimizer: raise the default `TRADER_OPTIMIZER_MAX_COMBOS` cap to 200 and archive top-combos snapshots locally/S3 for history.
 - API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.

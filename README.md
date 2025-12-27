@@ -254,15 +254,18 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables; backtests only; default: `24`, entry-anchored)
   - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables; default: `0.05`)
   - `--rebalance-global` optional: anchor rebalance cadence to global bars instead of entry age
+  - `--rebalance-reset-on-signal` optional: reset rebalance cadence when a same-side open signal updates size
   - `--funding-rate F` optional: annualized funding/borrow rate applied per bar in backtests (`0` disables; negative allowed; default: `0.1`)
   - `--funding-by-side` optional: apply funding sign by side (long pays positive, short receives)
+    - Without `--funding-by-side`, the funding rate is applied uniformly (negative values credit both sides).
+  - `--funding-on-open` optional: charge funding for bars opened with a position (even if exited intrabar)
   - Entries and latest-signal actions that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
   - `--kalman-z-min 0.5` minimum Kalman |mean|/std required to treat Kalman as directional (`0` disables)
   - `--kalman-z-max 3` Z-score mapped to full position size when confidence sizing is enabled
   - `--confirm-conformal` require conformal interval to agree with the chosen direction (default on; disable with `--no-confirm-conformal`)
   - `--confirm-quantiles` require quantiles to agree with the chosen direction (default on; disable with `--no-confirm-quantiles`)
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
-  - `--min-position-size 0.15` minimum entry size when confidence sizing is enabled (`0..1`)
+  - `--min-position-size 0.15` minimum entry size when confidence sizing is enabled (`0..1`; ignored when confidence sizing is disabled)
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
@@ -346,6 +349,7 @@ Request limits:
 - `TRADER_API_MAX_BODY_BYTES` (default 1048576) caps JSON request payload size; larger requests return 413.
 - `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000) truncates `/optimizer/run` stdout/stderr in responses.
 - Truncated optimizer trial errors end with a `…` marker.
+- Optimizer JSON output uses stable key ordering for easier diffs.
 
 Optimizer script tips:
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
@@ -508,6 +512,7 @@ Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
 - `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), or `"blend"` (weighted average; see `--blend-weight`).
 - `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
+- Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption.
 
 Deploy to AWS
 -------------
@@ -529,8 +534,8 @@ The UI sends explicit zero/false values for default-on risk settings (e.g., min-
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
-The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load, interval/market changes, and Binance key/auth updates).
-The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot.
+The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load, interval/market changes, and Binance key/auth updates including API token changes).
+The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, and bots with `tradeEnabled=false` do not count as adopted.
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
