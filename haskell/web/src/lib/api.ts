@@ -265,6 +265,61 @@ function describeAsyncTimeout(baseUrl: string, overallTimeoutMs: number, lastErr
   return `Async request timed out after ${seconds}s while retrying after errors (last error: ${last}).${hint}`;
 }
 
+function isBacktestQueueBusy(err: unknown): err is HttpError {
+  if (!(err instanceof HttpError)) return false;
+  if (err.status !== 429) return false;
+  return err.message.toLowerCase().includes("backtest queue is busy");
+}
+
+async function runSyncBacktestWithRetry(
+  baseUrl: string,
+  params: ApiParams,
+  opts?: AsyncJobOptions,
+): Promise<BacktestResponse> {
+  const startedAt = Date.now();
+  const overallTimeoutMs = opts?.timeoutMs ?? 30_000;
+  let backoffMs = 750;
+  let sawBusy = false;
+
+  for (;;) {
+    const elapsed = Date.now() - startedAt;
+    const remaining = overallTimeoutMs - elapsed;
+    if (remaining <= 0) {
+      if (sawBusy) {
+        throw new Error("Backtest queue stayed busy. Try again shortly or increase TRADER_API_MAX_BACKTEST_RUNNING.");
+      }
+      throw timeoutError();
+    }
+
+    const requestOpts: FetchJsonOptions = {
+      signal: opts?.signal,
+      headers: opts?.headers,
+      timeoutMs: Math.max(1, remaining),
+    };
+
+    try {
+      return await fetchJson<BacktestResponse>(
+        baseUrl,
+        "/backtest",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        },
+        requestOpts,
+      );
+    } catch (err) {
+      if (!isBacktestQueueBusy(err)) throw err;
+      sawBusy = true;
+      const retryAfterMs =
+        typeof err.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) ? Math.max(0, err.retryAfterMs) : backoffMs;
+      const delayMs = Math.min(retryAfterMs, remaining);
+      await sleep(delayMs, opts?.signal);
+      backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+    }
+  }
+}
+
 async function runAsyncJob<T>(
   baseUrl: string,
   startPath: string,
@@ -481,16 +536,7 @@ export async function backtest(baseUrl: string, params: ApiParams, opts?: AsyncJ
     return await runAsyncJob<BacktestResponse>(baseUrl, "/backtest/async", "/backtest/async", params, opts);
   } catch (err) {
     if (err instanceof HttpError && err.status === 404) {
-      return fetchJson<BacktestResponse>(
-        baseUrl,
-        "/backtest",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(params),
-        },
-        opts,
-      );
+      return runSyncBacktestWithRetry(baseUrl, params, opts);
     }
     throw err;
   }

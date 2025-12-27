@@ -9458,150 +9458,150 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                               , (\tp -> entryPrice * (1 + tp)) <$> takeProfit0
                               )
 
-                rSl <-
-                  case mSlPx of
-                    Nothing -> pure (Right ())
-                    Just px -> place1 slSide "STOP_MARKET" px "sl"
-                rTp <-
-                  case mTpPx of
-                    Nothing -> pure (Right ())
-                    Just px -> place1 tpSide "TAKE_PROFIT_MARKET" px "tp"
-                pure $
-                  case (rSl, rTp) of
-                    (Left e, _) -> Left ("Protection order failed: " ++ e)
-                    (_, Left e) -> Left ("Protection order failed: " ++ e)
-                    _ -> Right ()
+                    rSl <-
+                      case mSlPx of
+                        Nothing -> pure (Right ())
+                        Just px -> place1 slSide "STOP_MARKET" px "sl"
+                    rTp <-
+                      case mTpPx of
+                        Nothing -> pure (Right ())
+                        Just px -> place1 tpSide "TAKE_PROFIT_MARKET" px "tp"
+                    pure $
+                      case (rSl, rTp) of
+                        (Left e, _) -> Left ("Protection order failed: " ++ e)
+                        (_, Left e) -> Left ("Protection order failed: " ++ e)
+                        _ -> Right ()
 
-      mQuoteFromFraction <-
-        case (argOrderQuantity args, argOrderQuote args, argOrderQuoteFraction args) of
-          (Nothing, Nothing, Just f) | f > 0 -> do
-            bal <- fetchFuturesAvailableBalance env quoteAsset
-            let q0 = bal * f * entryScale
-                q1 =
-                  let mCap =
-                        case argMaxOrderQuote args of
-                          Just q | q > 0 -> Just q
-                          _ -> Nothing
-                   in maybe q0 (\capQ -> min capQ q0) mCap
-            pure (Just q1)
-          _ -> pure Nothing
-      let mDesiredQtyRaw =
-            case argOrderQuantity args of
-              Just q | q > 0 -> Just (q * entryScale)
-              Just _ -> Nothing
-              Nothing ->
-                case (fmap (* entryScale) (argOrderQuote args) <|> mQuoteFromFraction) of
-                  Just qq | qq > 0 && currentPrice > 0 -> Just (qq / currentPrice)
-                  _ -> Nothing
-
-          normalizeFuturesQty qRaw =
-            case mSf of
-              Nothing -> Right qRaw
-              Just sf -> normalizeQty sf currentPrice qRaw
-
-          closeOrder sideLabel side qtyRaw =
-            case normalizeFuturesQty qtyRaw of
-              Left e -> pure baseResult { aorMessage = "No order: " ++ e }
-              Right q ->
-                if q <= 0
-                  then pure baseResult { aorMessage = "No order: quantity is 0." }
-                  else sendMarketOrder sideLabel side (Just q) Nothing (Just True)
-
-          noFuturesSizingMsg =
-            if maybe False (> 0) (argOrderQuoteFraction args)
-              then "No order: computed quote is 0 (check futures balance / orderQuoteFraction / maxOrderQuote)."
-              else "No order: futures requires orderQuantity or orderQuote."
-
+          mQuoteFromFraction <-
+            case (argOrderQuantity args, argOrderQuote args, argOrderQuoteFraction args) of
+              (Nothing, Nothing, Just f) | f > 0 -> do
+                bal <- fetchFuturesAvailableBalance env quoteAsset
+                let q0 = bal * f * entryScale
+                    q1 =
+                      let mCap =
+                            case argMaxOrderQuote args of
+                              Just q | q > 0 -> Just q
+                              _ -> Nothing
+                       in maybe q0 (\capQ -> min capQ q0) mCap
+                pure (Just q1)
+              _ -> pure Nothing
+          let mDesiredQtyRaw =
+                case argOrderQuantity args of
+                  Just q | q > 0 -> Just (q * entryScale)
+                  Just _ -> Nothing
+                  Nothing ->
+                    case (fmap (* entryScale) (argOrderQuote args) <|> mQuoteFromFraction) of
+                      Just qq | qq > 0 && currentPrice > 0 -> Just (qq / currentPrice)
+                      _ -> Nothing
+    
+              normalizeFuturesQty qRaw =
+                case mSf of
+                  Nothing -> Right qRaw
+                  Just sf -> normalizeQty sf currentPrice qRaw
+    
+              closeOrder sideLabel side qtyRaw =
+                case normalizeFuturesQty qtyRaw of
+                  Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                  Right q ->
+                    if q <= 0
+                      then pure baseResult { aorMessage = "No order: quantity is 0." }
+                      else sendMarketOrder sideLabel side (Just q) Nothing (Just True)
+    
+              noFuturesSizingMsg =
+                if maybe False (> 0) (argOrderQuoteFraction args)
+                  then "No order: computed quote is 0 (check futures balance / orderQuoteFraction / maxOrderQuote)."
+                  else "No order: futures requires orderQuantity or orderQuote."
+    
           case dir of
-            1 ->
-              if posAmt > 0
-                then
-                  if protectionEnabled
-                    then do
-                      cancelProtectionOrders
-                      r <- placeProtectionOrders 1 currentPrice
-                      pure $
-                        case r of
-                          Left e -> baseResult { aorMessage = "No market order: already long. " ++ e }
-                          Right () -> baseResult { aorMessage = "No market order: already long. Protection orders refreshed." }
-                    else pure baseResult { aorMessage = "No order: already long." }
-                else
-                  case mDesiredQtyRaw of
-                    Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
-                    Just q0 -> do
-                      cancelProtectionOrders
-                      let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
-                      case normalizeFuturesQty qtyToBuyRaw of
-                        Left e -> pure baseResult { aorMessage = "No order: " ++ e }
-                        Right q ->
-                          if q <= 0
-                            then pure baseResult { aorMessage = "No order: quantity is 0." }
-                            else do
-                              out <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
-                              if aorSent out && protectionEnabled
-                                then do
-                                  let fillPx =
-                                        case (aorExecutedQty out, aorCummulativeQuoteQty out) of
-                                          (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
-                                          _ -> currentPrice
-                                  r <- placeProtectionOrders 1 fillPx
-                                  pure $
-                                    case r of
-                                      Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
-                                      Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
-                                else pure out
-            (-1) ->
-              case argPositioning args of
-                LongShort ->
-                  if posAmt < 0
+                1 ->
+                  if posAmt > 0
                     then
                       if protectionEnabled
                         then do
                           cancelProtectionOrders
-                          r <- placeProtectionOrders (-1) currentPrice
+                          r <- placeProtectionOrders 1 currentPrice
                           pure $
                             case r of
-                              Left e -> baseResult { aorMessage = "No market order: already short. " ++ e }
-                              Right () -> baseResult { aorMessage = "No market order: already short. Protection orders refreshed." }
-                        else pure baseResult { aorMessage = "No order: already short." }
+                              Left e -> baseResult { aorMessage = "No market order: already long. " ++ e }
+                              Right () -> baseResult { aorMessage = "No market order: already long. Protection orders refreshed." }
+                        else pure baseResult { aorMessage = "No order: already long." }
                     else
                       case mDesiredQtyRaw of
                         Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
                         Just q0 -> do
                           cancelProtectionOrders
-                          let qtyToSellRaw = if posAmt > 0 then posAmt + q0 else q0
-                          case normalizeFuturesQty qtyToSellRaw of
+                          let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
+                          case normalizeFuturesQty qtyToBuyRaw of
                             Left e -> pure baseResult { aorMessage = "No order: " ++ e }
                             Right q ->
                               if q <= 0
                                 then pure baseResult { aorMessage = "No order: quantity is 0." }
                                 else do
-                                  out <- sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
+                                  out <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
                                   if aorSent out && protectionEnabled
                                     then do
                                       let fillPx =
                                             case (aorExecutedQty out, aorCummulativeQuoteQty out) of
                                               (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
                                               _ -> currentPrice
-                                      r <- placeProtectionOrders (-1) fillPx
+                                      r <- placeProtectionOrders 1 fillPx
                                       pure $
                                         case r of
                                           Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
                                           Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
                                     else pure out
-                LongFlat ->
-                  if posAmt == 0
-                    then do
-                      cancelProtectionOrders
-                      pure baseResult { aorMessage = "No order: already flat." }
-                    else if posAmt > 0
-                      then do
-                        cancelProtectionOrders
-                        closeOrder "SELL" Sell (abs posAmt)
-                      else do
-                        cancelProtectionOrders
-                        closeOrder "BUY" Buy (abs posAmt)
-            _ -> pure baseResult { aorMessage = neutralMsg }
+                (-1) ->
+                  case argPositioning args of
+                    LongShort ->
+                      if posAmt < 0
+                        then
+                          if protectionEnabled
+                            then do
+                              cancelProtectionOrders
+                              r <- placeProtectionOrders (-1) currentPrice
+                              pure $
+                                case r of
+                                  Left e -> baseResult { aorMessage = "No market order: already short. " ++ e }
+                                  Right () -> baseResult { aorMessage = "No market order: already short. Protection orders refreshed." }
+                            else pure baseResult { aorMessage = "No order: already short." }
+                        else
+                          case mDesiredQtyRaw of
+                            Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
+                            Just q0 -> do
+                              cancelProtectionOrders
+                              let qtyToSellRaw = if posAmt > 0 then posAmt + q0 else q0
+                              case normalizeFuturesQty qtyToSellRaw of
+                                Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                                Right q ->
+                                  if q <= 0
+                                    then pure baseResult { aorMessage = "No order: quantity is 0." }
+                                    else do
+                                      out <- sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
+                                      if aorSent out && protectionEnabled
+                                        then do
+                                          let fillPx =
+                                                case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                                  (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                                  _ -> currentPrice
+                                          r <- placeProtectionOrders (-1) fillPx
+                                          pure $
+                                            case r of
+                                              Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
+                                              Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
+                                        else pure out
+                    LongFlat ->
+                      if posAmt == 0
+                        then do
+                          cancelProtectionOrders
+                          pure baseResult { aorMessage = "No order: already flat." }
+                        else if posAmt > 0
+                          then do
+                            cancelProtectionOrders
+                            closeOrder "SELL" Sell (abs posAmt)
+                          else do
+                            cancelProtectionOrders
+                            closeOrder "BUY" Buy (abs posAmt)
+                _ -> pure baseResult { aorMessage = neutralMsg }
 
     modeLabel m =
       case m of
