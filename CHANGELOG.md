@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
+- Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
+- Optimizer: JSON outputs use stable key ordering for deterministic diffs.
 - Strategy defaults: move to `--interval 1h`/`--lookback-window 7d`, raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, max position size, vol target/floor/max-vol, Kalman z-min, min position size), and bump cost assumptions (fee/slippage/spread).
 - Strategy defaults: enable cost-aware edge, conformal/quantile confirmations, and confidence sizing by default, with `--no-cost-aware-edge`, `--no-confirm-conformal`, `--no-confirm-quantiles`, and `--no-confidence-sizing` opt-outs.
 - Optimizer defaults: switch to `equity-dd-turnover` with higher drawdown/turnover penalties, longer lookback windows, and 1h-1d interval sampling.

@@ -371,7 +371,7 @@ Optimizer script tips:
 - `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective (`--tune-stress-*-min/max` lets it sample ranges).
 - `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
 - Auto optimizer biases `--p-long-short` to match existing open positions/orders (short requires long-short; spot/margin suppresses long-short).
-- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minSignalToNoiseMin`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `kalmanZMinMin`, `lrMin`, `platforms`).
+- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minSignalToNoiseMin`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
 
 State directory (recommended for persistence across deployments):
 - Set `TRADER_STATE_DIR` to a shared writable directory to persist:
