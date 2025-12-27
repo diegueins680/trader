@@ -6046,6 +6046,29 @@ runBacktestWithGate gate action = do
         Just (Left ex) -> pure (Left (BacktestException ex))
         Just (Right v) -> pure (Right v)
 
+runBacktestWithGateWait :: BacktestGate -> IO a -> IO (Either BacktestFailure a)
+runBacktestWithGateWait gate action = do
+  let maxRunning = max 1 (btMaxRunning gate)
+      tryAcquire =
+        modifyMVar (btRunning gate) $ \n ->
+          if n >= maxRunning
+            then pure (n, False)
+            else pure (n + 1, True)
+      waitLoop = do
+        acquired <- tryAcquire
+        if acquired
+          then pure ()
+          else do
+            threadDelay 1000000
+            waitLoop
+  waitLoop
+  let release = modifyMVar_ (btRunning gate) (pure . max 0 . subtract 1)
+  result <- timeout (btTimeoutSec gate * 1000000) (try action) `finally` release
+  case result of
+    Nothing -> pure (Left BacktestTimedOut)
+    Just (Left ex) -> pure (Left (BacktestException ex))
+    Just (Right v) -> pure (Right v)
+
 backtestFailureMessage :: BacktestGate -> BacktestFailure -> String
 backtestFailureMessage gate failure =
   case failure of
@@ -7881,7 +7904,7 @@ handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respond 
                     if noCache
                       then computeBacktestFromArgs argsOk
                       else computeBacktestFromArgsCached apiCache argsOk
-              r <- runBacktestWithGate backtestGate computeAction
+              r <- runBacktestWithGateWait backtestGate computeAction
               case r of
                 Left failure ->
                   let (st, msg) = backtestFailureToHttp backtestGate failure
@@ -7925,7 +7948,7 @@ handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs r
                         if noCache
                           then computeBacktestFromArgs argsOk
                           else computeBacktestFromArgsCached apiCache argsOk
-                  gateResult <- runBacktestWithGate backtestGate computeAction
+                  gateResult <- runBacktestWithGateWait backtestGate computeAction
                   case gateResult of
                     Left failure -> throwIO (userError (backtestFailureMessage backtestGate failure))
                     Right out -> do

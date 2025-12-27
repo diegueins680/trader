@@ -353,7 +353,7 @@ Request limits:
 - `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000) truncates `/optimizer/run` stdout/stderr in responses.
 - Truncated optimizer trial errors end with a `…` marker.
 - Optimizer JSON output uses stable key ordering for easier diffs.
-- When the backtest queue is busy, the UI waits for the slot to clear and reports when the backtest finishes.
+- When the backtest queue is busy, the API queues the request; the UI waits for the slot to clear and reports when the backtest finishes.
 
 Backtest limits:
 - `TRADER_API_MAX_BACKTEST_RUNNING` (default: `1`) caps concurrent backtests across sync/async requests and daily top-combo refreshes.
