@@ -344,6 +344,7 @@ Endpoints:
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail)
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
 - `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000)
+- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default (requires Binance API keys) and restarts on the next poll interval if stopped.
 
 Request limits:
 - `TRADER_API_MAX_BODY_BYTES` (default 1048576) caps JSON request payload size; larger requests return 413.
@@ -478,7 +479,7 @@ curl -s -X POST http://127.0.0.1:8080/trade \
   -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":200,"method":"10","openThreshold":0.003838,"closeThreshold":0.003838,"orderQuote":20,"binanceLive":false}'
 ```
 
-Start the live bot (paper mode; no orders):
+Start the live bot (paper mode; no orders). `botTrade` defaults to `true`, so set `botTrade=false` explicitly for paper mode:
 ```
 curl -s -X POST http://127.0.0.1:8080/bot/start \
   -H 'Content-Type: application/json' \

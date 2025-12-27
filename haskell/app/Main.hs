@@ -1798,13 +1798,24 @@ defaultBotPollSeconds args =
       let half = max 1 (sec `div` 2)
        in clampInt 5 60 half
 
+defaultBotSettings :: Args -> BotSettings
+defaultBotSettings args =
+  BotSettings
+    { bsPollSeconds = defaultBotPollSeconds args
+    , bsOnlineEpochs = 1
+    , bsTrainBars = 800
+    , bsMaxPoints = 2000
+    , bsTradeEnabled = True
+    , bsAdoptExistingPosition = True
+    }
+
 botSettingsFromApi :: Args -> ApiParams -> Either String BotSettings
 botSettingsFromApi args p = do
   let poll = maybe (defaultBotPollSeconds args) id (apBotPollSeconds p)
       onlineEpochs = maybe 1 id (apBotOnlineEpochs p)
       trainBars = maybe 800 id (apBotTrainBars p)
       maxPoints = maybe 2000 id (apBotMaxPoints p)
-      tradeEnabled = maybe False id (apBotTrade p)
+      tradeEnabled = maybe True id (apBotTrade p)
       adoptExistingPosition = True
 
   ensure "botPollSeconds must be between 1 and 3600" (poll >= 1 && poll <= 3600)
@@ -2428,6 +2439,20 @@ resolveBotSymbols args p = do
     then pure (Left "bot/start requires binanceSymbol or botSymbols")
     else pure (Right normalized)
 
+resolveBotSymbolsAuto :: Args -> IO (Either String [String])
+resolveBotSymbolsAuto args = do
+  envRaw <- lookupEnv "TRADER_BOT_SYMBOLS"
+  let symbolsEnv = maybe [] splitEnvList envRaw
+      symbolsFallback = maybeToList (argBinanceSymbol args)
+      raw =
+        case symbolsEnv of
+          [] -> symbolsFallback
+          xs -> xs
+      normalized = filter (not . null) (dedupeStable (map normalizeSymbol raw))
+  if null normalized
+    then pure (Left "bot autostart requires binanceSymbol or TRADER_BOT_SYMBOLS")
+    else pure (Right normalized)
+
 comboPollSecondsFromEnv :: IO Int
 comboPollSecondsFromEnv = do
   pollEnv <- lookupEnv "TRADER_BOT_COMBOS_POLL_SEC"
@@ -2646,6 +2671,40 @@ botStartSymbol ::
   String ->
   IO (Either String BotStartOutcome)
 botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl args p symRaw =
+  case botSettingsFromApi args p of
+    Left e -> pure (Left e)
+    Right settings ->
+      botStartSymbolWithSettings
+        allowExisting
+        mOps
+        metrics
+        mJournal
+        mWebhook
+        mBotStateDir
+        optimizerTmp
+        limits
+        adoptReq
+        ctrl
+        args
+        settings
+        symRaw
+
+botStartSymbolWithSettings ::
+  Bool ->
+  Maybe OpsStore ->
+  Metrics ->
+  Maybe Journal ->
+  Maybe Webhook ->
+  Maybe FilePath ->
+  FilePath ->
+  ApiComputeLimits ->
+  AdoptRequirement ->
+  BotController ->
+  Args ->
+  BotSettings ->
+  String ->
+  IO (Either String BotStartOutcome)
+botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl args settings symRaw =
   if not (platformSupportsLiveBot (argPlatform args))
     then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
     else
@@ -2654,57 +2713,54 @@ botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimiz
         Nothing ->
           case trim symRaw of
             "" -> pure (Left "bot/start requires binanceSymbol or botSymbols")
-            _ ->
-              case botSettingsFromApi args p of
-                Left e -> pure (Left e)
-                Right settings -> do
-                  let sym = normalizeSymbol symRaw
-                      argsSym = args { argBinanceSymbol = Just sym }
-                      startReason = botStartReasonFromAdopt adoptReq
-                  now <- getTimestampMs
-                  modifyMVar (bcRuntime ctrl) $ \mrt ->
-                    case HM.lookup sym mrt of
-                      Just st ->
-                        if allowExisting
-                          then pure (mrt, Right (BotStartOutcome sym st False))
-                          else
-                            case st of
-                              BotRunning _ -> pure (mrt, Left "Bot is already running")
-                              BotStarting _ -> pure (mrt, Left "Bot is starting")
-                      Nothing -> do
-                        preflight <- preflightBotStart argsSym settings sym
-                        case preflight of
-                          Left e | not (arActive adoptReq) -> pure (mrt, Left e)
-                          Left _ -> do
-                            stopSig <- newEmptyMVar
-                            tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
-                            let rt =
-                                  BotStartRuntime
-                                    { bsrThreadId = tid
-                                    , bsrStopSignal = stopSig
-                                    , bsrArgs = argsSym
-                                    , bsrSettings = settings
-                                    , bsrSymbol = sym
-                                    , bsrRequestedAtMs = now
-                                    , bsrStartReason = startReason
-                                    }
-                                st = BotStarting rt
-                            pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
-                          Right () -> do
-                            stopSig <- newEmptyMVar
-                            tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
-                            let rt =
-                                  BotStartRuntime
-                                    { bsrThreadId = tid
-                                    , bsrStopSignal = stopSig
-                                    , bsrArgs = argsSym
-                                    , bsrSettings = settings
-                                    , bsrSymbol = sym
-                                    , bsrRequestedAtMs = now
-                                    , bsrStartReason = startReason
-                                    }
-                                st = BotStarting rt
-                            pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
+            _ -> do
+              let sym = normalizeSymbol symRaw
+                  argsSym = args { argBinanceSymbol = Just sym }
+                  startReason = botStartReasonFromAdopt adoptReq
+              now <- getTimestampMs
+              modifyMVar (bcRuntime ctrl) $ \mrt ->
+                case HM.lookup sym mrt of
+                  Just st ->
+                    if allowExisting
+                      then pure (mrt, Right (BotStartOutcome sym st False))
+                      else
+                        case st of
+                          BotRunning _ -> pure (mrt, Left "Bot is already running")
+                          BotStarting _ -> pure (mrt, Left "Bot is starting")
+                  Nothing -> do
+                    preflight <- preflightBotStart argsSym settings sym
+                    case preflight of
+                      Left e | not (arActive adoptReq) -> pure (mrt, Left e)
+                      Left _ -> do
+                        stopSig <- newEmptyMVar
+                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
+                        let rt =
+                              BotStartRuntime
+                                { bsrThreadId = tid
+                                , bsrStopSignal = stopSig
+                                , bsrArgs = argsSym
+                                , bsrSettings = settings
+                                , bsrSymbol = sym
+                                , bsrRequestedAtMs = now
+                                , bsrStartReason = startReason
+                                }
+                            st = BotStarting rt
+                        pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
+                      Right () -> do
+                        stopSig <- newEmptyMVar
+                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
+                        let rt =
+                              BotStartRuntime
+                                { bsrThreadId = tid
+                                , bsrStopSignal = stopSig
+                                , bsrArgs = argsSym
+                                , bsrSettings = settings
+                                , bsrSymbol = sym
+                                , bsrRequestedAtMs = now
+                                , bsrStartReason = startReason
+                                }
+                            st = BotStarting rt
+                        pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
 
 botStartWorker ::
   Maybe OpsStore ->
@@ -2778,6 +2834,91 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits a
         else do
           _ <- tryPutMVar optimizerStopSig ()
           killThread optimizerTid
+
+botAutoStartLoop ::
+  Maybe OpsStore ->
+  Metrics ->
+  Maybe Journal ->
+  Maybe Webhook ->
+  Maybe FilePath ->
+  FilePath ->
+  ApiComputeLimits ->
+  Args ->
+  BotController ->
+  IO ()
+botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits baseArgs botCtrl = do
+  symbolsOrErr <- resolveBotSymbolsAuto baseArgs
+  case symbolsOrErr of
+    Left err -> putStrLn ("Live bot auto-start disabled: " ++ err)
+    Right symbols ->
+      if not (platformSupportsLiveBot (argPlatform baseArgs))
+        then
+          putStrLn
+            ( "Live bot auto-start disabled: platform="
+                ++ platformCode (argPlatform baseArgs)
+                ++ " does not support live bots."
+            )
+        else
+          case argData baseArgs of
+            Just _ -> putStrLn "Live bot auto-start disabled: CSV data source is not supported."
+            Nothing -> do
+              let argsBase = baseArgs { argTradeOnly = True }
+                  settings = defaultBotSettings argsBase
+              pollSec <- comboPollSecondsFromEnv
+              errRef <- newIORef HM.empty
+              putStrLn ("Live bot auto-start enabled for symbols: " ++ intercalate ", " symbols)
+
+              let sleepSec s = threadDelay (max 1 s * 1000000)
+                  recordError sym msg = do
+                    prev <- readIORef errRef
+                    if HM.lookup sym prev == Just msg
+                      then pure ()
+                      else do
+                        writeIORef errRef (HM.insert sym msg prev)
+                        putStrLn ("Live bot auto-start failed for " ++ sym ++ ": " ++ msg)
+                  clearError sym = modifyIORef' errRef (HM.delete sym)
+                  startSymbol sym = do
+                    let argsSym = argsBase { argBinanceSymbol = Just sym }
+                        adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
+                    adoptReqOrErr <-
+                      if adoptable
+                        then resolveAdoptionRequirement argsSym sym
+                        else pure (Right (AdoptRequirement False False))
+                    case adoptReqOrErr of
+                      Left err -> recordError sym err
+                      Right adoptReq -> do
+                        argsCombo <-
+                          if arActive adoptReq
+                            then pure argsSym
+                            else applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
+                        case validateApiComputeLimits limits argsCombo of
+                          Left err -> recordError sym err
+                          Right argsOk -> do
+                            r <-
+                              botStartSymbolWithSettings
+                                True
+                                mOps
+                                metrics
+                                mJournal
+                                mWebhook
+                                mBotStateDir
+                                optimizerTmp
+                                limits
+                                adoptReq
+                                botCtrl
+                                argsOk
+                                settings
+                                sym
+                            case r of
+                              Left err -> recordError sym err
+                              Right _ -> clearError sym
+                  loop = do
+                    mrt <- readMVar (bcRuntime botCtrl)
+                    let missing = filter (`HM.notMember` mrt) symbols
+                    mapM_ startSymbol missing
+                    sleepSec pollSec
+                    loop
+              loop
 
 botStop :: BotController -> Maybe String -> IO [BotState]
 botStop ctrl mSymbol =
@@ -5170,6 +5311,7 @@ runRestApi baseArgs mWebhook = do
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
   opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing
   bot <- newBotController
+  _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits baseArgs bot)
   _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
   _ <- forkIO (autoTopCombosBacktestLoop baseArgs limits backtestGate mOps mJournal optimizerTmp)
   asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
