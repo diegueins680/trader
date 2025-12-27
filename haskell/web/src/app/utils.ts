@@ -77,6 +77,7 @@ export function botPositionSide(status: BotStatusSingle): "LONG" | "SHORT" | nul
   const positions = status.running ? status.positions : status.snapshot?.positions;
   if (!positions || positions.length === 0) return null;
   const last = positions[positions.length - 1];
+  if (last == null) return null;
   if (!Number.isFinite(last) || Math.abs(last) <= 1e-12) return null;
   return last > 0 ? "LONG" : "SHORT";
 }
@@ -139,12 +140,12 @@ export function buildOrphanedPositions<T extends { symbol: string; positionAmt: 
       else if (statuses.length > 0 && activeStatuses.length > 0 && posSide == null) reason = "position side unknown";
       else if (statuses.length > 0 && activeStatuses.length > 0 && activeSides.length === 0) reason = "bot side unknown";
       else if (activeSides.length > 0) reason = `side mismatch (bot ${activeSides.join("/")})`;
-      const status: BotStatusSingle | null =
-        activeStatuses.length > 0
-          ? activeStatuses.find((entry) => entry.running) ?? activeStatuses[0]
-          : statuses.length > 0
-            ? statuses[0]
-            : null;
+      let status: BotStatusSingle | null = null;
+      if (activeStatuses.length > 0) {
+        status = activeStatuses.find((entry) => entry.running) ?? activeStatuses[0] ?? null;
+      } else if (statuses.length > 0) {
+        status = statuses[0] ?? null;
+      }
       return { pos, status, reason };
     })
     .filter((entry): entry is OrphanedPosition<T> => Boolean(entry));
