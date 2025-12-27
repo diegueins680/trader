@@ -39,6 +39,7 @@ import {
   cacheStats,
   coinbaseKeysStatus,
   health,
+  optimizerCombos,
   signal,
   trade,
 } from "./lib/api";
@@ -3061,10 +3062,8 @@ export function App() {
     const fetchPayload = async (): Promise<{ payload: unknown; source: TopCombosSource; fallbackReason: string | null }> => {
       if (apiOk === "ok") {
         try {
-          const url = `${apiBase.replace(/\/+$/, "")}/optimizer/combos`;
-          const res = await fetch(url, { headers: authHeaders });
-          if (res.ok) return { payload: await res.json(), source: "api", fallbackReason: null };
-          throw new Error(`API error (HTTP ${res.status})`);
+          const payload = await optimizerCombos(apiBase, { headers: authHeaders });
+          return { payload, source: "api", fallbackReason: null };
         } catch (err) {
           const fallbackReason = err instanceof Error ? err.message : "API unreachable";
           const res = await fetch("/top-combos.json");

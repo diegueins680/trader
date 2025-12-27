@@ -30,6 +30,21 @@ export class HttpError extends Error {
   }
 }
 
+export class UnexpectedResponseError extends Error {
+  readonly status: number;
+  readonly contentType: string;
+  readonly bodySnippet: string;
+
+  constructor(status: number, contentType: string, bodySnippet: string) {
+    const label = contentType ? contentType.split(";")[0]?.trim() ?? "unknown" : "unknown";
+    super(`Unexpected non-JSON response (${label}). Check your API base or /api proxy.`);
+    this.name = "UnexpectedResponseError";
+    this.status = status;
+    this.contentType = contentType;
+    this.bodySnippet = bodySnippet;
+  }
+}
+
 type FetchJsonOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -86,6 +101,11 @@ function resolveUrl(baseUrl: string, path: string): string {
 
 function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
+}
+
+function isJsonContentType(raw: string): boolean {
+  const ct = raw.toLowerCase();
+  return ct.includes("application/json") || ct.includes("+json");
 }
 
 function resolveFallbackBase(primaryBase: string): string | null {
@@ -161,12 +181,25 @@ function withTimeout(externalSignal: AbortSignal | undefined, timeoutMs: number)
   };
 }
 
-async function readJsonOrText(res: Response): Promise<unknown> {
-  const ct = res.headers.get("content-type") || "";
-  if (ct.includes("application/json")) {
+async function readJsonOrText(res: Response, contentType: string): Promise<unknown> {
+  if (isJsonContentType(contentType)) {
     return res.json();
   }
   return res.text();
+}
+
+function summarizePayload(payload: unknown): string {
+  if (payload == null) return "";
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    return trimmed.length > 320 ? `${trimmed.slice(0, 320)}...` : trimmed;
+  }
+  try {
+    const json = JSON.stringify(payload);
+    return json.length > 320 ? `${json.slice(0, 320)}...` : json;
+  } catch {
+    return "";
+  }
 }
 
 async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
@@ -180,8 +213,12 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
       headers: mergeHeaders(init.headers, opts?.headers),
       signal,
     });
+    const contentType = res.headers.get("content-type") || "";
     const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"));
-    const payload = await readJsonOrText(res);
+    const payload = await readJsonOrText(res, contentType);
+    if (res.ok && !isJsonContentType(contentType)) {
+      throw new UnexpectedResponseError(res.status, contentType, summarizePayload(payload));
+    }
     if (!res.ok) {
       const baseMessage =
         typeof payload === "object" && payload && "error" in payload
@@ -237,6 +274,7 @@ function isNetworkError(err: unknown): boolean {
 }
 
 function shouldFallbackToApiBase(err: unknown): boolean {
+  if (err instanceof UnexpectedResponseError) return true;
   if (isAbortError(err) || isTimeoutError(err)) return false;
   if (err instanceof HttpError) return err.status === 502 || err.status === 503 || err.status === 504;
   return isNetworkError(err);
@@ -705,4 +743,8 @@ export async function botStatus(baseUrl: string, opts?: FetchJsonOptions, tail?:
   if (symbol) query.set("symbol", symbol);
   const path = query.size > 0 ? `/bot/status?${query.toString()}` : "/bot/status";
   return fetchJson<BotStatus>(baseUrl, path, { method: "GET" }, opts);
+}
+
+export async function optimizerCombos(baseUrl: string, opts?: FetchJsonOptions): Promise<unknown> {
+  return fetchJson<unknown>(baseUrl, "/optimizer/combos", { method: "GET" }, opts);
 }
