@@ -1538,15 +1538,23 @@ export function App() {
     const intervalOk = PLATFORM_INTERVAL_SET[platform].has(interval);
     const barsRaw = Math.trunc(form.bars);
     const bars = barsRaw <= 0 ? 0 : platform === "binance" ? clamp(barsRaw, 2, 1000) : Math.max(2, barsRaw);
+    const slippage = clamp(form.slippage, 0, 0.999999);
+    const spread = clamp(form.spread, 0, 0.999999);
+    const minHoldBars = clamp(Math.trunc(form.minHoldBars), 0, 1_000_000);
+    const maxHoldBars = clamp(Math.trunc(form.maxHoldBars), 0, 1_000_000);
+    const cooldownBars = clamp(Math.trunc(form.cooldownBars), 0, 1_000_000);
+    const minSignalToNoise = Math.max(0, form.minSignalToNoise);
     const volTarget = Math.max(0, form.volTarget);
     const volEwmaAlphaRaw = form.volEwmaAlpha;
     const volEwmaAlpha = volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : 0;
     const volLookbackRaw = Math.max(0, Math.trunc(form.volLookback));
     const volLookback = volTarget > 0 && volEwmaAlpha === 0 ? Math.max(2, volLookbackRaw) : volLookbackRaw;
+    const maxVolatility = Math.max(0, form.maxVolatility);
     const rebalanceBars = Math.max(0, Math.trunc(form.rebalanceBars));
     const rebalanceThreshold = Math.max(0, form.rebalanceThreshold);
     const fundingRate = Number.isFinite(form.fundingRate) ? form.fundingRate : 0;
     const tuneStressVolMult = form.tuneStressVolMult <= 0 ? 1 : form.tuneStressVolMult;
+    const minPositionSize = clamp(form.minPositionSize, 0, 1);
     const base: ApiParams = {
       binanceSymbol: form.binanceSymbol.trim() || undefined,
       platform: form.platform,
@@ -1558,8 +1566,8 @@ export function App() {
       openThreshold: Math.max(0, form.openThreshold),
       closeThreshold: Math.max(0, form.closeThreshold),
       fee: Math.max(0, form.fee),
-      ...(form.slippage > 0 ? { slippage: clamp(form.slippage, 0, 0.999999) } : {}),
-      ...(form.spread > 0 ? { spread: clamp(form.spread, 0, 0.999999) } : {}),
+      slippage,
+      spread,
       ...(form.intrabarFill !== "stop-first" ? { intrabarFill: form.intrabarFill } : {}),
       ...(form.stopLoss > 0 ? { stopLoss: clamp(form.stopLoss, 0, 0.999999) } : {}),
       ...(form.takeProfit > 0 ? { takeProfit: clamp(form.takeProfit, 0, 0.999999) } : {}),
@@ -1567,20 +1575,26 @@ export function App() {
       ...(form.stopLossVolMult > 0 ? { stopLossVolMult: Math.max(0, form.stopLossVolMult) } : {}),
       ...(form.takeProfitVolMult > 0 ? { takeProfitVolMult: Math.max(0, form.takeProfitVolMult) } : {}),
       ...(form.trailingStopVolMult > 0 ? { trailingStopVolMult: Math.max(0, form.trailingStopVolMult) } : {}),
-      ...(form.minHoldBars > 0 ? { minHoldBars: clamp(Math.trunc(form.minHoldBars), 0, 1_000_000) } : {}),
-      ...(form.maxHoldBars > 0 ? { maxHoldBars: clamp(Math.trunc(form.maxHoldBars), 1, 1_000_000) } : {}),
-      ...(form.cooldownBars > 0 ? { cooldownBars: clamp(Math.trunc(form.cooldownBars), 0, 1_000_000) } : {}),
+      minHoldBars,
+      maxHoldBars,
+      cooldownBars,
       ...(form.maxDrawdown > 0 ? { maxDrawdown: clamp(form.maxDrawdown, 0, 0.999999) } : {}),
       ...(form.maxDailyLoss > 0 ? { maxDailyLoss: clamp(form.maxDailyLoss, 0, 0.999999) } : {}),
       ...(form.maxOrderErrors >= 1 ? { maxOrderErrors: clamp(Math.trunc(form.maxOrderErrors), 1, 1_000_000) } : {}),
       minEdge: Math.max(0, form.minEdge),
-      ...(form.minSignalToNoise > 0 ? { minSignalToNoise: Math.max(0, form.minSignalToNoise) } : {}),
+      minSignalToNoise,
+      costAwareEdge: form.costAwareEdge,
       edgeBuffer: Math.max(0, form.edgeBuffer),
       trendLookback: clamp(Math.trunc(form.trendLookback), 0, 1_000_000),
       maxPositionSize: Math.max(0, form.maxPositionSize),
+      volTarget,
       volLookback,
       volFloor: Math.max(0, form.volFloor),
       volScaleMax: Math.max(0, form.volScaleMax),
+      maxVolatility,
+      rebalanceBars,
+      rebalanceThreshold,
+      fundingRate,
       blendWeight: clamp(form.blendWeight, 0, 1),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       tuneRatio: clamp(form.tuneRatio, 0, 0.99),
@@ -1601,6 +1615,10 @@ export function App() {
       ...(form.gradClip > 0 ? { gradClip: clamp(form.gradClip, 0, 100) } : {}),
       kalmanZMin: Math.max(0, form.kalmanZMin),
       kalmanZMax: Math.max(Math.max(0, form.kalmanZMin), form.kalmanZMax),
+      confirmConformal: form.confirmConformal,
+      confirmQuantiles: form.confirmQuantiles,
+      confidenceSizing: form.confidenceSizing,
+      minPositionSize,
       ...(platform === "binance" ? { binanceTestnet: form.binanceTestnet } : {}),
     };
 
@@ -1610,21 +1628,11 @@ export function App() {
     if (form.optimizeOperations) base.optimizeOperations = true;
     if (form.sweepThreshold) base.sweepThreshold = true;
 
-    if (form.costAwareEdge) base.costAwareEdge = true;
-    if (volTarget > 0) base.volTarget = volTarget;
     if (volEwmaAlpha > 0) base.volEwmaAlpha = volEwmaAlpha;
-    if (form.maxVolatility > 0) base.maxVolatility = Math.max(0, form.maxVolatility);
-    if (rebalanceBars > 0) base.rebalanceBars = rebalanceBars;
-    if (rebalanceThreshold > 0) base.rebalanceThreshold = rebalanceThreshold;
-    if (fundingRate !== 0) base.fundingRate = fundingRate;
 
     if (form.maxHighVolProb > 0) base.maxHighVolProb = clamp(form.maxHighVolProb, 0, 1);
     if (form.maxConformalWidth > 0) base.maxConformalWidth = Math.max(0, form.maxConformalWidth);
     if (form.maxQuantileWidth > 0) base.maxQuantileWidth = Math.max(0, form.maxQuantileWidth);
-    if (form.confirmConformal) base.confirmConformal = true;
-    if (form.confirmQuantiles) base.confirmQuantiles = true;
-    if (form.confidenceSizing) base.confidenceSizing = true;
-    if (form.minPositionSize > 0) base.minPositionSize = clamp(form.minPositionSize, 0, 1);
 
     return base;
   }, [form]);

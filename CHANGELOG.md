@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
+- Web UI: send explicit zero/false values for default-on risk settings so disable toggles take effect.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
 - Deploy: quick AWS deploy reuses existing App Runner S3 state settings + instance role when updating a service unless new values are provided.
 - Deploy: quick AWS deploy now exports `TRADER_API_MAX_HIDDEN_SIZE` (defaults to 50) for larger LSTM models.
@@ -55,7 +56,7 @@ All notable changes to this project will be documented in this file.
 - Trading: entries gated by `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` now wait for a volatility estimate.
 - Trading: latest signals now apply the same volatility gating and confidence close-direction gating (including blend) as backtests.
 - Trading: conformal/quantile confirmations use the close threshold when gating close signals.
-- Live bot: startup close decisions for adopted positions now use raw closeThreshold logic (ungated).
+- Live bot: startup close decisions for adopted positions now use the gated closeDirection logic (matching the run loop).
 - Live bot: close decisions now use the gated closeDirection logic during the run loop.
 - Live bot: bracket exits now honor stop-loss/take-profit/trailing vol-mult overrides.
 - Backtests: add volatility-targeted rebalancing (`--rebalance-bars`, `--rebalance-threshold`) and optional funding/borrow drag (`--funding-rate`).

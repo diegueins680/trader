@@ -2821,38 +2821,9 @@ initBotState args settings sym = do
   let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx Nothing
 
       -- Startup decision:
-      -- - If we adopt an existing long, use closeThreshold (hysteresis) to decide hold/exit.
+      -- - Adopted positions use closeThreshold (hysteresis) via the gated closeDirection.
       -- - Otherwise, entry uses openThreshold via lsChosenDir.
-      currentPrice = lsCurrentPrice latest0Raw
-      closeThr = max 0 (argCloseThreshold args)
-
-      directionAt thr pred =
-        let upEdge = currentPrice * (1 + thr)
-            downEdge = currentPrice * (1 - thr)
-         in if pred > upEdge
-              then Just (1 :: Int)
-              else if pred < downEdge then Just (-1) else Nothing
-
-      kalCloseDirRaw = lsKalmanNext latest0Raw >>= directionAt closeThr
-      lstmCloseDirRaw = lsLstmNext latest0Raw >>= directionAt closeThr
-      blendCloseDirRaw =
-        case (lsKalmanNext latest0Raw, lsLstmNext latest0Raw) of
-          (Just k, Just l) ->
-            let w = max 0 (min 1 (argBlendWeight args))
-                blend = w * k + (1 - w) * l
-             in directionAt closeThr blend
-          _ -> Nothing
-      closeAgreeDir =
-        if kalCloseDirRaw == lstmCloseDirRaw
-          then kalCloseDirRaw
-          else Nothing
-
-      closeDir =
-        case argMethod args of
-          MethodBoth -> closeAgreeDir
-          MethodKalmanOnly -> kalCloseDirRaw
-          MethodLstmOnly -> lstmCloseDirRaw
-          MethodBlend -> blendCloseDirRaw
+      closeDir = lsCloseDir latest0Raw
 
       wantLongClose = closeDir == Just 1
       wantShortClose = closeDir == Just (-1)

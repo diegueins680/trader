@@ -477,7 +477,7 @@ Multi-symbol notes:
 
 Live safety (startup position):
 - When `botTrade=true`, `/bot/start` adopts any existing position or open exchange orders for the symbol (long or short, subject to positioning).
-- Adopted positions use `closeThreshold` to decide hold/exit on startup (ungated by confidence filters).
+- Adopted positions use the gated `closeDirection` (closeThreshold + confidence filters) to decide hold/exit on startup.
 - Live bot exit decisions during the run loop use the gated `closeDirection` logic as well.
 - When `botTrade=true`, `/bot/start` also auto-starts bots for orphan open futures positions that have a matching top combo in `top-combos.json` (even if not listed in `botSymbols`).
 - `botAdoptExistingPosition` is now implied and ignored if provided.
@@ -519,6 +519,7 @@ Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
 The UI shows whether combos are coming from the live API or the static fallback, their last update time, and how many combos are displayed.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
+The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
