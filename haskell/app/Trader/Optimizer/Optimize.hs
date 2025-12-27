@@ -26,7 +26,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TEE
 import qualified Data.Vector as V
 import Data.Scientific (Scientific, toRealFloat)
-import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import System.Directory
   ( canonicalizePath
   , createDirectoryIfMissing
@@ -1148,93 +1148,6 @@ trialToRecord tr symbolLabel =
           Nothing -> []
    in object (baseFields ++ metricsField ++ opsField)
 
-sampleParams ::
-  Rng ->
-  [String] ->
-  [(String, [String])] ->
-  [String] ->
-  Double ->
-  Int ->
-  Int ->
-  String ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  (Int, Int) ->
-  (Int, Int) ->
-  (Int, Int) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Int, Int) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Int, Int) ->
-  (Double, Double) ->
-  Double ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Int, Int) ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Int ->
-  Int ->
-  Double ->
-  Double ->
-  Double ->
-  Int ->
-  (Int, Int) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  Double ->
-  Double ->
-  Double ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Int, Int) ->
-  (Double, Double, Double, Double) ->
-  [String] ->
-  (Double, Double) ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  Double ->
-  (Double, Double) ->
-  (Double, Double) ->
-  (Int, Int) ->
-  (TrialParams, Rng)
 sampleParams
   rng0
   platforms
@@ -1688,7 +1601,7 @@ runOptimizer args0 = do
           case csvInfo of
             (Just (Left _), _, _) -> pure 2
             (_, maxBarsCap, csvCols) -> do
-                  let (platforms, platformIntervalsMap, intervalsResolved) =
+              let (platforms, platformIntervalsMap, intervalsResolved) =
                     if oaBinanceSymbol args == Nothing
                       then ([], [], Right (pickIntervals intervalsRaw (oaLookbackWindow args) maxBarsCap))
                       else
@@ -2283,8 +2196,11 @@ buildBaseArgs args csvCols = do
 
 printTrialStatus :: Int -> Int -> TrialResult -> IO ()
 printTrialStatus i trials tr = do
-  let status = if trEligible tr then "OK" else if trOk tr then "SKIP" else "FAIL"
+  let status :: String
+      status = if trEligible tr then "OK" else if trOk tr then "SKIP" else "FAIL"
+      eq :: String
       eq = maybe "-" (\v -> printf "%.6fx" v) (trFinalEquity tr)
+      scoreLabel :: String
       scoreLabel = maybe "-" (\v -> printf "%.6f" v) (trScore tr)
       params = trParams tr
       msg =
@@ -2317,7 +2233,7 @@ printTrialStatus i trials tr = do
   putStrLn (msg ++ suffix)
   hFlush stdout
 
-printNoEligible :: Int -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
+printNoEligible :: Int -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
 printNoEligible minRoundTrips minWinRate minProfitFactor minExposure minSharpe minWfSharpeMean maxWfSharpeStd = do
   let hints =
         [ "--min-round-trips" | minRoundTrips > 0 ]
@@ -2431,7 +2347,7 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records = do
       combos = zipWith (comboFromTrial dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
   path <- expandUser topPath
   createDirectoryIfMissing True (takeDirectory path)
-  nowMs <- fmap (floor . (* 1000)) getPOSIXTime
+  nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
   let export' =
         object
           [ "generatedAtMs" .= nowMs

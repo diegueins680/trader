@@ -46,7 +46,7 @@ import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
-import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory, removeFile, renameFile)
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getCurrentDirectory, listDirectory, removeFile, renameFile)
 import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode(..), die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
@@ -3703,17 +3703,31 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
             Nothing
         else do
           projectRoot <- getCurrentDirectory
-          exePath <- getExecutablePath
-          let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
-              mergePath = projectRoot </> "scripts" </> "merge_top_combos.py"
           topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-          scriptExists <- doesFileExist scriptPath
-          mergeExists <- doesFileExist mergePath
-          if not scriptExists || not mergeExists
+          optimizerExe <- resolveOptimizerExecutable projectRoot "optimize-equity"
+          mergeExe <- resolveOptimizerExecutable projectRoot "merge-top-combos"
+          let missing = [(name, err) | (name, Left err) <- [("optimize-equity", optimizerExe), ("merge-top-combos", mergeExe)]]
+          if not (null missing)
             then do
               now <- getTimestampMs
-              journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.missing_script" :: String), "atMs" .= now, "script" .= scriptPath])
-              opsAppendMaybe mOps "optimizer.auto.missing_script" Nothing Nothing (Just (object ["script" .= scriptPath])) Nothing
+              let missingNames = intercalate ", " (map fst missing)
+                  missingErrs = intercalate "; " (map snd missing)
+              journalWriteMaybe
+                mJournal
+                ( object
+                    [ "type" .= ("optimizer.auto.missing_script" :: String)
+                    , "atMs" .= now
+                    , "script" .= missingNames
+                    , "error" .= missingErrs
+                    ]
+                )
+              opsAppendMaybe
+                mOps
+                "optimizer.auto.missing_script"
+                Nothing
+                Nothing
+                (Just (object ["script" .= missingNames, "error" .= missingErrs]))
+                Nothing
             else do
               envOrErr <- try (makeBinanceEnv baseArgs) :: IO (Either SomeException BinanceEnv)
               case envOrErr of
@@ -3732,6 +3746,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                   symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
                   intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
                   maxCombos <- optimizerMaxCombosFromEnv
+                  exePath <- getExecutablePath
 
                   let everySec :: Int
                       everySec =
@@ -6509,22 +6524,65 @@ truncateProcessOutput maxBytes raw =
                 prefix = printf "... (truncated, showing last %d bytes)\n" maxBytes'
              in prefix ++ BS.unpack kept
 
+resolveOptimizerExecutable :: FilePath -> String -> IO (Either String FilePath)
+resolveOptimizerExecutable projectRoot name = do
+  exePath <- getExecutablePath
+  let localPath = takeDirectory exePath </> name
+  localExists <- doesFileExist localPath
+  if localExists
+    then pure (Right localPath)
+    else do
+      mPath <- findExecutable name
+      case mPath of
+        Just p -> pure (Right p)
+        Nothing -> do
+          cabalDir <- findCabalDir
+          case cabalDir of
+            Nothing -> pure (Left ("Optimizer executable not found: " ++ name))
+            Just dir -> do
+              let proc' = (proc "cabal" ["list-bin", name]) {cwd = Just dir}
+              r <- try (readCreateProcessWithExitCode proc' "") :: IO (Either SomeException (ExitCode, String, String))
+              case r of
+                Left e -> pure (Left ("Failed to discover " ++ name ++ " via cabal: " ++ show e))
+                Right (ExitFailure _, out, err) ->
+                  pure (Left ("Failed to discover " ++ name ++ " via cabal: " ++ trim (if null err then out else err)))
+                Right (ExitSuccess, out, _) ->
+                  let path = trim out
+                   in if null path
+                        then pure (Left ("cabal returned empty binary path for " ++ name))
+                        else do
+                          exists <- doesFileExist path
+                          if exists
+                            then pure (Right path)
+                            else pure (Left ("cabal returned non-existent binary path: " ++ path))
+  where
+    findCabalDir = do
+      let candidates = [projectRoot </> "haskell", projectRoot]
+      firstExisting candidates
+    firstExisting [] = pure Nothing
+    firstExisting (dir : rest) = do
+      exists <- doesFileExist (dir </> "trader.cabal")
+      if exists then pure (Just dir) else firstExisting rest
+
 runOptimizerProcess ::
   FilePath ->
   FilePath ->
   [String] ->
   IO (Either (String, String, String) ApiOptimizerRunResponse)
 runOptimizerProcess projectRoot outputPath cliArgs = do
-  let scriptPath = projectRoot </> "scripts" </> "optimize_equity.py"
-      proc' = (proc "python3" (scriptPath : cliArgs)) {cwd = Just projectRoot}
-  (exitCode, out, err) <- readCreateProcessWithExitCode proc' ""
-  case exitCode of
-    ExitSuccess -> do
-      recordOrErr <- readLastOptimizerRecord outputPath
-      case recordOrErr of
-        Left msg -> pure (Left (msg, out, err))
-        Right val -> pure (Right (ApiOptimizerRunResponse val out err))
-    ExitFailure code -> pure (Left (printf "Optimizer script failed (exit %d)" code, out, err))
+  exeResult <- resolveOptimizerExecutable projectRoot "optimize-equity"
+  case exeResult of
+    Left err -> pure (Left (err, "", ""))
+    Right exePath -> do
+      let proc' = (proc exePath cliArgs) {cwd = Just projectRoot}
+      (exitCode, out, err) <- readCreateProcessWithExitCode proc' ""
+      case exitCode of
+        ExitSuccess -> do
+          recordOrErr <- readLastOptimizerRecord outputPath
+          case recordOrErr of
+            Left msg -> pure (Left (msg, out, err))
+            Right val -> pure (Right (ApiOptimizerRunResponse val out err))
+        ExitFailure code -> pure (Left (printf "Optimizer executable failed (exit %d)" code, out, err))
 
 runMergeTopCombos ::
   FilePath ->
@@ -6539,19 +6597,22 @@ runMergeTopCombos projectRoot topJsonPath recordsPath maxItems = do
     Right _ -> do
       s3TempPath <- writeS3TopCombosTemp topJsonPath
       historyDir <- resolveOptimizerCombosHistoryDir topJsonPath
-      let scriptPath = projectRoot </> "scripts" </> "merge_top_combos.py"
-          baseArgs = [scriptPath, "--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)]
-          s3Args = maybe [] (\p -> ["--from-top-json", p]) s3TempPath
-          historyArgs = maybe [] (\dir -> ["--history-dir", dir]) historyDir
-          args = baseArgs ++ s3Args ++ historyArgs
-          proc' = (proc "python3" args) {cwd = Just projectRoot}
-          cleanup = maybe (pure ()) removeTempTopCombo s3TempPath
-      (exitCode, out, err) <- readCreateProcessWithExitCode proc' "" `finally` cleanup
-      case exitCode of
-        ExitSuccess -> do
-          persistTopCombosMaybe topJsonPath
-          pure (Right ())
-        ExitFailure code -> pure (Left (printf "Merge script failed (exit %d)" code, out, err))
+      exeResult <- resolveOptimizerExecutable projectRoot "merge-top-combos"
+      case exeResult of
+        Left err -> pure (Left (err, "", ""))
+        Right exePath -> do
+          let baseArgs = ["--top-json", topJsonPath, "--from-jsonl", recordsPath, "--max", show (max 1 maxItems)]
+              s3Args = maybe [] (\p -> ["--from-top-json", p]) s3TempPath
+              historyArgs = maybe [] (\dir -> ["--history-dir", dir]) historyDir
+              args = baseArgs ++ s3Args ++ historyArgs
+              proc' = (proc exePath args) {cwd = Just projectRoot}
+              cleanup = maybe (pure ()) removeTempTopCombo s3TempPath
+          (exitCode, out, err) <- readCreateProcessWithExitCode proc' "" `finally` cleanup
+          case exitCode of
+            ExitSuccess -> do
+              persistTopCombosMaybe topJsonPath
+              pure (Right ())
+            ExitFailure code -> pure (Left (printf "Merge executable failed (exit %d)" code, out, err))
 
 writeS3TopCombosTemp :: FilePath -> IO (Maybe FilePath)
 writeS3TopCombosTemp topJsonPath = do

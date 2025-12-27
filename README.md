@@ -219,6 +219,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
+  - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.
   - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
     - `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
   - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips, and non-inverted hysteresis (close <= open) without reducing equity.
@@ -327,7 +328,7 @@ Endpoints:
 - `POST /backtest` → runs a backtest and returns summary metrics
 - `POST /backtest/async` → starts an async backtest job
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
-- `POST /optimizer/run` → runs the optimizer script, merges the run into `top-combos.json`, and returns the last JSONL record
+- `POST /optimizer/run` → runs the optimizer executable, merges the run into `top-combos.json`, and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
   - Top-combo merges compare scores only within the same objective; when objectives differ, ranking falls back to final equity to avoid mixing metrics.
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or minNotional)
@@ -346,7 +347,7 @@ Request limits:
 - `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000) truncates `/optimizer/run` stdout/stderr in responses.
 
 Optimizer script tips:
-- `haskell/scripts/optimize_equity.py --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
+- `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - `--platform`/`--platforms` sample exchange platforms when using `--binance-symbol`/`--symbol` (default: binance; supports coinbase/kraken/poloniex).
 - `--bars-auto-prob` and `--bars-distribution` tune how often bars=auto/all is sampled and how explicit bars are drawn.

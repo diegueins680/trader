@@ -68,6 +68,49 @@ executable trader-hs
                      , vector >=0.12
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
 
+executable optimize-equity
+  hs-source-dirs:      app
+  main-is:             OptimizeEquityMain.hs
+  other-modules:       Trader.BinanceIntervals
+                     , Trader.Duration
+                     , Trader.Platform
+                     , Trader.Optimizer.Json
+                     , Trader.Optimizer.Optimize
+                     , Trader.Optimizer.Random
+  default-language:    Haskell2010
+  build-depends:       base >=4.14 && <4.20
+                     , aeson >=1.5
+                     , bytestring >=0.10
+                     , containers
+                     , directory
+                     , filepath
+                     , optparse-applicative >=0.17
+                     , process
+                     , scientific
+                     , text
+                     , time
+                     , vector >=0.12
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+
+executable merge-top-combos
+  hs-source-dirs:      app
+  main-is:             MergeTopCombosMain.hs
+  other-modules:       Trader.Optimizer.Json
+                     , Trader.Optimizer.Merge
+  default-language:    Haskell2010
+  build-depends:       base >=4.14 && <4.20
+                     , aeson >=1.5
+                     , bytestring >=0.10
+                     , containers
+                     , directory
+                     , filepath
+                     , optparse-applicative >=0.17
+                     , scientific
+                     , text
+                     , time
+                     , vector >=0.12
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+
 test-suite trader-tests
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test, app

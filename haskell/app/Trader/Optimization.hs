@@ -403,7 +403,10 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         ]
 
       uniqueSorted = map head . group . sort
-      candidates0 = uniqueSorted (0 : map (\v -> max 0 (v - eps)) mags)
+      epsilonFor v =
+        let rel = abs v * 1e-9
+         in max eps rel
+      candidates0 = uniqueSorted (0 : map (\v -> max 0 (v - epsilonFor v)) mags)
       candidates =
         uniqueSorted
           ( baseOpenThreshold

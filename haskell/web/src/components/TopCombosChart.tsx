@@ -122,7 +122,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
     }
     return (
       <div className="hint">
-        No combos available yet. Run the optimizer script with <code>--top-json haskell/web/public/top-combos.json</code> (or your own path) and refresh the UI.
+        No combos available yet. Run <code>optimize-equity --top-json haskell/web/public/top-combos.json</code> (or your own path) and refresh the UI.
       </div>
     );
   }
