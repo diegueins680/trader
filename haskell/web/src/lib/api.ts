@@ -84,6 +84,19 @@ function resolveUrl(baseUrl: string, path: string): string {
   return `${rel}${pathname}${search}${hash}`;
 }
 
+function normalizeBaseUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, "");
+}
+
+function resolveFallbackBase(primaryBase: string): string | null {
+  const fallbackRaw = TRADER_UI_CONFIG.apiFallbackUrl?.trim() ?? "";
+  if (!fallbackRaw) return null;
+  const primary = normalizeBaseUrl(primaryBase);
+  const fallback = normalizeBaseUrl(fallbackRaw);
+  if (!fallback || fallback === primary) return null;
+  return fallback;
+}
+
 function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string> | undefined): HeadersInit | undefined {
   if (!extra || Object.keys(extra).length === 0) return base;
   const merged = new Headers(base);
@@ -156,7 +169,7 @@ async function readJsonOrText(res: Response): Promise<unknown> {
   return res.text();
 }
 
-async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
+async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
   const timeoutMs = opts?.timeoutMs ?? TRADER_UI_CONFIG.timeoutsMs?.requestMs ?? 30_000;
   const { signal, cleanup } = withTimeout(opts?.signal, timeoutMs);
   try {
@@ -195,6 +208,18 @@ async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, op
   }
 }
 
+async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
+  const fallbackBase = resolveFallbackBase(baseUrl);
+  try {
+    return await fetchJsonOnce<T>(baseUrl, path, init, opts);
+  } catch (err) {
+    if (fallbackBase && shouldFallbackToApiBase(err)) {
+      return await fetchJsonOnce<T>(fallbackBase, path, init, opts);
+    }
+    throw err;
+  }
+}
+
 function timeoutError(): DOMException {
   return new DOMException("Timeout", "TimeoutError");
 }
@@ -205,6 +230,16 @@ function isTimeoutError(err: unknown): boolean {
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
+}
+
+function isNetworkError(err: unknown): boolean {
+  return err instanceof TypeError;
+}
+
+function shouldFallbackToApiBase(err: unknown): boolean {
+  if (isAbortError(err) || isTimeoutError(err)) return false;
+  if (err instanceof HttpError) return err.status === 502 || err.status === 503 || err.status === 504;
+  return isNetworkError(err);
 }
 
 function shouldFallbackToGet(err: unknown): boolean {

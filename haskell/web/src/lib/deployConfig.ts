@@ -1,5 +1,6 @@
 export type TraderUiDeployConfig = {
   apiBaseUrl: string;
+  apiFallbackUrl?: string;
   apiToken: string;
   timeoutsMs?: TraderUiTimeoutsMs;
 };
@@ -59,6 +60,7 @@ function readConfigFromGlobal(): TraderUiDeployConfig {
 
   return {
     apiBaseUrl: readString((raw as { apiBaseUrl?: unknown }).apiBaseUrl).trim(),
+    apiFallbackUrl: readString((raw as { apiFallbackUrl?: unknown }).apiFallbackUrl).trim(),
     apiToken: readString((raw as { apiToken?: unknown }).apiToken).trim(),
     timeoutsMs: readTimeouts((raw as { timeoutsMs?: unknown }).timeoutsMs),
   };

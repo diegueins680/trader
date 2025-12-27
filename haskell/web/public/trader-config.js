@@ -9,6 +9,8 @@
 //   // configure shared async storage (TRADER_API_ASYNC_DIR or TRADER_STATE_DIR).
 //   // Use "https://your-api-host" for direct API calls when you are not proxying via /api.
 //   apiBaseUrl: "/api",
+//   // Optional: fallback to a direct API host if the /api proxy returns 502/503/504.
+//   apiFallbackUrl: "https://your-api-host",
 //   apiToken: "TRADER_API_TOKEN",
 //   timeoutsMs: {
 //     // Increase these if large backtests/trades time out in the UI.
@@ -21,5 +23,5 @@
 (() => {
   const existing = globalThis.__TRADER_CONFIG__;
   if (existing && typeof existing === "object") return;
-  globalThis.__TRADER_CONFIG__ = { apiBaseUrl: "/api", apiToken: "", timeoutsMs: {} };
+  globalThis.__TRADER_CONFIG__ = { apiBaseUrl: "/api", apiFallbackUrl: "", apiToken: "", timeoutsMs: {} };
 })();

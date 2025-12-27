@@ -753,6 +753,7 @@ EOF
 deploy_ui() {
   local api_url="$1"
   local api_token="$2"
+  local api_fallback_url="${3:-}"
 
   if [[ -z "${UI_BUCKET:-}" ]]; then
     echo -e "${RED}✗ Missing UI bucket. Provide --ui-bucket (or TRADER_UI_BUCKET / S3_BUCKET).${NC}" >&2
@@ -790,6 +791,7 @@ deploy_ui() {
   cat > "${UI_DIST_DIR}/trader-config.js" <<EOF
 globalThis.__TRADER_CONFIG__ = {
   apiBaseUrl: "${api_url}",
+  apiFallbackUrl: "${api_fallback_url}",
   apiToken: "${api_token}",
 };
 EOF
@@ -1127,7 +1129,11 @@ main() {
     else
       ui_api_url="$api_url"
     fi
-    deploy_ui "$ui_api_url" "$api_token"
+    ui_api_fallback=""
+    if [[ "$ui_api_url" == "/api" && -n "${api_url:-}" && "${api_url}" != "/api" ]]; then
+      ui_api_fallback="$api_url"
+    fi
+    deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
   fi
 
   echo -e "${GREEN}=== Deployment Complete ===${NC}\n"
@@ -1139,6 +1145,9 @@ main() {
   if [[ "$DEPLOY_UI" == "true" ]]; then
     if [[ "$DEPLOY_API" == "true" ]]; then
       echo "UI API base: ${ui_api_url}"
+      if [[ -n "${ui_api_fallback:-}" ]]; then
+        echo "UI API fallback: ${ui_api_fallback}"
+      fi
     fi
     echo "UI uploaded to: s3://${UI_BUCKET}/"
   fi

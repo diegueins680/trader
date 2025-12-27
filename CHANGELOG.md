@@ -60,6 +60,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add section headings plus issue shortcuts that jump and highlight the relevant inputs.
 - Web UI: when trading is armed, automatically switches Market to Futures when Positioning is set to Long/Short.
 - Web UI: falls back to `GET` for async polling when `POST` hits proxy errors (e.g. 502/503).
+- Web UI: optional `apiFallbackUrl` in `trader-config.js` to fail over to a direct API host when `/api` proxies return 502/503/504.
 - Web UI: avoid optimizer combo apply crashes when compute limits are unavailable.
 - Backtests: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as trade exit reasons.
 - Backtests: risk halts now evaluate post-bar equity and can close positions at the bar close.
