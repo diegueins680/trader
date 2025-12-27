@@ -40,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - Trading: Coinbase spot orders now supported via `/trade` and `--binance-trade` (live-only; no test endpoint).
 - Optimizer: add platform sampling (`--platforms`) and persist platform in top-combo outputs.
 - Optimizer: allow `merge-top-combos --max 0` to emit an empty combo list.
+- Optimizer: refresh the top-N combos daily by re-running backtests against the latest data and persisting updated metrics to `top-combos.json`.
 - Web UI: add platform selector with per-exchange symbols/intervals and disable Binance-only actions when not on Binance.
 - Web UI: store and check API keys per platform (Binance/Coinbase) and show Coinbase symbol defaults.
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.

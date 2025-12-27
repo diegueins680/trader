@@ -24,6 +24,7 @@ executable trader-hs
                      , Trader.Normalization
                      , Trader.Optimization
                      , Trader.OnlineStats
+                     , Trader.Optimizer.Json
                      , Trader.Poloniex
                      , Trader.Predictors
                      , Trader.Predictors.Types

@@ -113,6 +113,7 @@ import Trader.MarketContext (MarketModel, buildMarketModel, marketMeasurementAt)
 import Trader.BinanceIntervals (binanceIntervals)
 import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
 import Trader.Normalization (NormState, NormType(..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
+import Trader.Optimizer.Json (encodePretty)
 import Trader.Predictors
   ( PredictorBundle
   , SensorId(..)
@@ -4014,6 +4015,178 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
 
                       loop
 
+autoTopCombosBacktestLoop :: Args -> ApiComputeLimits -> Maybe OpsStore -> Maybe Journal -> FilePath -> IO ()
+autoTopCombosBacktestLoop baseArgs limits mOps mJournal optimizerTmp = do
+  enabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
+  let enabled = readEnvBool enabledEnv True
+  if not enabled
+    then pure ()
+    else do
+      topNEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_TOP_N"
+      everySecEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_EVERY_SEC"
+      let topN =
+            case topNEnv >>= readMaybe of
+              Just n | n >= 1 -> n
+              _ -> 10
+          everySec =
+            case everySecEnv >>= readMaybe of
+              Just n | n >= 60 -> n
+              _ -> 86400
+      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+      putStrLn (printf "Top combos backtest enabled: topN=%d everySec=%d path=%s" topN everySec topJsonPath)
+      let sleepSec s = threadDelay (max 1 s * 1000000)
+
+          recordEvent :: String -> [(AK.Key, Aeson.Value)] -> IO ()
+          recordEvent kind details = do
+            now <- getTimestampMs
+            journalWriteMaybe mJournal (object ("type" .= kind : "atMs" .= now : details))
+            opsAppendMaybe mOps (T.pack kind) Nothing Nothing (Just (object details)) Nothing
+
+          recordError :: String -> String -> Maybe String -> Maybe String -> IO ()
+          recordError kind err sym interval = do
+            let details =
+                  [ "error" .= err
+                  , "symbol" .= sym
+                  , "interval" .= interval
+                  , "path" .= topJsonPath
+                  ]
+            recordEvent kind details
+
+          backtestCombo comboVal = do
+            let mKey = comboIdentityKey comboVal
+            case mKey of
+              Nothing -> do
+                recordError "optimizer.combos.backtest_failed" "Missing combo identity." Nothing Nothing
+                pure Nothing
+              Just key ->
+                case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
+                  Aeson.Error err -> do
+                    recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                    pure Nothing
+                  Aeson.Success combo -> do
+                    let mSymbol =
+                          topComboParamString "binanceSymbol" combo
+                            <|> topComboParamString "symbol" combo
+                        mInterval = topComboParamString "interval" combo
+                        mPlatformRaw = topComboParamString "platform" combo
+                        platformOrErr =
+                          case mPlatformRaw of
+                            Nothing -> Right (argPlatform baseArgs)
+                            Just raw ->
+                              if normalizeKey raw == "csv"
+                                then Left "CSV combos require --data."
+                                else parsePlatform raw
+                    case (mSymbol, platformOrErr) of
+                      (Nothing, _) -> do
+                        recordError "optimizer.combos.backtest_failed" "Missing combo symbol." Nothing mInterval
+                        pure Nothing
+                      (_, Left e) -> do
+                        recordError "optimizer.combos.backtest_failed" e mSymbol mInterval
+                        pure Nothing
+                      (Just sym, Right platform) -> do
+                        args0 <-
+                          case applyTopComboForStart baseArgs combo of
+                            Left e -> do
+                              recordError "optimizer.combos.backtest_failed" e (Just sym) mInterval
+                              pure Nothing
+                            Right out -> pure (Just out)
+                        case args0 of
+                          Nothing -> pure Nothing
+                          Just argsBase -> do
+                            let args1 =
+                                  argsBase
+                                    { argBinanceSymbol = Just sym
+                                    , argPlatform = platform
+                                    , argData = Nothing
+                                    , argTradeOnly = False
+                                    , argBinanceTrade = False
+                                    , argOptimizeOperations = False
+                                    , argSweepThreshold = False
+                                    }
+                            case validateApiComputeLimits limits args1 of
+                              Left e -> do
+                                recordError "optimizer.combos.backtest_failed" e (Just sym) mInterval
+                                pure Nothing
+                              Right argsOk -> do
+                                backtestResult <- try (computeBacktestFromArgs argsOk) :: IO (Either SomeException Aeson.Value)
+                                case backtestResult of
+                                  Left ex -> do
+                                    recordError "optimizer.combos.backtest_failed" (show ex) (Just sym) mInterval
+                                    pure Nothing
+                                  Right out ->
+                                    case extractBacktestMetrics out of
+                                      Nothing -> do
+                                        recordError "optimizer.combos.backtest_failed" "Backtest missing metrics." (Just sym) mInterval
+                                        pure Nothing
+                                      Just metricsVal -> do
+                                        let mFinalEq = comboMetricDouble "finalEquity" metricsVal
+                                            objective = fromMaybe "final-equity" (tcObjectiveLabel combo)
+                                            mScore = objectiveScoreFromMetrics argsOk objective metricsVal
+                                            mOps = extractBacktestOperations out
+                                            update =
+                                              ComboBacktestUpdate
+                                                { cbuMetrics = metricsVal
+                                                , cbuFinalEquity = mFinalEq
+                                                , cbuScore = mScore
+                                                , cbuOperations = mOps
+                                                }
+                                        recordEvent
+                                          "optimizer.combos.backtest"
+                                          ( [ "symbol" .= sym
+                                            , "interval" .= mInterval
+                                            , "finalEquity" .= mFinalEq
+                                            , "score" .= mScore
+                                            ]
+                                              ++ maybe [] (\v -> ["objective" .= v]) (tcObjectiveLabel combo)
+                                          )
+                                        pure (Just (key, update))
+
+          runOnce = do
+            baseValOrErr <- readTopCombosValue topJsonPath
+            case baseValOrErr of
+              Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+              Right baseVal ->
+                case baseVal of
+                  Aeson.Object o ->
+                    case KM.lookup (AK.fromString "combos") o of
+                      Just (Aeson.Array combos) -> do
+                        let combosList = V.toList combos
+                            ranked = take topN (sortOn (\(_, v) -> comboPerformanceKey v) (zip [0 ..] combosList))
+                        updates <- fmap catMaybes (forM ranked (\(_, v) -> backtestCombo v))
+                        if null updates
+                          then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String)]
+                          else do
+                            latestValOrErr <- readTopCombosValue topJsonPath
+                            now <- getTimestampMs
+                            let latestVal = either (const baseVal) id latestValOrErr
+                                updateMap = HM.fromList updates
+                            case applyComboUpdates now updateMap latestVal of
+                              Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                              Right (updatedVal, updatedCount) ->
+                                if updatedCount <= 0
+                                  then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
+                                  else do
+                                    writeResult <- writeTopCombosValue topJsonPath updatedVal
+                                    case writeResult of
+                                      Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                                      Right _ -> do
+                                        persistTopCombosMaybe topJsonPath
+                                        recordEvent
+                                          "optimizer.combos.backtest_updated"
+                                          [ "updated" .= updatedCount
+                                          , "topN" .= topN
+                                          , "path" .= topJsonPath
+                                          ]
+                      _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON missing combos array." Nothing Nothing
+                  _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON root must be an object." Nothing Nothing
+
+          loop = do
+            runOnce
+            sleepSec everySec
+            loop
+
+      loop
+
 makeBinanceEnv :: Args -> IO BinanceEnv
 makeBinanceEnv args = do
   if argPlatform args /= PlatformBinance
@@ -4941,6 +5114,7 @@ runRestApi baseArgs mWebhook = do
   opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing
   bot <- newBotController
   _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
+  _ <- forkIO (autoTopCombosBacktestLoop baseArgs limits mOps mJournal optimizerTmp)
   asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
   asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
   asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
@@ -6811,6 +6985,216 @@ persistTopCombosHistoryMaybe topJsonPath st contents = do
       let key = s3TopCombosHistoryKey st ts
       _ <- s3PutObject st key contents
       pure ()
+
+data ComboBacktestUpdate = ComboBacktestUpdate
+  { cbuMetrics :: !Aeson.Value
+  , cbuFinalEquity :: !(Maybe Double)
+  , cbuScore :: !(Maybe Double)
+  , cbuOperations :: !(Maybe Aeson.Value)
+  }
+
+readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
+readTopCombosValue path = do
+  mS3 <- resolveS3State
+  s3Result <-
+    case mS3 of
+      Nothing -> pure Nothing
+      Just st -> do
+        let key = s3TopCombosKey st
+        r <- s3GetObject st key
+        case r of
+          Left e -> pure (Just (Left ("Failed to read top combos from S3: " ++ e)))
+          Right Nothing -> pure (Just (Left "Top combos JSON not found in S3."))
+          Right (Just contents) ->
+            pure $
+              Just $
+                case Aeson.eitherDecode' contents of
+                  Left err -> Left ("Failed to parse top combos JSON from S3: " ++ err)
+                  Right val -> Right val
+  case s3Result of
+    Just (Right val) -> pure (Right val)
+    _ -> do
+      exists <- doesFileExist path
+      if not exists
+        then pure (Left "Top combos JSON not found.")
+        else do
+          contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+          case contentsOrErr of
+            Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
+            Right contents ->
+              case Aeson.eitherDecode' contents of
+                Left err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
+                Right val -> pure (Right val)
+
+writeTopCombosValue :: FilePath -> Aeson.Value -> IO (Either String ())
+writeTopCombosValue path val = do
+  let dir = takeDirectory path
+  dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
+  case dirResult of
+    Left e -> pure (Left ("Failed to create top combos directory: " ++ show e))
+    Right _ -> do
+      tempResult <- try (openTempFile dir "top-combos-backtest.json") :: IO (Either SomeException (FilePath, Handle))
+      case tempResult of
+        Left e -> pure (Left ("Failed to create temp top combos file: " ++ show e))
+        Right (tmpPath, handle) -> do
+          _ <- try (BL.hPut handle (encodePretty val <> "\n")) :: IO (Either SomeException ())
+          hClose handle
+          renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+          case renameResult of
+            Left e -> pure (Left ("Failed to write top combos JSON: " ++ show e))
+            Right _ -> pure (Right ())
+
+comboMetricValue :: String -> Aeson.Value -> Maybe Aeson.Value
+comboMetricValue key val =
+  case val of
+    Aeson.Object o -> KM.lookup (AK.fromString key) o
+    _ -> Nothing
+
+comboMetricDouble :: String -> Aeson.Value -> Maybe Double
+comboMetricDouble key val =
+  comboMetricValue key val >>= AT.parseMaybe parseJSON
+
+comboMetricsDouble :: String -> Aeson.Value -> Maybe Double
+comboMetricsDouble key val = do
+  metrics <- comboMetricValue "metrics" val
+  comboMetricDouble key metrics
+
+comboIdentityKey :: Aeson.Value -> Maybe BS.ByteString
+comboIdentityKey val = do
+  params <- comboMetricValue "params" val
+  let openThr = comboMetricValue "openThreshold" val
+      closeThr = comboMetricValue "closeThreshold" val
+      objective = comboMetricValue "objective" val
+      identity =
+        object
+          [ "params" .= params
+          , "openThreshold" .= openThr
+          , "closeThreshold" .= closeThr
+          , "objective" .= objective
+          ]
+  pure (BL.toStrict (encodePretty identity))
+
+comboPerformanceKey :: Aeson.Value -> (Double, Double, Int)
+comboPerformanceKey val =
+  let eq = fromMaybe 0 (comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val)
+      score = fromMaybe (negate (1 / 0)) (comboMetricDouble "score" val)
+      rank =
+        case val of
+          Aeson.Object o -> fromMaybe maxBound (KM.lookup (AK.fromString "rank") o >>= AT.parseMaybe parseJSON)
+          _ -> maxBound
+      eq' = if isNaN eq || isInfinite eq then 0 else eq
+      score' = if isNaN score || isInfinite score then negate (1 / 0) else score
+   in (negate eq', negate score', rank)
+
+extractBacktestMetrics :: Aeson.Value -> Maybe Aeson.Value
+extractBacktestMetrics val =
+  case val of
+    Aeson.Object o -> KM.lookup (AK.fromString "metrics") o
+    _ -> Nothing
+
+extractBacktestOperations :: Aeson.Value -> Maybe Aeson.Value
+extractBacktestOperations val =
+  case val of
+    Aeson.Object o ->
+      case KM.lookup (AK.fromString "trades") o of
+        Just (Aeson.Array trades) ->
+          let ops = mapMaybe tradeToOp (V.toList trades)
+           in if null ops then Nothing else Just (Aeson.Array (V.fromList ops))
+        _ -> Nothing
+    _ -> Nothing
+  where
+    tradeToOp :: Aeson.Value -> Maybe Aeson.Value
+    tradeToOp tradeVal =
+      case tradeVal of
+        Aeson.Object trade -> do
+          entryIdx <- (KM.lookup (AK.fromString "entryIndex") trade >>= AT.parseMaybe parseJSON :: Maybe Int)
+          exitIdx <- (KM.lookup (AK.fromString "exitIndex") trade >>= AT.parseMaybe parseJSON :: Maybe Int)
+          let entryEq = KM.lookup (AK.fromString "entryEquity") trade >>= AT.parseMaybe parseJSON :: Maybe Double
+              exitEq = KM.lookup (AK.fromString "exitEquity") trade >>= AT.parseMaybe parseJSON :: Maybe Double
+              retVal = KM.lookup (AK.fromString "return") trade >>= AT.parseMaybe parseJSON :: Maybe Double
+              holding = KM.lookup (AK.fromString "holdingPeriods") trade >>= AT.parseMaybe parseJSON :: Maybe Int
+              exitReason = KM.lookup (AK.fromString "exitReason") trade >>= AT.parseMaybe parseJSON :: Maybe String
+              base =
+                [ "entryIndex" .= entryIdx
+                , "exitIndex" .= exitIdx
+                ]
+              extras =
+                catMaybes
+                  [ fmap (\v -> "entryEquity" .= v) entryEq
+                  , fmap (\v -> "exitEquity" .= v) exitEq
+                  , fmap (\v -> "return" .= v) retVal
+                  , fmap (\v -> "holdingPeriods" .= v) holding
+                  , fmap (\v -> "exitReason" .= v) exitReason
+                  ]
+          pure (object (base ++ extras))
+        _ -> Nothing
+
+objectiveScoreFromMetrics :: Args -> String -> Aeson.Value -> Maybe Double
+objectiveScoreFromMetrics args objective metricsVal =
+  let metric k =
+        case metricsVal of
+          Aeson.Object o -> KM.lookup (AK.fromString k) o >>= AT.parseMaybe parseJSON
+          _ -> Nothing
+      finalEq = fromMaybe 0 (metric "finalEquity")
+      maxDd = fromMaybe 0 (metric "maxDrawdown")
+      sharpe = fromMaybe 0 (metric "sharpe")
+      annRet = fromMaybe 0 (metric "annualizedReturn")
+      turnover = fromMaybe 0 (metric "turnover")
+      obj = map toLower (trim objective)
+      penaltyMaxDd = max 0 (argTunePenaltyMaxDrawdown args)
+      penaltyTurnover = max 0 (argTunePenaltyTurnover args)
+      rawScore
+        | obj `elem` ["final-equity", "final_equity", "finalequity"] = finalEq
+        | obj == "sharpe" = sharpe
+        | obj == "calmar" = annRet / max 1e-12 maxDd
+        | obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"] =
+            finalEq - penaltyMaxDd * maxDd
+        | obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"] =
+            finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
+        | otherwise = finalEq
+      score =
+        if isNaN rawScore || isInfinite rawScore
+          then Nothing
+          else Just rawScore
+   in score
+
+updateComboWithBacktest :: ComboBacktestUpdate -> Aeson.Value -> Aeson.Value
+updateComboWithBacktest update comboVal =
+  case comboVal of
+    Aeson.Object o ->
+      let o1 = KM.insert (AK.fromString "metrics") (cbuMetrics update) o
+          o2 =
+            case cbuFinalEquity update of
+              Nothing -> o1
+              Just eq -> KM.insert (AK.fromString "finalEquity") (toJSON eq) o1
+          o3 =
+            case cbuScore update of
+              Nothing -> o2
+              Just score -> KM.insert (AK.fromString "score") (toJSON score) o2
+          o4 =
+            case cbuOperations update of
+              Nothing -> o3
+              Just ops -> KM.insert (AK.fromString "operations") ops o3
+       in Aeson.Object o4
+    _ -> comboVal
+
+applyComboUpdates :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, Int)
+applyComboUpdates now updates val =
+  case val of
+    Aeson.Object o ->
+      case KM.lookup (AK.fromString "combos") o of
+        Just (Aeson.Array combos) -> do
+          let combosList = V.toList combos
+              (updatedCombos, updatedCount) = foldl' applyOne ([], 0 :: Int) combosList
+              applyOne (acc, count) comboVal =
+                case comboIdentityKey comboVal >>= (`HM.lookup` updates) of
+                  Nothing -> (comboVal : acc, count)
+                  Just upd -> (updateComboWithBacktest upd comboVal : acc, count + 1)
+              combosOut = Aeson.Array (V.fromList (reverse updatedCombos))
+              o' = KM.insert (AK.fromString "combos") combosOut (KM.insert (AK.fromString "generatedAtMs") (toJSON now) o)
+          Right (Aeson.Object o', updatedCount)
+        _ -> Left "Top combos JSON missing combos array."
+    _ -> Left "Top combos JSON root must be an object."
 
 topComboParamString :: String -> TopCombo -> Maybe String
 topComboParamString key combo =
