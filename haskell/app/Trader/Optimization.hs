@@ -411,17 +411,14 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
               : downsample maxCandidates candidates0
           )
 
-      eligibleTune bt =
-        if minRoundTripsReq <= 0
-          then True
-          else
-            let m = computeMetrics (max 1e-12 (tcPeriodsPerYear cfg)) bt
-             in bmRoundTrips m >= minRoundTripsReq
-
       eval openThr closeThr =
         let btCfg = baseCfg { ecOpenThreshold = openThr, ecCloseThreshold = closeThr }
             btFull = simulateEnsembleVWithHL btCfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
-            eligible = eligibleTune btFull
+            metrics = computeMetrics (max 1e-12 (tcPeriodsPerYear cfg)) btFull
+            eligible =
+              if minRoundTripsReq <= 0
+                then True
+                else bmRoundTrips metrics >= minRoundTripsReq
             foldsReq = max 1 (tcWalkForwardFolds cfg)
             foldRs = foldRanges stepCount foldsReq
             foldScores =
@@ -454,30 +451,58 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 , tsMeanScore = m
                 , tsStdScore = s
                 }
-         in (eligible, m, s, openThr, closeThr, btFull, stats)
+         in (eligible, m, s, openThr, closeThr, btFull, stats, metrics)
 
-      (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats) = eval baseOpenThreshold baseCloseThreshold
+      (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats, baseMetrics) =
+        eval baseOpenThreshold baseCloseThreshold
       eqEps = 1e-12
-      pick (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats) (openThr, closeThr) =
-        let (eligible, m, s, openThr', closeThr', bt, stats) = eval openThr closeThr
+      preferTie metrics openThr closeThr bestMetrics bestOpen bestClose =
+        let eq = bmFinalEquity metrics
+            bestEq = bmFinalEquity bestMetrics
+            turnover = bmTurnover metrics
+            bestTurnover = bmTurnover bestMetrics
+            roundTrips = bmRoundTrips metrics
+            bestRoundTrips = bmRoundTrips bestMetrics
+            inverted = closeThr > openThr + eqEps
+            bestInverted = bestClose > bestOpen + eqEps
+         in if eq > bestEq + eqEps
+              then True
+              else if abs (eq - bestEq) <= eqEps
+                then
+                  if turnover < bestTurnover - eqEps
+                    then True
+                    else if abs (turnover - bestTurnover) <= eqEps
+                      then
+                        if roundTrips > bestRoundTrips
+                          then True
+                          else if roundTrips == bestRoundTrips
+                            then
+                              if not inverted && bestInverted
+                                then True
+                                else inverted == bestInverted && (openThr, closeThr) > (bestOpen, bestClose)
+                            else False
+                      else False
+                else False
+      pick (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics) (openThr, closeThr) =
+        let (eligible, m, s, openThr', closeThr', bt, stats, metrics) = eval openThr closeThr
          in case (bestEligible, eligible) of
-              (False, True) -> (True, m, s, openThr', closeThr', bt, stats)
-              (True, False) -> (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats)
+              (False, True) -> (True, m, s, openThr', closeThr', bt, stats, metrics)
+              (True, False) -> (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
               _ ->
                 if m > bestMean + eqEps
-                  then (eligible, m, s, openThr', closeThr', bt, stats)
+                  then (eligible, m, s, openThr', closeThr', bt, stats, metrics)
                   else if abs (m - bestMean) <= eqEps
                     then
                       if s < bestStd - eqEps
-                        then (eligible, m, s, openThr', closeThr', bt, stats)
-                        else if abs (s - bestStd) <= eqEps && (openThr', closeThr') > (bestOpenThr, bestCloseThr)
-                          then (eligible, m, s, openThr', closeThr', bt, stats)
-                          else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats)
-                    else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats)
+                        then (eligible, m, s, openThr', closeThr', bt, stats, metrics)
+                        else if abs (s - bestStd) <= eqEps && preferTie metrics openThr' closeThr' bestMetrics bestOpenThr bestCloseThr
+                          then (eligible, m, s, openThr', closeThr', bt, stats, metrics)
+                          else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
+                    else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
 
       foldClose acc openThr = foldl' (\acc0 closeThr -> pick acc0 (openThr, closeThr)) acc candidates
-      (bestEligible, _, _, bestOpenThr, bestCloseThr, bestBt, bestStats) =
-        foldl' foldClose (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats) candidates
+      (bestEligible, _, _, bestOpenThr, bestCloseThr, bestBt, bestStats, _bestMetrics) =
+        foldl' foldClose (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats, baseMetrics) candidates
 
       result = (bestOpenThr, bestCloseThr, bestBt, bestStats)
    in

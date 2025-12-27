@@ -45,7 +45,9 @@ export type FormState = {
   maxVolatility: number;
   rebalanceBars: number;
   rebalanceThreshold: number;
+  rebalanceGlobal: boolean;
   fundingRate: number;
+  fundingBySide: boolean;
   blendWeight: number;
   backtestRatio: number;
   tuneRatio: number;
@@ -138,7 +140,9 @@ export const defaultForm: FormState = {
   maxVolatility: 1.5,
   rebalanceBars: 24,
   rebalanceThreshold: 0.05,
+  rebalanceGlobal: false,
   fundingRate: 0.1,
+  fundingBySide: false,
   blendWeight: 0.5,
   backtestRatio: 0.2,
   tuneRatio: 0.25,
@@ -391,7 +395,9 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
       0,
       1e9,
     ),
+    rebalanceGlobal: normalizeBool(rawRec.rebalanceGlobal ?? merged.rebalanceGlobal, defaultForm.rebalanceGlobal),
     fundingRate: normalizeFiniteNumber(rawRec.fundingRate ?? merged.fundingRate, defaultForm.fundingRate, -1e9, 1e9),
+    fundingBySide: normalizeBool(rawRec.fundingBySide ?? merged.fundingBySide, defaultForm.fundingBySide),
     blendWeight: normalizeFiniteNumber(rawRec.blendWeight ?? merged.blendWeight, defaultForm.blendWeight, 0, 1),
     maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
     maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),

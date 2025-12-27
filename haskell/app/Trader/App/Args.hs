@@ -119,7 +119,9 @@ data Args = Args
   , argMaxVolatility :: Maybe Double
   , argRebalanceBars :: Int
   , argRebalanceThreshold :: Double
+  , argRebalanceGlobal :: Bool
   , argFundingRate :: Double
+  , argFundingBySide :: Bool
   , argBlendWeight :: Double
   , argMaxOrderErrors :: Maybe Int
   , argPeriodsPerYear :: Maybe Double
@@ -388,9 +390,11 @@ opts = do
               <> help "Block entries when annualized vol exceeds this (0 disables)"
           )
       )
-  argRebalanceBars <- option auto (long "rebalance-bars" <> value 24 <> help "Rebalance position size every N bars when size targets change (0 disables)")
+  argRebalanceBars <- option auto (long "rebalance-bars" <> value 24 <> help "Rebalance position size every N bars when size targets change (0 disables; default anchors to entry age)")
   argRebalanceThreshold <- option auto (long "rebalance-threshold" <> value 0.05 <> help "Minimum abs size delta required to rebalance (0 disables)")
-  argFundingRate <- option auto (long "funding-rate" <> long "financing-rate" <> value 0.1 <> help "Annualized funding/borrow rate applied per bar in backtests (fraction; negative allowed)")
+  argRebalanceGlobal <- switch (long "rebalance-global" <> help "Anchor rebalance cadence to global bars instead of entry age")
+  argFundingRate <- option auto (long "funding-rate" <> long "financing-rate" <> value 0.1 <> help "Annualized funding/borrow rate applied per bar in backtests (fraction; negative allowed; side-agnostic unless --funding-by-side)")
+  argFundingBySide <- switch (long "funding-by-side" <> help "Apply funding sign by side (long pays positive, short receives)")
   argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend (0..1)")
   argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
   argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))

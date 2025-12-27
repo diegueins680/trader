@@ -221,6 +221,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
   - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
     - `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
+  - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips, and non-inverted hysteresis (close <= open) without reducing equity.
   - `--tune-penalty-max-drawdown 1.5` penalty weight for max drawdown (used by `equity-dd*` objectives)
   - `--tune-penalty-turnover 0.2` penalty weight for turnover (used by `equity-dd-turnover`)
   - `--min-round-trips N` (default: `0`) when optimizing/sweeping, require at least `N` round trips in the tune split (helps avoid picking "no-trade" configs)
@@ -249,9 +250,11 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--vol-floor F` annualized vol floor for sizing (default: `0.15`)
     - `--vol-scale-max F` cap volatility scaling (limits leverage)
     - `--max-volatility F` block entries when annualized vol exceeds this (`0` disables; default: `1.5`)
-  - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables; backtests only)
-  - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables)
-  - `--funding-rate F` optional: annualized funding/borrow rate applied per bar in backtests (`0` disables; negative allowed)
+  - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables; backtests only; default: `24`, entry-anchored)
+  - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables; default: `0.05`)
+  - `--rebalance-global` optional: anchor rebalance cadence to global bars instead of entry age
+  - `--funding-rate F` optional: annualized funding/borrow rate applied per bar in backtests (`0` disables; negative allowed; default: `0.1`)
+  - `--funding-by-side` optional: apply funding sign by side (long pays positive, short receives)
   - Entries and latest-signal actions that use `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` wait for a volatility estimate before entering.
   - `--kalman-z-min 0.5` minimum Kalman |mean|/std required to treat Kalman as directional (`0` disables)
   - `--kalman-z-max 3` Z-score mapped to full position size when confidence sizing is enabled
@@ -326,6 +329,7 @@ Endpoints:
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
 - `POST /optimizer/run` → runs the optimizer script, merges the run into `top-combos.json`, and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
+  - Top-combo merges compare scores only within the same objective; when objectives differ, ranking falls back to final equity to avoid mixing metrics.
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or minNotional)
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
 - `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting

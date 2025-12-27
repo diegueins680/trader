@@ -31,6 +31,7 @@ import System.Directory
   ( canonicalizePath
   , createDirectoryIfMissing
   , doesFileExist
+  , findExecutable
   , getCurrentDirectory
   , getHomeDirectory
   )
@@ -60,7 +61,7 @@ import System.Process
 import System.Timeout (timeout)
 import Text.Printf (printf)
 
-import Trader.BinanceIntervals (binanceIntervals, binanceIntervalsCsv)
+import Trader.BinanceIntervals (binanceIntervalsCsv)
 import Trader.Duration (lookbackBarsFrom)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Random
@@ -1216,7 +1217,7 @@ sampleParams ::
   (Double, Double) ->
   (Double, Double) ->
   (Int, Int) ->
-  (String, Double, Double, Double, Double) ->
+  (Double, Double, Double, Double) ->
   [String] ->
   (Double, Double) ->
   Double ->
@@ -1655,13 +1656,14 @@ runOptimizer args0 = do
             case oaData args of
               Nothing -> pure (Nothing, 1000, Nothing)
               Just raw -> do
-                p <- expandUser raw
-                exists <- doesFileExist p
+                p0 <- expandUser raw
+                exists <- doesFileExist p0
                 if not exists
                   then do
-                    hPutStrLn stderr ("--data not found: " ++ p)
+                    hPutStrLn stderr ("--data not found: " ++ p0)
                     pure (Just (Left "missing"), 0, Nothing)
                   else do
+                    p <- canonicalizePath p0
                     let autoDetect = oaAutoHighLow args && null (oaHighColumn args) && null (oaLowColumn args)
                     (highCol, lowCol) <-
                       if autoDetect
@@ -1686,9 +1688,9 @@ runOptimizer args0 = do
           case csvInfo of
             (Just (Left _), _, _) -> pure 2
             (_, maxBarsCap, csvCols) -> do
-              let (platforms, platformIntervalsMap, intervalsResolved) =
+                  let (platforms, platformIntervalsMap, intervalsResolved) =
                     if oaBinanceSymbol args == Nothing
-                      then ([], [], pickIntervals intervalsRaw (oaLookbackWindow args) maxBarsCap)
+                      then ([], [], Right (pickIntervals intervalsRaw (oaLookbackWindow args) maxBarsCap))
                       else
                         let rawPlatforms =
                               case oaPlatform args of
@@ -2115,22 +2117,44 @@ resolveTraderBin args =
       p <- expandUser (oaBinary args)
       pure (Right p)
     else do
-      cwd <- getCurrentDirectory
-      let procSpec = (proc "cabal" ["list-bin", "trader-hs"]) {cwd = Just cwd}
-      r <- try (readProcessOutput procSpec) :: IO (Either SomeException (ExitCode, String, String))
-      case r of
-        Left e -> pure (Left ("failed to discover trader-hs binary via cabal: " ++ show e))
-        Right (ExitFailure _, out, err) ->
-          pure (Left ("failed to discover trader-hs binary via cabal: " ++ trim (if null err then out else err)))
-        Right (ExitSuccess, out, _) ->
-          let p = trim out
-           in if null p
-                then pure (Left "cabal returned empty binary path")
-                else do
-                  exists <- doesFileExist p
-                  if exists
-                    then pure (Right p)
-                    else pure (Left ("cabal returned non-existent binary path: " ++ p))
+      mPath <- findExecutable "trader-hs"
+      case mPath of
+        Just p -> pure (Right p)
+        Nothing -> do
+          cwd <- getCurrentDirectory
+          let cabalDirCandidates = [cwd, cwd </> "haskell"]
+          cabalDir <- firstExistingCabalDir cabalDirCandidates
+          case cabalDir of
+            Nothing ->
+              pure (Left "failed to discover trader-hs binary via cabal: trader.cabal not found")
+            Just dir -> do
+              let procSpec =
+                    (proc "cabal" ["list-bin", "trader-hs"])
+                      { cwd = Just dir
+                      , std_out = CreatePipe
+                      , std_err = CreatePipe
+                      }
+              r <- try (readProcessOutput procSpec) :: IO (Either SomeException (ExitCode, String, String))
+              case r of
+                Left e -> pure (Left ("failed to discover trader-hs binary via cabal: " ++ show e))
+                Right (ExitFailure _, out, err) ->
+                  pure (Left ("failed to discover trader-hs binary via cabal: " ++ trim (if null err then out else err)))
+                Right (ExitSuccess, out, _) ->
+                  let p = trim out
+                   in if null p
+                        then pure (Left "cabal returned empty binary path")
+                        else do
+                          exists <- doesFileExist p
+                          if exists
+                            then pure (Right p)
+                            else pure (Left ("cabal returned non-existent binary path: " ++ p))
+  where
+    firstExistingCabalDir [] = pure Nothing
+    firstExistingCabalDir (dir : rest) = do
+      exists <- doesFileExist (dir </> "trader.cabal")
+      if exists
+        then pure (Just dir)
+        else firstExistingCabalDir rest
 
 readProcessOutput :: CreateProcess -> IO (ExitCode, String, String)
 readProcessOutput procSpec = do

@@ -7,6 +7,7 @@ import math
 import shutil
 import sys
 import time
+from functools import cmp_to_key
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -76,6 +77,15 @@ def _normalize_symbol(value: Any) -> Optional[str]:
     return _normalize_symbol(str(value))
 
 
+def _normalize_objective(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip().lower()
+        return s if s else None
+    return _normalize_objective(str(value))
+
+
 def _coerce_operations(value: Any) -> Optional[List[Dict[str, Any]]]:
     if not isinstance(value, list):
         return None
@@ -130,7 +140,7 @@ def _load_combos_from_jsonl(path: Path) -> List[Dict[str, Any]]:
         out.append(
             {
                 "finalEquity": final_equity,
-                "objective": rec.get("objective") if isinstance(rec.get("objective"), str) else None,
+                "objective": _normalize_objective(rec.get("objective")),
                 "score": _coerce_float(rec.get("score")),
                 "openThreshold": _coerce_float(rec.get("openThreshold")),
                 "closeThreshold": _coerce_float(rec.get("closeThreshold")),
@@ -168,7 +178,7 @@ def _normalize_combo(combo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if platform_s not in ("binance", "coinbase", "kraken", "poloniex"):
         platform_s = source if source in ("binance", "coinbase", "kraken", "poloniex") else None
 
-    objective = combo.get("objective") if isinstance(combo.get("objective"), str) else None
+    objective = _normalize_objective(combo.get("objective"))
     score = _coerce_float(combo.get("score"))
     metrics = combo.get("metrics") if isinstance(combo.get("metrics"), dict) else None
     operations = _coerce_operations(combo.get("operations"))
@@ -369,9 +379,11 @@ def _merge_combos(sources: Iterable[List[Dict[str, Any]]]) -> List[Dict[str, Any
             prev = best_by_key.get(key)
             score = _coerce_float(norm.get("score"))
             prev_score = _coerce_float(prev.get("score")) if prev else None
+            objective = norm.get("objective")
+            prev_objective = prev.get("objective") if prev else None
             if prev is None:
                 best_by_key[key] = norm
-            elif score is not None or prev_score is not None:
+            elif objective == prev_objective and (score is not None or prev_score is not None):
                 if (score if score is not None else float("-inf")) > (prev_score if prev_score is not None else float("-inf")):
                     best_by_key[key] = norm
             elif float(norm["finalEquity"]) > float(prev["finalEquity"]):
@@ -379,19 +391,35 @@ def _merge_combos(sources: Iterable[List[Dict[str, Any]]]) -> List[Dict[str, Any
     return list(best_by_key.values())
 
 
-def _combo_sort_key(combo: Dict[str, Any]) -> Tuple[int, float]:
-    score = _coerce_float(combo.get("score"))
-    if score is not None:
-        return (1, score)
-    return (0, _coerce_float(combo.get("finalEquity")) or 0.0)
+def _compare_desc(a: Optional[float], b: Optional[float]) -> int:
+    a_val = float("-inf") if a is None else float(a)
+    b_val = float("-inf") if b is None else float(b)
+    if a_val > b_val:
+        return -1
+    if a_val < b_val:
+        return 1
+    return 0
+
+
+def _compare_combos(a: Dict[str, Any], b: Dict[str, Any]) -> int:
+    obj_a = a.get("objective")
+    obj_b = b.get("objective")
+    score_a = _coerce_float(a.get("score"))
+    score_b = _coerce_float(b.get("score"))
+    eq_a = _coerce_float(a.get("finalEquity"))
+    eq_b = _coerce_float(b.get("finalEquity"))
+
+    if obj_a == obj_b:
+        score_cmp = _compare_desc(score_a, score_b)
+        if score_cmp != 0:
+            return score_cmp
+        return _compare_desc(eq_a, eq_b)
+
+    return _compare_desc(eq_a, eq_b)
 
 
 def _write_top_json(path: Path, combos: List[Dict[str, Any]], max_items: int) -> None:
-    combos_sorted = sorted(
-        combos,
-        key=_combo_sort_key,
-        reverse=True,
-    )[:max_items]
+    combos_sorted = sorted(combos, key=cmp_to_key(_compare_combos))[:max_items]
 
     export: Dict[str, Any] = {
         "generatedAtMs": int(time.time() * 1000),

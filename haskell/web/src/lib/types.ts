@@ -81,7 +81,9 @@ export type ApiParams = {
   maxVolatility?: number;
   rebalanceBars?: number;
   rebalanceThreshold?: number;
+  rebalanceGlobal?: boolean;
   fundingRate?: number;
+  fundingBySide?: boolean;
   blendWeight?: number;
   periodsPerYear?: number;
   binanceLive?: boolean;
@@ -338,7 +340,9 @@ export type BacktestResponse = {
   maxVolatility?: number | null;
   rebalanceBars?: number;
   rebalanceThreshold?: number;
+  rebalanceGlobal?: boolean;
   fundingRate?: number;
+  fundingBySide?: boolean;
   blendWeight?: number;
   tuning?: {
     objective: string;

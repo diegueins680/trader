@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add an open positions panel with charts for every Binance futures position.
 - Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
+- Backtests: add `--rebalance-global` and `--funding-by-side` toggles to opt into global rebalance cadence and side-signed funding.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
@@ -94,6 +95,7 @@ All notable changes to this project will be documented in this file.
 - API: `/optimizer/run` responses now truncate stdout/stderr to `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000 bytes).
 - API: classify internal `ErrorCall` failures as server errors instead of client errors.
 - Optimizer: S3-persisted top combos are merged into new optimizer runs to keep best-ever results.
+- Optimizer: threshold sweeps now prefer higher open/close thresholds when scores tie.
 - Predictors: guard empty TCN dilations to avoid crashes.
 - API: `/bot/start` error responses include per-symbol errors when all requested symbols fail.
 - Web UI: live bot start/status errors surface CloudFront `/api/*` proxy hints and avoid a stuck `Starting...` state when the API is down.
@@ -105,6 +107,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: auto optimizer biases long-short sampling to match existing open positions/orders so compatible combos appear sooner.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - Optimizer/API: expose intrabar fill probability, bracket-stop ranges (incl. vol-mult), confidence gating, and LSTM training sampling controls to `/optimizer/run`.
+- Optimizer: threshold sweep tie-breakers now prefer higher final equity, then lower turnover/more round trips, and avoid inverted hysteresis unless equity is unchanged.
+- Optimizer: top-combo merges compare scores only within the same objective; cross-objective ranking now falls back to final equity.
 - LSTM: persistence keys now include exchange platform to avoid cross-exchange weight reuse.
 - Optimizer: raise the default `TRADER_OPTIMIZER_MAX_COMBOS` cap to 200 and archive top-combos snapshots locally/S3 for history.
 - API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.

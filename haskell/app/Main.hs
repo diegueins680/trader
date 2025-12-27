@@ -481,6 +481,8 @@ data BacktestSummary = BacktestSummary
   , bsRebalanceBars :: !Int
   , bsRebalanceThreshold :: !Double
   , bsFundingRate :: !Double
+  , bsRebalanceGlobal :: !Bool
+  , bsFundingBySide :: !Bool
   , bsBlendWeight :: !Double
   , bsFee :: !Double
   , bsSlippage :: !Double
@@ -659,7 +661,9 @@ data ApiParams = ApiParams
   , apMaxVolatility :: Maybe Double
   , apRebalanceBars :: Maybe Int
   , apRebalanceThreshold :: Maybe Double
+  , apRebalanceGlobal :: Maybe Bool
   , apFundingRate :: Maybe Double
+  , apFundingBySide :: Maybe Bool
   , apBlendWeight :: Maybe Double
   , apMaxOrderErrors :: Maybe Int
   , apPeriodsPerYear :: Maybe Double
@@ -1518,7 +1522,9 @@ argsPublicJson args =
       , "maxVolatility" .= argMaxVolatility args
       , "rebalanceBars" .= argRebalanceBars args
       , "rebalanceThreshold" .= argRebalanceThreshold args
+      , "rebalanceGlobal" .= argRebalanceGlobal args
       , "fundingRate" .= argFundingRate args
+      , "fundingBySide" .= argFundingBySide args
       , "blendWeight" .= argBlendWeight args
       , "tuneStressVolMult" .= argTuneStressVolMult args
       , "tuneStressShock" .= argTuneStressShock args
@@ -3108,7 +3114,9 @@ botOptimizeAfterOperation st = do
                   , ecMaxVolatility = argMaxVolatility args
                   , ecRebalanceBars = argRebalanceBars args
                   , ecRebalanceThreshold = argRebalanceThreshold args
+                  , ecRebalanceGlobal = argRebalanceGlobal args
                   , ecFundingRate = argFundingRate args
+                  , ecFundingBySide = argFundingBySide args
                   , ecBlendWeight = argBlendWeight args
                   , ecKalmanZMin = argKalmanZMin args
                   , ecKalmanZMax = argKalmanZMax args
@@ -3424,7 +3432,9 @@ parseTopComboToArgs base combo = do
 
       rebalanceBars = max 0 (pickI "rebalanceBars" (argRebalanceBars base))
       rebalanceThreshold = max 0 (pickD "rebalanceThreshold" (argRebalanceThreshold base))
+      rebalanceGlobal = pickBool "rebalanceGlobal" (argRebalanceGlobal base)
       fundingRate = pickD "fundingRate" (argFundingRate base)
+      fundingBySide = pickBool "fundingBySide" (argFundingBySide base)
 
       blendWeight = clamp01 (pickD "blendWeight" (argBlendWeight base))
       periodsPerYear =
@@ -3477,7 +3487,9 @@ parseTopComboToArgs base combo = do
           , argMaxVolatility = maxVolatility
           , argRebalanceBars = rebalanceBars
           , argRebalanceThreshold = rebalanceThreshold
+          , argRebalanceGlobal = rebalanceGlobal
           , argFundingRate = fundingRate
+          , argFundingBySide = fundingBySide
           , argBlendWeight = blendWeight
           , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
           , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
@@ -4990,7 +5002,9 @@ argsCacheJsonSignal args =
       , "maxVolatility" .= argMaxVolatility args
       , "rebalanceBars" .= argRebalanceBars args
       , "rebalanceThreshold" .= argRebalanceThreshold args
+      , "rebalanceGlobal" .= argRebalanceGlobal args
       , "fundingRate" .= argFundingRate args
+      , "fundingBySide" .= argFundingBySide args
       , "blendWeight" .= argBlendWeight args
       , "kalmanZMin" .= argKalmanZMin args
       , "kalmanZMax" .= argKalmanZMax args
@@ -5078,7 +5092,9 @@ argsCacheJsonBacktest args =
       , "maxVolatility" .= argMaxVolatility args
       , "rebalanceBars" .= argRebalanceBars args
       , "rebalanceThreshold" .= argRebalanceThreshold args
+      , "rebalanceGlobal" .= argRebalanceGlobal args
       , "fundingRate" .= argFundingRate args
+      , "fundingBySide" .= argFundingBySide args
       , "blendWeight" .= argBlendWeight args
       , "maxOrderErrors" .= argMaxOrderErrors args
       , "periodsPerYear" .= argPeriodsPerYear args
@@ -7920,7 +7936,9 @@ argsFromApi baseArgs p = do
           , argMaxVolatility = pickMaybe (apMaxVolatility p) (argMaxVolatility baseArgs)
           , argRebalanceBars = pick (apRebalanceBars p) (argRebalanceBars baseArgs)
           , argRebalanceThreshold = pick (apRebalanceThreshold p) (argRebalanceThreshold baseArgs)
+          , argRebalanceGlobal = pick (apRebalanceGlobal p) (argRebalanceGlobal baseArgs)
           , argFundingRate = pick (apFundingRate p) (argFundingRate baseArgs)
+          , argFundingBySide = pick (apFundingBySide p) (argFundingBySide baseArgs)
           , argBlendWeight = pick (apBlendWeight p) (argBlendWeight baseArgs)
           , argMaxOrderErrors = pickMaybe (apMaxOrderErrors p) (argMaxOrderErrors baseArgs)
           , argPeriodsPerYear =
@@ -9105,7 +9123,9 @@ backtestSummaryJson summary =
     , "maxVolatility" .= bsMaxVolatility summary
     , "rebalanceBars" .= bsRebalanceBars summary
     , "rebalanceThreshold" .= bsRebalanceThreshold summary
+    , "rebalanceGlobal" .= bsRebalanceGlobal summary
     , "fundingRate" .= bsFundingRate summary
+    , "fundingBySide" .= bsFundingBySide summary
     , "blendWeight" .= bsBlendWeight summary
     , "tuning" .= tuningJson
     , "costs" .= costsJson
@@ -9771,7 +9791,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecMaxVolatility = argMaxVolatility args
           , ecRebalanceBars = argRebalanceBars args
           , ecRebalanceThreshold = argRebalanceThreshold args
+          , ecRebalanceGlobal = argRebalanceGlobal args
           , ecFundingRate = argFundingRate args
+          , ecFundingBySide = argFundingBySide args
           , ecBlendWeight = argBlendWeight args
           , ecKalmanZMin = argKalmanZMin args
           , ecKalmanZMax = argKalmanZMax args
@@ -9987,7 +10009,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsMaxVolatility = argMaxVolatility args
       , bsRebalanceBars = argRebalanceBars args
       , bsRebalanceThreshold = argRebalanceThreshold args
+      , bsRebalanceGlobal = argRebalanceGlobal args
       , bsFundingRate = argFundingRate args
+      , bsFundingBySide = argFundingBySide args
       , bsBlendWeight = argBlendWeight args
       , bsFee = feeUsed
       , bsSlippage = slippageUsed

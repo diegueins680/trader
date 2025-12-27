@@ -532,7 +532,9 @@ function applyComboToForm(
     0,
     coerceNumber(combo.params.rebalanceThreshold ?? prev.rebalanceThreshold, prev.rebalanceThreshold),
   );
+  const rebalanceGlobal = combo.params.rebalanceGlobal ?? prev.rebalanceGlobal;
   const fundingRate = coerceNumber(combo.params.fundingRate ?? prev.fundingRate, prev.fundingRate);
+  const fundingBySide = combo.params.fundingBySide ?? prev.fundingBySide;
   const blendWeight = clamp(coerceNumber(combo.params.blendWeight ?? prev.blendWeight, prev.blendWeight), 0, 1);
   const tuneStressVolMult = Math.max(0, coerceNumber(combo.params.tuneStressVolMult ?? prev.tuneStressVolMult, prev.tuneStressVolMult));
   const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
@@ -630,7 +632,9 @@ function applyComboToForm(
     maxVolatility,
     rebalanceBars,
     rebalanceThreshold,
+    rebalanceGlobal,
     fundingRate,
+    fundingBySide,
     blendWeight,
     kalmanZMin,
     kalmanZMax,
@@ -725,7 +729,9 @@ function formApplySignature(form: FormState): string {
     sigNumber(form.maxVolatility),
     sigNumber(form.rebalanceBars),
     sigNumber(form.rebalanceThreshold),
+    sigBool(form.rebalanceGlobal),
     sigNumber(form.fundingRate),
+    sigBool(form.fundingBySide),
     sigNumber(form.blendWeight),
     sigNumber(form.kalmanZMin),
     sigNumber(form.kalmanZMax),
@@ -1553,6 +1559,8 @@ export function App() {
     const rebalanceBars = Math.max(0, Math.trunc(form.rebalanceBars));
     const rebalanceThreshold = Math.max(0, form.rebalanceThreshold);
     const fundingRate = Number.isFinite(form.fundingRate) ? form.fundingRate : 0;
+    const rebalanceGlobal = form.rebalanceGlobal;
+    const fundingBySide = form.fundingBySide;
     const tuneStressVolMult = form.tuneStressVolMult <= 0 ? 1 : form.tuneStressVolMult;
     const minPositionSize = clamp(form.minPositionSize, 0, 1);
     const base: ApiParams = {
@@ -1594,7 +1602,9 @@ export function App() {
       maxVolatility,
       rebalanceBars,
       rebalanceThreshold,
+      rebalanceGlobal,
       fundingRate,
+      fundingBySide,
       blendWeight: clamp(form.blendWeight, 0, 1),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       tuneRatio: clamp(form.tuneRatio, 0, 0.99),
@@ -3162,8 +3172,10 @@ export function App() {
             typeof params.rebalanceThreshold === "number" && Number.isFinite(params.rebalanceThreshold)
               ? Math.max(0, params.rebalanceThreshold)
               : null;
+          const rebalanceGlobal = typeof params.rebalanceGlobal === "boolean" ? params.rebalanceGlobal : null;
           const fundingRate =
             typeof params.fundingRate === "number" && Number.isFinite(params.fundingRate) ? params.fundingRate : null;
+          const fundingBySide = typeof params.fundingBySide === "boolean" ? params.fundingBySide : null;
           const periodsPerYear =
             typeof params.periodsPerYear === "number" && Number.isFinite(params.periodsPerYear)
               ? Math.max(0, params.periodsPerYear)
@@ -3323,7 +3335,9 @@ export function App() {
               maxVolatility,
               rebalanceBars,
               rebalanceThreshold,
+              rebalanceGlobal,
               fundingRate,
+              fundingBySide,
               periodsPerYear,
               blendWeight,
               walkForwardFolds,
@@ -5402,6 +5416,25 @@ export function App() {
                     <div className="hint">{form.fundingRate !== 0 ? fmtPct(form.fundingRate, 2) : "0 disables"} • backtests only</div>
                   </div>
                 </div>
+                <div className="pillRow" style={{ marginTop: 8 }}>
+                  <label className="pill">
+                    <input
+                      type="checkbox"
+                      checked={form.rebalanceGlobal}
+                      onChange={(e) => setForm((f) => ({ ...f, rebalanceGlobal: e.target.checked }))}
+                    />
+                    Rebalance global cadence
+                  </label>
+                  <label className="pill">
+                    <input
+                      type="checkbox"
+                      checked={form.fundingBySide}
+                      onChange={(e) => setForm((f) => ({ ...f, fundingBySide: e.target.checked }))}
+                    />
+                    Funding by side
+                  </label>
+                </div>
+                <div className="hint">Defaults: rebalancing anchors to entry age and funding is side-agnostic.</div>
                 <div className="hint">Vol sizing scales position by target/realized volatility when vol target is set.</div>
               </div>
             </div>

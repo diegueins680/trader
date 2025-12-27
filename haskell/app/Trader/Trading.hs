@@ -65,7 +65,9 @@ data EnsembleConfig = EnsembleConfig
   , ecMaxVolatility :: !(Maybe Double) -- if set, block trades above this annualized vol
   , ecRebalanceBars :: !Int            -- bars; 0 disables size rebalancing
   , ecRebalanceThreshold :: !Double    -- min abs size delta required to rebalance
+  , ecRebalanceGlobal :: !Bool         -- when True, rebalance cadence anchors to global bars
   , ecFundingRate :: !Double           -- annualized funding/borrow rate (fraction; 0 disables)
+  , ecFundingBySide :: !Bool           -- when True, apply funding sign by side
   , ecBlendWeight :: !Double           -- Kalman weight for blend method
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
   , ecKalmanZMin :: !Double
@@ -318,12 +320,14 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
               minPositionSize = max 0 (ecMinPositionSize cfg)
               rebalanceBars = max 0 (ecRebalanceBars cfg)
               rebalanceThreshold = max 0 (ecRebalanceThreshold cfg)
+              rebalanceGlobal = ecRebalanceGlobal cfg
               rebalanceEnabled = rebalanceBars > 0 || rebalanceThreshold > 0
               trendLookback = max 0 (ecTrendLookback cfg)
               ppy = max 1e-12 (ecPeriodsPerYear cfg)
               fundingRate =
                 let r = ecFundingRate cfg
                  in if isNaN r || isInfinite r then 0 else r
+              fundingBySide = ecFundingBySide cfg
               fundingPerBar =
                 if fundingRate == 0
                   then 0
@@ -424,13 +428,17 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                 let cap = 0.999999
                  in max (-cap) (min cap x)
 
-              applyFunding :: Double -> Double -> Double
-              applyFunding eq size =
+              applyFunding :: Double -> Double -> PositionSide -> Double
+              applyFunding eq size side =
                 if fundingPerBar == 0
                   then eq
                   else
                     let s = max 0 (abs size)
-                        rate = clampSignedFrac (fundingPerBar * s)
+                        signedRate =
+                          if fundingBySide
+                            then fundingPerBar * s * sideSign side
+                            else fundingPerBar * s
+                        rate = clampSignedFrac signedRate
                      in eq * (1 - rate)
 
               barHigh t1 =
@@ -1016,12 +1024,14 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                         rebalanceDue =
                           if rebalanceBars <= 0
                             then True
-                            else
-                              case openTrade0 of
-                                Just ot ->
-                                  let age = max 0 (t - otEntryIndex ot)
-                                   in age `mod` rebalanceBars == 0
-                                Nothing -> t `mod` rebalanceBars == 0
+                            else if rebalanceGlobal
+                              then t `mod` rebalanceBars == 0
+                              else
+                                case openTrade0 of
+                                  Just ot ->
+                                    let age = max 0 (t - otEntryIndex ot)
+                                     in age `mod` rebalanceBars == 0
+                                  Nothing -> t `mod` rebalanceBars == 0
                         rebalanceOk =
                           rebalanceEnabled
                             && posSide /= Nothing
@@ -1219,7 +1229,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
 
                         equityFinal =
                           case posFinal of
-                            Just _ -> applyFunding equityFinal0 posSizeFinal
+                            Just side -> applyFunding equityFinal0 posSizeFinal side
                             _ -> equityFinal0
 
                         (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, dead2) =

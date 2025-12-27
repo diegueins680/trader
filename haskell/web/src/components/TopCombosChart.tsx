@@ -60,7 +60,9 @@ export type OptimizationComboParams = {
   maxVolatility?: number | null;
   rebalanceBars?: number | null;
   rebalanceThreshold?: number | null;
+  rebalanceGlobal?: boolean | null;
   fundingRate?: number | null;
+  fundingBySide?: boolean | null;
   periodsPerYear?: number | null;
   walkForwardFolds?: number | null;
   tuneStressVolMult?: number | null;
