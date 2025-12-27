@@ -7452,7 +7452,10 @@ topComboMatchesSymbol symRaw mInterval combo =
       intervalOk =
         case mInterval of
           Nothing -> True
-          Just interval -> topComboParamString "interval" combo == Just interval
+          Just interval ->
+            case topComboParamString "interval" combo of
+              Nothing -> True
+              Just v -> v == interval
       platformOk =
         case topComboParamString "platform" combo of
           Nothing -> True

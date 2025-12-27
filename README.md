@@ -509,7 +509,7 @@ Live safety (startup position):
 Auto-optimize after each buy/sell operation:
 - Thresholds only: add `"sweepThreshold": true`
 - Method + thresholds: add `"optimizeOperations": true`
-- The live bot always syncs to the latest top combo from `top-combos.json` (poll interval `TRADER_BOT_COMBOS_POLL_SEC`, default 30s).
+- The live bot always syncs to the latest top combo from `top-combos.json` (poll interval `TRADER_BOT_COMBOS_POLL_SEC`, default 30s); interval-less combos are treated as compatible with the current interval.
 
 Check status:
 ```
