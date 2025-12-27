@@ -41,7 +41,7 @@ import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody(..), Response, httpLbs, newManager, parseRequest, requestBody, requestHeaders, method, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, statusCode)
+import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -54,6 +54,7 @@ import System.IO (Handle, IOMode(ReadMode), hClose, hFlush, hGetLine, hIsEOF, hP
 import System.IO.Error (ioeGetErrorString, isUserError)
 import System.Process (CreateProcess(..), proc, readCreateProcessWithExitCode)
 import System.Random (randomIO)
+import System.Timeout (timeout)
 import Data.Time.Clock.POSIX (getPOSIXTime, utcTimeToPOSIXSeconds)
 import Data.Time.Format (defaultTimeLocale, parseTimeM)
 import Text.Printf (printf)
@@ -4042,8 +4043,8 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
 
                       loop
 
-autoTopCombosBacktestLoop :: Args -> ApiComputeLimits -> Maybe OpsStore -> Maybe Journal -> FilePath -> IO ()
-autoTopCombosBacktestLoop baseArgs limits mOps mJournal optimizerTmp = do
+autoTopCombosBacktestLoop :: Args -> ApiComputeLimits -> BacktestGate -> Maybe OpsStore -> Maybe Journal -> FilePath -> IO ()
+autoTopCombosBacktestLoop baseArgs limits backtestGate mOps mJournal optimizerTmp = do
   enabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
   let enabled = readEnvBool enabledEnv True
   if not enabled
@@ -4135,11 +4136,22 @@ autoTopCombosBacktestLoop baseArgs limits mOps mJournal optimizerTmp = do
                                 recordError "optimizer.combos.backtest_failed" e (Just sym) mInterval
                                 pure Nothing
                               Right argsOk -> do
-                                backtestResult <- try (computeBacktestFromArgs argsOk) :: IO (Either SomeException Aeson.Value)
+                                backtestResult <- runBacktestWithGate backtestGate (computeBacktestFromArgs argsOk)
                                 case backtestResult of
-                                  Left ex -> do
-                                    recordError "optimizer.combos.backtest_failed" (show ex) (Just sym) mInterval
-                                    pure Nothing
+                                  Left failure ->
+                                    case failure of
+                                      BacktestBusy -> do
+                                        recordEvent
+                                          "optimizer.combos.backtest_skipped"
+                                          [ "reason" .= ("busy" :: String)
+                                          , "symbol" .= sym
+                                          , "interval" .= mInterval
+                                          , "path" .= topJsonPath
+                                          ]
+                                        pure Nothing
+                                      _ -> do
+                                        recordError "optimizer.combos.backtest_failed" (backtestFailureMessage backtestGate failure) (Just sym) mInterval
+                                        pure Nothing
                                   Right out ->
                                     case extractBacktestMetrics out of
                                       Nothing -> do
@@ -5010,6 +5022,8 @@ runRestApi baseArgs mWebhook = do
   apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
   timeoutEnv <- lookupEnv "TRADER_API_TIMEOUT_SEC"
   maxAsyncRunningEnv <- lookupEnv "TRADER_API_MAX_ASYNC_RUNNING"
+  maxBacktestRunningEnv <- lookupEnv "TRADER_API_MAX_BACKTEST_RUNNING"
+  backtestTimeoutEnv <- lookupEnv "TRADER_API_BACKTEST_TIMEOUT_SEC"
   cacheTtlEnv <- lookupEnv "TRADER_API_CACHE_TTL_MS"
   cacheMaxEnv <- lookupEnv "TRADER_API_CACHE_MAX_ENTRIES"
   maxBarsLstmEnv <- lookupEnv "TRADER_API_MAX_BARS_LSTM"
@@ -5025,6 +5039,14 @@ runRestApi baseArgs mWebhook = do
         case maxAsyncRunningEnv >>= readMaybe of
           Just n | n >= 1 -> n
           _ -> 1
+      maxBacktestRunning =
+        case maxBacktestRunningEnv >>= readMaybe of
+          Just n | n >= 1 -> n
+          _ -> 1
+      backtestTimeoutSec =
+        case backtestTimeoutEnv >>= readMaybe of
+          Just n | n >= 30 -> n
+          _ -> 900
       limits =
         ApiComputeLimits
           { aclMaxBarsLstm =
@@ -5084,11 +5106,18 @@ runRestApi baseArgs mWebhook = do
   putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHostStr port)
   putStrLn
     ( printf
-        "API limits: maxAsyncRunning=%d, maxBarsLstm=%d, maxEpochs=%d, maxHiddenSize=%d"
+        "API limits: maxAsyncRunning=%d, maxBacktestRunning=%d, maxBarsLstm=%d, maxEpochs=%d, maxHiddenSize=%d"
         maxAsyncRunning
+        maxBacktestRunning
         (aclMaxBarsLstm limits)
         (aclMaxEpochs limits)
         (aclMaxHiddenSize limits)
+    )
+  putStrLn
+    ( printf
+        "API backtest gate: maxRunning=%d timeoutSec=%d"
+        maxBacktestRunning
+        backtestTimeoutSec
     )
   putStrLn
     ( printf
@@ -5114,6 +5143,7 @@ runRestApi baseArgs mWebhook = do
   mJournal <- newJournalFromEnv
   mOps <- newOpsStoreFromEnv
   mBotStateDir <- resolveBotStateDir
+  backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
   let defaultAsyncDir = fromMaybe (tmpRoot </> "async") (fmap (</> "async") mStateDir)
   asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
   let asyncDirTrimmed = trim <$> asyncDirEnv
@@ -5141,14 +5171,14 @@ runRestApi baseArgs mWebhook = do
   opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing
   bot <- newBotController
   _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
-  _ <- forkIO (autoTopCombosBacktestLoop baseArgs limits mOps mJournal optimizerTmp)
+  _ <- forkIO (autoTopCombosBacktestLoop baseArgs limits backtestGate mOps mJournal optimizerTmp)
   asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
   asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
   asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
   hFlush stdout
   res <-
     ( try
-        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
         IO (Either IOException ())
     )
   case res of
@@ -5837,6 +5867,59 @@ data ApiRequestLimits = ApiRequestLimits
   , arlMaxBotStatusTail :: !Int
   } deriving (Eq, Show)
 
+data BacktestGate = BacktestGate
+  { btRunning :: !(MVar Int)
+  , btMaxRunning :: !Int
+  , btTimeoutSec :: !Int
+  }
+
+data BacktestFailure
+  = BacktestBusy
+  | BacktestTimedOut
+  | BacktestException SomeException
+  deriving (Show)
+
+newBacktestGate :: Int -> Int -> IO BacktestGate
+newBacktestGate maxRunning timeoutSec = do
+  running <- newMVar 0
+  pure BacktestGate { btRunning = running, btMaxRunning = max 1 maxRunning, btTimeoutSec = max 1 timeoutSec }
+
+runBacktestWithGate :: BacktestGate -> IO a -> IO (Either BacktestFailure a)
+runBacktestWithGate gate action = do
+  let maxRunning = max 1 (btMaxRunning gate)
+  acquired <-
+    modifyMVar (btRunning gate) $ \n ->
+      if n >= maxRunning
+        then pure (n, False)
+        else pure (n + 1, True)
+  if not acquired
+    then pure (Left BacktestBusy)
+    else do
+      let release = modifyMVar_ (btRunning gate) (pure . max 0 . subtract 1)
+      result <- timeout (btTimeoutSec gate * 1000000) (try action) `finally` release
+      case result of
+        Nothing -> pure (Left BacktestTimedOut)
+        Just (Left ex) -> pure (Left (BacktestException ex))
+        Just (Right v) -> pure (Right v)
+
+backtestFailureMessage :: BacktestGate -> BacktestFailure -> String
+backtestFailureMessage gate failure =
+  case failure of
+    BacktestBusy ->
+      "Backtest queue is busy. Wait for the current job to finish, or increase TRADER_API_MAX_BACKTEST_RUNNING."
+    BacktestTimedOut ->
+      printf
+        "Backtest timed out after %ds. Increase TRADER_API_BACKTEST_TIMEOUT_SEC if needed."
+        (btTimeoutSec gate)
+    BacktestException ex -> snd (exceptionToHttp ex)
+
+backtestFailureToHttp :: BacktestGate -> BacktestFailure -> (Status, String)
+backtestFailureToHttp gate failure =
+  case failure of
+    BacktestBusy -> (status429, backtestFailureMessage gate failure)
+    BacktestTimedOut -> (status504, backtestFailureMessage gate failure)
+    BacktestException ex -> exceptionToHttp ex
+
 defaultApiMaxBodyBytes :: Int64
 defaultApiMaxBodyBytes = 1024 * 1024
 
@@ -5906,11 +5989,12 @@ apiApp ::
   ApiComputeLimits ->
   ApiRequestLimits ->
   ApiCache ->
+  BacktestGate ->
   AsyncStores ->
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate asyncStores projectRoot optimizerTmp req respond = do
   startMs <- getTimestampMs
   let rawPath = Wai.pathInfo req
       path =
@@ -6092,11 +6176,11 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotSt
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBacktest reqLimits apiCache mOps limits baseArgs req respondCors
+                "POST" -> handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest", "async"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBacktestAsync reqLimits apiCache mOps limits (asBacktest asyncStores) baseArgs req respondCors
+                "POST" -> handleBacktestAsync reqLimits apiCache mOps limits backtestGate (asBacktest asyncStores) baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["backtest", "async", jobId] ->
               case Wai.requestMethod req of
@@ -7619,8 +7703,8 @@ extractBacktestFinalEquity =
       m <- o AT..: "metrics"
       m AT..: "finalEquity"
 
-handleBacktest :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBacktest reqLimits apiCache mOps limits baseArgs req respond = do
+handleBacktest :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> BacktestGate -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respond = do
   payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
   case payloadOrErr of
     Left resp -> respond resp
@@ -7640,16 +7724,14 @@ handleBacktest reqLimits apiCache mOps limits baseArgs req respond = do
             Left e -> respond (jsonError status400 e)
             Right argsOk -> do
               let noCache = requestWantsNoCache req
-              r <-
-                try
-                  ( if noCache
+                  computeAction =
+                    if noCache
                       then computeBacktestFromArgs argsOk
                       else computeBacktestFromArgsCached apiCache argsOk
-                  )
-                  :: IO (Either SomeException Aeson.Value)
+              r <- runBacktestWithGate backtestGate computeAction
               case r of
-                Left ex ->
-                  let (st, msg) = exceptionToHttp ex
+                Left failure ->
+                  let (st, msg) = backtestFailureToHttp backtestGate failure
                    in respond (jsonError st msg)
                 Right out -> do
                   opsAppendMaybe
@@ -7661,8 +7743,8 @@ handleBacktest reqLimits apiCache mOps limits baseArgs req respond = do
                     (extractBacktestFinalEquity out)
                   respond (jsonValue status200 out)
 
-handleBacktestAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBacktestAsync reqLimits apiCache mOps limits store baseArgs req respond = do
+handleBacktestAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> BacktestGate -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs req respond = do
   payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
   case payloadOrErr of
     Left resp -> respond resp
@@ -7686,12 +7768,16 @@ handleBacktestAsync reqLimits apiCache mOps limits store baseArgs req respond = 
                   noCache = requestWantsNoCache req
               r <-
                 startJob store $ do
-                  out <-
-                    if noCache
-                      then computeBacktestFromArgs argsOk
-                      else computeBacktestFromArgsCached apiCache argsOk
-                  opsAppendMaybe mOps "backtest" paramsJson argsJson (Just out) (extractBacktestFinalEquity out)
-                  pure out
+                  let computeAction =
+                        if noCache
+                          then computeBacktestFromArgs argsOk
+                          else computeBacktestFromArgsCached apiCache argsOk
+                  gateResult <- runBacktestWithGate backtestGate computeAction
+                  case gateResult of
+                    Left failure -> throwIO (userError (backtestFailureMessage backtestGate failure))
+                    Right out -> do
+                      opsAppendMaybe mOps "backtest" paramsJson argsJson (Just out) (extractBacktestFinalEquity out)
+                      pure out
               case r of
                 Left e -> respond (jsonError status429 e)
                 Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))

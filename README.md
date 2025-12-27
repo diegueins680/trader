@@ -351,6 +351,10 @@ Request limits:
 - Truncated optimizer trial errors end with a `…` marker.
 - Optimizer JSON output uses stable key ordering for easier diffs.
 
+Backtest limits:
+- `TRADER_API_MAX_BACKTEST_RUNNING` (default: `1`) caps concurrent backtests across sync/async requests and daily top-combo refreshes.
+- `TRADER_API_BACKTEST_TIMEOUT_SEC` (default: `900`) cancels long-running backtests (sync returns 504; async jobs return an error).
+
 Optimizer script tips:
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.

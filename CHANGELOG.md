@@ -42,6 +42,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: allow `merge-top-combos --max 0` to emit an empty combo list.
 - Optimizer: refresh the top-N combos daily by re-running backtests against the latest data and persisting updated metrics to `top-combos.json`.
 - API: prefer local bot snapshots and optimizer combos on reads, falling back to S3 only when local state is missing to reduce proxy 5xx.
+- API: add backtest concurrency gating + timeout controls (`TRADER_API_MAX_BACKTEST_RUNNING`, `TRADER_API_BACKTEST_TIMEOUT_SEC`) to keep the server responsive under heavy backtests.
 - Web UI: add platform selector with per-exchange symbols/intervals and disable Binance-only actions when not on Binance.
 - Web UI: store and check API keys per platform (Binance/Coinbase) and show Coinbase symbol defaults.
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
