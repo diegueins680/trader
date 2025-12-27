@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - API: add `/binance/positions` for open Binance futures positions plus chart-ready klines.
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
 - Web UI: add an open positions panel with charts for every Binance futures position.
+- Web UI: add an orphaned operations panel that highlights open futures positions not currently adopted by a running bot.
 - Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Backtests: add `--rebalance-global` and `--funding-by-side` toggles to opt into global rebalance cadence and side-signed funding.
@@ -110,7 +111,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - Optimizer/API: expose intrabar fill probability, bracket-stop ranges (incl. vol-mult), confidence gating, and LSTM training sampling controls to `/optimizer/run`.
 - Optimizer: threshold sweep tie-breakers now prefer higher final equity, then lower turnover/more round trips, and avoid inverted hysteresis unless equity is unchanged.
-- Optimizer: top-combo merges compare scores only within the same objective; cross-objective ranking now falls back to final equity.
+- Optimizer: top-combo merges compare scores only within the same objective, fall back to final equity across objectives, and break ties by final equity.
+- Optimizer: truncated trial errors now use the legacy ellipsis marker (`…`).
 - LSTM: persistence keys now include exchange platform to avoid cross-exchange weight reuse.
 - Optimizer: raise the default `TRADER_OPTIMIZER_MAX_COMBOS` cap to 200 and archive top-combos snapshots locally/S3 for history.
 - API: `/optimizer/run` now accepts the expanded optimizer sampling, tune-objective, and Kalman/volatility sizing parameters.

@@ -17,7 +17,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace, toLower, toUpper)
 import Data.List (foldl', isPrefixOf, isSuffixOf, sort, sortBy)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Ord (comparing)
 import Data.Scientific (FPFormat (..), Scientific, formatScientific, fromFloatDigits, toRealFloat)
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
@@ -230,14 +230,15 @@ mergeCombos sources =
            in case M.lookup key acc of
                 Nothing -> M.insert key combo acc
                 Just prev -> M.insert key (pickBest combo prev) acc
-    pickBest a b =
-      case (comboScore a, comboScore b) of
-        (Nothing, Nothing) ->
-          if comboFinalEquity a > comboFinalEquity b then a else b
-        _ ->
-          let scoreA = fromMaybe (-1 / 0) (comboScore a)
-              scoreB = fromMaybe (-1 / 0) (comboScore b)
-           in if scoreA > scoreB then a else b
+    pickBest newer prev =
+      let objNew = comboObjective newer
+          objPrev = comboObjective prev
+          scoreNew = comboScore newer
+          scorePrev = comboScore prev
+          scoreVal = fromMaybe (-1 / 0)
+       in if objNew == objPrev && (isJust scoreNew || isJust scorePrev)
+            then if scoreVal scoreNew > scoreVal scorePrev then newer else prev
+            else if comboFinalEquity newer > comboFinalEquity prev then newer else prev
 
 signatureKey :: Combo -> BS.ByteString
 signatureKey combo =
@@ -310,7 +311,7 @@ signatureKey combo =
 
 writeTopJson :: FilePath -> [Combo] -> Int -> IO ()
 writeTopJson path combos maxItems = do
-  let sorted = take maxItems (sortBy (flip (comparing comboSortKey)) combos)
+  let sorted = take maxItems (sortBy compareCombos combos)
   nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
   let comboValues = zipWith comboToValue [1 ..] sorted
       exportVal =
@@ -322,11 +323,26 @@ writeTopJson path combos maxItems = do
   createDirectoryIfMissing True (takeDirectory path)
   BL.writeFile path (encodePretty exportVal <> "\n")
 
-comboSortKey :: Combo -> (Int, Double)
-comboSortKey combo =
-  case comboScore combo of
-    Just score -> (1, score)
-    Nothing -> (0, comboFinalEquity combo)
+compareCombos :: Combo -> Combo -> Ordering
+compareCombos a b =
+  let objA = comboObjective a
+      objB = comboObjective b
+      scoreA = fromMaybe (-1 / 0) (comboScore a)
+      scoreB = fromMaybe (-1 / 0) (comboScore b)
+      eqA = comboFinalEquity a
+      eqB = comboFinalEquity b
+   in if objA == objB
+        then
+          case compareDesc scoreA scoreB of
+            EQ -> compareDesc eqA eqB
+            ord -> ord
+        else compareDesc eqA eqB
+
+compareDesc :: Ord a => a -> a -> Ordering
+compareDesc a b
+  | a > b = LT
+  | a < b = GT
+  | otherwise = EQ
 
 comboToValue :: Int -> Combo -> Value
 comboToValue rank combo =

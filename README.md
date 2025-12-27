@@ -345,6 +345,7 @@ Endpoints:
 Request limits:
 - `TRADER_API_MAX_BODY_BYTES` (default 1048576) caps JSON request payload size; larger requests return 413.
 - `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000) truncates `/optimizer/run` stdout/stderr in responses.
+- Truncated optimizer trial errors end with a `…` marker.
 
 Optimizer script tips:
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
@@ -529,6 +530,7 @@ Combos can be previewed without applying; use Apply (or Apply top combo) to load
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load, interval/market changes, and Binance key/auth updates).
+The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot.
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).

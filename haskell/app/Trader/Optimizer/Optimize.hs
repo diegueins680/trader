@@ -922,7 +922,7 @@ runTrial traderBin baseArgs params tuneRatio useSweepThreshold timeoutSec disabl
         ExitFailure code -> do
           let chosen = if null err then out else err
               trimmed = trim chosen
-              short = if length trimmed > 300 then take 300 trimmed ++ "..." else trimmed
+              short = if length trimmed > 300 then take 300 trimmed ++ "…" else trimmed
               reason = if null short then "exit=" ++ show code else short
           pure
             TrialResult
