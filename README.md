@@ -413,6 +413,7 @@ Optional ops persistence (powers `GET /ops` and the “operations” history):
 Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 - Set `TRADER_BOT_STATE_DIR` to a writable directory (writes `bot-state-<symbol>.json`; set empty to disable)
 - When unset, defaults to `TRADER_STATE_DIR/bot` (if set) or `.tmp/bot` (local only).
+- When S3 persistence is enabled, the API serves local snapshots first and only falls back to S3 when local data is missing.
 
 Optional optimizer combo persistence (keeps `/optimizer/combos` data across restarts/deploys):
 - Set `TRADER_OPTIMIZER_COMBOS_DIR` to a writable directory (writes `top-combos.json`)
@@ -420,6 +421,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - `TRADER_OPTIMIZER_MAX_COMBOS` (default: `200`) caps the merged combo list size
 - `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
 - When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained, and history snapshots are written under `optimizer/history/`.
+- When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
 
 Optional daily top-combo backtests (refreshes metrics for the best performers):
 - `TRADER_TOP_COMBOS_BACKTEST_ENABLED` (default: `true`) enable daily refreshes of the top combos.

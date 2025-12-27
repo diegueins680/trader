@@ -2022,6 +2022,12 @@ botStoppedMultiJson snaps =
           ++ maybe [] (\t -> ["snapshotAtMs" .= t]) snapshotAt
       )
 
+botSnapshotSymbol :: BotStatusSnapshot -> Maybe String
+botSnapshotSymbol snap =
+  case bssStatus snap of
+    Aeson.Object o -> KM.lookup "symbol" o >>= AT.parseMaybe parseJSON
+    _ -> Nothing
+
 botStateFileName :: FilePath
 botStateFileName = "bot-state.json"
 
@@ -2115,19 +2121,27 @@ readBotStatusSnapshotAtPath path = do
 
 readBotStatusSnapshotMaybe :: Maybe FilePath -> String -> IO (Maybe BotStatusSnapshot)
 readBotStatusSnapshotMaybe mDir sym = do
-  mS3 <- resolveS3State
-  s3Snap <-
-    case mS3 of
+  localSnap <-
+    case mDir of
       Nothing -> pure Nothing
-      Just st -> readBotStatusSnapshotS3 st sym
-  case s3Snap of
+      Just dir -> do
+        let path = botStatePathFor dir sym
+        readBotStatusSnapshotAtPath path
+  case localSnap of
     Just snap -> pure (Just snap)
-    Nothing ->
-      case mDir of
-        Nothing -> pure Nothing
-        Just dir -> do
+    Nothing -> do
+      mS3 <- resolveS3State
+      s3Snap <-
+        case mS3 of
+          Nothing -> pure Nothing
+          Just st -> readBotStatusSnapshotS3 st sym
+      case (s3Snap, mDir) of
+        (Just snap, Just dir) -> do
           let path = botStatePathFor dir sym
-          readBotStatusSnapshotAtPath path
+          _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
+          pure (Just snap)
+        (Just snap, _) -> pure (Just snap)
+        (Nothing, _) -> pure Nothing
 
 readBotStatusSnapshotsMaybe :: Maybe FilePath -> IO [BotStatusSnapshot]
 readBotStatusSnapshotsMaybe mDir = do
@@ -2153,15 +2167,28 @@ readBotStatusSnapshotsMaybe mDir = do
                   ]
             snaps <- mapM readBotStatusSnapshotAtPath targets
             pure (maybeToList legacySnap ++ mapMaybe id snaps)
-  mS3 <- resolveS3State
-  s3Snaps <-
-    case mS3 of
-      Nothing -> pure []
-      Just st -> do
-        symbols <- readBotSnapshotIndex st
-        snaps <- mapM (readBotStatusSnapshotS3 st) symbols
-        pure (mapMaybe id snaps)
-  pure (mergeBotSnapshots (localSnaps ++ s3Snaps))
+  if not (null localSnaps)
+    then pure localSnaps
+    else do
+      mS3 <- resolveS3State
+      s3Snaps <-
+        case mS3 of
+          Nothing -> pure []
+          Just st -> do
+            symbols <- readBotSnapshotIndex st
+            snaps <- mapM (readBotStatusSnapshotS3 st) symbols
+            pure (mapMaybe id snaps)
+      case mDir of
+        Nothing -> pure ()
+        Just dir ->
+          forM_ s3Snaps $ \snap ->
+            case botSnapshotSymbol snap of
+              Nothing -> pure ()
+              Just sym -> do
+                let path = botStatePathFor dir sym
+                _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
+                pure ()
+      pure (mergeBotSnapshots s3Snaps)
 
 readBotSnapshotIndex :: S3State -> IO [String]
 readBotSnapshotIndex st = do
@@ -6930,36 +6957,13 @@ writeKlinesCsv path ks = do
 
 readTopCombosExport :: FilePath -> IO (Either String TopCombosExport)
 readTopCombosExport path = do
-  mS3 <- resolveS3State
-  s3Result <-
-    case mS3 of
-      Nothing -> pure Nothing
-      Just st -> do
-        let key = s3TopCombosKey st
-        r <- s3GetObject st key
-        case r of
-          Left e -> pure (Just (Left ("Failed to read top combos from S3: " ++ e)))
-          Right Nothing -> pure (Just (Left "Top combos JSON not found in S3."))
-          Right (Just contents) ->
-            pure $
-              Just $
-                case Aeson.eitherDecode' contents of
-                  Left err -> Left ("Failed to parse top combos JSON from S3: " ++ err)
-                  Right val -> Right val
-  case s3Result of
-    Just (Right val) -> pure (Right val)
-    _ -> do
-      exists <- doesFileExist path
-      if not exists
-        then pure (Left "Top combos JSON not found.")
-        else do
-          contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
-          case contentsOrErr of
-            Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
-            Right contents ->
-              case Aeson.eitherDecode' contents of
-                Left err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
-                Right val -> pure (Right val)
+  valOrErr <- readTopCombosValue path
+  case valOrErr of
+    Left err -> pure (Left err)
+    Right val ->
+      case Aeson.fromJSON val of
+        Aeson.Error err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
+        Aeson.Success out -> pure (Right out)
 
 persistTopCombosMaybe :: FilePath -> IO ()
 persistTopCombosMaybe path = do
@@ -6993,38 +6997,41 @@ data ComboBacktestUpdate = ComboBacktestUpdate
   , cbuOperations :: !(Maybe Aeson.Value)
   }
 
+readTopCombosValueLocal :: FilePath -> IO (Either String Aeson.Value)
+readTopCombosValueLocal path = do
+  exists <- doesFileExist path
+  if not exists
+    then pure (Left "Top combos JSON not found.")
+    else do
+      contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
+      case contentsOrErr of
+        Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
+        Right contents ->
+          case Aeson.eitherDecode' contents of
+            Left err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
+            Right val -> pure (Right val)
+
 readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
 readTopCombosValue path = do
-  mS3 <- resolveS3State
-  s3Result <-
-    case mS3 of
-      Nothing -> pure Nothing
-      Just st -> do
-        let key = s3TopCombosKey st
-        r <- s3GetObject st key
-        case r of
-          Left e -> pure (Just (Left ("Failed to read top combos from S3: " ++ e)))
-          Right Nothing -> pure (Just (Left "Top combos JSON not found in S3."))
-          Right (Just contents) ->
-            pure $
-              Just $
-                case Aeson.eitherDecode' contents of
-                  Left err -> Left ("Failed to parse top combos JSON from S3: " ++ err)
-                  Right val -> Right val
-  case s3Result of
-    Just (Right val) -> pure (Right val)
-    _ -> do
-      exists <- doesFileExist path
-      if not exists
-        then pure (Left "Top combos JSON not found.")
-        else do
-          contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
-          case contentsOrErr of
-            Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
-            Right contents ->
+  localResult <- readTopCombosValueLocal path
+  case localResult of
+    Right val -> pure (Right val)
+    Left localErr -> do
+      mS3 <- resolveS3State
+      case mS3 of
+        Nothing -> pure (Left localErr)
+        Just st -> do
+          let key = s3TopCombosKey st
+          r <- s3GetObject st key
+          case r of
+            Left e -> pure (Left ("Failed to read top combos from S3: " ++ e))
+            Right Nothing -> pure (Left localErr)
+            Right (Just contents) ->
               case Aeson.eitherDecode' contents of
-                Left err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
-                Right val -> pure (Right val)
+                Left err -> pure (Left ("Failed to parse top combos JSON from S3: " ++ err))
+                Right val -> do
+                  _ <- writeTopCombosValue path val
+                  pure (Right val)
 
 writeTopCombosValue :: FilePath -> Aeson.Value -> IO (Either String ())
 writeTopCombosValue path val = do
@@ -7319,13 +7326,16 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
   topJsonPath <- resolveOptimizerCombosPath optimizerTmp
   let tmpPath = optimizerTmp </> optimizerCombosFileName
       fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
-      comboPaths =
-        [topJsonPath]
-          ++ [tmpPath | tmpPath /= topJsonPath]
-          ++ [fallbackPath | fallbackPath /= topJsonPath && fallbackPath /= tmpPath]
-  s3Val <- readTopCombosS3
-  vals <- mapM readTopCombos comboPaths
-  let allVals = maybe vals (: vals) s3Val
+  topVal <- readTopCombosValue topJsonPath
+  tmpVal <-
+    if tmpPath /= topJsonPath
+      then readTopCombosValueLocal tmpPath
+      else pure (Left "missing")
+  fallbackVal <-
+    if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
+      then readTopCombosValueLocal fallbackPath
+      else pure (Left "missing")
+  let allVals = [topVal, tmpVal, fallbackVal]
   now <- getTimestampMs
 
   let combosBySource =
@@ -7353,38 +7363,6 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
               ]
       respond (jsonValue status200 out)
   where
-    readTopCombosS3 :: IO (Maybe (Either String Aeson.Value))
-    readTopCombosS3 = do
-      mS3 <- resolveS3State
-      case mS3 of
-        Nothing -> pure Nothing
-        Just st -> do
-          let key = s3TopCombosKey st
-          r <- s3GetObject st key
-          pure $
-            Just $
-              case r of
-                Left _ -> Left "s3"
-                Right Nothing -> Left "missing"
-                Right (Just contents) ->
-                  case (Aeson.eitherDecode' contents :: Either String Aeson.Value) of
-                    Left err -> Left ("decode_failed:" ++ err)
-                    Right val -> Right val
-
-    readTopCombos :: FilePath -> IO (Either String Aeson.Value)
-    readTopCombos path = do
-      exists <- doesFileExist path
-      if not exists
-        then pure (Left "missing")
-        else do
-          contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
-          case contentsOrErr of
-            Left e -> pure (Left ("read_failed:" ++ show e))
-            Right contents ->
-              case (Aeson.eitherDecode' contents :: Either String Aeson.Value) of
-                Left err -> pure (Left ("decode_failed:" ++ err))
-                Right val -> pure (Right val)
-
     extractCombos :: Aeson.Value -> [Aeson.Value]
     extractCombos val =
       case val of
