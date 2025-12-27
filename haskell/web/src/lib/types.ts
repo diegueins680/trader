@@ -82,8 +82,10 @@ export type ApiParams = {
   rebalanceBars?: number;
   rebalanceThreshold?: number;
   rebalanceGlobal?: boolean;
+  rebalanceResetOnSignal?: boolean;
   fundingRate?: number;
   fundingBySide?: boolean;
+  fundingOnOpen?: boolean;
   blendWeight?: number;
   periodsPerYear?: number;
   binanceLive?: boolean;
@@ -341,8 +343,10 @@ export type BacktestResponse = {
   rebalanceBars?: number;
   rebalanceThreshold?: number;
   rebalanceGlobal?: boolean;
+  rebalanceResetOnSignal?: boolean;
   fundingRate?: number;
   fundingBySide?: boolean;
+  fundingOnOpen?: boolean;
   blendWeight?: number;
   tuning?: {
     objective: string;

@@ -81,7 +81,7 @@ runMerge args = do
       pure 1
     Right sources -> do
       let merged = mergeCombos sources
-          maxItems = max 1 (maMax args)
+          maxItems = max 0 (maMax args)
           sourceCount = sum (map length sources)
       writeTopJson outPath merged maxItems
       archiveTopJson historyDir outPath

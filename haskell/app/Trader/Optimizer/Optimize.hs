@@ -245,6 +245,34 @@ coerceFloatValue value =
               _ -> Nothing
     _ -> Nothing
 
+coerceFloatValueLenient :: Value -> Maybe Double
+coerceFloatValueLenient value =
+  case value of
+    Null -> Nothing
+    Bool v -> Just (if v then 1 else 0)
+    Number n -> Just (toRealFloat n)
+    String s ->
+      let trimmed = trim (T.unpack s)
+          lowered = map toLower trimmed
+       in if null trimmed
+            then Nothing
+            else
+              case reads trimmed of
+                [(v, "")] -> Just v
+                _ ->
+                  case lowered of
+                    "nan" -> Just (0 / 0)
+                    "+nan" -> Just (0 / 0)
+                    "-nan" -> Just (0 / 0)
+                    "inf" -> Just (1 / 0)
+                    "+inf" -> Just (1 / 0)
+                    "-inf" -> Just (-1 / 0)
+                    "infinity" -> Just (1 / 0)
+                    "+infinity" -> Just (1 / 0)
+                    "-infinity" -> Just (-1 / 0)
+                    _ -> Nothing
+    _ -> Nothing
+
 coerceIntValue :: Value -> Maybe Int
 coerceIntValue value =
   case value of
@@ -1004,25 +1032,29 @@ extractBacktest val =
         Just (Object bt) ->
           case KM.lookup (Key.fromString "metrics") bt of
             Just (Object metrics) -> do
-              finalEq <-
-                case KM.lookup (Key.fromString "finalEquity") metrics of
-                  Just (Number n) ->
-                    case scientificToDouble n of
-                      Just d -> Right d
-                      Nothing -> Left "finalEquity not finite"
-                  _ -> Left "finalEquity missing"
-              let openThr =
-                    case KM.lookup (Key.fromString "openThreshold") bt of
-                      Just (Number n) -> scientificToDouble n
-                      _ -> Nothing
-                  closeThr =
-                    case KM.lookup (Key.fromString "closeThreshold") bt of
-                      Just (Number n) -> scientificToDouble n
-                      _ -> Nothing
+              finalEq <- lookupRequiredFloat metrics "finalEquity"
+              openThr <- lookupOptionalFloat bt "openThreshold"
+              closeThr <- lookupOptionalFloat bt "closeThreshold"
               Right (metrics, finalEq, openThr, closeThr)
             _ -> Left "metrics missing"
         _ -> Left "backtest missing"
     _ -> Left "backtest missing"
+  where
+    lookupRequiredFloat obj key =
+      case KM.lookup (Key.fromString key) obj of
+        Nothing -> Left (key ++ " missing")
+        Just v ->
+          case coerceFloatValueLenient v of
+            Just d -> Right d
+            Nothing -> Left (key ++ " invalid")
+    lookupOptionalFloat obj key =
+      case KM.lookup (Key.fromString key) obj of
+        Nothing -> Right Nothing
+        Just Null -> Right Nothing
+        Just v ->
+          case coerceFloatValueLenient v of
+            Just d -> Right (Just d)
+            Nothing -> Left (key ++ " invalid")
 
 runWithTimeout :: CreateProcess -> Double -> IO (Maybe (ExitCode, String, String))
 runWithTimeout procSpec timeoutSec = do

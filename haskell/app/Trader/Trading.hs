@@ -66,8 +66,10 @@ data EnsembleConfig = EnsembleConfig
   , ecRebalanceBars :: !Int            -- bars; 0 disables size rebalancing
   , ecRebalanceThreshold :: !Double    -- min abs size delta required to rebalance
   , ecRebalanceGlobal :: !Bool         -- when True, rebalance cadence anchors to global bars
+  , ecRebalanceResetOnSignal :: !Bool  -- when True, reset rebalance anchor on same-side open signals
   , ecFundingRate :: !Double           -- annualized funding/borrow rate (fraction; 0 disables)
   , ecFundingBySide :: !Bool           -- when True, apply funding sign by side
+  , ecFundingOnOpen :: !Bool           -- when True, charge funding for bars opened with a position
   , ecBlendWeight :: !Double           -- Kalman weight for blend method
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
   , ecKalmanZMin :: !Double
@@ -163,6 +165,7 @@ data Trade = Trade
 
 data OpenTrade = OpenTrade
   { otEntryIndex :: !Int
+  , otRebalanceAnchor :: !Int
   , otEntryEquity :: !Double
   , otHoldingPeriods :: !Int
   , otEntryPrice :: !Double
@@ -321,6 +324,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
               rebalanceBars = max 0 (ecRebalanceBars cfg)
               rebalanceThreshold = max 0 (ecRebalanceThreshold cfg)
               rebalanceGlobal = ecRebalanceGlobal cfg
+              rebalanceResetOnSignal = ecRebalanceResetOnSignal cfg
               rebalanceEnabled = rebalanceBars > 0 || rebalanceThreshold > 0
               trendLookback = max 0 (ecTrendLookback cfg)
               ppy = max 1e-12 (ecPeriodsPerYear cfg)
@@ -328,6 +332,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                 let r = ecFundingRate cfg
                  in if isNaN r || isInfinite r then 0 else r
               fundingBySide = ecFundingBySide cfg
+              fundingOnOpen = ecFundingOnOpen cfg
               fundingPerBar =
                 if fundingRate == 0
                   then 0
@@ -720,8 +725,8 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                         _ -> 1
                  in zScore * hvScore * confScore * qScore
 
-              gateKalmanDir :: StepMeta -> Double -> Double -> Maybe PositionSide -> (Maybe PositionSide, Double)
-              gateKalmanDir m thr confScore dirRaw =
+              gateKalmanDir :: Bool -> StepMeta -> Double -> Double -> Maybe PositionSide -> (Maybe PositionSide, Double)
+              gateKalmanDir useSizing m thr confScore dirRaw =
                 case dirRaw of
                   Nothing -> (Nothing, 0)
                   Just side ->
@@ -743,7 +748,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             (Just _, Nothing) -> False
                             _ -> True
                         confOk = confScore >= max 0 (min 1 (ecMinPositionSize cfg))
-                        size0 = if ecConfidenceSizing cfg then confScore else 1
+                        size0 = if useSizing then confScore else 1
                      in
                       if kalZ < zMin
                         then (Nothing, 0)
@@ -757,9 +762,9 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                 then (Nothing, 0)
                                 else if not (confirmQuantiles thr m side)
                                   then (Nothing, 0)
-                                  else if ecConfidenceSizing cfg && (not confOk || size0 <= 0)
+                                  else if useSizing && (not confOk || size0 <= 0)
                                     then (Nothing, 0)
-                                    else (Just side, if ecConfidenceSizing cfg then size0 else 1)
+                                    else (Just side, size0)
 
               stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, changes, openTrade, tradesAcc, dead, cooldownLeft, riskState0) t =
                 if dead
@@ -822,6 +827,8 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                           case posSide of
                             Nothing -> Nothing
                             Just _ -> openTrade
+                        posSideStart = posSide
+                        posSizeStart = posSize
                         holdBars =
                           case openTrade0 of
                             Nothing -> 0
@@ -852,8 +859,8 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                         )
                                       Just m ->
                                         let confScore = confidenceScoreKalman m
-                                            (openDir, openSize) = gateKalmanDir m openThr confScore kalOpenDirRaw
-                                            (closeDir, _) = gateKalmanDir m closeThr confScore kalCloseDirRaw
+                                            (openDir, openSize) = gateKalmanDir (ecConfidenceSizing cfg) m openThr confScore kalOpenDirRaw
+                                            (closeDir, _) = gateKalmanDir False m closeThr confScore kalCloseDirRaw
                                          in (openDir, openSize, closeDir)
                                   lstmOpenDir = direction openThr prev lp
                                   lstmCloseDir = direction closeThr prev lp
@@ -939,7 +946,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                         sizeScaled = baseSizeTarget * sizeScale
                         sizeCapped = min maxPositionSize (max 0 sizeScaled)
                         sizeFinal0 =
-                          if sizeCapped < minPositionSize && desiredSide1 /= posSide
+                          if ecConfidenceSizing cfg && sizeCapped < minPositionSize && desiredSide1 /= posSide
                             then 0
                             else sizeCapped
 
@@ -1005,6 +1012,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                         openTradeFor side eqEntry baseSize =
                           OpenTrade
                             { otEntryIndex = t
+                            , otRebalanceAnchor = t
                             , otEntryEquity = eqEntry
                             , otHoldingPeriods = 0
                             , otEntryPrice = prev
@@ -1017,7 +1025,12 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                           case (openTrade0, mOpenSignal) of
                             (Just ot, Just (sigSide, sigSize))
                               | otSide ot == sigSide && sigSize > 0 ->
-                                  Just ot { otBaseSize = max 0 sigSize }
+                                  let ot' = ot { otBaseSize = max 0 sigSize }
+                                   in Just
+                                        ( if rebalanceResetOnSignal
+                                            then ot' { otRebalanceAnchor = t }
+                                            else ot'
+                                        )
                             _ -> openTrade0
 
                         rebalanceDelta = abs (desiredSizeFinal - posSize)
@@ -1029,7 +1042,7 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                               else
                                 case openTrade0 of
                                   Just ot ->
-                                    let age = max 0 (t - otEntryIndex ot)
+                                    let age = max 0 (t - otRebalanceAnchor ot)
                                      in age `mod` rebalanceBars == 0
                                   Nothing -> t `mod` rebalanceBars == 0
                         rebalanceOk =
@@ -1227,9 +1240,14 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                                        in (Just SideShort, posSizeAfterSwitch, equityAtClose, changes', Just otCont, tradesAcc')
                             _ -> (posAfterSwitch, posSizeAfterSwitch, equityAtClose, changes', openTrade', tradesAcc')
 
+                        (fundingSide, fundingSize) =
+                          if fundingOnOpen
+                            then (posSideStart, posSizeStart)
+                            else (posFinal, posSizeFinal)
+
                         equityFinal =
-                          case posFinal of
-                            Just side -> applyFunding equityFinal0 posSizeFinal side
+                          case fundingSide of
+                            Just side -> applyFunding equityFinal0 fundingSize side
                             _ -> equityFinal0
 
                         (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, dead2) =

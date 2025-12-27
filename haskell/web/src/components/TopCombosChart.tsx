@@ -61,8 +61,10 @@ export type OptimizationComboParams = {
   rebalanceBars?: number | null;
   rebalanceThreshold?: number | null;
   rebalanceGlobal?: boolean | null;
+  rebalanceResetOnSignal?: boolean | null;
   fundingRate?: number | null;
   fundingBySide?: boolean | null;
+  fundingOnOpen?: boolean | null;
   periodsPerYear?: number | null;
   walkForwardFolds?: number | null;
   tuneStressVolMult?: number | null;

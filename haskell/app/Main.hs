@@ -483,6 +483,8 @@ data BacktestSummary = BacktestSummary
   , bsFundingRate :: !Double
   , bsRebalanceGlobal :: !Bool
   , bsFundingBySide :: !Bool
+  , bsRebalanceResetOnSignal :: !Bool
+  , bsFundingOnOpen :: !Bool
   , bsBlendWeight :: !Double
   , bsFee :: !Double
   , bsSlippage :: !Double
@@ -664,6 +666,8 @@ data ApiParams = ApiParams
   , apRebalanceGlobal :: Maybe Bool
   , apFundingRate :: Maybe Double
   , apFundingBySide :: Maybe Bool
+  , apRebalanceResetOnSignal :: Maybe Bool
+  , apFundingOnOpen :: Maybe Bool
   , apBlendWeight :: Maybe Double
   , apMaxOrderErrors :: Maybe Int
   , apPeriodsPerYear :: Maybe Double
@@ -1525,6 +1529,8 @@ argsPublicJson args =
       , "rebalanceGlobal" .= argRebalanceGlobal args
       , "fundingRate" .= argFundingRate args
       , "fundingBySide" .= argFundingBySide args
+      , "rebalanceResetOnSignal" .= argRebalanceResetOnSignal args
+      , "fundingOnOpen" .= argFundingOnOpen args
       , "blendWeight" .= argBlendWeight args
       , "tuneStressVolMult" .= argTuneStressVolMult args
       , "tuneStressShock" .= argTuneStressShock args
@@ -2250,11 +2256,28 @@ fetchLongFlatAccountPos :: Args -> BinanceEnv -> String -> IO Int
 fetchLongFlatAccountPos args env sym =
   case argBinanceMarket args of
     MarketFutures -> do
-      posAmt <- fetchFuturesPositionAmt env sym
-      let pos = accountPosSign posAmt
-      if pos < 0
-        then throwIO (userError ("bot/start positioning=long-flat cannot start with a short futures positionAmt=" ++ show posAmt))
-        else pure (if pos > 0 then 1 else 0)
+      summary <- fetchFuturesPositionSummary env sym
+      let netAmt = fpsNetAmt summary
+          hasLong = fpsHasLong summary
+          hasShort = fpsHasShort summary
+          label =
+            if hasLong && hasShort
+              then "both long and short futures positions"
+              else "a short futures position"
+      if hasShort
+        then
+          throwIO
+            ( userError
+                ( "bot/start positioning=long-flat cannot start with "
+                    ++ label
+                    ++ " for "
+                    ++ sym
+                    ++ " (net positionAmt="
+                    ++ show netAmt
+                    ++ ")"
+                )
+            )
+        else pure (if hasLong then 1 else 0)
     _ -> do
       let (baseAsset, _quoteAsset) = splitSymbol sym
       mSf <- tryFetchFilters
@@ -2287,8 +2310,20 @@ fetchLongShortAccountPos :: Args -> BinanceEnv -> String -> IO Int
 fetchLongShortAccountPos args env sym =
   case argBinanceMarket args of
     MarketFutures -> do
-      posAmt <- fetchFuturesPositionAmt env sym
-      pure (accountPosSign posAmt)
+      summary <- fetchFuturesPositionSummary env sym
+      let hasLong = fpsHasLong summary
+          hasShort = fpsHasShort summary
+          netAmt = fpsNetAmt summary
+      if hasLong && hasShort
+        then
+          throwIO
+            ( userError
+                ( "bot/start positioning=long-short cannot start with both long and short futures positions for "
+                    ++ sym
+                    ++ "."
+                )
+            )
+        else pure (accountPosSign netAmt)
     _ -> throwIO (userError "bot/start positioning=long-short requires market=futures")
 
 fetchBotAccountPos :: Args -> BinanceEnv -> String -> IO Int
@@ -2300,7 +2335,21 @@ fetchBotAccountPos args env sym =
 fetchAdoptableAccountPos :: Args -> BinanceEnv -> String -> IO Int
 fetchAdoptableAccountPos args env sym =
   case argBinanceMarket args of
-    MarketFutures -> accountPosSign <$> fetchFuturesPositionAmt env sym
+    MarketFutures -> do
+      summary <- fetchFuturesPositionSummary env sym
+      let hasLong = fpsHasLong summary
+          hasShort = fpsHasShort summary
+          netAmt = fpsNetAmt summary
+      if hasLong && hasShort
+        then
+          throwIO
+            ( userError
+                ( "bot/start cannot adopt both long and short futures positions for "
+                    ++ sym
+                    ++ ". Flatten one side first."
+                )
+            )
+        else pure (accountPosSign netAmt)
     _ -> fetchLongFlatAccountPos args env sym
 
 preflightBotStart :: Args -> BotSettings -> String -> IO (Either String ())
@@ -2388,6 +2437,35 @@ positionRequiresLongShort pos =
     Just "short" -> True
     Just "long" -> False
     _ -> accountPosSign (fprPositionAmt pos) < 0
+
+data FuturesPositionSummary = FuturesPositionSummary
+  { fpsNetAmt :: !Double
+  , fpsHasLong :: !Bool
+  , fpsHasShort :: !Bool
+  } deriving (Eq, Show)
+
+positionAmtSigned :: FuturesPositionRisk -> Double
+positionAmtSigned pos =
+  case fmap normalizeKey (fprPositionSide pos) of
+    Just "short" -> negate (abs (fprPositionAmt pos))
+    Just "long" -> abs (fprPositionAmt pos)
+    _ -> fprPositionAmt pos
+
+futuresPositionSummary :: String -> [FuturesPositionRisk] -> FuturesPositionSummary
+futuresPositionSummary sym positions =
+  let symNorm = normalizeSymbol sym
+      matches = filter (\p -> normalizeSymbol (fprSymbol p) == symNorm) positions
+      signed = map positionAmtSigned matches
+      eps = 1e-12
+      hasLong = any (> eps) signed
+      hasShort = any (< -eps) signed
+      netAmt = sum signed
+   in FuturesPositionSummary { fpsNetAmt = netAmt, fpsHasLong = hasLong, fpsHasShort = hasShort }
+
+fetchFuturesPositionSummary :: BinanceEnv -> String -> IO FuturesPositionSummary
+fetchFuturesPositionSummary env sym = do
+  positions <- fetchFuturesPositionRisks env
+  pure (futuresPositionSummary sym positions)
 
 argsCompatibleWithAdoption :: Args -> AdoptRequirement -> Bool
 argsCompatibleWithAdoption args req
@@ -3115,8 +3193,10 @@ botOptimizeAfterOperation st = do
                   , ecRebalanceBars = argRebalanceBars args
                   , ecRebalanceThreshold = argRebalanceThreshold args
                   , ecRebalanceGlobal = argRebalanceGlobal args
+                  , ecRebalanceResetOnSignal = argRebalanceResetOnSignal args
                   , ecFundingRate = argFundingRate args
                   , ecFundingBySide = argFundingBySide args
+                  , ecFundingOnOpen = argFundingOnOpen args
                   , ecBlendWeight = argBlendWeight args
                   , ecKalmanZMin = argKalmanZMin args
                   , ecKalmanZMax = argKalmanZMax args
@@ -3433,8 +3513,10 @@ parseTopComboToArgs base combo = do
       rebalanceBars = max 0 (pickI "rebalanceBars" (argRebalanceBars base))
       rebalanceThreshold = max 0 (pickD "rebalanceThreshold" (argRebalanceThreshold base))
       rebalanceGlobal = pickBool "rebalanceGlobal" (argRebalanceGlobal base)
+      rebalanceResetOnSignal = pickBool "rebalanceResetOnSignal" (argRebalanceResetOnSignal base)
       fundingRate = pickD "fundingRate" (argFundingRate base)
       fundingBySide = pickBool "fundingBySide" (argFundingBySide base)
+      fundingOnOpen = pickBool "fundingOnOpen" (argFundingOnOpen base)
 
       blendWeight = clamp01 (pickD "blendWeight" (argBlendWeight base))
       periodsPerYear =
@@ -3488,8 +3570,10 @@ parseTopComboToArgs base combo = do
           , argRebalanceBars = rebalanceBars
           , argRebalanceThreshold = rebalanceThreshold
           , argRebalanceGlobal = rebalanceGlobal
+          , argRebalanceResetOnSignal = rebalanceResetOnSignal
           , argFundingRate = fundingRate
           , argFundingBySide = fundingBySide
+          , argFundingOnOpen = fundingOnOpen
           , argBlendWeight = blendWeight
           , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
           , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
@@ -5015,11 +5099,6 @@ argsCacheJsonSignal args =
       , "volFloor" .= argVolFloor args
       , "volScaleMax" .= argVolScaleMax args
       , "maxVolatility" .= argMaxVolatility args
-      , "rebalanceBars" .= argRebalanceBars args
-      , "rebalanceThreshold" .= argRebalanceThreshold args
-      , "rebalanceGlobal" .= argRebalanceGlobal args
-      , "fundingRate" .= argFundingRate args
-      , "fundingBySide" .= argFundingBySide args
       , "blendWeight" .= argBlendWeight args
       , "kalmanZMin" .= argKalmanZMin args
       , "kalmanZMax" .= argKalmanZMax args
@@ -5110,6 +5189,8 @@ argsCacheJsonBacktest args =
       , "rebalanceGlobal" .= argRebalanceGlobal args
       , "fundingRate" .= argFundingRate args
       , "fundingBySide" .= argFundingBySide args
+      , "rebalanceResetOnSignal" .= argRebalanceResetOnSignal args
+      , "fundingOnOpen" .= argFundingOnOpen args
       , "blendWeight" .= argBlendWeight args
       , "maxOrderErrors" .= argMaxOrderErrors args
       , "periodsPerYear" .= argPeriodsPerYear args
@@ -7998,8 +8079,10 @@ argsFromApi baseArgs p = do
           , argRebalanceBars = pick (apRebalanceBars p) (argRebalanceBars baseArgs)
           , argRebalanceThreshold = pick (apRebalanceThreshold p) (argRebalanceThreshold baseArgs)
           , argRebalanceGlobal = pick (apRebalanceGlobal p) (argRebalanceGlobal baseArgs)
+          , argRebalanceResetOnSignal = pick (apRebalanceResetOnSignal p) (argRebalanceResetOnSignal baseArgs)
           , argFundingRate = pick (apFundingRate p) (argFundingRate baseArgs)
           , argFundingBySide = pick (apFundingBySide p) (argFundingBySide baseArgs)
+          , argFundingOnOpen = pick (apFundingOnOpen p) (argFundingOnOpen baseArgs)
           , argBlendWeight = pick (apBlendWeight p) (argBlendWeight baseArgs)
           , argMaxOrderErrors = pickMaybe (apMaxOrderErrors p) (argMaxOrderErrors baseArgs)
           , argPeriodsPerYear =
@@ -9187,6 +9270,8 @@ backtestSummaryJson summary =
     , "rebalanceGlobal" .= bsRebalanceGlobal summary
     , "fundingRate" .= bsFundingRate summary
     , "fundingBySide" .= bsFundingBySide summary
+    , "rebalanceResetOnSignal" .= bsRebalanceResetOnSignal summary
+    , "fundingOnOpen" .= bsFundingOnOpen summary
     , "blendWeight" .= bsBlendWeight summary
     , "tuning" .= tuningJson
     , "costs" .= costsJson
@@ -9374,6 +9459,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
         (bsBestCloseThreshold summary)
         (bsEstimatedPerSideCost summary)
         (bsEstimatedRoundTripCost summary)
+      printFundingGuidance (argFundingRate args) (argFundingBySide args)
 
       putStrLn $
         case bsMethodUsed summary of
@@ -9853,8 +9939,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecRebalanceBars = argRebalanceBars args
           , ecRebalanceThreshold = argRebalanceThreshold args
           , ecRebalanceGlobal = argRebalanceGlobal args
+          , ecRebalanceResetOnSignal = argRebalanceResetOnSignal args
           , ecFundingRate = argFundingRate args
           , ecFundingBySide = argFundingBySide args
+          , ecFundingOnOpen = argFundingOnOpen args
           , ecBlendWeight = argBlendWeight args
           , ecKalmanZMin = argKalmanZMin args
           , ecKalmanZMax = argKalmanZMax args
@@ -10073,6 +10161,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsRebalanceGlobal = argRebalanceGlobal args
       , bsFundingRate = argFundingRate args
       , bsFundingBySide = argFundingBySide args
+      , bsRebalanceResetOnSignal = argRebalanceResetOnSignal args
+      , bsFundingOnOpen = argFundingOnOpen args
       , bsBlendWeight = argBlendWeight args
       , bsFee = feeUsed
       , bsSlippage = slippageUsed
@@ -10825,6 +10915,15 @@ printCostGuidance openThr closeThr perSide roundTrip = do
             (breakEven * 100)
         )
     else pure ()
+
+printFundingGuidance :: Double -> Bool -> IO ()
+printFundingGuidance fundingRate fundingBySide =
+  when (fundingRate < 0 && not fundingBySide) $
+    putStrLn
+      ( printf
+          "Warning: fundingRate %.3f%% is negative with side-agnostic funding; enable --funding-by-side for long/short sign."
+          (fundingRate * 100)
+      )
 
 maybeSendOrder :: Maybe Webhook -> Args -> Maybe BinanceEnv -> LatestSignal -> IO ()
 maybeSendOrder mWebhook args mBinanceEnv sig =

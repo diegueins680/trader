@@ -8,6 +8,7 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.ByteString.Builder (Builder)
 import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
+import Data.List (sortOn)
 import qualified Data.Vector as V
 
 indentStep :: Int
@@ -28,7 +29,7 @@ renderObject indent obj
   | KM.null obj = BB.string7 "{}"
   | otherwise =
       let indent' = indent + indentStep
-          pairs = KM.toList obj
+          pairs = sortOn (Key.toText . fst) (KM.toList obj)
           rendered = map (renderPair indent') pairs
           body = mconcat (intersperse (BB.string7 ",\n") rendered)
        in BB.string7 "{\n" <> body <> BB.char7 '\n' <> indentSpaces indent <> BB.char7 '}'

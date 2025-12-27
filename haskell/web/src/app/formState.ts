@@ -46,8 +46,10 @@ export type FormState = {
   rebalanceBars: number;
   rebalanceThreshold: number;
   rebalanceGlobal: boolean;
+  rebalanceResetOnSignal: boolean;
   fundingRate: number;
   fundingBySide: boolean;
+  fundingOnOpen: boolean;
   blendWeight: number;
   backtestRatio: number;
   tuneRatio: number;
@@ -141,8 +143,10 @@ export const defaultForm: FormState = {
   rebalanceBars: 24,
   rebalanceThreshold: 0.05,
   rebalanceGlobal: false,
+  rebalanceResetOnSignal: false,
   fundingRate: 0.1,
   fundingBySide: false,
+  fundingOnOpen: false,
   blendWeight: 0.5,
   backtestRatio: 0.2,
   tuneRatio: 0.25,
@@ -396,8 +400,13 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
       1e9,
     ),
     rebalanceGlobal: normalizeBool(rawRec.rebalanceGlobal ?? merged.rebalanceGlobal, defaultForm.rebalanceGlobal),
+    rebalanceResetOnSignal: normalizeBool(
+      rawRec.rebalanceResetOnSignal ?? merged.rebalanceResetOnSignal,
+      defaultForm.rebalanceResetOnSignal,
+    ),
     fundingRate: normalizeFiniteNumber(rawRec.fundingRate ?? merged.fundingRate, defaultForm.fundingRate, -1e9, 1e9),
     fundingBySide: normalizeBool(rawRec.fundingBySide ?? merged.fundingBySide, defaultForm.fundingBySide),
+    fundingOnOpen: normalizeBool(rawRec.fundingOnOpen ?? merged.fundingOnOpen, defaultForm.fundingOnOpen),
     blendWeight: normalizeFiniteNumber(rawRec.blendWeight ?? merged.blendWeight, defaultForm.blendWeight, 0, 1),
     maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
     maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),

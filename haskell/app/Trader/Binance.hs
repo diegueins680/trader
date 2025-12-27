@@ -67,6 +67,7 @@ import Data.ByteArray (convert)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Numeric (showFFloat)
 import Text.Read (readMaybe)
+import Trader.Text (normalizeKey)
 
 data BinanceEnv = BinanceEnv
   { beManager :: Manager
@@ -1043,22 +1044,14 @@ fetchFuturesPositionAmt env symbol = do
     Left e -> throwIO (userError ("Failed to decode futures positionRisk: " ++ e))
     Right positions ->
       let sym = map toUpperAscii symbol
-          match p = map toUpperAscii (fpSymbol p) == sym
-       in case filter match positions of
-            (p:_) -> pure (fpPositionAmt p)
-            [] -> pure 0
-
-data FuturesPosition = FuturesPosition
-  { fpSymbol :: String
-  , fpPositionAmt :: Double
-  }
-
-instance FromJSON FuturesPosition where
-  parseJSON = withObject "FuturesPosition" $ \o -> do
-    sym <- o .: "symbol"
-    amtTxt <- o .: "positionAmt"
-    amt <- parseDoubleText amtTxt
-    pure FuturesPosition { fpSymbol = sym, fpPositionAmt = amt }
+          match p = map toUpperAscii (fprSymbol p) == sym
+          signedAmt p =
+            case fmap normalizeKey (fprPositionSide p) of
+              Just "short" -> negate (abs (fprPositionAmt p))
+              Just "long" -> abs (fprPositionAmt p)
+              _ -> fprPositionAmt p
+          total = sum [signedAmt p | p <- positions, match p]
+       in pure total
 
 data FuturesPositionRisk = FuturesPositionRisk
   { fprSymbol :: !String
