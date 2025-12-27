@@ -22,7 +22,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates (including API token changes).
 - Web UI: open positions/orphaned operations cards key by position side and ignore bots with trade disabled when determining adoption.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
-- Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls.
+- Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
