@@ -9392,7 +9392,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
       summary <- fetchFuturesPositionSummary env sym
       if fpsHasLong summary && fpsHasShort summary
         then
-          pure
+          pure $
             baseResult
               { aorMessage = "No order: both long and short futures positions are open; flatten one side first."
               }
@@ -9447,10 +9447,9 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                     pure ()
 
               placeProtectionOrders :: Int -> Double -> IO (Either String ())
-              placeProtectionOrders protectDir entryPrice =
-                if not protectionEnabled
-                  then pure (Right ())
-                  else do
+              placeProtectionOrders protectDir entryPrice
+                | not protectionEnabled = pure (Right ())
+                | otherwise = do
                     ts <- getTimestampMs
                     let mkCid suffix =
                           let raw = protectPrefix ++ show ts ++ "_" ++ suffix
