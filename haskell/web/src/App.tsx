@@ -196,6 +196,10 @@ function invalidSymbolsForPlatform(platform: Platform, symbols: string[]): strin
   return symbols.filter((sym) => !pattern.test(sym));
 }
 
+function normalizeSymbolKey(raw: string): string {
+  return raw.trim().toUpperCase();
+}
+
 function parseMaybeInt(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -1772,6 +1776,10 @@ export function App() {
     [botEntries],
   );
   const botStatusBySymbol = useMemo(() => new Map(botEntriesWithSymbol.map((entry) => [entry.symbol, entry.status])), [botEntriesWithSymbol]);
+  const botStatusBySymbolNormalized = useMemo(
+    () => new Map(botEntriesWithSymbol.map((entry) => [normalizeSymbolKey(entry.symbol), entry.status])),
+    [botEntriesWithSymbol],
+  );
   const botSymbolsActive = useMemo(() => botEntriesWithSymbol.map((entry) => entry.symbol), [botEntriesWithSymbol]);
   const botSymbolOptions = useMemo(
     () =>
@@ -2961,6 +2969,16 @@ export function App() {
     for (const chart of charts) map.set(chart.symbol, chart);
     return map;
   }, [binancePositionsUi.response?.charts]);
+  const orphanPositions = useMemo(() => {
+    if (binancePositionsList.length === 0) return [];
+    return binancePositionsList
+      .map((pos) => {
+        const status = botStatusBySymbolNormalized.get(normalizeSymbolKey(pos.symbol)) ?? null;
+        const adopted = status ? status.running || status.starting === true : false;
+        return adopted ? null : { pos, status };
+      })
+      .filter((entry): entry is { pos: (typeof binancePositionsList)[number]; status: BotStatusSingle | null } => Boolean(entry));
+  }, [binancePositionsList, botStatusBySymbolNormalized]);
 
   useEffect(() => {
     if (apiOk !== "ok") return;
@@ -7499,6 +7517,101 @@ export function App() {
                 )
               ) : (
                 <div className="hint">No positions loaded yet.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="cardHeader">
+              <h2 className="cardTitle">Orphaned operations</h2>
+              <p className="cardSubtitle">Open futures positions that are not currently adopted by a running/starting bot.</p>
+            </div>
+            <div className="cardBody">
+              <div className="pillRow" style={{ marginBottom: 10 }}>
+                <span className="badge">{orphanPositions.length} orphaned</span>
+                {binancePositionsUi.response ? (
+                  <span className="badge">Updated {fmtTimeMs(binancePositionsUi.response.fetchedAtMs)}</span>
+                ) : null}
+                <span className="badge">{binancePositionsList.length} total positions</span>
+              </div>
+
+              {binancePositionsInputError ? (
+                <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)", marginBottom: 10 }}>
+                  {binancePositionsInputError}
+                </div>
+              ) : null}
+
+              {binancePositionsUi.error ? (
+                <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 10 }}>
+                  {binancePositionsUi.error}
+                </pre>
+              ) : null}
+
+              {binancePositionsUi.response ? (
+                orphanPositions.length === 0 ? (
+                  <div className="hint">No orphaned operations detected.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 18 }}>
+                    {orphanPositions.map(({ pos, status }) => {
+                      const chart = binancePositionsCharts.get(pos.symbol);
+                      const prices = chart?.prices ?? [];
+                      const positionAmt = pos.positionAmt;
+                      const posDir = positionAmt > 0 ? 1 : -1;
+                      const sideRaw = pos.positionSide?.toUpperCase();
+                      const sideLabel = sideRaw && sideRaw !== "BOTH" ? sideRaw : posDir > 0 ? "LONG" : "SHORT";
+                      const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
+                      const positionsSeries = buildPositionSeries(prices, posDir);
+                      const equityCurve = buildEquityCurve(prices, posDir);
+                      const statusLabel = status
+                        ? status.running
+                          ? "running"
+                          : status.starting
+                            ? "starting"
+                            : status.snapshot
+                              ? "snapshot"
+                              : "stopped"
+                        : "no bot";
+                      return (
+                        <div key={`orphan-${pos.symbol}`}>
+                          <div className="pillRow" style={{ marginBottom: 10 }}>
+                            <span className="badge badgeStrong">{pos.symbol}</span>
+                            <span className={`badge ${posDir > 0 ? "badgeLong" : "badgeFlat"}`}>{sideLabel}</span>
+                            <span className="badge">{statusLabel}</span>
+                            <span className="badge">size {fmtNum(Math.abs(positionAmt), 6)}</span>
+                            <span className="badge">entry {fmtNum(pos.entryPrice, 6)}</span>
+                            <span className="badge">mark {fmtNum(pos.markPrice, 6)}</span>
+                            <span className={pnlClass}>PNL {fmtMoney(pos.unrealizedPnl, 4)}</span>
+                            {typeof pos.breakEvenPrice === "number" && Number.isFinite(pos.breakEvenPrice) && pos.breakEvenPrice > 0 ? (
+                              <span className="badge">break-even {fmtNum(pos.breakEvenPrice, 6)}</span>
+                            ) : null}
+                            {typeof pos.liquidationPrice === "number" && Number.isFinite(pos.liquidationPrice) && pos.liquidationPrice > 0 ? (
+                              <span className="badge">liq {fmtNum(pos.liquidationPrice, 6)}</span>
+                            ) : null}
+                            {typeof pos.leverage === "number" && Number.isFinite(pos.leverage) ? (
+                              <span className="badge">lev {fmtNum(pos.leverage, 2)}x</span>
+                            ) : null}
+                            {pos.marginType ? <span className="badge">{pos.marginType}</span> : null}
+                          </div>
+                          {prices.length > 1 ? (
+                            <BacktestChart
+                              prices={prices}
+                              equityCurve={equityCurve}
+                              positions={positionsSeries}
+                              trades={[]}
+                              height={240}
+                            />
+                          ) : (
+                            <div className="chart" style={{ height: 220 }}>
+                              <div className="chartEmpty">No chart data available.</div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : (
+                <div className="hint">Load open positions above to see orphaned operations.</div>
               )}
             </div>
           </div>
