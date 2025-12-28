@@ -125,6 +125,9 @@ data Args = Args
   , argFundingBySide :: Bool
   , argFundingOnOpen :: Bool
   , argBlendWeight :: Double
+  , argTriLayer :: Bool
+  , argTriLayerFastMult :: Double
+  , argTriLayerSlowMult :: Double
   , argMaxOrderErrors :: Maybe Int
   , argPeriodsPerYear :: Maybe Double
   , argJson :: Bool
@@ -400,6 +403,9 @@ opts = do
   argFundingBySide <- switch (long "funding-by-side" <> help "Apply funding sign by side (long pays positive, short receives)")
   argFundingOnOpen <- switch (long "funding-on-open" <> help "Charge funding for bars opened with a position (even if exited intrabar)")
   argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend (0..1)")
+  argTriLayer <- switch (long "tri-layer" <> help "Enable tri-layer entry gating (Kalman cloud + price action trigger)")
+  argTriLayerFastMult <- option auto (long "tri-layer-fast-mult" <> value 0.5 <> help "Measurement variance multiplier for the fast Kalman cloud line (requires --tri-layer)")
+  argTriLayerSlowMult <- option auto (long "tri-layer-slow-mult" <> value 2.0 <> help "Measurement variance multiplier for the slow Kalman cloud line (requires --tri-layer)")
   argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
   argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
   argJson <- switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
@@ -645,6 +651,8 @@ validateArgs args0 = do
   let fundingRate = argFundingRate args
   ensure "--funding-rate must be finite" (not (isNaN fundingRate || isInfinite fundingRate))
   ensure "--blend-weight must be between 0 and 1" (argBlendWeight args >= 0 && argBlendWeight args <= 1)
+  ensure "--tri-layer-fast-mult must be > 0" (argTriLayerFastMult args > 0)
+  ensure "--tri-layer-slow-mult must be > 0" (argTriLayerSlowMult args > 0)
   case argMaxOrderErrors args of
     Nothing -> pure ()
     Just n -> ensure "--max-order-errors must be >= 1" (n >= 1)

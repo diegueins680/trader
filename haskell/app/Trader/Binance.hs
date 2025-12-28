@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Trader.Binance
   ( BinanceEnv(..)
+  , BinanceLog(..)
   , BinanceMarket(..)
   , BinanceOrderMode(..)
   , OrderSide(..)
@@ -56,10 +57,12 @@ import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Text.Encoding (decodeUtf8With)
+import Data.Text.Encoding.Error (lenientDecode)
 import qualified Data.Vector as V
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types.URI (renderSimpleQuery)
+import Network.HTTP.Types.URI (parseQuery, renderSimpleQuery)
 import Network.HTTP.Types.Status (statusCode)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Crypto.Hash.Algorithms (SHA256)
@@ -75,7 +78,21 @@ data BinanceEnv = BinanceEnv
   , beMarket :: BinanceMarket
   , beApiKey :: Maybe BS.ByteString
   , beApiSecret :: Maybe BS.ByteString
+  , beLogger :: Maybe (BinanceLog -> IO ())
   }
+
+data BinanceLog = BinanceLog
+  { blAtMs :: !Int64
+  , blMarket :: !BinanceMarket
+  , blLabel :: !Text
+  , blMethod :: !Text
+  , blPath :: !Text
+  , blParams :: ![(Text, Text)]
+  , blStatus :: !(Maybe Int)
+  , blLatencyMs :: !Int
+  , blOk :: !Bool
+  , blError :: !(Maybe Text)
+  } deriving (Eq, Show)
 
 data BinanceMarket = MarketSpot | MarketMargin | MarketFutures
   deriving (Eq, Show)
@@ -193,7 +210,48 @@ binanceFuturesTestnetBaseUrl = "https://testnet.binancefuture.com"
 newBinanceEnv :: BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnv market baseUrl apiKey apiSecret = do
   mgr <- newManager tlsManagerSettings
-  pure BinanceEnv { beManager = mgr, beBaseUrl = baseUrl, beMarket = market, beApiKey = apiKey, beApiSecret = apiSecret }
+  pure BinanceEnv { beManager = mgr, beBaseUrl = baseUrl, beMarket = market, beApiKey = apiKey, beApiSecret = apiSecret, beLogger = Nothing }
+
+binanceHttp :: BinanceEnv -> String -> Request -> IO (Response BL.ByteString)
+binanceHttp env label req = do
+  t0 <- getTimestampMs
+  respOrErr <- try (httpLbs req (beManager env)) :: IO (Either SomeException (Response BL.ByteString))
+  t1 <- getTimestampMs
+  let latencyMs = max 0 (fromIntegral (t1 - t0) :: Int)
+      methodTxt = decodeUtf8With lenientDecode (method req)
+      pathTxt = decodeUtf8With lenientDecode (path req)
+      params = sanitizeQueryParams (queryString req)
+      labelTxt = T.pack label
+  case respOrErr of
+    Left ex -> do
+      logBinanceRequest env (BinanceLog t1 (beMarket env) labelTxt methodTxt pathTxt params Nothing latencyMs False (Just (T.pack (show ex))))
+      throwIO ex
+    Right resp -> do
+      let code = statusCode (responseStatus resp)
+          ok = code >= 200 && code < 300
+          errMsg = if ok then Nothing else Just (binanceErrorSummary resp)
+      logBinanceRequest env (BinanceLog t1 (beMarket env) labelTxt methodTxt pathTxt params (Just code) latencyMs ok errMsg)
+      pure resp
+
+logBinanceRequest :: BinanceEnv -> BinanceLog -> IO ()
+logBinanceRequest env entry =
+  case beLogger env of
+    Nothing -> pure ()
+    Just logger -> logger entry
+
+sanitizeQueryParams :: BS.ByteString -> [(Text, Text)]
+sanitizeQueryParams raw =
+  let toText = decodeUtf8With lenientDecode
+      raw' = BS.dropWhile (== '?') raw
+      redactKeys = ["signature", "listenkey"]
+      redactIfNeeded key val =
+        let keyLower = T.toLower key
+         in if keyLower `elem` redactKeys then "<redacted>" else val
+   in [ (keyTxt, redactIfNeeded keyTxt valTxt)
+      | (k, mv) <- parseQuery raw'
+      , let keyTxt = toText k
+      , let valTxt = maybe "" toText mv
+      ]
 
 instance FromJSON Kline where
   parseJSON = withArray "Kline" $ \arr -> do
@@ -328,7 +386,7 @@ fetchSymbolFilters env symbol = do
   req0 <- parseRequest (beBaseUrl env ++ path)
   let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
       req = req0 { method = "GET", queryString = qs }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "exchangeInfo" req
   ensure2xx "exchangeInfo" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode exchangeInfo: " ++ e))
@@ -392,7 +450,7 @@ fetchKlines env symbol interval limit = do
           , ("limit", BS.pack (show (max 1 (min 1000 limit))))
           ]
       req = req0 { method = "GET", queryString = qs }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "klines" req
   ensure2xx "klines" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode klines: " ++ e))
@@ -421,7 +479,7 @@ fetchTickerPrice env symbol = do
   req0 <- parseRequest (beBaseUrl env ++ path)
   let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
       req = req0 { method = "GET", queryString = qs }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "ticker/price" req
   ensure2xx "ticker/price" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode ticker price: " ++ e))
@@ -448,7 +506,7 @@ fetchTickers24h env = do
           MarketFutures -> "/fapi/v1/ticker/24hr"
   req0 <- parseRequest (beBaseUrl env ++ path)
   let req = req0 { method = "GET" }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "ticker/24hr" req
   ensure2xx "ticker/24hr" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode ticker/24hr: " ++ e))
@@ -575,7 +633,7 @@ placeMarketOrder env mode symbol side quantity quoteOrderQty reduceOnly mClientO
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env label req
   ensure2xx label resp
   pure (responseBody resp)
 
@@ -637,7 +695,7 @@ placeFuturesTriggerMarketOrder env mode symbol side orderType stopPrice mClientO
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env label req
   ensure2xx label resp
   pure (responseBody resp)
 
@@ -672,7 +730,7 @@ fetchOrderByClientId env symbol clientOrderId = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env label req
   ensure2xx label resp
   pure (responseBody resp)
 
@@ -728,7 +786,7 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env label req
   ensure2xx label resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
@@ -804,7 +862,7 @@ fetchOpenOrdersWith env label path symbol = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env label req
   ensure2xx label resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
@@ -851,7 +909,7 @@ cancelFuturesOrderByClientId env symbol clientOrderId = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "futures/order/cancel" req
   ensure2xx "futures/order/cancel" resp
   pure (responseBody resp)
 
@@ -896,6 +954,8 @@ fetchFreeBalance env asset = do
           MarketSpot -> "/api/v3/account"
           MarketMargin -> "/sapi/v1/margin/account"
           MarketFutures -> "/api/v3/account"
+      label =
+        if beMarket env == MarketMargin then "margin/account" else "account"
   req0 <- parseRequest (beBaseUrl env ++ path)
   let req =
         req0
@@ -903,8 +963,8 @@ fetchFreeBalance env asset = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
-  ensure2xx (if beMarket env == MarketMargin then "margin/account" else "account") resp
+  resp <- binanceHttp env label req
+  ensure2xx label resp
   case beMarket env of
     MarketSpot ->
       case eitherDecode (responseBody resp) of
@@ -989,7 +1049,7 @@ fetchFuturesAvailableBalance env asset = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "futures/balance" req
   ensure2xx "futures/balance" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode futures balance: " ++ e))
@@ -1038,7 +1098,7 @@ fetchFuturesPositionAmt env symbol = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "futures/positionRisk" req
   ensure2xx "futures/positionRisk" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode futures positionRisk: " ++ e))
@@ -1117,7 +1177,7 @@ fetchFuturesPositionRisks env = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "futures/positionRisk" req
   ensure2xx "futures/positionRisk" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode futures positionRisk: " ++ e))
@@ -1168,6 +1228,20 @@ ensure2xx label resp =
                   Left _ -> BS.unpack (BS.take 300 (BL.toStrict body))
            in throwIO (userError (label ++ " HTTP " ++ show code ++ retryAfter ++ ": " ++ details))
 
+binanceErrorSummary :: Response BL.ByteString -> Text
+binanceErrorSummary resp =
+  case eitherDecode (responseBody resp) :: Either String BinanceErrorBody of
+    Right be ->
+      let msg = fromMaybe "" (bebMsg be)
+          codeLabel =
+            case bebCode be of
+              Nothing -> ""
+              Just c -> "Binance code " ++ show c ++ ": "
+       in T.pack (codeLabel ++ msg)
+    Left _ ->
+      let snippet = BS.unpack (BS.take 200 (BL.toStrict (responseBody resp)))
+       in T.pack snippet
+
 data BinanceErrorBody = BinanceErrorBody
   { bebCode :: !(Maybe Int)
   , bebMsg :: !(Maybe String)
@@ -1203,7 +1277,7 @@ createListenKey env = do
           { method = "POST"
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "listenKey" req
   ensure2xx "listenKey" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode listenKey: " ++ e))
@@ -1221,7 +1295,7 @@ keepAliveListenKey env listenKey = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "listenKey/keepAlive" req
   ensure2xx "listenKey/keepAlive" resp
 
 closeListenKey :: BinanceEnv -> String -> IO ()
@@ -1236,7 +1310,7 @@ closeListenKey env listenKey = do
           , queryString = qs
           , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
           }
-  resp <- httpLbs req (beManager env)
+  resp <- binanceHttp env "listenKey/close" req
   ensure2xx "listenKey/close" resp
 
 trim :: String -> String

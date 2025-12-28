@@ -1128,7 +1128,7 @@ main() {
   fi
 
   if [[ "$DEPLOY_UI" == "true" ]]; then
-    if [[ -n "${UI_DISTRIBUTION_ID:-}" && "$UI_API_MODE" != "direct" ]]; then
+    if [[ -n "${UI_DISTRIBUTION_ID:-}" && -n "${api_url:-}" && "${api_url}" != "/api" ]]; then
       ensure_cloudfront_api_behavior "$UI_DISTRIBUTION_ID" "$api_url"
     fi
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
@@ -1150,8 +1150,12 @@ main() {
       ui_api_url="$api_url"
     fi
     ui_api_fallback=""
-    if [[ "$ui_api_url" == "/api" && -n "${api_url:-}" && "${api_url}" != "/api" ]]; then
-      ui_api_fallback="$api_url"
+    if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+      if [[ "$ui_api_url" == "/api" && -n "${api_url:-}" && "${api_url}" != "/api" ]]; then
+        ui_api_fallback="$api_url"
+      elif [[ "$ui_api_url" != "/api" ]]; then
+        ui_api_fallback="/api"
+      fi
     fi
     deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
   fi

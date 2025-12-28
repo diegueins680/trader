@@ -489,3 +489,21 @@ export type BotStatusMulti = {
 };
 
 export type BotStatus = BotStatusSingle | BotStatusMulti;
+
+export type OpsOperation = {
+  id: number;
+  atMs: number;
+  kind: string;
+  params?: unknown;
+  args?: unknown;
+  result?: unknown;
+  equity?: number;
+};
+
+export type OpsResponse = {
+  enabled: boolean;
+  hint?: string;
+  latestId?: number;
+  maxInMemory?: number;
+  ops: OpsOperation[];
+};

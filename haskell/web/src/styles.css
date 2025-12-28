@@ -803,6 +803,20 @@ textarea {
   font-size: 12px;
 }
 
+.stateChartLive {
+  fill: rgba(34, 197, 94, 0.35);
+}
+
+.stateChartOffline {
+  fill: rgba(148, 163, 184, 0.2);
+}
+
+.stateChartAxis {
+  fill: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.2px;
+}
+
 .btChartWrap {
   display: grid;
   gap: 10px;

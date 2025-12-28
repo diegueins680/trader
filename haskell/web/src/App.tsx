@@ -20,6 +20,7 @@ import type {
   Market,
   Method,
   Normalization,
+  OpsOperation,
   Platform,
   Positioning,
 } from "./lib/types";
@@ -39,6 +40,7 @@ import {
   cacheStats,
   coinbaseKeysStatus,
   health,
+  ops,
   optimizerCombos,
   signal,
   trade,
@@ -111,6 +113,7 @@ import {
   numFromInput,
 } from "./app/utils";
 import { BacktestChart } from "./components/BacktestChart";
+import { BotStateChart } from "./components/BotStateChart";
 import { PredictionDiffChart } from "./components/PredictionDiffChart";
 import { TelemetryChart } from "./components/TelemetryChart";
 import { TopCombosChart, type OptimizationCombo, type OptimizationComboOperation } from "./components/TopCombosChart";
@@ -135,6 +138,24 @@ type RateLimitState = {
 
 type KeysStatus = BinanceKeysStatus | CoinbaseKeysStatus;
 
+type OpsUiState = {
+  loading: boolean;
+  error: string | null;
+  enabled: boolean;
+  hint: string | null;
+  ops: OpsOperation[];
+  lastFetchedAtMs: number | null;
+};
+
+type BotStatusOp = {
+  atMs: number;
+  running: boolean;
+  live: boolean;
+  symbol: string | null;
+};
+
+const BOT_STATUS_OPS_LIMIT = 5000;
+
 function isCoinbaseKeysStatus(status: KeysStatus): status is CoinbaseKeysStatus {
   return "hasApiPassphrase" in status;
 }
@@ -152,6 +173,30 @@ function botStatusSymbol(status: BotStatusSingle): string | null {
   if (status.symbol) return status.symbol;
   if (status.snapshot?.symbol) return status.snapshot.symbol;
   return null;
+}
+
+function formatDatetimeLocal(ms: number): string {
+  if (!Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  const pad = (v: number) => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function parseDatetimeLocal(raw: string): number | null {
+  if (!raw.trim()) return null;
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function parseBotStatusOp(op: OpsOperation): BotStatusOp | null {
+  if (!op || op.kind !== "bot.status") return null;
+  if (typeof op.atMs !== "number" || !Number.isFinite(op.atMs)) return null;
+  const rec = (op.result as Record<string, unknown> | null | undefined) ?? {};
+  const running = typeof rec.running === "boolean" ? rec.running : null;
+  if (running == null) return null;
+  const live = typeof rec.live === "boolean" ? rec.live : false;
+  const symbol = typeof rec.symbol === "string" ? rec.symbol : null;
+  return { atMs: op.atMs, running, live, symbol };
 }
 
 function parseSymbolsInput(raw: string): string[] {
@@ -910,6 +955,16 @@ export function App() {
     status: { running: false },
   });
   const [botSelectedSymbol, setBotSelectedSymbol] = useState<string | null>(null);
+  const [botStatusOps, setBotStatusOps] = useState<OpsUiState>({
+    loading: false,
+    error: null,
+    enabled: true,
+    hint: null,
+    ops: [],
+    lastFetchedAtMs: null,
+  });
+  const [botStatusStartInput, setBotStatusStartInput] = useState(() => formatDatetimeLocal(Date.now() - 6 * 60 * 60 * 1000));
+  const [botStatusEndInput, setBotStatusEndInput] = useState(() => formatDatetimeLocal(Date.now()));
 
   const [binanceTradesUi, setBinanceTradesUi] = useState<BinanceTradesUiState>({
     loading: false,
@@ -1839,6 +1894,52 @@ export function App() {
   const botDisplay = botSelectedStatus?.running ? botSelectedStatus : botSnapshot;
   const botSnapshotAtMs = botSelectedStatus?.running ? null : botSelectedStatus?.snapshotAtMs ?? null;
   const botHasSnapshot = botSnapshot !== null;
+  const botStatusRange = useMemo(() => {
+    const startMs = parseDatetimeLocal(botStatusStartInput);
+    const endMs = parseDatetimeLocal(botStatusEndInput);
+    if (startMs == null || endMs == null) return { startMs: null, endMs: null, error: "Start/end must be valid dates." };
+    if (startMs > endMs) return { startMs, endMs, error: "Start must be before end." };
+    return { startMs, endMs, error: null };
+  }, [botStatusEndInput, botStatusStartInput]);
+  const botStatusTargetSymbol = botSelectedSymbol ?? botDisplay?.symbol ?? null;
+  const botStatusOpsParsed = useMemo(() => {
+    const parsed = botStatusOps.ops
+      .map((op) => parseBotStatusOp(op))
+      .filter((op): op is BotStatusOp => op !== null)
+      .filter((op) => (botStatusTargetSymbol ? op.symbol === botStatusTargetSymbol : true));
+    return parsed.sort((a, b) => a.atMs - b.atMs);
+  }, [botStatusOps.ops, botStatusTargetSymbol]);
+  const botStatusPoints = useMemo(
+    () => botStatusOpsParsed.map((op) => ({ atMs: op.atMs, running: op.running })),
+    [botStatusOpsParsed],
+  );
+  const botStatusOpsWindow = useMemo(() => {
+    if (botStatusOpsParsed.length === 0) return null;
+    return {
+      startMs: botStatusOpsParsed[0]!.atMs,
+      endMs: botStatusOpsParsed[botStatusOpsParsed.length - 1]!.atMs,
+    };
+  }, [botStatusOpsParsed]);
+  const botStatusRangeWarning = useMemo(() => {
+    if (!botStatusOps.enabled) return null;
+    if (!botStatusOpsWindow) return null;
+    if (botStatusRange.error || botStatusRange.startMs == null || botStatusRange.endMs == null) return null;
+    const startsBefore = botStatusRange.startMs < botStatusOpsWindow.startMs;
+    const endsAfter = botStatusRange.endMs > botStatusOpsWindow.endMs;
+    if (!startsBefore && !endsAfter) return null;
+    const rangeNote =
+      startsBefore && endsAfter
+        ? "Selected range extends beyond available data."
+        : startsBefore
+          ? "Selected range starts before available data."
+          : "Selected range ends after available data.";
+    const windowNote = `Data window: ${fmtTimeMs(botStatusOpsWindow.startMs)} to ${fmtTimeMs(botStatusOpsWindow.endMs)}.`;
+    const limitNote =
+      botStatusOps.ops.length >= BOT_STATUS_OPS_LIMIT
+        ? `Showing latest ${BOT_STATUS_OPS_LIMIT} ops.`
+        : `Showing ${botStatusOps.ops.length} ops.`;
+    return `${rangeNote} ${windowNote} ${limitNote}`;
+  }, [botStatusOps.enabled, botStatusOps.ops.length, botStatusOpsWindow, botStatusRange]);
 
   useEffect(() => {
     if (botEntriesWithSymbol.length === 0) {
@@ -2830,6 +2931,35 @@ export function App() {
       withPlatformKeys,
     ],
   );
+
+  const fetchBotStatusOps = useCallback(
+    async (opts?: RunOptions) => {
+      if (apiOk !== "ok") return;
+      if (!opts?.silent) setBotStatusOps((s) => ({ ...s, loading: true, error: null }));
+      try {
+        const out = await ops(apiBase, { kind: "bot.status", limit: BOT_STATUS_OPS_LIMIT }, { headers: authHeaders, timeoutMs: 30_000 });
+        setBotStatusOps({
+          loading: false,
+          error: null,
+          enabled: out.enabled,
+          hint: out.hint ?? null,
+          ops: Array.isArray(out.ops) ? out.ops : [],
+          lastFetchedAtMs: Date.now(),
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setBotStatusOps((s) => ({ ...s, loading: false, error: msg }));
+      }
+    },
+    [apiBase, apiOk, authHeaders],
+  );
+
+  useEffect(() => {
+    if (apiOk !== "ok") return;
+    void fetchBotStatusOps({ silent: true });
+    const t = window.setInterval(() => void fetchBotStatusOps({ silent: true }), 60_000);
+    return () => window.clearInterval(t);
+  }, [apiOk, fetchBotStatusOps]);
 
   const stopLiveBot = useCallback(async (symbol?: string) => {
     setBot((s) => ({ ...s, loading: true, error: null }));
@@ -6407,16 +6537,85 @@ export function App() {
 		                    />
 		                  </div>
 
-		                  <div style={{ marginTop: 10 }}>
-		                    <div className="hint" style={{ marginBottom: 8 }}>
-		                      Telemetry (Binance poll latency + close drift; hover for details)
-		                    </div>
-		                    <TelemetryChart points={botRt.telemetry} height={120} label="Live bot telemetry chart" />
-		                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <div className="hint" style={{ marginBottom: 8 }}>
+                      Telemetry (Binance poll latency + close drift; hover for details)
+                    </div>
+                    <TelemetryChart points={botRt.telemetry} height={120} label="Live bot telemetry chart" />
+                  </div>
 
-		                  <div className="kv" style={{ marginTop: 12 }}>
-		                    <div className="k">Realtime</div>
-		                    <div className="v">
+                  <div style={{ marginTop: 10 }}>
+                    <div className="hint" style={{ marginBottom: 8 }}>
+                      Bot state timeline (live/offline from ops log).
+                    </div>
+                    <div className="row" style={{ marginBottom: 8, gridTemplateColumns: "1fr 1fr auto", alignItems: "end" }}>
+                      <div className="field">
+                        <label className="label" htmlFor="botStatusStart">
+                          Chart start
+                        </label>
+                        <input
+                          id="botStatusStart"
+                          className="input"
+                          type="datetime-local"
+                          value={botStatusStartInput}
+                          onChange={(e) => setBotStatusStartInput(e.target.value)}
+                        />
+                      </div>
+                      <div className="field">
+                        <label className="label" htmlFor="botStatusEnd">
+                          Chart end
+                        </label>
+                        <input
+                          id="botStatusEnd"
+                          className="input"
+                          type="datetime-local"
+                          value={botStatusEndInput}
+                          onChange={(e) => setBotStatusEndInput(e.target.value)}
+                        />
+                      </div>
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={botStatusOps.loading || apiOk !== "ok"}
+                        onClick={() => void fetchBotStatusOps()}
+                      >
+                        {botStatusOps.loading ? "Loading..." : "Refresh"}
+                      </button>
+                    </div>
+                    {botStatusRange.error ? (
+                      <div className="hint" style={{ marginBottom: 8, color: "rgba(239, 68, 68, 0.9)" }}>
+                        {botStatusRange.error}
+                      </div>
+                    ) : null}
+                    {!botStatusOps.enabled ? (
+                      <div className="hint">{botStatusOps.hint ?? "Enable TRADER_OPS_DIR to track bot status history."}</div>
+                    ) : botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error ? (
+                      <BotStateChart points={botStatusPoints} startMs={botStatusRange.startMs} endMs={botStatusRange.endMs} height={90} />
+                    ) : (
+                      <div className="chart" style={{ height: 90 }}>
+                        <div className="chartEmpty">Select a valid time range</div>
+                      </div>
+                    )}
+                    {botStatusRangeWarning ? (
+                      <div className="hint" style={{ marginTop: 6 }}>
+                        {botStatusRangeWarning}
+                      </div>
+                    ) : null}
+                    {botStatusOps.error ? (
+                      <div className="hint" style={{ marginTop: 6, color: "rgba(239, 68, 68, 0.9)" }}>
+                        {botStatusOps.error}
+                      </div>
+                    ) : null}
+                    <div className="pillRow" style={{ marginTop: 8 }}>
+                      <span className="badge badgeStrong badgeLong">LIVE</span>
+                      <span className="badge badgeHold">OFFLINE</span>
+                      {botStatusOps.lastFetchedAtMs ? <span className="badge">Synced {fmtTimeMs(botStatusOps.lastFetchedAtMs)}</span> : null}
+                    </div>
+                  </div>
+
+                  <div className="kv" style={{ marginTop: 12 }}>
+                    <div className="k">Realtime</div>
+                    <div className="v">
 		                      <span className="badge" style={{ marginRight: 8 }}>
 		                        ui {fmtDurationMs(botRt.lastFetchDurationMs)}
 	                      </span>

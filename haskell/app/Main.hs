@@ -63,6 +63,7 @@ import qualified Paths_trader as Paths
 
 import Trader.Binance
   ( BinanceEnv(..)
+  , BinanceLog(..)
   , BinanceMarket(..)
   , BinanceOrderMode(..)
   , BinanceTrade(..)
@@ -97,6 +98,7 @@ import Trader.Binance
   , keepAliveListenKey
   , closeListenKey
   )
+import Trader.Kalman3 (KalmanRun(..), runConstantAcceleration1D)
 import Trader.KalmanFusion (Kalman1(..), initKalman1, stepMulti)
 import Trader.LSTM
   ( LSTMConfig(..)
@@ -488,6 +490,9 @@ data BacktestSummary = BacktestSummary
   , bsRebalanceResetOnSignal :: !Bool
   , bsFundingOnOpen :: !Bool
   , bsBlendWeight :: !Double
+  , bsTriLayer :: !Bool
+  , bsTriLayerFastMult :: !Double
+  , bsTriLayerSlowMult :: !Double
   , bsFee :: !Double
   , bsSlippage :: !Double
   , bsSpread :: !Double
@@ -671,6 +676,9 @@ data ApiParams = ApiParams
   , apRebalanceResetOnSignal :: Maybe Bool
   , apFundingOnOpen :: Maybe Bool
   , apBlendWeight :: Maybe Double
+  , apTriLayer :: Maybe Bool
+  , apTriLayerFastMult :: Maybe Double
+  , apTriLayerSlowMult :: Maybe Double
   , apMaxOrderErrors :: Maybe Int
   , apPeriodsPerYear :: Maybe Double
   , apBinanceLive :: Maybe Bool
@@ -1534,6 +1542,9 @@ argsPublicJson args =
       , "rebalanceResetOnSignal" .= argRebalanceResetOnSignal args
       , "fundingOnOpen" .= argFundingOnOpen args
       , "blendWeight" .= argBlendWeight args
+      , "triLayer" .= argTriLayer args
+      , "triLayerFastMult" .= argTriLayerFastMult args
+      , "triLayerSlowMult" .= argTriLayerSlowMult args
       , "tuneStressVolMult" .= argTuneStressVolMult args
       , "tuneStressShock" .= argTuneStressShock args
       , "tuneStressWeight" .= argTuneStressWeight args
@@ -1644,6 +1655,58 @@ opsList store sinceId limit mKind = do
                 dropN = max 0 (n - limitSafe)
              in drop dropN filtered
   pure out
+
+binanceOpsLogger :: OpsStore -> BinanceLog -> IO ()
+binanceOpsLogger store entry = do
+  let params =
+        object
+          [ "label" .= blLabel entry
+          , "method" .= blMethod entry
+          , "path" .= blPath entry
+          , "market" .= marketCode (blMarket entry)
+          , "params" .= [object ["key" .= k, "value" .= v] | (k, v) <- blParams entry]
+          ]
+      result =
+        object
+          [ "ok" .= blOk entry
+          , "status" .= blStatus entry
+          , "latencyMs" .= blLatencyMs entry
+          , "error" .= blError entry
+          ]
+  opsAppendMaybe (Just store) "binance.request" (Just params) Nothing (Just result) Nothing
+
+attachBinanceLogger :: Maybe OpsStore -> BinanceEnv -> BinanceEnv
+attachBinanceLogger mOps env =
+  case mOps of
+    Nothing -> env
+    Just store -> env { beLogger = Just (binanceOpsLogger store) }
+
+botStatusLogIntervalMs :: Int64
+botStatusLogIntervalMs = 60000
+
+botStatusLogMaybe :: Maybe OpsStore -> Bool -> BotState -> IO ()
+botStatusLogMaybe mOps running st =
+  let args = botArgs st
+      settings = botSettings st
+      eq =
+        if V.null (botEquityCurve st)
+          then Nothing
+          else Just (V.last (botEquityCurve st))
+      result =
+        object
+          [ "symbol" .= botSymbol st
+          , "market" .= marketCode (argBinanceMarket args)
+          , "interval" .= argInterval args
+          , "running" .= running
+          , "live" .= argBinanceLive args
+          , "tradeEnabled" .= bsTradeEnabled settings
+          , "halted" .= isJust (botHaltReason st)
+          , "haltReason" .= botHaltReason st
+          , "error" .= botError st
+          , "updatedAtMs" .= botUpdatedAtMs st
+          , "polledAtMs" .= botPolledAtMs st
+          ]
+   in opsAppendMaybe mOps "bot.status" Nothing (Just (argsPublicJson args)) (Just result) eq
 
 -- Live bot (stateful; continuous loop)
 
@@ -1931,10 +1994,7 @@ botStateTail tailN st =
             openTradeShifted =
               case botOpenTrade st of
                 Nothing -> Nothing
-                Just ot ->
-                  if botOpenEntryIndex ot >= dropCount
-                    then Just ot { botOpenEntryIndex = botOpenEntryIndex ot - dropCount }
-                    else Nothing
+                Just ot -> Just (shiftOpenTradeIndex dropCount ot)
          in
           st
             { botPrices = V.drop dropCount (botPrices st)
@@ -1949,6 +2009,10 @@ botStateTail tailN st =
             , botOpenTrade = openTradeShifted
             , botStartIndex = botStartIndex st + dropCount
             }
+
+shiftOpenTradeIndex :: Int -> BotOpenTrade -> BotOpenTrade
+shiftOpenTradeIndex dropCount ot =
+  ot { botOpenEntryIndex = max 0 (botOpenEntryIndex ot - dropCount) }
 
 botStartingJson :: BotStartRuntime -> Aeson.Value
 botStartingJson rt =
@@ -2392,13 +2456,13 @@ fetchAdoptableAccountPos args env sym =
         else pure (accountPosSign netAmt)
     _ -> fetchLongFlatAccountPos args env sym
 
-preflightBotStart :: Args -> BotSettings -> String -> IO (Either String ())
-preflightBotStart args settings sym =
+preflightBotStart :: Maybe OpsStore -> Args -> BotSettings -> String -> IO (Either String ())
+preflightBotStart mOps args settings sym =
   if not (bsTradeEnabled settings)
     then pure (Right ())
     else do
       r <- try $ do
-        env <- makeBinanceEnv args
+        env <- makeBinanceEnv mOps args
         ensureBinanceKeysPresent env
         pos <- fetchBotAccountPos args env sym
         if pos /= 0 && not (bsAdoptExistingPosition settings)
@@ -2578,8 +2642,8 @@ applyLatestTopCombo optimizerTmp limits sym args req = do
                 Left _ -> pure args
                 Right args' -> pure args'
 
-resolveOrphanOpenPositionSymbols :: ApiComputeLimits -> FilePath -> Args -> [String] -> IO [String]
-resolveOrphanOpenPositionSymbols limits optimizerTmp args requested =
+resolveOrphanOpenPositionSymbols :: Maybe OpsStore -> ApiComputeLimits -> FilePath -> Args -> [String] -> IO [String]
+resolveOrphanOpenPositionSymbols mOps limits optimizerTmp args requested =
   if not (platformSupportsLiveBot (argPlatform args)) || argBinanceMarket args /= MarketFutures
     then pure []
     else do
@@ -2590,7 +2654,7 @@ resolveOrphanOpenPositionSymbols limits optimizerTmp args requested =
         Right export -> do
           positionsOrErr <-
             ( try $ do
-                env <- makeBinanceEnv args
+                env <- makeBinanceEnv mOps args
                 ensureBinanceKeysPresent env
                 fetchFuturesPositionRisks env
             ) ::
@@ -2624,10 +2688,10 @@ resolveOrphanOpenPositionSymbols limits optimizerTmp args requested =
                     ]
               pure (dedupeStable orphans)
 
-resolveAdoptionRequirement :: Args -> String -> IO (Either String AdoptRequirement)
-resolveAdoptionRequirement args sym = do
+resolveAdoptionRequirement :: Maybe OpsStore -> Args -> String -> IO (Either String AdoptRequirement)
+resolveAdoptionRequirement mOps args sym = do
   r <- try $ do
-    env <- makeBinanceEnv args
+    env <- makeBinanceEnv mOps args
     resolveAdoptionRequirementWithEnv args env sym
   pure $
     case r of
@@ -2730,7 +2794,7 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                           BotRunning _ -> pure (mrt, Left "Bot is already running")
                           BotStarting _ -> pure (mrt, Left "Bot is starting")
                   Nothing -> do
-                    preflight <- preflightBotStart argsSym settings sym
+                    preflight <- preflightBotStart mOps argsSym settings sym
                     case preflight of
                       Left e | not (arActive adoptReq) -> pure (mrt, Left e)
                       Left _ -> do
@@ -2786,10 +2850,10 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits a
           if arActive adoptReq
             then applyLatestTopCombo optimizerTmp limits sym baseArgs adoptReq
             else pure baseArgs
-        preflight <- preflightBotStart argsFinal settings sym
+        preflight <- preflightBotStart mOps argsFinal settings sym
         case preflight of
           Left e -> throwIO (userError e)
-          Right () -> initBotState argsFinal settings sym
+          Right () -> initBotState mOps argsFinal settings sym
   r <- try (doStart args) :: IO (Either SomeException BotState)
   case r of
     Left ex -> do
@@ -2884,7 +2948,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                         adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
                     adoptReqOrErr <-
                       if adoptable
-                        then resolveAdoptionRequirement argsSym sym
+                        then resolveAdoptionRequirement mOps argsSym sym
                         else pure (Right (AdoptRequirement False False))
                     case adoptReqOrErr of
                       Left err -> recordError sym err
@@ -2972,11 +3036,11 @@ botGetStateFor ctrl symRaw = do
     Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
     _ -> pure Nothing
 
-initBotState :: Args -> BotSettings -> String -> IO BotState
-initBotState args settings sym = do
+initBotState :: Maybe OpsStore -> Args -> BotSettings -> String -> IO BotState
+initBotState mOps args settings sym = do
   let lookback = argLookback args
   now <- getTimestampMs
-  env <- makeBinanceEnv args
+  env <- makeBinanceEnv mOps args
   let tradeEnabled = bsTradeEnabled settings
   startPos0 <-
     if tradeEnabled
@@ -3205,10 +3269,7 @@ initBotState args settings sym = do
             let openTradeShifted =
                   case openTrade of
                     Nothing -> Nothing
-                    Just ot ->
-                      if botOpenEntryIndex ot >= dropCount
-                        then Just ot { botOpenEntryIndex = botOpenEntryIndex ot - dropCount }
-                        else Nothing
+                    Just ot -> Just (shiftOpenTradeIndex dropCount ot)
                 opsShifted =
                   [ op { boIndex = boIndex op - dropCount }
                   | op <- ops
@@ -3370,6 +3431,12 @@ botOptimizeAfterOperation st = do
                   , ecFundingBySide = argFundingBySide args
                   , ecFundingOnOpen = argFundingOnOpen args
                   , ecBlendWeight = argBlendWeight args
+                  , ecKalmanDt = argKalmanDt args
+                  , ecKalmanProcessVar = argKalmanProcessVar args
+                  , ecKalmanMeasurementVar = argKalmanMeasurementVar args
+                  , ecTriLayer = argTriLayer args
+                  , ecTriLayerFastMult = argTriLayerFastMult args
+                  , ecTriLayerSlowMult = argTriLayerSlowMult args
                   , ecKalmanZMin = argKalmanZMin args
                   , ecKalmanZMax = argKalmanZMax args
                   , ecMaxHighVolProb = argMaxHighVolProb args
@@ -3691,6 +3758,9 @@ parseTopComboToArgs base combo = do
       fundingOnOpen = pickBool "fundingOnOpen" (argFundingOnOpen base)
 
       blendWeight = clamp01 (pickD "blendWeight" (argBlendWeight base))
+      triLayer = pickBool "triLayer" (argTriLayer base)
+      triLayerFastMult = max 1e-6 (pickD "triLayerFastMult" (argTriLayerFastMult base))
+      triLayerSlowMult = max 1e-6 (pickD "triLayerSlowMult" (argTriLayerSlowMult base))
       periodsPerYear =
         case pickMaybeMaybeDbl "periodsPerYear" (argPeriodsPerYear base) of
           Nothing -> Nothing
@@ -3747,6 +3817,9 @@ parseTopComboToArgs base combo = do
           , argFundingBySide = fundingBySide
           , argFundingOnOpen = fundingOnOpen
           , argBlendWeight = blendWeight
+          , argTriLayer = triLayer
+          , argTriLayerFastMult = triLayerFastMult
+          , argTriLayerSlowMult = triLayerSlowMult
           , argKalmanDt = max 1e-12 (pickD "kalmanDt" (argKalmanDt base))
           , argKalmanProcessVar = max 1e-12 (pickD "kalmanProcessVar" (argKalmanProcessVar base))
           , argKalmanMeasurementVar = max 1e-12 (pickD "kalmanMeasurementVar" (argKalmanMeasurementVar base))
@@ -3985,7 +4058,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                 (Just (object ["script" .= missingNames, "error" .= missingErrs]))
                 Nothing
             else do
-              envOrErr <- try (makeBinanceEnv baseArgs) :: IO (Either SomeException BinanceEnv)
+              envOrErr <- try (makeBinanceEnv mOps baseArgs) :: IO (Either SomeException BinanceEnv)
               case envOrErr of
                 Left ex -> do
                   now <- getTimestampMs
@@ -4369,8 +4442,8 @@ autoTopCombosBacktestLoop baseArgs limits backtestGate mOps mJournal optimizerTm
 
       loop
 
-makeBinanceEnv :: Args -> IO BinanceEnv
-makeBinanceEnv args = do
+makeBinanceEnv :: Maybe OpsStore -> Args -> IO BinanceEnv
+makeBinanceEnv mOps args = do
   if argPlatform args /= PlatformBinance
     then error ("Binance environment requires platform=binance (got " ++ platformCode (argPlatform args) ++ ").")
     else pure ()
@@ -4384,7 +4457,8 @@ makeBinanceEnv args = do
           _ -> if argBinanceTestnet args then binanceTestnetBaseUrl else binanceBaseUrl
   apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
-  newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+  env <- newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+  pure (attachBinanceLogger mOps env)
 
 makeCoinbaseEnv :: Args -> IO CoinbaseEnv
 makeCoinbaseEnv args = do
@@ -4400,7 +4474,16 @@ botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe 
 botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig mOptimizerPending = do
   tid <- myThreadId
   sym <- botSymbol <$> readMVar stVar
+  lastStatusLogRef <- newIORef 0
   let sleepSec s = threadDelay (max 1 s * 1000000)
+      logStatusIfDue st = do
+        now <- getTimestampMs
+        lastAt <- readIORef lastStatusLogRef
+        if now - lastAt >= botStatusLogIntervalMs
+          then do
+            writeIORef lastStatusLogRef now
+            botStatusLogMaybe mOps True st
+          else pure ()
 
       loop = do
         stopReq <- isJust <$> tryReadMVar stopSig
@@ -4438,6 +4521,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig mOptimize
                         }
                 _ <- swapMVar stVar st'
                 persistBotStatusMaybe mBotStateDir st'
+                logStatusIfDue st'
                 sleepSec pollSec
                 loop
               Right ks -> do
@@ -4459,6 +4543,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig mOptimize
                   then do
                     _ <- swapMVar stVar stPolled
                     persistBotStatusMaybe mBotStateDir stPolled
+                    logStatusIfDue stPolled
                     sleepSec pollSec
                     loop
                   else do
@@ -4475,6 +4560,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig mOptimize
                             }
                     _ <- swapMVar stVar st1'
                     persistBotStatusMaybe mBotStateDir st1'
+                    logStatusIfDue st1'
                     loop
 
       cleanup = do
@@ -5055,10 +5141,7 @@ botApplyKline mOps metrics mJournal mWebhook st k = do
                 openTradeShifted =
                   case openTrade' of
                     Nothing -> Nothing
-                    Just ot ->
-                      if botOpenEntryIndex ot >= dropCount
-                        then Just ot { botOpenEntryIndex = botOpenEntryIndex ot - dropCount }
-                        else Nothing
+                    Just ot -> Just (shiftOpenTradeIndex dropCount ot)
                 opsShifted =
                   [ op { boIndex = boIndex op - dropCount }
                   | op <- ops'
@@ -5475,6 +5558,9 @@ argsCacheJsonSignal args =
       , "volScaleMax" .= argVolScaleMax args
       , "maxVolatility" .= argMaxVolatility args
       , "blendWeight" .= argBlendWeight args
+      , "triLayer" .= argTriLayer args
+      , "triLayerFastMult" .= argTriLayerFastMult args
+      , "triLayerSlowMult" .= argTriLayerSlowMult args
       , "kalmanZMin" .= argKalmanZMin args
       , "kalmanZMax" .= argKalmanZMax args
       , "maxHighVolProb" .= argMaxHighVolProb args
@@ -5567,6 +5653,9 @@ argsCacheJsonBacktest args =
       , "rebalanceResetOnSignal" .= argRebalanceResetOnSignal args
       , "fundingOnOpen" .= argFundingOnOpen args
       , "blendWeight" .= argBlendWeight args
+      , "triLayer" .= argTriLayer args
+      , "triLayerFastMult" .= argTriLayerFastMult args
+      , "triLayerSlowMult" .= argTriLayerSlowMult args
       , "maxOrderErrors" .= argMaxOrderErrors args
       , "periodsPerYear" .= argPeriodsPerYear args
       , "kalmanZMin" .= argKalmanZMin args
@@ -8348,7 +8437,7 @@ handleBotStart reqLimits mOps limits metrics mJournal mWebhook mBotStateDir opti
                   Right syms -> syms
           orphanSymbols <-
             if tradeEnabled && platformSupportsLiveBot (argPlatform argsBase)
-              then resolveOrphanOpenPositionSymbols limits optimizerTmp argsBase requestedSymbols
+              then resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsBase requestedSymbols
               else pure []
           let symbols = dedupeStable (requestedSymbols ++ orphanSymbols)
               errorMsg =
@@ -8367,7 +8456,7 @@ handleBotStart reqLimits mOps limits metrics mJournal mWebhook mBotStateDir opti
                     allowExisting = allowExistingFor sym
                 adoptReqOrErr <-
                   if tradeEnabled && platformSupportsLiveBot (argPlatform argsSym)
-                    then resolveAdoptionRequirement argsSym sym
+                    then resolveAdoptionRequirement mOps argsSym sym
                     else pure (Right noAdoptRequirement)
                 case adoptReqOrErr of
                   Left err -> pure (sym, Left err)
@@ -8476,6 +8565,7 @@ handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
   let stoppedSymbols = map botSymbol stopped
   journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now, "symbols" .= stoppedSymbols])
   opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing
+  forM_ stopped (botStatusLogMaybe mOps False)
   webhookNotifyMaybe mWebhook (webhookEventBotStop stoppedSymbols)
 
   let snaps =
@@ -8708,6 +8798,9 @@ argsFromApi baseArgs p = do
           , argFundingBySide = pick (apFundingBySide p) (argFundingBySide baseArgs)
           , argFundingOnOpen = pick (apFundingOnOpen p) (argFundingOnOpen baseArgs)
           , argBlendWeight = pick (apBlendWeight p) (argBlendWeight baseArgs)
+          , argTriLayer = pick (apTriLayer p) (argTriLayer baseArgs)
+          , argTriLayerFastMult = pick (apTriLayerFastMult p) (argTriLayerFastMult baseArgs)
+          , argTriLayerSlowMult = pick (apTriLayerSlowMult p) (argTriLayerSlowMult baseArgs)
           , argMaxOrderErrors = pickMaybe (apMaxOrderErrors p) (argMaxOrderErrors baseArgs)
           , argPeriodsPerYear =
               case apPeriodsPerYear p of
@@ -8900,7 +8993,7 @@ computeBinanceKeysStatusFromArgs args = do
   if not hasApiKey || not hasApiSecret
     then pure baseStatus
     else do
-      env <- makeBinanceEnv args
+      env <- makeBinanceEnv Nothing args
       sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure sym
       signedProbe <-
         probeBinance "signed" $ do
@@ -9904,6 +9997,9 @@ backtestSummaryJson summary =
     , "rebalanceResetOnSignal" .= bsRebalanceResetOnSignal summary
     , "fundingOnOpen" .= bsFundingOnOpen summary
     , "blendWeight" .= bsBlendWeight summary
+    , "triLayer" .= bsTriLayer summary
+    , "triLayerFastMult" .= bsTriLayerFastMult summary
+    , "triLayerSlowMult" .= bsTriLayerSlowMult summary
     , "tuning" .= tuningJson
     , "costs" .= costsJson
     , "walkForward" .= walkForwardJson
@@ -10575,6 +10671,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecFundingBySide = argFundingBySide args
           , ecFundingOnOpen = argFundingOnOpen args
           , ecBlendWeight = argBlendWeight args
+          , ecKalmanDt = argKalmanDt args
+          , ecKalmanProcessVar = argKalmanProcessVar args
+          , ecKalmanMeasurementVar = argKalmanMeasurementVar args
+          , ecTriLayer = argTriLayer args
+          , ecTriLayerFastMult = argTriLayerFastMult args
+          , ecTriLayerSlowMult = argTriLayerSlowMult args
           , ecKalmanZMin = argKalmanZMin args
           , ecKalmanZMax = argKalmanZMax args
           , ecMaxHighVolProb = argMaxHighVolProb args
@@ -10631,7 +10733,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         case methodUsed of
           MethodLstmOnly -> Nothing
           _ -> metaBacktest
-      backtest =
+
+  let backtest =
         simulateEnsembleWithHL
           backtestCfg
           1
@@ -10642,7 +10745,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           lstmPredUsedBacktest
           metaUsedBacktest
 
-      metrics = computeMetrics ppy backtest
+  let metrics = computeMetrics ppy backtest
       baselines = computeBaselines ppy perSideCost backtestPrices
 
       walkForward =
@@ -10795,6 +10898,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsRebalanceResetOnSignal = argRebalanceResetOnSignal args
       , bsFundingOnOpen = argFundingOnOpen args
       , bsBlendWeight = argBlendWeight args
+      , bsTriLayer = argTriLayer args
+      , bsTriLayerFastMult = argTriLayerFastMult args
+      , bsTriLayerSlowMult = argTriLayerSlowMult args
       , bsFee = feeUsed
       , bsSlippage = slippageUsed
       , bsSpread = spreadUsed
@@ -11102,6 +11208,136 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                                   (-1) -> currentPrice <= sma
                                   _ -> True
 
+                  triLayerEnabled = argTriLayer args
+                  cloudReady = triLayerEnabled && n >= 2
+                  bodyMinFrac = max 1e-6 (0.25 * openThr)
+                  kalDt = max 1e-12 (argKalmanDt args)
+                  kalProcessVar = max 0 (argKalmanProcessVar args)
+                  kalMeasVar = max 1e-12 (argKalmanMeasurementVar args)
+                  fastMult = max 1e-6 (argTriLayerFastMult args)
+                  slowMult = max 1e-6 (argTriLayerSlowMult args)
+                  (cloudFastV, cloudSlowV) =
+                    if cloudReady
+                      then
+                        let run mult =
+                              let mv = max 1e-12 (kalMeasVar * mult)
+                                  KalmanRun { krFiltered = filts } =
+                                    runConstantAcceleration1D kalDt kalProcessVar mv (V.toList pricesV)
+                               in V.fromList filts
+                         in (run fastMult, run slowMult)
+                      else (pricesV, pricesV)
+
+                  candleAt i =
+                    let c = pricesV V.! i
+                        o = if i <= 0 then c else pricesV V.! (i - 1)
+                        h = max o c
+                        l = min o c
+                     in (o, h, l, c)
+
+                  candleOpen (o, _, _, _) = o
+                  candleClose (_, _, _, c) = c
+                  candleBody (o, _, _, c) = abs (c - o)
+                  candleBull (o, _, _, c) = c > o
+                  candleBear (o, _, _, c) = c < o
+                  candleUpperWick (o, h, _, c) = max 0 (h - max o c)
+                  candleLowerWick (o, _, l, c) = max 0 (min o c - l)
+
+                  bodyOk closePx body =
+                    let denom = max 1e-12 (abs closePx)
+                     in body / denom >= bodyMinFrac
+
+                  hammer candle =
+                    let body = candleBody candle
+                        upper = candleUpperWick candle
+                        lower = candleLowerWick candle
+                        closePx = candleClose candle
+                     in candleBull candle
+                          && body > 0
+                          && bodyOk closePx body
+                          && lower >= 2 * body
+                          && upper <= 0.5 * body
+
+                  shootingStar candle =
+                    let body = candleBody candle
+                        upper = candleUpperWick candle
+                        lower = candleLowerWick candle
+                        closePx = candleClose candle
+                     in candleBear candle
+                          && body > 0
+                          && bodyOk closePx body
+                          && upper >= 2 * body
+                          && lower <= 0.5 * body
+
+                  bullishEngulf cur prev =
+                    let bodyCur = candleBody cur
+                        bodyPrev = candleBody prev
+                        closePx = candleClose cur
+                     in candleBull cur
+                          && candleBear prev
+                          && bodyCur >= bodyPrev
+                          && bodyOk closePx bodyCur
+                          && candleClose cur >= candleOpen prev
+                          && candleOpen cur <= candleClose prev
+
+                  bearishEngulf cur prev =
+                    let bodyCur = candleBody cur
+                        bodyPrev = candleBody prev
+                        closePx = candleClose cur
+                     in candleBear cur
+                          && candleBull prev
+                          && bodyCur >= bodyPrev
+                          && bodyOk closePx bodyCur
+                          && candleClose cur <= candleOpen prev
+                          && candleOpen cur >= candleClose prev
+
+                  railroadTracksLong cur prev =
+                    let bodyCur = candleBody cur
+                        bodyPrev = candleBody prev
+                        closePx = candleClose cur
+                        tol = 0.2
+                     in candleBull cur
+                          && candleBear prev
+                          && bodyPrev > 0
+                          && bodyOk closePx bodyCur
+                          && abs (bodyCur - bodyPrev) / bodyPrev <= tol
+
+                  darkCloudCover cur prev =
+                    let midPrev = (candleOpen prev + candleClose prev) / 2
+                     in candleBear cur && candleBull prev && candleClose cur < midPrev
+
+                  cloudOk dir =
+                    if not cloudReady || t <= 0
+                      then True
+                      else
+                        let fast = cloudFastV V.! t
+                            slow = cloudSlowV V.! t
+                            slope = slow - cloudSlowV V.! (t - 1)
+                            cloudTop = max fast slow
+                            cloudBot = min fast slow
+                            (_, h, l, _) = candleAt t
+                            touchCloud = l <= cloudTop && h >= cloudBot
+                            trendOkCloud =
+                              case dir of
+                                1 -> fast > slow && slope >= 0
+                                (-1) -> fast < slow && slope <= 0
+                                _ -> True
+                         in if bad fast || bad slow || bad slope
+                              then True
+                              else touchCloud && trendOkCloud
+
+                  priceActionOk dir =
+                    if not triLayerEnabled || t < 2
+                      then True
+                      else
+                        let cur = candleAt t
+                            prev = candleAt (t - 1)
+                            bullish = hammer cur || bullishEngulf cur prev || railroadTracksLong cur prev
+                            bearish = shootingStar cur || bearishEngulf cur prev || darkCloudCover cur prev
+                         in case dir of
+                              1 -> bullish
+                              (-1) -> bearish
+                              _ -> True
+
                   clamp01 :: Double -> Double
                   clamp01 x = max 0 (min 1 x)
 
@@ -11340,6 +11576,10 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                             then (Nothing, Just "VOL_TARGET_WARMUP")
                             else if not (trendOk dir)
                             then (Nothing, Just "TREND_FILTER")
+                            else if not (cloudOk dir)
+                              then (Nothing, Just "KALMAN_CLOUD")
+                            else if not (priceActionOk dir)
+                              then (Nothing, Just "PRICE_ACTION")
                             else if not signalToNoiseOk
                               then (Nothing, Just "SIGNAL_TO_NOISE")
                               else (Just dir, Nothing)

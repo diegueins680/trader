@@ -25,6 +25,7 @@ import Data.Int (Int64)
 import Data.List (foldl')
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import Trader.Kalman3 (KalmanRun(..), runConstantAcceleration1D)
 
 data Positioning
   = LongFlat
@@ -71,6 +72,13 @@ data EnsembleConfig = EnsembleConfig
   , ecFundingBySide :: !Bool           -- when True, apply funding sign by side
   , ecFundingOnOpen :: !Bool           -- when True, charge funding for bars opened with a position
   , ecBlendWeight :: !Double           -- Kalman weight for blend method
+  -- Tri-layer gating (Kalman cloud + price action trigger)
+  , ecKalmanDt :: !Double
+  , ecKalmanProcessVar :: !Double
+  , ecKalmanMeasurementVar :: !Double
+  , ecTriLayer :: !Bool
+  , ecTriLayerFastMult :: !Double
+  , ecTriLayerSlowMult :: !Double
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
   , ecKalmanZMin :: !Double
   , ecKalmanZMax :: !Double
@@ -292,15 +300,70 @@ simulateEnsembleLongFlatVWithHL
   -> Maybe (V.Vector StepMeta) -- optional per-step confidence meta
   -> BacktestResult
 simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV =
+  case simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV of
+    Left err -> error err
+    Right bt -> bt
+
+simulateEnsembleLongFlatVWithHLChecked
+  :: EnsembleConfig
+  -> Int            -- lookback (for LSTM alignment)
+  -> V.Vector Double -- closes
+  -> V.Vector Double -- highs
+  -> V.Vector Double -- lows
+  -> V.Vector Double
+  -> V.Vector Double
+  -> Maybe (V.Vector StepMeta) -- optional per-step confidence meta
+  -> Either String BacktestResult
+simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV =
   let n = V.length pricesV
-   in if n < 2
-        then error "Need at least 2 prices to simulate"
-        else
+      startT = max 0 (lookback - 1)
+      stepCount = n - 1
+      kalNeed = if startT < stepCount then stepCount else 0
+      lstmNeed = max 0 (stepCount - startT)
+      validationError =
+        if n < 2
+          then Just "Need at least 2 prices to simulate"
+          else
+            if V.length highsV /= n || V.length lowsV /= n
+              then Just "high/low vectors must match closes length"
+              else
+                if lookback >= n
+                  then Just "lookback must be less than number of prices"
+                  else
+                    if maybe False (\mv -> V.length mv < stepCount) mMetaV
+                      then Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
+                      else
+                        if maybe False (\ts -> V.length ts /= n) (ecOpenTimes cfg)
+                          then Just "openTimes vector must match closes length"
+                          else
+                            if V.length kalPredNextV < kalNeed
+                              then
+                                Just
+                                  ( "kalPredNext too short: need at least "
+                                      ++ show kalNeed
+                                      ++ ", got "
+                                      ++ show (V.length kalPredNextV)
+                                  )
+                              else
+                                if V.length lstmPredNextV < lstmNeed
+                                  then
+                                    Just
+                                      ( "lstmPredNext too short: need at least "
+                                          ++ show lstmNeed
+                                          ++ ", got "
+                                          ++ show (V.length lstmPredNextV)
+                                      )
+                                  else Nothing
+   in case validationError of
+        Just err -> Left err
+        Nothing ->
+          Right $
           let startT = max 0 (lookback - 1)
               openThrRaw = max 0 (ecOpenThreshold cfg)
               minEdge = max 0 (ecMinEdge cfg)
               minSignalToNoise = max 0 (ecMinSignalToNoise cfg)
               openThr = max openThrRaw minEdge
+              bodyMinFrac = max 1e-6 (0.25 * openThr)
               closeThr = max 0 (ecCloseThreshold cfg)
               minHoldBars = max 0 (ecMinHoldBars cfg)
               cooldownBars = max 0 (ecCooldownBars cfg)
@@ -334,6 +397,23 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                  in if isNaN r || isInfinite r then 0 else r
               fundingBySide = ecFundingBySide cfg
               fundingOnOpen = ecFundingOnOpen cfg
+              triLayerEnabled = ecTriLayer cfg
+              cloudReady = triLayerEnabled && n >= 2
+              kalDt = max 1e-12 (ecKalmanDt cfg)
+              kalProcessVar = max 0 (ecKalmanProcessVar cfg)
+              kalMeasVar = max 1e-12 (ecKalmanMeasurementVar cfg)
+              fastMult = max 1e-6 (ecTriLayerFastMult cfg)
+              slowMult = max 1e-6 (ecTriLayerSlowMult cfg)
+              (cloudFastV, cloudSlowV) =
+                if cloudReady
+                  then
+                    let run mult =
+                          let mv = max 1e-12 (kalMeasVar * mult)
+                              KalmanRun { krFiltered = filts } =
+                                runConstantAcceleration1D kalDt kalProcessVar mv (V.toList pricesV)
+                           in V.fromList filts
+                     in (run fastMult, run slowMult)
+                  else (pricesV, pricesV)
               fundingPerBar =
                 if fundingRate == 0
                   then 0
@@ -381,41 +461,6 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                       LongShort -> Just SideShort
               stepCount = n - 1
 
-              kalNeed = if startT < stepCount then stepCount else 0
-              lstmNeed = max 0 (stepCount - startT)
-
-              () =
-                if V.length highsV /= n || V.length lowsV /= n
-                  then error "high/low vectors must match closes length"
-                  else
-                    if lookback >= n
-                      then error "lookback must be less than number of prices"
-                      else
-                    if maybe False (\mv -> V.length mv < stepCount) mMetaV
-                      then error "meta vector too short for simulateEnsembleLongFlatVWithHL"
-                      else
-                        if maybe False (\ts -> V.length ts /= n) (ecOpenTimes cfg)
-                          then error "openTimes vector must match closes length"
-                          else
-                            if V.length kalPredNextV < kalNeed
-                              then
-                                error
-                                  ( "kalPredNext too short: need at least "
-                                      ++ show kalNeed
-                                      ++ ", got "
-                                      ++ show (V.length kalPredNextV)
-                                  )
-                              else
-                                if V.length lstmPredNextV < lstmNeed
-                                  then
-                                    error
-                                      ( "lstmPredNext too short: need at least "
-                                          ++ show lstmNeed
-                                          ++ ", got "
-                                          ++ show (V.length lstmPredNextV)
-                                      )
-                                  else ()
-
               perSideCost =
                 let fee = max 0 (ecFee cfg)
                     slip = max 0 (ecSlippage cfg)
@@ -456,6 +501,89 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                 let l = lowsV V.! t1
                     c = pricesV V.! t1
                  in if isNaN l || isInfinite l then c else l
+
+              barOpen t1 =
+                if t1 <= 0
+                  then pricesV V.! t1
+                  else pricesV V.! (t1 - 1)
+
+              candleAt t1 =
+                let o = barOpen t1
+                    c = pricesV V.! t1
+                    h = barHigh t1
+                    l = barLow t1
+                 in (o, h, l, c)
+
+              candleOpen (o, _, _, _) = o
+              candleClose (_, _, _, c) = c
+              candleBody (o, _, _, c) = abs (c - o)
+              candleBull (o, _, _, c) = c > o
+              candleBear (o, _, _, c) = c < o
+              candleUpperWick (o, h, _, c) = max 0 (h - max o c)
+              candleLowerWick (o, _, l, c) = max 0 (min o c - l)
+
+              bodyOk closePx body =
+                let denom = max 1e-12 (abs closePx)
+                 in body / denom >= bodyMinFrac
+
+              hammer candle =
+                let body = candleBody candle
+                    upper = candleUpperWick candle
+                    lower = candleLowerWick candle
+                    closePx = candleClose candle
+                 in candleBull candle
+                      && body > 0
+                      && bodyOk closePx body
+                      && lower >= 2 * body
+                      && upper <= 0.5 * body
+
+              shootingStar candle =
+                let body = candleBody candle
+                    upper = candleUpperWick candle
+                    lower = candleLowerWick candle
+                    closePx = candleClose candle
+                 in candleBear candle
+                      && body > 0
+                      && bodyOk closePx body
+                      && upper >= 2 * body
+                      && lower <= 0.5 * body
+
+              bullishEngulf cur prev =
+                let bodyCur = candleBody cur
+                    bodyPrev = candleBody prev
+                    closePx = candleClose cur
+                 in candleBull cur
+                      && candleBear prev
+                      && bodyCur >= bodyPrev
+                      && bodyOk closePx bodyCur
+                      && candleClose cur >= candleOpen prev
+                      && candleOpen cur <= candleClose prev
+
+              bearishEngulf cur prev =
+                let bodyCur = candleBody cur
+                    bodyPrev = candleBody prev
+                    closePx = candleClose cur
+                 in candleBear cur
+                      && candleBull prev
+                      && bodyCur >= bodyPrev
+                      && bodyOk closePx bodyCur
+                      && candleClose cur <= candleOpen prev
+                      && candleOpen cur >= candleClose prev
+
+              railroadTracksLong cur prev =
+                let bodyCur = candleBody cur
+                    bodyPrev = candleBody prev
+                    closePx = candleClose cur
+                    tol = 0.2
+                 in candleBull cur
+                      && candleBear prev
+                      && bodyPrev > 0
+                      && bodyOk closePx bodyCur
+                      && abs (bodyCur - bodyPrev) / bodyPrev <= tol
+
+              darkCloudCover cur prev =
+                let midPrev = (candleOpen prev + candleClose prev) / 2
+                 in candleBear cur && candleBull prev && candleClose cur < midPrev
 
               markToMarket :: PositionSide -> Double -> Double -> Double
               markToMarket side basePx px =
@@ -605,6 +733,39 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             case side of
                               SideLong -> px >= sma
                               SideShort -> px <= sma
+
+              cloudOkAt :: Int -> PositionSide -> Bool
+              cloudOkAt t side =
+                if not cloudReady || t <= 0
+                  then True
+                  else
+                    let fast = cloudFastV V.! t
+                        slow = cloudSlowV V.! t
+                        slope = slow - cloudSlowV V.! (t - 1)
+                        cloudTop = max fast slow
+                        cloudBot = min fast slow
+                        (_, h, l, _) = candleAt t
+                        touchCloud = l <= cloudTop && h >= cloudBot
+                        trendOk =
+                          case side of
+                            SideLong -> fast > slow && slope >= 0
+                            SideShort -> fast < slow && slope <= 0
+                     in if isBad fast || isBad slow || isBad slope
+                          then True
+                          else touchCloud && trendOk
+
+              priceActionOkAt :: Int -> PositionSide -> Bool
+              priceActionOkAt t side =
+                if not triLayerEnabled || t < 2
+                  then True
+                  else
+                    let cur = candleAt t
+                        prev = candleAt (t - 1)
+                        bullish = hammer cur || bullishEngulf cur prev || railroadTracksLong cur prev
+                        bearish = shootingStar cur || bearishEngulf cur prev || darkCloudCover cur prev
+                     in case side of
+                          SideLong -> bullish
+                          SideShort -> bearish
 
               clamp01 :: Double -> Double
               clamp01 x = max 0 (min 1 x)
@@ -932,8 +1093,13 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             then volTargetReadyAt t
                             else True
 
+                        triLayerOk =
+                          case (needsEntry, desiredSide0) of
+                            (True, Just side) -> cloudOkAt t side && priceActionOkAt t side
+                            _ -> True
+
                         desiredSide1 =
-                          if not trendOk || not volOk || not snrOk || not volTargetReady
+                          if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk
                             then Nothing
                             else desiredSide0
 
@@ -1381,11 +1547,11 @@ simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV l
                             (_ : rest) -> exitEq : rest
                      in (eqRev1, tr : tradesRev)
               eqCurve = reverse eqRev'
-           in BacktestResult
-                { brEquityCurve = eqCurve
-                , brPositions = reverse posRev
-                , brAgreementOk = reverse agreeRev
-                , brAgreementValid = reverse agreeValidRev
-                , brPositionChanges = changes
-                , brTrades = reverse tradesRev'
-                }
+          in BacktestResult
+                  { brEquityCurve = eqCurve
+                  , brPositions = reverse posRev
+                  , brAgreementOk = reverse agreeRev
+                  , brAgreementValid = reverse agreeValidRev
+                  , brPositionChanges = changes
+                  , brTrades = reverse tradesRev'
+                  }

@@ -13,6 +13,7 @@ import type {
   BotStatus,
   CoinbaseKeysStatus,
   LatestSignal,
+  OpsResponse,
 } from "./types";
 import { TRADER_UI_CONFIG } from "./deployConfig";
 
@@ -182,10 +183,17 @@ function withTimeout(externalSignal: AbortSignal | undefined, timeoutMs: number)
 }
 
 async function readJsonOrText(res: Response, contentType: string): Promise<unknown> {
+  const bodyText = await res.text();
   if (isJsonContentType(contentType)) {
-    return res.json();
+    const trimmed = bodyText.trim();
+    if (!trimmed) return null;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      throw new UnexpectedResponseError(res.status, contentType, summarizePayload(bodyText));
+    }
   }
-  return res.text();
+  return bodyText;
 }
 
 function summarizePayload(payload: unknown): string {
@@ -743,6 +751,19 @@ export async function botStatus(baseUrl: string, opts?: FetchJsonOptions, tail?:
   if (symbol) query.set("symbol", symbol);
   const path = query.size > 0 ? `/bot/status?${query.toString()}` : "/bot/status";
   return fetchJson<BotStatus>(baseUrl, path, { method: "GET" }, opts);
+}
+
+export async function ops(
+  baseUrl: string,
+  params?: { kind?: string; limit?: number; since?: number },
+  opts?: FetchJsonOptions,
+): Promise<OpsResponse> {
+  const query = new URLSearchParams();
+  if (params?.kind) query.set("kind", params.kind);
+  if (typeof params?.limit === "number" && Number.isFinite(params.limit)) query.set("limit", String(Math.trunc(params.limit)));
+  if (typeof params?.since === "number" && Number.isFinite(params.since)) query.set("since", String(Math.trunc(params.since)));
+  const path = query.size > 0 ? `/ops?${query.toString()}` : "/ops";
+  return fetchJson<OpsResponse>(baseUrl, path, { method: "GET" }, opts);
 }
 
 export async function optimizerCombos(baseUrl: string, opts?: FetchJsonOptions): Promise<unknown> {

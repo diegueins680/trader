@@ -22,6 +22,7 @@ Features
 - Predictor training uses a train/calibration split so held-out calibration data is excluded from model training.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
+- Optional tri-layer entry gating: Kalman cloud trend + price-action reversal triggers (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, max drawdown) (`haskell/app/Trader/Metrics.hs`).
 - Data sources: CSV or exchange klines (Binance/Coinbase/Kraken/Poloniex).
 - Sample dataset in `data/sample_prices.csv`.
@@ -244,6 +245,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--trend-lookback N` simple moving average filter for entries (`0` disables; default: `30`)
+  - `--tri-layer` enable Kalman cloud + price-action entry gating (uses the last candle and Kalman cloud trend)
+    - `--tri-layer-fast-mult 0.5` fast Kalman measurement-variance multiplier for the cloud
+    - `--tri-layer-slow-mult 2.0` slow Kalman measurement-variance multiplier for the cloud
   - `--max-position-size 0.8` cap position size/leverage (`1` = full size)
   - `--vol-target F` target annualized volatility for position sizing (`0` disables; default: `0.7`)
     - `--vol-lookback N` realized-vol lookback window (bars) when EWMA alpha is not set
@@ -333,6 +337,7 @@ Endpoints:
 - `POST /backtest` → runs a backtest and returns summary metrics
 - `POST /backtest/async` → starts an async backtest job
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
+- Backtest endpoints return 400 for inconsistent inputs (e.g., lookback >= bars, high/low length mismatches).
 - `POST /optimizer/run` → runs the optimizer executable, merges the run into `top-combos.json`, and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
   - Top-combo merges compare scores only within the same objective; when objectives differ, ranking falls back to final equity to avoid mixing metrics.
@@ -345,8 +350,22 @@ Endpoints:
 - `POST /binance/listenKey/close` → closes a listenKey
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail)
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
-- `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000)
+- `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000, and open trade entries are clamped to the tail).
 - On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default (requires Binance API keys) and restarts on the next poll interval if stopped.
+
+Always-on live bot (cron watchdog):
+- Use `deploy/ensure-bot-running.sh` to check `/bot/status` and call `/bot/start` if the bot is not running.
+- Provide a start payload with `TRADER_BOT_START_FILE` (JSON file) or `TRADER_BOT_START_BODY` (raw JSON string).
+- If `bot-start.json` exists in the repo root, the script uses it as the default start payload.
+- Optional: set `TRADER_BOT_SYMBOLS` or `TRADER_BOT_SYMBOL` to check specific symbols; otherwise it checks the global status.
+- If no start payload is provided, the script builds a minimal one from `TRADER_BOT_SYMBOLS` or `TRADER_BOT_SYMBOL` (and optional `TRADER_BOT_TRADE`).
+- The script reads `.env` by default (override with `TRADER_ENV_FILE`).
+- Relative paths for `TRADER_ENV_FILE` and `TRADER_BOT_START_FILE` are resolved from the repo root.
+- Requires `python3` for JSON parsing (override with `TRADER_BOT_PYTHON_BIN` if needed).
+- Example cron entry:
+```
+*/2 * * * * TRADER_ENV_FILE=/path/to/.env TRADER_BOT_START_FILE=/path/to/bot-start.json /path/to/repo/deploy/ensure-bot-running.sh >> /var/log/trader-bot-cron.log 2>&1
+```
 
 Request limits:
 - `TRADER_API_MAX_BODY_BYTES` (default 1048576) caps JSON request payload size; larger requests return 413.
@@ -417,6 +436,9 @@ Optional ops persistence (powers `GET /ops` and the “operations” history):
   - `limit` (default: `200`, max: `5000`)
   - `since` (only return ops with `id > since`)
   - `kind` (exact match on operation kind)
+- Ops log kinds include:
+  - `binance.request` for every Binance API request (method/path/latency/status; signature/listenKey values are redacted).
+  - `bot.status` snapshots every minute with running/live/halts/errors (used by the live/offline timeline chart in the UI).
 
 Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 - Set `TRADER_BOT_STATE_DIR` to a writable directory (writes `bot-state-<symbol>.json`; set empty to disable)
@@ -560,7 +582,7 @@ Hover optimizer combos to inspect the operations captured for each top performer
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
 Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.
 The configuration panel keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
-When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must be `/api` to avoid CORS issues (the quick AWS deploy script enforces this when a distribution ID is provided unless `--ui-api-direct` is set). Optionally set `apiFallbackUrl` to the direct API host for automatic failover if the `/api/*` proxy returns 502/503/504 (or serves HTML). The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
+When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must be `/api` to avoid CORS issues (the quick AWS deploy script enforces this when a distribution ID is provided unless `--ui-api-direct` is set). Optionally set `apiFallbackUrl` to the direct API host for automatic failover if the `/api/*` proxy returns 502/503/504 (or serves HTML/invalid JSON); in `--ui-api-direct` mode the script sets `apiFallbackUrl` to `/api` so it can fall back to the proxy. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
 The UI auto-applies top combos when available and shows when a combo auto-applied; if the live bot is idle it auto-starts after the top combo applies, and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
@@ -597,10 +619,10 @@ If live bot start/status returns 502/503/504, verify the `/api/*` proxy target (
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
-- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Optionally set `apiFallbackUrl` to a full API URL for automatic failover when a `/api` proxy returns 502/503/504.
+- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Optionally set `apiFallbackUrl` to a full API URL for automatic failover when a `/api` proxy returns 502/503/504 or invalid JSON.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
-The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (supports long/short on futures).
+The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (supports long/short on futures). It includes a live/offline timeline chart with start/end controls when ops persistence is enabled. The chart reflects the available ops history and warns when the selected range extends beyond it.
 Optimizer combos are clamped to the API compute limits reported by `/health` when available.
 
 Troubleshooting: “No live operations yet”

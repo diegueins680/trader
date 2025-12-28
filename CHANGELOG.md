@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
+- Observability: log Binance API requests (`binance.request`) and minute-by-minute bot status snapshots (`bot.status`), plus a live/offline timeline chart in the UI.
+- Observability: redact Binance query params in ops logs even when the query string starts with `?`.
 - Backtests: API queues requests when the backtest slot is busy; UI waits and notifies when the backtest completes.
 - Strategy defaults: move to `--interval 1h`/`--lookback-window 7d`, raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, max position size, vol target/floor/max-vol, Kalman z-min, min position size), and bump cost assumptions (fee/slippage/spread).
 - Strategy defaults: enable cost-aware edge, conformal/quantile confirmations, and confidence sizing by default, with `--no-cost-aware-edge`, `--no-confirm-conformal`, `--no-confirm-quantiles`, and `--no-confidence-sizing` opt-outs.
@@ -18,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Live bot: startup waits for the top combo compatible with adopted positions or open orders before running.
 - Live bot: `/bot/start` auto-adopts orphan open futures positions when a matching top combo exists.
 - Live bot/API: futures position checks now respect hedge-mode sides; bot start/adoption and futures trade requests reject simultaneous long+short positions for the same symbol.
+- Ops: add a cron watchdog script to keep the live bot running (`deploy/ensure-bot-running.sh`).
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
 - API: add `/binance/positions` for open Binance futures positions plus chart-ready klines.
 - API: `/signal` endpoints now validate request parameters the same way as CLI invocations.
@@ -33,6 +36,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
+- Web UI: warn when the bot status timeline range falls outside available ops history.
 - Web UI: send explicit zero/false values for default-on risk settings so disable toggles take effect.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
 - Deploy: quick AWS deploy reuses existing App Runner S3 state settings + instance role when updating a service unless new values are provided.
@@ -40,6 +44,7 @@ All notable changes to this project will be documented in this file.
 - Deploy: quick AWS deploy auto-configures CloudFront `/api/*` behavior to route to the API and disable caching.
 - Deploy/UI: quick AWS deploy now forces UI `apiBaseUrl` to `/api` when CloudFront is configured and docs call out the single-instance requirement behind non-sticky proxies.
 - Deploy/UI: quick AWS deploy supports `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to keep `apiBaseUrl` pointing at the API host even with CloudFront.
+- Deploy/UI: quick AWS deploy sets `apiFallbackUrl` to `/api` in direct mode so the UI can fall back to the CloudFront proxy.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with trading only on Binance/Coinbase.
 - Exchange data: add Coinbase platform support for exchange klines and spot trading.
@@ -66,16 +71,18 @@ All notable changes to this project will be documented in this file.
 - Web UI: when trading is armed, automatically switches Market to Futures when Positioning is set to Long/Short.
 - Web UI: falls back to `GET` for async polling when `POST` hits proxy errors (e.g. 502/503).
 - Web UI: optional `apiFallbackUrl` in `trader-config.js` to fail over to a direct API host when `/api` proxies return 502/503/504.
-- Web UI: treat non-JSON `/api` responses (e.g., HTML from misrouted proxies) as failures and retry via `apiFallbackUrl`.
+- Web UI: treat non-JSON or invalid JSON `/api` responses (e.g., HTML from misrouted proxies) as failures and retry via `apiFallbackUrl`.
 - Web UI: avoid optimizer combo apply crashes when compute limits are unavailable.
 - Backtests: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as trade exit reasons.
 - Backtests: risk halts now evaluate post-bar equity and can close positions at the bar close.
 - Backtests: `agreementOk` now counts open-direction agreement only when both models emit a direction.
 - Backtests: error when lookback bars are not less than the total bar count (prevents silent no-trade runs).
+- API/Backtests: reject inconsistent high/low/prediction lengths with 400 errors instead of crashing.
 - Trading: daily-loss halts reset at UTC day boundaries when bar timestamps are available (exchange/CSV timestamps; otherwise interval-based).
 - Trading: entries gated by `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` now wait for a volatility estimate.
 - Trading: latest signals now apply the same volatility gating and confidence close-direction gating (including blend) as backtests, without applying min-position-size to exits.
 - Trading: conformal/quantile confirmations use the close threshold when gating close signals.
+- Trading: add optional tri-layer entry gating (Kalman cloud trend + price-action reversal triggers) via `--tri-layer`.
 - Trading: min-position-size only gates entries when confidence sizing is enabled, and close-direction gating no longer applies the min-position-size threshold.
 - Live bot: startup close decisions for adopted positions now use the gated closeDirection logic (matching the run loop).
 - Live bot: close decisions now use the gated closeDirection logic during the run loop.
@@ -112,6 +119,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: show persisted live-bot snapshots when `/bot/status` is restored after restart.
 - Live bot/UI: `/bot/status` includes `startingReason` and the UI surfaces when startup is waiting for a compatible top combo.
 - API: `/bot/status` now caps the `tail` parameter to 5000 points.
+- API: `/bot/status` tail now clamps open trade entries so open positions remain visible.
 - API: enforce `TRADER_API_MAX_BODY_BYTES` for request payloads (default 1048576 bytes).
 - API: `/optimizer/run` responses now truncate stdout/stderr to `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000 bytes).
 - API: classify internal `ErrorCall` failures as server errors instead of client errors.
