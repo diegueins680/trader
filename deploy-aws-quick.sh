@@ -33,6 +33,7 @@ UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
 UI_DISTRIBUTION_ID="${TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID:-${CLOUDFRONT_DISTRIBUTION_ID:-}}"
 UI_SKIP_BUILD="${TRADER_UI_SKIP_BUILD:-false}"
 UI_DIST_DIR="${TRADER_UI_DIST_DIR:-haskell/web/dist}"
+UI_API_MODE="${TRADER_UI_API_MODE:-proxy}"
 UI_ONLY="false"
 API_ONLY="false"
 UI_API_URL="${TRADER_UI_API_URL:-}"
@@ -77,8 +78,9 @@ Flags:
   --api-only                         Deploy API only
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
-  --distribution-id <id>            CloudFront distribution ID (optional; forces UI apiBaseUrl to /api)
+  --distribution-id <id>            CloudFront distribution ID (optional; forces UI apiBaseUrl to /api unless --ui-api-direct)
   --api-url <url>                   API origin URL for UI-only deploys (also configures CloudFront /api/* behavior)
+  --ui-api-direct                   Use the full API URL in trader-config.js even with CloudFront (skips forcing /api)
   --service-arn <arn>               App Runner service ARN to auto-discover API URL/token (UI-only convenience)
   --skip-ui-build                   Skip `npm run build` (uses existing dist dir)
   --ui-dist-dir <dir>               UI dist dir (default: haskell/web/dist)
@@ -98,6 +100,7 @@ Environment variables (equivalents):
   TRADER_UI_SKIP_BUILD
   TRADER_UI_DIST_DIR
   TRADER_UI_API_URL
+  TRADER_UI_API_MODE (proxy|direct)
   TRADER_UI_SERVICE_ARN
   APP_RUNNER_INSTANCE_ROLE_ARN / TRADER_APP_RUNNER_INSTANCE_ROLE_ARN
 EOF
@@ -191,6 +194,10 @@ while [[ $# -gt 0 ]]; do
       UI_API_URL="${2:-}"
       shift 2
       ;;
+    --ui-api-direct)
+      UI_API_MODE="direct"
+      shift
+      ;;
     --service-arn)
       UI_SERVICE_ARN="${2:-}"
       shift 2
@@ -207,6 +214,10 @@ if [[ ${#POSITIONAL[@]} -ge 1 && -z "${AWS_REGION:-}" ]]; then
 fi
 if [[ ${#POSITIONAL[@]} -ge 2 && -z "${TRADER_API_TOKEN:-}" ]]; then
   TRADER_API_TOKEN="${POSITIONAL[1]}"
+fi
+
+if [[ "${UI_API_MODE}" != "direct" ]]; then
+  UI_API_MODE="proxy"
 fi
 
 DEPLOY_API="true"
@@ -1085,6 +1096,7 @@ main() {
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
       echo "  UI CF Dist: ${UI_DISTRIBUTION_ID}"
     fi
+    echo "  UI API Mode: ${UI_API_MODE}"
     echo "  UI Dist Dir: ${UI_DIST_DIR}"
     echo "  UI Skip Build: ${UI_SKIP_BUILD}"
   fi
@@ -1116,14 +1128,22 @@ main() {
   fi
 
   if [[ "$DEPLOY_UI" == "true" ]]; then
-    if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+    if [[ -n "${UI_DISTRIBUTION_ID:-}" && "$UI_API_MODE" != "direct" ]]; then
       ensure_cloudfront_api_behavior "$UI_DISTRIBUTION_ID" "$api_url"
     fi
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
-      if [[ -n "${ui_api_url_override:-}" && "${ui_api_url_override}" != "/api" ]]; then
-        echo -e "${YELLOW}Warning: --api-url override is ignored when --distribution-id is set (UI apiBaseUrl is forced to /api).${NC}" >&2
+      if [[ "$UI_API_MODE" == "direct" ]]; then
+        if [[ -n "${ui_api_url_override:-}" ]]; then
+          ui_api_url="$ui_api_url_override"
+        else
+          ui_api_url="$api_url"
+        fi
+      else
+        if [[ -n "${ui_api_url_override:-}" && "${ui_api_url_override}" != "/api" ]]; then
+          echo -e "${YELLOW}Warning: --api-url override is ignored when --distribution-id is set (UI apiBaseUrl is forced to /api).${NC}" >&2
+        fi
+        ui_api_url="/api"
       fi
-      ui_api_url="/api"
     elif [[ -n "${ui_api_url_override:-}" ]]; then
       ui_api_url="$ui_api_url_override"
     else
