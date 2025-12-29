@@ -1175,13 +1175,6 @@ main() {
       ui_api_url="$api_url"
     fi
     ui_api_fallback=""
-    if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
-      if [[ "$ui_api_url" == "/api" && -n "${api_url:-}" && "${api_url}" != "/api" ]]; then
-        ui_api_fallback="$api_url"
-      elif [[ "$ui_api_url" != "/api" ]]; then
-        ui_api_fallback="/api"
-      fi
-    fi
     deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
   fi
 

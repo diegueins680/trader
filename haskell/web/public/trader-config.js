@@ -9,8 +9,8 @@
 //   // configure shared async storage (TRADER_API_ASYNC_DIR or TRADER_STATE_DIR).
 //   // Use "https://your-api-host" for direct API calls when you are not proxying via /api.
 //   apiBaseUrl: "/api",
-//   // Optional: fallback to a direct API host if the /api proxy returns 502/503/504.
-//   apiFallbackUrl: "https://your-api-host",
+//   // Optional: only set apiFallbackUrl when your API host allows CORS (avoid it when using /api proxies).
+//   apiFallbackUrl: "",
 //   apiToken: "TRADER_API_TOKEN",
 //   timeoutsMs: {
 //     // Increase these if large backtests/trades time out in the UI.

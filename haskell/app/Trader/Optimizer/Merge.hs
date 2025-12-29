@@ -288,6 +288,9 @@ signatureKey combo =
         , p "triLayer"
         , p "triLayerFastMult"
         , p "triLayerSlowMult"
+        , p "triLayerCloudPadding"
+        , p "triLayerPriceAction"
+        , p "lstmExitFlipBars"
         , p "stopLoss"
         , p "takeProfit"
         , p "trailingStop"
@@ -481,6 +484,9 @@ normalizeCombo value =
                   , (Key.fromString "triLayer", Bool triLayer)
                   , (Key.fromString "triLayerFastMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerFastMult") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "triLayerSlowMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerSlowMult") paramsRaw >>= coerceFloatValue))
+                  , (Key.fromString "triLayerCloudPadding", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudPadding") paramsRaw >>= coerceFloatValue))
+                  , (Key.fromString "triLayerPriceAction", maybe Null Bool (KM.lookup (Key.fromString "triLayerPriceAction") paramsRaw >>= coerceBoolValue))
+                  , (Key.fromString "lstmExitFlipBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "lstmExitFlipBars") paramsRaw >>= coerceIntValue))
                   , (Key.fromString "stopLoss", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "stopLoss") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "takeProfit", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "takeProfit") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "trailingStop", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "trailingStop") paramsRaw >>= coerceFloatValue))

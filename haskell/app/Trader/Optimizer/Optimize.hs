@@ -495,6 +495,11 @@ data OptimizerArgs = OptimizerArgs
   , oaTriLayerFastMultMax :: !Double
   , oaTriLayerSlowMultMin :: !Double
   , oaTriLayerSlowMultMax :: !Double
+  , oaPTriLayerPriceAction :: !Double
+  , oaTriLayerCloudPaddingMin :: !Double
+  , oaTriLayerCloudPaddingMax :: !Double
+  , oaLstmExitFlipBarsMin :: !Int
+  , oaLstmExitFlipBarsMax :: !Int
   , oaKalmanDtMin :: !Double
   , oaKalmanDtMax :: !Double
   , oaKalmanProcessVarMin :: !Double
@@ -676,6 +681,9 @@ data TrialParams = TrialParams
   , tpTriLayer :: !Bool
   , tpTriLayerFastMult :: !Double
   , tpTriLayerSlowMult :: !Double
+  , tpTriLayerCloudPadding :: !Double
+  , tpTriLayerPriceAction :: !Bool
+  , tpLstmExitFlipBars :: !Int
   , tpStopLoss :: !(Maybe Double)
   , tpTakeProfit :: !(Maybe Double)
   , tpTrailingStop :: !(Maybe Double)
@@ -851,6 +859,16 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
              , "--tri-layer-slow-mult"
              , printf "%.12g" (max 1e-6 (tpTriLayerSlowMult params))
+             , "--tri-layer-cloud-padding"
+             , printf "%.8f" (max 0 (tpTriLayerCloudPadding params))
+             ]
+          ++
+            ( if tpTriLayer params && not (tpTriLayerPriceAction params)
+                then ["--no-tri-layer-price-action"]
+                else []
+            )
+          ++ [ "--lstm-exit-flip-bars"
+             , show (max 0 (tpLstmExitFlipBars params))
              ]
       cmd18 =
         case tpStopLoss params of
@@ -1148,6 +1166,9 @@ trialToRecord tr symbolLabel =
         , "triLayer" .= tpTriLayer (trParams tr)
         , "triLayerFastMult" .= tpTriLayerFastMult (trParams tr)
         , "triLayerSlowMult" .= tpTriLayerSlowMult (trParams tr)
+        , "triLayerCloudPadding" .= tpTriLayerCloudPadding (trParams tr)
+        , "triLayerPriceAction" .= tpTriLayerPriceAction (trParams tr)
+        , "lstmExitFlipBars" .= tpLstmExitFlipBars (trParams tr)
         , "stopLoss" .= tpStopLoss (trParams tr)
         , "takeProfit" .= tpTakeProfit (trParams tr)
         , "trailingStop" .= tpTrailingStop (trParams tr)
@@ -1235,6 +1256,9 @@ sampleParams
   pTriLayer
   triLayerFastRange
   triLayerSlowRange
+  pTriLayerPriceAction
+  triLayerCloudPaddingRange
+  lstmExitFlipBarsRange
   epochsMin
   epochsMax
   hiddenMin
@@ -1447,7 +1471,23 @@ sampleParams
            in nextLogUniform lo' hi' rng40b
         triLayerFastMult = max 1e-6 triLayerFastRaw
         triLayerSlowMult = max triLayerFastMult (max 1e-6 triLayerSlowRaw)
-        (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40c
+        (triLayerPriceAction, rng40d) =
+          if triLayerEnabled
+            then
+              let (r, rng') = nextDouble rng40c
+               in (r < clamp pTriLayerPriceAction 0 1, rng')
+            else (False, rng40c)
+        (triLayerCloudPadding, rng40e) =
+          let (lo, hi) = ordered triLayerCloudPaddingRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextUniform lo' hi' rng40d
+        (lstmExitFlipBars, rng40f) =
+          let (lo, hi) = ordered lstmExitFlipBarsRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextIntRange lo' hi' rng40e
+        (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40f
         (kalmanProcessVar, rng42) =
           nextLogUniform (max 1e-12 kalmanProcessVarMin) (max 1e-12 kalmanProcessVarMax) rng41
         (kalmanMeasurementVar, rng43) =
@@ -1566,6 +1606,9 @@ sampleParams
             , tpTriLayer = triLayerEnabled
             , tpTriLayerFastMult = triLayerFastMult
             , tpTriLayerSlowMult = triLayerSlowMult
+            , tpTriLayerCloudPadding = triLayerCloudPadding
+            , tpTriLayerPriceAction = triLayerPriceAction
+            , tpLstmExitFlipBars = lstmExitFlipBars
             , tpStopLoss = stopLoss
             , tpTakeProfit = takeProfit
             , tpTrailingStop = trailingStop
@@ -1774,6 +1817,13 @@ runOptimizer args0 = do
                               triLayerSlowMin = max 1e-6 (oaTriLayerSlowMultMin args)
                               triLayerSlowMax = max triLayerSlowMin (oaTriLayerSlowMultMax args)
                               triLayerSlowRange = (triLayerSlowMin, triLayerSlowMax)
+                              pTriLayerPriceAction = clamp (oaPTriLayerPriceAction args) 0 1
+                              triLayerCloudPaddingMin = max 0 (oaTriLayerCloudPaddingMin args)
+                              triLayerCloudPaddingMax = max triLayerCloudPaddingMin (oaTriLayerCloudPaddingMax args)
+                              triLayerCloudPaddingRange = (triLayerCloudPaddingMin, triLayerCloudPaddingMax)
+                              lstmExitFlipBarsMin = max 0 (oaLstmExitFlipBarsMin args)
+                              lstmExitFlipBarsMax = max lstmExitFlipBarsMin (oaLstmExitFlipBarsMax args)
+                              lstmExitFlipBarsRange = (lstmExitFlipBarsMin, lstmExitFlipBarsMax)
                               kalmanDtMin = max 1e-12 (oaKalmanDtMin args)
                               kalmanDtMax = max kalmanDtMin (oaKalmanDtMax args)
                               kalmanProcessVarMin = max 1e-12 (oaKalmanProcessVarMin args)
@@ -1913,6 +1963,9 @@ runOptimizer args0 = do
                                                     pTriLayer
                                                     triLayerFastRange
                                                     triLayerSlowRange
+                                                    pTriLayerPriceAction
+                                                    triLayerCloudPaddingRange
+                                                    lstmExitFlipBarsRange
                                                     epochsMin
                                                     epochsMax
                                                     hiddenMin
@@ -2382,6 +2435,9 @@ printBest tr = do
   putStrLn ("  triLayer:      " ++ show (tpTriLayer p))
   putStrLn ("  triLayerFastMult: " ++ show (tpTriLayerFastMult p))
   putStrLn ("  triLayerSlowMult: " ++ show (tpTriLayerSlowMult p))
+  putStrLn ("  triLayerCloudPadding: " ++ show (tpTriLayerCloudPadding p))
+  putStrLn ("  triLayerPriceAction: " ++ show (tpTriLayerPriceAction p))
+  putStrLn ("  lstmExitFlipBars: " ++ show (tpLstmExitFlipBars p))
   putStrLn ("  stopLoss:      " ++ showMaybe (tpStopLoss p))
   putStrLn ("  takeProfit:    " ++ showMaybe (tpTakeProfit p))
   putStrLn ("  trailingStop:  " ++ showMaybe (tpTrailingStop p))
@@ -2495,6 +2551,9 @@ comboFromTrial dataSource sourceOverride symbolLabel rank tr =
           , "triLayer" .= tpTriLayer params
           , "triLayerFastMult" .= tpTriLayerFastMult params
           , "triLayerSlowMult" .= tpTriLayerSlowMult params
+          , "triLayerCloudPadding" .= tpTriLayerCloudPadding params
+          , "triLayerPriceAction" .= tpTriLayerPriceAction params
+          , "lstmExitFlipBars" .= tpLstmExitFlipBars params
           , "stopLoss" .= tpStopLoss params
           , "takeProfit" .= tpTakeProfit params
           , "trailingStop" .= tpTrailingStop params

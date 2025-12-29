@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
 - Observability: log Binance API requests (`binance.request`) and minute-by-minute bot status snapshots (`bot.status`), plus a live/offline timeline chart in the UI.
 - Observability: redact Binance query params in ops logs even when the query string starts with `?`.
+- Observability: ensure ops logging covers all Binance API calls (including listenKey/trades/positions/data fetches) and emit an immediate `bot.status` snapshot on bot start.
 - Backtests: API queues requests when the backtest slot is busy; UI waits and notifies when the backtest completes.
 - Strategy defaults: move to `--interval 1h`/`--lookback-window 7d`, raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, max position size, vol target/floor/max-vol, Kalman z-min, min position size), and bump cost assumptions (fee/slippage/spread).
 - Strategy defaults: enable cost-aware edge, conformal/quantile confirmations, and confidence sizing by default, with `--no-cost-aware-edge`, `--no-confirm-conformal`, `--no-confirm-quantiles`, and `--no-confidence-sizing` opt-outs.
@@ -48,7 +49,7 @@ All notable changes to this project will be documented in this file.
 - Deploy: quick AWS deploy auto-configures CloudFront `/api/*` behavior to route to the API and disable caching.
 - Deploy/UI: quick AWS deploy now forces UI `apiBaseUrl` to `/api` when CloudFront is configured and docs call out the single-instance requirement behind non-sticky proxies.
 - Deploy/UI: quick AWS deploy supports `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to keep `apiBaseUrl` pointing at the API host even with CloudFront.
-- Deploy/UI: quick AWS deploy sets `apiFallbackUrl` to `/api` in direct mode so the UI can fall back to the CloudFront proxy.
+- Deploy/UI: quick AWS deploy no longer auto-sets `apiFallbackUrl` when CloudFront is configured; use `/api` or set a CORS-enabled fallback explicitly.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with trading only on Binance/Coinbase.
 - Exchange data: add Coinbase platform support for exchange klines and spot trading.
@@ -140,6 +141,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: auto optimizer biases long-short sampling to match existing open positions/orders so compatible combos appear sooner.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - Optimizer: add tri-layer cloud noise sampling (`--p-tri-layer`, `--tri-layer-fast-mult-min/max`, `--tri-layer-slow-mult-min/max`).
+- Trading: add tri-layer cloud padding + price-action toggle and optional LSTM flip exits.
+- Optimizer/API: expose tri-layer cloud padding, price-action probability, and LSTM flip sampling ranges.
 - Optimizer/API: expose intrabar fill probability, bracket-stop ranges (incl. vol-mult), confidence gating, and LSTM training sampling controls to `/optimizer/run`.
 - Optimizer: threshold sweep tie-breakers now prefer higher final equity, then lower turnover/more round trips, and avoid inverted hysteresis unless equity is unchanged.
 - Optimizer: top-combo merges compare scores only within the same objective, fall back to final equity across objectives, and break ties by final equity.

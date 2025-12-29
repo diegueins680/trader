@@ -2330,12 +2330,12 @@ export function App() {
         }
         if (e instanceof HttpError && (e.status === 502 || e.status === 503)) {
           msg = apiBase.startsWith("/api")
-            ? "CloudFront `/api/*` proxy is unavailable (502/503). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/GET/OPTIONS, set apiBaseUrl in trader-config.js to https://<your-api-host>, or set apiFallbackUrl to that host for automatic failover."
+            ? "CloudFront `/api/*` proxy is unavailable (502/503). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/GET/OPTIONS. If you are not using a proxy, set apiBaseUrl in trader-config.js to https://<your-api-host> (CORS required)."
             : "API gateway unavailable (502/503). Try again, or check the API logs.";
         }
         if (e instanceof HttpError && e.status === 504) {
           msg = apiBase.startsWith("/api")
-            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, set apiBaseUrl in trader-config.js to https://<your-api-host>, or set apiFallbackUrl to that host for automatic failover."
+            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS. If you are not using a proxy, set apiBaseUrl in trader-config.js to https://<your-api-host> (CORS required)."
             : "API gateway timed out (504). Try again, or reduce bars/epochs, or scale the API.";
         }
         if (e instanceof HttpError && e.status === 429) {
@@ -2789,12 +2789,12 @@ export function App() {
         }
         if (e instanceof HttpError && (e.status === 502 || e.status === 503)) {
           msg = apiBase.startsWith("/api")
-            ? "CloudFront `/api/*` proxy is unavailable (502/503). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/GET/OPTIONS, set apiBaseUrl in trader-config.js to https://<your-api-host>, or set apiFallbackUrl to that host for automatic failover."
+            ? "CloudFront `/api/*` proxy is unavailable (502/503). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/GET/OPTIONS. If you are not using a proxy, set apiBaseUrl in trader-config.js to https://<your-api-host> (CORS required)."
             : "API gateway unavailable (502/503). Try again, or check the API logs.";
         }
         if (e instanceof HttpError && e.status === 504) {
           msg = apiBase.startsWith("/api")
-            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS, set apiBaseUrl in trader-config.js to https://<your-api-host>, or set apiFallbackUrl to that host for automatic failover."
+            ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin (App Runner/ALB/etc) and allow POST/OPTIONS. If you are not using a proxy, set apiBaseUrl in trader-config.js to https://<your-api-host> (CORS required)."
             : "API gateway timed out (504). Try again, or reduce bars/epochs, or scale the API.";
         }
         setBot((s) => ({ ...s, loading: false, error: msg }));
@@ -3739,7 +3739,7 @@ export function App() {
     const startCmd = `cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
     const downMsg = showLocalStartHelp
       ? `Backend unreachable. Start it with: ${startCmd}`
-      : "Backend unreachable. Configure apiBaseUrl/apiFallbackUrl in trader-config.js (or configure CloudFront to forward `/api/*` to your API origin).";
+      : "Backend unreachable. Configure apiBaseUrl in trader-config.js (CORS required for cross-origin) or configure CloudFront to forward `/api/*` to your API origin.";
     return firstReason(
       apiBaseError,
       apiOk === "down" ? downMsg : null,
@@ -4287,7 +4287,7 @@ export function App() {
                     {apiOk === "down"
                       ? showLocalStartHelp
                         ? `Backend unreachable.\n\nStart it with:\ncd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`
-                        : "Backend unreachable.\n\nConfigure apiBaseUrl/apiFallbackUrl in trader-config.js, or configure CloudFront to forward `/api/*` to your API origin."
+                        : "Backend unreachable.\n\nConfigure apiBaseUrl in trader-config.js (CORS required for cross-origin) or configure CloudFront to forward `/api/*` to your API origin."
                       : apiToken.trim()
                         ? "API auth failed.\n\nUpdate apiToken in trader-config.js (it must match the backend’s TRADER_API_TOKEN)."
                         : "API auth required.\n\nSet apiToken in trader-config.js (it must match the backend’s TRADER_API_TOKEN)."}
@@ -6438,7 +6438,7 @@ export function App() {
               ) : (
                 <>
                   When hosting the UI separately (CloudFront/S3), configure <span style={{ fontFamily: "var(--mono)" }}>trader-config.js</span> (apiBaseUrl,
-                  apiFallbackUrl, apiToken) and/or route <span style={{ fontFamily: "var(--mono)" }}>/api/*</span> to your backend.
+                  apiToken, and optional apiFallbackUrl for CORS-enabled failover) and/or route <span style={{ fontFamily: "var(--mono)" }}>/api/*</span> to your backend.
                 </>
               )}
             </p>

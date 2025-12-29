@@ -493,6 +493,9 @@ data BacktestSummary = BacktestSummary
   , bsTriLayer :: !Bool
   , bsTriLayerFastMult :: !Double
   , bsTriLayerSlowMult :: !Double
+  , bsTriLayerCloudPadding :: !Double
+  , bsTriLayerPriceAction :: !Bool
+  , bsLstmExitFlipBars :: !Int
   , bsFee :: !Double
   , bsSlippage :: !Double
   , bsSpread :: !Double
@@ -579,7 +582,7 @@ main = do
     if argServe args'
       then runRestApi args' mWebhook
       else do
-        (series, mBinanceEnv) <- loadPrices args'
+        (series, mBinanceEnv) <- loadPrices Nothing args'
         let prices = psClose series
         ensureMinPriceRows args' 2 prices
 
@@ -679,6 +682,9 @@ data ApiParams = ApiParams
   , apTriLayer :: Maybe Bool
   , apTriLayerFastMult :: Maybe Double
   , apTriLayerSlowMult :: Maybe Double
+  , apTriLayerCloudPadding :: Maybe Double
+  , apTriLayerPriceAction :: Maybe Bool
+  , apLstmExitFlipBars :: Maybe Int
   , apMaxOrderErrors :: Maybe Int
   , apPeriodsPerYear :: Maybe Double
   , apBinanceLive :: Maybe Bool
@@ -812,6 +818,11 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrTriLayerFastMultMax :: !(Maybe Double)
   , arrTriLayerSlowMultMin :: !(Maybe Double)
   , arrTriLayerSlowMultMax :: !(Maybe Double)
+  , arrPTriLayerPriceAction :: !(Maybe Double)
+  , arrTriLayerCloudPaddingMin :: !(Maybe Double)
+  , arrTriLayerCloudPaddingMax :: !(Maybe Double)
+  , arrLstmExitFlipBarsMin :: !(Maybe Int)
+  , arrLstmExitFlipBarsMax :: !(Maybe Int)
   , arrStopMin :: !(Maybe Double)
   , arrStopMax :: !(Maybe Double)
   , arrTpMin :: !(Maybe Double)
@@ -1550,6 +1561,9 @@ argsPublicJson args =
       , "triLayer" .= argTriLayer args
       , "triLayerFastMult" .= argTriLayerFastMult args
       , "triLayerSlowMult" .= argTriLayerSlowMult args
+      , "triLayerCloudPadding" .= argTriLayerCloudPadding args
+      , "triLayerPriceAction" .= argTriLayerRequirePriceAction args
+      , "lstmExitFlipBars" .= argLstmExitFlipBars args
       , "tuneStressVolMult" .= argTuneStressVolMult args
       , "tuneStressShock" .= argTuneStressShock args
       , "tuneStressWeight" .= argTuneStressWeight args
@@ -1685,6 +1699,10 @@ attachBinanceLogger mOps env =
   case mOps of
     Nothing -> env
     Just store -> env { beLogger = Just (binanceOpsLogger store) }
+
+newBinanceEnvWithOps :: Maybe OpsStore -> BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
+newBinanceEnvWithOps mOps market baseUrl apiKey apiSecret =
+  attachBinanceLogger mOps <$> newBinanceEnv market baseUrl apiKey apiSecret
 
 botStatusLogIntervalMs :: Int64
 botStatusLogIntervalMs = 60000
@@ -3442,6 +3460,9 @@ botOptimizeAfterOperation st = do
                   , ecTriLayer = argTriLayer args
                   , ecTriLayerFastMult = argTriLayerFastMult args
                   , ecTriLayerSlowMult = argTriLayerSlowMult args
+                  , ecTriLayerCloudPadding = argTriLayerCloudPadding args
+                  , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
+                  , ecLstmExitFlipBars = argLstmExitFlipBars args
                   , ecKalmanZMin = argKalmanZMin args
                   , ecKalmanZMax = argKalmanZMax args
                   , ecMaxHighVolProb = argMaxHighVolProb args
@@ -4357,7 +4378,7 @@ autoTopCombosBacktestLoop baseArgs limits backtestGate mOps mJournal optimizerTm
                                 recordError "optimizer.combos.backtest_failed" e (Just sym) mInterval
                                 pure Nothing
                               Right argsOk -> do
-                                backtestResult <- runBacktestWithGate backtestGate (computeBacktestFromArgs argsOk)
+                                backtestResult <- runBacktestWithGate backtestGate (computeBacktestFromArgs mOps argsOk)
                                 case backtestResult of
                                   Left failure ->
                                     case failure of
@@ -4462,8 +4483,7 @@ makeBinanceEnv mOps args = do
           _ -> if argBinanceTestnet args then binanceTestnetBaseUrl else binanceBaseUrl
   apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
-  env <- newBinanceEnv market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-  pure (attachBinanceLogger mOps env)
+  newBinanceEnvWithOps mOps market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
 
 makeCoinbaseEnv :: Args -> IO CoinbaseEnv
 makeCoinbaseEnv args = do
@@ -4480,6 +4500,10 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig mOptimize
   tid <- myThreadId
   sym <- botSymbol <$> readMVar stVar
   lastStatusLogRef <- newIORef 0
+  st0 <- readMVar stVar
+  now0 <- getTimestampMs
+  botStatusLogMaybe mOps True st0
+  writeIORef lastStatusLogRef now0
   let sleepSec s = threadDelay (max 1 s * 1000000)
       logStatusIfDue st = do
         now <- getTimestampMs
@@ -5784,10 +5808,10 @@ apiCacheClear cache = do
   writeIORef (acBacktestHits cache) 0
   writeIORef (acBacktestMisses cache) 0
 
-computeLatestSignalFromArgsCached :: ApiCache -> Args -> IO LatestSignal
-computeLatestSignalFromArgsCached cache args = do
+computeLatestSignalFromArgsCached :: ApiCache -> Maybe OpsStore -> Args -> IO LatestSignal
+computeLatestSignalFromArgsCached cache mOps args = do
   if not (cacheEnabled cache)
-    then computeLatestSignalFromArgs args
+    then computeLatestSignalFromArgs mOps args
     else do
       let key = cacheKeyForArgs "signal" argsCacheJsonSignal args
       mHit <- cacheLookup cache (acSignals cache) key
@@ -5797,14 +5821,14 @@ computeLatestSignalFromArgsCached cache args = do
           pure v
         Nothing -> do
           incCounter (acSignalMisses cache)
-          v <- computeLatestSignalFromArgs args
+          v <- computeLatestSignalFromArgs mOps args
           cacheInsert cache (acSignals cache) key v
           pure v
 
-computeBacktestFromArgsCached :: ApiCache -> Args -> IO Aeson.Value
-computeBacktestFromArgsCached cache args = do
+computeBacktestFromArgsCached :: ApiCache -> Maybe OpsStore -> Args -> IO Aeson.Value
+computeBacktestFromArgsCached cache mOps args = do
   if not (cacheEnabled cache)
-    then computeBacktestFromArgs args
+    then computeBacktestFromArgs mOps args
     else do
       let key = cacheKeyForArgs "backtest" argsCacheJsonBacktest args
       mHit <- cacheLookup cache (acBacktests cache) key
@@ -5814,7 +5838,7 @@ computeBacktestFromArgsCached cache args = do
           pure v
         Nothing -> do
           incCounter (acBacktestMisses cache)
-          v <- computeBacktestFromArgs args
+          v <- computeBacktestFromArgs mOps args
           cacheInsert cache (acBacktests cache) key v
           pure v
 
@@ -6454,15 +6478,15 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotSt
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "keys"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceKeys reqLimits baseArgs req respondCors
+                "POST" -> handleBinanceKeys reqLimits mOps baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "positions"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinancePositions reqLimits baseArgs req respondCors
+                "POST" -> handleBinancePositions reqLimits mOps baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "trades"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceTrades reqLimits baseArgs req respondCors
+                "POST" -> handleBinanceTrades reqLimits mOps baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["coinbase", "keys"] ->
               case Wai.requestMethod req of
@@ -6470,15 +6494,15 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotSt
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceListenKey reqLimits baseArgs req respondCors
+                "POST" -> handleBinanceListenKey reqLimits mOps baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey", "keepAlive"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceListenKeyKeepAlive reqLimits baseArgs req respondCors
+                "POST" -> handleBinanceListenKeyKeepAlive reqLimits mOps baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey", "close"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceListenKeyClose reqLimits baseArgs req respondCors
+                "POST" -> handleBinanceListenKeyClose reqLimits mOps baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of
@@ -6904,6 +6928,11 @@ prepareOptimizerArgs outputPath req = do
               ++ maybeDoubleArg "--tri-layer-fast-mult-max" (fmap (max 1e-6) (arrTriLayerFastMultMax req))
               ++ maybeDoubleArg "--tri-layer-slow-mult-min" (fmap (max 1e-6) (arrTriLayerSlowMultMin req))
               ++ maybeDoubleArg "--tri-layer-slow-mult-max" (fmap (max 1e-6) (arrTriLayerSlowMultMax req))
+              ++ maybeDoubleArg "--p-tri-layer-price-action" (fmap clamp01 (arrPTriLayerPriceAction req))
+              ++ maybeDoubleArg "--tri-layer-cloud-padding-min" (fmap (max 0) (arrTriLayerCloudPaddingMin req))
+              ++ maybeDoubleArg "--tri-layer-cloud-padding-max" (fmap (max 0) (arrTriLayerCloudPaddingMax req))
+              ++ maybeIntArg "--lstm-exit-flip-bars-min" (fmap (max 0) (arrLstmExitFlipBarsMin req))
+              ++ maybeIntArg "--lstm-exit-flip-bars-max" (fmap (max 0) (arrLstmExitFlipBarsMax req))
           stopRangeArgs =
             maybeDoubleArg "--stop-min" (fmap (max 0) (arrStopMin req))
               ++ maybeDoubleArg "--stop-max" (fmap (max 0) (arrStopMax req))
@@ -7820,8 +7849,8 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
                   r <-
                     try
                       ( if noCache
-                          then computeLatestSignalFromArgs argsOk
-                          else computeLatestSignalFromArgsCached apiCache argsOk
+                          then computeLatestSignalFromArgs mOps argsOk
+                          else computeLatestSignalFromArgsCached apiCache mOps argsOk
                       )
                       :: IO (Either SomeException LatestSignal)
                   case r of
@@ -7867,8 +7896,8 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
                     startJob store $ do
                       sig <-
                         if noCache
-                          then computeLatestSignalFromArgs argsOk
-                          else computeLatestSignalFromArgsCached apiCache argsOk
+                          then computeLatestSignalFromArgs mOps argsOk
+                          else computeLatestSignalFromArgsCached apiCache mOps argsOk
                       opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing
                       pure sig
                   case r of
@@ -7897,7 +7926,7 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
               case validateApiComputeLimits limits args of
                 Left e -> respond (jsonError status400 e)
                 Right argsOk -> do
-                  r <- try (computeTradeFromArgs argsOk) :: IO (Either SomeException ApiTradeResponse)
+                  r <- try (computeTradeFromArgs mOps argsOk) :: IO (Either SomeException ApiTradeResponse)
                   case r of
                     Left ex ->
                       let (st, msg) = exceptionToHttp ex
@@ -7952,7 +7981,7 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                       argsJson = Just (argsPublicJson argsOk)
                   r <-
                     startJob store $ do
-                      out <- computeTradeFromArgs argsOk
+                      out <- computeTradeFromArgs mOps argsOk
                       metricsRecordOrder metrics (atrOrder out)
                       now <- getTimestampMs
                       journalWriteMaybe
@@ -8003,8 +8032,8 @@ handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respond 
               let noCache = requestWantsNoCache req
                   computeAction =
                     if noCache
-                      then computeBacktestFromArgs argsOk
-                      else computeBacktestFromArgsCached apiCache argsOk
+                      then computeBacktestFromArgs mOps argsOk
+                      else computeBacktestFromArgsCached apiCache mOps argsOk
               r <- runBacktestWithGateWait backtestGate computeAction
               case r of
                 Left failure ->
@@ -8047,8 +8076,8 @@ handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs r
                 startJob store $ do
                   let computeAction =
                         if noCache
-                          then computeBacktestFromArgs argsOk
-                          else computeBacktestFromArgsCached apiCache argsOk
+                          then computeBacktestFromArgs mOps argsOk
+                          else computeBacktestFromArgsCached apiCache mOps argsOk
                   gateResult <- runBacktestWithGateWait backtestGate computeAction
                   case gateResult of
                     Left failure -> throwIO (userError (backtestFailureMessage backtestGate failure))
@@ -8129,8 +8158,8 @@ handleAsyncCancel store jobId respond = do
                 (object ["status" .= ("canceled" :: String), "createdAtMs" .= jeCreatedAtMs entry, "canceledAtMs" .= canceledAt])
             )
 
-handleBinanceKeys :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceKeys reqLimits baseArgs req respond = do
+handleBinanceKeys :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceKeys reqLimits mOps baseArgs req respond = do
   payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
   case payloadOrErr of
     Left resp -> respond resp
@@ -8141,7 +8170,7 @@ handleBinanceKeys reqLimits baseArgs req respond = do
           if argPlatform args0 /= PlatformBinance
             then respond (jsonError status400 ("Binance keys require platform=binance (got " ++ platformCode (argPlatform args0) ++ ")."))
             else do
-              r <- try (computeBinanceKeysStatusFromArgs args0) :: IO (Either SomeException ApiBinanceKeysStatus)
+              r <- try (computeBinanceKeysStatusFromArgs mOps args0) :: IO (Either SomeException ApiBinanceKeysStatus)
               case r of
                 Left ex ->
                   let (st, msg) = exceptionToHttp ex
@@ -8197,8 +8226,8 @@ binanceUserStreamWsUrl :: BinanceMarket -> Bool -> String -> String
 binanceUserStreamWsUrl market testnet listenKey =
   binanceUserStreamWsBase market testnet ++ "/" ++ listenKey
 
-handleBinanceListenKey :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKey reqLimits baseArgs req respond = do
+handleBinanceListenKey :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKey reqLimits mOps baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance listenKey requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
@@ -8219,7 +8248,7 @@ handleBinanceListenKey reqLimits baseArgs req respond = do
                         case market of
                           MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
                           _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
-                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                   r <- try (createListenKey env) :: IO (Either SomeException String)
                   case r of
                     Left ex ->
@@ -8236,8 +8265,8 @@ handleBinanceListenKey reqLimits baseArgs req respond = do
                               }
                       respond (jsonValue status200 resp)
 
-handleBinanceListenKeyKeepAlive :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKeyKeepAlive reqLimits baseArgs req respond = do
+handleBinanceListenKeyKeepAlive :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKeyKeepAlive reqLimits mOps baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance listenKey keepAlive requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
@@ -8258,7 +8287,7 @@ handleBinanceListenKeyKeepAlive reqLimits baseArgs req respond = do
                         case market of
                           MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
                           _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
-                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                   r <- try (keepAliveListenKey env (alaListenKey params)) :: IO (Either SomeException ())
                   case r of
                     Left ex ->
@@ -8268,8 +8297,8 @@ handleBinanceListenKeyKeepAlive reqLimits baseArgs req respond = do
                       now <- getTimestampMs
                       respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
-handleBinanceListenKeyClose :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKeyClose reqLimits baseArgs req respond = do
+handleBinanceListenKeyClose :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKeyClose reqLimits mOps baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance listenKey close requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
@@ -8290,7 +8319,7 @@ handleBinanceListenKeyClose reqLimits baseArgs req respond = do
                         case market of
                           MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
                           _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
-                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                   r <- try (closeListenKey env (alaListenKey params)) :: IO (Either SomeException ())
                   case r of
                     Left ex ->
@@ -8300,8 +8329,8 @@ handleBinanceListenKeyClose reqLimits baseArgs req respond = do
                       now <- getTimestampMs
                       respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
-handleBinanceTrades :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceTrades reqLimits baseArgs req respond = do
+handleBinanceTrades :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceTrades reqLimits mOps baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance trades require platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
@@ -8322,7 +8351,7 @@ handleBinanceTrades reqLimits baseArgs req respond = do
                         case market of
                           MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
                           _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
-                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                   let symbolsRaw =
                         case abrSymbols params of
                           Just xs -> map trim xs
@@ -8360,8 +8389,8 @@ handleBinanceTrades reqLimits baseArgs req respond = do
                             , abtrFetchedAtMs = now
                             }
 
-handleBinancePositions :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinancePositions reqLimits baseArgs req respond = do
+handleBinancePositions :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinancePositions reqLimits mOps baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance positions require platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
@@ -8379,7 +8408,7 @@ handleBinancePositions reqLimits baseArgs req respond = do
                   apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
                   apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
                   let baseUrl = if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                  env <- newBinanceEnv market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                   r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
                   case r of
                     Left ex ->
@@ -8813,6 +8842,9 @@ argsFromApi baseArgs p = do
           , argTriLayer = pick (apTriLayer p) (argTriLayer baseArgs)
           , argTriLayerFastMult = pick (apTriLayerFastMult p) (argTriLayerFastMult baseArgs)
           , argTriLayerSlowMult = pick (apTriLayerSlowMult p) (argTriLayerSlowMult baseArgs)
+          , argTriLayerCloudPadding = pick (apTriLayerCloudPadding p) (argTriLayerCloudPadding baseArgs)
+          , argTriLayerRequirePriceAction = pick (apTriLayerPriceAction p) (argTriLayerRequirePriceAction baseArgs)
+          , argLstmExitFlipBars = pick (apLstmExitFlipBars p) (argLstmExitFlipBars baseArgs)
           , argMaxOrderErrors = pickMaybe (apMaxOrderErrors p) (argMaxOrderErrors baseArgs)
           , argPeriodsPerYear =
               case apPeriodsPerYear p of
@@ -8849,17 +8881,17 @@ dirLabel d =
     Just (-1) -> Just "DOWN"
     _ -> Nothing
 
-computeLatestSignalFromArgs :: Args -> IO LatestSignal
-computeLatestSignalFromArgs args = do
-  (series, mBinanceEnv) <- loadPrices args
+computeLatestSignalFromArgs :: Maybe OpsStore -> Args -> IO LatestSignal
+computeLatestSignalFromArgs mOps args = do
+  (series, mBinanceEnv) <- loadPrices mOps args
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
   computeTradeOnlySignal args lookback prices mBinanceEnv
 
-computeTradeFromArgs :: Args -> IO ApiTradeResponse
-computeTradeFromArgs args = do
-  (series, mBinanceEnv) <- loadPrices args
+computeTradeFromArgs :: Maybe OpsStore -> Args -> IO ApiTradeResponse
+computeTradeFromArgs mOps args = do
+  (series, mBinanceEnv) <- loadPrices mOps args
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
@@ -8982,8 +9014,8 @@ probeCoinbase step action = do
           (code, m, summary) = parseCoinbaseError msg
       pure (ApiBinanceProbe False False step code m summary)
 
-computeBinanceKeysStatusFromArgs :: Args -> IO ApiBinanceKeysStatus
-computeBinanceKeysStatusFromArgs args = do
+computeBinanceKeysStatusFromArgs :: Maybe OpsStore -> Args -> IO ApiBinanceKeysStatus
+computeBinanceKeysStatusFromArgs mOps args = do
   apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
 
@@ -9005,7 +9037,7 @@ computeBinanceKeysStatusFromArgs args = do
   if not hasApiKey || not hasApiSecret
     then pure baseStatus
     else do
-      env <- makeBinanceEnv Nothing args
+      env <- makeBinanceEnv mOps args
       sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure sym
       signedProbe <-
         probeBinance "signed" $ do
@@ -9892,9 +9924,9 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             then noOrder "No order: quantity is 0."
             else sendOrder "SELL" (Just qRaw) Nothing
 
-computeBacktestFromArgs :: Args -> IO Aeson.Value
-computeBacktestFromArgs args = do
-  (series, mBinanceEnv) <- loadPrices args
+computeBacktestFromArgs :: Maybe OpsStore -> Args -> IO Aeson.Value
+computeBacktestFromArgs mOps args = do
+  (series, mBinanceEnv) <- loadPrices mOps args
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
@@ -10012,6 +10044,9 @@ backtestSummaryJson summary =
     , "triLayer" .= bsTriLayer summary
     , "triLayerFastMult" .= bsTriLayerFastMult summary
     , "triLayerSlowMult" .= bsTriLayerSlowMult summary
+    , "triLayerCloudPadding" .= bsTriLayerCloudPadding summary
+    , "triLayerPriceAction" .= bsTriLayerPriceAction summary
+    , "lstmExitFlipBars" .= bsLstmExitFlipBars summary
     , "tuning" .= tuningJson
     , "costs" .= costsJson
     , "walkForward" .= walkForwardJson
@@ -10689,6 +10724,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecTriLayer = argTriLayer args
           , ecTriLayerFastMult = argTriLayerFastMult args
           , ecTriLayerSlowMult = argTriLayerSlowMult args
+          , ecTriLayerCloudPadding = argTriLayerCloudPadding args
+          , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
+          , ecLstmExitFlipBars = argLstmExitFlipBars args
           , ecKalmanZMin = argKalmanZMin args
           , ecKalmanZMax = argKalmanZMax args
           , ecMaxHighVolProb = argMaxHighVolProb args
@@ -10801,7 +10839,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                   kalF = take steps (drop t0 kalPredUsedBacktest)
                   lstmF = take steps (drop t0 lstmPredUsedBacktest)
                   metaF = fmap (take steps . drop t0) metaUsedBacktest
-                  btFold = simulateEnsembleWithHL backtestCfg 1 pricesF highsF lowsF kalF lstmF metaF
+                  openTimesF = fmap (\ot -> V.slice t0 (steps + 1) ot) (ecOpenTimes backtestCfg)
+                  backtestCfgFold = backtestCfg { ecOpenTimes = openTimesF }
+                  btFold = simulateEnsembleWithHL backtestCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
                   mFold = computeMetrics ppy btFold
                in WalkForwardFold { wffStartIndex = trainEnd + t0, wffEndIndex = trainEnd + t1 + 1, wffMetrics = mFold }
 
@@ -10913,6 +10953,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsTriLayer = argTriLayer args
       , bsTriLayerFastMult = argTriLayerFastMult args
       , bsTriLayerSlowMult = argTriLayerSlowMult args
+      , bsTriLayerCloudPadding = argTriLayerCloudPadding args
+      , bsTriLayerPriceAction = argTriLayerRequirePriceAction args
+      , bsLstmExitFlipBars = argLstmExitFlipBars args
       , bsFee = feeUsed
       , bsSlippage = slippageUsed
       , bsSpread = spreadUsed
@@ -11866,8 +11909,8 @@ ensureMinPriceRows args minRows prices =
         then error ("Need at least " ++ show minRows ++ " price rows (got " ++ show n ++ ") from " ++ priceSourceLabel args ++ "." ++ hint)
         else pure ()
 
-loadPrices :: Args -> IO (PriceSeries, Maybe BinanceEnv)
-loadPrices args =
+loadPrices :: Maybe OpsStore -> Args -> IO (PriceSeries, Maybe BinanceEnv)
+loadPrices mOps args =
   case (argData args, argBinanceSymbol args) of
     (Just path, Nothing) -> do
       (closes, mHighs, mLows, mOpenTimes) <- loadCsvPriceSeries path (argPriceCol args) (argHighCol args) (argLowCol args)
@@ -11892,7 +11935,7 @@ loadPrices args =
     (Nothing, Just sym) ->
       case argPlatform args of
         PlatformBinance -> do
-          (env, series) <- loadPricesBinance args sym
+          (env, series) <- loadPricesBinance mOps args sym
           pure (series, Just env)
         PlatformCoinbase -> do
           series <- loadPricesCoinbase args sym
@@ -11913,8 +11956,8 @@ takeLast n xs
       let k = length xs - n
        in if k <= 0 then xs else drop k xs
 
-loadPricesBinance :: Args -> String -> IO (BinanceEnv, PriceSeries)
-loadPricesBinance args sym = do
+loadPricesBinance :: Maybe OpsStore -> Args -> String -> IO (BinanceEnv, PriceSeries)
+loadPricesBinance mOps args sym = do
   let market = argBinanceMarket args
   if market == MarketMargin && argBinanceTestnet args
     then error "--binance-testnet is not supported for margin operations"
@@ -11930,7 +11973,7 @@ loadPricesBinance args sym = do
           _ -> binanceBaseUrl
   apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
-  envTrade <- newBinanceEnv market tradeBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+  envTrade <- newBinanceEnvWithOps mOps market tradeBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
   klinesE <- try (fetchKlines envTrade sym (argInterval args) bars) :: IO (Either HttpException [Kline])
   ks <-
     case klinesE of
@@ -11938,7 +11981,7 @@ loadPricesBinance args sym = do
       Left ex ->
         if argBinanceTestnet args
           then do
-            envData <- newBinanceEnv market dataBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+            envData <- newBinanceEnvWithOps mOps market dataBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
             fetchKlines envData sym (argInterval args) bars
           else throwIO ex
   let closes = map kClose ks

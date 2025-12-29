@@ -79,6 +79,10 @@ data EnsembleConfig = EnsembleConfig
   , ecTriLayer :: !Bool
   , ecTriLayerFastMult :: !Double
   , ecTriLayerSlowMult :: !Double
+  , ecTriLayerCloudPadding :: !Double
+  , ecTriLayerRequirePriceAction :: !Bool
+  -- LSTM flip exit
+  , ecLstmExitFlipBars :: !Int
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
   , ecKalmanZMin :: !Double
   , ecKalmanZMax :: !Double
@@ -180,6 +184,7 @@ data OpenTrade = OpenTrade
   , otTrail :: !Double
   , otSide :: !PositionSide
   , otBaseSize :: !Double
+  , otLstmFlipCount :: !Int
   } deriving (Eq, Show)
 
 data BacktestResult = BacktestResult
@@ -404,6 +409,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               kalMeasVar = max 1e-12 (ecKalmanMeasurementVar cfg)
               fastMult = max 1e-6 (ecTriLayerFastMult cfg)
               slowMult = max 1e-6 (ecTriLayerSlowMult cfg)
+              cloudPadFrac = max 0 (ecTriLayerCloudPadding cfg)
+              requirePriceAction = ecTriLayerRequirePriceAction cfg
+              lstmFlipBars = max 0 (ecLstmExitFlipBars cfg)
               (cloudFastV, cloudSlowV) =
                 if cloudReady
                   then
@@ -744,8 +752,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         slope = slow - cloudSlowV V.! (t - 1)
                         cloudTop = max fast slow
                         cloudBot = min fast slow
+                        px = pricesV V.! t
+                        pad = cloudPadFrac * (if isBad px then 0 else abs px)
+                        cloudTopPad = cloudTop + pad
+                        cloudBotPad = cloudBot - pad
                         (_, h, l, _) = candleAt t
-                        touchCloud = l <= cloudTop && h >= cloudBot
+                        touchCloud = l <= cloudTopPad && h >= cloudBotPad
                         trendOk =
                           case side of
                             SideLong -> fast > slow && slope >= 0
@@ -756,7 +768,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
               priceActionOkAt :: Int -> PositionSide -> Bool
               priceActionOkAt t side =
-                if not triLayerEnabled || t < 2
+                if not triLayerEnabled || not requirePriceAction || t < 2
                   then True
                   else
                     let cur = candleAt t
@@ -998,9 +1010,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             Just ot -> otHoldingPeriods ot
                         cooldownActive = posSide == Nothing && cooldownLeft > 0
                         cooldownNext0 = if posSide == Nothing then max 0 (cooldownLeft - 1) else 0
-                        (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, mOpenSignal) =
+                        (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, mOpenSignal, lstmCloseDir) =
                           if t < startT
-                            then (False, False, posSide, posSize, 0, Nothing)
+                            then (False, False, posSide, posSize, 0, Nothing, Nothing)
                             else
                               let kp = kalPredNextV V.! t
                                   lp = lstmPredNextV V.! (t - startT)
@@ -1064,7 +1076,24 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             if closeAgreeDir == Just SideShort
                                               then (Just SideShort, posSize)
                                               else (Nothing, 0)
-                               in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, openSignal)
+                               in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, openSignal, lstmCloseDir)
+
+                        (openTradeFlip, lstmFlipExit) =
+                          if lstmFlipBars <= 0
+                            then (openTrade0, False)
+                            else
+                              case (openTrade0, posSide, lstmCloseDir) of
+                                (Just ot, Just side, Just lstmDir) ->
+                                  let opposite =
+                                        case (side, lstmDir) of
+                                          (SideLong, SideShort) -> True
+                                          (SideShort, SideLong) -> True
+                                          _ -> False
+                                      nextCount = if opposite then otLstmFlipCount ot + 1 else 0
+                                      ot' = ot { otLstmFlipCount = nextCount }
+                                   in (Just ot', nextCount >= lstmFlipBars)
+                                (Just ot, Just _, _) -> (Just ot { otLstmFlipCount = 0 }, False)
+                                _ -> (openTrade0, False)
 
                         desiredSize0 =
                           if desiredSideRaw == Nothing
@@ -1103,27 +1132,32 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             then Nothing
                             else desiredSide0
 
+                        desiredSide2 =
+                          if lstmFlipExit
+                            then Nothing
+                            else desiredSide1
+
                         baseSizeTarget =
-                          case desiredSide1 of
+                          case desiredSide2 of
                             Nothing -> 0
                             Just side ->
                               case mOpenSignal of
                                 Just (sigSide, sigSize) | sigSide == side -> max 0 sigSize
                                 _ ->
-                                  case openTrade0 of
+                                  case openTradeFlip of
                                     Just ot | otSide ot == side -> max 0 (otBaseSize ot)
                                     _ -> max 0 desiredSizeRaw
 
-                        sizeScale = if desiredSide1 == Nothing then 1 else volScaleAt t
+                        sizeScale = if desiredSide2 == Nothing then 1 else volScaleAt t
                         sizeScaled = baseSizeTarget * sizeScale
                         sizeCapped = min maxPositionSize (max 0 sizeScaled)
                         sizeFinal0 =
-                          if ecConfidenceSizing cfg && sizeCapped < minPositionSize && desiredSide1 /= posSide
+                          if ecConfidenceSizing cfg && sizeCapped < minPositionSize && desiredSide2 /= posSide
                             then 0
                             else sizeCapped
 
                         desiredSide =
-                          if sizeFinal0 <= 0 then Nothing else desiredSide1
+                          if sizeFinal0 <= 0 then Nothing else desiredSide2
 
                         desiredSize = sizeFinal0
 
@@ -1163,6 +1197,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                           case () of
                             _ | halted -> haltReason1
                               | holdTooLong -> Just (ExitOther "MAX_HOLD")
+                              | lstmFlipExit -> Just (ExitOther "LSTM_FLIP")
                               | otherwise -> Nothing
 
                         switchExitReason =
@@ -1191,10 +1226,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             , otTrail = prev
                             , otSide = side
                             , otBaseSize = max 0 baseSize
+                            , otLstmFlipCount = 0
                             }
 
                         openTradeUpdated =
-                          case (openTrade0, mOpenSignal) of
+                          case (openTradeFlip, mOpenSignal) of
                             (Just ot, Just (sigSide, sigSize))
                               | otSide ot == sigSide && sigSize > 0 ->
                                   let ot' = ot { otBaseSize = max 0 sigSize }
@@ -1203,7 +1239,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             then ot' { otRebalanceAnchor = t }
                                             else ot'
                                         )
-                            _ -> openTrade0
+                            _ -> openTradeFlip
 
                         rebalanceDelta = abs (desiredSizeFinal - posSize)
                         rebalanceDue =
@@ -1212,7 +1248,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             else if rebalanceGlobal
                               then t `mod` rebalanceBars == 0
                               else
-                                case openTrade0 of
+                                case openTradeFlip of
                                   Just ot ->
                                     let age = max 0 (t - otRebalanceAnchor ot)
                                      in age `mod` rebalanceBars == 0
@@ -1238,7 +1274,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                 Nothing ->
                                   let eqExit = applyCost equity posSize
                                       tradesAcc1 =
-                                        case openTrade0 of
+                                        case openTradeFlip of
                                           Nothing -> tradesAcc
                                           Just ot -> closeTradeAt t switchExitReason eqExit ot : tradesAcc
                                    in (Nothing, 0, eqExit, changes + 1, Nothing, tradesAcc1)
@@ -1257,7 +1293,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                     Just _ ->
                                       let eqExit = applyCost equity posSize
                                           tradesAcc1 =
-                                            case openTrade0 of
+                                            case openTradeFlip of
                                               Nothing -> tradesAcc
                                               Just ot -> closeTradeAt t ExitSignal eqExit ot : tradesAcc
                                           eqEntry = applyCost eqExit desiredSizeFinal

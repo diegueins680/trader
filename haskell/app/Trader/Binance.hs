@@ -42,7 +42,7 @@ module Trader.Binance
   ) where
 
 import Control.Applicative ((<|>))
-import Control.Exception (SomeException, throwIO, try)
+import Control.Exception (SomeException, displayException, fromException, throwIO, try)
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, object, withArray, (.:), (.=), withObject)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as AK
@@ -224,7 +224,8 @@ binanceHttp env label req = do
       labelTxt = T.pack label
   case respOrErr of
     Left ex -> do
-      logBinanceRequest env (BinanceLog t1 (beMarket env) labelTxt methodTxt pathTxt params Nothing latencyMs False (Just (T.pack (show ex))))
+      let errMsg = binanceExceptionSummary ex
+      logBinanceRequest env (BinanceLog t1 (beMarket env) labelTxt methodTxt pathTxt params Nothing latencyMs False (Just errMsg))
       throwIO ex
     Right resp -> do
       let code = statusCode (responseStatus resp)
@@ -238,6 +239,13 @@ logBinanceRequest env entry =
   case beLogger env of
     Nothing -> pure ()
     Just logger -> logger entry
+
+binanceExceptionSummary :: SomeException -> Text
+binanceExceptionSummary ex =
+  case fromException ex of
+    Just (HttpExceptionRequest _ content) -> T.pack (show content)
+    Just (InvalidUrlException url reason) -> T.pack ("InvalidUrlException " ++ url ++ ": " ++ reason)
+    Nothing -> T.pack (displayException ex)
 
 sanitizeQueryParams :: BS.ByteString -> [(Text, Text)]
 sanitizeQueryParams raw =
