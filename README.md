@@ -273,6 +273,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--confirm-quantiles` require quantiles to agree with the chosen direction (default on; disable with `--no-confirm-quantiles`)
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
   - `--min-position-size 0.15` minimum entry size when confidence sizing is enabled (`0..1`; ignored when confidence sizing is disabled)
+  - When confidence sizing is enabled, live orders also scale entry size by LSTM confidence (score = clamp01(|lstmNext/current - 1| / (2 * openThreshold))): >80% full size, 60-80% half, <60% skips new entries.
   - Close-direction gating ignores `--min-position-size` so exits are not blocked by low confidence.
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
