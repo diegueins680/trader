@@ -21,6 +21,8 @@ All notable changes to this project will be documented in this file.
 - Live bot: `/bot/start` auto-adopts orphan open futures positions when a matching top combo exists.
 - Live bot/API: futures position checks now respect hedge-mode sides; bot start/adoption and futures trade requests reject simultaneous long+short positions for the same symbol.
 - Ops: add a cron watchdog script to keep the live bot running (`deploy/ensure-bot-running.sh`).
+- Ops: fix the cron watchdog JSON parsing in zsh so `/bot/status` checks succeed.
+- Ops: include `binanceSymbol` in multi-symbol watchdog start payloads to satisfy API data-source validation.
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
 - API: add `/binance/positions` for open Binance futures positions plus chart-ready klines.
 - API: `/signal` endpoints now validate request parameters the same way as CLI invocations.
@@ -41,6 +43,8 @@ All notable changes to this project will be documented in this file.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
 - Deploy: quick AWS deploy reuses existing App Runner S3 state settings + instance role when updating a service unless new values are provided.
 - Deploy: quick AWS deploy now exports `TRADER_API_MAX_HIDDEN_SIZE` (defaults to 50) for larger LSTM models.
+- Deploy: quick AWS deploy now forwards `TRADER_BOT_SYMBOLS`, `TRADER_BOT_SYMBOL`, and `TRADER_BOT_TRADE` into App Runner runtime env.
+- Deploy: quick AWS deploy now forwards `BINANCE_API_KEY` and `BINANCE_API_SECRET` into App Runner runtime env when set.
 - Deploy: quick AWS deploy auto-configures CloudFront `/api/*` behavior to route to the API and disable caching.
 - Deploy/UI: quick AWS deploy now forces UI `apiBaseUrl` to `/api` when CloudFront is configured and docs call out the single-instance requirement behind non-sticky proxies.
 - Deploy/UI: quick AWS deploy supports `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to keep `apiBaseUrl` pointing at the API host even with CloudFront.

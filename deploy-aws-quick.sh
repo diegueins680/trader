@@ -29,6 +29,11 @@ TRADER_API_MAX_HIDDEN_SIZE="${TRADER_API_MAX_HIDDEN_SIZE:-50}"
 TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
 TRADER_STATE_S3_REGION="${TRADER_STATE_S3_REGION:-}"
+TRADER_BOT_SYMBOLS="${TRADER_BOT_SYMBOLS:-}"
+TRADER_BOT_SYMBOL="${TRADER_BOT_SYMBOL:-}"
+TRADER_BOT_TRADE="${TRADER_BOT_TRADE:-}"
+BINANCE_API_KEY="${BINANCE_API_KEY:-}"
+BINANCE_API_SECRET="${BINANCE_API_SECRET:-}"
 UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
 UI_DISTRIBUTION_ID="${TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID:-${CLOUDFRONT_DISTRIBUTION_ID:-}}"
 UI_SKIP_BUILD="${TRADER_UI_SKIP_BUILD:-false}"
@@ -95,6 +100,11 @@ Environment variables (equivalents):
   TRADER_STATE_S3_REGION
   TRADER_API_MAX_BARS_LSTM
   TRADER_API_MAX_HIDDEN_SIZE
+  TRADER_BOT_SYMBOLS
+  TRADER_BOT_SYMBOL
+  TRADER_BOT_TRADE
+  BINANCE_API_KEY
+  BINANCE_API_SECRET
   TRADER_UI_BUCKET / S3_BUCKET
   TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID / CLOUDFRONT_DISTRIBUTION_ID
   TRADER_UI_SKIP_BUILD
@@ -629,6 +639,21 @@ create_app_runner() {
   fi
   if [[ -n "${TRADER_API_MAX_HIDDEN_SIZE:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_HIDDEN_SIZE\":\"${TRADER_API_MAX_HIDDEN_SIZE}\""
+  fi
+  if [[ -n "${TRADER_BOT_SYMBOLS:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_BOT_SYMBOLS\":\"${TRADER_BOT_SYMBOLS}\""
+  fi
+  if [[ -n "${TRADER_BOT_SYMBOL:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_BOT_SYMBOL\":\"${TRADER_BOT_SYMBOL}\""
+  fi
+  if [[ -n "${TRADER_BOT_TRADE:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_BOT_TRADE\":\"${TRADER_BOT_TRADE}\""
+  fi
+  if [[ -n "${BINANCE_API_KEY:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"BINANCE_API_KEY\":\"${BINANCE_API_KEY}\""
+  fi
+  if [[ -n "${BINANCE_API_SECRET:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"BINANCE_API_SECRET\":\"${BINANCE_API_SECRET}\""
   fi
   if [[ -n "$TRADER_API_TOKEN" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_TOKEN\":\"${TRADER_API_TOKEN}\""

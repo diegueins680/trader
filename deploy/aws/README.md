@@ -84,6 +84,7 @@ docker push "${ECR_URI}:latest"
 - Environment variables:
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
+  - `TRADER_BOT_SYMBOLS` / `TRADER_BOT_TRADE` (optional; used by the cron watchdog to build `/bot/start`)
   - Optional: S3 state persistence (recommended for App Runner):
     - `TRADER_STATE_S3_BUCKET=<bucket>`
     - `TRADER_STATE_S3_PREFIX=trader`

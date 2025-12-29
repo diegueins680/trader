@@ -54,10 +54,7 @@ fetch_status() {
 status_state() {
   local resp="$1"
   local state
-  if ! state=$(printf '%s' "$resp" | "$python_bin" - <<'PY'
-import json
-import sys
-
+  if ! state=$(printf '%s' "$resp" | "$python_bin" -c 'import json,sys
 try:
     data = json.load(sys.stdin)
 except Exception:
@@ -68,8 +65,7 @@ if isinstance(data, dict):
     running = bool(data.get("running")) or bool(data.get("starting"))
 
 print("running" if running else "stopped")
-PY
-  ); then
+'); then
     return 2
   fi
 
@@ -84,8 +80,10 @@ normalize_trade_flag() {
   if [[ -z "${TRADER_BOT_TRADE:-}" ]]; then
     return 1
   fi
-  case "${TRADER_BOT_TRADE,,}" in
-    true|false) printf '%s' "${TRADER_BOT_TRADE,,}" ;;
+  local trade_lc
+  trade_lc="$(printf '%s' "${TRADER_BOT_TRADE}" | tr '[:upper:]' '[:lower:]')"
+  case "$trade_lc" in
+    true|false) printf '%s' "$trade_lc" ;;
     1) printf 'true' ;;
     0) printf 'false' ;;
     *)
@@ -115,26 +113,33 @@ build_symbol_body() {
 build_symbols_body() {
   local symbols_csv="$1"
   local -a symbols=()
+  local first_symbol=""
   IFS=',' read -r -a raw_symbols <<<"$symbols_csv"
   for raw in "${raw_symbols[@]}"; do
     local sym="${raw//[[:space:]]/}"
     if [[ -n "$sym" ]]; then
+      if [[ -z "$first_symbol" ]]; then
+        first_symbol="$sym"
+      fi
       symbols+=("\"$sym\"")
     fi
   done
   if [[ ${#symbols[@]} -eq 0 ]]; then
     return 1
   fi
+  if [[ -z "$first_symbol" ]]; then
+    return 1
+  fi
   local trade_flag=""
   local joined
   joined=$(IFS=,; echo "${symbols[*]}")
   if trade_flag=$(normalize_trade_flag); then
-    printf '{"botSymbols":[%s],"botTrade":%s}' "$joined" "$trade_flag"
+    printf '{"binanceSymbol":"%s","botSymbols":[%s],"botTrade":%s}' "$first_symbol" "$joined" "$trade_flag"
   else
     if [[ -n "${TRADER_BOT_TRADE:-}" ]]; then
       return 1
     fi
-    printf '{"botSymbols":[%s]}' "$joined"
+    printf '{"binanceSymbol":"%s","botSymbols":[%s]}' "$first_symbol" "$joined"
   fi
 }
 
