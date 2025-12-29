@@ -494,8 +494,15 @@ data BacktestSummary = BacktestSummary
   , bsTriLayerFastMult :: !Double
   , bsTriLayerSlowMult :: !Double
   , bsTriLayerCloudPadding :: !Double
+  , bsTriLayerCloudSlope :: !Double
+  , bsTriLayerCloudWidth :: !Double
+  , bsTriLayerTouchLookback :: !Int
   , bsTriLayerPriceAction :: !Bool
+  , bsTriLayerPriceActionBody :: !Double
   , bsLstmExitFlipBars :: !Int
+  , bsLstmExitFlipGraceBars :: !Int
+  , bsLstmConfidenceSoft :: !Double
+  , bsLstmConfidenceHard :: !Double
   , bsFee :: !Double
   , bsSlippage :: !Double
   , bsSpread :: !Double
@@ -821,8 +828,22 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrPTriLayerPriceAction :: !(Maybe Double)
   , arrTriLayerCloudPaddingMin :: !(Maybe Double)
   , arrTriLayerCloudPaddingMax :: !(Maybe Double)
+  , arrTriLayerCloudSlopeMin :: !(Maybe Double)
+  , arrTriLayerCloudSlopeMax :: !(Maybe Double)
+  , arrTriLayerCloudWidthMin :: !(Maybe Double)
+  , arrTriLayerCloudWidthMax :: !(Maybe Double)
+  , arrTriLayerTouchLookbackMin :: !(Maybe Int)
+  , arrTriLayerTouchLookbackMax :: !(Maybe Int)
+  , arrTriLayerPriceActionBodyMin :: !(Maybe Double)
+  , arrTriLayerPriceActionBodyMax :: !(Maybe Double)
   , arrLstmExitFlipBarsMin :: !(Maybe Int)
   , arrLstmExitFlipBarsMax :: !(Maybe Int)
+  , arrLstmExitFlipGraceBarsMin :: !(Maybe Int)
+  , arrLstmExitFlipGraceBarsMax :: !(Maybe Int)
+  , arrLstmConfidenceSoftMin :: !(Maybe Double)
+  , arrLstmConfidenceSoftMax :: !(Maybe Double)
+  , arrLstmConfidenceHardMin :: !(Maybe Double)
+  , arrLstmConfidenceHardMax :: !(Maybe Double)
   , arrStopMin :: !(Maybe Double)
   , arrStopMax :: !(Maybe Double)
   , arrTpMin :: !(Maybe Double)
@@ -1562,8 +1583,15 @@ argsPublicJson args =
       , "triLayerFastMult" .= argTriLayerFastMult args
       , "triLayerSlowMult" .= argTriLayerSlowMult args
       , "triLayerCloudPadding" .= argTriLayerCloudPadding args
+      , "triLayerCloudSlope" .= argTriLayerCloudSlope args
+      , "triLayerCloudWidth" .= argTriLayerCloudWidth args
+      , "triLayerTouchLookback" .= argTriLayerTouchLookback args
       , "triLayerPriceAction" .= argTriLayerRequirePriceAction args
+      , "triLayerPriceActionBody" .= argTriLayerPriceActionBody args
       , "lstmExitFlipBars" .= argLstmExitFlipBars args
+      , "lstmExitFlipGraceBars" .= argLstmExitFlipGraceBars args
+      , "lstmConfidenceSoft" .= argLstmConfidenceSoft args
+      , "lstmConfidenceHard" .= argLstmConfidenceHard args
       , "tuneStressVolMult" .= argTuneStressVolMult args
       , "tuneStressShock" .= argTuneStressShock args
       , "tuneStressWeight" .= argTuneStressWeight args
@@ -3461,8 +3489,15 @@ botOptimizeAfterOperation st = do
                   , ecTriLayerFastMult = argTriLayerFastMult args
                   , ecTriLayerSlowMult = argTriLayerSlowMult args
                   , ecTriLayerCloudPadding = argTriLayerCloudPadding args
+                  , ecTriLayerCloudSlope = argTriLayerCloudSlope args
+                  , ecTriLayerCloudWidth = argTriLayerCloudWidth args
+                  , ecTriLayerTouchLookback = argTriLayerTouchLookback args
                   , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
+                  , ecTriLayerPriceActionBody = argTriLayerPriceActionBody args
                   , ecLstmExitFlipBars = argLstmExitFlipBars args
+                  , ecLstmExitFlipGraceBars = argLstmExitFlipGraceBars args
+                  , ecLstmConfidenceSoft = argLstmConfidenceSoft args
+                  , ecLstmConfidenceHard = argLstmConfidenceHard args
                   , ecKalmanZMin = argKalmanZMin args
                   , ecKalmanZMax = argKalmanZMax args
                   , ecMaxHighVolProb = argMaxHighVolProb args
@@ -6931,8 +6966,22 @@ prepareOptimizerArgs outputPath req = do
               ++ maybeDoubleArg "--p-tri-layer-price-action" (fmap clamp01 (arrPTriLayerPriceAction req))
               ++ maybeDoubleArg "--tri-layer-cloud-padding-min" (fmap (max 0) (arrTriLayerCloudPaddingMin req))
               ++ maybeDoubleArg "--tri-layer-cloud-padding-max" (fmap (max 0) (arrTriLayerCloudPaddingMax req))
+              ++ maybeDoubleArg "--tri-layer-cloud-slope-min" (fmap (max 0) (arrTriLayerCloudSlopeMin req))
+              ++ maybeDoubleArg "--tri-layer-cloud-slope-max" (fmap (max 0) (arrTriLayerCloudSlopeMax req))
+              ++ maybeDoubleArg "--tri-layer-cloud-width-min" (fmap (max 0) (arrTriLayerCloudWidthMin req))
+              ++ maybeDoubleArg "--tri-layer-cloud-width-max" (fmap (max 0) (arrTriLayerCloudWidthMax req))
+              ++ maybeIntArg "--tri-layer-touch-lookback-min" (fmap (max 1) (arrTriLayerTouchLookbackMin req))
+              ++ maybeIntArg "--tri-layer-touch-lookback-max" (fmap (max 1) (arrTriLayerTouchLookbackMax req))
+              ++ maybeDoubleArg "--tri-layer-price-action-body-min" (fmap (max 0) (arrTriLayerPriceActionBodyMin req))
+              ++ maybeDoubleArg "--tri-layer-price-action-body-max" (fmap (max 0) (arrTriLayerPriceActionBodyMax req))
               ++ maybeIntArg "--lstm-exit-flip-bars-min" (fmap (max 0) (arrLstmExitFlipBarsMin req))
               ++ maybeIntArg "--lstm-exit-flip-bars-max" (fmap (max 0) (arrLstmExitFlipBarsMax req))
+              ++ maybeIntArg "--lstm-exit-flip-grace-bars-min" (fmap (max 0) (arrLstmExitFlipGraceBarsMin req))
+              ++ maybeIntArg "--lstm-exit-flip-grace-bars-max" (fmap (max 0) (arrLstmExitFlipGraceBarsMax req))
+              ++ maybeDoubleArg "--lstm-confidence-soft-min" (fmap clamp01 (arrLstmConfidenceSoftMin req))
+              ++ maybeDoubleArg "--lstm-confidence-soft-max" (fmap clamp01 (arrLstmConfidenceSoftMax req))
+              ++ maybeDoubleArg "--lstm-confidence-hard-min" (fmap clamp01 (arrLstmConfidenceHardMin req))
+              ++ maybeDoubleArg "--lstm-confidence-hard-max" (fmap clamp01 (arrLstmConfidenceHardMax req))
           stopRangeArgs =
             maybeDoubleArg "--stop-min" (fmap (max 0) (arrStopMin req))
               ++ maybeDoubleArg "--stop-max" (fmap (max 0) (arrStopMax req))
@@ -9312,15 +9361,22 @@ lstmConfidenceSizing args sig =
   if not (argConfidenceSizing args)
     then (1, Nothing)
     else
-      case lstmConfidenceScore sig of
-        Nothing -> (1, Nothing)
-        Just score
-          | score > 0.8 -> (1, Nothing)
-          | score >= 0.6 -> (0.5, Nothing)
-          | otherwise ->
-              ( 0
-              , Just (printf "No order: LSTM confidence %.1f%% (<60%%)." (score * 100))
-              )
+      let hard0 = clamp01 (argLstmConfidenceHard args)
+          soft0 = clamp01 (argLstmConfidenceSoft args)
+          hard = hard0
+          soft = min soft0 hard
+       in if hard <= 0
+            then (1, Nothing)
+            else
+              case lstmConfidenceScore sig of
+                Nothing -> (1, Nothing)
+                Just score
+                  | score >= hard -> (1, Nothing)
+                  | score >= soft -> (0.5, Nothing)
+                  | otherwise ->
+                      ( 0
+                      , Just (printf "No order: LSTM confidence %.1f%% (<%.1f%%)." (score * 100) (hard * 100))
+                      )
 
 placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
 placeOrderForSignal args sym sig env =
@@ -10098,8 +10154,15 @@ backtestSummaryJson summary =
     , "triLayerFastMult" .= bsTriLayerFastMult summary
     , "triLayerSlowMult" .= bsTriLayerSlowMult summary
     , "triLayerCloudPadding" .= bsTriLayerCloudPadding summary
+    , "triLayerCloudSlope" .= bsTriLayerCloudSlope summary
+    , "triLayerCloudWidth" .= bsTriLayerCloudWidth summary
+    , "triLayerTouchLookback" .= bsTriLayerTouchLookback summary
     , "triLayerPriceAction" .= bsTriLayerPriceAction summary
+    , "triLayerPriceActionBody" .= bsTriLayerPriceActionBody summary
     , "lstmExitFlipBars" .= bsLstmExitFlipBars summary
+    , "lstmExitFlipGraceBars" .= bsLstmExitFlipGraceBars summary
+    , "lstmConfidenceSoft" .= bsLstmConfidenceSoft summary
+    , "lstmConfidenceHard" .= bsLstmConfidenceHard summary
     , "tuning" .= tuningJson
     , "costs" .= costsJson
     , "walkForward" .= walkForwardJson
@@ -10778,8 +10841,15 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecTriLayerFastMult = argTriLayerFastMult args
           , ecTriLayerSlowMult = argTriLayerSlowMult args
           , ecTriLayerCloudPadding = argTriLayerCloudPadding args
+          , ecTriLayerCloudSlope = argTriLayerCloudSlope args
+          , ecTriLayerCloudWidth = argTriLayerCloudWidth args
+          , ecTriLayerTouchLookback = argTriLayerTouchLookback args
           , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
+          , ecTriLayerPriceActionBody = argTriLayerPriceActionBody args
           , ecLstmExitFlipBars = argLstmExitFlipBars args
+          , ecLstmExitFlipGraceBars = argLstmExitFlipGraceBars args
+          , ecLstmConfidenceSoft = argLstmConfidenceSoft args
+          , ecLstmConfidenceHard = argLstmConfidenceHard args
           , ecKalmanZMin = argKalmanZMin args
           , ecKalmanZMax = argKalmanZMax args
           , ecMaxHighVolProb = argMaxHighVolProb args
@@ -11007,8 +11077,15 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsTriLayerFastMult = argTriLayerFastMult args
       , bsTriLayerSlowMult = argTriLayerSlowMult args
       , bsTriLayerCloudPadding = argTriLayerCloudPadding args
+      , bsTriLayerCloudSlope = argTriLayerCloudSlope args
+      , bsTriLayerCloudWidth = argTriLayerCloudWidth args
+      , bsTriLayerTouchLookback = argTriLayerTouchLookback args
       , bsTriLayerPriceAction = argTriLayerRequirePriceAction args
+      , bsTriLayerPriceActionBody = argTriLayerPriceActionBody args
       , bsLstmExitFlipBars = argLstmExitFlipBars args
+      , bsLstmExitFlipGraceBars = argLstmExitFlipGraceBars args
+      , bsLstmConfidenceSoft = argLstmConfidenceSoft args
+      , bsLstmConfidenceHard = argLstmConfidenceHard args
       , bsFee = feeUsed
       , bsSlippage = slippageUsed
       , bsSpread = spreadUsed

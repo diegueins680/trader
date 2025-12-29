@@ -80,9 +80,16 @@ data EnsembleConfig = EnsembleConfig
   , ecTriLayerFastMult :: !Double
   , ecTriLayerSlowMult :: !Double
   , ecTriLayerCloudPadding :: !Double
+  , ecTriLayerCloudSlope :: !Double
+  , ecTriLayerCloudWidth :: !Double
+  , ecTriLayerTouchLookback :: !Int
   , ecTriLayerRequirePriceAction :: !Bool
+  , ecTriLayerPriceActionBody :: !Double
   -- LSTM flip exit
   , ecLstmExitFlipBars :: !Int
+  , ecLstmExitFlipGraceBars :: !Int
+  , ecLstmConfidenceSoft :: !Double
+  , ecLstmConfidenceHard :: !Double
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
   , ecKalmanZMin :: !Double
   , ecKalmanZMax :: !Double
@@ -368,7 +375,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               minEdge = max 0 (ecMinEdge cfg)
               minSignalToNoise = max 0 (ecMinSignalToNoise cfg)
               openThr = max openThrRaw minEdge
-              bodyMinFrac = max 1e-6 (0.25 * openThr)
+              priceActionBodyMin = max 0 (ecTriLayerPriceActionBody cfg)
+              bodyMinFracBase = max 1e-6 (0.25 * openThr)
+              bodyMinFrac =
+                if priceActionBodyMin > 0
+                  then priceActionBodyMin
+                  else bodyMinFracBase
               closeThr = max 0 (ecCloseThreshold cfg)
               minHoldBars = max 0 (ecMinHoldBars cfg)
               cooldownBars = max 0 (ecCooldownBars cfg)
@@ -410,8 +422,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               fastMult = max 1e-6 (ecTriLayerFastMult cfg)
               slowMult = max 1e-6 (ecTriLayerSlowMult cfg)
               cloudPadFrac = max 0 (ecTriLayerCloudPadding cfg)
+              cloudSlopeMin = max 0 (ecTriLayerCloudSlope cfg)
+              cloudWidthMax = max 0 (ecTriLayerCloudWidth cfg)
+              touchLookback = max 1 (ecTriLayerTouchLookback cfg)
               requirePriceAction = ecTriLayerRequirePriceAction cfg
               lstmFlipBars = max 0 (ecLstmExitFlipBars cfg)
+              lstmFlipGraceBars = max 0 (ecLstmExitFlipGraceBars cfg)
               (cloudFastV, cloudSlowV) =
                 if cloudReady
                   then
@@ -756,15 +772,37 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         pad = cloudPadFrac * (if isBad px then 0 else abs px)
                         cloudTopPad = cloudTop + pad
                         cloudBotPad = cloudBot - pad
-                        (_, h, l, _) = candleAt t
-                        touchCloud = l <= cloudTopPad && h >= cloudBotPad
+                        slopeFrac =
+                          if isBad px || px == 0
+                            then 0
+                            else slope / abs px
+                        widthFrac =
+                          if isBad px || px == 0
+                            then 0
+                            else (cloudTop - cloudBot) / abs px
+                        widthOk = cloudWidthMax <= 0 || isBad widthFrac || widthFrac <= cloudWidthMax
+                        touchCloudAt idx =
+                          let fastIdx = cloudFastV V.! idx
+                              slowIdx = cloudSlowV V.! idx
+                              cloudTopIdx = max fastIdx slowIdx
+                              cloudBotIdx = min fastIdx slowIdx
+                              pxIdx = pricesV V.! idx
+                              padIdx = cloudPadFrac * (if isBad pxIdx then 0 else abs pxIdx)
+                              cloudTopPadIdx = cloudTopIdx + padIdx
+                              cloudBotPadIdx = cloudBotIdx - padIdx
+                              (_, h, l, _) = candleAt idx
+                           in not (isBad fastIdx || isBad slowIdx)
+                                && l <= cloudTopPadIdx
+                                && h >= cloudBotPadIdx
+                        touchStart = max 0 (t - touchLookback + 1)
+                        touchCloud = any touchCloudAt [touchStart .. t]
                         trendOk =
                           case side of
-                            SideLong -> fast > slow && slope >= 0
-                            SideShort -> fast < slow && slope <= 0
+                            SideLong -> fast > slow && slopeFrac >= cloudSlopeMin
+                            SideShort -> fast < slow && slopeFrac <= -cloudSlopeMin
                      in if isBad fast || isBad slow || isBad slope
                           then True
-                          else touchCloud && trendOk
+                          else touchCloud && trendOk && widthOk
 
               priceActionOkAt :: Int -> PositionSide -> Bool
               priceActionOkAt t side =
@@ -781,6 +819,37 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
               clamp01 :: Double -> Double
               clamp01 x = max 0 (min 1 x)
+
+              lstmConfidenceScore :: Double -> Double -> Maybe Double
+              lstmConfidenceScore prev next =
+                if prev <= 0 || isBad prev || isBad next
+                  then Nothing
+                  else
+                    let edge = abs (next / prev - 1)
+                        thr = max 1e-12 openThr
+                        raw = edge / (2 * thr)
+                     in if isBad edge || isBad raw
+                          then Nothing
+                          else Just (clamp01 raw)
+
+              lstmConfidenceSizing :: Double -> Double -> Double
+              lstmConfidenceSizing prev next =
+                if not (ecConfidenceSizing cfg)
+                  then 1
+                  else
+                    let hard0 = clamp01 (ecLstmConfidenceHard cfg)
+                        soft0 = clamp01 (ecLstmConfidenceSoft cfg)
+                        hard = hard0
+                        soft = min soft0 hard
+                     in if hard <= 0
+                          then 1
+                          else
+                            case lstmConfidenceScore prev next of
+                              Nothing -> 1
+                              Just score
+                                | score >= hard -> 1
+                                | score >= soft -> 0.5
+                                | otherwise -> 0
 
               clampFrac :: Double -> Double
               clampFrac x = min 0.999999 (max 0 x)
@@ -1010,9 +1079,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             Just ot -> otHoldingPeriods ot
                         cooldownActive = posSide == Nothing && cooldownLeft > 0
                         cooldownNext0 = if posSide == Nothing then max 0 (cooldownLeft - 1) else 0
-                        (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, mOpenSignal, lstmCloseDir) =
+                        (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, mOpenSignal, lstmCloseDir, lstmEntryScaleRaw) =
                           if t < startT
-                            then (False, False, posSide, posSize, 0, Nothing, Nothing)
+                            then (False, False, posSide, posSize, 0, Nothing, Nothing, 1)
                             else
                               let kp = kalPredNextV V.! t
                                   lp = lstmPredNextV V.! (t - startT)
@@ -1076,7 +1145,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             if closeAgreeDir == Just SideShort
                                               then (Just SideShort, posSize)
                                               else (Nothing, 0)
-                               in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, openSignal, lstmCloseDir)
+                                  lstmEntryScale = lstmConfidenceSizing prev lp
+                               in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, openSignal, lstmCloseDir, lstmEntryScale)
 
                         (openTradeFlip, lstmFlipExit) =
                           if lstmFlipBars <= 0
@@ -1084,14 +1154,19 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             else
                               case (openTrade0, posSide, lstmCloseDir) of
                                 (Just ot, Just side, Just lstmDir) ->
-                                  let opposite =
-                                        case (side, lstmDir) of
-                                          (SideLong, SideShort) -> True
-                                          (SideShort, SideLong) -> True
-                                          _ -> False
-                                      nextCount = if opposite then otLstmFlipCount ot + 1 else 0
-                                      ot' = ot { otLstmFlipCount = nextCount }
-                                   in (Just ot', nextCount >= lstmFlipBars)
+                                  let inGrace = otHoldingPeriods ot < lstmFlipGraceBars
+                                   in
+                                    if inGrace
+                                      then (Just ot { otLstmFlipCount = 0 }, False)
+                                      else
+                                        let opposite =
+                                              case (side, lstmDir) of
+                                                (SideLong, SideShort) -> True
+                                                (SideShort, SideLong) -> True
+                                                _ -> False
+                                            nextCount = if opposite then otLstmFlipCount ot + 1 else 0
+                                            ot' = ot { otLstmFlipCount = nextCount }
+                                         in (Just ot', nextCount >= lstmFlipBars)
                                 (Just ot, Just _, _) -> (Just ot { otLstmFlipCount = 0 }, False)
                                 _ -> (openTrade0, False)
 
@@ -1104,6 +1179,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                           if desiredSize0 <= 0 then Nothing else desiredSideRaw
 
                         needsEntry = desiredSide0 /= Nothing && desiredSide0 /= posSide
+                        lstmEntryScale = if needsEntry then lstmEntryScaleRaw else 1
 
                         trendOk =
                           case desiredSide0 of
@@ -1148,8 +1224,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                     Just ot | otSide ot == side -> max 0 (otBaseSize ot)
                                     _ -> max 0 desiredSizeRaw
 
+                        entryScale = if desiredSide2 /= Nothing && desiredSide2 /= posSide then lstmEntryScale else 1
                         sizeScale = if desiredSide2 == Nothing then 1 else volScaleAt t
-                        sizeScaled = baseSizeTarget * sizeScale
+                        sizeScaled = baseSizeTarget * entryScale * sizeScale
                         sizeCapped = min maxPositionSize (max 0 sizeScaled)
                         sizeFinal0 =
                           if ecConfidenceSizing cfg && sizeCapped < minPositionSize && desiredSide2 /= posSide

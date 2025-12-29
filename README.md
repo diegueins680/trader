@@ -245,12 +245,17 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables)
+  - `--lstm-exit-flip-grace-bars N` ignore LSTM flip exits during the first `N` bars of a trade
   - `--trend-lookback N` simple moving average filter for entries (`0` disables; default: `30`)
   - `--tri-layer` enable Kalman cloud + price-action entry gating (uses the last candle and Kalman cloud trend)
     - `--tri-layer-fast-mult 0.5` fast Kalman measurement-variance multiplier for the cloud
     - `--tri-layer-slow-mult 2.0` slow Kalman measurement-variance multiplier for the cloud
     - `--tri-layer-cloud-padding 0.0` expand the cloud by this fraction of price when checking touches (`0` = strict)
+    - `--tri-layer-cloud-slope 0.0` require cloud slope to exceed this fraction of price (`0` = sign-only)
+    - `--tri-layer-cloud-width 0.0` block entries when the cloud width exceeds this fraction of price (`0` disables)
+    - `--tri-layer-touch-lookback 1` allow cloud touches up to `N` bars back (`1` = current bar)
     - `--no-tri-layer-price-action` disable the candle-pattern trigger (cloud-only gating)
+    - `--tri-layer-price-action-body 0.0` override min candle body fraction for price-action patterns (`0` = default)
   - `--max-position-size 0.8` cap position size/leverage (`1` = full size)
   - `--vol-target F` target annualized volatility for position sizing (`0` disables; default: `0.7`)
     - `--vol-lookback N` realized-vol lookback window (bars) when EWMA alpha is not set
@@ -272,8 +277,11 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--confirm-conformal` require conformal interval to agree with the chosen direction (default on; disable with `--no-confirm-conformal`)
   - `--confirm-quantiles` require quantiles to agree with the chosen direction (default on; disable with `--no-confirm-quantiles`)
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
+  - `--lstm-confidence-soft 0.6` soft LSTM confidence threshold for sizing (`0` disables; requires confidence sizing)
+  - `--lstm-confidence-hard 0.8` hard LSTM confidence threshold for sizing (`0` disables; requires confidence sizing)
   - `--min-position-size 0.15` minimum entry size when confidence sizing is enabled (`0..1`; ignored when confidence sizing is disabled)
-  - When confidence sizing is enabled, live orders also scale entry size by LSTM confidence (score = clamp01(|lstmNext/current - 1| / (2 * openThreshold))): >80% full size, 60-80% half, <60% skips new entries.
+  - When confidence sizing is enabled, live orders also scale entry size by LSTM confidence (score = clamp01(|lstmNext/current - 1| / (2 * openThreshold))): use `--lstm-confidence-hard/soft` thresholds (defaults 80%/60%).
+  - The UI defaults to `orderQuote=100` so new setups clear common minQty/step sizes; adjust sizing to your account.
   - Close-direction gating ignores `--min-position-size` so exits are not blocked by low confidence.
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
@@ -392,18 +400,18 @@ Optimizer script tips:
 - `--min-sharpe`, `--min-wf-sharpe-mean`, and `--max-wf-sharpe-std` filter for higher/stabler Sharpe candidates.
 - `--min-edge-min/max`, `--min-signal-to-noise-min/max`, `--edge-buffer-min/max`, `--p-cost-aware-edge`, and `--trend-lookback-min/max` tune entry gating (edge-buffer > 0 enables cost-aware edge; set `--p-cost-aware-edge` to override).
 - `--p-intrabar-take-profit-first` mixes intrabar fill ordering when high/low data is available.
-- `--p-tri-layer` plus `--tri-layer-fast-mult-min/max`, `--tri-layer-slow-mult-min/max`, `--tri-layer-cloud-padding-min/max`, `--p-tri-layer-price-action`, and `--lstm-exit-flip-bars-min/max` sample tri-layer gating and LSTM flip exits (set `--p-tri-layer 1` to force tri-layer gating).
+- `--p-tri-layer` plus `--tri-layer-fast-mult-min/max`, `--tri-layer-slow-mult-min/max`, `--tri-layer-cloud-padding-min/max`, `--tri-layer-cloud-slope-min/max`, `--tri-layer-cloud-width-min/max`, `--tri-layer-touch-lookback-min/max`, `--tri-layer-price-action-body-min/max`, `--p-tri-layer-price-action`, `--lstm-exit-flip-bars-min/max`, and `--lstm-exit-flip-grace-bars-min/max` sample tri-layer gating and LSTM flip exits (set `--p-tri-layer 1` to force tri-layer gating).
 - `--stop-min/max`, `--tp-min/max`, `--trail-min/max`, and `--p-disable-stop/tp/trail` sample bracket exits; `--stop-vol-mult-min/max`, `--tp-vol-mult-min/max`, `--trail-vol-mult-min/max`, and `--p-disable-*-vol-mult` sample volatility-based brackets.
 - `--max-position-size-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, `--vol-floor-*`, `--vol-scale-max-*`, `--max-volatility-*`, and `--periods-per-year-*` tune sizing (use `--p-disable-vol-target`/`--p-disable-max-volatility` to mix disabled samples).
 - `--p-disable-vol-ewma-alpha` mixes EWMA vs rolling vol when using `--vol-ewma-alpha-*`.
 - `--blend-weight-min/max` plus `--method-weight-blend` sample the blend method mix.
 - `--kalman-market-top-n-min/max` tunes the Kalman market-context sample size (Binance only).
-- `--kalman-z-min-min/max`, `--kalman-z-max-min/max`, `--max-high-vol-prob-min/max`, `--max-conformal-width-min/max`, `--max-quantile-width-min/max`, `--p-confirm-conformal`, `--p-confirm-quantiles`, `--p-confidence-sizing`, and `--min-position-size-min/max` tune confidence gating/sizing (use `--p-disable-max-*` to mix disabled samples).
+- `--kalman-z-min-min/max`, `--kalman-z-max-min/max`, `--max-high-vol-prob-min/max`, `--max-conformal-width-min/max`, `--max-quantile-width-min/max`, `--p-confirm-conformal`, `--p-confirm-quantiles`, `--p-confidence-sizing`, `--lstm-confidence-soft-min/max`, `--lstm-confidence-hard-min/max`, and `--min-position-size-min/max` tune confidence gating/sizing (use `--p-disable-max-*` to mix disabled samples).
 - `--lr-min/max`, `--patience-max`, `--grad-clip-min/max`, and `--p-disable-grad-clip` tune LSTM training hyperparameters.
 - `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective (`--tune-stress-*-min/max` lets it sample ranges).
 - `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
 - Auto optimizer biases `--p-long-short` to match existing open positions/orders (short requires long-short; spot/margin suppresses long-short).
-- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minSignalToNoiseMin`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `lstmExitFlipBarsMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
+- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minSignalToNoiseMin`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
 
 State directory (recommended for persistence across deployments):
 - Set `TRADER_STATE_DIR` to a shared writable directory to persist:

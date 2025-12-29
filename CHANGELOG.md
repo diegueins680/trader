@@ -10,7 +10,8 @@ All notable changes to this project will be documented in this file.
 - Observability: log Binance API requests (`binance.request`) and minute-by-minute bot status snapshots (`bot.status`), plus a live/offline timeline chart in the UI.
 - Observability: redact Binance query params in ops logs even when the query string starts with `?`.
 - Observability: ensure ops logging covers all Binance API calls (including listenKey/trades/positions/data fetches) and emit an immediate `bot.status` snapshot on bot start.
-- Trading: when confidence sizing is enabled, scale live orders by LSTM confidence (>80% full size, 60-80% half, <60% skip new entries).
+- Trading: when confidence sizing is enabled, scale live orders and backtests by LSTM confidence (thresholds now configurable).
+- Web UI: default order sizing uses `orderQuote=100` to avoid orders rounding to zero on common minQty/step sizes.
 - Backtests: API queues requests when the backtest slot is busy; UI waits and notifies when the backtest completes.
 - Strategy defaults: move to `--interval 1h`/`--lookback-window 7d`, raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, max position size, vol target/floor/max-vol, Kalman z-min, min position size), and bump cost assumptions (fee/slippage/spread).
 - Strategy defaults: enable cost-aware edge, conformal/quantile confirmations, and confidence sizing by default, with `--no-cost-aware-edge`, `--no-confirm-conformal`, `--no-confirm-quantiles`, and `--no-confidence-sizing` opt-outs.
@@ -144,8 +145,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - Optimizer: add tri-layer cloud noise sampling (`--p-tri-layer`, `--tri-layer-fast-mult-min/max`, `--tri-layer-slow-mult-min/max`).
 - Optimizer: when sampling default-on flags (cost-aware edge, conformal/quantile confirmation, confidence sizing), emit the matching `--no-*` flags so disables take effect.
-- Trading: add tri-layer cloud padding + price-action toggle and optional LSTM flip exits.
-- Optimizer/API: expose tri-layer cloud padding, price-action probability, and LSTM flip sampling ranges.
+- Trading: add tri-layer cloud slope/width/touch/body controls, LSTM flip exit grace bars, and configurable LSTM confidence thresholds.
+- Optimizer/API: expose tri-layer cloud slope/width/touch/body ranges plus LSTM flip grace + confidence threshold sampling.
 - Backtests: slice exchange open-time vectors for walk-forward folds to avoid length mismatches.
 - Optimizer/API: expose intrabar fill probability, bracket-stop ranges (incl. vol-mult), confidence gating, and LSTM training sampling controls to `/optimizer/run`.
 - Optimizer: threshold sweep tie-breakers now prefer higher final equity, then lower turnover/more round trips, and avoid inverted hysteresis unless equity is unchanged.

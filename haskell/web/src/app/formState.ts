@@ -177,7 +177,7 @@ export const defaultForm: FormState = {
   optimizeOperations: false,
   sweepThreshold: false,
   binanceTestnet: false,
-  orderQuote: 20,
+  orderQuote: 100,
   orderQuantity: 0,
   orderQuoteFraction: 0,
   maxOrderQuote: 0,

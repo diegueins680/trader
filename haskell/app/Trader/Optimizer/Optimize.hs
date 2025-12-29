@@ -498,8 +498,22 @@ data OptimizerArgs = OptimizerArgs
   , oaPTriLayerPriceAction :: !Double
   , oaTriLayerCloudPaddingMin :: !Double
   , oaTriLayerCloudPaddingMax :: !Double
+  , oaTriLayerCloudSlopeMin :: !Double
+  , oaTriLayerCloudSlopeMax :: !Double
+  , oaTriLayerCloudWidthMin :: !Double
+  , oaTriLayerCloudWidthMax :: !Double
+  , oaTriLayerTouchLookbackMin :: !Int
+  , oaTriLayerTouchLookbackMax :: !Int
+  , oaTriLayerPriceActionBodyMin :: !Double
+  , oaTriLayerPriceActionBodyMax :: !Double
   , oaLstmExitFlipBarsMin :: !Int
   , oaLstmExitFlipBarsMax :: !Int
+  , oaLstmExitFlipGraceBarsMin :: !Int
+  , oaLstmExitFlipGraceBarsMax :: !Int
+  , oaLstmConfidenceSoftMin :: !Double
+  , oaLstmConfidenceSoftMax :: !Double
+  , oaLstmConfidenceHardMin :: !Double
+  , oaLstmConfidenceHardMax :: !Double
   , oaKalmanDtMin :: !Double
   , oaKalmanDtMax :: !Double
   , oaKalmanProcessVarMin :: !Double
@@ -682,8 +696,15 @@ data TrialParams = TrialParams
   , tpTriLayerFastMult :: !Double
   , tpTriLayerSlowMult :: !Double
   , tpTriLayerCloudPadding :: !Double
+  , tpTriLayerCloudSlope :: !Double
+  , tpTriLayerCloudWidth :: !Double
+  , tpTriLayerTouchLookback :: !Int
   , tpTriLayerPriceAction :: !Bool
+  , tpTriLayerPriceActionBody :: !Double
   , tpLstmExitFlipBars :: !Int
+  , tpLstmExitFlipGraceBars :: !Int
+  , tpLstmConfidenceSoft :: !Double
+  , tpLstmConfidenceHard :: !Double
   , tpStopLoss :: !(Maybe Double)
   , tpTakeProfit :: !(Maybe Double)
   , tpTrailingStop :: !(Maybe Double)
@@ -782,7 +803,10 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , "--edge-buffer"
              , printf "%.12g" (max 0 (tpEdgeBuffer params))
              ]
-      cmd7 = if tpCostAwareEdge params then cmd6 ++ ["--cost-aware-edge"] else cmd6
+      cmd7 =
+        if tpCostAwareEdge params
+          then cmd6 ++ ["--cost-aware-edge"]
+          else cmd6 ++ ["--no-cost-aware-edge"]
       cmd8 =
         cmd7
           ++ [ "--trend-lookback"
@@ -861,6 +885,14 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , printf "%.12g" (max 1e-6 (tpTriLayerSlowMult params))
              , "--tri-layer-cloud-padding"
              , printf "%.8f" (max 0 (tpTriLayerCloudPadding params))
+             , "--tri-layer-cloud-slope"
+             , printf "%.8f" (max 0 (tpTriLayerCloudSlope params))
+             , "--tri-layer-cloud-width"
+             , printf "%.8f" (max 0 (tpTriLayerCloudWidth params))
+             , "--tri-layer-touch-lookback"
+             , show (max 1 (tpTriLayerTouchLookback params))
+             , "--tri-layer-price-action-body"
+             , printf "%.8f" (max 0 (tpTriLayerPriceActionBody params))
              ]
           ++
             ( if tpTriLayer params && not (tpTriLayerPriceAction params)
@@ -869,6 +901,12 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
             )
           ++ [ "--lstm-exit-flip-bars"
              , show (max 0 (tpLstmExitFlipBars params))
+             , "--lstm-exit-flip-grace-bars"
+             , show (max 0 (tpLstmExitFlipGraceBars params))
+             , "--lstm-confidence-soft"
+             , printf "%.4f" (clamp (tpLstmConfidenceSoft params) 0 1)
+             , "--lstm-confidence-hard"
+             , printf "%.4f" (clamp (tpLstmConfidenceHard params) 0 1)
              ]
       cmd18 =
         case tpStopLoss params of
@@ -933,9 +971,18 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
         case tpMaxQuantileWidth params of
           Just v -> cmd29 ++ ["--max-quantile-width", printf "%.12g" (max 0 v)]
           Nothing -> cmd29
-      cmd31 = if tpConfirmConformal params then cmd30 ++ ["--confirm-conformal"] else cmd30
-      cmd32 = if tpConfirmQuantiles params then cmd31 ++ ["--confirm-quantiles"] else cmd31
-      cmd33 = if tpConfidenceSizing params then cmd32 ++ ["--confidence-sizing"] else cmd32
+      cmd31 =
+        if tpConfirmConformal params
+          then cmd30 ++ ["--confirm-conformal"]
+          else cmd30 ++ ["--no-confirm-conformal"]
+      cmd32 =
+        if tpConfirmQuantiles params
+          then cmd31 ++ ["--confirm-quantiles"]
+          else cmd31 ++ ["--no-confirm-quantiles"]
+      cmd33 =
+        if tpConfidenceSizing params
+          then cmd32 ++ ["--confidence-sizing"]
+          else cmd32 ++ ["--no-confidence-sizing"]
       cmd34 = cmd33 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
       cmd35 =
         if useSweepThreshold
@@ -1167,8 +1214,15 @@ trialToRecord tr symbolLabel =
         , "triLayerFastMult" .= tpTriLayerFastMult (trParams tr)
         , "triLayerSlowMult" .= tpTriLayerSlowMult (trParams tr)
         , "triLayerCloudPadding" .= tpTriLayerCloudPadding (trParams tr)
+        , "triLayerCloudSlope" .= tpTriLayerCloudSlope (trParams tr)
+        , "triLayerCloudWidth" .= tpTriLayerCloudWidth (trParams tr)
+        , "triLayerTouchLookback" .= tpTriLayerTouchLookback (trParams tr)
         , "triLayerPriceAction" .= tpTriLayerPriceAction (trParams tr)
+        , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody (trParams tr)
         , "lstmExitFlipBars" .= tpLstmExitFlipBars (trParams tr)
+        , "lstmExitFlipGraceBars" .= tpLstmExitFlipGraceBars (trParams tr)
+        , "lstmConfidenceSoft" .= tpLstmConfidenceSoft (trParams tr)
+        , "lstmConfidenceHard" .= tpLstmConfidenceHard (trParams tr)
         , "stopLoss" .= tpStopLoss (trParams tr)
         , "takeProfit" .= tpTakeProfit (trParams tr)
         , "trailingStop" .= tpTrailingStop (trParams tr)
@@ -1258,7 +1312,14 @@ sampleParams
   triLayerSlowRange
   pTriLayerPriceAction
   triLayerCloudPaddingRange
+  triLayerCloudSlopeRange
+  triLayerCloudWidthRange
+  triLayerTouchLookbackRange
+  triLayerPriceActionBodyRange
   lstmExitFlipBarsRange
+  lstmExitFlipGraceBarsRange
+  lstmConfidenceSoftRange
+  lstmConfidenceHardRange
   epochsMin
   epochsMax
   hiddenMin
@@ -1482,12 +1543,49 @@ sampleParams
               lo' = max 0 lo
               hi' = max lo' hi
            in nextUniform lo' hi' rng40d
-        (lstmExitFlipBars, rng40f) =
+        (triLayerCloudSlope, rng40f) =
+          let (lo, hi) = ordered triLayerCloudSlopeRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextUniform lo' hi' rng40e
+        (triLayerCloudWidth, rng40g) =
+          let (lo, hi) = ordered triLayerCloudWidthRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextUniform lo' hi' rng40f
+        (triLayerTouchLookback, rng40h) =
+          let (lo, hi) = ordered triLayerTouchLookbackRange
+              lo' = max 1 lo
+              hi' = max lo' hi
+           in nextIntRange lo' hi' rng40g
+        (triLayerPriceActionBody, rng40i) =
+          let (lo, hi) = ordered triLayerPriceActionBodyRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextUniform lo' hi' rng40h
+        (lstmExitFlipBars, rng40j) =
           let (lo, hi) = ordered lstmExitFlipBarsRange
               lo' = max 0 lo
               hi' = max lo' hi
-           in nextIntRange lo' hi' rng40e
-        (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40f
+           in nextIntRange lo' hi' rng40i
+        (lstmExitFlipGraceBars, rng40k) =
+          let (lo, hi) = ordered lstmExitFlipGraceBarsRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextIntRange lo' hi' rng40j
+        (lstmConfidenceSoftRaw, rng40l) =
+          let (lo, hi) = ordered lstmConfidenceSoftRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextUniform lo' hi' rng40k
+        (lstmConfidenceHardRaw, rng40m) =
+          let (lo, hi) = ordered lstmConfidenceHardRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextUniform lo' hi' rng40l
+        lstmConfidenceSoft = clamp lstmConfidenceSoftRaw 0 1
+        lstmConfidenceHard = clamp (max lstmConfidenceHardRaw lstmConfidenceSoft) 0 1
+        (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40m
         (kalmanProcessVar, rng42) =
           nextLogUniform (max 1e-12 kalmanProcessVarMin) (max 1e-12 kalmanProcessVarMax) rng41
         (kalmanMeasurementVar, rng43) =
@@ -1607,8 +1705,15 @@ sampleParams
             , tpTriLayerFastMult = triLayerFastMult
             , tpTriLayerSlowMult = triLayerSlowMult
             , tpTriLayerCloudPadding = triLayerCloudPadding
+            , tpTriLayerCloudSlope = triLayerCloudSlope
+            , tpTriLayerCloudWidth = triLayerCloudWidth
+            , tpTriLayerTouchLookback = triLayerTouchLookback
             , tpTriLayerPriceAction = triLayerPriceAction
+            , tpTriLayerPriceActionBody = triLayerPriceActionBody
             , tpLstmExitFlipBars = lstmExitFlipBars
+            , tpLstmExitFlipGraceBars = lstmExitFlipGraceBars
+            , tpLstmConfidenceSoft = lstmConfidenceSoft
+            , tpLstmConfidenceHard = lstmConfidenceHard
             , tpStopLoss = stopLoss
             , tpTakeProfit = takeProfit
             , tpTrailingStop = trailingStop
@@ -1821,9 +1926,30 @@ runOptimizer args0 = do
                               triLayerCloudPaddingMin = max 0 (oaTriLayerCloudPaddingMin args)
                               triLayerCloudPaddingMax = max triLayerCloudPaddingMin (oaTriLayerCloudPaddingMax args)
                               triLayerCloudPaddingRange = (triLayerCloudPaddingMin, triLayerCloudPaddingMax)
+                              triLayerCloudSlopeMin = max 0 (oaTriLayerCloudSlopeMin args)
+                              triLayerCloudSlopeMax = max triLayerCloudSlopeMin (oaTriLayerCloudSlopeMax args)
+                              triLayerCloudSlopeRange = (triLayerCloudSlopeMin, triLayerCloudSlopeMax)
+                              triLayerCloudWidthMin = max 0 (oaTriLayerCloudWidthMin args)
+                              triLayerCloudWidthMax = max triLayerCloudWidthMin (oaTriLayerCloudWidthMax args)
+                              triLayerCloudWidthRange = (triLayerCloudWidthMin, triLayerCloudWidthMax)
+                              triLayerTouchLookbackMin = max 1 (oaTriLayerTouchLookbackMin args)
+                              triLayerTouchLookbackMax = max triLayerTouchLookbackMin (oaTriLayerTouchLookbackMax args)
+                              triLayerTouchLookbackRange = (triLayerTouchLookbackMin, triLayerTouchLookbackMax)
+                              triLayerPriceActionBodyMin = max 0 (oaTriLayerPriceActionBodyMin args)
+                              triLayerPriceActionBodyMax = max triLayerPriceActionBodyMin (oaTriLayerPriceActionBodyMax args)
+                              triLayerPriceActionBodyRange = (triLayerPriceActionBodyMin, triLayerPriceActionBodyMax)
                               lstmExitFlipBarsMin = max 0 (oaLstmExitFlipBarsMin args)
                               lstmExitFlipBarsMax = max lstmExitFlipBarsMin (oaLstmExitFlipBarsMax args)
                               lstmExitFlipBarsRange = (lstmExitFlipBarsMin, lstmExitFlipBarsMax)
+                              lstmExitFlipGraceBarsMin = max 0 (oaLstmExitFlipGraceBarsMin args)
+                              lstmExitFlipGraceBarsMax = max lstmExitFlipGraceBarsMin (oaLstmExitFlipGraceBarsMax args)
+                              lstmExitFlipGraceBarsRange = (lstmExitFlipGraceBarsMin, lstmExitFlipGraceBarsMax)
+                              lstmConfidenceSoftMin = max 0 (oaLstmConfidenceSoftMin args)
+                              lstmConfidenceSoftMax = max lstmConfidenceSoftMin (oaLstmConfidenceSoftMax args)
+                              lstmConfidenceSoftRange = (lstmConfidenceSoftMin, lstmConfidenceSoftMax)
+                              lstmConfidenceHardMin = max 0 (oaLstmConfidenceHardMin args)
+                              lstmConfidenceHardMax = max lstmConfidenceHardMin (oaLstmConfidenceHardMax args)
+                              lstmConfidenceHardRange = (lstmConfidenceHardMin, lstmConfidenceHardMax)
                               kalmanDtMin = max 1e-12 (oaKalmanDtMin args)
                               kalmanDtMax = max kalmanDtMin (oaKalmanDtMax args)
                               kalmanProcessVarMin = max 1e-12 (oaKalmanProcessVarMin args)
@@ -1965,7 +2091,14 @@ runOptimizer args0 = do
                                                     triLayerSlowRange
                                                     pTriLayerPriceAction
                                                     triLayerCloudPaddingRange
+                                                    triLayerCloudSlopeRange
+                                                    triLayerCloudWidthRange
+                                                    triLayerTouchLookbackRange
+                                                    triLayerPriceActionBodyRange
                                                     lstmExitFlipBarsRange
+                                                    lstmExitFlipGraceBarsRange
+                                                    lstmConfidenceSoftRange
+                                                    lstmConfidenceHardRange
                                                     epochsMin
                                                     epochsMax
                                                     hiddenMin
@@ -2436,8 +2569,15 @@ printBest tr = do
   putStrLn ("  triLayerFastMult: " ++ show (tpTriLayerFastMult p))
   putStrLn ("  triLayerSlowMult: " ++ show (tpTriLayerSlowMult p))
   putStrLn ("  triLayerCloudPadding: " ++ show (tpTriLayerCloudPadding p))
+  putStrLn ("  triLayerCloudSlope: " ++ show (tpTriLayerCloudSlope p))
+  putStrLn ("  triLayerCloudWidth: " ++ show (tpTriLayerCloudWidth p))
+  putStrLn ("  triLayerTouchLookback: " ++ show (tpTriLayerTouchLookback p))
   putStrLn ("  triLayerPriceAction: " ++ show (tpTriLayerPriceAction p))
+  putStrLn ("  triLayerPriceActionBody: " ++ show (tpTriLayerPriceActionBody p))
   putStrLn ("  lstmExitFlipBars: " ++ show (tpLstmExitFlipBars p))
+  putStrLn ("  lstmExitFlipGraceBars: " ++ show (tpLstmExitFlipGraceBars p))
+  putStrLn ("  lstmConfidenceSoft: " ++ show (tpLstmConfidenceSoft p))
+  putStrLn ("  lstmConfidenceHard: " ++ show (tpLstmConfidenceHard p))
   putStrLn ("  stopLoss:      " ++ showMaybe (tpStopLoss p))
   putStrLn ("  takeProfit:    " ++ showMaybe (tpTakeProfit p))
   putStrLn ("  trailingStop:  " ++ showMaybe (tpTrailingStop p))
@@ -2552,8 +2692,15 @@ comboFromTrial dataSource sourceOverride symbolLabel rank tr =
           , "triLayerFastMult" .= tpTriLayerFastMult params
           , "triLayerSlowMult" .= tpTriLayerSlowMult params
           , "triLayerCloudPadding" .= tpTriLayerCloudPadding params
+          , "triLayerCloudSlope" .= tpTriLayerCloudSlope params
+          , "triLayerCloudWidth" .= tpTriLayerCloudWidth params
+          , "triLayerTouchLookback" .= tpTriLayerTouchLookback params
           , "triLayerPriceAction" .= tpTriLayerPriceAction params
+          , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody params
           , "lstmExitFlipBars" .= tpLstmExitFlipBars params
+          , "lstmExitFlipGraceBars" .= tpLstmExitFlipGraceBars params
+          , "lstmConfidenceSoft" .= tpLstmConfidenceSoft params
+          , "lstmConfidenceHard" .= tpLstmConfidenceHard params
           , "stopLoss" .= tpStopLoss params
           , "takeProfit" .= tpTakeProfit params
           , "trailingStop" .= tpTrailingStop params

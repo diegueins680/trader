@@ -289,8 +289,15 @@ signatureKey combo =
         , p "triLayerFastMult"
         , p "triLayerSlowMult"
         , p "triLayerCloudPadding"
+        , p "triLayerCloudSlope"
+        , p "triLayerCloudWidth"
+        , p "triLayerTouchLookback"
         , p "triLayerPriceAction"
+        , p "triLayerPriceActionBody"
         , p "lstmExitFlipBars"
+        , p "lstmExitFlipGraceBars"
+        , p "lstmConfidenceSoft"
+        , p "lstmConfidenceHard"
         , p "stopLoss"
         , p "takeProfit"
         , p "trailingStop"
@@ -485,8 +492,15 @@ normalizeCombo value =
                   , (Key.fromString "triLayerFastMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerFastMult") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "triLayerSlowMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerSlowMult") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "triLayerCloudPadding", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudPadding") paramsRaw >>= coerceFloatValue))
+                  , (Key.fromString "triLayerCloudSlope", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudSlope") paramsRaw >>= coerceFloatValue))
+                  , (Key.fromString "triLayerCloudWidth", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudWidth") paramsRaw >>= coerceFloatValue))
+                  , (Key.fromString "triLayerTouchLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "triLayerTouchLookback") paramsRaw >>= coerceIntValue))
                   , (Key.fromString "triLayerPriceAction", maybe Null Bool (KM.lookup (Key.fromString "triLayerPriceAction") paramsRaw >>= coerceBoolValue))
+                  , (Key.fromString "triLayerPriceActionBody", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerPriceActionBody") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "lstmExitFlipBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "lstmExitFlipBars") paramsRaw >>= coerceIntValue))
+                  , (Key.fromString "lstmExitFlipGraceBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "lstmExitFlipGraceBars") paramsRaw >>= coerceIntValue))
+                  , (Key.fromString "lstmConfidenceSoft", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "lstmConfidenceSoft") paramsRaw >>= coerceFloatValue))
+                  , (Key.fromString "lstmConfidenceHard", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "lstmConfidenceHard") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "stopLoss", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "stopLoss") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "takeProfit", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "takeProfit") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "trailingStop", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "trailingStop") paramsRaw >>= coerceFloatValue))

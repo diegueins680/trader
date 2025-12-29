@@ -129,8 +129,13 @@ data Args = Args
   , argTriLayerFastMult :: Double
   , argTriLayerSlowMult :: Double
   , argTriLayerCloudPadding :: Double
+  , argTriLayerCloudSlope :: Double
+  , argTriLayerCloudWidth :: Double
+  , argTriLayerTouchLookback :: Int
   , argTriLayerRequirePriceAction :: Bool
+  , argTriLayerPriceActionBody :: Double
   , argLstmExitFlipBars :: Int
+  , argLstmExitFlipGraceBars :: Int
   , argMaxOrderErrors :: Maybe Int
   , argPeriodsPerYear :: Maybe Double
   , argJson :: Bool
@@ -145,6 +150,8 @@ data Args = Args
   , argConfirmConformal :: Bool
   , argConfirmQuantiles :: Bool
   , argConfidenceSizing :: Bool
+  , argLstmConfidenceSoft :: Double
+  , argLstmConfidenceHard :: Double
   , argMinPositionSize :: Double
   , argTuneStressVolMult :: Double
   , argTuneStressShock :: Double
@@ -410,13 +417,18 @@ opts = do
   argTriLayerFastMult <- option auto (long "tri-layer-fast-mult" <> value 0.5 <> help "Measurement variance multiplier for the fast Kalman cloud line (requires --tri-layer)")
   argTriLayerSlowMult <- option auto (long "tri-layer-slow-mult" <> value 2.0 <> help "Measurement variance multiplier for the slow Kalman cloud line (requires --tri-layer)")
   argTriLayerCloudPadding <- option auto (long "tri-layer-cloud-padding" <> value 0.0 <> showDefault <> help "Expand the Kalman cloud by this fraction of price when checking touches (0 = strict)")
+  argTriLayerCloudSlope <- option auto (long "tri-layer-cloud-slope" <> value 0.0 <> showDefault <> help "Require Kalman cloud slope to exceed this fraction of price (0 = sign-only)")
+  argTriLayerCloudWidth <- option auto (long "tri-layer-cloud-width" <> value 0.0 <> showDefault <> help "Block tri-layer entries when cloud width exceeds this fraction of price (0 disables)")
+  argTriLayerTouchLookback <- option auto (long "tri-layer-touch-lookback" <> value 1 <> showDefault <> help "Allow cloud touches up to N bars back (1 = current bar)")
   argTriLayerRequirePriceAction <-
     defaultOnSwitch
       "tri-layer-price-action"
       "no-tri-layer-price-action"
       "Require price-action triggers when tri-layer is enabled (default on)."
       "Disable price-action triggers for tri-layer."
+  argTriLayerPriceActionBody <- option auto (long "tri-layer-price-action-body" <> value 0.0 <> showDefault <> help "Override min candle body fraction for tri-layer price-action patterns (0 = default)")
   argLstmExitFlipBars <- option auto (long "lstm-exit-flip-bars" <> value 0 <> showDefault <> help "Exit after N consecutive LSTM bars flip against the position (0 disables)")
+  argLstmExitFlipGraceBars <- option auto (long "lstm-exit-flip-grace-bars" <> value 0 <> showDefault <> help "Ignore LSTM flip exits during the first N bars of a trade")
   argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
   argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
   argJson <- switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
@@ -445,6 +457,8 @@ opts = do
       "no-confidence-sizing"
       "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled (default on)."
       "Disable confidence sizing for entries."
+  argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
+  argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
   argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "If confidence-sizing yields a size below this, skip the trade (0..1)")
   argTuneStressVolMult <- option auto (long "tune-stress-vol-mult" <> value 1.0 <> help "Stress volatility multiplier for tune scoring (1 disables)")
   argTuneStressShock <- option auto (long "tune-stress-shock" <> value 0.0 <> help "Stress shock added to returns for tune scoring (0 disables)")
@@ -665,7 +679,17 @@ validateArgs args0 = do
   ensure "--tri-layer-fast-mult must be > 0" (argTriLayerFastMult args > 0)
   ensure "--tri-layer-slow-mult must be > 0" (argTriLayerSlowMult args > 0)
   ensure "--tri-layer-cloud-padding must be >= 0" (argTriLayerCloudPadding args >= 0)
+  ensure "--tri-layer-cloud-slope must be >= 0" (argTriLayerCloudSlope args >= 0)
+  ensure "--tri-layer-cloud-width must be >= 0" (argTriLayerCloudWidth args >= 0)
+  ensure "--tri-layer-touch-lookback must be >= 1" (argTriLayerTouchLookback args >= 1)
+  ensure "--tri-layer-price-action-body must be >= 0" (argTriLayerPriceActionBody args >= 0)
   ensure "--lstm-exit-flip-bars must be >= 0" (argLstmExitFlipBars args >= 0)
+  ensure "--lstm-exit-flip-grace-bars must be >= 0" (argLstmExitFlipGraceBars args >= 0)
+  ensure "--lstm-confidence-soft must be between 0 and 1" (argLstmConfidenceSoft args >= 0 && argLstmConfidenceSoft args <= 1)
+  ensure "--lstm-confidence-hard must be between 0 and 1" (argLstmConfidenceHard args >= 0 && argLstmConfidenceHard args <= 1)
+  ensure
+    "--lstm-confidence-soft must be <= --lstm-confidence-hard (unless hard=0 to disable)"
+    (argLstmConfidenceHard args <= 0 || argLstmConfidenceSoft args <= argLstmConfidenceHard args)
   case argMaxOrderErrors args of
     Nothing -> pure ()
     Just n -> ensure "--max-order-errors must be >= 1" (n >= 1)
