@@ -619,12 +619,12 @@ Timeouts:
 - Frontend: set `timeoutsMs` in `haskell/web/public/trader-config.js` to increase UI request timeouts (e.g. long backtests).
 - Frontend (dev proxy): set `TRADER_UI_PROXY_TIMEOUT_MS` to increase the Vite `/api` proxy timeout.
 
-Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors.
+Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors. Async signal/backtest starts retry transient 5xx/timeouts and do not fail over to `apiFallbackUrl` to avoid duplicate job starts.
 If live bot start/status returns 502/503/504, verify the `/api/*` proxy target and origin health (CloudFront setups should keep `apiBaseUrl` at `/api` to avoid CORS).
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
-- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover.
+- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover; if the fallback host blocks CORS, the UI disables it for the session.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
 The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (supports long/short on futures). It includes a live/offline timeline chart with start/end controls when ops persistence is enabled. The chart reflects the available ops history and warns when the selected range extends beyond it.

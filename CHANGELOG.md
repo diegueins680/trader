@@ -78,6 +78,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: falls back to `GET` for async polling when `POST` hits proxy errors (e.g. 502/503).
 - Web UI: optional `apiFallbackUrl` in `trader-config.js` to fail over to a direct API host when `/api` proxies return 502/503/504.
 - Web UI: treat non-JSON or invalid JSON `/api` responses (e.g., HTML from misrouted proxies) as failures and retry via `apiFallbackUrl`.
+- Web UI: async signal/backtest starts retry transient 5xx/timeouts without using `apiFallbackUrl`, and cross-origin fallback is disabled for the session after a network/CORS failure.
 - Web UI: avoid optimizer combo apply crashes when compute limits are unavailable.
 - Backtests: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as trade exit reasons.
 - Backtests: risk halts now evaluate post-bar equity and can close positions at the bar close.
@@ -142,6 +143,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: auto optimizer biases long-short sampling to match existing open positions/orders so compatible combos appear sooner.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
 - Optimizer: add tri-layer cloud noise sampling (`--p-tri-layer`, `--tri-layer-fast-mult-min/max`, `--tri-layer-slow-mult-min/max`).
+- Optimizer: when sampling default-on flags (cost-aware edge, conformal/quantile confirmation, confidence sizing), emit the matching `--no-*` flags so disables take effect.
 - Trading: add tri-layer cloud padding + price-action toggle and optional LSTM flip exits.
 - Optimizer/API: expose tri-layer cloud padding, price-action probability, and LSTM flip sampling ranges.
 - Backtests: slice exchange open-time vectors for walk-forward folds to avoid length mismatches.

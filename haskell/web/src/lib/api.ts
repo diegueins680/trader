@@ -50,6 +50,7 @@ type FetchJsonOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
   headers?: Record<string, string>;
+  allowFallback?: boolean;
 };
 
 type AsyncStartResponse = { jobId: string };
@@ -75,7 +76,11 @@ export type CacheStatsResponse = {
 };
 
 export type CacheClearResponse = { ok: boolean; atMs: number };
-type AsyncJobOptions = FetchJsonOptions & { onJobId?: (jobId: string) => void };
+type AsyncJobOptions = FetchJsonOptions & {
+  onJobId?: (jobId: string) => void;
+  retryStart?: boolean;
+  maxStartRetries?: number;
+};
 
 function resolveUrl(baseUrl: string, path: string): string {
   const base = baseUrl.trim().replace(/\/+$/, "");
@@ -104,6 +109,18 @@ function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
+const blockedFallbackBases = new Set<string>();
+
+function isCrossOriginBase(baseUrl: string): boolean {
+  if (typeof window === "undefined") return false;
+  if (!/^https?:\/\//.test(baseUrl)) return false;
+  try {
+    return new URL(baseUrl).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 function isJsonContentType(raw: string): boolean {
   const ct = raw.toLowerCase();
   return ct.includes("application/json") || ct.includes("+json");
@@ -115,6 +132,7 @@ function resolveFallbackBase(primaryBase: string): string | null {
   const primary = normalizeBaseUrl(primaryBase);
   const fallback = normalizeBaseUrl(fallbackRaw);
   if (!fallback || fallback === primary) return null;
+  if (blockedFallbackBases.has(fallback)) return null;
   return fallback;
 }
 
@@ -255,11 +273,20 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
 
 async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
   const fallbackBase = resolveFallbackBase(baseUrl);
+  const allowFallback = opts?.allowFallback !== false;
   try {
     return await fetchJsonOnce<T>(baseUrl, path, init, opts);
   } catch (err) {
-    if (fallbackBase && shouldFallbackToApiBase(err)) {
-      return await fetchJsonOnce<T>(fallbackBase, path, init, opts);
+    if (fallbackBase && allowFallback && shouldFallbackToApiBase(err)) {
+      try {
+        return await fetchJsonOnce<T>(fallbackBase, path, init, opts);
+      } catch (fallbackErr) {
+        if (isNetworkError(fallbackErr) && isCrossOriginBase(fallbackBase)) {
+          blockedFallbackBases.add(fallbackBase);
+          throw err;
+        }
+        throw fallbackErr;
+      }
     }
     throw err;
   }
@@ -315,6 +342,12 @@ function isBacktestQueueBusy(err: unknown): err is HttpError {
   if (!(err instanceof HttpError)) return false;
   if (err.status !== 429) return false;
   return err.message.toLowerCase().includes("backtest queue is busy");
+}
+
+function shouldRetryAsyncStart(err: unknown): boolean {
+  if (isTimeoutError(err) || isNetworkError(err)) return true;
+  if (err instanceof UnexpectedResponseError) return true;
+  return err instanceof HttpError && (err.status === 502 || err.status === 503 || err.status === 504);
 }
 
 async function runSyncBacktestWithRetry(
@@ -379,6 +412,9 @@ async function runAsyncJob<T>(
   const notFoundGraceMs = Math.min(2 * 60_000, Math.max(10_000, Math.round(overallTimeoutMs * 0.5)));
   let lastTransientError: unknown = null;
   let notFoundSinceMs: number | null = null;
+  const retryStart = opts?.retryStart ?? false;
+  const maxStartRetries = opts?.maxStartRetries ?? 2;
+  let startRetries = 0;
 
   let startBackoffMs = 750;
   let start: AsyncStartResponse;
@@ -391,15 +427,15 @@ async function runAsyncJob<T>(
     }
 
     try {
-      start = await fetchJson<AsyncStartResponse>(
-        baseUrl,
-        startPath,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(params),
-        },
-        { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
+        start = await fetchJson<AsyncStartResponse>(
+          baseUrl,
+          startPath,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(params),
+          },
+        { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs), allowFallback: false },
       );
       break;
     } catch (err) {
@@ -410,6 +446,14 @@ async function runAsyncJob<T>(
         const delayMs = retryAfterMs == null ? startBackoffMs : Math.max(startBackoffMs, retryAfterMs);
         await sleep(Math.min(delayMs, remaining), opts?.signal);
         if (retryAfterMs == null) startBackoffMs = Math.min(5_000, Math.round(startBackoffMs * 1.4));
+        continue;
+      }
+      if (retryStart && shouldRetryAsyncStart(err)) {
+        lastTransientError = err;
+        if (startRetries >= maxStartRetries) throw err;
+        startRetries += 1;
+        await sleep(Math.min(startBackoffMs, remaining), opts?.signal);
+        startBackoffMs = Math.min(5_000, Math.round(startBackoffMs * 1.4));
         continue;
       }
       throw err;
@@ -558,8 +602,9 @@ export async function cacheClear(baseUrl: string, opts?: FetchJsonOptions): Prom
 }
 
 export async function signal(baseUrl: string, params: ApiParams, opts?: AsyncJobOptions): Promise<LatestSignal> {
+  const asyncOpts = opts ? { ...opts, retryStart: true } : { retryStart: true };
   try {
-    return await runAsyncJob<LatestSignal>(baseUrl, "/signal/async", "/signal/async", params, opts);
+    return await runAsyncJob<LatestSignal>(baseUrl, "/signal/async", "/signal/async", params, asyncOpts);
   } catch (err) {
     if (err instanceof HttpError && err.status === 404) {
       return fetchJson<LatestSignal>(
@@ -578,8 +623,9 @@ export async function signal(baseUrl: string, params: ApiParams, opts?: AsyncJob
 }
 
 export async function backtest(baseUrl: string, params: ApiParams, opts?: AsyncJobOptions): Promise<BacktestResponse> {
+  const asyncOpts = opts ? { ...opts, retryStart: true } : { retryStart: true };
   try {
-    return await runAsyncJob<BacktestResponse>(baseUrl, "/backtest/async", "/backtest/async", params, opts);
+    return await runAsyncJob<BacktestResponse>(baseUrl, "/backtest/async", "/backtest/async", params, asyncOpts);
   } catch (err) {
     if (err instanceof HttpError && err.status === 404) {
       return runSyncBacktestWithRetry(baseUrl, params, opts);
