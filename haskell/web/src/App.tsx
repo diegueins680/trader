@@ -3715,6 +3715,60 @@ export function App() {
 
     return { bars, intervalSec, windowBars, overrideOn, effectiveBars, minBarsRequired, error, summary };
   }, [form.bars, form.interval, form.lookbackBars, form.lookbackWindow, platform]);
+  const splitPreview = useMemo(() => {
+    const bars = lookbackState.bars;
+    const lookbackBars = lookbackState.effectiveBars;
+    const backtestRatio =
+      typeof form.backtestRatio === "number" && Number.isFinite(form.backtestRatio) ? clamp(form.backtestRatio, 0.01, 0.99) : 0.2;
+    const tuneRatio =
+      typeof form.tuneRatio === "number" && Number.isFinite(form.tuneRatio) ? clamp(form.tuneRatio, 0, 0.99) : 0;
+    const tuningEnabled = form.optimizeOperations || form.sweepThreshold;
+
+    if (!Number.isFinite(bars) || bars <= 0) {
+      return { summary: "Split preview: set Bars to compute train/backtest sizes.", warning: false };
+    }
+    if (lookbackBars == null || lookbackBars < 2) {
+      return { summary: "Split preview: set a lookback window or override to compute minimum bars.", warning: false };
+    }
+
+    const trainEndRaw = Math.floor(bars * (1 - backtestRatio) + 1e-9);
+    const backtestBars = Math.max(0, bars - trainEndRaw);
+    const minTrainBars = lookbackBars + 1;
+    const trainOk = trainEndRaw >= minTrainBars;
+    const backtestOk = backtestBars >= 2;
+
+    let tuneBars = 0;
+    let fitBars = trainEndRaw;
+    let tuneOk = true;
+    let fitOk = true;
+    if (tuningEnabled) {
+      tuneBars = Math.max(0, Math.min(trainEndRaw, Math.floor(trainEndRaw * tuneRatio)));
+      fitBars = Math.max(0, trainEndRaw - tuneBars);
+      tuneOk = tuneBars >= 2;
+      fitOk = fitBars >= minTrainBars;
+    }
+
+    const minBarsForTrain = Math.ceil(minTrainBars / Math.max(1e-6, 1 - backtestRatio));
+    const baseSummary = tuningEnabled
+      ? `Split preview: bars=${bars} → fit=${fitBars}, tune=${tuneBars}, backtest=${backtestBars}.`
+      : `Split preview: bars=${bars} → train=${trainEndRaw}, backtest=${backtestBars}.`;
+    const minSummary = `Min bars for lookback=${lookbackBars}: ${minBarsForTrain}.`;
+    const warnings: string[] = [];
+    if (!trainOk) warnings.push(`Train must be ≥ ${minTrainBars} bars.`);
+    if (!backtestOk) warnings.push("Backtest needs ≥ 2 bars.");
+    if (tuningEnabled && !tuneOk) warnings.push("Tune needs ≥ 2 bars.");
+    if (tuningEnabled && !fitOk) warnings.push(`Fit must be ≥ ${minTrainBars} bars.`);
+    const summary = warnings.length > 0 ? `${baseSummary} ${minSummary} ${warnings.join(" ")}` : `${baseSummary} ${minSummary}`;
+
+    return { summary, warning: warnings.length > 0 };
+  }, [
+    form.backtestRatio,
+    form.tuneRatio,
+    form.optimizeOperations,
+    form.sweepThreshold,
+    lookbackState.bars,
+    lookbackState.effectiveBars,
+  ]);
   const dataLogFiltered = useMemo(() => {
     const term = dataLogFilterText.trim().toLowerCase();
     if (!term) return dataLog;
@@ -5143,6 +5197,15 @@ export function App() {
                   Per-side ≈ {fmtPct(Math.max(0, form.fee) + Math.max(0, form.slippage) + Math.max(0, form.spread) / 2, 3)} (fee + slippage + spread/2).
                 </div>
               </div>
+            </div>
+            <div
+              className="hint"
+              style={{
+                marginTop: 6,
+                color: splitPreview.warning ? "rgba(239, 68, 68, 0.85)" : undefined,
+              }}
+            >
+              {splitPreview.summary}
             </div>
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr" }}>

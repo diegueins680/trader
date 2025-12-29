@@ -1,3 +1,5 @@
+
+--- Page 1 ---
 TRADING STRATEGIES
 A "Tri-Layer" trading strategy combines the strengths of these 
 three distinct tools to solve the "Noise vs. Lag vs. Prediction" 
@@ -27,6 +29,8 @@ as dynamic Resistance.
 slope is positive, momentum is up. If negative, momentum is 
 down.
 
+
+--- Page 2 ---
 2. LSTM Model (The Predictor)
 You don't need to code a complex neural network from scratch if 
 you use pre-built libraries, but functionally, you need it to output 
@@ -60,6 +64,8 @@ line.
 ◦ Bullish Engulﬁng: A green candle that fully covers the 
 previous red candle.
 
+
+--- Page 3 ---
 ◦ Railroad Tracks: A red candle followed immediately by a 
 green candle of equal size.
 5. Execution: Enter the trade immediately on the close of the 
@@ -91,6 +97,8 @@ Scenario B: The Sniper (High Precision)
 vs. the Kalman Filter (essentially Kalman Bollinger Bands).
 • The Signal: If price hits the Upper Band (2 Standard 
 Deviations above Kalman line) AND the LSTM predicts a 
+
+--- Page 4 ---
 reversal (or low conﬁdence in continued rise), Sell 
 immediately. This often picks the exact top of a spike.
 Scenario C: The LSTM Stop

@@ -80,6 +80,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: optional `apiFallbackUrl` in `trader-config.js` to fail over to a direct API host when `/api` proxies return 502/503/504.
 - Web UI: treat non-JSON or invalid JSON `/api` responses (e.g., HTML from misrouted proxies) as failures and retry via `apiFallbackUrl`.
 - Web UI: async signal/backtest starts retry transient 5xx/timeouts without using `apiFallbackUrl`, and cross-origin fallback is disabled for the session after a network/CORS failure.
+- Web UI: show a backtest/tune split preview with minimum bars required for the current lookback.
 - Web UI: avoid optimizer combo apply crashes when compute limits are unavailable.
 - Backtests: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as trade exit reasons.
 - Backtests: risk halts now evaluate post-bar equity and can close positions at the bar close.
