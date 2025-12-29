@@ -758,6 +758,40 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                               SideLong -> px >= sma
                               SideShort -> px <= sma
 
+              touchCloudAt :: Int -> Bool
+              touchCloudAt idx =
+                let fastIdx = cloudFastV V.! idx
+                    slowIdx = cloudSlowV V.! idx
+                    cloudTopIdx = max fastIdx slowIdx
+                    cloudBotIdx = min fastIdx slowIdx
+                    pxIdx = pricesV V.! idx
+                    padIdx = cloudPadFrac * (if isBad pxIdx then 0 else abs pxIdx)
+                    cloudTopPadIdx = cloudTopIdx + padIdx
+                    cloudBotPadIdx = cloudBotIdx - padIdx
+                    (_, h, l, _) = candleAt idx
+                 in not (isBad fastIdx || isBad slowIdx)
+                      && l <= cloudTopPadIdx
+                      && h >= cloudBotPadIdx
+
+              touchCloudPrefix :: V.Vector Int
+              touchCloudPrefix =
+                if cloudReady
+                  then
+                    V.scanl'
+                      (\acc touched -> acc + if touched then 1 else 0)
+                      0
+                      (V.generate n touchCloudAt)
+                  else V.replicate (n + 1) 0
+
+              touchCloudInWindow :: Int -> Bool
+              touchCloudInWindow t =
+                if not cloudReady
+                  then True
+                  else
+                    let start = max 0 (t - touchLookback + 1)
+                        end = min n (t + 1)
+                     in (touchCloudPrefix V.! end) > (touchCloudPrefix V.! start)
+
               cloudOkAt :: Int -> PositionSide -> Bool
               cloudOkAt t side =
                 if not cloudReady || t <= 0
@@ -769,9 +803,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         cloudTop = max fast slow
                         cloudBot = min fast slow
                         px = pricesV V.! t
-                        pad = cloudPadFrac * (if isBad px then 0 else abs px)
-                        cloudTopPad = cloudTop + pad
-                        cloudBotPad = cloudBot - pad
                         slopeFrac =
                           if isBad px || px == 0
                             then 0
@@ -781,21 +812,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             then 0
                             else (cloudTop - cloudBot) / abs px
                         widthOk = cloudWidthMax <= 0 || isBad widthFrac || widthFrac <= cloudWidthMax
-                        touchCloudAt idx =
-                          let fastIdx = cloudFastV V.! idx
-                              slowIdx = cloudSlowV V.! idx
-                              cloudTopIdx = max fastIdx slowIdx
-                              cloudBotIdx = min fastIdx slowIdx
-                              pxIdx = pricesV V.! idx
-                              padIdx = cloudPadFrac * (if isBad pxIdx then 0 else abs pxIdx)
-                              cloudTopPadIdx = cloudTopIdx + padIdx
-                              cloudBotPadIdx = cloudBotIdx - padIdx
-                              (_, h, l, _) = candleAt idx
-                           in not (isBad fastIdx || isBad slowIdx)
-                                && l <= cloudTopPadIdx
-                                && h >= cloudBotPadIdx
-                        touchStart = max 0 (t - touchLookback + 1)
-                        touchCloud = any touchCloudAt [touchStart .. t]
+                        touchCloud = touchCloudInWindow t
                         trendOk =
                           case side of
                             SideLong -> fast > slow && slopeFrac >= cloudSlopeMin

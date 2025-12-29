@@ -9375,7 +9375,7 @@ lstmConfidenceSizing args sig =
                   | score >= soft -> (0.5, Nothing)
                   | otherwise ->
                       ( 0
-                      , Just (printf "No order: LSTM confidence %.1f%% (<%.1f%%)." (score * 100) (hard * 100))
+                      , Just (printf "No order: LSTM confidence %.1f%% (<%.1f%%)." (score * 100) (soft * 100))
                       )
 
 placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
