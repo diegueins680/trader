@@ -807,6 +807,11 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrTrendLookbackMin :: !(Maybe Int)
   , arrTrendLookbackMax :: !(Maybe Int)
   , arrPIntrabarTakeProfitFirst :: !(Maybe Double)
+  , arrPTriLayer :: !(Maybe Double)
+  , arrTriLayerFastMultMin :: !(Maybe Double)
+  , arrTriLayerFastMultMax :: !(Maybe Double)
+  , arrTriLayerSlowMultMin :: !(Maybe Double)
+  , arrTriLayerSlowMultMax :: !(Maybe Double)
   , arrStopMin :: !(Maybe Double)
   , arrStopMax :: !(Maybe Double)
   , arrTpMin :: !(Maybe Double)
@@ -6893,6 +6898,12 @@ prepareOptimizerArgs outputPath req = do
               ++ maybeIntArg "--trend-lookback-max" (fmap (max 0) (arrTrendLookbackMax req))
           intrabarArgs =
             maybeDoubleArg "--p-intrabar-take-profit-first" (fmap clamp01 (arrPIntrabarTakeProfitFirst req))
+          triLayerArgs =
+            maybeDoubleArg "--p-tri-layer" (fmap clamp01 (arrPTriLayer req))
+              ++ maybeDoubleArg "--tri-layer-fast-mult-min" (fmap (max 1e-6) (arrTriLayerFastMultMin req))
+              ++ maybeDoubleArg "--tri-layer-fast-mult-max" (fmap (max 1e-6) (arrTriLayerFastMultMax req))
+              ++ maybeDoubleArg "--tri-layer-slow-mult-min" (fmap (max 1e-6) (arrTriLayerSlowMultMin req))
+              ++ maybeDoubleArg "--tri-layer-slow-mult-max" (fmap (max 1e-6) (arrTriLayerSlowMultMax req))
           stopRangeArgs =
             maybeDoubleArg "--stop-min" (fmap (max 0) (arrStopMin req))
               ++ maybeDoubleArg "--stop-max" (fmap (max 0) (arrStopMax req))
@@ -7042,6 +7053,7 @@ prepareOptimizerArgs outputPath req = do
               ++ pCostAwareEdgeArgs
               ++ trendLookbackArgs
               ++ intrabarArgs
+              ++ triLayerArgs
               ++ stopRangeArgs
               ++ stopVolMultArgs
               ++ minPositionSizeArgs

@@ -490,6 +490,11 @@ data OptimizerArgs = OptimizerArgs
   , oaTrendLookbackMax :: !Int
   , oaPLongShort :: !Double
   , oaPIntrabarTakeProfitFirst :: !Double
+  , oaPTriLayer :: !Double
+  , oaTriLayerFastMultMin :: !Double
+  , oaTriLayerFastMultMax :: !Double
+  , oaTriLayerSlowMultMin :: !Double
+  , oaTriLayerSlowMultMax :: !Double
   , oaKalmanDtMin :: !Double
   , oaKalmanDtMax :: !Double
   , oaKalmanProcessVarMin :: !Double
@@ -668,6 +673,9 @@ data TrialParams = TrialParams
   , tpSlippage :: !Double
   , tpSpread :: !Double
   , tpIntrabarFill :: !String
+  , tpTriLayer :: !Bool
+  , tpTriLayerFastMult :: !Double
+  , tpTriLayerSlowMult :: !Double
   , tpStopLoss :: !(Maybe Double)
   , tpTakeProfit :: !(Maybe Double)
   , tpTrailingStop :: !(Maybe Double)
@@ -837,6 +845,12 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , printf "%.8f" (tpSpread params)
              , "--intrabar-fill"
              , tpIntrabarFill params
+             ]
+          ++ (if tpTriLayer params then ["--tri-layer"] else [])
+          ++ [ "--tri-layer-fast-mult"
+             , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
+             , "--tri-layer-slow-mult"
+             , printf "%.12g" (max 1e-6 (tpTriLayerSlowMult params))
              ]
       cmd18 =
         case tpStopLoss params of
@@ -1131,6 +1145,9 @@ trialToRecord tr symbolLabel =
         , "slippage" .= tpSlippage (trParams tr)
         , "spread" .= tpSpread (trParams tr)
         , "intrabarFill" .= tpIntrabarFill (trParams tr)
+        , "triLayer" .= tpTriLayer (trParams tr)
+        , "triLayerFastMult" .= tpTriLayerFastMult (trParams tr)
+        , "triLayerSlowMult" .= tpTriLayerSlowMult (trParams tr)
         , "stopLoss" .= tpStopLoss (trParams tr)
         , "takeProfit" .= tpTakeProfit (trParams tr)
         , "trailingStop" .= tpTrailingStop (trParams tr)
@@ -1215,6 +1232,9 @@ sampleParams
   feeMax
   pLongShort
   pIntrabarTakeProfitFirst
+  pTriLayer
+  triLayerFastRange
+  triLayerSlowRange
   epochsMin
   epochsMax
   hiddenMin
@@ -1412,7 +1432,22 @@ sampleParams
         (intrabarFill, rng40) =
           let (r, rng') = nextDouble rng39
            in (if r < clamp pIntrabarTakeProfitFirst 0 1 then "take-profit-first" else "stop-first", rng')
-        (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40
+        (triLayerEnabled, rng40a) =
+          let (r, rng') = nextDouble rng40
+           in (r < clamp pTriLayer 0 1, rng')
+        (triLayerFastRaw, rng40b) =
+          let (lo, hi) = ordered triLayerFastRange
+              lo' = max 1e-6 lo
+              hi' = max lo' hi
+           in nextLogUniform lo' hi' rng40a
+        (triLayerSlowRaw, rng40c) =
+          let (lo, hi) = ordered triLayerSlowRange
+              lo' = max 1e-6 lo
+              hi' = max lo' hi
+           in nextLogUniform lo' hi' rng40b
+        triLayerFastMult = max 1e-6 triLayerFastRaw
+        triLayerSlowMult = max triLayerFastMult (max 1e-6 triLayerSlowRaw)
+        (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40c
         (kalmanProcessVar, rng42) =
           nextLogUniform (max 1e-12 kalmanProcessVarMin) (max 1e-12 kalmanProcessVarMax) rng41
         (kalmanMeasurementVar, rng43) =
@@ -1528,6 +1563,9 @@ sampleParams
             , tpSlippage = slippage
             , tpSpread = spread
             , tpIntrabarFill = intrabarFill
+            , tpTriLayer = triLayerEnabled
+            , tpTriLayerFastMult = triLayerFastMult
+            , tpTriLayerSlowMult = triLayerSlowMult
             , tpStopLoss = stopLoss
             , tpTakeProfit = takeProfit
             , tpTrailingStop = trailingStop
@@ -1729,6 +1767,13 @@ runOptimizer args0 = do
                               trendLookbackMax = max trendLookbackMin (oaTrendLookbackMax args)
                               pLongShort = clamp (oaPLongShort args) 0 1
                               pIntrabarTakeProfitFirst = clamp (oaPIntrabarTakeProfitFirst args) 0 1
+                              pTriLayer = clamp (oaPTriLayer args) 0 1
+                              triLayerFastMin = max 1e-6 (oaTriLayerFastMultMin args)
+                              triLayerFastMax = max triLayerFastMin (oaTriLayerFastMultMax args)
+                              triLayerFastRange = (triLayerFastMin, triLayerFastMax)
+                              triLayerSlowMin = max 1e-6 (oaTriLayerSlowMultMin args)
+                              triLayerSlowMax = max triLayerSlowMin (oaTriLayerSlowMultMax args)
+                              triLayerSlowRange = (triLayerSlowMin, triLayerSlowMax)
                               kalmanDtMin = max 1e-12 (oaKalmanDtMin args)
                               kalmanDtMax = max kalmanDtMin (oaKalmanDtMax args)
                               kalmanProcessVarMin = max 1e-12 (oaKalmanProcessVarMin args)
@@ -1865,6 +1910,9 @@ runOptimizer args0 = do
                                                     feeMax
                                                     pLongShort
                                                     pIntrabarTakeProfitFirst
+                                                    pTriLayer
+                                                    triLayerFastRange
+                                                    triLayerSlowRange
                                                     epochsMin
                                                     epochsMax
                                                     hiddenMin
@@ -2331,6 +2379,9 @@ printBest tr = do
   putStrLn ("  slippage:      " ++ show (tpSlippage p))
   putStrLn ("  spread:        " ++ show (tpSpread p))
   putStrLn ("  intrabarFill:  " ++ show (tpIntrabarFill p))
+  putStrLn ("  triLayer:      " ++ show (tpTriLayer p))
+  putStrLn ("  triLayerFastMult: " ++ show (tpTriLayerFastMult p))
+  putStrLn ("  triLayerSlowMult: " ++ show (tpTriLayerSlowMult p))
   putStrLn ("  stopLoss:      " ++ showMaybe (tpStopLoss p))
   putStrLn ("  takeProfit:    " ++ showMaybe (tpTakeProfit p))
   putStrLn ("  trailingStop:  " ++ showMaybe (tpTrailingStop p))
@@ -2441,6 +2492,9 @@ comboFromTrial dataSource sourceOverride symbolLabel rank tr =
           , "slippage" .= tpSlippage params
           , "spread" .= tpSpread params
           , "intrabarFill" .= tpIntrabarFill params
+          , "triLayer" .= tpTriLayer params
+          , "triLayerFastMult" .= tpTriLayerFastMult params
+          , "triLayerSlowMult" .= tpTriLayerSlowMult params
           , "stopLoss" .= tpStopLoss params
           , "takeProfit" .= tpTakeProfit params
           , "trailingStop" .= tpTrailingStop params

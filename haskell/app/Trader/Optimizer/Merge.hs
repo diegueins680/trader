@@ -285,6 +285,9 @@ signatureKey combo =
         , p "slippage"
         , p "spread"
         , p "intrabarFill"
+        , p "triLayer"
+        , p "triLayerFastMult"
+        , p "triLayerSlowMult"
         , p "stopLoss"
         , p "takeProfit"
         , p "trailingStop"
@@ -421,6 +424,7 @@ normalizeCombo value =
           slippage = KM.lookup (Key.fromString "slippage") paramsRaw >>= coerceFloatValue
           spread = KM.lookup (Key.fromString "spread") paramsRaw >>= coerceFloatValue
           costAwareEdge = fromMaybe False (KM.lookup (Key.fromString "costAwareEdge") paramsRaw >>= coerceBoolValue)
+          triLayer = fromMaybe False (KM.lookup (Key.fromString "triLayer") paramsRaw >>= coerceBoolValue)
           confirmConformal = fromMaybe False (KM.lookup (Key.fromString "confirmConformal") paramsRaw >>= coerceBoolValue)
           confirmQuantiles = fromMaybe False (KM.lookup (Key.fromString "confirmQuantiles") paramsRaw >>= coerceBoolValue)
           confidenceSizing = fromMaybe False (KM.lookup (Key.fromString "confidenceSizing") paramsRaw >>= coerceBoolValue)
@@ -474,6 +478,9 @@ normalizeCombo value =
                   , (Key.fromString "slippage", maybe Null (Number . fromFloatDigits) slippage)
                   , (Key.fromString "spread", maybe Null (Number . fromFloatDigits) spread)
                   , (Key.fromString "intrabarFill", maybe Null (String . T.pack) (valueToStringMaybeMaybe (KM.lookup (Key.fromString "intrabarFill") paramsRaw)))
+                  , (Key.fromString "triLayer", Bool triLayer)
+                  , (Key.fromString "triLayerFastMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerFastMult") paramsRaw >>= coerceFloatValue))
+                  , (Key.fromString "triLayerSlowMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerSlowMult") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "stopLoss", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "stopLoss") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "takeProfit", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "takeProfit") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "trailingStop", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "trailingStop") paramsRaw >>= coerceFloatValue))

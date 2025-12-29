@@ -135,6 +135,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: adds walk-forward/tune-stress sampling controls and propagates additional combo parameters (vol floors, vol caps, stress settings) through top-combo outputs.
 - Optimizer: auto optimizer biases long-short sampling to match existing open positions/orders so compatible combos appear sooner.
 - Optimizer: adds sampling ranges for max-hold bars, blend weight, entry gating (incl. cost-aware-edge probability), position/vol sizing (incl. vol-floor/max-volatility/periods-per-year), Kalman market-top-n, tune objective passthrough, and bars auto/distribution controls.
+- Optimizer: add tri-layer cloud noise sampling (`--p-tri-layer`, `--tri-layer-fast-mult-min/max`, `--tri-layer-slow-mult-min/max`).
 - Optimizer/API: expose intrabar fill probability, bracket-stop ranges (incl. vol-mult), confidence gating, and LSTM training sampling controls to `/optimizer/run`.
 - Optimizer: threshold sweep tie-breakers now prefer higher final equity, then lower turnover/more round trips, and avoid inverted hysteresis unless equity is unchanged.
 - Optimizer: top-combo merges compare scores only within the same objective, fall back to final equity across objectives, and break ties by final equity.
