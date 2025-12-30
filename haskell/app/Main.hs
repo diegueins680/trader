@@ -1479,6 +1479,7 @@ data OpsStore = OpsStore
   , osS3State :: !(Maybe S3State)
   , osS3PersistEverySec :: !Int
   , osS3LastPersistMs :: !(IORef Int64)
+  , osS3LastWriteMs :: !(IORef Int64)
   }
 
 sanitizeApiParams :: ApiParams -> ApiParams
@@ -1661,6 +1662,20 @@ loadOpsFile path maxInMemory = do
                            in loop acc' maxId'
         loop Seq.empty 0
 
+parseOpsBytes :: Int -> BL.ByteString -> (Seq PersistedOperation, Int64)
+parseOpsBytes maxInMemory contents =
+  let step (acc, maxId) line =
+        if BS.all isSpace line
+          then (acc, maxId)
+          else
+            case Aeson.eitherDecodeStrict' line of
+              Left _ -> (acc, maxId)
+              Right op ->
+                let acc' = trimSeq maxInMemory (acc Seq.|> op)
+                    maxId' = max maxId (poId op)
+                 in (acc', maxId')
+   in foldl' step (Seq.empty, 0) (BS.split '\n' (BL.toStrict contents))
+
 writeOpsFile :: FilePath -> BL.ByteString -> IO (Either String ())
 writeOpsFile path contents = do
   let dir = takeDirectory path
@@ -1679,40 +1694,63 @@ writeOpsFile path contents = do
             Left e -> pure (Left ("Failed to write ops file: " ++ show e))
             Right _ -> pure (Right ())
 
-loadOpsFileWithS3 :: FilePath -> Int -> Maybe S3State -> IO (Seq PersistedOperation, Int64)
+loadOpsFileWithS3 :: FilePath -> Int -> Maybe S3State -> IO (Seq PersistedOperation, Int64, Bool)
 loadOpsFileWithS3 path maxInMemory mS3 = do
   exists <- doesFileExist path
-  if exists
-    then loadOpsFile path maxInMemory
-    else do
-      case mS3 of
-        Nothing -> loadOpsFile path maxInMemory
-        Just st -> do
-          s3Result <- s3GetObject st (s3OpsKey st)
-          case s3Result of
-            Right (Just contents) -> do
+  localResult <-
+    if exists
+      then loadOpsFile path maxInMemory
+      else pure (Seq.empty, 0)
+  case mS3 of
+    Nothing -> pure (fst localResult, snd localResult, False)
+    Just st -> do
+      s3Result <- s3GetObject st (s3OpsKey st)
+      case s3Result of
+        Right (Just contents) -> do
+          let (localOps, localMax) = localResult
+              (s3Ops, s3Max) = parseOpsBytes maxInMemory contents
+              preferS3 = s3Max > localMax
+              needsPersist = localMax > s3Max
+          if preferS3
+            then do
               _ <- writeOpsFile path contents
-              loadOpsFile path maxInMemory
-            _ -> loadOpsFile path maxInMemory
+              pure (s3Ops, s3Max, False)
+            else pure (localOps, localMax, needsPersist)
+        _ -> pure (fst localResult, snd localResult, False)
 
 persistOpsMaybe :: OpsStore -> IO ()
 persistOpsMaybe store =
   case osS3State store of
     Nothing -> pure ()
     Just st -> do
-      now <- getTimestampMs
-      lastPersist <- readIORef (osS3LastPersistMs store)
-      let intervalMs = fromIntegral (osS3PersistEverySec store) * 1000
-      if now - lastPersist < intervalMs
+      let everySec = osS3PersistEverySec store
+      if everySec <= 0
         then pure ()
         else do
-          writeIORef (osS3LastPersistMs store) now
-          contentsOrErr <- (try (BL.readFile (osPath store)) :: IO (Either SomeException BL.ByteString))
-          case contentsOrErr of
-            Left _ -> pure ()
-            Right contents -> do
-              _ <- try (s3PutObject st (s3OpsKey st) contents) :: IO (Either SomeException (Either String ()))
-              pure ()
+          lastWrite <- readIORef (osS3LastWriteMs store)
+          lastPersist <- readIORef (osS3LastPersistMs store)
+          now <- getTimestampMs
+          let intervalMs = fromIntegral everySec * 1000
+          if lastWrite <= lastPersist || now - lastPersist < intervalMs
+            then pure ()
+            else do
+              contentsOrErr <- (try (BL.readFile (osPath store)) :: IO (Either SomeException BL.ByteString))
+              case contentsOrErr of
+                Left _ -> pure ()
+                Right contents -> do
+                  putResult <- s3PutObject st (s3OpsKey st) contents
+                  case putResult of
+                    Left _ -> pure ()
+                    Right _ -> writeIORef (osS3LastPersistMs store) now
+
+opsS3PersistLoop :: OpsStore -> IO ()
+opsS3PersistLoop store = do
+  let sleepSec s = threadDelay (max 1 s * 1000000)
+      loop = do
+        persistOpsMaybe store
+        sleepSec (osS3PersistEverySec store)
+        loop
+  loop
 
 newOpsStoreFromEnv :: IO (Maybe OpsStore)
 newOpsStoreFromEnv = do
@@ -1738,34 +1776,42 @@ newOpsStoreFromEnv = do
               Just n | n >= 0 -> n
               _ -> 60
           path = dir </> opsFileName
-      mS3 <-
-        if s3EverySec <= 0
-          then pure Nothing
-          else resolveS3State
+      mS3 <- resolveS3State
       lock <- newMVar ()
-      (ops0, maxId0) <- loadOpsFileWithS3 path maxInMemory mS3
+      (ops0, maxId0, needsPersist) <- loadOpsFileWithS3 path maxInMemory mS3
       lastPersist <- newIORef 0
+      now <- getTimestampMs
+      lastWrite <- newIORef (if needsPersist then now else 0)
       nextId <- newIORef maxId0
       opsRef <- newIORef ops0
-      pure (Just (OpsStore path lock nextId opsRef maxInMemory mS3 s3EverySec lastPersist))
+      let store = OpsStore path lock nextId opsRef maxInMemory mS3 s3EverySec lastPersist lastWrite
+      case (mS3, s3EverySec > 0) of
+        (Just _, True) -> do
+          when needsPersist (persistOpsMaybe store)
+          _ <- forkIO (opsS3PersistLoop store)
+          pure (Just store)
+        _ -> pure (Just store)
 
 opsAppend :: OpsStore -> Text -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Double -> IO PersistedOperation
 opsAppend store kind mParams mArgs mResult mEquity =
-  withMVar (osLock store) $ \_ -> do
-    now <- getTimestampMs
-    opId <- atomicModifyIORef' (osNextId store) (\n -> let n' = n + 1 in (n', n'))
-    let op =
-          PersistedOperation
-            { poId = opId
-            , poAtMs = now
-            , poKind = kind
-            , poParams = mParams
-            , poArgs = mArgs
-            , poResult = mResult
-            , poEquity = mEquity
-            }
-    BL.appendFile (osPath store) (encode op <> BL.fromStrict (BS.pack "\n"))
-    modifyIORef' (osOps store) (\s -> trimSeq (osMaxInMemory store) (s Seq.|> op))
+  do
+    op <- withMVar (osLock store) $ \_ -> do
+      now <- getTimestampMs
+      opId <- atomicModifyIORef' (osNextId store) (\n -> let n' = n + 1 in (n', n'))
+      let op =
+            PersistedOperation
+              { poId = opId
+              , poAtMs = now
+              , poKind = kind
+              , poParams = mParams
+              , poArgs = mArgs
+              , poResult = mResult
+              , poEquity = mEquity
+              }
+      BL.appendFile (osPath store) (encode op <> BL.fromStrict (BS.pack "\n"))
+      modifyIORef' (osOps store) (\s -> trimSeq (osMaxInMemory store) (s Seq.|> op))
+      writeIORef (osS3LastWriteMs store) now
+      pure op
     persistOpsMaybe store
     pure op
 
@@ -11106,6 +11152,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             else (methodRequested, argOpenThreshold args, argCloseThreshold args, Nothing, Nothing)
 
       backtestCfg = baseCfgBacktest { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
+      routerOpenThr = max bestOpenThr minEdge
       blendWeight0 = argBlendWeight args
       blendWeight = max 0 (min 1 blendWeight0)
       blendPredBacktest = zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredBacktest lstmPredBacktest
@@ -11118,7 +11165,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 blendV = V.fromList blendPredBacktest
                 routerPredV =
                   routerPredictionsV
-                    bestOpenThr
+                    routerOpenThr
                     (argRouterLookback args)
                     (argRouterMinScore args)
                     pricesV
@@ -11127,7 +11174,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     blendV
                 routerModelV =
                   routerModelsV
-                    bestOpenThr
+                    routerOpenThr
                     (argRouterLookback args)
                     (argRouterMinScore args)
                     pricesV
@@ -11149,8 +11196,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         Just metaList ->
                           let metaV = V.fromList metaList
                               stepCount = V.length routerPredV
-                              thrMin = min bestOpenThr bestCloseThr
-                              thrMax = max bestOpenThr bestCloseThr
+                              thrMin = min routerOpenThr bestCloseThr
+                              thrMax = max routerOpenThr bestCloseThr
                               eps = max 1e-9 (abs thrMax * 0.01)
                               zMin = max 0 (argKalmanZMin args)
                               zMax = max zMin (argKalmanZMax args)

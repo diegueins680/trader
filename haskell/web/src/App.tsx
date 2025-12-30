@@ -432,7 +432,6 @@ const CUSTOM_SYMBOL_VALUE = "__custom__";
 const TOP_COMBOS_POLL_MS = 30_000;
 const TOP_COMBOS_DISPLAY_DEFAULT = 5;
 const TOP_COMBOS_DISPLAY_MIN = 1;
-const TOP_COMBOS_DISPLAY_MAX = 200;
 const MIN_LOOKBACK_BARS = 2;
 const MIN_BACKTEST_BARS = 2;
 const MIN_BACKTEST_RATIO = 0.01;
@@ -1151,6 +1150,11 @@ export function App() {
     fallbackReason: null,
     comboCount: null,
   });
+  const topCombosDisplayMax = useMemo(() => {
+    const count = topCombosMeta.comboCount ?? topCombosAll.length;
+    if (count && count > 0) return Math.max(TOP_COMBOS_DISPLAY_MIN, count);
+    return Math.max(TOP_COMBOS_DISPLAY_MIN, TOP_COMBOS_DISPLAY_DEFAULT);
+  }, [topCombosAll.length, topCombosMeta.comboCount]);
   const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
@@ -1377,6 +1381,11 @@ export function App() {
   useEffect(() => {
     topCombosRef.current = topCombosAll;
   }, [topCombosAll]);
+
+  useEffect(() => {
+    if (topCombosDisplayCount <= topCombosDisplayMax) return;
+    setTopCombosDisplayCount(topCombosDisplayMax);
+  }, [topCombosDisplayCount, topCombosDisplayMax]);
 
   useEffect(() => {
     if (!dataLogAutoScroll) return;
@@ -4784,12 +4793,12 @@ export function App() {
                   className="input"
                   type="number"
                   min={TOP_COMBOS_DISPLAY_MIN}
-                  max={TOP_COMBOS_DISPLAY_MAX}
+                  max={topCombosDisplayMax}
                   step={1}
                   value={topCombosDisplayCount}
                   onChange={(e) => {
                     const rawValue = numFromInput(e.target.value, topCombosDisplayCount);
-                    const next = clamp(Math.trunc(rawValue), TOP_COMBOS_DISPLAY_MIN, TOP_COMBOS_DISPLAY_MAX);
+                    const next = clamp(Math.trunc(rawValue), TOP_COMBOS_DISPLAY_MIN, topCombosDisplayMax);
                     setTopCombosDisplayCount(next);
                   }}
                   style={{ width: 120 }}

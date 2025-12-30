@@ -218,7 +218,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average), `router` (adaptive model selection)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
-    - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy, then applies the selected model's gates (Kalman/Blend use Kalman confidence filters; LSTM uses the raw LSTM direction).
+    - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy, then applies the selected model's gates (Kalman/Blend use Kalman confidence filters; LSTM uses the raw LSTM direction). Router scoring uses the effective open threshold (open-threshold plus any cost-aware min-edge floor).
     - `--blend-weight 0.5` Kalman weight for `blend` (`0..1`, default: `0.5`)
     - `--router-lookback 30` lookback bars for router scoring (`>= 2`)
     - `--router-min-score 0.25` minimum router score (accuracy × coverage) to accept a model (`0..1`)
@@ -457,7 +457,7 @@ Optional ops persistence (powers `GET /ops` and the “operations” history):
 - If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/ops`.
 - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`) max operations kept in memory per process
 - When S3 persistence is enabled via `TRADER_STATE_S3_BUCKET`, ops are restored from `ops/ops.jsonl` and synced back on a timer.
-- `TRADER_OPS_S3_EVERY_SEC` (default: `60`) cadence for syncing ops to S3 (`0` disables S3 sync).
+- `TRADER_OPS_S3_EVERY_SEC` (default: `60`) cadence for syncing ops to S3 (`0` disables S3 sync but still restores from S3).
 - `GET /ops` query params:
   - `limit` (default: `200`, max: `5000`)
   - `since` (only return ops with `id > since`)
@@ -593,7 +593,7 @@ Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`,
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
-The UI shows whether combos are coming from the live API or the static fallback, their last update time, and how many combos are displayed; you can choose the combo count (default 5).
+The UI shows whether combos are coming from the live API or the static fallback, their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
 Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.

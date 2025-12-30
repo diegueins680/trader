@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.
-- Ops: sync `ops.jsonl` to S3 (and restore on boot) when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
+- Ops: restore the newest `ops.jsonl` from S3 on boot and sync on a timer when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - Trading: futures order placement checks available balance (and leverage) before submitting.
 - Trading: add `--method router` with `--router-lookback`/`--router-min-score` for adaptive Kalman/LSTM/blend selection.
 - Trading: router signals now apply the selected model's gates (Kalman/Blend only when selected) and skip Kalman gating on LSTM-routed bars.
+- Backtests: router scoring now uses the effective open threshold (including cost-aware min-edge floors).
 - Backtests: router agreement rate now reflects Kalman vs LSTM agreement instead of routed predictions.
 - Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
@@ -80,7 +81,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add platform selector with per-exchange symbols/intervals and disable Binance-only actions when not on Binance.
 - Web UI: store and check API keys per platform (Binance/Coinbase) and show Coinbase symbol defaults.
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
-- Web UI: let users choose how many optimizer combos to display (default 5).
+- Web UI: let users choose how many optimizer combos to display (default 5, capped by available combos).
 - Web UI: top combos now auto-apply when available to keep the form aligned with the top performer.
 - Web UI: idle live bot auto-starts after the top combo is applied.
 - API: futures MIN_NOTIONAL parsing now honors the `notional` field to skip trade tests below minNotional.
