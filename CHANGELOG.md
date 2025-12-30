@@ -130,6 +130,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: optimizer combos now persist/show the operations that produced each top result on hover.
 - Web UI: add auto-apply toggle with last-applied marker, manual override lock/unlock hints, and a cross-origin API base warning.
 - Web UI: show persisted live-bot snapshots when `/bot/status` is restored after restart.
+- Web UI: auto-adjust bars/backtest ratio on backtest/optimize runs when the split would be invalid.
 - Live bot/UI: `/bot/status` includes `startingReason` and the UI surfaces when startup is waiting for a compatible top combo.
 - API: `/bot/status` now caps the `tail` parameter to 5000 points.
 - API: `/bot/status` tail now clamps open trade entries so open positions remain visible.

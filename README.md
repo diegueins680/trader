@@ -285,6 +285,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-position-size 0.15` minimum entry size when confidence sizing is enabled (`0..1`; ignored when confidence sizing is disabled)
   - When confidence sizing is enabled, live orders also scale entry size by LSTM confidence (score = clamp01(|lstmNext/current - 1| / (2 * openThreshold))): use `--lstm-confidence-hard/soft` thresholds (defaults 80%/60%).
   - The UI defaults to `orderQuote=100` so new setups clear common minQty/step sizes; adjust sizing to your account.
+  - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
   - Close-direction gating ignores `--min-position-size` so exits are not blocked by low confidence.
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`

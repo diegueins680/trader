@@ -432,6 +432,9 @@ const CUSTOM_SYMBOL_VALUE = "__custom__";
 const TOP_COMBOS_POLL_MS = 30_000;
 const TOP_COMBOS_DISPLAY_MAX = 12;
 const MIN_LOOKBACK_BARS = 2;
+const MIN_BACKTEST_BARS = 2;
+const MIN_BACKTEST_RATIO = 0.01;
+const MAX_BACKTEST_RATIO = 0.99;
 
 const DURATION_UNITS: Array<{ unit: string; seconds: number }> = [
   { unit: "M", seconds: 30 * 24 * 60 * 60 },
@@ -486,6 +489,61 @@ function sigBool(value: boolean | null | undefined): string {
 function formatDirectionLabel(value: LatestSignal["closeDirection"]): string {
   if (value === undefined) return "—";
   return value ?? "NEUTRAL";
+}
+
+type SplitStats = {
+  trainEndRaw: number;
+  backtestBars: number;
+  tuneBars: number;
+  fitBars: number;
+  trainOk: boolean;
+  backtestOk: boolean;
+  tuneOk: boolean;
+  fitOk: boolean;
+};
+
+function splitStats(
+  bars: number,
+  backtestRatio: number,
+  lookbackBars: number,
+  tuneRatio: number,
+  tuningEnabled: boolean,
+): SplitStats {
+  const ratio = clamp(backtestRatio, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
+  const trainEndRaw = Math.floor(bars * (1 - ratio) + 1e-9);
+  const backtestBars = Math.max(0, bars - trainEndRaw);
+  const minTrainBars = lookbackBars + 1;
+  const trainOk = trainEndRaw >= minTrainBars;
+  const backtestOk = backtestBars >= MIN_BACKTEST_BARS;
+  let tuneBars = 0;
+  let fitBars = trainEndRaw;
+  let tuneOk = true;
+  let fitOk = true;
+  if (tuningEnabled) {
+    const tuneRatioSafe = clamp(tuneRatio, 0, 0.99);
+    tuneBars = Math.max(0, Math.min(trainEndRaw, Math.floor(trainEndRaw * tuneRatioSafe)));
+    fitBars = Math.max(0, trainEndRaw - tuneBars);
+    tuneOk = tuneBars >= 2;
+    fitOk = fitBars >= minTrainBars;
+  }
+  return { trainEndRaw, backtestBars, tuneBars, fitBars, trainOk, backtestOk, tuneOk, fitOk };
+}
+
+function minTrainEndForTune(minTrainBars: number, tuneRatio: number, tuningEnabled: boolean, maxTrainEnd: number): number {
+  if (!tuningEnabled) return minTrainBars;
+  const ratio = clamp(tuneRatio, 0, 0.99);
+  if (ratio <= 0) return minTrainBars;
+  for (let trainEnd = minTrainBars; trainEnd <= maxTrainEnd; trainEnd += 1) {
+    const tuneBars = Math.floor(trainEnd * ratio);
+    const fitBars = trainEnd - tuneBars;
+    if (tuneBars >= 2 && fitBars >= minTrainBars) return trainEnd;
+  }
+  return minTrainBars;
+}
+
+function ratioForTrainEnd(bars: number, trainEnd: number): number {
+  const raw = 1 - (trainEnd + 0.5) / Math.max(1, bars);
+  return clamp(raw, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
 }
 
 function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits | null): {
@@ -2198,6 +2256,97 @@ export function App() {
     };
   }, []);
 
+  const adjustBacktestParams = (params: ApiParams): { params: ApiParams; changes: { bars?: number; backtestRatio?: number; message: string } | null } => {
+    const interval = params.interval ?? "";
+    const platformValue = params.platform ?? platform;
+    const intervalSec = platformIntervalSeconds(platformValue, interval);
+    const overrideBars = Math.trunc(params.lookbackBars ?? 0);
+    const windowRaw = (params.lookbackWindow ?? "").trim();
+    const windowSec = windowRaw ? parseDurationSeconds(windowRaw) : null;
+    const windowBars =
+      windowSec && windowSec > 0 && intervalSec ? Math.ceil(windowSec / intervalSec) : null;
+    const lookbackBars = overrideBars >= MIN_LOOKBACK_BARS ? overrideBars : windowBars;
+    if (lookbackBars == null || lookbackBars < MIN_LOOKBACK_BARS) return { params, changes: null };
+
+    const barsRaw = Math.trunc(params.bars ?? 0);
+    if (!Number.isFinite(barsRaw) || barsRaw <= 0) return { params, changes: null };
+
+    const bars = Math.max(MIN_LOOKBACK_BARS, barsRaw);
+    const backtestRatioRaw = typeof params.backtestRatio === "number" && Number.isFinite(params.backtestRatio) ? params.backtestRatio : 0.2;
+    const backtestRatio = clamp(backtestRatioRaw, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
+    const tuneRatio = typeof params.tuneRatio === "number" && Number.isFinite(params.tuneRatio) ? clamp(params.tuneRatio, 0, 0.99) : 0;
+    const tuningEnabled = Boolean(params.optimizeOperations || params.sweepThreshold);
+
+    const lstmEnabled = params.method !== "10";
+    let maxBars = platformValue === "binance" ? 1000 : Number.POSITIVE_INFINITY;
+    const apiBarsLimit = apiComputeLimits?.maxBarsLstm;
+    if (lstmEnabled && typeof apiBarsLimit === "number" && Number.isFinite(apiBarsLimit) && apiBarsLimit > 0) {
+      maxBars = Math.min(maxBars, Math.trunc(apiBarsLimit));
+    }
+    const barsCap = Number.isFinite(maxBars) ? Math.max(bars, Math.trunc(maxBars)) : bars;
+
+    const current = splitStats(bars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
+    if (current.trainOk && current.backtestOk && current.tuneOk && current.fitOk) {
+      if (bars !== barsRaw || backtestRatio !== backtestRatioRaw) {
+        return {
+          params: { ...params, bars, backtestRatio },
+          changes: {
+            bars: bars !== barsRaw ? bars : undefined,
+            backtestRatio: backtestRatio !== backtestRatioRaw ? backtestRatio : undefined,
+            message: `Adjusted split inputs: bars=${bars}, backtestRatio=${fmtPct(backtestRatio, 1)}.`,
+          },
+        };
+      }
+      return { params, changes: null };
+    }
+
+    const minTrainBars = lookbackBars + 1;
+    const maxTrainEndForBars = Math.max(0, bars - MIN_BACKTEST_BARS);
+    const minTrainEnd = minTrainEndForTune(minTrainBars, tuneRatio, tuningEnabled, maxTrainEndForBars);
+    const minBarsForTrain = Math.ceil(minTrainEnd / Math.max(1e-6, 1 - backtestRatio));
+    const minBarsForBacktest = Math.ceil(MIN_BACKTEST_BARS / Math.max(1e-6, backtestRatio));
+    let candidateBars = Math.max(bars, minTrainBars + MIN_BACKTEST_BARS, minBarsForTrain, minBarsForBacktest);
+    if (candidateBars > barsCap) candidateBars = barsCap;
+
+    if (candidateBars > bars) {
+      let adjustedBars = candidateBars;
+      while (adjustedBars <= barsCap) {
+        const stats = splitStats(adjustedBars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
+        if (stats.trainOk && stats.backtestOk && stats.tuneOk && stats.fitOk) {
+          return {
+            params: { ...params, bars: adjustedBars, backtestRatio },
+            changes: {
+              bars: adjustedBars,
+              message: `Adjusted bars to ${adjustedBars} to satisfy the split.`,
+            },
+          };
+        }
+        adjustedBars += 1;
+      }
+    }
+
+    const maxTrainEnd = Math.max(0, bars - MIN_BACKTEST_BARS);
+    const minTrainEndAdj = minTrainEndForTune(minTrainBars, tuneRatio, tuningEnabled, maxTrainEnd);
+    if (minTrainEndAdj <= maxTrainEnd) {
+      let targetTrainEnd = current.trainEndRaw;
+      if (!current.trainOk || !current.tuneOk || !current.fitOk) targetTrainEnd = minTrainEndAdj;
+      if (!current.backtestOk) targetTrainEnd = maxTrainEnd;
+      const adjustedRatio = ratioForTrainEnd(bars, targetTrainEnd);
+      const stats = splitStats(bars, adjustedRatio, lookbackBars, tuneRatio, tuningEnabled);
+      if (stats.trainOk && stats.backtestOk && stats.tuneOk && stats.fitOk) {
+        return {
+          params: { ...params, bars, backtestRatio: adjustedRatio },
+          changes: {
+            backtestRatio: adjustedRatio,
+            message: `Adjusted backtest ratio to ${fmtPct(adjustedRatio, 1)} to satisfy the split.`,
+          },
+        };
+      }
+    }
+
+    return { params, changes: null };
+  };
+
   const run = useCallback(
     async (kind: RequestKind, overrideParams?: ApiParams, opts?: RunOptions) => {
       const now = Date.now();
@@ -2222,7 +2371,23 @@ export function App() {
       }
 
       try {
-        const p = overrideParams ?? (kind === "trade" ? tradeParams : commonParams);
+        const baseParams = overrideParams ?? (kind === "trade" ? tradeParams : commonParams);
+        const adjusted =
+          kind === "backtest" ? adjustBacktestParams(baseParams) : { params: baseParams, changes: null };
+        const p = adjusted.params;
+        if (adjusted.changes && !opts?.silent) {
+          setForm((prev) => {
+            let next = prev;
+            if (adjusted.changes?.bars !== undefined && adjusted.changes.bars !== prev.bars) {
+              next = { ...next, bars: adjusted.changes.bars };
+            }
+            if (adjusted.changes?.backtestRatio !== undefined && adjusted.changes.backtestRatio !== prev.backtestRatio) {
+              next = { ...next, backtestRatio: adjusted.changes.backtestRatio };
+            }
+            return next === prev ? prev : next;
+          });
+          showToast(adjusted.changes.message);
+        }
         if (!p.binanceSymbol) throw new Error("Symbol is required.");
         if (!p.interval) throw new Error("interval is required.");
         const requestHeaders = form.bypassCache ? { ...(authHeaders ?? {}), "Cache-Control": "no-cache" } : authHeaders;
