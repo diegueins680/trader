@@ -218,7 +218,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average), `router` (adaptive model selection)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
-    - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy.
+    - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy, then applies the selected model's gates (Kalman/Blend use Kalman confidence filters; LSTM uses the raw LSTM direction).
     - `--blend-weight 0.5` Kalman weight for `blend` (`0..1`, default: `0.5`)
     - `--router-lookback 30` lookback bars for router scoring (`>= 2`)
     - `--router-min-score 0.25` minimum router score (accuracy × coverage) to accept a model (`0..1`)
@@ -573,7 +573,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
-- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), `"blend"` (weighted average; see `--blend-weight`), or `"router"` (adaptive selection; see `--router-lookback` / `--router-min-score`).
+- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), `"blend"` (weighted average; see `--blend-weight`), or `"router"` (adaptive selection with model-specific gating; see `--router-lookback` / `--router-min-score`).
 - `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
 - Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption or futures trade requests.
 

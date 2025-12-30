@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - Trading: when confidence sizing is enabled, scale live orders and backtests by LSTM confidence (thresholds now configurable).
 - Trading: futures order placement checks available balance (and leverage) before submitting.
 - Trading: add `--method router` with `--router-lookback`/`--router-min-score` for adaptive Kalman/LSTM/blend selection.
+- Trading: router signals now apply the selected model's gates (Kalman/Blend only when selected) and skip Kalman gating on LSTM-routed bars.
+- Backtests: router agreement rate now reflects Kalman vs LSTM agreement instead of routed predictions.
 - Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
 - Web UI: default order sizing uses `orderQuote=100` to avoid orders rounding to zero on common minQty/step sizes.
@@ -45,6 +47,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: bot state timeline hover now shows the corresponding timestamp.
 - Web UI: open positions/orphaned operations cards key by position side, ignore bots with trade disabled when determining adoption, and label trade-off bots explicitly.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
+- Web UI: backtest split auto-adjusts bars without exceeding API max bars.
 - Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).
 - Metrics: agreement rate now counts only bars where both models emit a direction (warm-up/no-signal bars excluded).
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
@@ -86,6 +89,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: Data Log adds an auto-scroll toggle to keep the latest entries visible.
 - Web UI: Data Log adds label filtering with copy-shown support plus clear-filter/jump-to-latest actions.
 - Web UI: numeric inputs accept comma decimals and strip thousands separators; auto-refresh interval input disables when off.
+- Web UI: router mode clears optimize/sweep toggles and omits them from API requests.
 - Web UI: add a sticky run bar in the configuration panel showing readiness issues and keeping run actions visible.
 - Web UI: add section headings plus issue shortcuts that jump and highlight the relevant inputs.
 - Web UI: when trading is armed, automatically switches Market to Futures when Positioning is set to Long/Short.
