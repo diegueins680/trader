@@ -5,6 +5,7 @@
 module Main where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
+import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Exception (IOException, SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
@@ -2924,13 +2925,14 @@ botStartSymbol ::
   Maybe FilePath ->
   FilePath ->
   ApiComputeLimits ->
+  TopCombosBacktestCtx ->
   AdoptRequirement ->
   BotController ->
   Args ->
   ApiParams ->
   String ->
   IO (Either String BotStartOutcome)
-botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl args p symRaw =
+botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args p symRaw =
   case botSettingsFromApi args p of
     Left e -> pure (Left e)
     Right settings ->
@@ -2943,6 +2945,7 @@ botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimiz
         mBotStateDir
         optimizerTmp
         limits
+        topCombosCtx
         adoptReq
         ctrl
         args
@@ -2958,13 +2961,14 @@ botStartSymbolWithSettings ::
   Maybe FilePath ->
   FilePath ->
   ApiComputeLimits ->
+  TopCombosBacktestCtx ->
   AdoptRequirement ->
   BotController ->
   Args ->
   BotSettings ->
   String ->
   IO (Either String BotStartOutcome)
-botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl args settings symRaw =
+botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args settings symRaw =
   if not (platformSupportsLiveBot (argPlatform args))
     then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
     else
@@ -2993,7 +2997,7 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                       Left e | not (arActive adoptReq) -> pure (mrt, Left e)
                       Left _ -> do
                         stopSig <- newEmptyMVar
-                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
+                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl argsSym settings sym stopSig)
                         let rt =
                               BotStartRuntime
                                 { bsrThreadId = tid
@@ -3008,7 +3012,7 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                         pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
                       Right () -> do
                         stopSig <- newEmptyMVar
-                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl argsSym settings sym stopSig)
+                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl argsSym settings sym stopSig)
                         let rt =
                               BotStartRuntime
                                 { bsrThreadId = tid
@@ -3030,6 +3034,7 @@ botStartWorker ::
   Maybe FilePath ->
   FilePath ->
   ApiComputeLimits ->
+  TopCombosBacktestCtx ->
   AdoptRequirement ->
   BotController ->
   Args ->
@@ -3037,7 +3042,7 @@ botStartWorker ::
   String ->
   MVar () ->
   IO ()
-botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq ctrl args settings sym stopSig = do
+botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args settings sym stopSig = do
   tid <- myThreadId
   let doStart baseArgs = do
         argsFinal <-
@@ -3090,7 +3095,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits a
               pure (HM.insert sym (BotRunning (BotRuntime tid stVar stopSig (Just optimizerRt))) mrt, True)
             _ -> pure (mrt, False)
       if startOk
-        then botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig (Just optimizerPending)
+        then botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stopSig (Just optimizerPending)
         else do
           _ <- tryPutMVar optimizerStopSig ()
           killThread optimizerTid
@@ -3103,10 +3108,11 @@ botAutoStartLoop ::
   Maybe FilePath ->
   FilePath ->
   ApiComputeLimits ->
+  TopCombosBacktestCtx ->
   Args ->
   BotController ->
   IO ()
-botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits baseArgs botCtrl = do
+botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs botCtrl = do
   symbolsOrErr <- resolveBotSymbolsAuto baseArgs
   case symbolsOrErr of
     Left err -> putStrLn ("Live bot auto-start disabled: " ++ err)
@@ -3164,6 +3170,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                                 mBotStateDir
                                 optimizerTmp
                                 limits
+                                topCombosCtx
                                 adoptReq
                                 botCtrl
                                 argsOk
@@ -4496,11 +4503,203 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
 
                       loop
 
-autoTopCombosBacktestLoop :: Args -> ApiComputeLimits -> BacktestGate -> Maybe OpsStore -> Maybe Journal -> FilePath -> IO ()
-autoTopCombosBacktestLoop baseArgs limits backtestGate mOps mJournal optimizerTmp = do
-  enabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
-  let enabled = readEnvBool enabledEnv True
-  if not enabled
+data TopCombosBacktestCtx = TopCombosBacktestCtx
+  { tcbcBaseArgs :: !Args
+  , tcbcLimits :: !ApiComputeLimits
+  , tcbcGate :: !BacktestGate
+  , tcbcOps :: !(Maybe OpsStore)
+  , tcbcJournal :: !(Maybe Journal)
+  , tcbcOptimizerTmp :: !FilePath
+  , tcbcLock :: !(MVar ())
+  , tcbcCandleChan :: !(Chan ())
+  , tcbcEnabled :: !Bool
+  }
+
+withTopCombosBacktestLock :: TopCombosBacktestCtx -> IO a -> IO a
+withTopCombosBacktestLock ctx action =
+  withMVar (tcbcLock ctx) (\_ -> action)
+
+backtestTopCombosOnce :: Int -> TopCombosBacktestCtx -> IO ()
+backtestTopCombosOnce topNRaw ctx = do
+  let topN = max 1 topNRaw
+      baseArgs = tcbcBaseArgs ctx
+      limits = tcbcLimits ctx
+      backtestGate = tcbcGate ctx
+      mOps = tcbcOps ctx
+      mJournal = tcbcJournal ctx
+  topJsonPath <- resolveOptimizerCombosPath (tcbcOptimizerTmp ctx)
+  let recordEvent :: String -> [(AK.Key, Aeson.Value)] -> IO ()
+      recordEvent kind details = do
+        now <- getTimestampMs
+        journalWriteMaybe mJournal (object ("type" .= kind : "atMs" .= now : details))
+        opsAppendMaybe mOps (T.pack kind) Nothing Nothing (Just (object details)) Nothing
+
+      recordError :: String -> String -> Maybe String -> Maybe String -> IO ()
+      recordError kind err sym interval = do
+        let details =
+              [ "error" .= err
+              , "symbol" .= sym
+              , "interval" .= interval
+              , "path" .= topJsonPath
+              ]
+        recordEvent kind details
+
+      backtestCombo comboVal = do
+        let mKey = comboIdentityKey comboVal
+        case mKey of
+          Nothing -> do
+            recordError "optimizer.combos.backtest_failed" "Missing combo identity." Nothing Nothing
+            pure Nothing
+          Just key ->
+            case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
+              Aeson.Error err -> do
+                recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                pure Nothing
+              Aeson.Success combo -> do
+                let mSymbol =
+                      topComboParamString "binanceSymbol" combo
+                        <|> topComboParamString "symbol" combo
+                    mInterval = topComboParamString "interval" combo
+                    mPlatformRaw = topComboParamString "platform" combo
+                    platformOrErr =
+                      case mPlatformRaw of
+                        Nothing -> Right (argPlatform baseArgs)
+                        Just raw ->
+                          if normalizeKey raw == "csv"
+                            then Left "CSV combos require --data."
+                            else parsePlatform raw
+                case (mSymbol, platformOrErr) of
+                  (Nothing, _) -> do
+                    recordError "optimizer.combos.backtest_failed" "Missing combo symbol." Nothing mInterval
+                    pure Nothing
+                  (_, Left e) -> do
+                    recordError "optimizer.combos.backtest_failed" e mSymbol mInterval
+                    pure Nothing
+                  (Just sym, Right platform) -> do
+                    args0 <-
+                      case applyTopComboForStart baseArgs combo of
+                        Left e -> do
+                          recordError "optimizer.combos.backtest_failed" e (Just sym) mInterval
+                          pure Nothing
+                        Right out -> pure (Just out)
+                    case args0 of
+                      Nothing -> pure Nothing
+                      Just argsBase -> do
+                        let args1 =
+                              argsBase
+                                { argBinanceSymbol = Just sym
+                                , argPlatform = platform
+                                , argData = Nothing
+                                , argTradeOnly = False
+                                , argBinanceTrade = False
+                                , argOptimizeOperations = False
+                                , argSweepThreshold = False
+                                }
+                        case validateApiComputeLimits limits args1 of
+                          Left e -> do
+                            recordError "optimizer.combos.backtest_failed" e (Just sym) mInterval
+                            pure Nothing
+                          Right argsOk -> do
+                            backtestResult <- runBacktestWithGate backtestGate (computeBacktestFromArgs mOps argsOk)
+                            case backtestResult of
+                              Left failure ->
+                                case failure of
+                                  BacktestBusy -> do
+                                    recordEvent
+                                      "optimizer.combos.backtest_skipped"
+                                      [ "reason" .= ("busy" :: String)
+                                      , "symbol" .= sym
+                                      , "interval" .= mInterval
+                                      , "path" .= topJsonPath
+                                      ]
+                                    pure Nothing
+                                  _ -> do
+                                    recordError "optimizer.combos.backtest_failed" (backtestFailureMessage backtestGate failure) (Just sym) mInterval
+                                    pure Nothing
+                              Right out ->
+                                case extractBacktestMetrics out of
+                                  Nothing -> do
+                                    recordError "optimizer.combos.backtest_failed" "Backtest missing metrics." (Just sym) mInterval
+                                    pure Nothing
+                                  Just metricsVal -> do
+                                    let mFinalEq = comboMetricDouble "finalEquity" metricsVal
+                                        objective = fromMaybe "final-equity" (tcObjectiveLabel combo)
+                                        mScore = objectiveScoreFromMetrics argsOk objective metricsVal
+                                        mOps = extractBacktestOperations out
+                                        update =
+                                          ComboBacktestUpdate
+                                            { cbuMetrics = metricsVal
+                                            , cbuFinalEquity = mFinalEq
+                                            , cbuScore = mScore
+                                            , cbuOperations = mOps
+                                            }
+                                    recordEvent
+                                      "optimizer.combos.backtest"
+                                      ( [ "symbol" .= sym
+                                        , "interval" .= mInterval
+                                        , "finalEquity" .= mFinalEq
+                                        , "score" .= mScore
+                                        ]
+                                          ++ maybe [] (\v -> ["objective" .= v]) (tcObjectiveLabel combo)
+                                      )
+                                    pure (Just (key, update))
+
+  baseValOrErr <- readTopCombosValue topJsonPath
+  case baseValOrErr of
+    Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+    Right baseVal ->
+      case baseVal of
+        Aeson.Object o ->
+          case KM.lookup (AK.fromString "combos") o of
+            Just (Aeson.Array combos) -> do
+              let combosList = V.toList combos
+                  ranked = take topN (sortOn (\(_, v) -> comboPerformanceKey v) (zip [0 ..] combosList))
+              updates <- fmap catMaybes (forM ranked (\(_, v) -> backtestCombo v))
+              if null updates
+                then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String)]
+                else do
+                  latestValOrErr <- readTopCombosValue topJsonPath
+                  now <- getTimestampMs
+                  let latestVal = either (const baseVal) id latestValOrErr
+                      updateMap = HM.fromList updates
+                  case applyComboUpdates now updateMap latestVal of
+                    Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                    Right (updatedVal, updatedCount) ->
+                      if updatedCount <= 0
+                        then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
+                        else do
+                          writeResult <- writeTopCombosValue topJsonPath updatedVal
+                          case writeResult of
+                            Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                            Right _ -> do
+                              persistTopCombosMaybe topJsonPath
+                              recordEvent
+                                "optimizer.combos.backtest_updated"
+                                [ "updated" .= updatedCount
+                                , "topN" .= topN
+                                , "path" .= topJsonPath
+                                ]
+            _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON missing combos array." Nothing Nothing
+        _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON root must be an object." Nothing Nothing
+
+topCombosCandleWorker :: TopCombosBacktestCtx -> IO ()
+topCombosCandleWorker ctx = do
+  let loop = do
+        _ <- readChan (tcbcCandleChan ctx)
+        when (tcbcEnabled ctx) $ do
+          _ <- try (withTopCombosBacktestLock ctx (backtestTopCombosOnce 5 ctx)) :: IO (Either SomeException ())
+          pure ()
+        loop
+  loop
+
+triggerTopCombosBacktestOnCandle :: TopCombosBacktestCtx -> IO ()
+triggerTopCombosBacktestOnCandle ctx =
+  when (tcbcEnabled ctx) $
+    writeChan (tcbcCandleChan ctx) ()
+
+autoTopCombosBacktestLoop :: TopCombosBacktestCtx -> IO ()
+autoTopCombosBacktestLoop ctx =
+  if not (tcbcEnabled ctx)
     then pure ()
     else do
       topNEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_TOP_N"
@@ -4515,170 +4714,14 @@ autoTopCombosBacktestLoop baseArgs limits backtestGate mOps mJournal optimizerTm
             case everySecEnv >>= readMaybe of
               Just n | n >= 60 -> n
               _ -> 86400
-      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+      topJsonPath <- resolveOptimizerCombosPath (tcbcOptimizerTmp ctx)
       putStrLn (printf "Top combos backtest enabled: topN=%d everySec=%d path=%s" topN everySec topJsonPath)
       let sleepSec s = threadDelay (max 1 s * 1000000)
-
-          recordEvent :: String -> [(AK.Key, Aeson.Value)] -> IO ()
-          recordEvent kind details = do
-            now <- getTimestampMs
-            journalWriteMaybe mJournal (object ("type" .= kind : "atMs" .= now : details))
-            opsAppendMaybe mOps (T.pack kind) Nothing Nothing (Just (object details)) Nothing
-
-          recordError :: String -> String -> Maybe String -> Maybe String -> IO ()
-          recordError kind err sym interval = do
-            let details =
-                  [ "error" .= err
-                  , "symbol" .= sym
-                  , "interval" .= interval
-                  , "path" .= topJsonPath
-                  ]
-            recordEvent kind details
-
-          backtestCombo comboVal = do
-            let mKey = comboIdentityKey comboVal
-            case mKey of
-              Nothing -> do
-                recordError "optimizer.combos.backtest_failed" "Missing combo identity." Nothing Nothing
-                pure Nothing
-              Just key ->
-                case Aeson.fromJSON comboVal :: Aeson.Result TopCombo of
-                  Aeson.Error err -> do
-                    recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                    pure Nothing
-                  Aeson.Success combo -> do
-                    let mSymbol =
-                          topComboParamString "binanceSymbol" combo
-                            <|> topComboParamString "symbol" combo
-                        mInterval = topComboParamString "interval" combo
-                        mPlatformRaw = topComboParamString "platform" combo
-                        platformOrErr =
-                          case mPlatformRaw of
-                            Nothing -> Right (argPlatform baseArgs)
-                            Just raw ->
-                              if normalizeKey raw == "csv"
-                                then Left "CSV combos require --data."
-                                else parsePlatform raw
-                    case (mSymbol, platformOrErr) of
-                      (Nothing, _) -> do
-                        recordError "optimizer.combos.backtest_failed" "Missing combo symbol." Nothing mInterval
-                        pure Nothing
-                      (_, Left e) -> do
-                        recordError "optimizer.combos.backtest_failed" e mSymbol mInterval
-                        pure Nothing
-                      (Just sym, Right platform) -> do
-                        args0 <-
-                          case applyTopComboForStart baseArgs combo of
-                            Left e -> do
-                              recordError "optimizer.combos.backtest_failed" e (Just sym) mInterval
-                              pure Nothing
-                            Right out -> pure (Just out)
-                        case args0 of
-                          Nothing -> pure Nothing
-                          Just argsBase -> do
-                            let args1 =
-                                  argsBase
-                                    { argBinanceSymbol = Just sym
-                                    , argPlatform = platform
-                                    , argData = Nothing
-                                    , argTradeOnly = False
-                                    , argBinanceTrade = False
-                                    , argOptimizeOperations = False
-                                    , argSweepThreshold = False
-                                    }
-                            case validateApiComputeLimits limits args1 of
-                              Left e -> do
-                                recordError "optimizer.combos.backtest_failed" e (Just sym) mInterval
-                                pure Nothing
-                              Right argsOk -> do
-                                backtestResult <- runBacktestWithGate backtestGate (computeBacktestFromArgs mOps argsOk)
-                                case backtestResult of
-                                  Left failure ->
-                                    case failure of
-                                      BacktestBusy -> do
-                                        recordEvent
-                                          "optimizer.combos.backtest_skipped"
-                                          [ "reason" .= ("busy" :: String)
-                                          , "symbol" .= sym
-                                          , "interval" .= mInterval
-                                          , "path" .= topJsonPath
-                                          ]
-                                        pure Nothing
-                                      _ -> do
-                                        recordError "optimizer.combos.backtest_failed" (backtestFailureMessage backtestGate failure) (Just sym) mInterval
-                                        pure Nothing
-                                  Right out ->
-                                    case extractBacktestMetrics out of
-                                      Nothing -> do
-                                        recordError "optimizer.combos.backtest_failed" "Backtest missing metrics." (Just sym) mInterval
-                                        pure Nothing
-                                      Just metricsVal -> do
-                                        let mFinalEq = comboMetricDouble "finalEquity" metricsVal
-                                            objective = fromMaybe "final-equity" (tcObjectiveLabel combo)
-                                            mScore = objectiveScoreFromMetrics argsOk objective metricsVal
-                                            mOps = extractBacktestOperations out
-                                            update =
-                                              ComboBacktestUpdate
-                                                { cbuMetrics = metricsVal
-                                                , cbuFinalEquity = mFinalEq
-                                                , cbuScore = mScore
-                                                , cbuOperations = mOps
-                                                }
-                                        recordEvent
-                                          "optimizer.combos.backtest"
-                                          ( [ "symbol" .= sym
-                                            , "interval" .= mInterval
-                                            , "finalEquity" .= mFinalEq
-                                            , "score" .= mScore
-                                            ]
-                                              ++ maybe [] (\v -> ["objective" .= v]) (tcObjectiveLabel combo)
-                                          )
-                                        pure (Just (key, update))
-
-          runOnce = do
-            baseValOrErr <- readTopCombosValue topJsonPath
-            case baseValOrErr of
-              Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-              Right baseVal ->
-                case baseVal of
-                  Aeson.Object o ->
-                    case KM.lookup (AK.fromString "combos") o of
-                      Just (Aeson.Array combos) -> do
-                        let combosList = V.toList combos
-                            ranked = take topN (sortOn (\(_, v) -> comboPerformanceKey v) (zip [0 ..] combosList))
-                        updates <- fmap catMaybes (forM ranked (\(_, v) -> backtestCombo v))
-                        if null updates
-                          then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String)]
-                          else do
-                            latestValOrErr <- readTopCombosValue topJsonPath
-                            now <- getTimestampMs
-                            let latestVal = either (const baseVal) id latestValOrErr
-                                updateMap = HM.fromList updates
-                            case applyComboUpdates now updateMap latestVal of
-                              Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                              Right (updatedVal, updatedCount) ->
-                                if updatedCount <= 0
-                                  then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
-                                  else do
-                                    writeResult <- writeTopCombosValue topJsonPath updatedVal
-                                    case writeResult of
-                                      Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                                      Right _ -> do
-                                        persistTopCombosMaybe topJsonPath
-                                        recordEvent
-                                          "optimizer.combos.backtest_updated"
-                                          [ "updated" .= updatedCount
-                                          , "topN" .= topN
-                                          , "path" .= topJsonPath
-                                          ]
-                      _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON missing combos array." Nothing Nothing
-                  _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON root must be an object." Nothing Nothing
-
+          runOnce = withTopCombosBacktestLock ctx (backtestTopCombosOnce topN ctx)
           loop = do
             runOnce
             sleepSec everySec
             loop
-
       loop
 
 makeBinanceEnv :: Maybe OpsStore -> Args -> IO BinanceEnv
@@ -4708,8 +4751,8 @@ makeCoinbaseEnv args = do
   apiPassphrase <- resolveEnv "COINBASE_API_PASSPHRASE" (argCoinbaseApiPassphrase args)
   newCoinbaseEnv (BS.pack <$> apiKey) (BS.pack <$> apiSecret) (BS.pack <$> apiPassphrase)
 
-botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> BotController -> MVar BotState -> MVar () -> Maybe (MVar (Maybe BotOptimizerUpdate)) -> IO ()
-botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig mOptimizerPending = do
+botLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> TopCombosBacktestCtx -> BotController -> MVar BotState -> MVar () -> Maybe (MVar (Maybe BotOptimizerUpdate)) -> IO ()
+botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stopSig mOptimizerPending = do
   tid <- myThreadId
   sym <- botSymbol <$> readMVar stVar
   lastStatusLogRef <- newIORef 0
@@ -4790,7 +4833,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig mOptimize
                     loop
                   else do
                     tProc0 <- getTimestampMs
-                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal mWebhook s0 k) (pure stPolled) newKs
+                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx s0 k) (pure stPolled) newKs
                     tProc1 <- getTimestampMs
                     let batchMs = max 0 (fromIntegral (tProc1 - tProc0) :: Int)
                         batchSize = length newKs
@@ -4819,17 +4862,17 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir ctrl stVar stopSig mOptimize
 
   loop `finally` cleanup
 
-botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> BotState -> Kline -> IO BotState
-botApplyKlineSafe mOps metrics mJournal mWebhook st k = do
-  r <- try (botApplyKline mOps metrics mJournal mWebhook st k) :: IO (Either SomeException BotState)
+botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotState -> Kline -> IO BotState
+botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx st k = do
+  r <- try (botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k) :: IO (Either SomeException BotState)
   case r of
     Right st' -> pure st'
     Left ex -> do
       now <- getTimestampMs
       pure st { botError = Just (show ex), botUpdatedAtMs = now, botLastOpenTime = kOpenTime k }
 
-botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> BotState -> Kline -> IO BotState
-botApplyKline mOps metrics mJournal mWebhook st k = do
+botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotState -> Kline -> IO BotState
+botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
   now <- getTimestampMs
   let args = botArgs st
       lookback = botLookback st
@@ -5471,6 +5514,7 @@ botApplyKline mOps metrics mJournal mWebhook st k = do
         )
     )
     (Just eqFinal)
+  triggerTopCombosBacktestOnCandle topCombosCtx
   pure stOut
 
 placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
@@ -5620,6 +5664,22 @@ runRestApi baseArgs mWebhook = do
   mOps <- newOpsStoreFromEnv
   mBotStateDir <- resolveBotStateDir
   backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
+  topCombosEnabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
+  let topCombosEnabled = readEnvBool topCombosEnabledEnv True
+  topCombosLock <- newMVar ()
+  topCombosCandleChan <- newChan
+  let topCombosCtx =
+        TopCombosBacktestCtx
+          { tcbcBaseArgs = baseArgs
+          , tcbcLimits = limits
+          , tcbcGate = backtestGate
+          , tcbcOps = mOps
+          , tcbcJournal = mJournal
+          , tcbcOptimizerTmp = optimizerTmp
+          , tcbcLock = topCombosLock
+          , tcbcCandleChan = topCombosCandleChan
+          , tcbcEnabled = topCombosEnabled
+          }
   let defaultAsyncDir = fromMaybe (tmpRoot </> "async") (fmap (</> "async") mStateDir)
   asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
   let asyncDirTrimmed = trim <$> asyncDirEnv
@@ -5646,16 +5706,17 @@ runRestApi baseArgs mWebhook = do
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
   opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing
   bot <- newBotController
-  _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits baseArgs bot)
+  _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot)
   _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
-  _ <- forkIO (autoTopCombosBacktestLoop baseArgs limits backtestGate mOps mJournal optimizerTmp)
+  _ <- forkIO (topCombosCandleWorker topCombosCtx)
+  _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
   asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
   asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
   asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
   hFlush stdout
   res <-
     ( try
-        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
         IO (Either IOException ())
     )
   case res of
@@ -6508,11 +6569,12 @@ apiApp ::
   ApiRequestLimits ->
   ApiCache ->
   BacktestGate ->
+  TopCombosBacktestCtx ->
   AsyncStores ->
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot optimizerTmp req respond = do
   startMs <- getTimestampMs
   let rawPath = Wai.pathInfo req
       path =
@@ -6739,7 +6801,7 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotSt
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBotStart reqLimits mOps limits metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
+                "POST" -> handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "stop"] ->
               case Wai.requestMethod req of
@@ -8718,8 +8780,8 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
                             , abprFetchedAtMs = now
                             }
 
-handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStart reqLimits mOps limits metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
+handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> TopCombosBacktestCtx -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
   payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
   case payloadOrErr of
     Left resp -> respond resp
@@ -8767,7 +8829,7 @@ handleBotStart reqLimits mOps limits metrics mJournal mWebhook mBotStateDir opti
                     case validateApiComputeLimits limits argsCombo of
                       Left err -> pure (sym, Left err)
                       Right argsOk -> do
-                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits adoptReq botCtrl argsOk params sym
+                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq botCtrl argsOk params sym
                         pure (sym, r)
 
               let errors =

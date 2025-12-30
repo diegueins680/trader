@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.
 - Ops: restore the newest `ops.jsonl` from S3 on boot and sync on a timer when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
+- Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
 - Observability: log Binance API requests (`binance.request`) and minute-by-minute bot status snapshots (`bot.status`), plus a live/offline timeline chart in the UI.

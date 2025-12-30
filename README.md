@@ -480,11 +480,12 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
 
 Optional daily top-combo backtests (refreshes metrics for the best performers):
-- `TRADER_TOP_COMBOS_BACKTEST_ENABLED` (default: `true`) enable daily refreshes of the top combos.
+- `TRADER_TOP_COMBOS_BACKTEST_ENABLED` (default: `true`) enable daily refreshes of the top combos (plus per-candle attempts while a live bot is running).
 - `TRADER_TOP_COMBOS_BACKTEST_TOP_N` (default: `5`, minimum: `5`) number of top combos to re-backtest per cycle.
 - `TRADER_TOP_COMBOS_BACKTEST_EVERY_SEC` (default: `86400`) cadence in seconds.
 - Uses the latest exchange data and writes updated `metrics`, `finalEquity`, `score`, and `operations` back into `top-combos.json` (and S3 when configured).
 - The top 5 combos are always refreshed and overwrite prior metrics even if equity performance drops.
+- Each new candle processed by a live bot triggers a top-5 backtest attempt to refresh operations.
 
 Async-job persistence (default on; recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
 - Default directory: `TRADER_STATE_DIR/async` (if set) or `.tmp/async` (local only). Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it), or set it empty to disable.
