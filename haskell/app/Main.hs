@@ -9505,7 +9505,6 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
         MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
         MethodBlend -> "No order: Blend neutral (within threshold)."
         MethodRouter -> "No order: Router neutral (score/threshold)."
-        MethodRouter -> "No order: Router neutral (score/threshold)."
 
     shortErr :: SomeException -> String
     shortErr ex = take 240 (show ex)
@@ -10040,6 +10039,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
         MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
         MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
         MethodBlend -> "No order: Blend neutral (within threshold)."
+        MethodRouter -> "No order: Router neutral (score/threshold)."
 
     lstmBlockMsg :: Maybe String
     lstmBlockMsg = snd (lstmConfidenceSizing args sig)

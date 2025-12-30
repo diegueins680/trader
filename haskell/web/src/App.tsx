@@ -6012,6 +6012,7 @@ export function App() {
                     <input
                       type="checkbox"
                       checked={form.sweepThreshold}
+                      disabled={form.method === "router"}
                       onChange={(e) => setForm((f) => ({ ...f, sweepThreshold: e.target.checked, optimizeOperations: false }))}
                     />
                     Sweep thresholds
@@ -6020,16 +6021,21 @@ export function App() {
                     <input
                       type="checkbox"
                       checked={form.optimizeOperations}
+                      disabled={form.method === "router"}
                       onChange={(e) => setForm((f) => ({ ...f, optimizeOperations: e.target.checked, sweepThreshold: false }))}
                     />
                     Optimize operations (method + thresholds)
                   </label>
                 </div>
-                <div className="hint">Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.</div>
+                <div className="hint">
+                  Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.
+                  {form.method === "router" ? " Router mode disables optimize/sweep." : ""}
+                </div>
                 <div className="pillRow" style={{ marginTop: 10 }}>
                   <button
                     className="btnSmall"
                     type="button"
+                    disabled={form.method === "router"}
                     onClick={() => {
                       setForm((f) => ({
                         ...f,
@@ -6046,6 +6052,7 @@ export function App() {
                   <button
                     className="btnSmall"
                     type="button"
+                    disabled={form.method === "router"}
                     onClick={() => {
                       setForm((f) => ({
                         ...f,
