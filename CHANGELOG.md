@@ -76,6 +76,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add platform selector with per-exchange symbols/intervals and disable Binance-only actions when not on Binance.
 - Web UI: store and check API keys per platform (Binance/Coinbase) and show Coinbase symbol defaults.
 - Web UI: optimizer combo rows are preview-only with explicit Apply actions plus refresh/apply-top shortcuts.
+- Web UI: let users choose how many optimizer combos to display (default 5).
 - Web UI: top combos now auto-apply when available to keep the form aligned with the top performer.
 - Web UI: idle live bot auto-starts after the top combo is applied.
 - API: futures MIN_NOTIONAL parsing now honors the `notional` field to skip trade tests below minNotional.

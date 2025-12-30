@@ -1589,16 +1589,21 @@ sampleParams
               hi' = max lo' hi
            in nextUniform lo' hi' rng40h
         triLayerExitOnSlow = triLayerExitOnSlowInput
-        (kalmanBandLookback, rng40j) =
+        (kalmanBandLookback0, rng40j) =
           let (lo, hi) = ordered kalmanBandLookbackRange
               lo' = max 0 lo
               hi' = max lo' hi
            in nextIntRange lo' hi' rng40i
-        (kalmanBandStdMult, rng40k) =
+        (kalmanBandStdMult0, rng40k) =
           let (lo, hi) = ordered kalmanBandStdMultRange
               lo' = max 0 lo
               hi' = max lo' hi
            in nextUniform lo' hi' rng40j
+        kalmanBandLookback = kalmanBandLookback0
+        kalmanBandStdMult =
+          if kalmanBandStdMult0 > 0 && kalmanBandLookback0 < 2
+            then 0
+            else kalmanBandStdMult0
         (lstmExitFlipBars, rng40l) =
           let (lo, hi) = ordered lstmExitFlipBarsRange
               lo' = max 0 lo

@@ -1292,13 +1292,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             Just side ->
                               triLayerExitOnSlow
                                 && cloudReady
+                                && t > 0
                                 && let slow = cloudSlowV V.! t
-                                    in if isBad slow
-                                         then False
-                                         else
-                                           case side of
-                                             SideLong -> prev < slow
-                                             SideShort -> prev > slow
+                                       slowPrev = cloudSlowV V.! (t - 1)
+                                       priorClose = pricesV V.! (t - 1)
+                                    in
+                                      if any isBad [slow, slowPrev, prev, priorClose]
+                                        then False
+                                        else
+                                          case side of
+                                            SideLong -> priorClose >= slowPrev && prev < slow
+                                            SideShort -> priorClose <= slowPrev && prev > slow
                             Nothing -> False
 
                         kalmanBandExit =
@@ -1317,9 +1321,13 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         case lstmConfScoreMaybe of
                                           Just score -> score < softThr
                                           Nothing -> False
+                                      hiNow = barHigh t
+                                      loNow = barLow t
                                    in case side of
-                                        SideLong -> prev >= upper && (reversal || lowConfidence)
-                                        SideShort -> prev <= lower && (reversal || lowConfidence)
+                                        SideLong ->
+                                          not (isBad hiNow) && hiNow >= upper && (reversal || lowConfidence)
+                                        SideShort ->
+                                          not (isBad loNow) && loNow <= lower && (reversal || lowConfidence)
                             Nothing -> False
 
                         kalmanExit = slowCrossExit || kalmanBandExit
