@@ -11035,14 +11035,14 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       blendWeight0 = argBlendWeight args
       blendWeight = max 0 (min 1 blendWeight0)
       blendPredBacktest = zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredBacktest lstmPredBacktest
-      routerPredBacktest =
+      (routerPredBacktestV, routerModelBacktestV) =
         case methodUsed of
           MethodRouter ->
             let pricesV = V.fromList backtestPrices
                 kalV = V.fromList kalPredBacktest
                 lstmV = V.fromList lstmPredBacktest
                 blendV = V.fromList blendPredBacktest
-                routerV =
+                routerPredV =
                   routerPredictionsV
                     bestOpenThr
                     (argRouterLookback args)
@@ -11051,14 +11051,76 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     kalV
                     lstmV
                     blendV
-             in Just (V.toList routerV)
-          _ -> Nothing
+                routerModelV =
+                  routerModelsV
+                    bestOpenThr
+                    (argRouterLookback args)
+                    (argRouterMinScore args)
+                    pricesV
+                    kalV
+                    lstmV
+                    blendV
+             in (Just routerPredV, Just routerModelV)
+          _ -> (Nothing, Nothing)
       (kalPredUsedBacktest, lstmPredUsedBacktest, metaUsedBacktest) =
         case methodUsed of
           MethodRouter ->
-            case routerPredBacktest of
-              Just routerPred -> (routerPred, routerPred, metaBacktest)
-              Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest)
+            case (routerPredBacktestV, routerModelBacktestV) of
+              (Just routerPredV, Just routerModelV) ->
+                let pricesBacktestV = V.fromList backtestPrices
+                    routerPred = V.toList routerPredV
+                    metaRouter =
+                      case metaBacktest of
+                        Nothing -> Nothing
+                        Just metaList ->
+                          let metaV = V.fromList metaList
+                              stepCount = V.length routerPredV
+                              thrMin = min bestOpenThr bestCloseThr
+                              thrMax = max bestOpenThr bestCloseThr
+                              eps = max 1e-9 (abs thrMax * 0.01)
+                              zMin = max 0 (argKalmanZMin args)
+                              zMax = max zMin (argKalmanZMax args)
+                              bad x = isNaN x || isInfinite x
+                              directionPrice thr prev pred =
+                                if prev <= 0 || bad prev || bad pred
+                                  then Nothing
+                                  else
+                                    let upEdge = prev * (1 + thr)
+                                        downEdge = prev * (1 - thr)
+                                     in if pred > upEdge
+                                          then Just (1 :: Int)
+                                          else if pred < downEdge then Just (-1) else Nothing
+                              neutralMetaAt t =
+                                let prev = pricesBacktestV V.! t
+                                    pred = routerPredV V.! t
+                                    dir = directionPrice thrMin prev pred
+                                    val =
+                                      case dir of
+                                        Just 1 -> thrMax + eps
+                                        Just (-1) -> negate (thrMax + eps)
+                                        _ -> 0
+                                 in
+                                  StepMeta
+                                    { smKalmanMean = zMax
+                                    , smKalmanVar = 1
+                                    , smHighVolProb = Just 0
+                                    , smQuantile10 = Just val
+                                    , smQuantile90 = Just val
+                                    , smConformalLo = Just val
+                                    , smConformalHi = Just val
+                                    }
+                              metaAt t =
+                                if t >= 0 && t < V.length metaV
+                                  then metaV V.! t
+                                  else neutralMetaAt t
+                              metaFor t =
+                                case routerModelV V.! t of
+                                  Just RouterKalman -> metaAt t
+                                  Just RouterBlend -> metaAt t
+                                  _ -> neutralMetaAt t
+                           in Just [metaFor t | t <- [0 .. stepCount - 1]]
+                 in (routerPred, routerPred, metaRouter)
+              _ -> (kalPredBacktest, lstmPredBacktest, metaBacktest)
           _ ->
             let (kalPredUsed, lstmPredUsed) =
                   selectPredictions methodUsed blendWeight0 kalPredBacktest lstmPredBacktest

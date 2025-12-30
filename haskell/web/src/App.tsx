@@ -1779,8 +1779,10 @@ export function App() {
     if (form.lookbackBars >= 2) base.lookbackBars = Math.trunc(form.lookbackBars);
     else if (form.lookbackWindow.trim()) base.lookbackWindow = form.lookbackWindow.trim();
 
-    if (form.optimizeOperations) base.optimizeOperations = true;
-    if (form.sweepThreshold) base.sweepThreshold = true;
+    if (form.method !== "router") {
+      if (form.optimizeOperations) base.optimizeOperations = true;
+      if (form.sweepThreshold) base.sweepThreshold = true;
+    }
 
     if (volEwmaAlpha > 0) base.volEwmaAlpha = volEwmaAlpha;
 
@@ -1790,6 +1792,12 @@ export function App() {
 
     return base;
   }, [form]);
+
+  useEffect(() => {
+    if (form.method !== "router") return;
+    if (!form.optimizeOperations && !form.sweepThreshold) return;
+    setForm((f) => ({ ...f, optimizeOperations: false, sweepThreshold: false }));
+  }, [form.method, form.optimizeOperations, form.sweepThreshold]);
 
   const estimatedCosts = useMemo(() => {
     const fee = Math.max(0, form.fee);
@@ -5096,8 +5104,13 @@ export function App() {
                   className="select"
                   value={form.method}
                   onChange={(e) => {
+                    const nextMethod = e.target.value as Method;
                     markManualOverrides(["method"]);
-                    setForm((f) => ({ ...f, method: e.target.value as Method }));
+                    setForm((f) => ({
+                      ...f,
+                      method: nextMethod,
+                      ...(nextMethod === "router" ? { optimizeOperations: false, sweepThreshold: false } : {}),
+                    }));
                   }}
                 >
                   <option value="11">11 — Both (agreement gated)</option>
