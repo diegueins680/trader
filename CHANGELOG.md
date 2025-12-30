@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Observability: ensure ops logging covers all Binance API calls (including listenKey/trades/positions/data fetches) and emit an immediate `bot.status` snapshot on bot start.
 - Trading: when confidence sizing is enabled, scale live orders and backtests by LSTM confidence (thresholds now configurable).
 - Trading: futures order placement checks available balance (and leverage) before submitting.
+- Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
 - Web UI: default order sizing uses `orderQuote=100` to avoid orders rounding to zero on common minQty/step sizes.
 - Backtests: API queues requests when the backtest slot is busy; UI waits and notifies when the backtest completes.
 - Strategy defaults: move to `--interval 1h`/`--lookback-window 7d`, raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, max position size, vol target/floor/max-vol, Kalman z-min, min position size), and bump cost assumptions (fee/slippage/spread).
@@ -56,6 +57,7 @@ All notable changes to this project will be documented in this file.
 - Deploy/UI: quick AWS deploy now forces UI `apiBaseUrl` to `/api` when CloudFront is configured and docs call out the single-instance requirement behind non-sticky proxies.
 - Deploy/UI: quick AWS deploy supports `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to keep `apiBaseUrl` pointing at the API host even with CloudFront.
 - Deploy/UI: quick AWS deploy no longer auto-sets `apiFallbackUrl` when CloudFront is configured; use `/api` or set a CORS-enabled fallback explicitly.
+- Deploy/UI: quick AWS deploy supports `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` to set `apiFallbackUrl`.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with trading only on Binance/Coinbase.
 - Exchange data: add Coinbase platform support for exchange klines and spot trading.

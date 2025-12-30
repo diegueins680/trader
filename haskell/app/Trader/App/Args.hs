@@ -134,8 +134,12 @@ data Args = Args
   , argTriLayerTouchLookback :: Int
   , argTriLayerRequirePriceAction :: Bool
   , argTriLayerPriceActionBody :: Double
+  , argTriLayerExitOnSlow :: Bool
+  , argKalmanBandLookback :: Int
+  , argKalmanBandStdMult :: Double
   , argLstmExitFlipBars :: Int
   , argLstmExitFlipGraceBars :: Int
+  , argLstmExitFlipStrong :: Bool
   , argMaxOrderErrors :: Maybe Int
   , argPeriodsPerYear :: Maybe Double
   , argJson :: Bool
@@ -432,8 +436,12 @@ opts = do
       "Require price-action triggers when tri-layer is enabled (default on)."
       "Disable price-action triggers for tri-layer."
   argTriLayerPriceActionBody <- option auto (long "tri-layer-price-action-body" <> value 0.0 <> showDefault <> help "Override min candle body fraction for tri-layer price-action patterns (0 = default)")
+  argTriLayerExitOnSlow <- switch (long "tri-layer-exit-on-slow" <> help "Exit when price closes across the slow Kalman line (requires --tri-layer)")
+  argKalmanBandLookback <- option auto (long "kalman-band-lookback" <> value 0 <> showDefault <> help "Lookback bars for Kalman-band exits (0 disables)")
+  argKalmanBandStdMult <- option auto (long "kalman-band-std-mult" <> value 0 <> showDefault <> help "Std-dev multiple for Kalman-band exits (0 disables)")
   argLstmExitFlipBars <- option auto (long "lstm-exit-flip-bars" <> value 0 <> showDefault <> help "Exit after N consecutive LSTM bars flip against the position (0 disables)")
   argLstmExitFlipGraceBars <- option auto (long "lstm-exit-flip-grace-bars" <> value 0 <> showDefault <> help "Ignore LSTM flip exits during the first N bars of a trade")
+  argLstmExitFlipStrong <- switch (long "lstm-exit-flip-strong" <> help "Require strong LSTM confidence for flip exits (uses --lstm-confidence-hard)")
   argMaxOrderErrors <- optional (option auto (long "max-order-errors" <> help "Halt the live bot after N consecutive order failures"))
   argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
   argJson <- switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
@@ -688,6 +696,12 @@ validateArgs args0 = do
   ensure "--tri-layer-cloud-width must be >= 0" (argTriLayerCloudWidth args >= 0)
   ensure "--tri-layer-touch-lookback must be >= 1" (argTriLayerTouchLookback args >= 1)
   ensure "--tri-layer-price-action-body must be >= 0" (argTriLayerPriceActionBody args >= 0)
+  ensure "--kalman-band-lookback must be >= 0" (argKalmanBandLookback args >= 0)
+  ensure "--kalman-band-std-mult must be >= 0" (argKalmanBandStdMult args >= 0)
+  case argKalmanBandStdMult args of
+    v | v > 0 ->
+      ensure "--kalman-band-lookback must be >= 2 when --kalman-band-std-mult is enabled" (argKalmanBandLookback args >= 2)
+    _ -> pure ()
   ensure "--lstm-exit-flip-bars must be >= 0" (argLstmExitFlipBars args >= 0)
   ensure "--lstm-exit-flip-grace-bars must be >= 0" (argLstmExitFlipGraceBars args >= 0)
   ensure "--lstm-confidence-soft must be between 0 and 1" (argLstmConfidenceSoft args >= 0 && argLstmConfidenceSoft args <= 1)

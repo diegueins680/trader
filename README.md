@@ -249,6 +249,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables)
   - `--lstm-exit-flip-grace-bars N` ignore LSTM flip exits during the first `N` bars of a trade
+  - `--lstm-exit-flip-strong` require strong LSTM confidence for flip exits (uses `--lstm-confidence-hard`)
   - `--trend-lookback N` simple moving average filter for entries (`0` disables; default: `30`)
   - `--tri-layer` enable Kalman cloud + price-action entry gating (uses the last candle and Kalman cloud trend)
     - `--tri-layer-fast-mult 0.5` fast Kalman measurement-variance multiplier for the cloud
@@ -259,6 +260,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--tri-layer-touch-lookback 1` allow cloud touches up to `N` bars back (`1` = current bar)
     - `--no-tri-layer-price-action` disable the candle-pattern trigger (cloud-only gating)
     - `--tri-layer-price-action-body 0.0` override min candle body fraction for price-action patterns (`0` = default)
+    - `--tri-layer-exit-on-slow` exit when price closes across the slow Kalman line
+    - `--kalman-band-lookback 0` rolling window (bars) for Kalman-band exits (`0` disables)
+    - `--kalman-band-std-mult 0` band width in std devs for Kalman-band exits (`0` disables; `2` = PDF default)
   - `--max-position-size 0.8` cap position size/leverage (`1` = full size)
   - `--vol-target F` target annualized volatility for position sizing (`0` disables; default: `0.7`)
     - `--vol-lookback N` realized-vol lookback window (bars) when EWMA alpha is not set
@@ -404,7 +408,7 @@ Optimizer script tips:
 - `--min-sharpe`, `--min-wf-sharpe-mean`, and `--max-wf-sharpe-std` filter for higher/stabler Sharpe candidates.
 - `--min-edge-min/max`, `--min-signal-to-noise-min/max`, `--edge-buffer-min/max`, `--p-cost-aware-edge`, and `--trend-lookback-min/max` tune entry gating (edge-buffer > 0 enables cost-aware edge; set `--p-cost-aware-edge` to override).
 - `--p-intrabar-take-profit-first` mixes intrabar fill ordering when high/low data is available.
-- `--p-tri-layer` plus `--tri-layer-fast-mult-min/max`, `--tri-layer-slow-mult-min/max`, `--tri-layer-cloud-padding-min/max`, `--tri-layer-cloud-slope-min/max`, `--tri-layer-cloud-width-min/max`, `--tri-layer-touch-lookback-min/max`, `--tri-layer-price-action-body-min/max`, `--p-tri-layer-price-action`, `--lstm-exit-flip-bars-min/max`, and `--lstm-exit-flip-grace-bars-min/max` sample tri-layer gating and LSTM flip exits (set `--p-tri-layer 1` to force tri-layer gating).
+- `--p-tri-layer` plus `--tri-layer-fast-mult-min/max`, `--tri-layer-slow-mult-min/max`, `--tri-layer-cloud-padding-min/max`, `--tri-layer-cloud-slope-min/max`, `--tri-layer-cloud-width-min/max`, `--tri-layer-touch-lookback-min/max`, `--tri-layer-price-action-body-min/max`, `--tri-layer-exit-on-slow`, `--kalman-band-lookback-min/max`, `--kalman-band-std-mult-min/max`, `--p-tri-layer-price-action`, `--lstm-exit-flip-bars-min/max`, `--lstm-exit-flip-grace-bars-min/max`, and `--lstm-exit-flip-strong` sample tri-layer gating and LSTM flip exits (set `--p-tri-layer 1` to force tri-layer gating).
 - `--stop-min/max`, `--tp-min/max`, `--trail-min/max`, and `--p-disable-stop/tp/trail` sample bracket exits; `--stop-vol-mult-min/max`, `--tp-vol-mult-min/max`, `--trail-vol-mult-min/max`, and `--p-disable-*-vol-mult` sample volatility-based brackets.
 - `--max-position-size-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, `--vol-floor-*`, `--vol-scale-max-*`, `--max-volatility-*`, and `--periods-per-year-*` tune sizing (use `--p-disable-vol-target`/`--p-disable-max-volatility` to mix disabled samples).
 - `--p-disable-vol-ewma-alpha` mixes EWMA vs rolling vol when using `--vol-ewma-alpha-*`.
@@ -415,7 +419,7 @@ Optimizer script tips:
 - `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective (`--tune-stress-*-min/max` lets it sample ranges).
 - `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
 - Auto optimizer biases `--p-long-short` to match existing open positions/orders (short requires long-short; spot/margin suppresses long-short).
-- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minSignalToNoiseMin`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
+- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minSignalToNoiseMin`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `triLayerExitOnSlow`, `kalmanBandLookbackMin`, `kalmanBandStdMultMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmExitFlipStrong`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
 
 State directory (recommended for persistence across deployments):
 - Set `TRADER_STATE_DIR` to a shared writable directory to persist:
@@ -600,7 +604,7 @@ The configuration panel includes quick-jump buttons for major sections (API, mar
 Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.
 The configuration panel keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
-When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must be `/api` to avoid CORS issues (the quick AWS deploy script enforces this when a distribution ID is provided unless `--ui-api-direct` is set). Avoid `apiFallbackUrl` in this mode unless your API explicitly supports CORS. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
+When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must be `/api` to avoid CORS issues (the quick AWS deploy script enforces this when a distribution ID is provided unless `--ui-api-direct` is set). Avoid `apiFallbackUrl` in this mode unless your API explicitly supports CORS (set it via `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` when needed). The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
 The UI auto-applies top combos when available and shows when a combo auto-applied; if the live bot is idle it auto-starts after the top combo applies, and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
@@ -637,7 +641,7 @@ If live bot start/status returns 502/503/504, verify the `/api/*` proxy target a
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
-- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover; if the fallback host blocks CORS, the UI disables it for the session.
+- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`); if the fallback host blocks CORS, the UI disables it for the session.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
 The UI also includes a “Live bot” panel to start/stop the continuous loop and visualize each buy/sell operation on the chart (supports long/short on futures). It includes a live/offline timeline chart with start/end controls when ops persistence is enabled. The chart reflects the available ops history and warns when the selected range extends beyond it.

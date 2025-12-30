@@ -137,7 +137,7 @@ bash deploy-aws-quick.sh --ui-only \
 ```
 
 Notes:
-- When `--distribution-id` is set, the script forces `apiBaseUrl` to `/api` in `trader-config.js` unless you pass `--ui-api-direct` (which keeps the full API URL and relies on CORS); `--api-url` is used to configure the CloudFront `/api/*` origin. Use `apiFallbackUrl` only when your API supports CORS.
+- When `--distribution-id` is set, the script forces `apiBaseUrl` to `/api` in `trader-config.js` unless you pass `--ui-api-direct` (which keeps the full API URL and relies on CORS); `--api-url` is used to configure the CloudFront `/api/*` origin. Use `apiFallbackUrl` only when your API supports CORS (set via `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`).
 - CloudFront is non-sticky. Keep App Runner min=1/max=1 unless you have shared async job storage (`TRADER_API_ASYNC_DIR` or `TRADER_STATE_DIR`).
 
 ### Option B: Manual deploy (S3 website hosting)

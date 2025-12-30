@@ -499,6 +499,10 @@ data BacktestSummary = BacktestSummary
   , bsTriLayerTouchLookback :: !Int
   , bsTriLayerPriceAction :: !Bool
   , bsTriLayerPriceActionBody :: !Double
+  , bsTriLayerExitOnSlow :: !Bool
+  , bsKalmanBandLookback :: !Int
+  , bsKalmanBandStdMult :: !Double
+  , bsLstmExitFlipStrong :: !Bool
   , bsLstmExitFlipBars :: !Int
   , bsLstmExitFlipGraceBars :: !Int
   , bsLstmConfidenceSoft :: !Double
@@ -836,10 +840,16 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrTriLayerTouchLookbackMax :: !(Maybe Int)
   , arrTriLayerPriceActionBodyMin :: !(Maybe Double)
   , arrTriLayerPriceActionBodyMax :: !(Maybe Double)
+  , arrTriLayerExitOnSlow :: !(Maybe Bool)
+  , arrKalmanBandLookbackMin :: !(Maybe Int)
+  , arrKalmanBandLookbackMax :: !(Maybe Int)
+  , arrKalmanBandStdMultMin :: !(Maybe Double)
+  , arrKalmanBandStdMultMax :: !(Maybe Double)
   , arrLstmExitFlipBarsMin :: !(Maybe Int)
   , arrLstmExitFlipBarsMax :: !(Maybe Int)
   , arrLstmExitFlipGraceBarsMin :: !(Maybe Int)
   , arrLstmExitFlipGraceBarsMax :: !(Maybe Int)
+  , arrLstmExitFlipStrong :: !(Maybe Bool)
   , arrLstmConfidenceSoftMin :: !(Maybe Double)
   , arrLstmConfidenceSoftMax :: !(Maybe Double)
   , arrLstmConfidenceHardMin :: !(Maybe Double)
@@ -1588,8 +1598,12 @@ argsPublicJson args =
       , "triLayerTouchLookback" .= argTriLayerTouchLookback args
       , "triLayerPriceAction" .= argTriLayerRequirePriceAction args
       , "triLayerPriceActionBody" .= argTriLayerPriceActionBody args
+      , "triLayerExitOnSlow" .= argTriLayerExitOnSlow args
+      , "kalmanBandLookback" .= argKalmanBandLookback args
+      , "kalmanBandStdMult" .= argKalmanBandStdMult args
       , "lstmExitFlipBars" .= argLstmExitFlipBars args
       , "lstmExitFlipGraceBars" .= argLstmExitFlipGraceBars args
+      , "lstmExitFlipStrong" .= argLstmExitFlipStrong args
       , "lstmConfidenceSoft" .= argLstmConfidenceSoft args
       , "lstmConfidenceHard" .= argLstmConfidenceHard args
       , "tuneStressVolMult" .= argTuneStressVolMult args
@@ -3497,8 +3511,12 @@ botOptimizeAfterOperation st = do
                   , ecTriLayerTouchLookback = argTriLayerTouchLookback args
                   , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
                   , ecTriLayerPriceActionBody = argTriLayerPriceActionBody args
+                  , ecTriLayerExitOnSlow = argTriLayerExitOnSlow args
+                  , ecKalmanBandLookback = argKalmanBandLookback args
+                  , ecKalmanBandStdMult = argKalmanBandStdMult args
                   , ecLstmExitFlipBars = argLstmExitFlipBars args
                   , ecLstmExitFlipGraceBars = argLstmExitFlipGraceBars args
+                  , ecLstmExitFlipStrong = argLstmExitFlipStrong args
                   , ecLstmConfidenceSoft = argLstmConfidenceSoft args
                   , ecLstmConfidenceHard = argLstmConfidenceHard args
                   , ecKalmanZMin = argKalmanZMin args
@@ -5628,6 +5646,10 @@ argsCacheJsonSignal args =
       , "triLayer" .= argTriLayer args
       , "triLayerFastMult" .= argTriLayerFastMult args
       , "triLayerSlowMult" .= argTriLayerSlowMult args
+      , "triLayerExitOnSlow" .= argTriLayerExitOnSlow args
+      , "kalmanBandLookback" .= argKalmanBandLookback args
+      , "kalmanBandStdMult" .= argKalmanBandStdMult args
+      , "lstmExitFlipStrong" .= argLstmExitFlipStrong args
       , "kalmanZMin" .= argKalmanZMin args
       , "kalmanZMax" .= argKalmanZMax args
       , "maxHighVolProb" .= argMaxHighVolProb args
@@ -5723,6 +5745,10 @@ argsCacheJsonBacktest args =
       , "triLayer" .= argTriLayer args
       , "triLayerFastMult" .= argTriLayerFastMult args
       , "triLayerSlowMult" .= argTriLayerSlowMult args
+      , "triLayerExitOnSlow" .= argTriLayerExitOnSlow args
+      , "kalmanBandLookback" .= argKalmanBandLookback args
+      , "kalmanBandStdMult" .= argKalmanBandStdMult args
+      , "lstmExitFlipStrong" .= argLstmExitFlipStrong args
       , "maxOrderErrors" .= argMaxOrderErrors args
       , "periodsPerYear" .= argPeriodsPerYear args
       , "kalmanZMin" .= argKalmanZMin args
@@ -6748,6 +6774,11 @@ maybeIntArg :: String -> Maybe Int -> [String]
 maybeIntArg _ Nothing = []
 maybeIntArg flag (Just n) = [flag, show (max 0 n)]
 
+maybeBoolArg :: String -> Maybe Bool -> [String]
+maybeBoolArg _ Nothing = []
+maybeBoolArg flag (Just True) = [flag]
+maybeBoolArg _ (Just False) = []
+
 maybeDoubleArg :: String -> Maybe Double -> [String]
 maybeDoubleArg _ Nothing = []
 maybeDoubleArg flag (Just n) = [flag, show n]
@@ -6977,10 +7008,16 @@ prepareOptimizerArgs outputPath req = do
               ++ maybeIntArg "--tri-layer-touch-lookback-max" (fmap (max 1) (arrTriLayerTouchLookbackMax req))
               ++ maybeDoubleArg "--tri-layer-price-action-body-min" (fmap (max 0) (arrTriLayerPriceActionBodyMin req))
               ++ maybeDoubleArg "--tri-layer-price-action-body-max" (fmap (max 0) (arrTriLayerPriceActionBodyMax req))
+              ++ maybeBoolArg "--tri-layer-exit-on-slow" (arrTriLayerExitOnSlow req)
+              ++ maybeIntArg "--kalman-band-lookback-min" (fmap (max 0) (arrKalmanBandLookbackMin req))
+              ++ maybeIntArg "--kalman-band-lookback-max" (fmap (max 0) (arrKalmanBandLookbackMax req))
+              ++ maybeDoubleArg "--kalman-band-std-mult-min" (fmap (max 0) (arrKalmanBandStdMultMin req))
+              ++ maybeDoubleArg "--kalman-band-std-mult-max" (fmap (max 0) (arrKalmanBandStdMultMax req))
               ++ maybeIntArg "--lstm-exit-flip-bars-min" (fmap (max 0) (arrLstmExitFlipBarsMin req))
               ++ maybeIntArg "--lstm-exit-flip-bars-max" (fmap (max 0) (arrLstmExitFlipBarsMax req))
               ++ maybeIntArg "--lstm-exit-flip-grace-bars-min" (fmap (max 0) (arrLstmExitFlipGraceBarsMin req))
               ++ maybeIntArg "--lstm-exit-flip-grace-bars-max" (fmap (max 0) (arrLstmExitFlipGraceBarsMax req))
+              ++ maybeBoolArg "--lstm-exit-flip-strong" (arrLstmExitFlipStrong req)
               ++ maybeDoubleArg "--lstm-confidence-soft-min" (fmap clamp01 (arrLstmConfidenceSoftMin req))
               ++ maybeDoubleArg "--lstm-confidence-soft-max" (fmap clamp01 (arrLstmConfidenceSoftMax req))
               ++ maybeDoubleArg "--lstm-confidence-hard-min" (fmap clamp01 (arrLstmConfidenceHardMin req))
@@ -10206,6 +10243,10 @@ backtestSummaryJson summary =
     , "triLayerTouchLookback" .= bsTriLayerTouchLookback summary
     , "triLayerPriceAction" .= bsTriLayerPriceAction summary
     , "triLayerPriceActionBody" .= bsTriLayerPriceActionBody summary
+    , "triLayerExitOnSlow" .= bsTriLayerExitOnSlow summary
+    , "kalmanBandLookback" .= bsKalmanBandLookback summary
+    , "kalmanBandStdMult" .= bsKalmanBandStdMult summary
+    , "lstmExitFlipStrong" .= bsLstmExitFlipStrong summary
     , "lstmExitFlipBars" .= bsLstmExitFlipBars summary
     , "lstmExitFlipGraceBars" .= bsLstmExitFlipGraceBars summary
     , "lstmConfidenceSoft" .= bsLstmConfidenceSoft summary
@@ -10893,8 +10934,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecTriLayerTouchLookback = argTriLayerTouchLookback args
           , ecTriLayerRequirePriceAction = argTriLayerRequirePriceAction args
           , ecTriLayerPriceActionBody = argTriLayerPriceActionBody args
+          , ecTriLayerExitOnSlow = argTriLayerExitOnSlow args
+          , ecKalmanBandLookback = argKalmanBandLookback args
+          , ecKalmanBandStdMult = argKalmanBandStdMult args
           , ecLstmExitFlipBars = argLstmExitFlipBars args
           , ecLstmExitFlipGraceBars = argLstmExitFlipGraceBars args
+          , ecLstmExitFlipStrong = argLstmExitFlipStrong args
           , ecLstmConfidenceSoft = argLstmConfidenceSoft args
           , ecLstmConfidenceHard = argLstmConfidenceHard args
           , ecKalmanZMin = argKalmanZMin args
@@ -11129,6 +11174,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsTriLayerTouchLookback = argTriLayerTouchLookback args
       , bsTriLayerPriceAction = argTriLayerRequirePriceAction args
       , bsTriLayerPriceActionBody = argTriLayerPriceActionBody args
+      , bsTriLayerExitOnSlow = argTriLayerExitOnSlow args
+      , bsKalmanBandLookback = argKalmanBandLookback args
+      , bsKalmanBandStdMult = argKalmanBandStdMult args
+      , bsLstmExitFlipStrong = argLstmExitFlipStrong args
       , bsLstmExitFlipBars = argLstmExitFlipBars args
       , bsLstmExitFlipGraceBars = argLstmExitFlipGraceBars args
       , bsLstmConfidenceSoft = argLstmConfidenceSoft args

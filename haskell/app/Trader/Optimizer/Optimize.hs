@@ -506,10 +506,16 @@ data OptimizerArgs = OptimizerArgs
   , oaTriLayerTouchLookbackMax :: !Int
   , oaTriLayerPriceActionBodyMin :: !Double
   , oaTriLayerPriceActionBodyMax :: !Double
+  , oaTriLayerExitOnSlow :: !Bool
+  , oaKalmanBandLookbackMin :: !Int
+  , oaKalmanBandLookbackMax :: !Int
+  , oaKalmanBandStdMultMin :: !Double
+  , oaKalmanBandStdMultMax :: !Double
   , oaLstmExitFlipBarsMin :: !Int
   , oaLstmExitFlipBarsMax :: !Int
   , oaLstmExitFlipGraceBarsMin :: !Int
   , oaLstmExitFlipGraceBarsMax :: !Int
+  , oaLstmExitFlipStrong :: !Bool
   , oaLstmConfidenceSoftMin :: !Double
   , oaLstmConfidenceSoftMax :: !Double
   , oaLstmConfidenceHardMin :: !Double
@@ -701,8 +707,12 @@ data TrialParams = TrialParams
   , tpTriLayerTouchLookback :: !Int
   , tpTriLayerPriceAction :: !Bool
   , tpTriLayerPriceActionBody :: !Double
+  , tpTriLayerExitOnSlow :: !Bool
+  , tpKalmanBandLookback :: !Int
+  , tpKalmanBandStdMult :: !Double
   , tpLstmExitFlipBars :: !Int
   , tpLstmExitFlipGraceBars :: !Int
+  , tpLstmExitFlipStrong :: !Bool
   , tpLstmConfidenceSoft :: !Double
   , tpLstmConfidenceHard :: !Double
   , tpStopLoss :: !(Maybe Double)
@@ -899,11 +909,18 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                 then ["--no-tri-layer-price-action"]
                 else []
             )
-          ++ [ "--lstm-exit-flip-bars"
+          ++ (if tpTriLayerExitOnSlow params then ["--tri-layer-exit-on-slow"] else [])
+          ++ [ "--kalman-band-lookback"
+             , show (max 0 (tpKalmanBandLookback params))
+             , "--kalman-band-std-mult"
+             , printf "%.8f" (max 0 (tpKalmanBandStdMult params))
+             , "--lstm-exit-flip-bars"
              , show (max 0 (tpLstmExitFlipBars params))
              , "--lstm-exit-flip-grace-bars"
              , show (max 0 (tpLstmExitFlipGraceBars params))
-             , "--lstm-confidence-soft"
+             ]
+          ++ (if tpLstmExitFlipStrong params then ["--lstm-exit-flip-strong"] else [])
+          ++ [ "--lstm-confidence-soft"
              , printf "%.4f" (clamp (tpLstmConfidenceSoft params) 0 1)
              , "--lstm-confidence-hard"
              , printf "%.4f" (clamp (tpLstmConfidenceHard params) 0 1)
@@ -1219,8 +1236,12 @@ trialToRecord tr symbolLabel =
         , "triLayerTouchLookback" .= tpTriLayerTouchLookback (trParams tr)
         , "triLayerPriceAction" .= tpTriLayerPriceAction (trParams tr)
         , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody (trParams tr)
+        , "triLayerExitOnSlow" .= tpTriLayerExitOnSlow (trParams tr)
+        , "kalmanBandLookback" .= tpKalmanBandLookback (trParams tr)
+        , "kalmanBandStdMult" .= tpKalmanBandStdMult (trParams tr)
         , "lstmExitFlipBars" .= tpLstmExitFlipBars (trParams tr)
         , "lstmExitFlipGraceBars" .= tpLstmExitFlipGraceBars (trParams tr)
+        , "lstmExitFlipStrong" .= tpLstmExitFlipStrong (trParams tr)
         , "lstmConfidenceSoft" .= tpLstmConfidenceSoft (trParams tr)
         , "lstmConfidenceHard" .= tpLstmConfidenceHard (trParams tr)
         , "stopLoss" .= tpStopLoss (trParams tr)
@@ -1316,8 +1337,12 @@ sampleParams
   triLayerCloudWidthRange
   triLayerTouchLookbackRange
   triLayerPriceActionBodyRange
+  triLayerExitOnSlowInput
+  kalmanBandLookbackRange
+  kalmanBandStdMultRange
   lstmExitFlipBarsRange
   lstmExitFlipGraceBarsRange
+  lstmExitFlipStrongInput
   lstmConfidenceSoftRange
   lstmConfidenceHardRange
   epochsMin
@@ -1563,29 +1588,40 @@ sampleParams
               lo' = max 0 lo
               hi' = max lo' hi
            in nextUniform lo' hi' rng40h
-        (lstmExitFlipBars, rng40j) =
-          let (lo, hi) = ordered lstmExitFlipBarsRange
+        triLayerExitOnSlow = triLayerExitOnSlowInput
+        (kalmanBandLookback, rng40j) =
+          let (lo, hi) = ordered kalmanBandLookbackRange
               lo' = max 0 lo
               hi' = max lo' hi
            in nextIntRange lo' hi' rng40i
-        (lstmExitFlipGraceBars, rng40k) =
+        (kalmanBandStdMult, rng40k) =
+          let (lo, hi) = ordered kalmanBandStdMultRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextUniform lo' hi' rng40j
+        (lstmExitFlipBars, rng40l) =
+          let (lo, hi) = ordered lstmExitFlipBarsRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextIntRange lo' hi' rng40k
+        (lstmExitFlipGraceBars, rng40m) =
           let (lo, hi) = ordered lstmExitFlipGraceBarsRange
               lo' = max 0 lo
               hi' = max lo' hi
-           in nextIntRange lo' hi' rng40j
-        (lstmConfidenceSoftRaw, rng40l) =
+           in nextIntRange lo' hi' rng40l
+        (lstmConfidenceSoftRaw, rng40n) =
           let (lo, hi) = ordered lstmConfidenceSoftRange
               lo' = max 0 lo
               hi' = max lo' hi
-           in nextUniform lo' hi' rng40k
-        (lstmConfidenceHardRaw, rng40m) =
+           in nextUniform lo' hi' rng40m
+        (lstmConfidenceHardRaw, rng40o) =
           let (lo, hi) = ordered lstmConfidenceHardRange
               lo' = max 0 lo
               hi' = max lo' hi
-           in nextUniform lo' hi' rng40l
+           in nextUniform lo' hi' rng40n
         lstmConfidenceSoft = clamp lstmConfidenceSoftRaw 0 1
         lstmConfidenceHard = clamp (max lstmConfidenceHardRaw lstmConfidenceSoft) 0 1
-        (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40m
+        (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40o
         (kalmanProcessVar, rng42) =
           nextLogUniform (max 1e-12 kalmanProcessVarMin) (max 1e-12 kalmanProcessVarMax) rng41
         (kalmanMeasurementVar, rng43) =
@@ -1710,8 +1746,12 @@ sampleParams
             , tpTriLayerTouchLookback = triLayerTouchLookback
             , tpTriLayerPriceAction = triLayerPriceAction
             , tpTriLayerPriceActionBody = triLayerPriceActionBody
+            , tpTriLayerExitOnSlow = triLayerExitOnSlow
+            , tpKalmanBandLookback = kalmanBandLookback
+            , tpKalmanBandStdMult = kalmanBandStdMult
             , tpLstmExitFlipBars = lstmExitFlipBars
             , tpLstmExitFlipGraceBars = lstmExitFlipGraceBars
+            , tpLstmExitFlipStrong = lstmExitFlipStrongInput
             , tpLstmConfidenceSoft = lstmConfidenceSoft
             , tpLstmConfidenceHard = lstmConfidenceHard
             , tpStopLoss = stopLoss
@@ -1938,6 +1978,12 @@ runOptimizer args0 = do
                               triLayerPriceActionBodyMin = max 0 (oaTriLayerPriceActionBodyMin args)
                               triLayerPriceActionBodyMax = max triLayerPriceActionBodyMin (oaTriLayerPriceActionBodyMax args)
                               triLayerPriceActionBodyRange = (triLayerPriceActionBodyMin, triLayerPriceActionBodyMax)
+                              kalmanBandLookbackMin = max 0 (oaKalmanBandLookbackMin args)
+                              kalmanBandLookbackMax = max kalmanBandLookbackMin (oaKalmanBandLookbackMax args)
+                              kalmanBandLookbackRange = (kalmanBandLookbackMin, kalmanBandLookbackMax)
+                              kalmanBandStdMultMin = max 0 (oaKalmanBandStdMultMin args)
+                              kalmanBandStdMultMax = max kalmanBandStdMultMin (oaKalmanBandStdMultMax args)
+                              kalmanBandStdMultRange = (kalmanBandStdMultMin, kalmanBandStdMultMax)
                               lstmExitFlipBarsMin = max 0 (oaLstmExitFlipBarsMin args)
                               lstmExitFlipBarsMax = max lstmExitFlipBarsMin (oaLstmExitFlipBarsMax args)
                               lstmExitFlipBarsRange = (lstmExitFlipBarsMin, lstmExitFlipBarsMax)
@@ -2095,8 +2141,12 @@ runOptimizer args0 = do
                                                     triLayerCloudWidthRange
                                                     triLayerTouchLookbackRange
                                                     triLayerPriceActionBodyRange
+                                                    (oaTriLayerExitOnSlow args)
+                                                    (oaKalmanBandLookbackMin args, oaKalmanBandLookbackMax args)
+                                                    (oaKalmanBandStdMultMin args, oaKalmanBandStdMultMax args)
                                                     lstmExitFlipBarsRange
                                                     lstmExitFlipGraceBarsRange
+                                                    (oaLstmExitFlipStrong args)
                                                     lstmConfidenceSoftRange
                                                     lstmConfidenceHardRange
                                                     epochsMin
@@ -2574,8 +2624,12 @@ printBest tr = do
   putStrLn ("  triLayerTouchLookback: " ++ show (tpTriLayerTouchLookback p))
   putStrLn ("  triLayerPriceAction: " ++ show (tpTriLayerPriceAction p))
   putStrLn ("  triLayerPriceActionBody: " ++ show (tpTriLayerPriceActionBody p))
+  putStrLn ("  triLayerExitOnSlow: " ++ show (tpTriLayerExitOnSlow p))
+  putStrLn ("  kalmanBandLookback: " ++ show (tpKalmanBandLookback p))
+  putStrLn ("  kalmanBandStdMult: " ++ show (tpKalmanBandStdMult p))
   putStrLn ("  lstmExitFlipBars: " ++ show (tpLstmExitFlipBars p))
   putStrLn ("  lstmExitFlipGraceBars: " ++ show (tpLstmExitFlipGraceBars p))
+  putStrLn ("  lstmExitFlipStrong: " ++ show (tpLstmExitFlipStrong p))
   putStrLn ("  lstmConfidenceSoft: " ++ show (tpLstmConfidenceSoft p))
   putStrLn ("  lstmConfidenceHard: " ++ show (tpLstmConfidenceHard p))
   putStrLn ("  stopLoss:      " ++ showMaybe (tpStopLoss p))
@@ -2697,8 +2751,12 @@ comboFromTrial dataSource sourceOverride symbolLabel rank tr =
           , "triLayerTouchLookback" .= tpTriLayerTouchLookback params
           , "triLayerPriceAction" .= tpTriLayerPriceAction params
           , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody params
+          , "triLayerExitOnSlow" .= tpTriLayerExitOnSlow params
+          , "kalmanBandLookback" .= tpKalmanBandLookback params
+          , "kalmanBandStdMult" .= tpKalmanBandStdMult params
           , "lstmExitFlipBars" .= tpLstmExitFlipBars params
           , "lstmExitFlipGraceBars" .= tpLstmExitFlipGraceBars params
+          , "lstmExitFlipStrong" .= tpLstmExitFlipStrong params
           , "lstmConfidenceSoft" .= tpLstmConfidenceSoft params
           , "lstmConfidenceHard" .= tpLstmConfidenceHard params
           , "stopLoss" .= tpStopLoss params

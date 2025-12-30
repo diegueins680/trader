@@ -85,9 +85,13 @@ data EnsembleConfig = EnsembleConfig
   , ecTriLayerTouchLookback :: !Int
   , ecTriLayerRequirePriceAction :: !Bool
   , ecTriLayerPriceActionBody :: !Double
+  , ecTriLayerExitOnSlow :: !Bool
+  , ecKalmanBandLookback :: !Int
+  , ecKalmanBandStdMult :: !Double
   -- LSTM flip exit
   , ecLstmExitFlipBars :: !Int
   , ecLstmExitFlipGraceBars :: !Int
+  , ecLstmExitFlipStrong :: !Bool
   , ecLstmConfidenceSoft :: !Double
   , ecLstmConfidenceHard :: !Double
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
@@ -426,8 +430,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               cloudWidthMax = max 0 (ecTriLayerCloudWidth cfg)
               touchLookback = max 1 (ecTriLayerTouchLookback cfg)
               requirePriceAction = ecTriLayerRequirePriceAction cfg
+              triLayerExitOnSlow = ecTriLayerExitOnSlow cfg
+              kalmanBandLookback = max 0 (ecKalmanBandLookback cfg)
+              kalmanBandStdMult = max 0 (ecKalmanBandStdMult cfg)
               lstmFlipBars = max 0 (ecLstmExitFlipBars cfg)
               lstmFlipGraceBars = max 0 (ecLstmExitFlipGraceBars cfg)
+              lstmFlipStrongOnly = ecLstmExitFlipStrong cfg
               (cloudFastV, cloudSlowV) =
                 if cloudReady
                   then
@@ -438,6 +446,49 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                            in V.fromList filts
                      in (run fastMult, run slowMult)
                   else (pricesV, pricesV)
+              kalmanBandEnabled =
+                cloudReady && kalmanBandStdMult > 0 && kalmanBandLookback >= 2
+              kalmanResidualV =
+                if kalmanBandEnabled
+                  then V.zipWith (-) pricesV cloudSlowV
+                  else V.empty
+              kalmanResidualPrefix =
+                if kalmanBandEnabled
+                  then V.scanl' (+) 0 kalmanResidualV
+                  else V.empty
+              kalmanResidualSqPrefix =
+                if kalmanBandEnabled
+                  then V.scanl' (+) 0 (V.map (\x -> x * x) kalmanResidualV)
+                  else V.empty
+              kalmanResidualStdAt :: Int -> Maybe Double
+              kalmanResidualStdAt t =
+                if not kalmanBandEnabled
+                  then Nothing
+                  else
+                    let end = min (n - 1) t
+                        start = max 0 (end - kalmanBandLookback + 1)
+                        len = end - start + 1
+                     in if len < 2
+                          then Nothing
+                          else
+                            let sumR = (kalmanResidualPrefix V.! (end + 1)) - (kalmanResidualPrefix V.! start)
+                                sumSq = (kalmanResidualSqPrefix V.! (end + 1)) - (kalmanResidualSqPrefix V.! start)
+                                lenF = fromIntegral len
+                                mean = sumR / lenF
+                                var = max 0 ((sumSq - lenF * mean * mean) / fromIntegral (len - 1))
+                                std = sqrt var
+                             in if isBad std then Nothing else Just std
+              kalmanBandAt :: Int -> Maybe (Double, Double)
+              kalmanBandAt t =
+                case kalmanResidualStdAt t of
+                  Nothing -> Nothing
+                  Just std ->
+                    let slow = cloudSlowV V.! t
+                        upper = slow + kalmanBandStdMult * std
+                        lower = slow - kalmanBandStdMult * std
+                     in if isBad slow || isBad upper || isBad lower
+                          then Nothing
+                          else Just (upper, lower)
               fundingPerBar =
                 if fundingRate == 0
                   then 0
@@ -1096,9 +1147,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             Just ot -> otHoldingPeriods ot
                         cooldownActive = posSide == Nothing && cooldownLeft > 0
                         cooldownNext0 = if posSide == Nothing then max 0 (cooldownLeft - 1) else 0
-                        (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, mOpenSignal, lstmCloseDir, lstmEntryScaleRaw) =
+                        (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, mOpenSignal, lstmCloseDir, lstmEntryScaleRaw, lstmConfScoreMaybe) =
                           if t < startT
-                            then (False, False, posSide, posSize, 0, Nothing, Nothing, 1)
+                            then (False, False, posSide, posSize, 0, Nothing, Nothing, 1, Nothing)
                             else
                               let kp = kalPredNextV V.! t
                                   lp = lstmPredNextV V.! (t - startT)
@@ -1163,7 +1214,16 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                               then (Just SideShort, posSize)
                                               else (Nothing, 0)
                                   lstmEntryScale = lstmConfidenceSizing prev lp
-                               in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, openSignal, lstmCloseDir, lstmEntryScale)
+                                  lstmScore = lstmConfidenceScore prev lp
+                               in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, openSignal, lstmCloseDir, lstmEntryScale, lstmScore)
+
+                        lstmFlipStrongOk =
+                          if not lstmFlipStrongOnly
+                            then True
+                            else
+                              case lstmConfScoreMaybe of
+                                Just score -> score >= max 0 (min 1 (ecLstmConfidenceHard cfg))
+                                Nothing -> False
 
                         (openTradeFlip, lstmFlipExit) =
                           if lstmFlipBars <= 0
@@ -1181,7 +1241,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 (SideLong, SideShort) -> True
                                                 (SideShort, SideLong) -> True
                                                 _ -> False
-                                            nextCount = if opposite then otLstmFlipCount ot + 1 else 0
+                                            nextCount =
+                                              if opposite && lstmFlipStrongOk
+                                                then otLstmFlipCount ot + 1
+                                                else 0
                                             ot' = ot { otLstmFlipCount = nextCount }
                                          in (Just ot', nextCount >= lstmFlipBars)
                                 (Just ot, Just _, _) -> (Just ot { otLstmFlipCount = 0 }, False)
@@ -1220,13 +1283,50 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             (True, Just side) -> cloudOkAt t side && priceActionOkAt t side
                             _ -> True
 
+                        slowCrossExit =
+                          case posSide of
+                            Just side ->
+                              triLayerExitOnSlow
+                                && cloudReady
+                                && let slow = cloudSlowV V.! t
+                                    in if isBad slow
+                                         then False
+                                         else
+                                           case side of
+                                             SideLong -> prev < slow
+                                             SideShort -> prev > slow
+                            Nothing -> False
+
+                        kalmanBandExit =
+                          case posSide of
+                            Just side ->
+                              case kalmanBandAt t of
+                                Nothing -> False
+                                Just (upper, lower) ->
+                                  let reversal =
+                                        case (side, lstmCloseDir) of
+                                          (SideLong, Just SideShort) -> True
+                                          (SideShort, Just SideLong) -> True
+                                          _ -> False
+                                      softThr = max 0 (min 1 (ecLstmConfidenceSoft cfg))
+                                      lowConfidence =
+                                        case lstmConfScoreMaybe of
+                                          Just score -> score < softThr
+                                          Nothing -> False
+                                   in case side of
+                                        SideLong -> prev >= upper && (reversal || lowConfidence)
+                                        SideShort -> prev <= lower && (reversal || lowConfidence)
+                            Nothing -> False
+
+                        kalmanExit = slowCrossExit || kalmanBandExit
+
                         desiredSide1 =
                           if not trendOk || not volOk || not snrOk || not volTargetReady || not triLayerOk
                             then Nothing
                             else desiredSide0
 
                         desiredSide2 =
-                          if lstmFlipExit
+                          if lstmFlipExit || kalmanExit
                             then Nothing
                             else desiredSide1
 
@@ -1292,6 +1392,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             _ | halted -> haltReason1
                               | holdTooLong -> Just (ExitOther "MAX_HOLD")
                               | lstmFlipExit -> Just (ExitOther "LSTM_FLIP")
+                              | slowCrossExit -> Just (ExitOther "KALMAN_SLOW")
+                              | kalmanBandExit -> Just (ExitOther "KALMAN_BAND")
                               | otherwise -> Nothing
 
                         switchExitReason =

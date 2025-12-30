@@ -42,8 +42,11 @@ UI_API_MODE="${TRADER_UI_API_MODE:-proxy}"
 UI_ONLY="false"
 API_ONLY="false"
 UI_API_URL="${TRADER_UI_API_URL:-}"
+UI_API_FALLBACK_URL="${TRADER_UI_API_FALLBACK_URL:-}"
 UI_SERVICE_ARN="${TRADER_UI_SERVICE_ARN:-}"
 APP_RUNNER_INSTANCE_ROLE_ARN="${APP_RUNNER_INSTANCE_ROLE_ARN:-${TRADER_APP_RUNNER_INSTANCE_ROLE_ARN:-}}"
+APP_RUNNER_CPU="${APP_RUNNER_CPU:-${TRADER_APP_RUNNER_CPU:-}}"
+APP_RUNNER_MEMORY="${APP_RUNNER_MEMORY:-${TRADER_APP_RUNNER_MEMORY:-}}"
 
 # Configuration (defaults)
 ECR_REPO="trader-api"
@@ -85,6 +88,7 @@ Flags:
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
   --distribution-id <id>            CloudFront distribution ID (optional; forces UI apiBaseUrl to /api unless --ui-api-direct)
   --api-url <url>                   API origin URL for UI-only deploys (also configures CloudFront /api/* behavior)
+  --ui-api-fallback <url>           Optional UI fallback API URL (CORS required)
   --ui-api-direct                   Use the full API URL in trader-config.js even with CloudFront (skips forcing /api)
   --service-arn <arn>               App Runner service ARN to auto-discover API URL/token (UI-only convenience)
   --skip-ui-build                   Skip `npm run build` (uses existing dist dir)
@@ -110,6 +114,7 @@ Environment variables (equivalents):
   TRADER_UI_SKIP_BUILD
   TRADER_UI_DIST_DIR
   TRADER_UI_API_URL
+  TRADER_UI_API_FALLBACK_URL
   TRADER_UI_API_MODE (proxy|direct)
   TRADER_UI_SERVICE_ARN
   APP_RUNNER_INSTANCE_ROLE_ARN / TRADER_APP_RUNNER_INSTANCE_ROLE_ARN
@@ -202,6 +207,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --api-url)
       UI_API_URL="${2:-}"
+      shift 2
+      ;;
+    --ui-api-fallback)
+      UI_API_FALLBACK_URL="${2:-}"
       shift 2
       ;;
     --ui-api-direct)
@@ -558,6 +567,39 @@ create_app_runner() {
       fi
     fi
 
+    if [[ -z "${APP_RUNNER_CPU:-}" || -z "${APP_RUNNER_MEMORY:-}" ]]; then
+      local existing_cpu=""
+      local existing_memory=""
+      existing_cpu="$(
+        aws apprunner describe-service \
+          --service-arn "$existing_service_arn" \
+          --region "$AWS_REGION" \
+          --query 'Service.InstanceConfiguration.Cpu' \
+          --output text 2>/dev/null || true
+      )"
+      existing_memory="$(
+        aws apprunner describe-service \
+          --service-arn "$existing_service_arn" \
+          --region "$AWS_REGION" \
+          --query 'Service.InstanceConfiguration.Memory' \
+          --output text 2>/dev/null || true
+      )"
+      if [[ "$existing_cpu" == "None" ]]; then
+        existing_cpu=""
+      fi
+      if [[ "$existing_memory" == "None" ]]; then
+        existing_memory=""
+      fi
+      if [[ -z "${APP_RUNNER_CPU:-}" && -n "$existing_cpu" ]]; then
+        APP_RUNNER_CPU="$existing_cpu"
+        echo -e "${YELLOW}✓ Reusing existing App Runner CPU (${APP_RUNNER_CPU})${NC}" >&2
+      fi
+      if [[ -z "${APP_RUNNER_MEMORY:-}" && -n "$existing_memory" ]]; then
+        APP_RUNNER_MEMORY="$existing_memory"
+        echo -e "${YELLOW}✓ Reusing existing App Runner memory (${APP_RUNNER_MEMORY})${NC}" >&2
+      fi
+    fi
+
     if [[ -z "${TRADER_STATE_S3_BUCKET:-}" ]]; then
       local existing_bucket=""
       existing_bucket="$(
@@ -612,7 +654,7 @@ create_app_runner() {
   access_role_arn="$(ensure_apprunner_ecr_access_role)"
   echo -e "${GREEN}✓ Using ECR access role: ${access_role_arn}${NC}" >&2
 
-  local instance_cfg="Cpu=1024,Memory=2048"
+  local instance_cfg="Cpu=${APP_RUNNER_CPU:-1024},Memory=${APP_RUNNER_MEMORY:-2048}"
   if [[ -n "${APP_RUNNER_INSTANCE_ROLE_ARN:-}" ]]; then
     instance_cfg="${instance_cfg},InstanceRoleArn=${APP_RUNNER_INSTANCE_ROLE_ARN}"
   fi
@@ -1174,7 +1216,7 @@ main() {
     else
       ui_api_url="$api_url"
     fi
-    ui_api_fallback=""
+    ui_api_fallback="$UI_API_FALLBACK_URL"
     deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
   fi
 
