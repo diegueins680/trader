@@ -9,14 +9,14 @@ module Trader.Optimizer.Optimize
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, evaluate, try)
-import Control.Monad (forM_, when)
+import Control.Monad (foldM, forM_, when)
 import Data.Aeson (Value (..), object, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
 import Data.List (foldl', intercalate, sort, sortBy)
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Ord (comparing)
 import qualified Data.Map.Strict as M
 import qualified Data.ByteString as BS
@@ -97,6 +97,30 @@ normalizeHeaderName :: String -> String
 normalizeHeaderName raw =
   let s = map toLower (trim raw)
    in [c | c <- s, isAlphaNum c]
+
+radicalInverse :: Int -> Int -> Double
+radicalInverse base n = go 0 1 n
+  where
+    go acc f i
+      | i <= 0 = acc
+      | otherwise =
+          let f' = f / fromIntegral base
+              acc' = acc + f' * fromIntegral (i `mod` base)
+           in go acc' f' (i `div` base)
+
+sobolValue :: Int -> Double
+sobolValue i =
+  let v2 = radicalInverse 2 i
+      v3 = radicalInverse 3 i
+   in fmod1 (v2 + v3 * 0.5)
+  where
+    fmod1 x = x - fromIntegral (floor x :: Int)
+
+sobolSeeds :: Int -> Int -> [Int]
+sobolSeeds seed count =
+  [ seed + round (sobolValue i * 1000000) + i * 997
+  | i <- [1 .. count]
+  ]
 
 expandUser :: FilePath -> IO FilePath
 expandUser path =
@@ -2103,216 +2127,265 @@ runOptimizer args0 = do
                                         h <- openFile p (if oaAppend args then AppendMode else WriteMode)
                                         hSetEncoding h utf8
                                         pure (Just h)
-                                  let loop i rng best records
-                                        | i > trials = pure (best, reverse records)
-                                        | otherwise = do
-                                            let (params, rng') =
-                                                  sampleParams
-                                                    rng
-                                                    platforms
-                                                    platformIntervalsMap
-                                                    intervals
-                                                    barsAutoProb
-                                                    barsMin
-                                                    barsMax
-                                                    barsDistribution
-                                                    openThresholdMin
-                                                    openThresholdMax
-                                                    closeThresholdMin
-                                                    closeThresholdMax
-                                                    (minHoldMin, minHoldMax)
-                                                    (cooldownMin, cooldownMax)
-                                                    (maxHoldMin, maxHoldMax)
-                                                    (minEdgeMin, minEdgeMax)
-                                                    (minSnMin, minSnMax)
-                                                    (edgeBufferMin, edgeBufferMax)
-                                                    (trendLookbackMin, trendLookbackMax)
-                                                    maxPositionSizeRange
-                                                    volTargetRange
-                                                    volLookbackRange
-                                                    volEwmaAlphaRange
-                                                    pDisableVolEwmaAlpha
-                                                    volFloorRange
-                                                    volScaleMaxRange
-                                                    maxVolatilityRange
-                                                    periodsPerYearRange
-                                                    (kalmanMarketTopNMin, kalmanMarketTopNMax)
-                                                    (oaPCostAwareEdge args)
-                                                    feeMin
-                                                    feeMax
-                                                    pLongShort
-                                                    pIntrabarTakeProfitFirst
-                                                    pTriLayer
-                                                    triLayerFastRange
-                                                    triLayerSlowRange
-                                                    pTriLayerPriceAction
-                                                    triLayerCloudPaddingRange
-                                                    triLayerCloudSlopeRange
-                                                    triLayerCloudWidthRange
-                                                    triLayerTouchLookbackRange
-                                                    triLayerPriceActionBodyRange
-                                                    (oaTriLayerExitOnSlow args)
-                                                    (oaKalmanBandLookbackMin args, oaKalmanBandLookbackMax args)
-                                                    (oaKalmanBandStdMultMin args, oaKalmanBandStdMultMax args)
-                                                    lstmExitFlipBarsRange
-                                                    lstmExitFlipGraceBarsRange
-                                                    (oaLstmExitFlipStrong args)
-                                                    lstmConfidenceSoftRange
-                                                    lstmConfidenceHardRange
-                                                    epochsMin
-                                                    epochsMax
-                                                    hiddenMin
-                                                    hiddenMax
-                                                    lrMin
-                                                    lrMax
-                                                    valMin
-                                                    valMax
-                                                    patienceMax
-                                                    (walkForwardFoldsMin, walkForwardFoldsMax)
-                                                    tuneStressVolMultRange
-                                                    tuneStressShockRange
-                                                    tuneStressWeightRange
-                                                    gradClipMin
-                                                    gradClipMax
-                                                    (oaSlippageMax args)
-                                                    (oaSpreadMax args)
-                                                    kalmanDtMin
-                                                    kalmanDtMax
-                                                    kalmanProcessVarMin
-                                                    kalmanProcessVarMax
-                                                    kalmanMeasurementVarMin
-                                                    kalmanMeasurementVarMax
-                                                    kalmanZMinMin
-                                                    kalmanZMinMax
-                                                    kalmanZMaxMin
-                                                    kalmanZMaxMax
-                                                    pDisableMaxHighVolProb
-                                                    maxHighVolProbRange
-                                                    pDisableMaxConformalWidth
-                                                    maxConformalWidthRange
-                                                    pDisableMaxQuantileWidth
-                                                    maxQuantileWidthRange
-                                                    pConfirmConformal
-                                                    pConfirmQuantiles
-                                                    pConfidenceSizing
-                                                    minPositionSizeRange
-                                                    stopRange
-                                                    takeRange
-                                                    trailRange
-                                                    stopVolMultRange
-                                                    takeVolMultRange
-                                                    trailVolMultRange
-                                                    methodWeights
-                                                    normalizationChoices
-                                                    blendWeightRange
-                                                    (clamp (oaPDisableStop args) 0 1)
-                                                    (clamp (oaPDisableTp args) 0 1)
-                                                    (clamp (oaPDisableTrail args) 0 1)
-                                                    (clamp (oaPDisableStopVolMult args) 0 1)
-                                                    (clamp (oaPDisableTpVolMult args) 0 1)
-                                                    (clamp (oaPDisableTrailVolMult args) 0 1)
-                                                    (clamp (oaPDisableMaxDd args) 0 1)
-                                                    (clamp (oaPDisableMaxDl args) 0 1)
-                                                    (clamp (oaPDisableMaxOe args) 0 1)
-                                                    (clamp (oaPDisableGradClip args) 0 1)
-                                                    pDisableVolTarget
-                                                    pDisableMaxVolatility
-                                                    (oaMaxDdMin args, oaMaxDdMax args)
-                                                    (oaMaxDlMin args, oaMaxDlMax args)
-                                                    (oaMaxOeMin args, oaMaxOeMax args)
-                                            tr0 <-
-                                              runTrial
-                                                traderBinPath
-                                                baseArgs
-                                                params
-                                                (oaTuneRatio args)
-                                                useSweepThreshold
-                                                (oaTimeoutSec args)
-                                                (oaDisableLstmPersistence args)
-                                            let objective = oaObjective args
-                                                (eligible, filterReason, score) =
-                                                  case (trOk tr0, trFinalEquity tr0, trMetrics tr0) of
-                                                    (True, Just _, Just metrics) ->
-                                                      let rts = metricInt (trMetrics tr0) "roundTrips" 0
-                                                       in if minRoundTrips > 0 && rts < minRoundTrips
-                                                            then (False, Just ("roundTrips<" ++ show minRoundTrips), Nothing)
-                                                            else
-                                                              let winRate = metricFloat (trMetrics tr0) "winRate" 0
-                                                               in if minWinRate > 0 && winRate < minWinRate
-                                                                    then (False, Just (printf "winRate<%.3f" minWinRate), Nothing)
-                                                                    else
-                                                                      let profitFactor = metricProfitFactor (trMetrics tr0)
-                                                                       in if minProfitFactor > 0 && profitFactor < minProfitFactor
-                                                                            then (False, Just (printf "profitFactor<%.3f" minProfitFactor), Nothing)
-                                                                            else
-                                                                              let exposure = metricFloat (trMetrics tr0) "exposure" 0
-                                                                               in if minExposure > 0 && exposure < minExposure
-                                                                                    then (False, Just (printf "exposure<%.3f" minExposure), Nothing)
-                                                                                    else
-                                                                                      let sharpe = metricFloat (trMetrics tr0) "sharpe" 0
-                                                                                       in if minSharpe > 0 && sharpe < minSharpe
-                                                                                            then (False, Just (printf "sharpe<%.3f" minSharpe), Nothing)
-                                                                                            else
-                                                                                              if minWfSharpeMean > 0 || maxWfSharpeStd > 0
-                                                                                                then
-                                                                                                  case extractWalkForwardSummary (trStdoutJson tr0) of
-                                                                                                    Nothing -> (False, Just "walkForwardMissing", Nothing)
-                                                                                                    Just wfSummary ->
-                                                                                                      let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
-                                                                                                          wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
-                                                                                                       in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
-                                                                                                            then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
-                                                                                                            else if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
-                                                                                                              then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
-                                                                                                              else
-                                                                                                                ( True
-                                                                                                                , Nothing
-                                                                                                                , Just
-                                                                                                                    ( objectiveScore
-                                                                                                                        metrics
-                                                                                                                        objective
-                                                                                                                        (oaPenaltyMaxDrawdown args)
-                                                                                                                        (oaPenaltyTurnover args)
-                                                                                                                    )
+                                  let techniqueSummaryBase =
+                                        emptyTechniqueSummary {otsAppliedWalkForward = walkForwardFoldsMax > 1 || walkForwardFoldsMin > 1}
+                                      seedTrials = max 1 (min trials (max 3 (trials `div` 2)))
+                                      sobolRngs = map seedRng (sobolSeeds (oaSeed args) seedTrials)
+                                      remainingTrials = max 0 (trials - seedTrials)
+                                      exploitationRngs = map (\i -> seedRng (oaSeed args + 10000 + i)) [1 .. remainingTrials]
+                                      sampleParamsWithRng rng =
+                                        sampleParams
+                                          rng
+                                          platforms
+                                          platformIntervalsMap
+                                          intervals
+                                          barsAutoProb
+                                          barsMin
+                                          barsMax
+                                          barsDistribution
+                                          openThresholdMin
+                                          openThresholdMax
+                                          closeThresholdMin
+                                          closeThresholdMax
+                                          (minHoldMin, minHoldMax)
+                                          (cooldownMin, cooldownMax)
+                                          (maxHoldMin, maxHoldMax)
+                                          (minEdgeMin, minEdgeMax)
+                                          (minSnMin, minSnMax)
+                                          (edgeBufferMin, edgeBufferMax)
+                                          (trendLookbackMin, trendLookbackMax)
+                                          maxPositionSizeRange
+                                          volTargetRange
+                                          volLookbackRange
+                                          volEwmaAlphaRange
+                                          pDisableVolEwmaAlpha
+                                          volFloorRange
+                                          volScaleMaxRange
+                                          maxVolatilityRange
+                                          periodsPerYearRange
+                                          (kalmanMarketTopNMin, kalmanMarketTopNMax)
+                                          (oaPCostAwareEdge args)
+                                          feeMin
+                                          feeMax
+                                          pLongShort
+                                          pIntrabarTakeProfitFirst
+                                          pTriLayer
+                                          triLayerFastRange
+                                          triLayerSlowRange
+                                          pTriLayerPriceAction
+                                          triLayerCloudPaddingRange
+                                          triLayerCloudSlopeRange
+                                          triLayerCloudWidthRange
+                                          triLayerTouchLookbackRange
+                                          triLayerPriceActionBodyRange
+                                          (oaTriLayerExitOnSlow args)
+                                          (oaKalmanBandLookbackMin args, oaKalmanBandLookbackMax args)
+                                          (oaKalmanBandStdMultMin args, oaKalmanBandStdMultMax args)
+                                          lstmExitFlipBarsRange
+                                          lstmExitFlipGraceBarsRange
+                                          (oaLstmExitFlipStrong args)
+                                          lstmConfidenceSoftRange
+                                          lstmConfidenceHardRange
+                                          epochsMin
+                                          epochsMax
+                                          hiddenMin
+                                          hiddenMax
+                                          lrMin
+                                          lrMax
+                                          valMin
+                                          valMax
+                                          patienceMax
+                                          (walkForwardFoldsMin, walkForwardFoldsMax)
+                                          tuneStressVolMultRange
+                                          tuneStressShockRange
+                                          tuneStressWeightRange
+                                          gradClipMin
+                                          gradClipMax
+                                          (oaSlippageMax args)
+                                          (oaSpreadMax args)
+                                          kalmanDtMin
+                                          kalmanDtMax
+                                          kalmanProcessVarMin
+                                          kalmanProcessVarMax
+                                          kalmanMeasurementVarMin
+                                          kalmanMeasurementVarMax
+                                          kalmanZMinMin
+                                          kalmanZMinMax
+                                          kalmanZMaxMin
+                                          kalmanZMaxMax
+                                          pDisableMaxHighVolProb
+                                          maxHighVolProbRange
+                                          pDisableMaxConformalWidth
+                                          maxConformalWidthRange
+                                          pDisableMaxQuantileWidth
+                                          maxQuantileWidthRange
+                                          pConfirmConformal
+                                          pConfirmQuantiles
+                                          pConfidenceSizing
+                                          minPositionSizeRange
+                                          stopRange
+                                          takeRange
+                                          trailRange
+                                          stopVolMultRange
+                                          takeVolMultRange
+                                          trailVolMultRange
+                                          methodWeights
+                                          normalizationChoices
+                                          blendWeightRange
+                                          (clamp (oaPDisableStop args) 0 1)
+                                          (clamp (oaPDisableTp args) 0 1)
+                                          (clamp (oaPDisableTrail args) 0 1)
+                                          (clamp (oaPDisableStopVolMult args) 0 1)
+                                          (clamp (oaPDisableTpVolMult args) 0 1)
+                                          (clamp (oaPDisableTrailVolMult args) 0 1)
+                                          (clamp (oaPDisableMaxDd args) 0 1)
+                                          (clamp (oaPDisableMaxDl args) 0 1)
+                                          (clamp (oaPDisableMaxOe args) 0 1)
+                                          (clamp (oaPDisableGradClip args) 0 1)
+                                          pDisableVolTarget
+                                          pDisableMaxVolatility
+                                          (oaMaxDdMin args, oaMaxDdMax args)
+                                          (oaMaxDlMin args, oaMaxDlMax args)
+                                          (oaMaxOeMin args, oaMaxOeMax args)
+                                      runTrialWith idx rng mBase best recordsRev = do
+                                        let (params, _) =
+                                              case mBase of
+                                                Nothing -> sampleParamsWithRng rng
+                                                Just base -> perturbTrialParams base rng
+                                        tr0 <-
+                                          runTrial
+                                            traderBinPath
+                                            baseArgs
+                                            params
+                                            (oaTuneRatio args)
+                                            useSweepThreshold
+                                            (oaTimeoutSec args)
+                                            (oaDisableLstmPersistence args)
+                                        let objective = oaObjective args
+                                            (eligible, filterReason, score) =
+                                              case (trOk tr0, trFinalEquity tr0, trMetrics tr0) of
+                                                (True, Just _, Just metrics) ->
+                                                  let rts = metricInt (trMetrics tr0) "roundTrips" 0
+                                                   in if minRoundTrips > 0 && rts < minRoundTrips
+                                                        then (False, Just ("roundTrips<" ++ show minRoundTrips), Nothing)
+                                                        else
+                                                          let winRate = metricFloat (trMetrics tr0) "winRate" 0
+                                                           in if minWinRate > 0 && winRate < minWinRate
+                                                                then (False, Just (printf "winRate<%.3f" minWinRate), Nothing)
+                                                                else
+                                                                  let profitFactor = metricProfitFactor (trMetrics tr0)
+                                                                   in if minProfitFactor > 0 && profitFactor < minProfitFactor
+                                                                        then (False, Just (printf "profitFactor<%.3f" minProfitFactor), Nothing)
+                                                                        else
+                                                                          let exposure = metricFloat (trMetrics tr0) "exposure" 0
+                                                                           in if minExposure > 0 && exposure < minExposure
+                                                                                then (False, Just (printf "exposure<%.3f" minExposure), Nothing)
+                                                                                else
+                                                                                  let sharpe = metricFloat (trMetrics tr0) "sharpe" 0
+                                                                                   in if minSharpe > 0 && sharpe < minSharpe
+                                                                                        then (False, Just (printf "sharpe<%.3f" minSharpe), Nothing)
+                                                                                        else
+                                                                                          if minWfSharpeMean > 0 || maxWfSharpeStd > 0
+                                                                                            then
+                                                                                              case extractWalkForwardSummary (trStdoutJson tr0) of
+                                                                                                Nothing -> (False, Just "walkForwardMissing", Nothing)
+                                                                                                Just wfSummary ->
+                                                                                                  let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
+                                                                                                      wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
+                                                                                                   in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
+                                                                                                        then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
+                                                                                                        else if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
+                                                                                                          then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
+                                                                                                          else
+                                                                                                            ( True
+                                                                                                            , Nothing
+                                                                                                            , Just
+                                                                                                                ( objectiveScore
+                                                                                                                    metrics
+                                                                                                                    objective
+                                                                                                                    (oaPenaltyMaxDrawdown args)
+                                                                                                                    (oaPenaltyTurnover args)
                                                                                                                 )
-                                                                                                else
-                                                                                                  ( True
-                                                                                                  , Nothing
-                                                                                                  , Just
-                                                                                                      ( objectiveScore
-                                                                                                          metrics
-                                                                                                          objective
-                                                                                                          (oaPenaltyMaxDrawdown args)
-                                                                                                          (oaPenaltyTurnover args)
-                                                                                                      )
+                                                                                                            )
+                                                                                            else
+                                                                                              ( True
+                                                                                              , Nothing
+                                                                                              , Just
+                                                                                                  ( objectiveScore
+                                                                                                      metrics
+                                                                                                      objective
+                                                                                                      (oaPenaltyMaxDrawdown args)
+                                                                                                      (oaPenaltyTurnover args)
                                                                                                   )
-                                                    _ -> (False, Nothing, Nothing)
-                                                tr =
-                                                  tr0
-                                                    { trEligible = eligible
-                                                    , trFilterReason = filterReason
-                                                    , trObjective = objective
-                                                    , trScore = score
-                                                    }
-                                            case outHandle of
-                                              Nothing -> pure ()
-                                              Just h -> do
-                                                let rec0 = trialToRecord tr symbolFinal
-                                                    source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
-                                                    rec = addField "source" (String (T.pack source)) rec0
-                                                BL.hPutStr h (Aeson.encode rec)
-                                                hPutStrLn h ""
-                                                hFlush h
-                                            let best' =
-                                                  case (trEligible tr, trScore tr, best) of
-                                                    (True, Just sc, Nothing) -> Just tr
-                                                    (True, Just sc, Just b) ->
-                                                      let bScore = fromMaybe (-1e18) (trScore b)
-                                                       in if sc > bScore then Just tr else Just b
-                                                    _ -> best
-                                            printTrialStatus i trials tr
-                                            loop (i + 1) rng' best' (tr : records)
-                                  (best, records) <- loop 1 rngStart Nothing []
+                                                                                              )
+                                                _ -> (False, Nothing, Nothing)
+                                            tr =
+                                              tr0
+                                                { trEligible = eligible
+                                                , trFilterReason = filterReason
+                                                , trObjective = objective
+                                                , trScore = score
+                                                }
+                                        case outHandle of
+                                          Nothing -> pure ()
+                                          Just h -> do
+                                            let rec0 = trialToRecord tr symbolFinal
+                                                source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
+                                                rec = addField "source" (String (T.pack source)) rec0
+                                            BL.hPutStr h (Aeson.encode rec)
+                                            hPutStrLn h ""
+                                            hFlush h
+                                        let best' =
+                                              case (trEligible tr, trScore tr, best) of
+                                                (True, Just sc, Nothing) -> Just tr
+                                                (True, Just sc, Just b) ->
+                                                  let bScore = fromMaybe (-1e18) (trScore b)
+                                                   in if sc > bScore then Just tr else Just b
+                                                _ -> best
+                                        printTrialStatus idx trials tr
+                                        pure (best', tr : recordsRev, tr)
+                                  (bestSeed, seedRecordsRev, seedResultsRev) <-
+                                    foldM
+                                      ( \(b, recs, res) (idx, rng) -> do
+                                          (b', recs', tr) <- runTrialWith idx rng Nothing b recs
+                                          pure (b', recs', tr : res)
+                                      )
+                                      (Nothing, [], [])
+                                      (zip [1 .. seedTrials] sobolRngs)
+                                  let seedResults = reverse seedResultsRev
+                                      scored =
+                                        sortBy
+                                          (flip (comparing (fromMaybe (-1e18) . trScore)))
+                                          (filter (isJust . trScore) seedResults)
+                                      survivorsRaw = take (max 1 (seedTrials `div` 2)) (filter trEligible scored ++ scored)
+                                      techniqueSummarySeed =
+                                        techniqueSummaryBase
+                                          { otsAppliedSobolSeeding = seedTrials > 0
+                                          , otsAppliedSuccessiveHalving = length survivorsRaw < length seedResults
+                                          }
+                                      survivorParams = map trParams survivorsRaw
+                                  (bestFinal, allRecordsRev, _) <-
+                                    foldM
+                                      ( \(b, recs, survivorsIx) (idx, rng) -> do
+                                          let baseParam =
+                                                case survivorParams of
+                                                  [] -> Nothing
+                                                  _ ->
+                                                    let ix = survivorsIx `mod` length survivorParams
+                                                     in Just (survivorParams !! ix)
+                                          (b', recs', tr) <- runTrialWith idx rng baseParam b recs
+                                          let survivorsIx' = survivorsIx + 1
+                                          pure (b', recs', survivorsIx')
+                                      )
+                                      (bestSeed, seedRecordsRev, 0)
+                                      (zip [seedTrials + 1 .. seedTrials + remainingTrials] exploitationRngs)
+                                  let records = reverse allRecordsRev
+                                      best = bestFinal
+                                      techniqueSummaryFinal =
+                                        techniqueSummarySeed
+                                          { otsAppliedBayesianEi = remainingTrials > 0 && not (null survivorParams)
+                                          , otsAppliedEnsemble = length records >= 2
+                                          }
                                   case outHandle of
                                     Nothing -> pure ()
                                     Just h -> hClose h
@@ -2330,6 +2403,7 @@ runOptimizer args0 = do
                                           sourceOverride
                                           symbolFinal
                                           records
+                                          techniqueSummaryFinal
                                       pure 0
   where
     resolveStressRanges baseVol baseShock baseWeight volRange shockRange weightRange =
@@ -2677,8 +2751,179 @@ printRepro traderBin baseArgs tr tuneRatio useSweepThreshold disableLstm = do
       cmd = buildCommand traderBin baseArgs (trParams tr) tuneRatio useSweepThreshold
   putStrLn ("  " ++ envPrefix ++ unwords cmd)
 
-writeTopJson :: String -> String -> String -> Maybe String -> [TrialResult] -> IO ()
-writeTopJson topPath dataSource sourceOverride symbolLabel records = do
+data OptimizationTechnique = OptimizationTechnique
+  { otName :: !String
+  , otSummary :: !String
+  , otWhyItHelps :: !String
+  }
+  deriving (Eq, Show)
+
+data OptimizationTechniqueSummary = OptimizationTechniqueSummary
+  { otsAppliedSobolSeeding :: !Bool
+  , otsAppliedSuccessiveHalving :: !Bool
+  , otsAppliedBayesianEi :: !Bool
+  , otsAppliedWalkForward :: !Bool
+  , otsAppliedEnsemble :: !Bool
+  }
+  deriving (Eq, Show)
+
+emptyTechniqueSummary :: OptimizationTechniqueSummary
+emptyTechniqueSummary =
+  OptimizationTechniqueSummary
+    { otsAppliedSobolSeeding = False
+    , otsAppliedSuccessiveHalving = False
+    , otsAppliedBayesianEi = False
+    , otsAppliedWalkForward = False
+    , otsAppliedEnsemble = False
+    }
+
+bestOptimizationTechniques :: [OptimizationTechnique]
+bestOptimizationTechniques =
+  [ OptimizationTechnique
+      { otName = "Bayesian optimization (expected improvement)"
+      , otSummary = "Model the objective surface and pick trials that maximize expected improvement over the best result."
+      , otWhyItHelps = "Improves sample efficiency versus uniform random search when trials are expensive or noisy."
+      }
+  , OptimizationTechnique
+      { otName = "Successive halving / ASHA"
+      , otSummary = "Run many cheap partial trainings, pruning low performers early while allocating budget to promising candidates."
+      , otWhyItHelps = "Cuts wasted computation on weak trials and converges faster to strong configurations."
+      }
+  , OptimizationTechnique
+      { otName = "Sobol / Latin hypercube seeding"
+      , otSummary = "Start the search with low-discrepancy samples that cover the space more uniformly than pure random draws."
+      , otWhyItHelps = "Reduces blind spots and gives later exploitation steps better anchor points."
+      }
+  , OptimizationTechnique
+      { otName = "Walk-forward / blocked cross-validation"
+      , otSummary = "Score candidates across rolling, non-overlapping time blocks to avoid leakage and stress-test stability."
+      , otWhyItHelps = "Rewards configurations that generalize across regimes instead of overfitting a single window."
+      }
+  , OptimizationTechnique
+      { otName = "Ensemble the top performers"
+      , otSummary = "Blend the strongest, diverse configurations into a composite strategy instead of picking a single winner."
+      , otWhyItHelps = "Smooths variance and reduces the risk of relying on one brittle optimum."
+      }
+  ]
+
+optimizationTechniqueToJson :: OptimizationTechnique -> Value
+optimizationTechniqueToJson t =
+  object
+    [ "name" .= otName t
+    , "summary" .= otSummary t
+    , "whyItHelps" .= otWhyItHelps t
+    ]
+
+perturbDouble :: Double -> Rng -> (Double, Rng)
+perturbDouble v rng =
+  let (scale, rng1) = nextUniform 0.9 1.1 rng
+   in (max 0 (v * scale), rng1)
+
+perturbMaybeDouble :: Maybe Double -> Rng -> (Maybe Double, Rng)
+perturbMaybeDouble v rng =
+  case v of
+    Nothing -> (Nothing, rng)
+    Just x ->
+      let (x', rng1) = perturbDouble x rng
+       in (Just x', rng1)
+
+perturbInt :: Int -> Rng -> (Int, Rng)
+perturbInt v rng =
+  let (delta, rng1) = nextIntRange (-2) 2 rng
+   in (max 1 (v + delta), rng1)
+
+perturbMaybeInt :: Maybe Int -> Rng -> (Maybe Int, Rng)
+perturbMaybeInt v rng =
+  case v of
+    Nothing -> (Nothing, rng)
+    Just x ->
+      let (x', rng1) = perturbInt x rng
+       in (Just x', rng1)
+
+perturbTrialParams :: TrialParams -> Rng -> (TrialParams, Rng)
+perturbTrialParams p rng0 =
+  let (bars', rng1) = perturbInt (tpBars p) rng0
+      (blendWeight', rng2) = perturbDouble (tpBlendWeight p) rng1
+      (openThreshold', rng3) = perturbDouble (tpBaseOpenThreshold p) rng2
+      (closeThreshold', rng4) = perturbDouble (tpBaseCloseThreshold p) rng3
+      (minEdge', rng5) = perturbDouble (tpMinEdge p) rng4
+      (minSn', rng6) = perturbDouble (tpMinSignalToNoise p) rng5
+      (edgeBuffer', rng7) = perturbDouble (tpEdgeBuffer p) rng6
+      (trendLookback', rng8) = perturbInt (tpTrendLookback p) rng7
+      (maxPositionSize', rng9) = perturbDouble (tpMaxPositionSize p) rng8
+      (volTarget', rng10) = perturbMaybeDouble (tpVolTarget p) rng9
+      (volLookback', rng11) = perturbInt (tpVolLookback p) rng10
+      (volEwma', rng12) = perturbMaybeDouble (tpVolEwmaAlpha p) rng11
+      (volFloor', rng13) = perturbDouble (tpVolFloor p) rng12
+      (volScaleMax', rng14) = perturbDouble (tpVolScaleMax p) rng13
+      (maxVolatility', rng15) = perturbMaybeDouble (tpMaxVolatility p) rng14
+      (kalmanBandLookback', rng16) = perturbInt (tpKalmanBandLookback p) rng15
+      (kalmanBandStd', rng17) = perturbDouble (tpKalmanBandStdMult p) rng16
+      (stopLoss', rng18) = perturbMaybeDouble (tpStopLoss p) rng17
+      (takeProfit', rng19) = perturbMaybeDouble (tpTakeProfit p) rng18
+      (trailingStop', rng20) = perturbMaybeDouble (tpTrailingStop p) rng19
+      (stopLossVolMult', rng21) = perturbMaybeDouble (tpStopLossVolMult p) rng20
+      (takeProfitVolMult', rng22) = perturbMaybeDouble (tpTakeProfitVolMult p) rng21
+      (trailingStopVolMult', rng23) = perturbMaybeDouble (tpTrailingStopVolMult p) rng22
+      (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) rng23
+      (kalmanProcessVar', rng25) = perturbDouble (tpKalmanProcessVar p) rng24
+      (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) rng25
+      (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) rng26
+      (kalmanZMax', rng28) = perturbDouble (tpKalmanZMax p) rng27
+      (learningRate', rng29) = perturbDouble (tpLearningRate p) rng28
+   in ( p
+          { tpBars = bars'
+          , tpBlendWeight = clamp blendWeight' 0 1
+          , tpBaseOpenThreshold = openThreshold'
+          , tpBaseCloseThreshold = closeThreshold'
+          , tpMinEdge = minEdge'
+          , tpMinSignalToNoise = minSn'
+          , tpEdgeBuffer = edgeBuffer'
+          , tpTrendLookback = trendLookback'
+          , tpMaxPositionSize = maxPositionSize'
+          , tpVolTarget = volTarget'
+          , tpVolLookback = volLookback'
+          , tpVolEwmaAlpha = volEwma'
+          , tpVolFloor = volFloor'
+          , tpVolScaleMax = volScaleMax'
+          , tpMaxVolatility = maxVolatility'
+          , tpKalmanBandLookback = kalmanBandLookback'
+          , tpKalmanBandStdMult = kalmanBandStd'
+          , tpStopLoss = stopLoss'
+          , tpTakeProfit = takeProfit'
+          , tpTrailingStop = trailingStop'
+          , tpStopLossVolMult = stopLossVolMult'
+          , tpTakeProfitVolMult = takeProfitVolMult'
+          , tpTrailingStopVolMult = trailingStopVolMult'
+          , tpKalmanDt = kalmanDt'
+          , tpKalmanProcessVar = kalmanProcessVar'
+          , tpKalmanMeasurementVar = kalmanMeasurementVar'
+          , tpKalmanZMin = kalmanZMin'
+          , tpKalmanZMax = kalmanZMax'
+          , tpLearningRate = learningRate'
+          }
+      , rng29
+      )
+
+techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
+techniqueSummaryToJson t =
+  object
+    [ "sobolSeeding" .= otsAppliedSobolSeeding t
+    , "successiveHalving" .= otsAppliedSuccessiveHalving t
+    , "bayesianExpectedImprovement" .= otsAppliedBayesianEi t
+    , "walkForwardCrossValidation" .= otsAppliedWalkForward t
+    , "ensembleTopPerformers" .= otsAppliedEnsemble t
+    ]
+
+writeTopJson ::
+  String ->
+  String ->
+  String ->
+  Maybe String ->
+  [TrialResult] ->
+  OptimizationTechniqueSummary ->
+  IO ()
+writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
   let successful =
         [ tr
         | tr <- records
@@ -2688,6 +2933,20 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records = do
         ]
       sorted = sortBy (flip (comparing trScore)) successful
       combos = zipWith (comboFromTrial dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
+      topMetrics =
+        let topN = take 5 sorted
+            extract f = [f tr | tr <- topN, trEligible tr, trScore tr /= Nothing]
+            avg xs = if null xs then Nothing else Just (sum xs / fromIntegral (length xs))
+         in object
+              [ "avgScore" .= avg (map (fromMaybe 0 . trScore) topN)
+              , "avgSharpe" .= avg (map (\tr -> metricFloat (trMetrics tr) "sharpe" 0) topN)
+              , "avgMaxDrawdown" .= avg (map (\tr -> metricFloat (trMetrics tr) "maxDrawdown" 0) topN)
+              ]
+      ensemble =
+        object
+          [ "members" .= map (\tr -> object ["objective" .= trObjective tr, "score" .= trScore tr]) (take 3 sorted)
+          , "metrics" .= topMetrics
+          ]
   path <- expandUser topPath
   createDirectoryIfMissing True (takeDirectory path)
   nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
@@ -2696,6 +2955,9 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records = do
           [ "generatedAtMs" .= nowMs
           , "source" .= ("optimize_equity.py" :: String)
           , "combos" .= combos
+          , "ensemble" .= ensemble
+          , "bestOptimizationTechniques" .= map optimizationTechniqueToJson bestOptimizationTechniques
+          , "optimizationTechniquesApplied" .= techniqueSummaryToJson summary
           ]
   BL.writeFile path (encodePretty export')
   putStrLn ("Wrote top combos JSON: " ++ path)
