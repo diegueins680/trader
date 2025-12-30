@@ -3217,7 +3217,20 @@ initBotState mOps args settings sym = do
 
         pure (Just (predictors, kalPrev, hmmPrev, svPrev), kalPred)
 
-  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx Nothing (Just (kalPred0, lstmPred0))
+  let lstmPred0 =
+        case mLstmCtx of
+          Nothing -> V.replicate n nan
+          Just (normState, obsAll, lstmModel) ->
+            V.generate n $ \t ->
+              if t < lookback - 1
+                then nan
+                else
+                  let start = t - lookback + 1
+                      window = take lookback (drop start obsAll)
+                      predObs = predictNext lstmModel window
+                   in inverseNorm normState predObs
+
+      latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx Nothing (Just (kalPred0, lstmPred0))
 
       -- Startup decision:
       -- - Adopted positions use closeThreshold (hysteresis) via the gated closeDirection.
@@ -3324,19 +3337,6 @@ initBotState mOps args settings sym = do
         case (wantSwitch, mOrder) of
           (True, Just o) -> [BotOrderEvent (n - 1) opSide (V.last pricesV) lastOt now o]
           _ -> []
-
-      lstmPred0 =
-        case mLstmCtx of
-          Nothing -> V.replicate n nan
-          Just (normState, obsAll, lstmModel) ->
-            V.generate n $ \t ->
-              if t < lookback - 1
-                then nan
-                else
-                  let start = t - lookback + 1
-                      window = take lookback (drop start obsAll)
-                      predObs = predictNext lstmModel window
-                   in inverseNorm normState predObs
 
       maxPoints = max (lookback + 3) (bsMaxPoints settings)
       dropCount = max 0 (V.length pricesV - maxPoints)
