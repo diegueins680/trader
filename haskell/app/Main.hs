@@ -170,7 +170,7 @@ import Trader.Trading
   , Trade(..)
   , exitReasonFromCode
   , simulateEnsemble
-  , simulateEnsembleWithHL
+  , simulateEnsembleWithHLChecked
   )
 import Trader.S3
   ( S3State(..)
@@ -4368,97 +4368,84 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                       let sleepSec s = threadDelay (max 1 s * 1000000)
 
                           loop = do
-                            sym <- pickRandom symbols
-                            interval <- pickRandom intervals
-                            let csvPath = optimizerTmp </> ("auto-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
-                                argsSym = baseArgs { argBinanceSymbol = Just sym }
+                            mSym <- pickRandom symbols
+                            mInterval <- pickRandom intervals
+                            case (mSym, mInterval) of
+                              (Just sym, Just interval) -> do
+                                let csvPath = optimizerTmp </> ("auto-" ++ sanitizeFileComponent sym ++ "-" ++ sanitizeFileComponent interval ++ ".csv")
+                                    argsSym = baseArgs { argBinanceSymbol = Just sym }
 
-                            ksOrErr <- try (fetchKlines env sym interval maxPoints) :: IO (Either SomeException [Kline])
-                            case ksOrErr of
-                              Left ex -> do
-                                now <- getTimestampMs
-                                journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.fetch_failed" :: String), "atMs" .= now, "error" .= show ex])
-                                sleepSec everySec
-                                loop
-                              Right ks -> do
-                                if length ks < 2
-                                  then do
+                                ksOrErr <- try (fetchKlines env sym interval maxPoints) :: IO (Either SomeException [Kline])
+                                case ksOrErr of
+                                  Left ex -> do
+                                    now <- getTimestampMs
+                                    journalWriteMaybe mJournal (object ["type" .= ("optimizer.auto.fetch_failed" :: String), "atMs" .= now, "error" .= show ex])
                                     sleepSec everySec
                                     loop
-                                  else do
-                                    writeKlinesCsv csvPath ks
-                                    ts <- fmap (floor . (* 1000)) getPOSIXTime
-                                    randId <- randomIO :: IO Word64
-                                    seedId <- randomIO :: IO Word64
-                                    adoptOverride <-
-                                      fmap
-                                        (either (const Nothing) (adoptRequirementLongShortOverride argsSym))
-                                        (resolveAdoptionRequirementWithEnv argsSym env sym)
-                                    let recordsPath = optimizerTmp </> printf "optimizer-auto-%d-%016x.jsonl" (ts :: Integer) randId
-                                        seed = fromIntegral (seedId `mod` 2000000000)
-                                        cliArgs =
-                                          [ "--data"
-                                          , csvPath
-                                          , "--price-column"
-                                          , "close"
-                                          , "--high-column"
-                                          , "high"
-                                          , "--low-column"
-                                          , "low"
-                                          , "--interval"
-                                          , interval
-                                          , "--lookback-window"
-                                          , lookbackWindow
-                                          , "--backtest-ratio"
-                                          , show backtestRatio
-                                          , "--tune-ratio"
-                                          , show tuneRatio
-                                          , "--trials"
-                                          , show trials
-                                          , "--timeout-sec"
-                                          , show (timeoutSec :: Int)
-                                          , "--seed"
-                                          , show (seed :: Int)
-                                          , "--output"
-                                          , recordsPath
-                                          , "--symbol-label"
-                                          , sym
-                                          , "--source-label"
-                                          , "binance"
-                                          , "--objective"
-                                          , objective
-                                          , "--binary"
-                                          , exePath
-                                          , "--disable-lstm-persistence"
-                                          ]
-                                        cliArgs' =
-                                          case adoptOverride of
-                                            Nothing -> cliArgs
-                                            Just pLongShort -> cliArgs ++ ["--p-long-short", show pLongShort]
-
-                                    runResult <- runOptimizerProcess projectRoot recordsPath cliArgs'
-                                    case runResult of
-                                      Left (msg, out, err) -> do
-                                        now <- getTimestampMs
-                                        journalWriteMaybe
-                                          mJournal
-                                          ( object
-                                              [ "type" .= ("optimizer.auto.run_failed" :: String)
-                                              , "atMs" .= now
-                                              , "error" .= msg
-                                              , "stdout" .= out
-                                              , "stderr" .= err
+                                  Right ks -> do
+                                    if length ks < 2
+                                      then do
+                                        sleepSec everySec
+                                        loop
+                                      else do
+                                        writeKlinesCsv csvPath ks
+                                        ts <- fmap (floor . (* 1000)) getPOSIXTime
+                                        randId <- randomIO :: IO Word64
+                                        seedId <- randomIO :: IO Word64
+                                        adoptOverride <-
+                                          fmap
+                                            (either (const Nothing) (adoptRequirementLongShortOverride argsSym))
+                                            (resolveAdoptionRequirementWithEnv argsSym env sym)
+                                        let recordsPath = optimizerTmp </> printf "optimizer-auto-%d-%016x.jsonl" (ts :: Integer) randId
+                                            seed = fromIntegral (seedId `mod` 2000000000)
+                                            cliArgs =
+                                              [ "--data"
+                                              , csvPath
+                                              , "--price-column"
+                                              , "close"
+                                              , "--high-column"
+                                              , "high"
+                                              , "--low-column"
+                                              , "low"
+                                              , "--interval"
+                                              , interval
+                                              , "--lookback-window"
+                                              , lookbackWindow
+                                              , "--backtest-ratio"
+                                              , show backtestRatio
+                                              , "--tune-ratio"
+                                              , show tuneRatio
+                                              , "--trials"
+                                              , show trials
+                                              , "--timeout-sec"
+                                              , show (timeoutSec :: Int)
+                                              , "--seed"
+                                              , show (seed :: Int)
+                                              , "--output"
+                                              , recordsPath
+                                              , "--symbol-label"
+                                              , sym
+                                              , "--source-label"
+                                              , "binance"
+                                              , "--objective"
+                                              , objective
+                                              , "--binary"
+                                              , exePath
+                                              , "--disable-lstm-persistence"
                                               ]
-                                          )
-                                      Right _ -> do
-                                        mergeResult <- runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos
-                                        case mergeResult of
+                                            cliArgs' =
+                                              case adoptOverride of
+                                                Nothing -> cliArgs
+                                                Just pLongShort -> cliArgs ++ ["--p-long-short", show pLongShort]
+
+                                        runResult <- runOptimizerProcess projectRoot recordsPath cliArgs'
+                                        case runResult of
                                           Left (msg, out, err) -> do
                                             now <- getTimestampMs
                                             journalWriteMaybe
                                               mJournal
                                               ( object
-                                                  [ "type" .= ("optimizer.auto.merge_failed" :: String)
+                                                  [ "type" .= ("optimizer.auto.run_failed" :: String)
                                                   , "atMs" .= now
                                                   , "error" .= msg
                                                   , "stdout" .= out
@@ -4466,18 +4453,46 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                                   ]
                                               )
                                           Right _ -> do
-                                            now <- getTimestampMs
-                                            opsAppendMaybe
-                                              mOps
-                                              "optimizer.auto.updated"
-                                              Nothing
-                                              (Just (object ["symbol" .= sym, "interval" .= interval]))
-                                              Nothing
-                                              Nothing
-                                        _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
-                                        pure ()
-                                    sleepSec everySec
-                                    loop
+                                            mergeResult <- runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos
+                                            case mergeResult of
+                                              Left (msg, out, err) -> do
+                                                now <- getTimestampMs
+                                                journalWriteMaybe
+                                                  mJournal
+                                                  ( object
+                                                      [ "type" .= ("optimizer.auto.merge_failed" :: String)
+                                                      , "atMs" .= now
+                                                      , "error" .= msg
+                                                      , "stdout" .= out
+                                                      , "stderr" .= err
+                                                      ]
+                                                  )
+                                              Right _ -> do
+                                                now <- getTimestampMs
+                                                opsAppendMaybe
+                                                  mOps
+                                                  "optimizer.auto.updated"
+                                                  Nothing
+                                                  (Just (object ["symbol" .= sym, "interval" .= interval]))
+                                                  Nothing
+                                                  Nothing
+                                            _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
+                                            pure ()
+                                        sleepSec everySec
+                                        loop
+                              _ -> do
+                                now <- getTimestampMs
+                                journalWriteMaybe
+                                  mJournal
+                                  ( object
+                                      [ "type" .= ("optimizer.auto.pick_failed" :: String)
+                                      , "atMs" .= now
+                                      , "symbols" .= length symbols
+                                      , "intervals" .= length intervals
+                                      ]
+                                  )
+                                sleepSec everySec
+                                loop
 
                       loop
 
@@ -6905,15 +6920,15 @@ parsePlatformsArg raw =
         then Left "platforms must include at least one entry"
         else traverse parsePlatform parsed
 
-pickRandom :: [a] -> IO a
+pickRandom :: [a] -> IO (Maybe a)
 pickRandom xs =
   case xs of
-    [] -> error "pickRandom: empty list"
+    [] -> pure Nothing
     _ -> do
       r <- randomIO :: IO Word64
       let len = length xs
           idx = fromIntegral (r `mod` fromIntegral len)
-      pure (xs !! idx)
+      pure (Just (xs !! idx))
 
 pickDefaultString :: String -> Maybe String -> String
 pickDefaultString def mb =
@@ -10664,9 +10679,9 @@ computeTradeOnlySignal args lookback prices mBinanceEnv = do
             pure (either (const Nothing) id r)
       _ -> pure Nothing
 
-  mLstmCtx <-
+  (mLstmCtx, mLstmPredHistory) <-
     case method of
-      MethodKalmanOnly -> pure Nothing
+      MethodKalmanOnly -> pure (Nothing, Nothing)
       _ -> do
         let normState = fitNorm (argNormalization args) prices
             obsAll = forwardSeries normState prices
@@ -10682,11 +10697,42 @@ computeTradeOnlySignal args lookback prices mBinanceEnv = do
                 , lcSeed = argSeed args
                 }
         (lstmModel, _) <- trainLstmWithPersistence args lookback lstmCfg obsAll
-        pure (Just (normState, obsAll, lstmModel))
+        let lstmPredHistory =
+              if method == MethodRouter
+                then
+                  let stepCount = max 0 (n - 1)
+                      obsV = V.fromList obsAll
+                   in Just $
+                        V.generate stepCount $ \i ->
+                          if i < lookback - 1
+                            then pricesV V.! i
+                            else
+                              let window = V.toList (V.slice (i - lookback + 1) lookback obsV)
+                                  predObs = predictNext lstmModel window
+                               in inverseNorm normState predObs
+                else Nothing
+        pure (Just (normState, obsAll, lstmModel), lstmPredHistory)
 
-  mKalmanCtx <-
+  (mKalmanCtx, mKalPredHistory) <-
     case method of
-      MethodLstmOnly -> pure Nothing
+      MethodLstmOnly -> pure (Nothing, Nothing)
+      MethodRouter -> do
+        let predictors = trainPredictors lookback pricesV
+            hmm0 = initHMMFilter predictors []
+            kal0 =
+              initKalman1
+                0
+                (max 1e-12 (argKalmanMeasurementVar args))
+                (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+            sv0 = emptySensorVar
+            stepCount = max 0 (n - 1)
+            (kalPrev, hmmPrev, svPrev, kalPredRev, _metaRev) =
+              foldl'
+                (backtestStepKalmanOnly args pricesV predictors 0 mMarketModel)
+                (kal0, hmm0, sv0, [], [])
+                [0 .. stepCount - 1]
+            kalPredV = V.fromList (reverse kalPredRev)
+        pure (Just (predictors, kalPrev, hmmPrev, svPrev), Just kalPredV)
       _ -> do
         let predictors = trainPredictors lookback pricesV
             hmm0 = initHMMFilter predictors []
@@ -10713,9 +10759,14 @@ computeTradeOnlySignal args lookback prices mBinanceEnv = do
                in (kal', hmm', sv')
 
             (kalPrev, hmmPrev, svPrev) = foldl' step (kal0, hmm0, sv0) [0 .. n - 2]
-        pure (Just (predictors, kalPrev, hmmPrev, svPrev))
+        pure (Just (predictors, kalPrev, hmmPrev, svPrev), Nothing)
 
-  pure (computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel Nothing)
+  let mPredHistory =
+        case (method, mKalPredHistory, mLstmPredHistory) of
+          (MethodRouter, Just kalHist, Just lstmHist) -> Just (kalHist, lstmHist)
+          _ -> Nothing
+
+  pure (computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPredHistory)
 
 -- LSTM weight persistence (for incremental training across backtests)
 
@@ -11156,15 +11207,16 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       blendWeight0 = argBlendWeight args
       blendWeight = max 0 (min 1 blendWeight0)
       blendPredBacktest = zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredBacktest lstmPredBacktest
-      (routerPredBacktestV, routerModelBacktestV) =
+      routerPredBacktestV =
         case methodUsed of
           MethodRouter ->
             let pricesV = V.fromList backtestPrices
                 kalV = V.fromList kalPredBacktest
                 lstmV = V.fromList lstmPredBacktest
                 blendV = V.fromList blendPredBacktest
-                routerPredV =
-                  routerPredictionsV
+             in
+              Just
+                ( routerPredictionsV
                     routerOpenThr
                     (argRouterLookback args)
                     (argRouterMinScore args)
@@ -11172,76 +11224,16 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     kalV
                     lstmV
                     blendV
-                routerModelV =
-                  routerModelsV
-                    routerOpenThr
-                    (argRouterLookback args)
-                    (argRouterMinScore args)
-                    pricesV
-                    kalV
-                    lstmV
-                    blendV
-             in (Just routerPredV, Just routerModelV)
-          _ -> (Nothing, Nothing)
+                )
+          _ -> Nothing
       (kalPredUsedBacktest, lstmPredUsedBacktest, metaUsedBacktest) =
         case methodUsed of
           MethodRouter ->
-            case (routerPredBacktestV, routerModelBacktestV) of
-              (Just routerPredV, Just routerModelV) ->
-                let pricesBacktestV = V.fromList backtestPrices
-                    routerPred = V.toList routerPredV
-                    metaRouter =
-                      case metaBacktest of
-                        Nothing -> Nothing
-                        Just metaList ->
-                          let metaV = V.fromList metaList
-                              stepCount = V.length routerPredV
-                              thrMin = min routerOpenThr bestCloseThr
-                              thrMax = max routerOpenThr bestCloseThr
-                              eps = max 1e-9 (abs thrMax * 0.01)
-                              zMin = max 0 (argKalmanZMin args)
-                              zMax = max zMin (argKalmanZMax args)
-                              bad x = isNaN x || isInfinite x
-                              directionPrice thr prev pred =
-                                if prev <= 0 || bad prev || bad pred
-                                  then Nothing
-                                  else
-                                    let upEdge = prev * (1 + thr)
-                                        downEdge = prev * (1 - thr)
-                                     in if pred > upEdge
-                                          then Just (1 :: Int)
-                                          else if pred < downEdge then Just (-1) else Nothing
-                              neutralMetaAt t =
-                                let prev = pricesBacktestV V.! t
-                                    pred = routerPredV V.! t
-                                    dir = directionPrice thrMin prev pred
-                                    val =
-                                      case dir of
-                                        Just 1 -> thrMax + eps
-                                        Just (-1) -> negate (thrMax + eps)
-                                        _ -> 0
-                                 in
-                                  StepMeta
-                                    { smKalmanMean = zMax
-                                    , smKalmanVar = 1
-                                    , smHighVolProb = Just 0
-                                    , smQuantile10 = Just val
-                                    , smQuantile90 = Just val
-                                    , smConformalLo = Just val
-                                    , smConformalHi = Just val
-                                    }
-                              metaAt t =
-                                if t >= 0 && t < V.length metaV
-                                  then metaV V.! t
-                                  else neutralMetaAt t
-                              metaFor t =
-                                case routerModelV V.! t of
-                                  Just RouterKalman -> metaAt t
-                                  Just RouterBlend -> metaAt t
-                                  _ -> neutralMetaAt t
-                           in Just [metaFor t | t <- [0 .. stepCount - 1]]
-                 in (routerPred, routerPred, metaRouter)
-              _ -> (kalPredBacktest, lstmPredBacktest, metaBacktest)
+            case routerPredBacktestV of
+              Just routerPredV ->
+                let routerPred = V.toList routerPredV
+                 in (routerPred, routerPred, metaBacktest)
+              Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest)
           _ ->
             let (kalPredUsed, lstmPredUsed) =
                   selectPredictions methodUsed blendWeight0 kalPredBacktest lstmPredBacktest
@@ -11251,8 +11243,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     _ -> metaBacktest
              in (kalPredUsed, lstmPredUsed, metaUsed)
 
-  let backtestRaw =
-        simulateEnsembleWithHL
+  let backtestRawE =
+        simulateEnsembleWithHLChecked
           backtestCfg
           1
           backtestPrices
@@ -11261,11 +11253,15 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           kalPredUsedBacktest
           lstmPredUsedBacktest
           metaUsedBacktest
-      backtest =
+  backtestRaw <-
+    case backtestRawE of
+      Left err -> error err
+      Right bt -> pure bt
+  let backtest =
         case methodUsed of
           MethodRouter ->
-            let agreementBacktest =
-                  simulateEnsembleWithHL
+            let agreementBacktestE =
+                  simulateEnsembleWithHLChecked
                     backtestCfg
                     1
                     backtestPrices
@@ -11274,6 +11270,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     kalPredBacktest
                     lstmPredBacktest
                     metaBacktest
+                agreementBacktest =
+                  case agreementBacktestE of
+                    Left err -> error err
+                    Right bt -> bt
              in backtestRaw
                   { brAgreementOk = brAgreementOk agreementBacktest
                   , brAgreementValid = brAgreementValid agreementBacktest
@@ -11326,7 +11326,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                   metaF = fmap (take steps . drop t0) metaUsedBacktest
                   openTimesF = fmap (\ot -> V.slice t0 (steps + 1) ot) (ecOpenTimes backtestCfg)
                   backtestCfgFold = backtestCfg { ecOpenTimes = openTimesF }
-                  btFold = simulateEnsembleWithHL backtestCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
+                  btFold =
+                    case simulateEnsembleWithHLChecked backtestCfgFold 1 pricesF highsF lowsF kalF lstmF metaF of
+                      Left err -> error err
+                      Right bt -> bt
                   mFold = computeMetrics ppy btFold
                in WalkForwardFold { wffStartIndex = trainEnd + t0, wffEndIndex = trainEnd + t1 + 1, wffMetrics = mFold }
 
@@ -11701,28 +11704,6 @@ routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blend
          in if bestScore < minScore
               then (Nothing, bestScore, Just "ROUTER_MIN_SCORE")
          else (Just bestModel, bestScore, Nothing)
-
-routerModelsV
-  :: Double
-  -> Int
-  -> Double
-  -> V.Vector Double
-  -> V.Vector Double
-  -> V.Vector Double
-  -> V.Vector Double
-  -> V.Vector (Maybe RouterModel)
-routerModelsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV =
-  let stepCount =
-        minimum
-          [ V.length pricesV - 1
-          , V.length kalPredV
-          , V.length lstmPredV
-          , V.length blendPredV
-          ]
-      pickModel t =
-        case routerSelectModelAt openThr lookback minScore pricesV kalPredV lstmPredV blendPredV t of
-          (choice, _, _) -> choice
-   in V.generate (max 0 stepCount) pickModel
 
 routerPredictionsV
   :: Double
@@ -12309,15 +12290,18 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
                                   let s0 = if argConfidenceSizing args then sizeRaw else 1
                                    in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
                          in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
-                      (MethodRouter, Just kalZ, Just confScore) ->
+                      _ -> (Nothing, Nothing, Nothing, Nothing)
+                  (routerDirGated, routerCloseDirGated, routerPosSize, routerGateReason) =
+                    case (mKalZ, mConfidence) of
+                      (Just kalZ, Just confScore) ->
                         let sizeRaw =
                               if argConfidenceSizing args
                                 then confScore
-                                else if blendDir == Nothing then 0 else 1
+                                else if routerDirRaw == Nothing then 0 else 1
                             (dirUsed, mWhy) =
-                              gateKalmanDir (argConfidenceSizing args) openThr kalZ mRegimes mConformal mQuantiles confScore blendDir
+                              gateKalmanDir (argConfidenceSizing args) openThr kalZ mRegimes mConformal mQuantiles confScore routerDirRaw
                             (closeDirUsed, _) =
-                              gateKalmanDir False closeThr kalZ mRegimes mConformal mQuantiles confScore blendCloseDir
+                              gateKalmanDir False closeThr kalZ mRegimes mConformal mQuantiles confScore routerCloseDirRaw
                             sizeUsed =
                               case dirUsed of
                                 Nothing -> 0
@@ -12325,39 +12309,13 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
                                   let s0 = if argConfidenceSizing args then sizeRaw else 1
                                    in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
                          in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
-                      _ -> (Nothing, Nothing, Nothing, Nothing)
-                  routerDirGated =
-                    case mRouterModel of
-                      Just RouterKalman -> kalDir
-                      Just RouterBlend -> blendDirGated
-                      Just RouterLstm -> lstmDir
-                      Nothing -> routerDirRaw
-
-                  routerCloseDirGated =
-                    case mRouterModel of
-                      Just RouterKalman -> kalCloseDir
-                      Just RouterBlend -> blendCloseDirGated
-                      Just RouterLstm -> lstmCloseDir
-                      Nothing -> routerCloseDirRaw
-
-                  routerPosSize =
-                    case mRouterModel of
-                      Just RouterKalman -> mPosSize
-                      Just RouterBlend -> blendPosSize
-                      Just RouterLstm -> Just 1
-                      Nothing -> Nothing
-
-                  routerGateReason =
-                    case mRouterModel of
-                      Just RouterKalman -> mGateReason
-                      Just RouterBlend -> blendGateReason
-                      _ -> Nothing
-
-                  routerConfidence =
-                    case mRouterModel of
-                      Just RouterKalman -> mConfidence
-                      Just RouterBlend -> mConfidence
-                      _ -> Nothing
+                      _ ->
+                        let sizeFallback =
+                              if routerDirRaw == Nothing
+                                then 0
+                                else 1
+                         in (routerDirRaw, routerCloseDirRaw, Just sizeFallback, Nothing)
+                  routerConfidence = mConfidence
 
                   closeDir =
                     case method of

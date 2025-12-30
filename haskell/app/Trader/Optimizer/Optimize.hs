@@ -16,7 +16,7 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
 import Data.List (foldl', intercalate, sort, sortBy)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Ord (comparing)
 import qualified Data.Map.Strict as M
 import qualified Data.ByteString as BS
@@ -1411,12 +1411,13 @@ sampleParams
             [] -> (Nothing, rng0)
             _ ->
               let (p, rng') = nextChoice platforms rng0
-               in (Just p, rng')
+               in (p, rng')
         intervalPool =
           case platform of
             Nothing -> intervals
             Just p -> fromMaybe intervals (lookup p platformIntervals)
-        (interval, rng2) = nextChoice intervalPool rng1
+        (intervalChoice, rng2) = nextChoice intervalPool rng1
+        interval = fromMaybe (fromMaybe "1h" (listToMaybe intervals)) intervalChoice
         (bars, rng3) = sampleBars rng2
         methods = [("11", methodW11), ("10", methodW10), ("01", methodW01), ("blend", methodWBlend)]
         (method, rng4) = chooseWeighted methods rng3
@@ -1424,7 +1425,8 @@ sampleParams
           let (bwLo, bwHi) = ordered blendWeightRange
               (val, rng') = nextUniform bwLo bwHi rng4
            in (clamp val 0 1, rng')
-        (normalization, rng6) = nextChoice normalizationChoices rng5
+        (normalizationChoice, rng6) = nextChoice normalizationChoices rng5
+        normalization = fromMaybe "none" normalizationChoice
         (baseOpenThreshold, rng7) =
           nextLogUniform (max 1e-12 openThresholdMin) (max 1e-12 openThresholdMax) rng6
         (baseCloseThreshold, rng8) =
@@ -1798,20 +1800,23 @@ sampleParams
                    in (round val, rng'')
                 else nextIntRange barsMin barsMax rng'
     chooseWeighted options rng =
-      let weights = map (max 0 . snd) options
-          total = sum weights
-       in if total <= 0
-            then
-              let (choice, rng') = nextChoice (map fst options) rng
-               in (choice, rng')
-            else
-              let (r, rng') = nextDouble rng
-                  target = r * total
-                  pick acc ((name, w) : rest) =
-                    let acc' = acc + max 0 w
-                     in if target <= acc' then name else pick acc' rest
-                  pick _ [] = fst (last options)
-               in (pick 0 options, rng')
+      case options of
+        [] -> ("", rng)
+        (firstOpt : _) ->
+          let weights = map (max 0 . snd) options
+              total = sum weights
+           in if total <= 0
+                then
+                  let (choice, rng') = nextChoice (map fst options) rng
+                   in (fromMaybe (fst firstOpt) choice, rng')
+                else
+                  let (r, rng') = nextDouble rng
+                      target = r * total
+                      pick acc ((name, w) : rest) =
+                        let acc' = acc + max 0 w
+                         in if target <= acc' then name else pick acc' rest
+                      pick _ [] = fst (last options)
+                   in (pick 0 options, rng')
 
 runOptimizer :: OptimizerArgs -> IO Int
 runOptimizer args0 = do

@@ -30,13 +30,14 @@ predictGBDT :: GBDTModel -> [Double] -> (Double, Maybe Double)
 predictGBDT m feats =
   let expected = gmFeatureDim m
       actual = length feats
+      base = gmBase m
+      lr = gmLearningRate m
    in
-    if actual /= expected
-      then error ("GBDT feature dimension mismatch: expected " ++ show expected ++ ", got " ++ show actual)
+    -- Fall back to the base prediction when feature vectors are inconsistent.
+    if actual /= expected || expected <= 0
+      then (base, gmSigma m)
       else
         let featsV = V.fromList feats
-            base = gmBase m
-            lr = gmLearningRate m
             applySt Stump{stFeature=j, stThreshold=thr, stLeftValue=l, stRightValue=r} =
               let x = featsV V.! j
                in if x <= thr then l else r

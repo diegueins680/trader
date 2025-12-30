@@ -20,7 +20,7 @@ import Data.List (foldl', group, intercalate, sort)
 import qualified Data.Vector as V
 
 import Trader.Method (Method(..))
-import Trader.Trading (BacktestResult(..), EnsembleConfig(..), StepMeta(..), simulateEnsembleVWithHL)
+import Trader.Trading (BacktestResult(..), EnsembleConfig(..), StepMeta(..), simulateEnsembleVWithHLChecked)
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
 
 data TuneObjective
@@ -433,38 +433,57 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
               : baseCloseThreshold
               : downsample maxCandidates candidates0
           )
+      ppy = max 1e-12 (tcPeriodsPerYear cfg)
+      emptyBacktest =
+        BacktestResult
+          { brEquityCurve = [1]
+          , brPositions = []
+          , brAgreementOk = []
+          , brAgreementValid = []
+          , brPositionChanges = 0
+          , brTrades = []
+          }
+      emptyMetrics = computeMetrics ppy emptyBacktest
 
       eval openThr closeThr =
         let btCfg = baseCfg { ecOpenThreshold = openThr, ecCloseThreshold = closeThr }
-            btFull = simulateEnsembleVWithHL btCfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
-            metrics = computeMetrics (max 1e-12 (tcPeriodsPerYear cfg)) btFull
-            eligible =
-              if minRoundTripsReq <= 0
-                then True
-                else bmRoundTrips metrics >= minRoundTripsReq
-            foldsReq = max 1 (tcWalkForwardFolds cfg)
-            foldRs = foldRanges stepCount foldsReq
-            foldScores =
-              if not eligible
-                then [ineligibleScore]
-                else
-                  if length foldRs <= 1
-                    then [scoreBacktest cfg btFull]
-                    else
-                      [ let steps = t1 - t0 + 1
-                            pricesF = V.slice t0 (steps + 1) pricesV
-                            highsF = V.slice t0 (steps + 1) highsV
-                            lowsF = V.slice t0 (steps + 1) lowsV
-                            kalF = V.slice t0 steps kalUsedV
-                            lstmF = V.slice t0 steps lstmUsedV
-                            metaF = fmap (\mv -> V.slice t0 steps mv) metaUsed
-                            openTimesF = fmap (\ot -> V.slice t0 (steps + 1) ot) (ecOpenTimes btCfg)
-                            btCfgFold = btCfg { ecOpenTimes = openTimesF }
-                            btFold = simulateEnsembleVWithHL btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
-                         in scoreBacktest cfg btFold
-                      | (t0, t1) <- foldRs
-                      , t1 >= t0
-                      ]
+            btFullE = simulateEnsembleVWithHLChecked btCfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
+            (btFull, metrics, eligible, foldScores) =
+              case btFullE of
+                Left _ ->
+                  (emptyBacktest, emptyMetrics, False, [ineligibleScore])
+                Right btFull' ->
+                  let metrics' = computeMetrics ppy btFull'
+                      eligible' =
+                        if minRoundTripsReq <= 0
+                          then True
+                          else bmRoundTrips metrics' >= minRoundTripsReq
+                      foldsReq = max 1 (tcWalkForwardFolds cfg)
+                      foldRs = foldRanges stepCount foldsReq
+                      foldScores' =
+                        if not eligible'
+                          then [ineligibleScore]
+                          else
+                            if length foldRs <= 1
+                              then [scoreBacktest cfg btFull']
+                              else
+                                [ let steps = t1 - t0 + 1
+                                      pricesF = V.slice t0 (steps + 1) pricesV
+                                      highsF = V.slice t0 (steps + 1) highsV
+                                      lowsF = V.slice t0 (steps + 1) lowsV
+                                      kalF = V.slice t0 steps kalUsedV
+                                      lstmF = V.slice t0 steps lstmUsedV
+                                      metaF = fmap (\mv -> V.slice t0 steps mv) metaUsed
+                                      openTimesF = fmap (\ot -> V.slice t0 (steps + 1) ot) (ecOpenTimes btCfg)
+                                      btCfgFold = btCfg { ecOpenTimes = openTimesF }
+                                      btFoldE = simulateEnsembleVWithHLChecked btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
+                                   in case btFoldE of
+                                        Left _ -> ineligibleScore
+                                        Right btFold -> scoreBacktest cfg btFold
+                                | (t0, t1) <- foldRs
+                                , t1 >= t0
+                                ]
+                   in (btFull', metrics', eligible', foldScores')
             m = mean foldScores
             s = stddev foldScores
             stats =

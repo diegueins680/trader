@@ -18,11 +18,12 @@ All notable changes to this project will be documented in this file.
 - Trading: when confidence sizing is enabled, scale live orders and backtests by LSTM confidence (thresholds now configurable).
 - Trading: futures order placement checks available balance (and leverage) before submitting.
 - Trading: add `--method router` with `--router-lookback`/`--router-min-score` for adaptive Kalman/LSTM/blend selection.
-- Trading: router signals now apply the selected model's gates (Kalman/Blend only when selected) and skip Kalman gating on LSTM-routed bars.
+- Trading: router signals now apply Kalman confidence/risk gates to routed selections (including LSTM-routed bars).
 - Backtests: router scoring now uses the effective open threshold (including cost-aware min-edge floors).
 - Backtests: router agreement rate now reflects Kalman vs LSTM agreement instead of routed predictions.
 - Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
+- Predictors: fall back to the GBDT base prediction when feature dimensions mismatch.
 - Web UI: default order sizing uses `orderQuote=100` to avoid orders rounding to zero on common minQty/step sizes.
 - Backtests: API queues requests when the backtest slot is busy; UI waits and notifies when the backtest completes.
 - Strategy defaults: move to `--interval 1h`/`--lookback-window 7d`, raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, max position size, vol target/floor/max-vol, Kalman z-min, min position size), and bump cost assumptions (fee/slippage/spread).
@@ -52,6 +53,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: backtest split auto-adjusts bars without exceeding API max bars.
 - Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).
 - Metrics: agreement rate now counts only bars where both models emit a direction (warm-up/no-signal bars excluded).
+- Backtests: validate open timestamp vectors against closes to avoid misaligned day boundaries.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
@@ -75,6 +77,7 @@ All notable changes to this project will be documented in this file.
 - Trading: Coinbase spot orders now supported via `/trade` and `--binance-trade` (live-only; no test endpoint).
 - Optimizer: add platform sampling (`--platforms`) and persist platform in top-combo outputs.
 - Optimizer: allow `merge-top-combos --max 0` to emit an empty combo list.
+- Optimizer: avoid crashes when random sampling pools are empty (skips invalid picks).
 - Optimizer: refresh the top-N combos daily by re-running backtests against the latest data and persisting updated metrics to `top-combos.json`.
 - API: prefer local bot snapshots and optimizer combos on reads, falling back to S3 only when local state is missing to reduce proxy 5xx.
 - API: add backtest concurrency gating + timeout controls (`TRADER_API_MAX_BACKTEST_RUNNING`, `TRADER_API_BACKTEST_TIMEOUT_SEC`) to keep the server responsive under heavy backtests.

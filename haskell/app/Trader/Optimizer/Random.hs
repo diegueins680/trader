@@ -106,13 +106,13 @@ nextIntRange lo hi rng
           (r, rng') = randBelow spanN rng
        in (lo + fromIntegral r, rng')
 
-nextChoice :: [a] -> Rng -> (a, Rng)
+nextChoice :: [a] -> Rng -> (Maybe a, Rng)
 nextChoice xs rng =
   case xs of
-    [] -> error "nextChoice: empty list"
+    [] -> (Nothing, rng)
     _ ->
       let (idx, rng') = nextIntRange 0 (length xs - 1) rng
-       in (xs !! idx, rng')
+       in (Just (xs !! idx), rng')
 
 randBelow :: Word64 -> Rng -> (Word64, Rng)
 randBelow n rng

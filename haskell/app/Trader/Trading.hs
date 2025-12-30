@@ -12,7 +12,9 @@ module Trader.Trading
   , simulateEnsemble
   , simulateEnsembleV
   , simulateEnsembleWithHL
+  , simulateEnsembleWithHLChecked
   , simulateEnsembleVWithHL
+  , simulateEnsembleVWithHLChecked
   , simulateEnsembleLongFlat
   , simulateEnsembleLongFlatV
   , simulateEnsembleLongFlatWithHL
@@ -227,7 +229,23 @@ simulateEnsembleWithHL
   -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
   -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> BacktestResult
-simulateEnsembleWithHL = simulateEnsembleLongFlatWithHL
+simulateEnsembleWithHL cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
+  case simulateEnsembleWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta of
+    Left err -> error err
+    Right bt -> bt
+
+simulateEnsembleWithHLChecked
+  :: EnsembleConfig
+  -> Int            -- lookback (for LSTM alignment)
+  -> [Double]       -- closes length n
+  -> [Double]       -- highs length n (aligned to closes; bar i high is for close[i-1]..close[i])
+  -> [Double]       -- lows length n
+  -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
+  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
+  -> Either String BacktestResult
+simulateEnsembleWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
+  simulateEnsembleLongFlatWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta
 
 simulateEnsembleV
   :: EnsembleConfig
@@ -249,7 +267,23 @@ simulateEnsembleVWithHL
   -> V.Vector Double
   -> Maybe (V.Vector StepMeta) -- optional per-step confidence meta
   -> BacktestResult
-simulateEnsembleVWithHL = simulateEnsembleLongFlatVWithHL
+simulateEnsembleVWithHL cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV =
+  case simulateEnsembleVWithHLChecked cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV of
+    Left err -> error err
+    Right bt -> bt
+
+simulateEnsembleVWithHLChecked
+  :: EnsembleConfig
+  -> Int            -- lookback (for LSTM alignment)
+  -> V.Vector Double -- closes
+  -> V.Vector Double -- highs
+  -> V.Vector Double -- lows
+  -> V.Vector Double
+  -> V.Vector Double
+  -> Maybe (V.Vector StepMeta) -- optional per-step confidence meta
+  -> Either String BacktestResult
+simulateEnsembleVWithHLChecked cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV =
+  simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV
 
 {-# DEPRECATED simulateEnsembleLongFlat "Use simulateEnsemble" #-}
 {-# DEPRECATED simulateEnsembleLongFlatWithHL "Use simulateEnsembleWithHL" #-}
@@ -284,7 +318,22 @@ simulateEnsembleLongFlatWithHL
   -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> BacktestResult
 simulateEnsembleLongFlatWithHL cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
-  simulateEnsembleLongFlatVWithHL
+  case simulateEnsembleLongFlatWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta of
+    Left err -> error err
+    Right bt -> bt
+
+simulateEnsembleLongFlatWithHLChecked
+  :: EnsembleConfig
+  -> Int            -- lookback (for LSTM alignment)
+  -> [Double]       -- closes length n
+  -> [Double]       -- highs length n (aligned to closes; bar i high is for close[i-1]..close[i])
+  -> [Double]       -- lows length n
+  -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
+  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
+  -> Either String BacktestResult
+simulateEnsembleLongFlatWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
+  simulateEnsembleLongFlatVWithHLChecked
     cfg
     lookback
     (V.fromList closes)
@@ -343,6 +392,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
             | V.length ts > n -> Just (V.drop (V.length ts - n) ts)
             | otherwise -> Nothing
           _ -> Nothing
+      openTimesMismatch =
+        case ecOpenTimes cfg of
+          Just ts | V.length ts < n -> Just "openTimes vector must match closes length"
+          _ -> Nothing
       validationError =
         if n < 2
           then Just "Need at least 2 prices to simulate"
@@ -350,30 +403,33 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
           if V.length highsV /= n || V.length lowsV /= n
             then Just "high/low vectors must match closes length"
           else
-            if lookback >= n
-              then Just "lookback must be less than number of prices"
-            else
-              if maybe False (\mv -> V.length mv < stepCount) mMetaV
-                then Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
-              else
-                if V.length kalPredNextV < kalNeed
-                  then
-                    Just
-                      ( "kalPredNext too short: need at least "
-                          ++ show kalNeed
-                          ++ ", got "
-                          ++ show (V.length kalPredNextV)
-                      )
+            case openTimesMismatch of
+              Just err -> Just err
+              Nothing ->
+                if lookback >= n
+                  then Just "lookback must be less than number of prices"
                   else
-                    if V.length lstmPredNextV < lstmNeed
-                      then
-                        Just
-                          ( "lstmPredNext too short: need at least "
-                              ++ show lstmNeed
-                              ++ ", got "
-                              ++ show (V.length lstmPredNextV)
-                          )
-                      else Nothing
+                    if maybe False (\mv -> V.length mv < stepCount) mMetaV
+                      then Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
+                      else
+                        if V.length kalPredNextV < kalNeed
+                          then
+                            Just
+                              ( "kalPredNext too short: need at least "
+                                  ++ show kalNeed
+                                  ++ ", got "
+                                  ++ show (V.length kalPredNextV)
+                              )
+                          else
+                            if V.length lstmPredNextV < lstmNeed
+                              then
+                                Just
+                                  ( "lstmPredNext too short: need at least "
+                                      ++ show lstmNeed
+                                      ++ ", got "
+                                      ++ show (V.length lstmPredNextV)
+                                  )
+                              else Nothing
    in case validationError of
         Just err -> Left err
         Nothing ->
