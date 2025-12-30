@@ -125,6 +125,8 @@ data Args = Args
   , argFundingBySide :: Bool
   , argFundingOnOpen :: Bool
   , argBlendWeight :: Double
+  , argRouterLookback :: Int
+  , argRouterMinScore :: Double
   , argTriLayer :: Bool
   , argTriLayerFastMult :: Double
   , argTriLayerSlowMult :: Double
@@ -335,7 +337,7 @@ opts = do
       ( long "method"
           <> value MethodBoth
           <> showDefaultWith methodCode
-          <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, 10|kalman=Kalman only, 01|lstm=LSTM only"
+          <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, router=adaptive model selection, 10|kalman=Kalman only, 01|lstm=LSTM only"
       )
   argPositioning <-
     option
@@ -422,6 +424,8 @@ opts = do
   argFundingBySide <- switch (long "funding-by-side" <> help "Apply funding sign by side (long pays positive, short receives)")
   argFundingOnOpen <- switch (long "funding-on-open" <> help "Charge funding for bars opened with a position (even if exited intrabar)")
   argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend (0..1)")
+  argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router scoring (>= 2)")
+  argRouterMinScore <- option auto (long "router-min-score" <> value 0.25 <> help "Minimum router score (accuracy * coverage) to accept a model (0..1)")
   argTriLayer <- switch (long "tri-layer" <> help "Enable tri-layer entry gating (Kalman cloud + price action trigger)")
   argTriLayerFastMult <- option auto (long "tri-layer-fast-mult" <> value 0.5 <> help "Measurement variance multiplier for the fast Kalman cloud line (requires --tri-layer)")
   argTriLayerSlowMult <- option auto (long "tri-layer-slow-mult" <> value 2.0 <> help "Measurement variance multiplier for the slow Kalman cloud line (requires --tri-layer)")
@@ -636,6 +640,13 @@ validateArgs args0 = do
   ensure "--kalman-market-top-n must be >= 0" (argKalmanMarketTopN args >= 0)
   ensure "--open-threshold/--threshold must be >= 0" (argOpenThreshold args >= 0)
   ensure "--close-threshold must be >= 0" (argCloseThreshold args >= 0)
+  ensure "--router-lookback must be >= 2" (argRouterLookback args >= 2)
+  ensure "--router-min-score must be between 0 and 1" (argRouterMinScore args >= 0 && argRouterMinScore args <= 1)
+  ensure "--method router cannot be used with --optimize-operations/--sweep-threshold" $
+    not
+      ( argMethod args == MethodRouter
+          && (argOptimizeOperations args || argSweepThreshold args)
+      )
   ensure "--fee must be >= 0" (argFee args >= 0)
   ensure "--slippage must be >= 0" (argSlippage args >= 0)
   ensure "--spread must be >= 0" (argSpread args >= 0)

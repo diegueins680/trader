@@ -327,6 +327,8 @@ export function methodLabel(method: Method): string {
       return "LSTM only";
     case "blend":
       return "Blend (weighted average)";
+    case "router":
+      return "Router (adaptive)";
     default:
       return "Unknown";
   }

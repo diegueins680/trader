@@ -1,6 +1,6 @@
 export type Market = "spot" | "margin" | "futures";
 export type Platform = "binance" | "coinbase" | "kraken" | "poloniex";
-export type Method = "11" | "10" | "01" | "blend";
+export type Method = "11" | "10" | "01" | "blend" | "router";
 export type Normalization = "none" | "minmax" | "standard" | "log";
 export type Positioning = "long-flat" | "long-short";
 export type IntrabarFill = "stop-first" | "take-profit-first";
@@ -87,6 +87,8 @@ export type ApiParams = {
   fundingBySide?: boolean;
   fundingOnOpen?: boolean;
   blendWeight?: number;
+  routerLookback?: number;
+  routerMinScore?: number;
   periodsPerYear?: number;
   binanceLive?: boolean;
   orderQuote?: number;

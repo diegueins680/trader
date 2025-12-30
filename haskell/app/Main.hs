@@ -690,6 +690,8 @@ data ApiParams = ApiParams
   , apRebalanceResetOnSignal :: Maybe Bool
   , apFundingOnOpen :: Maybe Bool
   , apBlendWeight :: Maybe Double
+  , apRouterLookback :: Maybe Int
+  , apRouterMinScore :: Maybe Double
   , apTriLayer :: Maybe Bool
   , apTriLayerFastMult :: Maybe Double
   , apTriLayerSlowMult :: Maybe Double
@@ -1589,6 +1591,8 @@ argsPublicJson args =
       , "rebalanceResetOnSignal" .= argRebalanceResetOnSignal args
       , "fundingOnOpen" .= argFundingOnOpen args
       , "blendWeight" .= argBlendWeight args
+      , "routerLookback" .= argRouterLookback args
+      , "routerMinScore" .= argRouterMinScore args
       , "triLayer" .= argTriLayer args
       , "triLayerFastMult" .= argTriLayerFastMult args
       , "triLayerSlowMult" .= argTriLayerSlowMult args
@@ -3142,7 +3146,12 @@ initBotState mOps args settings sym = do
       n = V.length pricesV
 
   let method = argMethod args
-      methodForCtx = if argOptimizeOperations args then MethodBoth else method
+      methodForCtx =
+        if argOptimizeOperations args
+          then MethodBoth
+          else case method of
+            MethodRouter -> MethodBoth
+            _ -> method
       nan = 0 / 0 :: Double
 
   mLstmCtx <-
@@ -3609,6 +3618,7 @@ botApplyOptimizerUpdate st upd = do
       ctxOk =
         case method of
           MethodBoth -> isJust mLstmCtx' && isJust mKalmanCtx'
+          MethodRouter -> isJust mLstmCtx' && isJust mKalmanCtx'
           MethodKalmanOnly -> isJust mKalmanCtx'
           MethodLstmOnly -> isJust mLstmCtx'
           MethodBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -5643,6 +5653,8 @@ argsCacheJsonSignal args =
       , "volScaleMax" .= argVolScaleMax args
       , "maxVolatility" .= argMaxVolatility args
       , "blendWeight" .= argBlendWeight args
+      , "routerLookback" .= argRouterLookback args
+      , "routerMinScore" .= argRouterMinScore args
       , "triLayer" .= argTriLayer args
       , "triLayerFastMult" .= argTriLayerFastMult args
       , "triLayerSlowMult" .= argTriLayerSlowMult args
@@ -5742,6 +5754,8 @@ argsCacheJsonBacktest args =
       , "rebalanceResetOnSignal" .= argRebalanceResetOnSignal args
       , "fundingOnOpen" .= argFundingOnOpen args
       , "blendWeight" .= argBlendWeight args
+      , "routerLookback" .= argRouterLookback args
+      , "routerMinScore" .= argRouterMinScore args
       , "triLayer" .= argTriLayer args
       , "triLayerFastMult" .= argTriLayerFastMult args
       , "triLayerSlowMult" .= argTriLayerSlowMult args
@@ -8928,6 +8942,8 @@ argsFromApi baseArgs p = do
           , argFundingBySide = pick (apFundingBySide p) (argFundingBySide baseArgs)
           , argFundingOnOpen = pick (apFundingOnOpen p) (argFundingOnOpen baseArgs)
           , argBlendWeight = pick (apBlendWeight p) (argBlendWeight baseArgs)
+          , argRouterLookback = pick (apRouterLookback p) (argRouterLookback baseArgs)
+          , argRouterMinScore = pick (apRouterMinScore p) (argRouterMinScore baseArgs)
           , argTriLayer = pick (apTriLayer p) (argTriLayer baseArgs)
           , argTriLayerFastMult = pick (apTriLayerFastMult p) (argTriLayerFastMult baseArgs)
           , argTriLayerSlowMult = pick (apTriLayerSlowMult p) (argTriLayerSlowMult baseArgs)
@@ -9488,6 +9504,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
         MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
         MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
         MethodBlend -> "No order: Blend neutral (within threshold)."
+        MethodRouter -> "No order: Router neutral (score/threshold)."
+        MethodRouter -> "No order: Router neutral (score/threshold)."
 
     shortErr :: SomeException -> String
     shortErr ex = take 240 (show ex)
@@ -10445,6 +10463,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
           MethodKalmanOnly -> "Backtest (Kalman fusion only) complete."
           MethodLstmOnly -> "Backtest (LSTM only) complete."
           MethodBlend -> "Backtest (Kalman + LSTM blend) complete."
+          MethodRouter -> "Backtest (adaptive router: Kalman/LSTM/blend) complete."
 
       case bsLstmHistory summary of
         Nothing -> pure ()
@@ -10750,6 +10769,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           else
             case methodRequested of
               MethodBlend -> MethodBoth
+              MethodRouter -> MethodBoth
               _ -> methodRequested
       pricesV = V.fromList prices
 
@@ -10992,12 +11012,35 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             else (methodRequested, argOpenThreshold args, argCloseThreshold args, Nothing, Nothing)
 
       backtestCfg = baseCfgBacktest { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
-      (kalPredUsedBacktest, lstmPredUsedBacktest) =
-        selectPredictions methodUsed (argBlendWeight args) kalPredBacktest lstmPredBacktest
-      metaUsedBacktest =
+      blendWeight0 = argBlendWeight args
+      blendWeight = max 0 (min 1 blendWeight0)
+      blendPredBacktest = zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredBacktest lstmPredBacktest
+      (kalPredUsedBacktest, lstmPredUsedBacktest, metaUsedBacktest) =
         case methodUsed of
-          MethodLstmOnly -> Nothing
-          _ -> metaBacktest
+          MethodRouter ->
+            let pricesV = V.fromList backtestPrices
+                kalV = V.fromList kalPredBacktest
+                lstmV = V.fromList lstmPredBacktest
+                blendV = V.fromList blendPredBacktest
+                routerV =
+                  routerPredictionsV
+                    bestOpenThr
+                    (argRouterLookback args)
+                    (argRouterMinScore args)
+                    pricesV
+                    kalV
+                    lstmV
+                    blendV
+                routerPred = V.toList routerV
+             in (routerPred, routerPred, metaBacktest)
+          _ ->
+            let (kalPredUsed, lstmPredUsed) =
+                  selectPredictions methodUsed blendWeight0 kalPredBacktest lstmPredBacktest
+                metaUsed =
+                  case methodUsed of
+                    MethodLstmOnly -> Nothing
+                    _ -> metaBacktest
+             in (kalPredUsed, lstmPredUsed, metaUsed)
 
   let backtest =
         simulateEnsembleWithHL
@@ -11328,6 +11371,135 @@ baselineSimLongFlat perSideCost prices wantLong =
         , brTrades = reverse tradesRev'
         }
 
+data RouterModel
+  = RouterKalman
+  | RouterLstm
+  | RouterBlend
+  deriving (Eq, Show)
+
+data RouterStats = RouterStats
+  { rsScore :: !Double
+  , rsAccuracy :: !Double
+  , rsCoverage :: !Double
+  , rsSignals :: !Int
+  } deriving (Eq, Show)
+
+routerStatsWindow :: Double -> V.Vector Double -> V.Vector Double -> Int -> Int -> RouterStats
+routerStatsWindow openThr pricesV predsV start0 end0 =
+  let stepCount = min (V.length predsV) (V.length pricesV - 1)
+      start = max 0 start0
+      end = min end0 (stepCount - 1)
+      bad x = isNaN x || isInfinite x
+      direction prev next =
+        if prev <= 0 || bad prev || bad next
+          then Nothing
+          else
+            let up = prev * (1 + openThr)
+                down = prev * (1 - openThr)
+             in if next > up
+                  then Just (1 :: Int)
+                  else if next < down then Just (-1) else Nothing
+      step (correct, wrong, signals) i =
+        let prev = pricesV V.! i
+            next = pricesV V.! (i + 1)
+            pred = predsV V.! i
+            predDir = direction prev pred
+            actualDir = direction prev next
+         in case predDir of
+              Nothing -> (correct, wrong, signals)
+              Just dir ->
+                let signals' = signals + 1
+                 in if actualDir == Just dir
+                      then (correct + 1, wrong, signals')
+                      else (correct, wrong + 1, signals')
+   in
+    if stepCount <= 0 || end < start
+      then RouterStats { rsScore = 0, rsAccuracy = 0, rsCoverage = 0, rsSignals = 0 }
+      else
+        let windowLen = end - start + 1
+            (correct, _wrong, signals) = foldl' step (0, 0, 0) [start .. end]
+            accuracy =
+              if signals <= 0
+                then 0
+                else fromIntegral correct / fromIntegral signals
+            coverage =
+              if windowLen <= 0
+                then 0
+                else fromIntegral signals / fromIntegral windowLen
+            score = accuracy * coverage
+         in RouterStats { rsScore = score, rsAccuracy = accuracy, rsCoverage = coverage, rsSignals = signals }
+
+routerSelectModelAt
+  :: Double
+  -> Int
+  -> Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> Int
+  -> (Maybe RouterModel, Double, Maybe String)
+routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV t =
+  let stepCount =
+        minimum
+          [ V.length pricesV - 1
+          , V.length kalPredV
+          , V.length lstmPredV
+          , V.length blendPredV
+          ]
+      lookback = max 1 lookback0
+      minScore = max 0 (min 1 minScore0)
+      windowEnd = min (t - 1) (stepCount - 1)
+      modelRank m =
+        case m of
+          RouterBlend -> 2 :: Int
+          RouterKalman -> 1
+          RouterLstm -> 0
+      scoreKey (m, stats) = (rsScore stats, rsCoverage stats, rsAccuracy stats, modelRank m)
+      pick best cand =
+        if scoreKey cand > scoreKey best
+          then cand
+          else best
+   in
+    if stepCount <= 0 || windowEnd < 0
+      then (Nothing, 0, Just "ROUTER_WARMUP")
+      else
+        let windowStart = max 0 (windowEnd - lookback + 1)
+            statsKal = routerStatsWindow openThr pricesV kalPredV windowStart windowEnd
+            statsLstm = routerStatsWindow openThr pricesV lstmPredV windowStart windowEnd
+            statsBlend = routerStatsWindow openThr pricesV blendPredV windowStart windowEnd
+            (bestModel, bestStats) =
+              foldl' pick (RouterKalman, statsKal) [(RouterLstm, statsLstm), (RouterBlend, statsBlend)]
+            bestScore = rsScore bestStats
+         in if bestScore < minScore
+              then (Nothing, bestScore, Just "ROUTER_MIN_SCORE")
+              else (Just bestModel, bestScore, Nothing)
+
+routerPredictionsV
+  :: Double
+  -> Int
+  -> Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+routerPredictionsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV =
+  let stepCount =
+        minimum
+          [ V.length pricesV - 1
+          , V.length kalPredV
+          , V.length lstmPredV
+          , V.length blendPredV
+          ]
+      pickPred t =
+        case routerSelectModelAt openThr lookback minScore pricesV kalPredV lstmPredV blendPredV t of
+          (Just RouterKalman, _, _) -> kalPredV V.! t
+          (Just RouterLstm, _, _) -> lstmPredV V.! t
+          (Just RouterBlend, _, _) -> blendPredV V.! t
+          _ -> pricesV V.! t
+   in V.generate (max 0 stepCount) pickPred
+
 computeLatestSignal
   :: Args
   -> Int
@@ -11354,6 +11526,10 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
       case (mKalmanCtx, mLstmCtx) of
         (Just _, Just _) -> compute
         _ -> error "Internal: --method blend requires both Kalman and LSTM contexts."
+    MethodRouter ->
+      case (mKalmanCtx, mLstmCtx) of
+        (Just _, Just _) -> compute
+        _ -> error "Internal: --method router requires both Kalman and LSTM contexts."
   where
     method = argMethod args
     compute =
@@ -11780,6 +11956,47 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                     case (mKalNext, mLstmNext) of
                       (Just k, Just l) -> Just (blendWeight * k + (1 - blendWeight) * l)
                       _ -> Nothing
+                  routerLookback = max 1 (argRouterLookback args)
+                  routerMinScore = max 0 (min 1 (argRouterMinScore args))
+                  (mRouterModel, mRouterReason) =
+                    case (method, mKalmanCtx, mLstmCtx) of
+                      (MethodRouter, Just (predictors, _, _, _), Just (normState, obsAll, lstmModel)) ->
+                        let stepCount = max 0 (n - 1)
+                            kal0 =
+                              initKalman1
+                                0
+                                (max 1e-12 (argKalmanMeasurementVar args))
+                                (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+                            hmm0 = initHMMFilter predictors []
+                            sv0 = emptySensorVar
+                            (_, _, _, kalPredRev, _) =
+                              foldl'
+                                (backtestStepKalmanOnly args pricesV predictors 0 mMarketModel)
+                                (kal0, hmm0, sv0, [], [])
+                                [0 .. stepCount - 1]
+                            kalPredV = V.fromList (reverse kalPredRev)
+                            obsV = V.fromList obsAll
+                            lstmPredV =
+                              V.generate stepCount $ \i ->
+                                if i < lookback - 1
+                                  then pricesV V.! i
+                                  else
+                                    let window = V.toList (V.slice (i - lookback + 1) lookback obsV)
+                                        predObs = predictNext lstmModel window
+                                     in inverseNorm normState predObs
+                            blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
+                            (mChoice, _score, mReason) =
+                              routerSelectModelAt openThr routerLookback routerMinScore pricesV kalPredV lstmPredV blendPredV t
+                         in (mChoice, mReason)
+                      _ -> (Nothing, Nothing)
+                  routerNext =
+                    case mRouterModel of
+                      Just RouterKalman -> mKalNext
+                      Just RouterLstm -> mLstmNext
+                      Just RouterBlend -> blendNext
+                      Nothing -> Just currentPrice
+                  routerDir = routerNext >>= directionPrice openThr
+                  routerCloseDir = routerNext >>= directionPrice closeThr
                   edgeFromPred pred =
                     if bad pred || bad currentPrice || currentPrice == 0
                       then Nothing
@@ -11789,6 +12006,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                   edgeKal = mKalNext >>= edgeFromPred
                   edgeLstm = mLstmNext >>= edgeFromPred
                   edgeBlend = blendNext >>= edgeFromPred
+                  edgeRouter = routerNext >>= edgeFromPred
                   edgeForMethod =
                     case method of
                       MethodBoth ->
@@ -11798,6 +12016,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                       MethodKalmanOnly -> edgeKal
                       MethodLstmOnly -> edgeLstm
                       MethodBlend -> edgeBlend
+                      MethodRouter -> edgeRouter
                   signalToNoiseOk =
                     if minSignalToNoise <= 0
                       then True
@@ -11836,6 +12055,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                       MethodKalmanOnly -> kalCloseDir
                       MethodLstmOnly -> lstmCloseDir
                       MethodBlend -> blendCloseDirGated
+                      MethodRouter -> routerCloseDir
 
                   agreeDir =
                     if kalDir == lstmDir
@@ -11847,6 +12067,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                       MethodKalmanOnly -> kalDir
                       MethodLstmOnly -> lstmDir
                       MethodBlend -> blendDir
+                      MethodRouter -> routerDir
                   (chosenDir1, mPostGateReason) =
                     case chosenDir0 of
                       Nothing -> (Nothing, Nothing)
@@ -11949,6 +12170,14 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                             case gateReasonFinal of
                               Just why -> "HOLD (" ++ why ++ ")"
                               Nothing -> "HOLD (blend neutral)"
+                      MethodRouter ->
+                        case chosenDir of
+                          Just 1 -> "LONG"
+                          Just (-1) -> downAction
+                          _ ->
+                            case gateReasonFinal of
+                              Just why -> "HOLD (" ++ why ++ ")"
+                              Nothing -> "HOLD (router neutral)"
                   posSizeFinal = Just sizeFinal0
                   tradePosSize =
                     case method of
@@ -11957,6 +12186,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                   gateReasonForMethod =
                     case method of
                       MethodBlend -> blendGateReason
+                      MethodRouter -> mRouterReason <|> mGateReason
                       _ -> mGateReason
                in LatestSignal
                     { lsMethod = method
@@ -12466,6 +12696,7 @@ printMetrics method m = do
           MethodKalmanOnly -> "Signal rate (Kalman)"
           MethodLstmOnly -> "Signal rate (LSTM)"
           MethodBlend -> "Signal rate (Blend)"
+          MethodRouter -> "Signal rate (Router)"
   putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
   putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
 

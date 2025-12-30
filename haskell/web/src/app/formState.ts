@@ -51,6 +51,8 @@ export type FormState = {
   fundingBySide: boolean;
   fundingOnOpen: boolean;
   blendWeight: number;
+  routerLookback: number;
+  routerMinScore: number;
   backtestRatio: number;
   tuneRatio: number;
   tuneObjective: string;
@@ -148,6 +150,8 @@ export const defaultForm: FormState = {
   fundingBySide: false,
   fundingOnOpen: false,
   blendWeight: 0.5,
+  routerLookback: 30,
+  routerMinScore: 0.25,
   backtestRatio: 0.2,
   tuneRatio: 0.25,
   tuneObjective: "equity-dd-turnover",
@@ -408,6 +412,8 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     fundingBySide: normalizeBool(rawRec.fundingBySide ?? merged.fundingBySide, defaultForm.fundingBySide),
     fundingOnOpen: normalizeBool(rawRec.fundingOnOpen ?? merged.fundingOnOpen, defaultForm.fundingOnOpen),
     blendWeight: normalizeFiniteNumber(rawRec.blendWeight ?? merged.blendWeight, defaultForm.blendWeight, 0, 1),
+    routerLookback: normalizeFiniteNumber(rawRec.routerLookback ?? merged.routerLookback, defaultForm.routerLookback, 2, 1e9),
+    routerMinScore: normalizeFiniteNumber(rawRec.routerMinScore ?? merged.routerMinScore, defaultForm.routerMinScore, 0, 1),
     maxHighVolProb: normalizeFiniteNumber(rawRec.maxHighVolProb ?? merged.maxHighVolProb, 0, 0, 1),
     maxConformalWidth: normalizeFiniteNumber(rawRec.maxConformalWidth ?? merged.maxConformalWidth, 0, 0, 1e9),
     maxQuantileWidth: normalizeFiniteNumber(rawRec.maxQuantileWidth ?? merged.maxQuantileWidth, 0, 0, 1e9),

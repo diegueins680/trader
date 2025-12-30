@@ -222,6 +222,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
       methodRank m =
         case m of
           MethodBoth -> 3 :: Int
+          MethodRouter -> 3
           MethodBlend -> 2
           MethodKalmanOnly -> 1
           MethodLstmOnly -> 0
@@ -312,6 +313,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
       metaUsed =
         case method of
           MethodLstmOnly -> Nothing
+          MethodRouter -> metaV
           _ -> metaV
 
       blendWeight = clamp01 (ecBlendWeight baseCfg)
@@ -320,6 +322,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
       (kalUsedV, lstmUsedV) =
         case method of
           MethodBoth -> (kalV, lstmV)
+          MethodRouter -> (kalV, lstmV)
           MethodBlend -> (blendV, blendV)
           MethodKalmanOnly -> (kalV, kalV)
           MethodLstmOnly -> (lstmV, lstmV)
@@ -334,6 +337,22 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
               else
                 case method of
                   MethodBoth
+                    | V.length kalV < stepCount ->
+                        Just
+                          ( "sweepThreshold: kalPred has length "
+                              ++ show (V.length kalV)
+                              ++ " but needs at least "
+                              ++ show stepCount
+                          )
+                    | V.length lstmV < stepCount ->
+                        Just
+                          ( "sweepThreshold: lstmPred has length "
+                              ++ show (V.length lstmV)
+                              ++ " but needs at least "
+                              ++ show stepCount
+                          )
+                    | otherwise -> Nothing
+                  MethodRouter
                     | V.length kalV < stepCount ->
                         Just
                           ( "sweepThreshold: kalPred has length "
@@ -387,6 +406,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
       predSources =
         case method of
           MethodBoth -> [kalV, lstmV]
+          MethodRouter -> [kalV, lstmV]
           MethodBlend -> [blendV]
           MethodKalmanOnly -> [kalV]
           MethodLstmOnly -> [lstmV]

@@ -215,12 +215,15 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-signal-to-noise F` require edge / per-bar sigma >= `F` (`0` disables; default: `0.8`)
     - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread (default on; disable with `--no-cost-aware-edge`)
     - `--edge-buffer 0.0002` optional extra buffer added on top of cost-aware edge
-  - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average)
+  - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average), `router` (adaptive model selection)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
+    - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy.
     - `--blend-weight 0.5` Kalman weight for `blend` (`0..1`, default: `0.5`)
+    - `--router-lookback 30` lookback bars for router scoring (`>= 2`)
+    - `--router-min-score 0.25` minimum router score (accuracy × coverage) to accept a model (`0..1`)
 - `--positioning long-flat` (default, alias `long-only`/`long`) or `--positioning long-short` (allows short positions; trading/live bot requires `--futures`)
-  - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal)
+  - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal; router is excluded)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
   - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.

@@ -1741,6 +1741,8 @@ export function App() {
       fundingBySide,
       fundingOnOpen,
       blendWeight: clamp(form.blendWeight, 0, 1),
+      routerLookback: clamp(Math.trunc(form.routerLookback), 2, 1_000_000),
+      routerMinScore: clamp(form.routerMinScore, 0, 1),
       backtestRatio: clamp(form.backtestRatio, 0.01, 0.99),
       tuneRatio: clamp(form.tuneRatio, 0, 0.99),
       tuneObjective: form.tuneObjective,
@@ -3388,7 +3390,7 @@ export function App() {
         if (isCancelled) return;
         const payloadRec = (payload as Record<string, unknown> | null | undefined) ?? {};
         const rawCombos: unknown[] = Array.isArray(payloadRec.combos) ? (payloadRec.combos as unknown[]) : [];
-        const methods: Method[] = ["11", "10", "01", "blend"];
+        const methods: Method[] = ["11", "10", "01", "blend", "router"];
         const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
         const positionings: Positioning[] = ["long-flat", "long-short"];
         const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
@@ -5074,11 +5076,12 @@ export function App() {
                 >
                   <option value="11">11 — Both (agreement gated)</option>
                   <option value="blend">blend — Weighted average</option>
+                  <option value="router">router — Adaptive router</option>
                   <option value="10">10 — Kalman only</option>
                   <option value="01">01 — LSTM only</option>
                 </select>
                 <div className="hint">
-                  “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” averages the two predictions.
+                  “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” averages the two predictions. “router” picks the best recent model.
                 </div>
                 {methodOverride ? (
                   <div className="pillRow" style={{ marginTop: 6 }}>
@@ -5309,6 +5312,42 @@ export function App() {
                   disabled={form.method !== "blend"}
                 />
                 <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend.</div>
+              </div>
+            </div>
+
+            <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr" }}>
+              <div className="field">
+                <label className="label" htmlFor="routerLookback">
+                  Router lookback (bars)
+                </label>
+                <input
+                  id="routerLookback"
+                  className="input"
+                  type="number"
+                  step="1"
+                  min={2}
+                  value={form.routerLookback}
+                  onChange={(e) => setForm((f) => ({ ...f, routerLookback: numFromInput(e.target.value, f.routerLookback) }))}
+                  disabled={form.method !== "router"}
+                />
+                <div className="hint">Used with method=router; evaluates recent signal accuracy.</div>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="routerMinScore">
+                  Router min score
+                </label>
+                <input
+                  id="routerMinScore"
+                  className="input"
+                  type="number"
+                  step="0.05"
+                  min={0}
+                  max={1}
+                  value={form.routerMinScore}
+                  onChange={(e) => setForm((f) => ({ ...f, routerMinScore: numFromInput(e.target.value, f.routerMinScore) }))}
+                  disabled={form.method !== "router"}
+                />
+                <div className="hint">Accuracy × coverage threshold; below = hold.</div>
               </div>
             </div>
 
