@@ -325,7 +325,7 @@ The UI can discover the API in two ways:
 
 **Option A: CloudFront `/api/*` proxy (recommended)**
 - Configure CloudFront to forward `/api/*` to your API origin (App Runner/ALB/etc)
-- The UI must use `/api` (no extra UI config needed); `deploy-aws-quick.sh` forces this when a distribution ID is provided unless `--ui-api-direct`/`TRADER_UI_API_MODE=direct` is set (which keeps the full API URL and relies on CORS). Use `apiFallbackUrl` only if your API explicitly supports cross-origin requests (set via `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`).
+- The UI must use `/api` (no extra UI config needed); `deploy-aws-quick.sh` forces this when a distribution ID is provided unless `--ui-api-direct`/`TRADER_UI_API_MODE=direct` is set (which keeps the full API URL and relies on CORS). When the script discovers the App Runner URL it also fills `apiFallbackUrl` for failover; override it via `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed (CORS required).
 
 **Option B: Deploy-time config file**
 - Edit `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build) before uploading to S3:

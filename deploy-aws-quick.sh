@@ -354,6 +354,28 @@ discover_apprunner_trader_api_token() {
   echo "$token"
 }
 
+discover_apprunner_service_arn_by_name() {
+  local service_name="$1"
+  if [[ -z "$service_name" ]]; then
+    return 1
+  fi
+  local arn=""
+  arn="$(
+    aws apprunner list-services \
+      --region "$AWS_REGION" \
+      --query 'ServiceSummaryList[?ServiceName==`'"${service_name}"'`].ServiceArn | [0]' \
+      --output text 2>/dev/null || true
+  )"
+  if [[ "$arn" == "None" ]]; then
+    arn=""
+  fi
+  if [[ -n "$arn" ]]; then
+    echo "$arn"
+    return 0
+  fi
+  return 1
+}
+
 wait_for_apprunner_running() {
   local service_arn="$1"
   local max_attempts="${2:-90}"
@@ -1173,6 +1195,8 @@ main() {
   local api_token="$TRADER_API_TOKEN"
   local ui_api_url_override="${UI_API_URL:-}"
   local ui_api_url=""
+  local api_url_from_service="false"
+  local ui_api_fallback=""
 
   if [[ "$DEPLOY_API" == "true" ]]; then
     create_ecr_repo
@@ -1183,11 +1207,19 @@ main() {
     create_app_runner "$ecr_uri"
     api_url="$APP_RUNNER_SERVICE_URL"
     api_token="$TRADER_API_TOKEN"
+    api_url_from_service="true"
   else
+    if [[ -z "${UI_SERVICE_ARN:-}" ]]; then
+      UI_SERVICE_ARN="$(discover_apprunner_service_arn_by_name "$APP_RUNNER_SERVICE_NAME" || true)"
+      if [[ -n "$UI_SERVICE_ARN" ]]; then
+        echo -e "${YELLOW}✓ Discovered App Runner service '${APP_RUNNER_SERVICE_NAME}' for UI config${NC}" >&2
+      fi
+    fi
     if [[ -n "${ui_api_url_override:-}" ]]; then
       api_url="$ui_api_url_override"
     elif [[ -n "${UI_SERVICE_ARN:-}" ]]; then
       api_url="$(discover_apprunner_service_url "$UI_SERVICE_ARN")"
+      api_url_from_service="true"
     fi
     if [[ -z "${api_token:-}" && -n "${UI_SERVICE_ARN:-}" ]]; then
       api_token="$(discover_apprunner_trader_api_token "$UI_SERVICE_ARN")"
@@ -1217,6 +1249,10 @@ main() {
       ui_api_url="$api_url"
     fi
     ui_api_fallback="$UI_API_FALLBACK_URL"
+    if [[ -z "$ui_api_fallback" && "$ui_api_url" == "/api" && "$api_url_from_service" == "true" && -n "$api_url" ]]; then
+      ui_api_fallback="$api_url"
+      echo -e "${YELLOW}✓ Using apiFallbackUrl from App Runner URL${NC}" >&2
+    fi
     deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
   fi
 
@@ -1227,11 +1263,9 @@ main() {
     echo "API URL (configured): ${ui_api_url}"
   fi
   if [[ "$DEPLOY_UI" == "true" ]]; then
-    if [[ "$DEPLOY_API" == "true" ]]; then
-      echo "UI API base: ${ui_api_url}"
-      if [[ -n "${ui_api_fallback:-}" ]]; then
-        echo "UI API fallback: ${ui_api_fallback}"
-      fi
+    echo "UI API base: ${ui_api_url}"
+    if [[ -n "${ui_api_fallback:-}" ]]; then
+      echo "UI API fallback: ${ui_api_fallback}"
     fi
     echo "UI uploaded to: s3://${UI_BUCKET}/"
   fi

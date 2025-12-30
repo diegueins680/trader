@@ -435,7 +435,7 @@ async function runAsyncJob<T>(
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(params),
           },
-        { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs), allowFallback: false },
+        { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
       );
       break;
     } catch (err) {

@@ -57,7 +57,9 @@ All notable changes to this project will be documented in this file.
 - Deploy: quick AWS deploy auto-configures CloudFront `/api/*` behavior to route to the API and disable caching.
 - Deploy/UI: quick AWS deploy now forces UI `apiBaseUrl` to `/api` when CloudFront is configured and docs call out the single-instance requirement behind non-sticky proxies.
 - Deploy/UI: quick AWS deploy supports `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to keep `apiBaseUrl` pointing at the API host even with CloudFront.
-- Deploy/UI: quick AWS deploy no longer auto-sets `apiFallbackUrl` when CloudFront is configured; use `/api` or set a CORS-enabled fallback explicitly.
+- Deploy/UI: quick AWS deploy auto-discovers the App Runner service ARN/token for UI-only deploys when not provided.
+- Deploy/UI: quick AWS deploy now auto-fills `apiFallbackUrl` with the App Runner URL when CloudFront `/api/*` is configured (override with `--ui-api-fallback`).
+- Web UI: async signal/backtest start requests can fail over to `apiFallbackUrl` when the `/api` proxy returns 5xx/HTML errors.
 - Deploy/UI: quick AWS deploy supports `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` to set `apiFallbackUrl`.
 - CLI/API: accept `long-only`/`long` as aliases for `--positioning long-flat`.
 - Exchange data: add Kraken/Poloniex alongside Binance (`--platform`, `--symbol` alias) with trading only on Binance/Coinbase.
