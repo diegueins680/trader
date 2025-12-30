@@ -1476,6 +1476,9 @@ data OpsStore = OpsStore
   , osNextId :: !(IORef Int64)
   , osOps :: !(IORef (Seq PersistedOperation))
   , osMaxInMemory :: !Int
+  , osS3State :: !(Maybe S3State)
+  , osS3PersistEverySec :: !Int
+  , osS3LastPersistMs :: !(IORef Int64)
   }
 
 sanitizeApiParams :: ApiParams -> ApiParams
@@ -1627,6 +1630,13 @@ trimSeq maxN s =
       let len = Seq.length s
        in if len <= maxN then s else Seq.drop (len - maxN) s
 
+opsFileName :: FilePath
+opsFileName = "ops.jsonl"
+
+s3OpsKey :: S3State -> String
+s3OpsKey st =
+  s3KeyFor st ["ops", opsFileName]
+
 loadOpsFile :: FilePath -> Int -> IO (Seq PersistedOperation, Int64)
 loadOpsFile path maxInMemory = do
   exists <- doesFileExist path
@@ -1651,6 +1661,59 @@ loadOpsFile path maxInMemory = do
                            in loop acc' maxId'
         loop Seq.empty 0
 
+writeOpsFile :: FilePath -> BL.ByteString -> IO (Either String ())
+writeOpsFile path contents = do
+  let dir = takeDirectory path
+  dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
+  case dirResult of
+    Left e -> pure (Left ("Failed to create ops directory: " ++ show e))
+    Right _ -> do
+      tempResult <- try (openTempFile dir opsFileName) :: IO (Either SomeException (FilePath, Handle))
+      case tempResult of
+        Left e -> pure (Left ("Failed to create temp ops file: " ++ show e))
+        Right (tmpPath, handle) -> do
+          _ <- try (BL.hPut handle contents) :: IO (Either SomeException ())
+          hClose handle
+          renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
+          case renameResult of
+            Left e -> pure (Left ("Failed to write ops file: " ++ show e))
+            Right _ -> pure (Right ())
+
+loadOpsFileWithS3 :: FilePath -> Int -> Maybe S3State -> IO (Seq PersistedOperation, Int64)
+loadOpsFileWithS3 path maxInMemory mS3 = do
+  exists <- doesFileExist path
+  if exists
+    then loadOpsFile path maxInMemory
+    else do
+      case mS3 of
+        Nothing -> loadOpsFile path maxInMemory
+        Just st -> do
+          s3Result <- s3GetObject st (s3OpsKey st)
+          case s3Result of
+            Right (Just contents) -> do
+              _ <- writeOpsFile path contents
+              loadOpsFile path maxInMemory
+            _ -> loadOpsFile path maxInMemory
+
+persistOpsMaybe :: OpsStore -> IO ()
+persistOpsMaybe store =
+  case osS3State store of
+    Nothing -> pure ()
+    Just st -> do
+      now <- getTimestampMs
+      lastPersist <- readIORef (osS3LastPersistMs store)
+      let intervalMs = fromIntegral (osS3PersistEverySec store) * 1000
+      if now - lastPersist < intervalMs
+        then pure ()
+        else do
+          writeIORef (osS3LastPersistMs store) now
+          contentsOrErr <- (try (BL.readFile (osPath store)) :: IO (Either SomeException BL.ByteString))
+          case contentsOrErr of
+            Left _ -> pure ()
+            Right contents -> do
+              _ <- try (s3PutObject st (s3OpsKey st) contents) :: IO (Either SomeException (Either String ()))
+              pure ()
+
 newOpsStoreFromEnv :: IO (Maybe OpsStore)
 newOpsStoreFromEnv = do
   mDir <- lookupEnv "TRADER_OPS_DIR"
@@ -1669,12 +1732,22 @@ newOpsStoreFromEnv = do
             case maxEnv >>= readMaybe of
               Just n | n >= 0 -> n
               _ -> 20000
-          path = dir </> "ops.jsonl"
+      s3EveryEnv <- lookupEnv "TRADER_OPS_S3_EVERY_SEC"
+      let s3EverySec =
+            case s3EveryEnv >>= readMaybe of
+              Just n | n >= 0 -> n
+              _ -> 60
+          path = dir </> opsFileName
+      mS3 <-
+        if s3EverySec <= 0
+          then pure Nothing
+          else resolveS3State
       lock <- newMVar ()
-      (ops0, maxId0) <- loadOpsFile path maxInMemory
+      (ops0, maxId0) <- loadOpsFileWithS3 path maxInMemory mS3
+      lastPersist <- newIORef 0
       nextId <- newIORef maxId0
       opsRef <- newIORef ops0
-      pure (Just (OpsStore path lock nextId opsRef maxInMemory))
+      pure (Just (OpsStore path lock nextId opsRef maxInMemory mS3 s3EverySec lastPersist))
 
 opsAppend :: OpsStore -> Text -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Double -> IO PersistedOperation
 opsAppend store kind mParams mArgs mResult mEquity =
@@ -1693,6 +1766,7 @@ opsAppend store kind mParams mArgs mResult mEquity =
             }
     BL.appendFile (osPath store) (encode op <> BL.fromStrict (BS.pack "\n"))
     modifyIORef' (osOps store) (\s -> trimSeq (osMaxInMemory store) (s Seq.|> op))
+    persistOpsMaybe store
     pure op
 
 opsAppendMaybe :: Maybe OpsStore -> Text -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Double -> IO ()
@@ -7926,7 +8000,7 @@ handleOps mOps req respond =
             status200
             ( object
                 [ "enabled" .= False
-                , "hint" .= ("Set TRADER_OPS_DIR or TRADER_STATE_DIR to enable ops persistence." :: String)
+                , "hint" .= ("Set TRADER_OPS_DIR or TRADER_STATE_DIR to enable ops persistence, and TRADER_STATE_S3_BUCKET to persist across deploys." :: String)
                 , "ops" .= ([] :: [PersistedOperation])
                 ]
             )

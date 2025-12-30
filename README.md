@@ -438,9 +438,9 @@ State directory (recommended for persistence across deployments):
 - `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values, defaults `TRADER_BOT_TRADE=true` unless overridden, and forwards `TRADER_BOT_SYMBOLS`/`TRADER_BOT_TRADE` plus `BINANCE_API_KEY`/`BINANCE_API_SECRET` when set.
 
 S3 state (recommended for App Runner):
-- Set `TRADER_STATE_S3_BUCKET` (optional `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`) to persist bot snapshots + optimizer top-combos in S3.
+- Set `TRADER_STATE_S3_BUCKET` (optional `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`) to persist bot snapshots, optimizer top-combos, and ops logs in S3.
 - Requires AWS credentials or an App Runner instance role with S3 access.
-- Bot snapshots include orders/trades, so the UI can show history after restarts; other state (ops/journal/async/LSTM weights) still uses `TRADER_STATE_DIR`.
+- Bot snapshots include orders/trades, so the UI can show history after restarts; journal/async/LSTM weights still use `TRADER_STATE_DIR`.
 
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
@@ -456,6 +456,8 @@ Optional ops persistence (powers `GET /ops` and the “operations” history):
 - Set `TRADER_OPS_DIR` to a writable directory (writes `ops.jsonl`)
 - If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/ops`.
 - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`) max operations kept in memory per process
+- When S3 persistence is enabled via `TRADER_STATE_S3_BUCKET`, ops are restored from `ops/ops.jsonl` and synced back on a timer.
+- `TRADER_OPS_S3_EVERY_SEC` (default: `60`) cadence for syncing ops to S3 (`0` disables S3 sync).
 - `GET /ops` query params:
   - `limit` (default: `200`, max: `5000`)
   - `since` (only return ops with `id > since`)

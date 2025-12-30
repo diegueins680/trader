@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.
+- Ops: sync `ops.jsonl` to S3 (and restore on boot) when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
