@@ -430,7 +430,9 @@ type ManualOverrideKey = "method" | "openThreshold" | "closeThreshold";
 
 const CUSTOM_SYMBOL_VALUE = "__custom__";
 const TOP_COMBOS_POLL_MS = 30_000;
-const TOP_COMBOS_DISPLAY_MAX = 12;
+const TOP_COMBOS_DISPLAY_DEFAULT = 5;
+const TOP_COMBOS_DISPLAY_MIN = 1;
+const TOP_COMBOS_DISPLAY_MAX = 200;
 const MIN_LOOKBACK_BARS = 2;
 const MIN_BACKTEST_BARS = 2;
 const MIN_BACKTEST_RATIO = 0.01;
@@ -1133,7 +1135,12 @@ export function App() {
   const [dataLogIndexArrays, setDataLogIndexArrays] = useState(true);
   const [dataLogFilterText, setDataLogFilterText] = useState("");
   const [dataLogAutoScroll, setDataLogAutoScroll] = useState(true);
-  const [topCombos, setTopCombos] = useState<OptimizationCombo[]>([]);
+  const [topCombosAll, setTopCombosAll] = useState<OptimizationCombo[]>([]);
+  const [topCombosDisplayCount, setTopCombosDisplayCount] = useState(() => TOP_COMBOS_DISPLAY_DEFAULT);
+  const topCombos = useMemo(
+    () => topCombosAll.slice(0, topCombosDisplayCount),
+    [topCombosAll, topCombosDisplayCount],
+  );
   const [topCombosLoading, setTopCombosLoading] = useState(true);
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
   const [topCombosMeta, setTopCombosMeta] = useState<TopCombosMeta>({
@@ -1368,8 +1375,8 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    topCombosRef.current = topCombos;
-  }, [topCombos]);
+    topCombosRef.current = topCombosAll;
+  }, [topCombosAll]);
 
   useEffect(() => {
     if (!dataLogAutoScroll) return;
@@ -2285,7 +2292,7 @@ export function App() {
     if (lstmEnabled && typeof apiBarsLimit === "number" && Number.isFinite(apiBarsLimit) && apiBarsLimit > 0) {
       maxBars = Math.min(maxBars, Math.trunc(apiBarsLimit));
     }
-    const barsCap = Number.isFinite(maxBars) ? Math.max(bars, Math.trunc(maxBars)) : bars;
+    const barsCap = Number.isFinite(maxBars) ? Math.trunc(maxBars) : bars;
 
     const current = splitStats(bars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
     if (current.trainOk && current.backtestOk && current.tuneOk && current.fitOk) {
@@ -3727,8 +3734,7 @@ export function App() {
           if (eq !== 0) return eq;
           return a.id - b.id;
         });
-        const limited = sanitized.slice(0, TOP_COMBOS_DISPLAY_MAX);
-        setTopCombos(limited);
+        setTopCombosAll(sanitized);
         const comboCount = rawCombos.length;
         const generatedAtMsRaw = payloadRec.generatedAtMs;
         const generatedAtMs =
@@ -3753,7 +3759,7 @@ export function App() {
           comboCount,
         });
         setTopCombosError(null);
-        const topCombo = limited[0];
+        const topCombo = sanitized[0];
         if (topCombo) {
           const currentForm = formRef.current;
           const topSig = comboApplySignature(
@@ -3828,7 +3834,7 @@ export function App() {
   if (closeThresholdOverride) thresholdOverrideKeys.push("closeThreshold");
   const autoAppliedAge =
     autoAppliedCombo && autoAppliedCombo.atMs ? fmtDurationMs(Math.max(0, Date.now() - autoAppliedCombo.atMs)) : null;
-  const topCombo = topCombos.length > 0 ? topCombos[0] : null;
+  const topCombo = topCombosAll.length > 0 ? topCombosAll[0] : null;
   const topComboSig = useMemo(() => {
     if (!topCombo) return null;
     return comboApplySignature(topCombo, apiComputeLimits, form, manualOverrides, true);
@@ -4760,6 +4766,26 @@ export function App() {
                     </button>
                   </>
                 ) : null}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 8 }}>
+                <label className="label" htmlFor="comboDisplayCount">
+                  Combos to show
+                </label>
+                <input
+                  id="comboDisplayCount"
+                  className="input"
+                  type="number"
+                  min={TOP_COMBOS_DISPLAY_MIN}
+                  max={TOP_COMBOS_DISPLAY_MAX}
+                  step={1}
+                  value={topCombosDisplayCount}
+                  onChange={(e) => {
+                    const rawValue = numFromInput(e.target.value, topCombosDisplayCount);
+                    const next = clamp(Math.trunc(rawValue), TOP_COMBOS_DISPLAY_MIN, TOP_COMBOS_DISPLAY_MAX);
+                    setTopCombosDisplayCount(next);
+                  }}
+                  style={{ width: 120 }}
+                />
               </div>
               <div className="actions" style={{ marginBottom: 8 }}>
                 <button className="btnSmall" type="button" onClick={refreshTopCombos} disabled={topCombosLoading}>

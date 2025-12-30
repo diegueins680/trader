@@ -419,6 +419,8 @@ type LstmCtx = (NormState, [Double], LSTMModel)
 
 type KalmanCtx = (PredictorBundle, Kalman1, HMMFilter, SensorVar)
 
+type PredHistory = (V.Vector Double, V.Vector Double)
+
 data LatestSignal = LatestSignal
   { lsMethod :: !Method
   , lsCurrentPrice :: !Double
@@ -3215,7 +3217,7 @@ initBotState mOps args settings sym = do
 
         pure (Just (predictors, kalPrev, hmmPrev, svPrev), kalPred)
 
-  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx Nothing
+  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx Nothing (Just (kalPred0, lstmPred0))
 
       -- Startup decision:
       -- - Adopted positions use closeThreshold (hysteresis) via the gated closeDirection.
@@ -3574,7 +3576,15 @@ botOptimizeAfterOperation st = do
                   , argOpenThreshold = newOpenThr
                   , argCloseThreshold = newCloseThr
                   }
-              latest' = computeLatestSignal args' lookback pricesV (botLstmCtx st) (botKalmanCtx st) Nothing
+              latest' =
+                computeLatestSignal
+                  args'
+                  lookback
+                  pricesV
+                  (botLstmCtx st)
+                  (botKalmanCtx st)
+                  Nothing
+                  (Just (botKalmanPredNext st, botLstmPredNext st))
           pure st { botArgs = args', botLatestSignal = latest' }
 
 argLookbackEither :: Args -> Either String Int
@@ -3630,7 +3640,7 @@ botApplyOptimizerUpdate st upd = do
       if not hasLstmWindow
         then pure st { botError = Just "Optimizer update skipped: not enough data for lookback.", botUpdatedAtMs = now }
         else do
-          let latest = computeLatestSignal args' lookback' pricesV mLstmCtx' mKalmanCtx' Nothing
+          let latest = computeLatestSignal args' lookback' pricesV mLstmCtx' mKalmanCtx' Nothing Nothing
           pure
             st
               { botArgs = args'
@@ -4360,10 +4370,12 @@ autoTopCombosBacktestLoop baseArgs limits backtestGate mOps mJournal optimizerTm
     else do
       topNEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_TOP_N"
       everySecEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_EVERY_SEC"
-      let topN =
+      let minTopN = 5
+          topNRequested =
             case topNEnv >>= readMaybe of
               Just n | n >= 1 -> n
-              _ -> 10
+              _ -> minTopN
+          topN = max minTopN topNRequested
           everySec =
             case everySecEnv >>= readMaybe of
               Just n | n >= 60 -> n
@@ -4810,7 +4822,15 @@ botApplyKline mOps metrics mJournal mWebhook st k = do
         savePersistedLstmModelMaybe mPath (length obsTrain) lstmModel1
         pure (Just (normState, obsAll', lstmModel1))
 
-  let latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx1 mKalmanCtx1 Nothing
+  let latest0Raw =
+        computeLatestSignal
+          args
+          lookback
+          pricesV
+          mLstmCtx1
+          mKalmanCtx1
+          Nothing
+          (Just (botKalmanPredNext st, botLstmPredNext st))
       nan = 0 / 0 :: Double
       kalPred1 = V.snoc (botKalmanPredNext st) (maybe nan id (lsKalmanNext latest0Raw))
       lstmPred1 = V.snoc (botLstmPredNext st) (maybe nan id (lsLstmNext latest0Raw))
@@ -10575,7 +10595,7 @@ computeTradeOnlySignal args lookback prices mBinanceEnv = do
             (kalPrev, hmmPrev, svPrev) = foldl' step (kal0, hmm0, sv0) [0 .. n - 2]
         pure (Just (predictors, kalPrev, hmmPrev, svPrev))
 
-  pure (computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel)
+  pure (computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel Nothing)
 
 -- LSTM weight persistence (for incremental training across backtests)
 
@@ -11015,7 +11035,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       blendWeight0 = argBlendWeight args
       blendWeight = max 0 (min 1 blendWeight0)
       blendPredBacktest = zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredBacktest lstmPredBacktest
-      (kalPredUsedBacktest, lstmPredUsedBacktest, metaUsedBacktest) =
+      routerPredBacktest =
         case methodUsed of
           MethodRouter ->
             let pricesV = V.fromList backtestPrices
@@ -11031,8 +11051,14 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     kalV
                     lstmV
                     blendV
-                routerPred = V.toList routerV
-             in (routerPred, routerPred, metaBacktest)
+             in Just (V.toList routerV)
+          _ -> Nothing
+      (kalPredUsedBacktest, lstmPredUsedBacktest, metaUsedBacktest) =
+        case methodUsed of
+          MethodRouter ->
+            case routerPredBacktest of
+              Just routerPred -> (routerPred, routerPred, metaBacktest)
+              Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest)
           _ ->
             let (kalPredUsed, lstmPredUsed) =
                   selectPredictions methodUsed blendWeight0 kalPredBacktest lstmPredBacktest
@@ -11042,7 +11068,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     _ -> metaBacktest
              in (kalPredUsed, lstmPredUsed, metaUsed)
 
-  let backtest =
+  let backtestRaw =
         simulateEnsembleWithHL
           backtestCfg
           1
@@ -11052,6 +11078,24 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           kalPredUsedBacktest
           lstmPredUsedBacktest
           metaUsedBacktest
+      backtest =
+        case methodUsed of
+          MethodRouter ->
+            let agreementBacktest =
+                  simulateEnsembleWithHL
+                    backtestCfg
+                    1
+                    backtestPrices
+                    backtestHighs
+                    backtestLows
+                    kalPredBacktest
+                    lstmPredBacktest
+                    metaBacktest
+             in backtestRaw
+                  { brAgreementOk = brAgreementOk agreementBacktest
+                  , brAgreementValid = brAgreementValid agreementBacktest
+                  }
+          _ -> backtestRaw
 
   let metrics = computeMetrics ppy backtest
       baselines = computeBaselines ppy perSideCost backtestPrices
@@ -11140,7 +11184,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             then args { argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr }
             else args
 
-      latestSignal = computeLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx mMarketModel
+      latestSignal = computeLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx mMarketModel Nothing
       finiteMaybe x =
         if isNaN x || isInfinite x
           then Nothing
@@ -11473,7 +11517,29 @@ routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blend
             bestScore = rsScore bestStats
          in if bestScore < minScore
               then (Nothing, bestScore, Just "ROUTER_MIN_SCORE")
-              else (Just bestModel, bestScore, Nothing)
+         else (Just bestModel, bestScore, Nothing)
+
+routerModelsV
+  :: Double
+  -> Int
+  -> Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector (Maybe RouterModel)
+routerModelsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV =
+  let stepCount =
+        minimum
+          [ V.length pricesV - 1
+          , V.length kalPredV
+          , V.length lstmPredV
+          , V.length blendPredV
+          ]
+      pickModel t =
+        case routerSelectModelAt openThr lookback minScore pricesV kalPredV lstmPredV blendPredV t of
+          (choice, _, _) -> choice
+   in V.generate (max 0 stepCount) pickModel
 
 routerPredictionsV
   :: Double
@@ -11507,8 +11573,9 @@ computeLatestSignal
   -> Maybe LstmCtx
   -> Maybe KalmanCtx
   -> Maybe MarketModel
+  -> Maybe PredHistory
   -> LatestSignal
-computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
+computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPredHistory =
   case method of
     MethodBoth ->
       case (mKalmanCtx, mLstmCtx) of
@@ -11962,29 +12029,43 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                     case (method, mKalmanCtx, mLstmCtx) of
                       (MethodRouter, Just (predictors, _, _, _), Just (normState, obsAll, lstmModel)) ->
                         let stepCount = max 0 (n - 1)
-                            kal0 =
-                              initKalman1
-                                0
-                                (max 1e-12 (argKalmanMeasurementVar args))
-                                (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
-                            hmm0 = initHMMFilter predictors []
-                            sv0 = emptySensorVar
-                            (_, _, _, kalPredRev, _) =
-                              foldl'
-                                (backtestStepKalmanOnly args pricesV predictors 0 mMarketModel)
-                                (kal0, hmm0, sv0, [], [])
-                                [0 .. stepCount - 1]
-                            kalPredV = V.fromList (reverse kalPredRev)
-                            obsV = V.fromList obsAll
-                            lstmPredV =
-                              V.generate stepCount $ \i ->
-                                if i < lookback - 1
-                                  then pricesV V.! i
-                                  else
-                                    let window = V.toList (V.slice (i - lookback + 1) lookback obsV)
-                                        predObs = predictNext lstmModel window
-                                     in inverseNorm normState predObs
-                            blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
+                            historyPreds =
+                              case mPredHistory of
+                                Just (kalHist, lstmHist)
+                                  | V.length kalHist >= stepCount && V.length lstmHist >= stepCount ->
+                                      let kalPredV = V.take stepCount kalHist
+                                          lstmPredV = V.take stepCount lstmHist
+                                          blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
+                                       in Just (kalPredV, lstmPredV, blendPredV)
+                                _ -> Nothing
+                            (kalPredV, lstmPredV, blendPredV) =
+                              case historyPreds of
+                                Just preds -> preds
+                                Nothing ->
+                                  let kal0 =
+                                        initKalman1
+                                          0
+                                          (max 1e-12 (argKalmanMeasurementVar args))
+                                          (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+                                      hmm0 = initHMMFilter predictors []
+                                      sv0 = emptySensorVar
+                                      (_, _, _, kalPredRev, _) =
+                                        foldl'
+                                          (backtestStepKalmanOnly args pricesV predictors 0 mMarketModel)
+                                          (kal0, hmm0, sv0, [], [])
+                                          [0 .. stepCount - 1]
+                                      kalPredV = V.fromList (reverse kalPredRev)
+                                      obsV = V.fromList obsAll
+                                      lstmPredV =
+                                        V.generate stepCount $ \i ->
+                                          if i < lookback - 1
+                                            then pricesV V.! i
+                                            else
+                                              let window = V.toList (V.slice (i - lookback + 1) lookback obsV)
+                                                  predObs = predictNext lstmModel window
+                                               in inverseNorm normState predObs
+                                      blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
+                                   in (kalPredV, lstmPredV, blendPredV)
                             (mChoice, _score, mReason) =
                               routerSelectModelAt openThr routerLookback routerMinScore pricesV kalPredV lstmPredV blendPredV t
                          in (mChoice, mReason)
@@ -11995,8 +12076,8 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                       Just RouterLstm -> mLstmNext
                       Just RouterBlend -> blendNext
                       Nothing -> Just currentPrice
-                  routerDir = routerNext >>= directionPrice openThr
-                  routerCloseDir = routerNext >>= directionPrice closeThr
+                  routerDirRaw = routerNext >>= directionPrice openThr
+                  routerCloseDirRaw = routerNext >>= directionPrice closeThr
                   edgeFromPred pred =
                     if bad pred || bad currentPrice || currentPrice == 0
                       then Nothing
@@ -12045,7 +12126,56 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                                   let s0 = if argConfidenceSizing args then sizeRaw else 1
                                    in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
                          in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                      (MethodRouter, Just kalZ, Just confScore) ->
+                        let sizeRaw =
+                              if argConfidenceSizing args
+                                then confScore
+                                else if blendDir == Nothing then 0 else 1
+                            (dirUsed, mWhy) =
+                              gateKalmanDir (argConfidenceSizing args) openThr kalZ mRegimes mConformal mQuantiles confScore blendDir
+                            (closeDirUsed, _) =
+                              gateKalmanDir False closeThr kalZ mRegimes mConformal mQuantiles confScore blendCloseDir
+                            sizeUsed =
+                              case dirUsed of
+                                Nothing -> 0
+                                Just _ ->
+                                  let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                   in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
                       _ -> (Nothing, Nothing, Nothing, Nothing)
+                  routerDirGated =
+                    case mRouterModel of
+                      Just RouterKalman -> kalDir
+                      Just RouterBlend -> blendDirGated
+                      Just RouterLstm -> lstmDir
+                      Nothing -> routerDirRaw
+
+                  routerCloseDirGated =
+                    case mRouterModel of
+                      Just RouterKalman -> kalCloseDir
+                      Just RouterBlend -> blendCloseDirGated
+                      Just RouterLstm -> lstmCloseDir
+                      Nothing -> routerCloseDirRaw
+
+                  routerPosSize =
+                    case mRouterModel of
+                      Just RouterKalman -> mPosSize
+                      Just RouterBlend -> blendPosSize
+                      Just RouterLstm -> Just 1
+                      Nothing -> Nothing
+
+                  routerGateReason =
+                    case mRouterModel of
+                      Just RouterKalman -> mGateReason
+                      Just RouterBlend -> blendGateReason
+                      _ -> Nothing
+
+                  routerConfidence =
+                    case mRouterModel of
+                      Just RouterKalman -> mConfidence
+                      Just RouterBlend -> mConfidence
+                      _ -> Nothing
+
                   closeDir =
                     case method of
                       MethodBoth ->
@@ -12055,7 +12185,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                       MethodKalmanOnly -> kalCloseDir
                       MethodLstmOnly -> lstmCloseDir
                       MethodBlend -> blendCloseDirGated
-                      MethodRouter -> routerCloseDir
+                      MethodRouter -> routerCloseDirGated
 
                   agreeDir =
                     if kalDir == lstmDir
@@ -12067,7 +12197,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                       MethodKalmanOnly -> kalDir
                       MethodLstmOnly -> lstmDir
                       MethodBlend -> blendDir
-                      MethodRouter -> routerDir
+                      MethodRouter -> routerDirGated
                   (chosenDir1, mPostGateReason) =
                     case chosenDir0 of
                       Nothing -> (Nothing, Nothing)
@@ -12182,11 +12312,12 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                   tradePosSize =
                     case method of
                       MethodBlend -> blendPosSize
+                      MethodRouter -> routerPosSize
                       _ -> mPosSize
                   gateReasonForMethod =
                     case method of
                       MethodBlend -> blendGateReason
-                      MethodRouter -> mRouterReason <|> mGateReason
+                      MethodRouter -> mRouterReason <|> routerGateReason
                       _ -> mGateReason
                in LatestSignal
                     { lsMethod = method
@@ -12204,6 +12335,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel =
                     , lsConfidence =
                         case method of
                           MethodLstmOnly -> Nothing
+                          MethodRouter -> routerConfidence
                           _ -> mConfidence
                     , lsPositionSize = posSizeFinal
                     , lsKalmanDir = kalDir
