@@ -2677,6 +2677,50 @@ printRepro traderBin baseArgs tr tuneRatio useSweepThreshold disableLstm = do
       cmd = buildCommand traderBin baseArgs (trParams tr) tuneRatio useSweepThreshold
   putStrLn ("  " ++ envPrefix ++ unwords cmd)
 
+data OptimizationTechnique = OptimizationTechnique
+  { otName :: !String
+  , otSummary :: !String
+  , otWhyItHelps :: !String
+  }
+  deriving (Eq, Show)
+
+bestOptimizationTechniques :: [OptimizationTechnique]
+bestOptimizationTechniques =
+  [ OptimizationTechnique
+      { otName = "Bayesian optimization (expected improvement)"
+      , otSummary = "Model the objective surface and pick trials that maximize expected improvement over the best result."
+      , otWhyItHelps = "Improves sample efficiency versus uniform random search when trials are expensive or noisy."
+      }
+  , OptimizationTechnique
+      { otName = "Successive halving / ASHA"
+      , otSummary = "Run many cheap partial trainings, pruning low performers early while allocating budget to promising candidates."
+      , otWhyItHelps = "Cuts wasted computation on weak trials and converges faster to strong configurations."
+      }
+  , OptimizationTechnique
+      { otName = "Sobol / Latin hypercube seeding"
+      , otSummary = "Start the search with low-discrepancy samples that cover the space more uniformly than pure random draws."
+      , otWhyItHelps = "Reduces blind spots and gives later exploitation steps better anchor points."
+      }
+  , OptimizationTechnique
+      { otName = "Walk-forward / blocked cross-validation"
+      , otSummary = "Score candidates across rolling, non-overlapping time blocks to avoid leakage and stress-test stability."
+      , otWhyItHelps = "Rewards configurations that generalize across regimes instead of overfitting a single window."
+      }
+  , OptimizationTechnique
+      { otName = "Ensemble the top performers"
+      , otSummary = "Blend the strongest, diverse configurations into a composite strategy instead of picking a single winner."
+      , otWhyItHelps = "Smooths variance and reduces the risk of relying on one brittle optimum."
+      }
+  ]
+
+optimizationTechniqueToJson :: OptimizationTechnique -> Value
+optimizationTechniqueToJson t =
+  object
+    [ "name" .= otName t
+    , "summary" .= otSummary t
+    , "whyItHelps" .= otWhyItHelps t
+    ]
+
 writeTopJson :: String -> String -> String -> Maybe String -> [TrialResult] -> IO ()
 writeTopJson topPath dataSource sourceOverride symbolLabel records = do
   let successful =
@@ -2696,6 +2740,7 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records = do
           [ "generatedAtMs" .= nowMs
           , "source" .= ("optimize_equity.py" :: String)
           , "combos" .= combos
+          , "bestOptimizationTechniques" .= map optimizationTechniqueToJson bestOptimizationTechniques
           ]
   BL.writeFile path (encodePretty export')
   putStrLn ("Wrote top combos JSON: " ++ path)

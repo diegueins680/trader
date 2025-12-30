@@ -158,6 +158,7 @@ All notable changes to this project will be documented in this file.
 - API: classify internal `ErrorCall` failures as server errors instead of client errors.
 - Optimizer: S3-persisted top combos are merged into new optimizer runs to keep best-ever results.
 - Optimizer: threshold sweeps now prefer higher open/close thresholds when scores tie.
+- Optimizer: `top-combos.json` now includes a `bestOptimizationTechniques` list summarizing recommended search approaches.
 - Predictors: guard empty TCN dilations to avoid crashes.
 - API: `/bot/start` error responses include per-symbol errors when all requested symbols fail.
 - Web UI: live bot start/status errors surface CloudFront `/api/*` proxy hints and avoid a stuck `Starting...` state when the API is down.
