@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.
+- Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
 - Observability: log Binance API requests (`binance.request`) and minute-by-minute bot status snapshots (`bot.status`), plus a live/offline timeline chart in the UI.
@@ -17,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - Trading: futures order placement checks available balance (and leverage) before submitting.
 - Trading: add `--method router` with `--router-lookback`/`--router-min-score` for adaptive Kalman/LSTM/blend selection.
 - Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
+- Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
 - Web UI: default order sizing uses `orderQuote=100` to avoid orders rounding to zero on common minQty/step sizes.
 - Backtests: API queues requests when the backtest slot is busy; UI waits and notifies when the backtest completes.
 - Strategy defaults: move to `--interval 1h`/`--lookback-window 7d`, raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, max position size, vol target/floor/max-vol, Kalman z-min, min position size), and bump cost assumptions (fee/slippage/spread).
@@ -40,6 +42,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: orphaned operations panel now matches by market + hedge side and labels orphan reasons (market mismatch, stopped, trading disabled, side mismatch).
 - Web UI: add an orphaned operations panel that highlights open futures positions not currently adopted by a running bot.
 - Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates (including API token changes).
+- Web UI: bot state timeline hover now shows the corresponding timestamp.
 - Web UI: open positions/orphaned operations cards key by position side, ignore bots with trade disabled when determining adoption, and label trade-off bots explicitly.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).

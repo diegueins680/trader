@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 export type BotStatePoint = {
   atMs: number;
@@ -26,6 +26,19 @@ function fmtTimeShort(ms: number): string {
   } catch {
     return String(ms);
   }
+}
+
+function fmtTimeMs(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  try {
+    return new Date(ms).toLocaleString();
+  } catch {
+    return String(ms);
+  }
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
 }
 
 function buildSegments(points: BotStatePoint[], startMs: number, endMs: number): { segments: Segment[]; hasData: boolean } {
@@ -68,6 +81,10 @@ export function BotStateChart({ points, startMs, endMs, height = 90, label = "Bo
   const h = 180;
   const pad = { l: 16, r: 16, t: 12, b: 26 };
 
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [hoverMs, setHoverMs] = useState<number | null>(null);
+  const [pointer, setPointer] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
   const { segments, hasData } = useMemo(() => buildSegments(points, startMs, endMs), [points, startMs, endMs]);
   const empty = !hasData || segments.length === 0;
 
@@ -75,8 +92,66 @@ export function BotStateChart({ points, startMs, endMs, height = 90, label = "Bo
   const chartWidth = w - pad.l - pad.r;
   const chartHeight = h - pad.t - pad.b;
 
+  const hover = useMemo(() => {
+    if (hoverMs == null || empty) return null;
+    const atMs = clamp(hoverMs, startMs, endMs);
+    const seg = segments.find((s) => atMs >= s.startMs && atMs <= s.endMs) ?? null;
+    return { atMs, running: seg?.running ?? false };
+  }, [empty, endMs, hoverMs, segments, startMs]);
+
+  const tooltipStyle = useMemo(() => {
+    if (!pointer || !hover) return { display: "none" } as React.CSSProperties;
+    const padPx = 12;
+    const tw = 220;
+    const left = clamp(pointer.x + 12, padPx, pointer.w - tw - padPx);
+    const top = clamp(pointer.y + 12, padPx, pointer.h - 90 - padPx);
+    return { left, top, width: tw } as React.CSSProperties;
+  }, [hover, pointer]);
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const el = wrapRef.current;
+    if (!el || empty) return;
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setPointer({ x, y, w: rect.width, h: rect.height });
+
+    const xSvg = (x / Math.max(1, rect.width)) * w;
+    const t = clamp((xSvg - pad.l) / Math.max(1, chartWidth), 0, 1);
+    setHoverMs(startMs + t * span);
+  };
+
+  const onPointerLeave = () => {
+    setPointer(null);
+    setHoverMs(null);
+  };
+
+  const hoverX = hover ? pad.l + ((hover.atMs - startMs) / span) * chartWidth : null;
+
   return (
-    <div className="chart" style={{ height }} role="img" aria-label={label}>
+    <div
+      ref={wrapRef}
+      className="chart"
+      style={{ height, position: "relative" }}
+      role="img"
+      aria-label={label}
+      onPointerMove={onPointerMove}
+      onPointerLeave={onPointerLeave}
+    >
+      {hover ? (
+        <div className="btTooltip" style={tooltipStyle} aria-hidden={false}>
+          <div className="btTooltipTitle">
+            <span className={`badge ${hover.running ? "badgeStrong badgeLong" : "badgeHold"}`}>
+              {hover.running ? "LIVE" : "OFFLINE"}
+            </span>
+            <span className="badge">{fmtTimeMs(hover.atMs)}</span>
+          </div>
+          <div className="btTooltipRow">
+            <div className="k">timestamp</div>
+            <div className="v">{fmtTimeMs(hover.atMs)}</div>
+          </div>
+        </div>
+      ) : null}
       {empty ? (
         <div className="chartEmpty">No status data</div>
       ) : (
@@ -99,6 +174,9 @@ export function BotStateChart({ points, startMs, endMs, height = 90, label = "Bo
               );
             })}
           </g>
+          {hoverX !== null ? (
+            <line x1={hoverX} x2={hoverX} y1={pad.t} y2={h - pad.b} stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
+          ) : null}
           <g>
             <text x={pad.l} y={h - 8} textAnchor="start" className="stateChartAxis">
               {fmtTimeShort(startMs)}

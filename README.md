@@ -263,8 +263,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--tri-layer-touch-lookback 1` allow cloud touches up to `N` bars back (`1` = current bar)
     - `--no-tri-layer-price-action` disable the candle-pattern trigger (cloud-only gating)
     - `--tri-layer-price-action-body 0.0` override min candle body fraction for price-action patterns (`0` = default)
-    - `--tri-layer-exit-on-slow` exit when price closes across the slow Kalman line
-    - `--kalman-band-lookback 0` rolling window (bars) for Kalman-band exits (`0` disables)
+    - `--tri-layer-exit-on-slow` exit when price crosses and closes on the opposite side of the slow Kalman line
+    - `--kalman-band-lookback 0` rolling window (bars) for Kalman-band exits (`0` disables; hits use candle high/low)
     - `--kalman-band-std-mult 0` band width in std devs for Kalman-band exits (`0` disables; `2` = PDF default)
   - `--max-position-size 0.8` cap position size/leverage (`1` = full size)
   - `--vol-target F` target annualized volatility for position sizing (`0` disables; default: `0.7`)
@@ -479,9 +479,10 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 
 Optional daily top-combo backtests (refreshes metrics for the best performers):
 - `TRADER_TOP_COMBOS_BACKTEST_ENABLED` (default: `true`) enable daily refreshes of the top combos.
-- `TRADER_TOP_COMBOS_BACKTEST_TOP_N` (default: `10`) number of top combos to re-backtest per cycle.
+- `TRADER_TOP_COMBOS_BACKTEST_TOP_N` (default: `5`, minimum: `5`) number of top combos to re-backtest per cycle.
 - `TRADER_TOP_COMBOS_BACKTEST_EVERY_SEC` (default: `86400`) cadence in seconds.
 - Uses the latest exchange data and writes updated `metrics`, `finalEquity`, `score`, and `operations` back into `top-combos.json` (and S3 when configured).
+- The top 5 combos are always refreshed and overwrite prior metrics even if equity performance drops.
 
 Async-job persistence (default on; recommended if you run multiple instances behind a non-sticky load balancer, or want polling to survive restarts):
 - Default directory: `TRADER_STATE_DIR/async` (if set) or `.tmp/async` (local only). Set `TRADER_API_ASYNC_DIR` to a shared writable directory (the API writes per-endpoint subdirectories under it), or set it empty to disable.
@@ -598,6 +599,7 @@ If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load, interval/market changes, and Binance key/auth updates including API token changes).
 The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
+The bot state timeline shows the hovered timestamp.
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
