@@ -336,40 +336,44 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
       stepCount = n - 1
       kalNeed = if startT < stepCount then stepCount else 0
       lstmNeed = max 0 (stepCount - startT)
+      openTimesV =
+        case ecOpenTimes cfg of
+          Just ts
+            | V.length ts == n -> Just ts
+            | V.length ts > n -> Just (V.drop (V.length ts - n) ts)
+            | otherwise -> Nothing
+          _ -> Nothing
       validationError =
         if n < 2
           then Just "Need at least 2 prices to simulate"
+        else
+          if V.length highsV /= n || V.length lowsV /= n
+            then Just "high/low vectors must match closes length"
           else
-            if V.length highsV /= n || V.length lowsV /= n
-              then Just "high/low vectors must match closes length"
+            if lookback >= n
+              then Just "lookback must be less than number of prices"
+            else
+              if maybe False (\mv -> V.length mv < stepCount) mMetaV
+                then Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
               else
-                if lookback >= n
-                  then Just "lookback must be less than number of prices"
+                if V.length kalPredNextV < kalNeed
+                  then
+                    Just
+                      ( "kalPredNext too short: need at least "
+                          ++ show kalNeed
+                          ++ ", got "
+                          ++ show (V.length kalPredNextV)
+                      )
                   else
-                    if maybe False (\mv -> V.length mv < stepCount) mMetaV
-                      then Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
-                      else
-                        if maybe False (\ts -> V.length ts /= n) (ecOpenTimes cfg)
-                          then Just "openTimes vector must match closes length"
-                          else
-                            if V.length kalPredNextV < kalNeed
-                              then
-                                Just
-                                  ( "kalPredNext too short: need at least "
-                                      ++ show kalNeed
-                                      ++ ", got "
-                                      ++ show (V.length kalPredNextV)
-                                  )
-                              else
-                                if V.length lstmPredNextV < lstmNeed
-                                  then
-                                    Just
-                                      ( "lstmPredNext too short: need at least "
-                                          ++ show lstmNeed
-                                          ++ ", got "
-                                          ++ show (V.length lstmPredNextV)
-                                      )
-                                  else Nothing
+                    if V.length lstmPredNextV < lstmNeed
+                      then
+                        Just
+                          ( "lstmPredNext too short: need at least "
+                              ++ show lstmNeed
+                              ++ ", got "
+                              ++ show (V.length lstmPredNextV)
+                          )
+                      else Nothing
    in case validationError of
         Just err -> Left err
         Nothing ->
@@ -510,7 +514,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                   _ -> Nothing
               dayKeyAt :: Int -> Int
               dayKeyAt i =
-                case ecOpenTimes cfg of
+                case openTimesV of
                   Just tsV
                     | i >= 0 && i < V.length tsV ->
                         let dayMs = 86400000 :: Int64

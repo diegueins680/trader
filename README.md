@@ -656,5 +656,6 @@ Troubleshooting: “No live operations yet”
 Assumptions and limitations
 ---------------------------
 - The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests/live bot); it includes basic sizing/filters but is not a full portfolio/risk system or detailed transaction-cost model.
+- Daily-loss resets prefer bar open timestamps when available; if timestamps are missing or misaligned, backtests fall back to interval-based day boundaries.
 - Live order placement attempts to fetch/apply symbol filters (minQty/step size/minNotional), but is not exhaustive and may still be rejected by the exchange.
 - This code is for experimentation and education only; it is **not** production-ready nor financial advice.

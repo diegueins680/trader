@@ -104,6 +104,7 @@ All notable changes to this project will be documented in this file.
 - Live bot: bracket exits now honor stop-loss/take-profit/trailing vol-mult overrides.
 - Backtests: add volatility-targeted rebalancing (`--rebalance-bars`, `--rebalance-threshold`) and optional funding/borrow drag (`--funding-rate`).
 - Backtests: `--backtest-ratio` now errors if the split leaves too few training/backtest bars (no silent clamping).
+- Backtests: ignore mismatched open-time series and fall back to interval-based day boundaries.
 - Optimizer: threshold sweeps now nudge candidate thresholds below observed edges to avoid equality edge cases.
 - Live bot: risk halts now record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` exit reasons even if a signal exit coincides.
 - Kalman market context now honors small `--kalman-market-top-n` values when enough symbols are available.
