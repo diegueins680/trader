@@ -274,7 +274,12 @@ opts = do
   argCoinbaseApiSecret <- optional (strOption (long "coinbase-api-secret" <> help "Coinbase API secret (or env COINBASE_API_SECRET; Coinbase only)"))
   argCoinbaseApiPassphrase <- optional (strOption (long "coinbase-api-passphrase" <> help "Coinbase API passphrase (or env COINBASE_API_PASSPHRASE; Coinbase only)"))
   argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance/Coinbase spot)")
-  argBinanceLive <- switch (long "binance-live" <> help "If set, send LIVE orders (Binance/Coinbase; Coinbase has no test endpoint)")
+  argBinanceLive <-
+    defaultOnSwitch
+      "binance-live"
+      "no-binance-live"
+      "Send LIVE orders (Binance/Coinbase; Coinbase has no test endpoint)."
+      "Send TEST orders (Binance uses /order/test; Coinbase has no test endpoint)."
   argOrderQuote <- optional (option auto (long "order-quote" <> help "Quote amount to spend on BUY (quoteOrderQty)"))
   argOrderQuantity <- optional (option auto (long "order-quantity" <> help "Base quantity to trade (quantity)"))
   argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0 < F <= 1) when --order-quote/--order-quantity not set"))

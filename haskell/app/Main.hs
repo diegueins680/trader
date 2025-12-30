@@ -2611,6 +2611,7 @@ data FuturesPositionSummary = FuturesPositionSummary
   { fpsNetAmt :: !Double
   , fpsHasLong :: !Bool
   , fpsHasShort :: !Bool
+  , fpsLeverage :: !(Maybe Double)
   } deriving (Eq, Show)
 
 positionAmtSigned :: FuturesPositionRisk -> Double
@@ -2629,7 +2630,9 @@ futuresPositionSummary sym positions =
       hasLong = any (> eps) signed
       hasShort = any (< -eps) signed
       netAmt = sum signed
-   in FuturesPositionSummary { fpsNetAmt = netAmt, fpsHasLong = hasLong, fpsHasShort = hasShort }
+      validLeverage l = l > 0 && not (isNaN l || isInfinite l)
+      leverage = listToMaybe [fprLeverage p | p <- matches, validLeverage (fprLeverage p)]
+   in FuturesPositionSummary { fpsNetAmt = netAmt, fpsHasLong = hasLong, fpsHasShort = hasShort, fpsLeverage = leverage }
 
 fetchFuturesPositionSummary :: BinanceEnv -> String -> IO FuturesPositionSummary
 fetchFuturesPositionSummary env sym = do
@@ -9631,6 +9634,42 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
         else do
           let posAmt = fpsNetAmt summary
               protectPrefix = "trader_prot_"
+              isBad x = isNaN x || isInfinite x
+              leverageRaw = fromMaybe 1 (fpsLeverage summary)
+              leverage =
+                if leverageRaw > 0 && not (isBad leverageRaw)
+                  then leverageRaw
+                  else 1
+              marginRequired qty =
+                let qty' = max 0 qty
+                    px = max 0 currentPrice
+                 in if qty' <= 0 || px <= 0 || isBad qty' || isBad px
+                      then 0
+                      else qty' * px / leverage
+              ensureFuturesFunds dir qty =
+                if qty <= 0
+                  then pure (Right ())
+                  else do
+                    avail <- fetchFuturesAvailableBalance env quoteAsset
+                    let freed =
+                          if posAmt * fromIntegral dir < 0
+                            then marginRequired (abs posAmt)
+                            else 0
+                        available = max 0 (avail + freed)
+                        needed = marginRequired qty
+                        asset = map toUpper quoteAsset
+                    pure $
+                      if needed <= available + 1e-9
+                        then Right ()
+                        else
+                          Left
+                            ( printf
+                                "No order: insufficient futures balance (need %.4f %s, available %.4f, leverage %.1fx)."
+                                needed
+                                asset
+                                available
+                                leverage
+                            )
               volPerBar =
                 case lsVolatility sig of
                   Just vol ->
@@ -9786,27 +9825,31 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                           case mDesiredQtyRaw of
                             Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
                             Just q0 -> do
-                              cancelProtectionOrders
-                              let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
-                              case normalizeFuturesQty qtyToBuyRaw of
-                                Left e -> pure baseResult { aorMessage = "No order: " ++ e }
-                                Right q ->
-                                  if q <= 0
-                                    then pure baseResult { aorMessage = "No order: quantity is 0." }
-                                    else do
-                                      out <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
-                                      if aorSent out && protectionEnabled
-                                        then do
-                                          let fillPx =
-                                                case (aorExecutedQty out, aorCummulativeQuoteQty out) of
-                                                  (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
-                                                  _ -> currentPrice
-                                          r <- placeProtectionOrders 1 fillPx
-                                          pure $
-                                            case r of
-                                              Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
-                                              Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
-                                        else pure out
+                              fundsCheck <- ensureFuturesFunds 1 q0
+                              case fundsCheck of
+                                Left msg -> pure baseResult { aorMessage = msg }
+                                Right () -> do
+                                  cancelProtectionOrders
+                                  let qtyToBuyRaw = if posAmt < 0 then abs posAmt + q0 else q0
+                                  case normalizeFuturesQty qtyToBuyRaw of
+                                    Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                                    Right q ->
+                                      if q <= 0
+                                        then pure baseResult { aorMessage = "No order: quantity is 0." }
+                                        else do
+                                          out <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
+                                          if aorSent out && protectionEnabled
+                                            then do
+                                              let fillPx =
+                                                    case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                                      (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                                      _ -> currentPrice
+                                              r <- placeProtectionOrders 1 fillPx
+                                              pure $
+                                                case r of
+                                                  Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
+                                                  Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
+                                            else pure out
                 (-1) ->
                   case argPositioning args of
                     LongShort ->
@@ -9828,27 +9871,31 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                               case mDesiredQtyRaw of
                                 Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
                                 Just q0 -> do
-                                  cancelProtectionOrders
-                                  let qtyToSellRaw = if posAmt > 0 then posAmt + q0 else q0
-                                  case normalizeFuturesQty qtyToSellRaw of
-                                    Left e -> pure baseResult { aorMessage = "No order: " ++ e }
-                                    Right q ->
-                                      if q <= 0
-                                        then pure baseResult { aorMessage = "No order: quantity is 0." }
-                                        else do
-                                          out <- sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
-                                          if aorSent out && protectionEnabled
-                                            then do
-                                              let fillPx =
-                                                    case (aorExecutedQty out, aorCummulativeQuoteQty out) of
-                                                      (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
-                                                      _ -> currentPrice
-                                              r <- placeProtectionOrders (-1) fillPx
-                                              pure $
-                                                case r of
-                                                  Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
-                                                  Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
-                                            else pure out
+                                  fundsCheck <- ensureFuturesFunds (-1) q0
+                                  case fundsCheck of
+                                    Left msg -> pure baseResult { aorMessage = msg }
+                                    Right () -> do
+                                      cancelProtectionOrders
+                                      let qtyToSellRaw = if posAmt > 0 then posAmt + q0 else q0
+                                      case normalizeFuturesQty qtyToSellRaw of
+                                        Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                                        Right q ->
+                                          if q <= 0
+                                            then pure baseResult { aorMessage = "No order: quantity is 0." }
+                                            else do
+                                              out <- sendMarketOrder "SELL" Sell (Just q) Nothing Nothing
+                                              if aorSent out && protectionEnabled
+                                                then do
+                                                  let fillPx =
+                                                        case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                                          (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                                          _ -> currentPrice
+                                                  r <- placeProtectionOrders (-1) fillPx
+                                                  pure $
+                                                    case r of
+                                                      Left e -> out { aorMessage = aorMessage out ++ " " ++ e }
+                                                      Right () -> out { aorMessage = aorMessage out ++ " Protection orders placed." }
+                                                else pure out
                     LongFlat ->
                       if posAmt == 0
                         then do

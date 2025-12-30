@@ -107,8 +107,8 @@ cabal run trader-hs -- \
 
 Sending exchange orders (optional)
 ----------------------------------
-Binance: by default, orders are sent to `/api/v3/order/test`. Add `--binance-live` to send live orders. Futures use `--futures` (uses `/fapi` endpoints). Margin uses `--margin` (requires `--binance-live`).
-Coinbase: spot-only and live-only (no test endpoint). Use `--platform coinbase` plus `--binance-live` to send live orders.
+Binance: live orders are the default. Use `--no-binance-live` to send test orders (`/api/v3/order/test` or `/fapi/v1/order/test`). Futures use `--futures` (uses `/fapi` endpoints). Margin uses `--margin` (requires live orders).
+Coinbase: spot-only and live-only (no test endpoint). Use `--platform coinbase`.
 
 Futures protection orders (live, manual trades only):
 - When sending **LIVE futures** orders via the CLI (`--binance-trade`) or REST `/trade`, providing `--stop-loss` and/or `--take-profit` places exchange-native trigger orders (`STOP_MARKET` / `TAKE_PROFIT_MARKET`) with `closePosition=true`.
@@ -127,7 +127,7 @@ Getting Binance API keys:
 - Prefer IP restrictions (allowlist your server IP) when possible
 - Save the secret: Binance only shows it once
 
-Example (test endpoint):
+Example (test endpoint with `--no-binance-live`):
 ```
 cd haskell
 export BINANCE_API_KEY=...
@@ -138,6 +138,7 @@ cabal run trader-hs -- \
   --epochs 5 \
   --trade-only \
   --binance-trade \
+  --no-binance-live \
   --order-quote 50
 ```
 
@@ -166,17 +167,19 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Trading flags apply only when `--platform binance` or `--platform coinbase` (Coinbase is spot-only and has no test endpoint).
   - `--binance-testnet` (default: off) use Binance testnet base URL (Binance only)
   - `--futures` (default: off) use Binance USDT-M futures endpoints (data + orders; Binance only)
-  - `--margin` (default: off) use Binance margin account endpoints for orders/balance (requires `--binance-live`; Binance only)
+  - `--margin` (default: off) use Binance margin account endpoints for orders/balance (requires live orders; Binance only)
   - `--binance-api-key KEY` (default: none) or env `BINANCE_API_KEY`
   - `--binance-api-secret SECRET` (default: none) or env `BINANCE_API_SECRET`
   - `--binance-trade` (default: off) place a market order for the latest signal
-  - `--binance-live` (default: off) send LIVE orders (Binance uses `/order/test` when off; Coinbase requires this)
+  - `--binance-live` (default: on) send LIVE orders
+  - `--no-binance-live` send TEST orders (Binance only; Coinbase has no test endpoint)
   - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`)
   - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`)
   - `--order-quote-fraction F` (default: none) size BUY orders as a fraction of the free quote balance (`0 < F <= 1`)
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
+  - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
 
 - Coinbase API keys (optional; used for `/coinbase/keys` checks and Coinbase trades)
   - `--coinbase-api-key KEY` (default: none) or env `COINBASE_API_KEY`
@@ -342,7 +345,7 @@ Endpoints:
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /signal/async` → starts an async signal job
 - `GET /signal/async/:jobId` → polls an async signal job (also accepts `POST` for proxy compatibility)
-- `POST /trade` → returns the latest signal + attempts an order (Binance test orders by default; Coinbase is live-only)
+- `POST /trade` → returns the latest signal + attempts an order (Binance live orders by default; use `binanceLive=false` for test orders; Coinbase is live-only)
 - `POST /trade/async` → starts an async trade job
 - `GET /trade/async/:jobId` → polls an async trade job (also accepts `POST` for proxy compatibility)
 - Signal endpoints validate request parameters the same way as the CLI; invalid ranges return 400.
@@ -424,7 +427,7 @@ State directory (recommended for persistence across deployments):
 - Per-feature `TRADER_*_DIR` variables override the state directory; set any of them to an empty string to disable that feature.
 - Docker image default: `TRADER_STATE_DIR=/var/lib/trader/state` (mount `/var/lib/trader` to durable storage to keep state across redeploys).
 - For App Runner (no EFS support), use S3 persistence via `TRADER_STATE_S3_BUCKET` and keep `TRADER_STATE_DIR` for local-only state if desired.
-- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values, and forwards `TRADER_BOT_SYMBOLS`/`TRADER_BOT_TRADE` plus `BINANCE_API_KEY`/`BINANCE_API_SECRET` when set.
+- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values, defaults `TRADER_BOT_TRADE=true` unless overridden, and forwards `TRADER_BOT_SYMBOLS`/`TRADER_BOT_TRADE` plus `BINANCE_API_KEY`/`BINANCE_API_SECRET` when set.
 
 S3 state (recommended for App Runner):
 - Set `TRADER_STATE_S3_BUCKET` (optional `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`) to persist bot snapshots + optimizer top-combos in S3.
