@@ -49,6 +49,7 @@ import Trader.Predictors
   , initHMMFilter
   , predictSensors
   )
+import Trader.Predictors.Types (allPredictors)
 import Trader.Trading (BacktestResult(..), EnsembleConfig(..), ExitReason(..), IntrabarFill(..), Positioning(..), Trade(..), simulateEnsemble)
 import Trader.Split (Split(..), splitTrainBacktest)
 
@@ -220,7 +221,7 @@ testPredictorsOutputs = do
   let prices = take 300 (iterate (* 1.001) 100.0)
       lookback = 20
       trainPrices = take 250 prices
-      pb = trainPredictors lookback (V.fromList trainPrices)
+      pb = trainPredictors allPredictors lookback (V.fromList trainPrices)
       t = 100
       hmmObs = forwardReturns (take (t + 1) prices)
       hmm = initHMMFilter pb hmmObs

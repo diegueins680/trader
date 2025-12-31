@@ -131,6 +131,12 @@ import Trader.Predictors
   , predictSensors
   , updateHMM
   )
+import Trader.Predictors.Types
+  ( predictorCode
+  , predictorEnabled
+  , predictorSetFromString
+  , predictorSetToList
+  )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.Symbol (splitSymbol)
 import Trader.Method (Method(..), methodCode, parseMethod, selectPredictions)
@@ -650,6 +656,7 @@ data ApiParams = ApiParams
   , apKalmanDt :: Maybe Double
   , apKalmanProcessVar :: Maybe Double
   , apKalmanMeasurementVar :: Maybe Double
+  , apPredictors :: Maybe String
   , apKalmanMarketTopN :: Maybe Int
   , apThreshold :: Maybe Double
   , apOpenThreshold :: Maybe Double
@@ -1552,6 +1559,7 @@ argsPublicJson args =
       , "lr" .= argLr args
       , "valRatio" .= argValRatio args
       , "backtestRatio" .= argBacktestRatio args
+      , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
       , "patience" .= argPatience args
       , "gradClip" .= argGradClip args
       , "seed" .= argSeed args
@@ -2837,6 +2845,36 @@ applyLatestTopCombo optimizerTmp limits sym args req = do
                 Left _ -> pure args
                 Right args' -> pure args'
 
+topComboSymbol :: TopCombo -> Maybe String
+topComboSymbol combo =
+  case topComboParamString "platform" combo of
+    Just p | normalizeKey p /= "binance" -> Nothing
+    _ -> topComboParamString "binanceSymbol" combo <|> topComboParamString "symbol" combo
+
+dedupeTopComboTargets :: [(String, TopCombo)] -> [(String, TopCombo)]
+dedupeTopComboTargets targets =
+  reverse $
+    snd $
+      foldl'
+        ( \(seen, acc) (sym, combo) ->
+            if HM.member sym seen
+              then (seen, acc)
+              else (HM.insert sym True seen, (sym, combo) : acc)
+        )
+        (HM.empty, [])
+        targets
+
+topCombosTopTargets :: Int -> TopCombosExport -> [(String, TopCombo)]
+topCombosTopTargets topN export =
+  let sorted = sortOn topComboRankKey (tceCombos export)
+      targets =
+        [ (normalizeSymbol sym, combo)
+        | combo <- sorted
+        , Just sym <- [topComboSymbol combo]
+        , not (null sym)
+        ]
+   in take topN (dedupeTopComboTargets targets)
+
 resolveOrphanOpenPositionSymbols :: Maybe OpsStore -> ApiComputeLimits -> FilePath -> Args -> [String] -> IO [String]
 resolveOrphanOpenPositionSymbols mOps limits optimizerTmp args requested =
   if not (platformSupportsLiveBot (argPlatform args)) || argBinanceMarket args /= MarketFutures
@@ -3114,78 +3152,131 @@ botAutoStartLoop ::
   IO ()
 botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs botCtrl = do
   symbolsOrErr <- resolveBotSymbolsAuto baseArgs
+  let baseSymbols =
+        case symbolsOrErr of
+          Left _ -> []
+          Right xs -> xs
   case symbolsOrErr of
-    Left err -> putStrLn ("Live bot auto-start disabled: " ++ err)
-    Right symbols ->
-      if not (platformSupportsLiveBot (argPlatform baseArgs))
-        then
+    Left err -> putStrLn ("Live bot auto-start base symbols missing: " ++ err)
+    Right _ -> pure ()
+  if not (platformSupportsLiveBot (argPlatform baseArgs))
+    then
+      putStrLn
+        ( "Live bot auto-start disabled: platform="
+            ++ platformCode (argPlatform baseArgs)
+            ++ " does not support live bots."
+        )
+    else
+      case argData baseArgs of
+        Just _ -> putStrLn "Live bot auto-start disabled: CSV data source is not supported."
+        Nothing -> do
+          let argsBase = baseArgs { argTradeOnly = True }
+              settings = defaultBotSettings argsBase
+          pollSec <- comboPollSecondsFromEnv
+          topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+          errRef <- newIORef HM.empty
+          topErrRef <- newIORef Nothing
+          topTargetsRef <- newIORef []
+          targetsRef <- newIORef []
+          let formatList xs =
+                if null xs
+                  then "none"
+                  else intercalate ", " xs
           putStrLn
-            ( "Live bot auto-start disabled: platform="
-                ++ platformCode (argPlatform baseArgs)
-                ++ " does not support live bots."
+            ( "Live bot auto-start enabled. Base symbols: "
+                ++ formatList baseSymbols
+                ++ ". Top combos path: "
+                ++ topJsonPath
             )
-        else
-          case argData baseArgs of
-            Just _ -> putStrLn "Live bot auto-start disabled: CSV data source is not supported."
-            Nothing -> do
-              let argsBase = baseArgs { argTradeOnly = True }
-                  settings = defaultBotSettings argsBase
-              pollSec <- comboPollSecondsFromEnv
-              errRef <- newIORef HM.empty
-              putStrLn ("Live bot auto-start enabled for symbols: " ++ intercalate ", " symbols)
 
-              let sleepSec s = threadDelay (max 1 s * 1000000)
-                  recordError sym msg = do
-                    prev <- readIORef errRef
-                    if HM.lookup sym prev == Just msg
-                      then pure ()
+          let sleepSec s = threadDelay (max 1 s * 1000000)
+              recordError sym msg = do
+                prev <- readIORef errRef
+                if HM.lookup sym prev == Just msg
+                  then pure ()
+                  else do
+                    writeIORef errRef (HM.insert sym msg prev)
+                    putStrLn ("Live bot auto-start failed for " ++ sym ++ ": " ++ msg)
+              clearError sym = modifyIORef' errRef (HM.delete sym)
+              loadTopTargets = do
+                combosOrErr <- readTopCombosExport topJsonPath
+                case combosOrErr of
+                  Left err -> do
+                    prev <- readIORef topErrRef
+                    if prev == Just err
+                      then readIORef topTargetsRef
                       else do
-                        writeIORef errRef (HM.insert sym msg prev)
-                        putStrLn ("Live bot auto-start failed for " ++ sym ++ ": " ++ msg)
-                  clearError sym = modifyIORef' errRef (HM.delete sym)
-                  startSymbol sym = do
-                    let argsSym = argsBase { argBinanceSymbol = Just sym }
-                        adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
-                    adoptReqOrErr <-
-                      if adoptable
-                        then resolveAdoptionRequirement mOps argsSym sym
-                        else pure (Right (AdoptRequirement False False))
-                    case adoptReqOrErr of
+                        writeIORef topErrRef (Just err)
+                        putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
+                        readIORef topTargetsRef
+                  Right export -> do
+                    let targets = topCombosTopTargets 5 export
+                    writeIORef topTargetsRef targets
+                    writeIORef topErrRef Nothing
+                    pure targets
+              startSymbol sym mCombo = do
+                let argsSym = argsBase { argBinanceSymbol = Just sym }
+                    adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
+                adoptReqOrErr <-
+                  if adoptable
+                    then resolveAdoptionRequirement mOps argsSym sym
+                    else pure (Right (AdoptRequirement False False))
+                case adoptReqOrErr of
+                  Left err -> recordError sym err
+                  Right adoptReq -> do
+                    argsCombo <-
+                      if arActive adoptReq
+                        then pure argsSym
+                        else
+                          case mCombo of
+                            Nothing -> applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
+                            Just combo ->
+                              case applyTopComboForStart argsSym combo of
+                                Left err -> do
+                                  recordError sym ("Top combo parse failed: " ++ err)
+                                  applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
+                                Right args' -> pure args'
+                    case validateApiComputeLimits limits argsCombo of
                       Left err -> recordError sym err
-                      Right adoptReq -> do
-                        argsCombo <-
-                          if arActive adoptReq
-                            then pure argsSym
-                            else applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
-                        case validateApiComputeLimits limits argsCombo of
+                      Right argsOk -> do
+                        r <-
+                          botStartSymbolWithSettings
+                            True
+                            mOps
+                            metrics
+                            mJournal
+                            mWebhook
+                            mBotStateDir
+                            optimizerTmp
+                            limits
+                            topCombosCtx
+                            adoptReq
+                            botCtrl
+                            argsOk
+                            settings
+                            sym
+                        case r of
                           Left err -> recordError sym err
-                          Right argsOk -> do
-                            r <-
-                              botStartSymbolWithSettings
-                                True
-                                mOps
-                                metrics
-                                mJournal
-                                mWebhook
-                                mBotStateDir
-                                optimizerTmp
-                                limits
-                                topCombosCtx
-                                adoptReq
-                                botCtrl
-                                argsOk
-                                settings
-                                sym
-                            case r of
-                              Left err -> recordError sym err
-                              Right _ -> clearError sym
-                  loop = do
-                    mrt <- readMVar (bcRuntime botCtrl)
-                    let missing = filter (not . (`HM.member` mrt)) symbols
-                    mapM_ startSymbol missing
-                    sleepSec pollSec
-                    loop
-              loop
+                          Right _ -> clearError sym
+              loop = do
+                topTargets <- loadTopTargets
+                let topTargetMap =
+                      foldl'
+                        (\acc (sym, combo) -> HM.insertWith (\_ old -> old) sym combo acc)
+                        HM.empty
+                        topTargets
+                    topSymbols = map fst topTargets
+                    targetSymbols = dedupeStable (baseSymbols ++ topSymbols)
+                prevTargets <- readIORef targetsRef
+                when (prevTargets /= targetSymbols) $ do
+                  writeIORef targetsRef targetSymbols
+                  putStrLn ("Live bot auto-start targets: " ++ formatList targetSymbols)
+                mrt <- readMVar (bcRuntime botCtrl)
+                let missing = filter (not . (`HM.member` mrt)) targetSymbols
+                mapM_ (\sym -> startSymbol sym (HM.lookup sym topTargetMap)) missing
+                sleepSec pollSec
+                loop
+          loop
 
 botStop :: BotController -> Maybe String -> IO [BotState]
 botStop ctrl mSymbol =
@@ -3307,7 +3398,7 @@ initBotState mOps args settings sym = do
     case methodForCtx of
       MethodLstmOnly -> pure (Nothing, V.replicate n nan)
       _ -> do
-        let predictors = trainPredictors lookback pricesV
+        let predictors = trainPredictors (argPredictors args) lookback pricesV
             hmm0 = initHMMFilter predictors []
             kal0 =
               initKalman1
@@ -3411,14 +3502,19 @@ initBotState mOps args settings sym = do
         if desiredPosSignal > startPos0
           then "BUY"
           else "SELL"
+      latestOrder =
+        case desiredPosSignal of
+          1 -> latest { lsChosenDir = Just 1 }
+          -1 -> latest { lsChosenDir = Just (-1) }
+          0 ->
+            if startPos0 == 0
+              then latest { lsChosenDir = Nothing }
+              else latest { lsChosenDir = Just (negate startPos0) }
 
   mOrder <-
-    if wantSwitch
-      then
-        if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
-          then Just <$> placeBotCloseIfEnabled args settings latest env sym
-          else Just <$> placeIfEnabled args settings latest env sym
-      else pure Nothing
+    if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
+      then Just <$> placeBotCloseIfEnabled args settings latestOrder env sym
+      else Just <$> placeIfEnabled args settings latestOrder env sym
 
   let orderSent = maybe False aorSent mOrder
       alreadyMsg =
@@ -3809,7 +3905,7 @@ rebuildKalmanCtx args lookback pricesV =
    in if n < 2
         then Left "Not enough bars to rebuild Kalman context."
         else
-          let predictors = trainPredictors lookback pricesV
+          let predictors = trainPredictors (argPredictors args) lookback pricesV
               hmm0 = initHMMFilter predictors []
               kal0 =
                 initKalman1
@@ -4099,6 +4195,7 @@ buildOptimizerUpdate st combo = do
                         || argKalmanDt args0 /= argKalmanDt curArgs
                         || argKalmanProcessVar args0 /= argKalmanProcessVar curArgs
                         || argKalmanMeasurementVar args0 /= argKalmanMeasurementVar curArgs
+                        || argPredictors args0 /= argPredictors curArgs
                         || lookback /= botLookback st
                      )
 
@@ -5237,6 +5334,19 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
           else (latest2, desiredPosWanted2, mExitReason2)
 
       wantSwitch = desiredPosWanted /= prevPos
+      latestOrder =
+        case desiredPosWanted of
+          1 -> latest { lsChosenDir = Just 1 }
+          -1 -> latest { lsChosenDir = Just (-1) }
+          0 ->
+            if prevPos == 0
+              then latest { lsChosenDir = Nothing }
+              else latest { lsChosenDir = Just (negate prevPos) }
+
+  o <-
+    if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
+      then placeBotCloseIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
+      else placeIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
 
   (ops', orders', trades', openTrade', mOrder, posFinal, eqFinal, switchedApplied, orderErrors1, haltReason2, haltedAt2) <-
     if not wantSwitch
@@ -5246,7 +5356,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
           , botOrders st
           , botTrades st
           , openTrade1
-          , Nothing
+          , Just o
           , prevPos
           , eqAfterReturn
           , False
@@ -5255,10 +5365,6 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
           , haltedAt1
           )
       else do
-        o <-
-          if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
-            then placeBotCloseIfEnabled args settings latest (botEnv st) (botSymbol st)
-            else placeIfEnabled args settings latest (botEnv st) (botSymbol st)
         let opSide =
               if desiredPosWanted > prevPos
                 then "BUY"
@@ -5850,6 +5956,7 @@ argsCacheJsonSignal args =
       , "kalmanDt" .= argKalmanDt args
       , "kalmanProcessVar" .= argKalmanProcessVar args
       , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+      , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
       , "kalmanMarketTopN" .= argKalmanMarketTopN args
       , "openThreshold" .= argOpenThreshold args
       , "closeThreshold" .= argCloseThreshold args
@@ -5918,6 +6025,7 @@ argsCacheJsonBacktest args =
       , "kalmanDt" .= argKalmanDt args
       , "kalmanProcessVar" .= argKalmanProcessVar args
       , "kalmanMeasurementVar" .= argKalmanMeasurementVar args
+      , "predictors" .= map predictorCode (predictorSetToList (argPredictors args))
       , "kalmanMarketTopN" .= argKalmanMarketTopN args
       , "openThreshold" .= argOpenThreshold args
       , "closeThreshold" .= argCloseThreshold args
@@ -9045,6 +9153,11 @@ argsFromApi baseArgs p = do
       Nothing -> Right (argTuneObjective baseArgs)
       Just raw -> parseTuneObjective raw
 
+  predictors <-
+    case apPredictors p of
+      Nothing -> Right (argPredictors baseArgs)
+      Just raw -> predictorSetFromString raw
+
   (futuresFlag, marginFlag) <-
     case apMarket p of
       Nothing -> Right (argBinanceFutures baseArgs, argBinanceMargin baseArgs)
@@ -9117,6 +9230,7 @@ argsFromApi baseArgs p = do
           , argKalmanDt = pick (apKalmanDt p) (argKalmanDt baseArgs)
           , argKalmanProcessVar = pick (apKalmanProcessVar p) (argKalmanProcessVar baseArgs)
           , argKalmanMeasurementVar = pick (apKalmanMeasurementVar p) (argKalmanMeasurementVar baseArgs)
+          , argPredictors = predictors
           , argKalmanMarketTopN = pick (apKalmanMarketTopN p) (argKalmanMarketTopN baseArgs)
           , argOpenThreshold = openThr
           , argCloseThreshold = closeThr
@@ -10779,7 +10893,7 @@ computeTradeOnlySignal args lookback prices mBinanceEnv = do
     case method of
       MethodLstmOnly -> pure (Nothing, Nothing)
       MethodRouter -> do
-        let predictors = trainPredictors lookback pricesV
+        let predictors = trainPredictors (argPredictors args) lookback pricesV
             hmm0 = initHMMFilter predictors []
             kal0 =
               initKalman1
@@ -10796,7 +10910,7 @@ computeTradeOnlySignal args lookback prices mBinanceEnv = do
             kalPredV = V.fromList (reverse kalPredRev)
         pure (Just (predictors, kalPrev, hmmPrev, svPrev), Just kalPredV)
       _ -> do
-        let predictors = trainPredictors lookback pricesV
+        let predictors = trainPredictors (argPredictors args) lookback pricesV
             hmm0 = initHMMFilter predictors []
             kal0 =
               initKalman1
@@ -11050,7 +11164,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     case methodForComputation of
       MethodKalmanOnly -> do
         let fitPricesV = V.fromList fitPrices
-            predictors = trainPredictors lookback fitPricesV
+            predictors = trainPredictors (argPredictors args) lookback fitPricesV
             hmmInitReturns = forwardReturns (take (predStart + 1) prices)
             hmm0 = initHMMFilter predictors hmmInitReturns
             kal0 =
@@ -11086,7 +11200,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             obsTrain = take predStart obsAll
         (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
         let fitPricesV = V.fromList fitPrices
-            predictors = trainPredictors lookback fitPricesV
+            predictors = trainPredictors (argPredictors args) lookback fitPricesV
             hmmInitReturns = forwardReturns (take (predStart + 1) prices)
             hmm0 = initHMMFilter predictors hmmInitReturns
             kal0 =
@@ -11117,7 +11231,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             obsTrain = take predStart obsAll
         (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
         let fitPricesV = V.fromList fitPrices
-            predictors = trainPredictors lookback fitPricesV
+            predictors = trainPredictors (argPredictors args) lookback fitPricesV
             hmmInitReturns = forwardReturns (take (predStart + 1) prices)
             hmm0 = initHMMFilter predictors hmmInitReturns
             kal0 =
@@ -11153,6 +11267,14 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         if argCostAwareEdge args
           then max minEdgeBase (breakEvenThresholdFromPerSideCost perSideCost + max 0 (argEdgeBuffer args))
           else minEdgeBase
+      hasHmm = predictorEnabled (argPredictors args) SensorHMM
+      hasConformal = predictorEnabled (argPredictors args) SensorConformal
+      hasQuantile = predictorEnabled (argPredictors args) SensorQuantile
+      maxHighVolProb = if hasHmm then argMaxHighVolProb args else Nothing
+      maxConformalWidth = if hasConformal then argMaxConformalWidth args else Nothing
+      maxQuantileWidth = if hasQuantile then argMaxQuantileWidth args else Nothing
+      confirmConformal = argConfirmConformal args && hasConformal
+      confirmQuantiles = argConfirmQuantiles args && hasQuantile
 
       baseCfg =
         EnsembleConfig
@@ -11217,11 +11339,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecLstmConfidenceHard = argLstmConfidenceHard args
           , ecKalmanZMin = argKalmanZMin args
           , ecKalmanZMax = argKalmanZMax args
-          , ecMaxHighVolProb = argMaxHighVolProb args
-          , ecMaxConformalWidth = argMaxConformalWidth args
-          , ecMaxQuantileWidth = argMaxQuantileWidth args
-          , ecConfirmConformal = argConfirmConformal args
-          , ecConfirmQuantiles = argConfirmQuantiles args
+          , ecMaxHighVolProb = maxHighVolProb
+          , ecMaxConformalWidth = maxConformalWidth
+          , ecMaxQuantileWidth = maxQuantileWidth
+          , ecConfirmConformal = confirmConformal
+          , ecConfirmQuantiles = confirmQuantiles
           , ecConfidenceSizing = argConfidenceSizing args
           , ecMinPositionSize = argMinPositionSize args
           }
@@ -12109,7 +12231,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
 
                   confirmConformal :: Double -> Maybe Interval -> Int -> Bool
                   confirmConformal thr mI dir =
-                    if not (argConfirmConformal args)
+                    if not (argConfirmConformal args) || not (predictorEnabled (argPredictors args) SensorConformal)
                       then True
                       else
                         case (mI, dir) of
@@ -12119,7 +12241,7 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
 
                   confirmQuantiles :: Double -> Maybe Quantiles -> Int -> Bool
                   confirmQuantiles thr mQ dir =
-                    if not (argConfirmQuantiles args)
+                    if not (argConfirmQuantiles args) || not (predictorEnabled (argPredictors args) SensorQuantile)
                       then True
                       else
                         case (mQ, dir) of
@@ -12134,20 +12256,29 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
                       Just dir ->
                         let zMin = max 0 (argKalmanZMin args)
                             hvOk =
-                              case (argMaxHighVolProb args, mReg) of
-                                (Just maxHv, Just r) -> rpHighVol r <= maxHv
-                                (Just _, Nothing) -> False
-                                _ -> True
+                              if not (predictorEnabled (argPredictors args) SensorHMM)
+                                then True
+                                else
+                                  case (argMaxHighVolProb args, mReg) of
+                                    (Just maxHv, Just r) -> rpHighVol r <= maxHv
+                                    (Just _, Nothing) -> False
+                                    _ -> True
                             confWidthOk =
-                              case (argMaxConformalWidth args, mI) of
-                                (Just maxW, Just i) -> intervalWidth i <= maxW
-                                (Just _, Nothing) -> False
-                                _ -> True
+                              if not (predictorEnabled (argPredictors args) SensorConformal)
+                                then True
+                                else
+                                  case (argMaxConformalWidth args, mI) of
+                                    (Just maxW, Just i) -> intervalWidth i <= maxW
+                                    (Just _, Nothing) -> False
+                                    _ -> True
                             qWidthOk =
-                              case (argMaxQuantileWidth args, mQ) of
-                                (Just maxW, Just q) -> quantileWidth q <= maxW
-                                (Just _, Nothing) -> False
-                                _ -> True
+                              if not (predictorEnabled (argPredictors args) SensorQuantile)
+                                then True
+                                else
+                                  case (argMaxQuantileWidth args, mQ) of
+                                    (Just maxW, Just q) -> quantileWidth q <= maxW
+                                    (Just _, Nothing) -> False
+                                    _ -> True
                          in if kalZ < zMin
                               then (Nothing, Just "KALMAN_Z")
                               else if not hvOk

@@ -44,6 +44,7 @@ export type ApiParams = {
   kalmanDt?: number;
   kalmanProcessVar?: number;
   kalmanMeasurementVar?: number;
+  predictors?: string;
   threshold?: number; // legacy (maps to open/close)
   openThreshold?: number;
   closeThreshold?: number;

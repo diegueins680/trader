@@ -12,7 +12,9 @@ All notable changes to this project will be documented in this file.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
+- Live bot: auto-start also keeps bots running for the current top 5 combos from `top-combos.json` (Binance only).
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
+- Live bot: attempt an order on every candle based on the desired position (even when holding).
 - Observability: log Binance API requests (`binance.request`) and minute-by-minute bot status snapshots (`bot.status`), plus a live/offline timeline chart in the UI.
 - Observability: redact Binance query params in ops logs even when the query string starts with `?`.
 - Observability: ensure ops logging covers all Binance API calls (including listenKey/trades/positions/data fetches) and emit an immediate `bot.status` snapshot on bot start.
@@ -25,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
 - Predictors: fall back to the GBDT base prediction when feature dimensions mismatch.
+- Predictors: add `--predictors` (CLI/API `predictors`) to select which predictors train/use; disabled predictors skip their confirmation gates.
 - Web UI: default order sizing uses `orderQuote=100` to avoid orders rounding to zero on common minQty/step sizes.
 - Backtests: API queues requests when the backtest slot is busy; UI waits and notifies when the backtest completes.
 - Strategy defaults: move to `--interval 1h`/`--lookback-window 7d`, raise baseline risk filters (min SNR, trend lookback, hold/cooldown/max-hold, max position size, vol target/floor/max-vol, Kalman z-min, min position size), and bump cost assumptions (fee/slippage/spread).

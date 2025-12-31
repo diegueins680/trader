@@ -1,5 +1,6 @@
 module Trader.Predictors
   ( SensorId(..)
+  , PredictorSet
   , SensorOutput(..)
   , RegimeProbs(..)
   , Quantiles(..)
@@ -17,6 +18,8 @@ import qualified Data.Vector as V
 
 import Trader.Predictors.Types
   ( SensorId(..)
+  , PredictorSet
+  , predictorEnabled
   , SensorOutput(..)
   , RegimeProbs(..)
   , Quantiles(..)
@@ -31,7 +34,8 @@ import Trader.Predictors.Conformal (ConformalModel(..), fitConformal, predictInt
 import Trader.Predictors.HMM (HMM3(..), HMMFilter(..), fitHMM3, filterPosterior, predictNextFromPosterior, updatePosterior)
 
 data PredictorBundle = PredictorBundle
-  { pbFeatureSpec :: !FeatureSpec
+  { pbEnabled :: !PredictorSet
+  , pbFeatureSpec :: !FeatureSpec
   , pbGBDT :: !GBDTModel
   , pbTCN :: !TCNModel
   , pbTransformer :: !TransformerModel
@@ -40,55 +44,106 @@ data PredictorBundle = PredictorBundle
   , pbHMM :: !HMM3
   } deriving (Eq, Show)
 
-trainPredictors :: Int -> V.Vector Double -> PredictorBundle
-trainPredictors lookbackBars trainPrices =
+trainPredictors :: PredictorSet -> Int -> V.Vector Double -> PredictorBundle
+trainPredictors enabled lookbackBars trainPrices =
   let fs = mkFeatureSpec lookbackBars
-      dataset = buildDataset fs trainPrices
-      (trainSet, calib) = splitCalib dataset
+      useGbdt = predictorEnabled enabled SensorGBT
+      useTcn = predictorEnabled enabled SensorTCN
+      useTransformer = predictorEnabled enabled SensorTransformer
+      useHmm = predictorEnabled enabled SensorHMM
+      useQuantile = predictorEnabled enabled SensorQuantile
+      useConformal = predictorEnabled enabled SensorConformal
+      needFeatures = useGbdt || useTransformer || useQuantile || useConformal
+      dataset = if needFeatures then buildDataset fs trainPrices else []
+      (trainSet, calib) =
+        if needFeatures
+          then splitCalib dataset
+          else ([], [])
       trainSet' = if null trainSet then dataset else trainSet
       trainLen = length trainSet'
-      trainPriceLen = min (V.length trainPrices) (lookbackBars + trainLen)
+      trainPriceLen =
+        if needFeatures
+          then min (V.length trainPrices) (lookbackBars + trainLen)
+          else V.length trainPrices
       trainPrices' = V.slice 0 trainPriceLen trainPrices
-      (gbdt, quant) =
-        if null trainSet'
+
+      emptyGbdt =
+        GBDTModel
+          { gmBase = 0
+          , gmLearningRate = 0
+          , gmFeatureDim = 0
+          , gmStumps = []
+          , gmSigma = Nothing
+          }
+      emptyLin = LinModel { lmW = [], lmB = 0 }
+      emptyQuant = QuantileModel emptyLin emptyLin emptyLin
+      emptyTransformer = TransformerModel { trKeys = [], trTargets = [], trTemperature = 0, trFeatureDim = 0 }
+      emptyTcn =
+        TCNModel
+          { tmDilations = []
+          , tmKernelSize = 0
+          , tmWeights = []
+          , tmSigma = Nothing
+          }
+
+      gbdtTrained = useGbdt || useConformal
+      gbdt =
+        if not gbdtTrained
+          then emptyGbdt
+          else if null trainSet'
+            then emptyGbdt
+            else trainGBDT 60 0.1 trainSet'
+      quant =
+        if useQuantile
           then
-            let emptyGbdt =
-                  GBDTModel
-                    { gmBase = 0
-                    , gmLearningRate = 0
-                    , gmFeatureDim = 0
-                    , gmStumps = []
-                    , gmSigma = Nothing
-                    }
-                emptyLin = LinModel { lmW = [], lmB = 0 }
-                emptyQuant = QuantileModel emptyLin emptyLin emptyLin
-             in (emptyGbdt, emptyQuant)
-          else
-            ( trainGBDT 60 0.1 trainSet'
-            , trainQuantileModel 20 5e-2 1e-3 trainSet'
-            )
-      transformer = trainTransformer 5.0 512 trainSet'
+            if null trainSet'
+              then emptyQuant
+              else trainQuantileModel 20 5e-2 1e-3 trainSet'
+          else emptyQuant
+      transformer =
+        if useTransformer
+          then trainTransformer 5.0 512 trainSet'
+          else emptyTransformer
       hmmObs =
-        [ y
-        | t <- [0 .. V.length trainPrices' - 2]
-        , Just y <- [forwardReturnAt trainPrices' t]
-        ]
-      hmm = fitHMM3 10 hmmObs
+        if useHmm
+          then
+            [ y
+            | t <- [0 .. V.length trainPrices' - 2]
+            , Just y <- [forwardReturnAt trainPrices' t]
+            ]
+          else []
+      hmm =
+        if useHmm
+          then fitHMM3 10 hmmObs
+          else fitHMM3 0 []
       -- Conformal: calibrate on a holdout split (last 20%).
       absRes =
-        [ abs (y - mu)
-        | (x, y) <- calib
-        , let (mu, _) = predictGBDT gbdt x
-        ]
-      conformal = fitConformal 0.2 absRes
+        if useConformal
+          then
+            [ abs (y - mu)
+            | (x, y) <- calib
+            , let (mu, _) = predictGBDT gbdt x
+            ]
+          else []
+      conformal =
+        if useConformal
+          then fitConformal 0.2 absRes
+          else fitConformal 0.2 []
       tcnTargets =
-        [ (t, y)
-        | t <- [0 .. V.length trainPrices' - 2]
-        , Just y <- [forwardReturnAt trainPrices' t]
-        ]
-      tcn = trainTCN lookbackBars trainPrices' tcnTargets
+        if useTcn
+          then
+            [ (t, y)
+            | t <- [0 .. V.length trainPrices' - 2]
+            , Just y <- [forwardReturnAt trainPrices' t]
+            ]
+          else []
+      tcn =
+        if useTcn
+          then trainTCN lookbackBars trainPrices' tcnTargets
+          else emptyTcn
    in PredictorBundle
-        { pbFeatureSpec = fs
+        { pbEnabled = enabled
+        , pbFeatureSpec = fs
         , pbGBDT = gbdt
         , pbTCN = tcn
         , pbTransformer = transformer
@@ -121,7 +176,15 @@ predictSensors
   -> ([(SensorId, SensorOutput)], [Double])
 predictSensors pb prices hmmFilt t =
   let fs = pbFeatureSpec pb
-      feat = featuresAt fs prices t
+      enabled = pbEnabled pb
+      useGbdt = predictorEnabled enabled SensorGBT
+      useTcn = predictorEnabled enabled SensorTCN
+      useTransformer = predictorEnabled enabled SensorTransformer
+      useHmm = predictorEnabled enabled SensorHMM
+      useQuantile = predictorEnabled enabled SensorQuantile
+      useConformal = predictorEnabled enabled SensorConformal
+      needFeatures = useGbdt || useTransformer || useQuantile || useConformal
+      feat = if needFeatures then featuresAt fs prices t else Nothing
       gbdtReady = gmFeatureDim (pbGBDT pb) > 0
       quantReady = not (null (lmW (qm50 (pbQuantile pb))))
 
@@ -129,30 +192,36 @@ predictSensors pb prices hmmFilt t =
         case feat of
           Nothing -> []
           Just x ->
-            if not gbdtReady
+            if not gbdtReady || not useGbdt
               then []
               else
                 let (mu, sig) = predictGBDT (pbGBDT pb) x
                  in [(SensorGBT, SensorOutput { soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing })]
 
       tcnOut =
-        case predictTCN (pbTCN pb) prices t of
-          Nothing -> []
-          Just (mu, sig) ->
-            [(SensorTCN, SensorOutput { soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing })]
+        if not useTcn
+          then []
+          else
+            case predictTCN (pbTCN pb) prices t of
+              Nothing -> []
+              Just (mu, sig) ->
+                [(SensorTCN, SensorOutput { soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing })]
 
       transformerOut =
         case feat of
           Nothing -> []
           Just x ->
-            let (mu, sig) = predictTransformer (pbTransformer pb) x
-             in [(SensorTransformer, SensorOutput { soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing })]
+            if not useTransformer
+              then []
+              else
+                let (mu, sig) = predictTransformer (pbTransformer pb) x
+                 in [(SensorTransformer, SensorOutput { soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing })]
 
       quantOut =
         case feat of
           Nothing -> []
           Just x ->
-            if not quantReady
+            if not quantReady || not useQuantile
               then []
               else
                 let (q10', q50', q90', mu, sig) = predictQuantiles (pbQuantile pb) x
@@ -172,7 +241,7 @@ predictSensors pb prices hmmFilt t =
         case feat of
           Nothing -> []
           Just x ->
-            if not gbdtReady
+            if not gbdtReady || not useConformal
               then []
               else
                 let (mu, _) = predictGBDT (pbGBDT pb) x
@@ -189,21 +258,28 @@ predictSensors pb prices hmmFilt t =
                     )
                   ]
 
-      (reg, hmmMu, hmmSigma, predState) = predictNextFromPosterior (pbHMM pb) hmmFilt
-      hmmOut =
-        [ ( SensorHMM
-          , SensorOutput
-              { soMu = hmmMu
-              , soSigma = Just hmmSigma
-              , soRegimes = Just reg
-              , soQuantiles = Nothing
-              , soInterval = Nothing
-              }
-          )
-        ]
+      (hmmOut, predState) =
+        if not useHmm
+          then ([], hfPosterior hmmFilt)
+          else
+            let (reg, hmmMu, hmmSigma, predState') = predictNextFromPosterior (pbHMM pb) hmmFilt
+             in ( [ ( SensorHMM
+                    , SensorOutput
+                        { soMu = hmmMu
+                        , soSigma = Just hmmSigma
+                        , soRegimes = Just reg
+                        , soQuantiles = Nothing
+                        , soInterval = Nothing
+                        }
+                    )
+                  ]
+                , predState'
+                )
 
    in (gbdtOut ++ tcnOut ++ transformerOut ++ hmmOut ++ quantOut ++ conformalOut, predState)
 
 updateHMM :: PredictorBundle -> [Double] -> Double -> HMMFilter
 updateHMM pb predState realizedReturn =
-  updatePosterior (pbHMM pb) predState realizedReturn
+  if predictorEnabled (pbEnabled pb) SensorHMM
+    then updatePosterior (pbHMM pb) predState realizedReturn
+    else HMMFilter { hfPosterior = predState }

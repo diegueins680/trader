@@ -35,6 +35,12 @@ import Trader.Platform
   , platformDefaultBars
   , platformIntervalsCsv
   )
+import Trader.Predictors.Types
+  ( PredictorSet
+  , allPredictors
+  , predictorSetFromString
+  , predictorSetToCsv
+  )
 import Trader.Text (normalizeKey, trim)
 import Trader.Trading (IntrabarFill(..), Positioning(..))
 
@@ -82,6 +88,7 @@ data Args = Args
   , argKalmanDt :: Double
   , argKalmanProcessVar :: Double
   , argKalmanMeasurementVar :: Double
+  , argPredictors :: PredictorSet
   , argKalmanMarketTopN :: Int
   , argOpenThreshold :: Double
   , argCloseThreshold :: Double
@@ -322,6 +329,14 @@ opts = do
   argKalmanDt <- option auto (long "kalman-dt" <> value 1.0 <> help "Kalman dt")
   argKalmanProcessVar <- option auto (long "kalman-process-var" <> value 1e-5 <> help "Kalman process noise variance (white-noise jerk)")
   argKalmanMeasurementVar <- option auto (long "kalman-measurement-var" <> value 1e-3 <> help "Kalman measurement noise variance")
+  argPredictors <-
+    option
+      (eitherReader predictorSetFromString)
+      ( long "predictors"
+          <> value allPredictors
+          <> showDefaultWith predictorSetToCsv
+          <> help "Comma-separated predictors to train/use (gbdt,tcn,transformer,hmm,quantile,conformal, all, none)"
+      )
   argKalmanMarketTopN <-
     option
       auto
