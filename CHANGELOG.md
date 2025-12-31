@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
 - Live bot: auto-start also keeps bots running for the current top 10 combos from `top-combos.json` (Binance only), prioritizing higher `metrics.tradeCount` combos.
+- Live bot: auto-start warns when fewer than 5 unique top-combo symbols are available to keep the minimum running.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
 - Live bot: attempt an order on every candle based on the desired position (even when holding).
 - Observability: log Binance API requests (`binance.request`) and minute-by-minute bot status snapshots (`bot.status`), plus a live/offline timeline chart in the UI.

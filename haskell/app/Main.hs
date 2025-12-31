@@ -3178,6 +3178,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
         case symbolsOrErr of
           Left _ -> []
           Right xs -> xs
+      minTopComboBots = 5
+      maxTopComboBots = 10
   case symbolsOrErr of
     Left err -> putStrLn ("Live bot auto-start base symbols missing: " ++ err)
     Right _ -> pure ()
@@ -3199,6 +3201,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
           errRef <- newIORef HM.empty
           topErrRef <- newIORef Nothing
           topTargetsRef <- newIORef []
+          topTargetsWarnRef <- newIORef Nothing
           targetsRef <- newIORef []
           let formatList xs =
                 if null xs
@@ -3232,9 +3235,23 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                         putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
                         readIORef topTargetsRef
                   Right export -> do
-                    let targets = topCombosTopTargets 10 export
+                    let targets = topCombosTopTargets maxTopComboBots export
+                        targetCount = length targets
                     writeIORef topTargetsRef targets
                     writeIORef topErrRef Nothing
+                    if targetCount < minTopComboBots
+                      then do
+                        prev <- readIORef topTargetsWarnRef
+                        when (prev /= Just targetCount) $ do
+                          writeIORef topTargetsWarnRef (Just targetCount)
+                          putStrLn
+                            ( "Live bot auto-start warning: only "
+                                ++ show targetCount
+                                ++ " unique top-combo symbol(s) available; need "
+                                ++ show minTopComboBots
+                                ++ " to keep the minimum running."
+                            )
+                      else writeIORef topTargetsWarnRef Nothing
                     pure targets
               startSymbol sym mCombo = do
                 let argsSym = argsBase { argBinanceSymbol = Just sym }
