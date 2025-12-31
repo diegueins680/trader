@@ -446,6 +446,12 @@ data OptimizerArgs = OptimizerArgs
   , oaTuneRatio :: !Double
   , oaTrials :: !Int
   , oaSeed :: !Int
+  , oaSeedTrials :: !(Maybe Int)
+  , oaSeedRatio :: !(Maybe Double)
+  , oaSurvivorFraction :: !Double
+  , oaPerturbScaleDouble :: !Double
+  , oaPerturbScaleInt :: !Int
+  , oaEarlyStopNoImprove :: !Int
   , oaTimeoutSec :: !Double
   , oaOutput :: !String
   , oaAppend :: !Bool
@@ -458,6 +464,9 @@ data OptimizerArgs = OptimizerArgs
   , oaObjective :: !String
   , oaPenaltyMaxDrawdown :: !Double
   , oaPenaltyTurnover :: !Double
+  , oaMinAnnualizedReturn :: !Double
+  , oaMinCalmar :: !Double
+  , oaMaxTurnover :: !Double
   , oaMinRoundTrips :: !Int
   , oaMinWinRate :: !Double
   , oaMinProfitFactor :: !Double
@@ -493,6 +502,16 @@ data OptimizerArgs = OptimizerArgs
   , oaSpreadMax :: !Double
   , oaFeeMin :: !Double
   , oaFeeMax :: !Double
+  , oaFundingRateMin :: !Double
+  , oaFundingRateMax :: !Double
+  , oaPFundingBySide :: !Double
+  , oaPFundingOnOpen :: !Double
+  , oaRebalanceBarsMin :: !Int
+  , oaRebalanceBarsMax :: !Int
+  , oaRebalanceThresholdMin :: !Double
+  , oaRebalanceThresholdMax :: !Double
+  , oaPRebalanceGlobal :: !Double
+  , oaPRebalanceResetOnSignal :: !Double
   , oaOpenThresholdMin :: !Double
   , oaOpenThresholdMax :: !Double
   , oaCloseThresholdMin :: !Double
@@ -709,6 +728,13 @@ data TrialParams = TrialParams
   , tpPeriodsPerYear :: !(Maybe Double)
   , tpKalmanMarketTopN :: !Int
   , tpFee :: !Double
+  , tpFundingRate :: !Double
+  , tpFundingBySide :: !Bool
+  , tpFundingOnOpen :: !Bool
+  , tpRebalanceBars :: !Int
+  , tpRebalanceThreshold :: !Double
+  , tpRebalanceGlobal :: !Bool
+  , tpRebalanceResetOnSignal :: !Bool
   , tpEpochs :: !Int
   , tpHiddenSize :: !Int
   , tpLearningRate :: !Double
@@ -880,6 +906,12 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
         cmd14
           ++ [ "--fee"
              , printf "%.12g" (max 0 (tpFee params))
+             , "--funding-rate"
+             , printf "%.12g" (tpFundingRate params)
+             , "--rebalance-bars"
+             , show (max 0 (tpRebalanceBars params))
+             , "--rebalance-threshold"
+             , printf "%.12g" (max 0 (tpRebalanceThreshold params))
              , "--epochs"
              , show (tpEpochs params)
              , "--hidden-size"
@@ -899,6 +931,10 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , "--tune-stress-weight"
              , printf "%.6f" (max 0 (tpTuneStressWeight params))
              ]
+          ++ (if tpFundingBySide params then ["--funding-by-side"] else [])
+          ++ (if tpFundingOnOpen params then ["--funding-on-open"] else [])
+          ++ (if tpRebalanceGlobal params then ["--rebalance-global"] else [])
+          ++ (if tpRebalanceResetOnSignal params then ["--rebalance-reset-on-signal"] else [])
       cmd16 =
         case tpGradClip params of
           Just v -> cmd15 ++ ["--grad-clip", printf "%.8f" v]
@@ -1238,6 +1274,13 @@ trialToRecord tr symbolLabel =
         , "periodsPerYear" .= tpPeriodsPerYear (trParams tr)
         , "kalmanMarketTopN" .= tpKalmanMarketTopN (trParams tr)
         , "fee" .= tpFee (trParams tr)
+        , "fundingRate" .= tpFundingRate (trParams tr)
+        , "fundingBySide" .= tpFundingBySide (trParams tr)
+        , "fundingOnOpen" .= tpFundingOnOpen (trParams tr)
+        , "rebalanceBars" .= tpRebalanceBars (trParams tr)
+        , "rebalanceThreshold" .= tpRebalanceThreshold (trParams tr)
+        , "rebalanceGlobal" .= tpRebalanceGlobal (trParams tr)
+        , "rebalanceResetOnSignal" .= tpRebalanceResetOnSignal (trParams tr)
         , "epochs" .= tpEpochs (trParams tr)
         , "hiddenSize" .= tpHiddenSize (trParams tr)
         , "learningRate" .= tpLearningRate (trParams tr)
@@ -1350,6 +1393,13 @@ sampleParams
   pCostAwareEdge
   feeMin
   feeMax
+  fundingRateRange
+  pFundingBySide
+  pFundingOnOpen
+  rebalanceBarsRange
+  rebalanceThresholdRange
+  pRebalanceGlobal
+  pRebalanceResetOnSignal
   pLongShort
   pIntrabarTakeProfitFirst
   pTriLayer
@@ -1538,7 +1588,28 @@ sampleParams
                     else (Nothing, rng')
             else (Nothing, rng24)
         (fee, rng26) = nextUniform (max 0 feeMin) (max 0 feeMax) rng25
-        (epochs, rng27) = nextIntRange epochsMin epochsMax rng26
+        (fundingRate, rng26a) =
+          let (lo, hi) = ordered fundingRateRange
+           in nextUniform lo hi rng26
+        (fundingBySide, rng26b) =
+          let (r, rng') = nextDouble rng26a
+           in (r < clamp pFundingBySide 0 1, rng')
+        (fundingOnOpen, rng26c) =
+          let (r, rng') = nextDouble rng26b
+           in (r < clamp pFundingOnOpen 0 1, rng')
+        (rebalanceBarsRaw, rng26d) =
+          nextIntRange (fst rebalanceBarsRange) (snd rebalanceBarsRange) rng26c
+        rebalanceBars = max 0 rebalanceBarsRaw
+        (rebalanceThreshold, rng26e) =
+          let (lo, hi) = ordered rebalanceThresholdRange
+           in nextUniform lo hi rng26d
+        (rebalanceGlobal, rng26f) =
+          let (r, rng') = nextDouble rng26e
+           in (r < clamp pRebalanceGlobal 0 1, rng')
+        (rebalanceResetOnSignal, rng26g) =
+          let (r, rng') = nextDouble rng26f
+           in (r < clamp pRebalanceResetOnSignal 0 1, rng')
+        (epochs, rng27) = nextIntRange epochsMin epochsMax rng26g
         (hiddenSize, rng28) = nextIntRange hiddenMin hiddenMax rng27
         (learningRate, rng29) = nextLogUniform lrMin lrMax rng28
         (valRatio, rng30) = nextUniform valMin valMax rng29
@@ -1755,6 +1826,13 @@ sampleParams
             , tpPeriodsPerYear = periodsPerYear
             , tpKalmanMarketTopN = kalmanMarketTopN
             , tpFee = fee
+            , tpFundingRate = fundingRate
+            , tpFundingBySide = fundingBySide
+            , tpFundingOnOpen = fundingOnOpen
+            , tpRebalanceBars = rebalanceBars
+            , tpRebalanceThreshold = rebalanceThreshold
+            , tpRebalanceGlobal = rebalanceGlobal
+            , tpRebalanceResetOnSignal = rebalanceResetOnSignal
             , tpEpochs = epochs
             , tpHiddenSize = hiddenSize
             , tpLearningRate = learningRate
@@ -1969,6 +2047,19 @@ runOptimizer args0 = do
                               trailVolMultRange = (max 0 (oaTrailVolMultMin args), max 0 (oaTrailVolMultMax args))
                               feeMin = max 0 (oaFeeMin args)
                               feeMax = max feeMin (oaFeeMax args)
+                              fundingRateMin = oaFundingRateMin args
+                              fundingRateMax = oaFundingRateMax args
+                              fundingRateRange = (fundingRateMin, fundingRateMax)
+                              pFundingBySide = clamp (oaPFundingBySide args) 0 1
+                              pFundingOnOpen = clamp (oaPFundingOnOpen args) 0 1
+                              rebalanceBarsMin = max 0 (oaRebalanceBarsMin args)
+                              rebalanceBarsMax = max rebalanceBarsMin (oaRebalanceBarsMax args)
+                              rebalanceBarsRange = (rebalanceBarsMin, rebalanceBarsMax)
+                              rebalanceThresholdMin = max 0 (oaRebalanceThresholdMin args)
+                              rebalanceThresholdMax = max rebalanceThresholdMin (oaRebalanceThresholdMax args)
+                              rebalanceThresholdRange = (rebalanceThresholdMin, rebalanceThresholdMax)
+                              pRebalanceGlobal = clamp (oaPRebalanceGlobal args) 0 1
+                              pRebalanceResetOnSignal = clamp (oaPRebalanceResetOnSignal args) 0 1
                               openThresholdMin = max 1e-12 (oaOpenThresholdMin args)
                               openThresholdMax = max openThresholdMin (oaOpenThresholdMax args)
                               closeThresholdMin = max 1e-12 (oaCloseThresholdMin args)
@@ -2111,11 +2202,20 @@ runOptimizer args0 = do
                                         Just _ -> symbolLabel
                                         Nothing -> symbolFallback
                                       trials = max 1 (oaTrials args)
+                                      seedTrialsOverride = oaSeedTrials args
+                                      seedRatioOverride = oaSeedRatio args
+                                      survivorFraction = clamp (oaSurvivorFraction args) 0 1
+                                      perturbScaleDouble = max 0 (oaPerturbScaleDouble args)
+                                      perturbScaleInt = max 0 (oaPerturbScaleInt args)
+                                      earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
                                       minRoundTrips = max 0 (oaMinRoundTrips args)
                                       minWinRate = max 0 (oaMinWinRate args)
                                       minProfitFactor = max 0 (oaMinProfitFactor args)
                                       minExposure = max 0 (oaMinExposure args)
                                       minSharpe = max 0 (oaMinSharpe args)
+                                      minAnnualizedReturn = max 0 (oaMinAnnualizedReturn args)
+                                      minCalmar = max 0 (oaMinCalmar args)
+                                      maxTurnover = max 0 (oaMaxTurnover args)
                                       minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
                                       maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
                                   outHandle <-
@@ -2129,7 +2229,21 @@ runOptimizer args0 = do
                                         pure (Just h)
                                   let techniqueSummaryBase =
                                         emptyTechniqueSummary {otsAppliedWalkForward = walkForwardFoldsMax > 1 || walkForwardFoldsMin > 1}
-                                      seedTrials = max 1 (min trials (max 3 (trials `div` 2)))
+                                      seedTrialsDefault = max 1 (min trials (max 3 (trials `div` 2)))
+                                      seedTrials =
+                                        case seedTrialsOverride of
+                                          Just n -> max 0 (min trials n)
+                                          Nothing ->
+                                            case seedRatioOverride of
+                                              Just r ->
+                                                let ratio = clamp r 0 1
+                                                    count = floor (fromIntegral trials * ratio)
+                                                 in max 0 (min trials count)
+                                              Nothing -> seedTrialsDefault
+                                      survivorCount =
+                                        if seedTrials <= 0
+                                          then 0
+                                          else max 1 (floor (fromIntegral seedTrials * survivorFraction))
                                       sobolRngs = map seedRng (sobolSeeds (oaSeed args) seedTrials)
                                       remainingTrials = max 0 (trials - seedTrials)
                                       exploitationRngs = map (\i -> seedRng (oaSeed args + 10000 + i)) [1 .. remainingTrials]
@@ -2167,6 +2281,13 @@ runOptimizer args0 = do
                                           (oaPCostAwareEdge args)
                                           feeMin
                                           feeMax
+                                          fundingRateRange
+                                          pFundingBySide
+                                          pFundingOnOpen
+                                          rebalanceBarsRange
+                                          rebalanceThresholdRange
+                                          pRebalanceGlobal
+                                          pRebalanceResetOnSignal
                                           pLongShort
                                           pIntrabarTakeProfitFirst
                                           pTriLayer
@@ -2251,7 +2372,7 @@ runOptimizer args0 = do
                                         let (params, _) =
                                               case mBase of
                                                 Nothing -> sampleParamsWithRng rng
-                                                Just base -> perturbTrialParams base rng
+                                                Just base -> perturbTrialParams perturbScaleDouble perturbScaleInt base rng
                                         tr0 <-
                                           runTrial
                                             traderBinPath
@@ -2285,39 +2406,51 @@ runOptimizer args0 = do
                                                                                    in if minSharpe > 0 && sharpe < minSharpe
                                                                                         then (False, Just (printf "sharpe<%.3f" minSharpe), Nothing)
                                                                                         else
-                                                                                          if minWfSharpeMean > 0 || maxWfSharpeStd > 0
-                                                                                            then
-                                                                                              case extractWalkForwardSummary (trStdoutJson tr0) of
-                                                                                                Nothing -> (False, Just "walkForwardMissing", Nothing)
-                                                                                                Just wfSummary ->
-                                                                                                  let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
-                                                                                                      wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
-                                                                                                   in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
-                                                                                                        then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
-                                                                                                        else if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
-                                                                                                          then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
+                                                                                          let annRet = metricFloat (trMetrics tr0) "annualizedReturn" 0
+                                                                                              maxDd = metricFloat (trMetrics tr0) "maxDrawdown" 0
+                                                                                              calmar = annRet / max 1e-12 maxDd
+                                                                                           in if minAnnualizedReturn > 0 && annRet < minAnnualizedReturn
+                                                                                                then (False, Just (printf "annualizedReturn<%.3f" minAnnualizedReturn), Nothing)
+                                                                                                else if minCalmar > 0 && calmar < minCalmar
+                                                                                                  then (False, Just (printf "calmar<%.3f" minCalmar), Nothing)
+                                                                                                  else
+                                                                                                    let turnover = metricFloat (trMetrics tr0) "turnover" 0
+                                                                                                     in if maxTurnover > 0 && turnover > maxTurnover
+                                                                                                          then (False, Just (printf "turnover>%.3f" maxTurnover), Nothing)
                                                                                                           else
-                                                                                                            ( True
-                                                                                                            , Nothing
-                                                                                                            , Just
-                                                                                                                ( objectiveScore
-                                                                                                                    metrics
-                                                                                                                    objective
-                                                                                                                    (oaPenaltyMaxDrawdown args)
-                                                                                                                    (oaPenaltyTurnover args)
+                                                                                                            if minWfSharpeMean > 0 || maxWfSharpeStd > 0
+                                                                                                              then
+                                                                                                                case extractWalkForwardSummary (trStdoutJson tr0) of
+                                                                                                                  Nothing -> (False, Just "walkForwardMissing", Nothing)
+                                                                                                                  Just wfSummary ->
+                                                                                                                    let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
+                                                                                                                        wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
+                                                                                                                     in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
+                                                                                                                          then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
+                                                                                                                          else if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
+                                                                                                                            then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
+                                                                                                                            else
+                                                                                                                              ( True
+                                                                                                                              , Nothing
+                                                                                                                              , Just
+                                                                                                                                  ( objectiveScore
+                                                                                                                                      metrics
+                                                                                                                                      objective
+                                                                                                                                      (oaPenaltyMaxDrawdown args)
+                                                                                                                                      (oaPenaltyTurnover args)
+                                                                                                                                  )
+                                                                                                                              )
+                                                                                                              else
+                                                                                                                ( True
+                                                                                                                , Nothing
+                                                                                                                , Just
+                                                                                                                    ( objectiveScore
+                                                                                                                        metrics
+                                                                                                                        objective
+                                                                                                                        (oaPenaltyMaxDrawdown args)
+                                                                                                                        (oaPenaltyTurnover args)
+                                                                                                                    )
                                                                                                                 )
-                                                                                                            )
-                                                                                            else
-                                                                                              ( True
-                                                                                              , Nothing
-                                                                                              , Just
-                                                                                                  ( objectiveScore
-                                                                                                      metrics
-                                                                                                      objective
-                                                                                                      (oaPenaltyMaxDrawdown args)
-                                                                                                      (oaPenaltyTurnover args)
-                                                                                                  )
-                                                                                              )
                                                 _ -> (False, Nothing, Nothing)
                                             tr =
                                               tr0
@@ -2357,27 +2490,38 @@ runOptimizer args0 = do
                                         sortBy
                                           (flip (comparing (fromMaybe (-1e18) . trScore)))
                                           (filter (isJust . trScore) seedResults)
-                                      survivorsRaw = take (max 1 (seedTrials `div` 2)) (filter trEligible scored ++ scored)
+                                      survivorsRaw = take survivorCount (filter trEligible scored ++ scored)
                                       techniqueSummarySeed =
                                         techniqueSummaryBase
                                           { otsAppliedSobolSeeding = seedTrials > 0
                                           , otsAppliedSuccessiveHalving = length survivorsRaw < length seedResults
                                           }
                                       survivorParams = map trParams survivorsRaw
+                                      bestScore b = fromMaybe (-1e18) (trScore =<< b)
+                                      runTrialsWithEarlyStop best recs survivorsIx stagnant trialsList =
+                                        case trialsList of
+                                          [] -> pure (best, recs, survivorsIx)
+                                          (idx, rng) : rest -> do
+                                            let baseParam =
+                                                  case survivorParams of
+                                                    [] -> Nothing
+                                                    _ ->
+                                                      let ix = survivorsIx `mod` length survivorParams
+                                                       in Just (survivorParams !! ix)
+                                                prevScore = bestScore best
+                                            (best', recs', _tr) <- runTrialWith idx rng baseParam best recs
+                                            let survivorsIx' = survivorsIx + 1
+                                                bestScore' = bestScore best'
+                                                stagnant' = if bestScore' > prevScore then 0 else stagnant + 1
+                                            if earlyStopNoImprove > 0 && stagnant' >= earlyStopNoImprove
+                                              then pure (best', recs', survivorsIx')
+                                              else runTrialsWithEarlyStop best' recs' survivorsIx' stagnant' rest
                                   (bestFinal, allRecordsRev, _) <-
-                                    foldM
-                                      ( \(b, recs, survivorsIx) (idx, rng) -> do
-                                          let baseParam =
-                                                case survivorParams of
-                                                  [] -> Nothing
-                                                  _ ->
-                                                    let ix = survivorsIx `mod` length survivorParams
-                                                     in Just (survivorParams !! ix)
-                                          (b', recs', tr) <- runTrialWith idx rng baseParam b recs
-                                          let survivorsIx' = survivorsIx + 1
-                                          pure (b', recs', survivorsIx')
-                                      )
-                                      (bestSeed, seedRecordsRev, 0)
+                                    runTrialsWithEarlyStop
+                                      bestSeed
+                                      seedRecordsRev
+                                      0
+                                      0
                                       (zip [seedTrials + 1 .. seedTrials + remainingTrials] exploitationRngs)
                                   let records = reverse allRecordsRev
                                       best = bestFinal
@@ -2391,7 +2535,17 @@ runOptimizer args0 = do
                                     Just h -> hClose h
                                   case best of
                                     Nothing -> do
-                                      printNoEligible minRoundTrips minWinRate minProfitFactor minExposure minSharpe minWfSharpeMean maxWfSharpeStd
+                                      printNoEligible
+                                        minRoundTrips
+                                        minWinRate
+                                        minProfitFactor
+                                        minExposure
+                                        minSharpe
+                                        minAnnualizedReturn
+                                        minCalmar
+                                        maxTurnover
+                                        minWfSharpeMean
+                                        maxWfSharpeStd
                                       pure 1
                                     Just b -> do
                                       printBest b
@@ -2633,14 +2787,17 @@ printTrialStatus i trials tr = do
   putStrLn (msg ++ suffix)
   hFlush stdout
 
-printNoEligible :: Int -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
-printNoEligible minRoundTrips minWinRate minProfitFactor minExposure minSharpe minWfSharpeMean maxWfSharpeStd = do
+printNoEligible :: Int -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
+printNoEligible minRoundTrips minWinRate minProfitFactor minExposure minSharpe minAnnualizedReturn minCalmar maxTurnover minWfSharpeMean maxWfSharpeStd = do
   let hints =
         [ "--min-round-trips" | minRoundTrips > 0 ]
           ++ [ "--min-win-rate" | minWinRate > 0 ]
           ++ [ "--min-profit-factor" | minProfitFactor > 0 ]
           ++ [ "--min-exposure" | minExposure > 0 ]
           ++ [ "--min-sharpe" | minSharpe > 0 ]
+          ++ [ "--min-annualized-return" | minAnnualizedReturn > 0 ]
+          ++ [ "--min-calmar" | minCalmar > 0 ]
+          ++ [ "--max-turnover" | maxTurnover > 0 ]
           ++ [ "--min-wf-sharpe-mean" | minWfSharpeMean > 0 ]
           ++ [ "--max-wf-sharpe-std" | maxWfSharpeStd > 0 ]
       msg =
@@ -2696,6 +2853,13 @@ printBest tr = do
   putStrLn ("  tuneStressWeight:" ++ show (tpTuneStressWeight p))
   putStrLn ("  gradClip:      " ++ showMaybe (tpGradClip p))
   putStrLn ("  fee:           " ++ show (tpFee p))
+  putStrLn ("  fundingRate:   " ++ show (tpFundingRate p))
+  putStrLn ("  fundingBySide: " ++ show (tpFundingBySide p))
+  putStrLn ("  fundingOnOpen: " ++ show (tpFundingOnOpen p))
+  putStrLn ("  rebalanceBars: " ++ show (tpRebalanceBars p))
+  putStrLn ("  rebalanceThreshold:" ++ show (tpRebalanceThreshold p))
+  putStrLn ("  rebalanceGlobal: " ++ show (tpRebalanceGlobal p))
+  putStrLn ("  rebalanceResetOnSignal:" ++ show (tpRebalanceResetOnSignal p))
   putStrLn ("  slippage:      " ++ show (tpSlippage p))
   putStrLn ("  spread:        " ++ show (tpSpread p))
   putStrLn ("  intrabarFill:  " ++ show (tpIntrabarFill p))
@@ -2814,63 +2978,74 @@ optimizationTechniqueToJson t =
     , "whyItHelps" .= otWhyItHelps t
     ]
 
-perturbDouble :: Double -> Rng -> (Double, Rng)
-perturbDouble v rng =
-  let (scale, rng1) = nextUniform 0.9 1.1 rng
-   in (max 0 (v * scale), rng1)
+perturbDouble :: Double -> Double -> Rng -> (Double, Rng)
+perturbDouble v scale rng =
+  let s = max 0 scale
+      (factor, rng1) = nextUniform (1 - s) (1 + s) rng
+   in (max 0 (v * factor), rng1)
 
-perturbMaybeDouble :: Maybe Double -> Rng -> (Maybe Double, Rng)
-perturbMaybeDouble v rng =
+perturbDoubleSigned :: Double -> Double -> Rng -> (Double, Rng)
+perturbDoubleSigned v scale rng =
+  let s = max 0 scale
+      (factor, rng1) = nextUniform (1 - s) (1 + s) rng
+   in (v * factor, rng1)
+
+perturbMaybeDouble :: Maybe Double -> Double -> Rng -> (Maybe Double, Rng)
+perturbMaybeDouble v scale rng =
   case v of
     Nothing -> (Nothing, rng)
     Just x ->
-      let (x', rng1) = perturbDouble x rng
+      let (x', rng1) = perturbDouble x scale rng
        in (Just x', rng1)
 
-perturbInt :: Int -> Rng -> (Int, Rng)
-perturbInt v rng =
-  let (delta, rng1) = nextIntRange (-2) 2 rng
+perturbInt :: Int -> Int -> Rng -> (Int, Rng)
+perturbInt v maxDelta rng =
+  let deltaMax = max 0 maxDelta
+      (delta, rng1) = nextIntRange (-deltaMax) deltaMax rng
    in (max 1 (v + delta), rng1)
 
-perturbMaybeInt :: Maybe Int -> Rng -> (Maybe Int, Rng)
-perturbMaybeInt v rng =
+perturbMaybeInt :: Maybe Int -> Int -> Rng -> (Maybe Int, Rng)
+perturbMaybeInt v maxDelta rng =
   case v of
     Nothing -> (Nothing, rng)
     Just x ->
-      let (x', rng1) = perturbInt x rng
+      let (x', rng1) = perturbInt x maxDelta rng
        in (Just x', rng1)
 
-perturbTrialParams :: TrialParams -> Rng -> (TrialParams, Rng)
-perturbTrialParams p rng0 =
-  let (bars', rng1) = perturbInt (tpBars p) rng0
-      (blendWeight', rng2) = perturbDouble (tpBlendWeight p) rng1
-      (openThreshold', rng3) = perturbDouble (tpBaseOpenThreshold p) rng2
-      (closeThreshold', rng4) = perturbDouble (tpBaseCloseThreshold p) rng3
-      (minEdge', rng5) = perturbDouble (tpMinEdge p) rng4
-      (minSn', rng6) = perturbDouble (tpMinSignalToNoise p) rng5
-      (edgeBuffer', rng7) = perturbDouble (tpEdgeBuffer p) rng6
-      (trendLookback', rng8) = perturbInt (tpTrendLookback p) rng7
-      (maxPositionSize', rng9) = perturbDouble (tpMaxPositionSize p) rng8
-      (volTarget', rng10) = perturbMaybeDouble (tpVolTarget p) rng9
-      (volLookback', rng11) = perturbInt (tpVolLookback p) rng10
-      (volEwma', rng12) = perturbMaybeDouble (tpVolEwmaAlpha p) rng11
-      (volFloor', rng13) = perturbDouble (tpVolFloor p) rng12
-      (volScaleMax', rng14) = perturbDouble (tpVolScaleMax p) rng13
-      (maxVolatility', rng15) = perturbMaybeDouble (tpMaxVolatility p) rng14
-      (kalmanBandLookback', rng16) = perturbInt (tpKalmanBandLookback p) rng15
-      (kalmanBandStd', rng17) = perturbDouble (tpKalmanBandStdMult p) rng16
-      (stopLoss', rng18) = perturbMaybeDouble (tpStopLoss p) rng17
-      (takeProfit', rng19) = perturbMaybeDouble (tpTakeProfit p) rng18
-      (trailingStop', rng20) = perturbMaybeDouble (tpTrailingStop p) rng19
-      (stopLossVolMult', rng21) = perturbMaybeDouble (tpStopLossVolMult p) rng20
-      (takeProfitVolMult', rng22) = perturbMaybeDouble (tpTakeProfitVolMult p) rng21
-      (trailingStopVolMult', rng23) = perturbMaybeDouble (tpTrailingStopVolMult p) rng22
-      (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) rng23
-      (kalmanProcessVar', rng25) = perturbDouble (tpKalmanProcessVar p) rng24
-      (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) rng25
-      (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) rng26
-      (kalmanZMax', rng28) = perturbDouble (tpKalmanZMax p) rng27
-      (learningRate', rng29) = perturbDouble (tpLearningRate p) rng28
+perturbTrialParams :: Double -> Int -> TrialParams -> Rng -> (TrialParams, Rng)
+perturbTrialParams scaleDouble scaleInt p rng0 =
+  let (bars', rng1) = perturbInt (tpBars p) scaleInt rng0
+      (blendWeight', rng2) = perturbDouble (tpBlendWeight p) scaleDouble rng1
+      (openThreshold', rng3) = perturbDouble (tpBaseOpenThreshold p) scaleDouble rng2
+      (closeThreshold', rng4) = perturbDouble (tpBaseCloseThreshold p) scaleDouble rng3
+      (minEdge', rng5) = perturbDouble (tpMinEdge p) scaleDouble rng4
+      (minSn', rng6) = perturbDouble (tpMinSignalToNoise p) scaleDouble rng5
+      (edgeBuffer', rng7) = perturbDouble (tpEdgeBuffer p) scaleDouble rng6
+      (trendLookback', rng8) = perturbInt (tpTrendLookback p) scaleInt rng7
+      (maxPositionSize', rng9) = perturbDouble (tpMaxPositionSize p) scaleDouble rng8
+      (volTarget', rng10) = perturbMaybeDouble (tpVolTarget p) scaleDouble rng9
+      (volLookback', rng11) = perturbInt (tpVolLookback p) scaleInt rng10
+      (volEwma', rng12) = perturbMaybeDouble (tpVolEwmaAlpha p) scaleDouble rng11
+      (volFloor', rng13) = perturbDouble (tpVolFloor p) scaleDouble rng12
+      (volScaleMax', rng14) = perturbDouble (tpVolScaleMax p) scaleDouble rng13
+      (maxVolatility', rng15) = perturbMaybeDouble (tpMaxVolatility p) scaleDouble rng14
+      (kalmanBandLookback', rng16) = perturbInt (tpKalmanBandLookback p) scaleInt rng15
+      (kalmanBandStd', rng17) = perturbDouble (tpKalmanBandStdMult p) scaleDouble rng16
+      (stopLoss', rng18) = perturbMaybeDouble (tpStopLoss p) scaleDouble rng17
+      (takeProfit', rng19) = perturbMaybeDouble (tpTakeProfit p) scaleDouble rng18
+      (trailingStop', rng20) = perturbMaybeDouble (tpTrailingStop p) scaleDouble rng19
+      (stopLossVolMult', rng21) = perturbMaybeDouble (tpStopLossVolMult p) scaleDouble rng20
+      (takeProfitVolMult', rng22) = perturbMaybeDouble (tpTakeProfitVolMult p) scaleDouble rng21
+      (trailingStopVolMult', rng23) = perturbMaybeDouble (tpTrailingStopVolMult p) scaleDouble rng22
+      (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23
+      (kalmanProcessVar', rng25) = perturbDouble (tpKalmanProcessVar p) scaleDouble rng24
+      (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) scaleDouble rng25
+      (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26
+      (kalmanZMax', rng28) = perturbDouble (tpKalmanZMax p) scaleDouble rng27
+      (fundingRate', rng29) = perturbDoubleSigned (tpFundingRate p) scaleDouble rng28
+      (rebalanceBars', rng30) = perturbInt (tpRebalanceBars p) scaleInt rng29
+      (rebalanceThreshold', rng31) = perturbDouble (tpRebalanceThreshold p) scaleDouble rng30
+      (learningRate', rng32) = perturbDouble (tpLearningRate p) scaleDouble rng31
    in ( p
           { tpBars = bars'
           , tpBlendWeight = clamp blendWeight' 0 1
@@ -2900,9 +3075,12 @@ perturbTrialParams p rng0 =
           , tpKalmanMeasurementVar = kalmanMeasurementVar'
           , tpKalmanZMin = kalmanZMin'
           , tpKalmanZMax = kalmanZMax'
+          , tpFundingRate = fundingRate'
+          , tpRebalanceBars = rebalanceBars'
+          , tpRebalanceThreshold = rebalanceThreshold'
           , tpLearningRate = learningRate'
           }
-      , rng29
+      , rng32
       )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
@@ -2924,6 +3102,7 @@ writeTopJson ::
   OptimizationTechniqueSummary ->
   IO ()
 writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
+  nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
   let successful =
         [ tr
         | tr <- records
@@ -2932,7 +3111,7 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
         , trScore tr /= Nothing
         ]
       sorted = sortBy (flip (comparing trScore)) successful
-      combos = zipWith (comboFromTrial dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
+      combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
       topMetrics =
         let topN = take 5 sorted
             extract f = [f tr | tr <- topN, trEligible tr, trScore tr /= Nothing]
@@ -2949,7 +3128,6 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
           ]
   path <- expandUser topPath
   createDirectoryIfMissing True (takeDirectory path)
-  nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
   let export' =
         object
           [ "generatedAtMs" .= nowMs
@@ -2962,8 +3140,8 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
   BL.writeFile path (encodePretty export')
   putStrLn ("Wrote top combos JSON: " ++ path)
 
-comboFromTrial :: String -> String -> Maybe String -> Int -> TrialResult -> Value
-comboFromTrial dataSource sourceOverride symbolLabel rank tr =
+comboFromTrial :: Int -> String -> String -> Maybe String -> Int -> TrialResult -> Value
+comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
   let metrics = trMetrics tr
       sharpe = metricFloat metrics "sharpe" 0
       maxDd = metricFloat metrics "maxDrawdown" 0
@@ -3001,6 +3179,13 @@ comboFromTrial dataSource sourceOverride symbolLabel rank tr =
           , "periodsPerYear" .= tpPeriodsPerYear params
           , "kalmanMarketTopN" .= tpKalmanMarketTopN params
           , "fee" .= tpFee params
+          , "fundingRate" .= tpFundingRate params
+          , "fundingBySide" .= tpFundingBySide params
+          , "fundingOnOpen" .= tpFundingOnOpen params
+          , "rebalanceBars" .= tpRebalanceBars params
+          , "rebalanceThreshold" .= tpRebalanceThreshold params
+          , "rebalanceGlobal" .= tpRebalanceGlobal params
+          , "rebalanceResetOnSignal" .= tpRebalanceResetOnSignal params
           , "epochs" .= tpEpochs params
           , "hiddenSize" .= tpHiddenSize params
           , "learningRate" .= tpLearningRate params
@@ -3057,6 +3242,7 @@ comboFromTrial dataSource sourceOverride symbolLabel rank tr =
       combo =
         object
           [ "rank" .= rank
+          , "createdAtMs" .= createdAtMs
           , "finalEquity" .= trFinalEquity tr
           , "objective" .= trObjective tr
           , "score" .= trScore tr

@@ -17,10 +17,10 @@
   --accent2: #22c55e;
   --warn: #f59e0b;
   --danger: #ef4444;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
-  --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --sans: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
 @media (prefers-color-scheme: light) {
@@ -54,6 +54,8 @@ body {
   margin: 0;
   font-family: var(--sans);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   background:
     radial-gradient(1100px 600px at 12% 8%, rgba(124, 58, 237, 0.22), transparent 60%),
     radial-gradient(1000px 520px at 88% 16%, rgba(34, 197, 94, 0.16), transparent 62%),
@@ -82,14 +84,37 @@ textarea {
   width: min(1160px, calc(100% - 32px));
   margin: 0 auto;
   padding: 28px 0 64px;
+  animation: pageEnter 0.6s ease both;
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 22px;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--stroke);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+.header .pillRow {
+  justify-content: flex-end;
 }
 
 .brand {
@@ -117,14 +142,16 @@ textarea {
 
 .title h1 {
   margin: 0;
-  font-size: 18px;
-  letter-spacing: 0.2px;
+  font-size: 20px;
+  letter-spacing: 0.3px;
+  font-weight: 600;
 }
 
 .title p {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 13px;
+  max-width: 48ch;
 }
 
 .grid {
@@ -167,7 +194,9 @@ textarea {
 }
 
 .card {
-  background: var(--card);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    var(--card);
   border: 1px solid var(--stroke);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -202,6 +231,7 @@ textarea {
   padding: 12px 16px;
   background: var(--card2);
   border-bottom: 1px solid var(--stroke);
+  border-radius: 14px;
   backdrop-filter: blur(14px);
   display: grid;
   gap: 10px;
@@ -223,18 +253,23 @@ textarea {
 }
 
 .sectionHeading {
-  margin: 14px 0 8px;
+  margin: 18px 0 10px;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: baseline;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .sectionTitle {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  color: var(--muted);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .sectionMeta {
@@ -329,6 +364,12 @@ textarea {
   background: var(--card2);
   border: 1px solid var(--stroke2);
   outline: none;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.input:hover,
+.select:hover {
+  border-color: rgba(255, 255, 255, 0.26);
 }
 
 .input:focus,
@@ -357,6 +398,18 @@ textarea {
 .selectWarn:focus {
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
   border-color: rgba(245, 158, 11, 0.65);
+}
+
+.input:disabled,
+.select:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.input::placeholder,
+.select::placeholder {
+  color: var(--faint);
 }
 
 .hint {
@@ -396,12 +449,15 @@ textarea {
   background: rgba(124, 58, 237, 0.16);
   border: 1px solid rgba(124, 58, 237, 0.36);
   cursor: pointer;
-  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
 
 .btn:hover {
   transform: translateY(-1px);
   background: rgba(124, 58, 237, 0.22);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
 }
 
 .btn:active {
@@ -432,6 +488,7 @@ textarea {
   cursor: pointer;
   transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
   font-size: 12px;
+  font-weight: 600;
 }
 
 .btnSmall:hover {
@@ -452,6 +509,7 @@ textarea {
 .btnPrimary {
   background: linear-gradient(135deg, rgba(124, 58, 237, 0.95), rgba(14, 165, 233, 0.85));
   border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 28px rgba(20, 18, 38, 0.35);
 }
 
 .btnPrimary:hover {
@@ -483,7 +541,7 @@ textarea {
   border: 1px solid var(--stroke);
   background: rgba(255, 255, 255, 0.05);
   font-size: 12px;
-  color: var(--muted);
+  color: var(--text);
 }
 
 .pill:focus-within {
@@ -522,6 +580,7 @@ textarea {
   gap: 10px;
   padding: 10px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+  align-items: baseline;
 }
 
 .kv:first-child {
@@ -754,6 +813,10 @@ textarea {
 
 .table tr:hover td {
   background: rgba(255, 255, 255, 0.03);
+}
+
+.table tbody tr:nth-child(even):not(.tableRowSelected) td {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .tableRowClickable {
@@ -1002,7 +1065,26 @@ textarea {
   letter-spacing: 0.1px;
 }
 
+@media (max-width: 860px) {
+  .header .pillRow {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .toastFixed {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .container {
+    animation: none;
+  }
+
   .btn,
   .btnSmall,
   .comboRow {

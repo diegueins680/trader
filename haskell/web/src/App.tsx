@@ -404,6 +404,8 @@ type TopCombosMeta = {
   comboCount: number | null;
 };
 
+type ComboOrder = "rank" | "date-desc" | "date-asc";
+
 type OrderSideFilter = "ALL" | "BUY" | "SELL";
 
 type OrderLogPrefs = {
@@ -1135,10 +1137,33 @@ export function App() {
   const [dataLogFilterText, setDataLogFilterText] = useState("");
   const [dataLogAutoScroll, setDataLogAutoScroll] = useState(true);
   const [topCombosAll, setTopCombosAll] = useState<OptimizationCombo[]>([]);
+  const [comboOrder, setComboOrder] = useState<ComboOrder>("rank");
+  const [comboMinEquityInput, setComboMinEquityInput] = useState("");
+  const comboMinEquity = useMemo(() => {
+    const trimmed = comboMinEquityInput.trim();
+    if (!trimmed) return null;
+    const parsed = numFromInput(trimmed, Number.NaN);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [comboMinEquityInput]);
+  const topCombosFiltered = useMemo(() => {
+    if (comboMinEquity == null) return topCombosAll;
+    return topCombosAll.filter((combo) => combo.finalEquity > comboMinEquity);
+  }, [comboMinEquity, topCombosAll]);
+  const topCombosOrdered = useMemo(() => {
+    if (comboOrder === "rank") return topCombosFiltered;
+    const sorted = [...topCombosFiltered];
+    sorted.sort((a, b) => {
+      const aMs = typeof a.createdAtMs === "number" && Number.isFinite(a.createdAtMs) ? a.createdAtMs : 0;
+      const bMs = typeof b.createdAtMs === "number" && Number.isFinite(b.createdAtMs) ? b.createdAtMs : 0;
+      if (aMs === bMs) return a.id - b.id;
+      return comboOrder === "date-desc" ? bMs - aMs : aMs - bMs;
+    });
+    return sorted;
+  }, [comboOrder, topCombosFiltered]);
   const [topCombosDisplayCount, setTopCombosDisplayCount] = useState(() => TOP_COMBOS_DISPLAY_DEFAULT);
   const topCombos = useMemo(
-    () => topCombosAll.slice(0, topCombosDisplayCount),
-    [topCombosAll, topCombosDisplayCount],
+    () => topCombosOrdered.slice(0, topCombosDisplayCount),
+    [topCombosOrdered, topCombosDisplayCount],
   );
   const [topCombosLoading, setTopCombosLoading] = useState(true);
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
@@ -1151,10 +1176,10 @@ export function App() {
     comboCount: null,
   });
   const topCombosDisplayMax = useMemo(() => {
-    const count = topCombosMeta.comboCount ?? topCombosAll.length;
+    const count = topCombosFiltered.length;
     if (count && count > 0) return Math.max(TOP_COMBOS_DISPLAY_MIN, count);
     return Math.max(TOP_COMBOS_DISPLAY_MIN, TOP_COMBOS_DISPLAY_DEFAULT);
-  }, [topCombosAll.length, topCombosMeta.comboCount]);
+  }, [topCombosFiltered.length]);
   const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
@@ -3414,6 +3439,9 @@ export function App() {
         if (isCancelled) return;
         const payloadRec = (payload as Record<string, unknown> | null | undefined) ?? {};
         const rawCombos: unknown[] = Array.isArray(payloadRec.combos) ? (payloadRec.combos as unknown[]) : [];
+        const generatedAtMsRaw = payloadRec.generatedAtMs;
+        const generatedAtMs =
+          typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
         const methods: Method[] = ["11", "10", "01", "blend", "router"];
         const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
         const positionings: Positioning[] = ["long-flat", "long-short"];
@@ -3578,6 +3606,10 @@ export function App() {
           const minPositionSizeRaw =
             typeof params.minPositionSize === "number" && Number.isFinite(params.minPositionSize) ? clamp(params.minPositionSize, 0, 1) : null;
           const minPositionSize = minPositionSizeRaw != null && minPositionSizeRaw > 0 ? minPositionSizeRaw : null;
+          const createdAtMsRaw = rawRec.createdAtMs;
+          const createdAtMs =
+            typeof createdAtMsRaw === "number" && Number.isFinite(createdAtMsRaw) ? Math.trunc(createdAtMsRaw) : null;
+          const createdAtMsFinal = createdAtMs ?? generatedAtMs;
           const rankRaw = typeof rawRec.rank === "number" && Number.isFinite(rawRec.rank) ? Math.trunc(rawRec.rank) : null;
           const rank = rankRaw != null && rankRaw >= 1 ? rankRaw : null;
           const objective = typeof rawRec.objective === "string" && rawRec.objective ? rawRec.objective : null;
@@ -3642,6 +3674,7 @@ export function App() {
           return {
             id: rank ?? index + 1,
             rank,
+            createdAtMs: createdAtMsFinal,
             objective,
             score,
             metrics,
@@ -3753,9 +3786,6 @@ export function App() {
         });
         setTopCombosAll(sanitized);
         const comboCount = rawCombos.length;
-        const generatedAtMsRaw = payloadRec.generatedAtMs;
-        const generatedAtMs =
-          typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
         const payloadSourceRaw =
           typeof payloadRec.payloadSource === "string" && payloadRec.payloadSource.trim()
             ? payloadRec.payloadSource.trim()
@@ -3852,6 +3882,7 @@ export function App() {
   const autoAppliedAge =
     autoAppliedCombo && autoAppliedCombo.atMs ? fmtDurationMs(Math.max(0, Date.now() - autoAppliedCombo.atMs)) : null;
   const topCombo = topCombosAll.length > 0 ? topCombosAll[0] : null;
+  const topComboDisplay = topCombosOrdered.length > 0 ? topCombosOrdered[0] : null;
   const topComboSig = useMemo(() => {
     if (!topCombo) return null;
     return comboApplySignature(topCombo, apiComputeLimits, form, manualOverrides, true);
@@ -4742,11 +4773,18 @@ export function App() {
                       ? ` • payload ${payloadSource}`
                       : "";
                 const displayCount = topCombos.length;
-                const comboCount = topCombosMeta.comboCount;
+                const filteredCount = topCombosFiltered.length;
+                const totalCount = topCombosMeta.comboCount ?? topCombosAll.length;
+                const filterLabel =
+                  comboMinEquity != null ? ` (min equity > ${fmtRatio(comboMinEquity, 4)})` : "";
                 const countLabel =
-                  comboCount != null && comboCount > displayCount
-                    ? `Showing ${displayCount} of ${comboCount} combos`
-                    : `Showing ${displayCount} combo${displayCount === 1 ? "" : "s"}`;
+                  comboMinEquity != null
+                    ? `Showing ${displayCount} of ${filteredCount} combos${filterLabel}`
+                    : totalCount > displayCount
+                      ? `Showing ${displayCount} of ${totalCount} combos`
+                      : `Showing ${displayCount} combo${displayCount === 1 ? "" : "s"}`;
+                const totalLabel =
+                  comboMinEquity != null && totalCount > filteredCount ? ` • ${totalCount} total` : "";
                 return (
                   <div style={{ marginBottom: 8 }}>
                     <div className="hint">
@@ -4759,6 +4797,7 @@ export function App() {
                       {ageLabel ? ` (${ageLabel} ago)` : ""}
                       {" • "}
                       {countLabel}
+                      {totalLabel}
                     </div>
                   </div>
                 );
@@ -4803,7 +4842,39 @@ export function App() {
                   }}
                   style={{ width: 120 }}
                 />
+                <label className="label" htmlFor="comboOrder">
+                  Order by
+                </label>
+                <select
+                  id="comboOrder"
+                  className="select"
+                  value={comboOrder}
+                  onChange={(e) => setComboOrder(e.target.value as ComboOrder)}
+                  style={{ minWidth: 180 }}
+                >
+                  <option value="rank">Rank (score/equity)</option>
+                  <option value="date-desc">Date (newest)</option>
+                  <option value="date-asc">Date (oldest)</option>
+                </select>
+                <label className="label" htmlFor="comboMinEquity">
+                  Min equity
+                </label>
+                <input
+                  id="comboMinEquity"
+                  className="input"
+                  type="number"
+                  step="0.0001"
+                  value={comboMinEquityInput}
+                  onChange={(e) => setComboMinEquityInput(e.target.value)}
+                  placeholder="e.g. 1.5"
+                  style={{ width: 140 }}
+                />
               </div>
+              {comboMinEquity != null && topCombosFiltered.length === 0 ? (
+                <div className="hint" style={{ marginBottom: 8 }}>
+                  No combos match the equity filter.
+                </div>
+              ) : null}
               <div className="actions" style={{ marginBottom: 8 }}>
                 <button className="btnSmall" type="button" onClick={refreshTopCombos} disabled={topCombosLoading}>
                   {topCombosLoading ? "Refreshing…" : "Refresh combos now"}
@@ -4812,9 +4883,9 @@ export function App() {
                   className="btnSmall"
                   type="button"
                   onClick={() => {
-                    if (topCombo) handleComboApply(topCombo);
+                    if (topComboDisplay) handleComboApply(topComboDisplay);
                   }}
-                  disabled={!topCombo}
+                  disabled={!topComboDisplay}
                 >
                   Apply top combo now
                 </button>

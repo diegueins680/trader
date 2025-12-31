@@ -8,7 +8,7 @@ module Trader.Optimizer.Merge
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
-import Data.Aeson (Value (..), object, (.=))
+import Data.Aeson (Value (..), object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -54,6 +54,7 @@ data Combo = Combo
   , comboScore :: !(Maybe Double)
   , comboOpenThreshold :: !(Maybe Double)
   , comboCloseThreshold :: !(Maybe Double)
+  , comboCreatedAtMs :: !(Maybe Int)
   , comboSource :: !(Maybe String)
   , comboMetrics :: !(Maybe (KM.KeyMap Value))
   , comboOperations :: !(Maybe [Value])
@@ -135,9 +136,11 @@ loadTopCombos path = do
           case Aeson.eitherDecode contents of
             Left err -> pure (Left ("Failed to parse " ++ path ++ ": " ++ err))
             Right (Object obj) ->
-              case KM.lookup (Key.fromString "combos") obj of
+              let generatedAtMs = KM.lookup (Key.fromString "generatedAtMs") obj >>= coerceIntValue
+                  applyCreatedAt = applyCreatedAtMs generatedAtMs
+               in case KM.lookup (Key.fromString "combos") obj of
                 Just (Array combos) ->
-                  pure (Right [Object c | Object c <- V.toList combos])
+                  pure (Right (map applyCreatedAt [Object c | Object c <- V.toList combos]))
                 _ -> pure (Right [])
             Right _ -> pure (Right [])
 
@@ -162,10 +165,10 @@ loadCombosFromJsonl path = do
               case KM.lookup (Key.fromString "finalEquity") rec >>= coerceFloatValue of
                 Nothing -> Nothing
                 Just finalEq ->
-                  let source =
-                        case KM.lookup (Key.fromString "source") rec of
-                          Just (String s) -> Just (T.unpack s)
-                          _ -> Nothing
+                    let source =
+                          case KM.lookup (Key.fromString "source") rec of
+                            Just (String s) -> Just (T.unpack s)
+                            _ -> Nothing
                       params =
                         case KM.lookup (Key.fromString "params") rec of
                           Just (Object p) -> p
@@ -179,6 +182,7 @@ loadCombosFromJsonl path = do
                           Just (Object m) -> Just m
                           _ -> Nothing
                       operations = KM.lookup (Key.fromString "operations") rec >>= coerceOperations
+                      createdAtMs = KM.lookup (Key.fromString "createdAtMs") rec >>= coerceIntValue
                       combo =
                         object
                           [ "finalEquity" .= finalEq
@@ -186,6 +190,7 @@ loadCombosFromJsonl path = do
                           , "score" .= score
                           , "openThreshold" .= openThr
                           , "closeThreshold" .= closeThr
+                          , "createdAtMs" .= createdAtMs
                           , "source" .= source
                           , "metrics" .= metrics
                           , "operations" .= operations
@@ -370,6 +375,7 @@ comboToValue rank combo =
       base =
         object
           [ "rank" .= rank
+          , "createdAtMs" .= comboCreatedAtMs combo
           , "finalEquity" .= comboFinalEquity combo
           , "objective" .= comboObjective combo
           , "score" .= comboScore combo
@@ -424,6 +430,7 @@ normalizeCombo value =
               Just (Object m) -> Just m
               _ -> Nothing
           operations = KM.lookup (Key.fromString "operations") obj >>= coerceOperations
+          createdAtMs = KM.lookup (Key.fromString "createdAtMs") obj >>= coerceIntValue
           interval = valueToStringMaybe (KM.lookup (Key.fromString "interval") paramsRaw)
           bars = fromMaybe 0 (KM.lookup (Key.fromString "bars") paramsRaw >>= coerceIntValue)
           method = valueToStringMaybe (KM.lookup (Key.fromString "method") paramsRaw)
@@ -540,6 +547,7 @@ normalizeCombo value =
           , comboScore = score
           , comboOpenThreshold = openThreshold
           , comboCloseThreshold = closeThreshold
+          , comboCreatedAtMs = createdAtMs
           , comboSource = source
           , comboMetrics = metrics
           , comboOperations = operations
@@ -687,4 +695,14 @@ addField :: String -> Value -> Value -> Value
 addField key value val =
   case val of
     Object obj -> Object (KM.insert (Key.fromString key) value obj)
+    _ -> val
+
+applyCreatedAtMs :: Maybe Int -> Value -> Value
+applyCreatedAtMs createdAtMs val =
+  case (createdAtMs, val) of
+    (Just ts, Object obj) ->
+      case KM.lookup (Key.fromString "createdAtMs") obj of
+        Just Null -> Object (KM.insert (Key.fromString "createdAtMs") (toJSON ts) obj)
+        Just _ -> val
+        Nothing -> Object (KM.insert (Key.fromString "createdAtMs") (toJSON ts) obj)
     _ -> val

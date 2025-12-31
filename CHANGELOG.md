@@ -4,15 +4,17 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Web UI: default Live orders + Trading armed toggles to on.
+- Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.
+- Optimizer: add seeding/exploitation controls, new quality filters (annualized return/calmar/turnover), and funding/rebalance sampling parameters.
 - Ops: restore the newest `ops.jsonl` from S3 on boot and sync on a timer when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
-- Live bot: auto-start also keeps bots running for the current top 5 combos from `top-combos.json` (Binance only).
+- Live bot: auto-start also keeps bots running for the current top 10 combos from `top-combos.json` (Binance only), prioritizing higher `metrics.tradeCount` combos.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
 - Live bot: attempt an order on every candle based on the desired position (even when holding).
 - Observability: log Binance API requests (`binance.request`) and minute-by-minute bot status snapshots (`bot.status`), plus a live/offline timeline chart in the UI.
@@ -55,6 +57,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: open positions/orphaned operations cards key by position side, ignore bots with trade disabled when determining adoption, and label trade-off bots explicitly.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Web UI: backtest split auto-adjusts bars without exceeding API max bars.
+- Web UI: show combo obtained timestamps, add date ordering, and filter optimizer combos by minimum equity.
 - Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).
 - Metrics: agreement rate now counts only bars where both models emit a direction (warm-up/no-signal bars excluded).
 - Backtests: validate open timestamp vectors against closes to avoid misaligned day boundaries.

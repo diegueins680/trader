@@ -791,14 +791,33 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrTrials :: !(Maybe Int)
   , arrTimeoutSec :: !(Maybe Double)
   , arrSeed :: !(Maybe Int)
+  , arrSeedTrials :: !(Maybe Int)
+  , arrSeedRatio :: !(Maybe Double)
+  , arrSurvivorFraction :: !(Maybe Double)
+  , arrPerturbScaleDouble :: !(Maybe Double)
+  , arrPerturbScaleInt :: !(Maybe Int)
+  , arrEarlyStopNoImprove :: !(Maybe Int)
   , arrSlippageMax :: !(Maybe Double)
   , arrSpreadMax :: !(Maybe Double)
+  , arrFundingRateMin :: !(Maybe Double)
+  , arrFundingRateMax :: !(Maybe Double)
+  , arrPFundingBySide :: !(Maybe Double)
+  , arrPFundingOnOpen :: !(Maybe Double)
+  , arrRebalanceBarsMin :: !(Maybe Int)
+  , arrRebalanceBarsMax :: !(Maybe Int)
+  , arrRebalanceThresholdMin :: !(Maybe Double)
+  , arrRebalanceThresholdMax :: !(Maybe Double)
+  , arrPRebalanceGlobal :: !(Maybe Double)
+  , arrPRebalanceResetOnSignal :: !(Maybe Double)
   , arrNormalizations :: !(Maybe String)
   , arrBacktestRatio :: !(Maybe Double)
   , arrTuneRatio :: !(Maybe Double)
   , arrObjective :: !(Maybe String)
   , arrPenaltyMaxDrawdown :: !(Maybe Double)
   , arrPenaltyTurnover :: !(Maybe Double)
+  , arrMinAnnualizedReturn :: !(Maybe Double)
+  , arrMinCalmar :: !(Maybe Double)
+  , arrMaxTurnover :: !(Maybe Double)
   , arrMinRoundTrips :: !(Maybe Int)
   , arrMinWinRate :: !(Maybe Double)
   , arrMinProfitFactor :: !(Maybe Double)
@@ -1980,6 +1999,7 @@ data TopCombo = TopCombo
   , tcOpenThreshold :: !(Maybe Double)
   , tcCloseThreshold :: !(Maybe Double)
   , tcParams :: !Aeson.Object
+  , tcMetrics :: !(Maybe Aeson.Object)
   }
 
 instance FromJSON TopCombosExport where
@@ -1988,6 +2008,7 @@ instance FromJSON TopCombosExport where
 instance FromJSON TopCombo where
   parseJSON = AT.withObject "TopCombo" $ \o -> do
     params <- o Aeson..: "params"
+    metrics <- o Aeson..:? "metrics"
     TopCombo
       <$> o Aeson..:? "rank"
       <*> o Aeson..:? "finalEquity"
@@ -1996,6 +2017,7 @@ instance FromJSON TopCombo where
       <*> o Aeson..:? "openThreshold"
       <*> o Aeson..:? "closeThreshold"
       <*> pure params
+      <*> pure metrics
 
 data BotOpenTrade = BotOpenTrade
   { botOpenEntryIndex :: !Int
@@ -2803,7 +2825,7 @@ argsCompatibleWithAdoption args req
 selectCompatibleTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe Args
 selectCompatibleTopComboArgs limits sym args req export =
   let combos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
-      sortedCombos = sortOn topComboRankKey combos
+      sortedCombos = sortOn topComboTradePriorityKey combos
       pick [] = Nothing
       pick (combo : rest) =
         case applyTopComboForStart args combo of
@@ -2866,7 +2888,7 @@ dedupeTopComboTargets targets =
 
 topCombosTopTargets :: Int -> TopCombosExport -> [(String, TopCombo)]
 topCombosTopTargets topN export =
-  let sorted = sortOn topComboRankKey (tceCombos export)
+  let sorted = sortOn topComboTradePriorityKey (tceCombos export)
       targets =
         [ (normalizeSymbol sym, combo)
         | combo <- sorted
@@ -3210,7 +3232,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                         putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
                         readIORef topTargetsRef
                   Right export -> do
-                    let targets = topCombosTopTargets 5 export
+                    let targets = topCombosTopTargets 10 export
                     writeIORef topTargetsRef targets
                     writeIORef topErrRef Nothing
                     pure targets
@@ -7250,6 +7272,12 @@ prepareOptimizerArgs outputPath req = do
             maybeDoubleArg "--min-exposure" (fmap clamp01 (arrMinExposure req))
           minSharpeArgs =
             maybeDoubleArg "--min-sharpe" (fmap (max 0) (arrMinSharpe req))
+          minAnnualizedReturnArgs =
+            maybeDoubleArg "--min-annualized-return" (fmap (max 0) (arrMinAnnualizedReturn req))
+          minCalmarArgs =
+            maybeDoubleArg "--min-calmar" (fmap (max 0) (arrMinCalmar req))
+          maxTurnoverArgs =
+            maybeDoubleArg "--max-turnover" (fmap (max 0) (arrMaxTurnover req))
           minWalkForwardSharpeMeanArgs =
             maybeDoubleArg "--min-wf-sharpe-mean" (fmap (max 0) (arrMinWalkForwardSharpeMean req))
           maxWalkForwardSharpeStdArgs =
@@ -7282,6 +7310,12 @@ prepareOptimizerArgs outputPath req = do
           trialsVal = max 1 (fromMaybe 50 (arrTrials req))
           timeoutVal = max 1 (fromMaybe 60 (arrTimeoutSec req))
           seedVal = max 0 (fromMaybe 42 (arrSeed req))
+          seedTrialsArgs = maybeIntArg "--seed-trials" (fmap (max 0) (arrSeedTrials req))
+          seedRatioArgs = maybeDoubleArg "--seed-ratio" (fmap clamp01 (arrSeedRatio req))
+          survivorFractionArgs = maybeDoubleArg "--survivor-fraction" (fmap clamp01 (arrSurvivorFraction req))
+          perturbScaleDoubleArgs = maybeDoubleArg "--perturb-scale-double" (fmap (max 0) (arrPerturbScaleDouble req))
+          perturbScaleIntArgs = maybeIntArg "--perturb-scale-int" (fmap (max 0) (arrPerturbScaleInt req))
+          earlyStopArgs = maybeIntArg "--early-stop-no-improve" (fmap (max 0) (arrEarlyStopNoImprove req))
           slippageVal = max 0 (fromMaybe 0.0005 (arrSlippageMax req))
           spreadVal = max 0 (fromMaybe 0.0005 (arrSpreadMax req))
           epochsMinRaw = fmap (max 0) (arrEpochsMin req)
@@ -7381,6 +7415,21 @@ prepareOptimizerArgs outputPath req = do
               ++ maybeDoubleArg "--p-disable-stop-vol-mult" (fmap clamp01 (arrPDisableStopVolMult req))
               ++ maybeDoubleArg "--p-disable-tp-vol-mult" (fmap clamp01 (arrPDisableTpVolMult req))
               ++ maybeDoubleArg "--p-disable-trail-vol-mult" (fmap clamp01 (arrPDisableTrailVolMult req))
+          fundingRateArgs =
+            maybeDoubleArg "--funding-rate-min" (arrFundingRateMin req)
+              ++ maybeDoubleArg "--funding-rate-max" (arrFundingRateMax req)
+          fundingModeArgs =
+            maybeDoubleArg "--p-funding-by-side" (fmap clamp01 (arrPFundingBySide req))
+              ++ maybeDoubleArg "--p-funding-on-open" (fmap clamp01 (arrPFundingOnOpen req))
+          rebalanceBarsArgs =
+            maybeIntArg "--rebalance-bars-min" (fmap (max 0) (arrRebalanceBarsMin req))
+              ++ maybeIntArg "--rebalance-bars-max" (fmap (max 0) (arrRebalanceBarsMax req))
+          rebalanceThresholdArgs =
+            maybeDoubleArg "--rebalance-threshold-min" (fmap (max 0) (arrRebalanceThresholdMin req))
+              ++ maybeDoubleArg "--rebalance-threshold-max" (fmap (max 0) (arrRebalanceThresholdMax req))
+          rebalanceModeArgs =
+            maybeDoubleArg "--p-rebalance-global" (fmap clamp01 (arrPRebalanceGlobal req))
+              ++ maybeDoubleArg "--p-rebalance-reset-on-signal" (fmap clamp01 (arrPRebalanceResetOnSignal req))
           minPositionSizeArgs =
             maybeDoubleArg "--min-position-size-min" (fmap clamp01 (arrMinPositionSizeMin req))
               ++ maybeDoubleArg "--min-position-size-max" (fmap clamp01 (arrMinPositionSizeMax req))
@@ -7478,6 +7527,12 @@ prepareOptimizerArgs outputPath req = do
             , "--spread-max", show spreadVal
             , "--normalizations", normalizationsVal
             ]
+              ++ seedTrialsArgs
+              ++ seedRatioArgs
+              ++ survivorFractionArgs
+              ++ perturbScaleDoubleArgs
+              ++ perturbScaleIntArgs
+              ++ earlyStopArgs
               ++ barsAutoProbArgs
           tuneArgsSuffix =
             penaltyMaxDdArgs
@@ -7487,6 +7542,9 @@ prepareOptimizerArgs outputPath req = do
               ++ minProfitFactorArgs
               ++ minExposureArgs
               ++ minSharpeArgs
+              ++ minAnnualizedReturnArgs
+              ++ minCalmarArgs
+              ++ maxTurnoverArgs
               ++ minWalkForwardSharpeMeanArgs
               ++ maxWalkForwardSharpeStdArgs
               ++ tunePenaltyMaxDdArgs
@@ -7513,6 +7571,11 @@ prepareOptimizerArgs outputPath req = do
               ++ triLayerArgs
               ++ stopRangeArgs
               ++ stopVolMultArgs
+              ++ fundingRateArgs
+              ++ fundingModeArgs
+              ++ rebalanceBarsArgs
+              ++ rebalanceThresholdArgs
+              ++ rebalanceModeArgs
               ++ minPositionSizeArgs
               ++ maxPositionSizeArgs
               ++ volTargetArgs
@@ -8020,12 +8083,26 @@ topComboParamInt :: String -> TopCombo -> Maybe Int
 topComboParamInt key combo =
   KM.lookup (AK.fromString key) (tcParams combo) >>= AT.parseMaybe parseJSON
 
+topComboMetricInt :: String -> TopCombo -> Maybe Int
+topComboMetricInt key combo = do
+  metrics <- tcMetrics combo
+  KM.lookup (AK.fromString key) metrics >>= AT.parseMaybe parseJSON
+
+topComboTradeCount :: TopCombo -> Int
+topComboTradeCount combo = fromMaybe 0 (topComboMetricInt "tradeCount" combo)
+
 topComboRankKey :: TopCombo -> (Int, Double, Double)
 topComboRankKey combo =
   let rank = fromMaybe (maxBound :: Int) (tcRank combo)
       score = fromMaybe (negate (1 / 0)) (tcScore combo)
       eq = fromMaybe 0 (tcFinalEquity combo)
    in (rank, negate score, negate eq)
+
+topComboTradePriorityKey :: TopCombo -> (Int, Int, Double, Double)
+topComboTradePriorityKey combo =
+  let trades = negate (topComboTradeCount combo)
+      (rank, score, eq) = topComboRankKey combo
+   in (trades, rank, score, eq)
 
 topComboMatchesSymbol :: String -> Maybe String -> TopCombo -> Bool
 topComboMatchesSymbol symRaw mInterval combo =
@@ -8047,7 +8124,7 @@ topComboMatchesSymbol symRaw mInterval combo =
 
 bestTopComboFromList :: [TopCombo] -> Maybe TopCombo
 bestTopComboFromList combos =
-  case sortOn topComboRankKey combos of
+  case sortOn topComboTradePriorityKey combos of
     [] -> Nothing
     (c : _) -> Just c
 
@@ -8179,10 +8256,22 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
     extractCombos val =
       case val of
         Aeson.Object o ->
-          case KM.lookup "combos" o of
-            Just (Aeson.Array arr) -> V.toList arr
-            _ -> []
+          let generatedAtMs = KM.lookup "generatedAtMs" o >>= AT.parseMaybe parseJSON
+              applyCreatedAt = applyComboCreatedAt generatedAtMs
+           in case KM.lookup "combos" o of
+                Just (Aeson.Array arr) -> map applyCreatedAt (V.toList arr)
+                _ -> []
         _ -> []
+
+    applyComboCreatedAt :: Maybe Int64 -> Aeson.Value -> Aeson.Value
+    applyComboCreatedAt createdAtMs val =
+      case (createdAtMs, val) of
+        (Just ts, Aeson.Object o) ->
+          case KM.lookup "createdAtMs" o of
+            Just Aeson.Null -> Aeson.Object (KM.insert "createdAtMs" (toJSON ts) o)
+            Just _ -> val
+            Nothing -> Aeson.Object (KM.insert "createdAtMs" (toJSON ts) o)
+        _ -> val
 
     extractPayloadSource :: Aeson.Value -> Maybe String
     extractPayloadSource val =

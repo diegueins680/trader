@@ -2,6 +2,7 @@ import React from "react";
 import type { IntrabarFill, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { fmtPct, fmtRatio } from "../lib/format";
 import { PLATFORM_LABELS } from "../app/constants";
+import { fmtTimeMs } from "../app/utils";
 
 export type OptimizationComboParams = {
   binanceSymbol?: string | null;
@@ -85,6 +86,7 @@ export type OptimizationComboOperation = {
 export type OptimizationCombo = {
   id: number;
   rank?: number | null;
+  createdAtMs?: number | null;
   finalEquity: number;
   objective?: string | null;
   score?: number | null;
@@ -176,6 +178,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
             : openLabel !== "—"
               ? openLabel
               : "—";
+        const createdLabel = combo.createdAtMs != null ? fmtTimeMs(combo.createdAtMs) : "—";
         const operations = combo.operations ?? [];
         const hasOps = operations.length > 0;
         return (
@@ -225,6 +228,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
                     );
                   })()}
                 </div>
+                <div className="comboDetail">Obtained {createdLabel}</div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
                 <div className="comboEquity">{fmtRatio(combo.finalEquity, 4)}</div>
