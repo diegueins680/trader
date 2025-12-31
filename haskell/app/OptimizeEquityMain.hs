@@ -59,6 +59,12 @@ optimizerArgsParser =
     <*> option auto (long "tune-ratio" <> value 0.25 <> metavar "FLOAT")
     <*> option auto (long "trials" <> value 50 <> metavar "INT")
     <*> option auto (long "seed" <> value 42 <> metavar "INT")
+    <*> optional (option auto (long "seed-trials" <> metavar "INT"))
+    <*> optional (option auto (long "seed-ratio" <> metavar "FLOAT"))
+    <*> option auto (long "survivor-fraction" <> value 0.5 <> metavar "FLOAT")
+    <*> option auto (long "perturb-scale-double" <> value 0.1 <> metavar "FLOAT")
+    <*> option auto (long "perturb-scale-int" <> value 2 <> metavar "INT")
+    <*> option auto (long "early-stop-no-improve" <> value 0 <> metavar "INT")
     <*> option auto (long "timeout-sec" <> value 60.0 <> metavar "FLOAT")
     <*> strOption (long "output" <> value "" <> metavar "PATH")
     <*> switch (long "append")
@@ -71,6 +77,9 @@ optimizerArgsParser =
     <*> strOption (long "objective" <> value "equity-dd-turnover" <> metavar "NAME")
     <*> option auto (long "penalty-max-drawdown" <> value 1.5 <> metavar "FLOAT")
     <*> option auto (long "penalty-turnover" <> value 0.2 <> metavar "FLOAT")
+    <*> option auto (long "min-annualized-return" <> value 0.0 <> metavar "FLOAT")
+    <*> option auto (long "min-calmar" <> value 0.0 <> metavar "FLOAT")
+    <*> option auto (long "max-turnover" <> value 0.0 <> metavar "FLOAT")
     <*> option auto (long "min-round-trips" <> value 0 <> metavar "INT")
     <*> option auto (long "min-win-rate" <> value 0.0 <> metavar "FLOAT")
     <*> option auto (long "min-profit-factor" <> value 0.0 <> metavar "FLOAT")
@@ -106,6 +115,16 @@ optimizerArgsParser =
     <*> option auto (long "spread-max" <> value 0.0005 <> metavar "FLOAT")
     <*> option auto (long "fee-min" <> value 0.0004 <> metavar "FLOAT")
     <*> option auto (long "fee-max" <> value 0.001 <> metavar "FLOAT")
+    <*> option auto (long "funding-rate-min" <> value 0.1 <> metavar "FLOAT")
+    <*> option auto (long "funding-rate-max" <> value 0.1 <> metavar "FLOAT")
+    <*> option auto (long "p-funding-by-side" <> value 0.0 <> metavar "FLOAT")
+    <*> option auto (long "p-funding-on-open" <> value 0.0 <> metavar "FLOAT")
+    <*> option auto (long "rebalance-bars-min" <> value 24 <> metavar "INT")
+    <*> option auto (long "rebalance-bars-max" <> value 24 <> metavar "INT")
+    <*> option auto (long "rebalance-threshold-min" <> value 0.05 <> metavar "FLOAT")
+    <*> option auto (long "rebalance-threshold-max" <> value 0.05 <> metavar "FLOAT")
+    <*> option auto (long "p-rebalance-global" <> value 0.0 <> metavar "FLOAT")
+    <*> option auto (long "p-rebalance-reset-on-signal" <> value 0.0 <> metavar "FLOAT")
     <*> option auto (long "open-threshold-min" <> value 5e-4 <> metavar "FLOAT")
     <*> option auto (long "open-threshold-max" <> value 2e-2 <> metavar "FLOAT")
     <*> option auto (long "close-threshold-min" <> value 5e-4 <> metavar "FLOAT")
@@ -275,6 +294,18 @@ validateArgs args = do
     Left ("Invalid objective: " ++ show (oaObjective args) ++ " (expected one of: " ++ intercalate ", " objectiveChoices ++ ")")
   when (oaTuneObjective args `notElem` objectiveChoices) $
     Left ("Invalid tune objective: " ++ show (oaTuneObjective args) ++ " (expected one of: " ++ intercalate ", " objectiveChoices ++ ")")
+  when (maybe False (< 0) (oaSeedTrials args)) $
+    Left "--seed-trials must be >= 0."
+  when (maybe False (\r -> r < 0 || r > 1) (oaSeedRatio args)) $
+    Left "--seed-ratio must be between 0 and 1."
+  when (oaSurvivorFraction args < 0 || oaSurvivorFraction args > 1) $
+    Left "--survivor-fraction must be between 0 and 1."
+  when (oaPerturbScaleDouble args < 0) $
+    Left "--perturb-scale-double must be >= 0."
+  when (oaPerturbScaleInt args < 0) $
+    Left "--perturb-scale-int must be >= 0."
+  when (oaEarlyStopNoImprove args < 0) $
+    Left "--early-stop-no-improve must be >= 0."
   when (oaBarsDistribution args `notElem` barsDistributionChoices) $
     Left
       ( "Invalid bars distribution: "
