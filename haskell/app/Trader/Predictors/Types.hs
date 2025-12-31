@@ -42,7 +42,7 @@ predictorCode sid =
     SensorConformal -> "conformal"
 
 predictorEnabled :: PredictorSet -> SensorId -> Bool
-predictorEnabled = Set.member
+predictorEnabled preds sid = Set.member sid preds
 
 predictorSetToList :: PredictorSet -> [SensorId]
 predictorSetToList = Set.toList
