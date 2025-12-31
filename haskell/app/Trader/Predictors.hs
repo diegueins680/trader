@@ -187,16 +187,19 @@ predictSensors pb prices hmmFilt t =
       feat = if needFeatures then featuresAt fs prices t else Nothing
       gbdtReady = gmFeatureDim (pbGBDT pb) > 0
       quantReady = not (null (lmW (qm50 (pbQuantile pb))))
+      gbdtPred =
+        case feat of
+          Nothing -> Nothing
+          Just x ->
+            if gbdtReady && (useGbdt || useConformal)
+              then Just (predictGBDT (pbGBDT pb) x)
+              else Nothing
 
       gbdtOut =
-        case feat of
-          Nothing -> []
-          Just x ->
-            if not gbdtReady || not useGbdt
-              then []
-              else
-                let (mu, sig) = predictGBDT (pbGBDT pb) x
-                 in [(SensorGBT, SensorOutput { soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing })]
+        case gbdtPred of
+          Just (mu, sig) | useGbdt ->
+            [(SensorGBT, SensorOutput { soMu = mu, soSigma = sig, soRegimes = Nothing, soQuantiles = Nothing, soInterval = Nothing })]
+          _ -> []
 
       tcnOut =
         if not useTcn
@@ -238,25 +241,21 @@ predictSensors pb prices hmmFilt t =
                   ]
 
       conformalOut =
-        case feat of
-          Nothing -> []
-          Just x ->
-            if not gbdtReady || not useConformal
-              then []
-              else
-                let (mu, _) = predictGBDT (pbGBDT pb) x
-                    (lo, hi, sig) = predictInterval (pbConformal pb) mu
-                 in
-                  [ ( SensorConformal
-                    , SensorOutput
-                        { soMu = mu
-                        , soSigma = sig
-                        , soRegimes = Nothing
-                        , soQuantiles = Nothing
-                        , soInterval = Just (Interval lo hi)
-                        }
-                    )
-                  ]
+        case gbdtPred of
+          Just (mu, _) | useConformal ->
+            let (lo, hi, sig) = predictInterval (pbConformal pb) mu
+             in
+              [ ( SensorConformal
+                , SensorOutput
+                    { soMu = mu
+                    , soSigma = sig
+                    , soRegimes = Nothing
+                    , soQuantiles = Nothing
+                    , soInterval = Just (Interval lo hi)
+                    }
+                )
+              ]
+          _ -> []
 
       (hmmOut, predState) =
         if not useHmm
