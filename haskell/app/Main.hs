@@ -3179,7 +3179,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
           Left _ -> []
           Right xs -> xs
       minTopComboBots = 5
-      maxTopComboBots = 10
+      maxTopComboBots = 5
   case symbolsOrErr of
     Left err -> putStrLn ("Live bot auto-start base symbols missing: " ++ err)
     Right _ -> pure ()
@@ -3247,9 +3247,9 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                           putStrLn
                             ( "Live bot auto-start warning: only "
                                 ++ show targetCount
-                                ++ " unique top-combo symbol(s) available; need "
+                                ++ " unique top-combo symbol(s) available; unable to start all "
                                 ++ show minTopComboBots
-                                ++ " to keep the minimum running."
+                                ++ " top-combo bots."
                             )
                       else writeIORef topTargetsWarnRef Nothing
                     pure targets

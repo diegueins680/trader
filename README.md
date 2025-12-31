@@ -379,7 +379,7 @@ Endpoints:
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail)
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
 - `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000, and open trade entries are clamped to the tail).
-- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) and also keeps bots running for the current top 10 combos in `top-combos.json` (Binance only), prioritized by `metrics.tradeCount` (most trades); it aims to keep at least 5 top-combo symbols running when available (warns if fewer unique symbols exist). Trading is enabled by default (requires Binance API keys) and missing bots restart on the next poll interval.
+- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) and also keeps bots running for the current top 5 combos in `top-combos.json` (Binance only), prioritized by `metrics.tradeCount` (most trades); it warns if fewer unique symbols exist to start all top-combo bots. Trading is enabled by default (requires Binance API keys) and missing bots restart on the next poll interval.
 
 Always-on live bot (cron watchdog):
 - Use `deploy/ensure-bot-running.sh` to check `/bot/status` and call `/bot/start` if the bot is not running.
