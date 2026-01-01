@@ -13,6 +13,7 @@ import type {
   BotOrderEvent,
   BotStatus,
   BotStatusMulti,
+  BotStatusRunning,
   BotStatusSingle,
   CoinbaseKeysStatus,
   IntrabarFill,
@@ -1957,6 +1958,13 @@ export function App() {
         .filter((entry): entry is { symbol: string; status: BotStatusSingle } => Boolean(entry)),
     [botEntries],
   );
+  const botRunningEntries = useMemo(
+    () =>
+      botEntriesWithSymbol.filter(
+        (entry): entry is { symbol: string; status: BotStatusRunning } => entry.status.running,
+      ),
+    [botEntriesWithSymbol],
+  );
   const botStatusBySymbol = useMemo(() => new Map(botEntriesWithSymbol.map((entry) => [entry.symbol, entry.status])), [botEntriesWithSymbol]);
   const botSymbolsActive = useMemo(() => botEntriesWithSymbol.map((entry) => entry.symbol), [botEntriesWithSymbol]);
   const botSymbolOptions = useMemo(
@@ -1991,6 +1999,13 @@ export function App() {
     return botStatusBySymbol.get(target) ?? null;
   }, [botEntriesWithSymbol, botSelectedSymbol, botStatusBySymbol]);
   const botStartErrors = useMemo(() => (isBotStatusMulti(bot.status) ? bot.status.errors ?? [] : []), [bot.status]);
+  const botRunningCharts = useMemo(() => {
+    if (botSelectedStatus?.running) {
+      const selectedKey = normalizeSymbolKey(botSelectedStatus.symbol);
+      return botRunningEntries.filter((entry) => normalizeSymbolKey(entry.symbol) !== selectedKey);
+    }
+    return botRunningEntries;
+  }, [botRunningEntries, botSelectedStatus]);
   const botStartingReason = useMemo(() => {
     if (!botSelectedStatus || botSelectedStatus.running) return null;
     if (botSelectedStatus.starting !== true) return null;
@@ -6883,6 +6898,49 @@ export function App() {
                   {botStartErrors.length > 0 ? (
                     <div className="hint" style={{ marginBottom: 10, color: "rgba(239, 68, 68, 0.9)", whiteSpace: "pre-wrap" }}>
                       {botStartErrors.map((err) => `${err.symbol}: ${err.error}`).join("\n")}
+                    </div>
+                  ) : null}
+                  {botRunningCharts.length > 0 ? (
+                    <div style={{ marginBottom: 14 }}>
+                      <div className="btChartHeader" style={{ marginBottom: 8 }}>
+                        <div className="btChartTitle">{botSelectedStatus?.running ? "Other running bots" : "Running bots"}</div>
+                        <div className="btChartMeta">
+                          <span className="badge">
+                            {botRunningCharts.length} bot{botRunningCharts.length === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="botChartsGrid">
+                        {botRunningCharts.map((entry) => {
+                          const st = entry.status;
+                          return (
+                            <div key={entry.symbol} className="botChartCard">
+                              <div className="pillRow" style={{ marginBottom: 8 }}>
+                                <span className="badge">{st.symbol}</span>
+                                <span className="badge">{st.interval}</span>
+                                <span className="badge">{marketLabel(st.market)}</span>
+                                <span className="badge">{methodLabel(st.method)}</span>
+                                <span className="badge">open {fmtPct(st.openThreshold ?? st.threshold, 3)}</span>
+                                <span className="badge">
+                                  close {fmtPct(st.closeThreshold ?? st.openThreshold ?? st.threshold, 3)}
+                                </span>
+                                <span className="badge">{st.halted ? "HALTED" : "ACTIVE"}</span>
+                                <span className="badge">{st.error ? "Error" : "OK"}</span>
+                              </div>
+                              <BacktestChart
+                                prices={st.prices}
+                                equityCurve={st.equityCurve}
+                                kalmanPredNext={st.kalmanPredNext}
+                                positions={st.positions}
+                                trades={st.trades}
+                                operations={st.operations}
+                                backtestStartIndex={st.startIndex}
+                                height={280}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   ) : null}
 	                  <div className="pillRow" style={{ marginBottom: 10 }}>

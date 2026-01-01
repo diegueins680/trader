@@ -55,6 +55,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add an orphaned operations panel that highlights open futures positions not currently adopted by a running bot.
 - Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates (including API token changes).
 - Web UI: bot state timeline hover now shows the corresponding timestamp.
+- Web UI: show a live bot chart for each running bot in the Live bot panel.
 - Web UI: open positions/orphaned operations cards key by position side, ignore bots with trade disabled when determining adoption, and label trade-off bots explicitly.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Web UI: backtest split auto-adjusts bars without exceeding API max bars.

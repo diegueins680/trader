@@ -866,6 +866,19 @@ textarea {
   font-size: 12px;
 }
 
+.botChartsGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.botChartCard {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--stroke);
+  background: var(--card);
+}
+
 .stateChartLive {
   fill: rgba(34, 197, 94, 0.35);
 }
