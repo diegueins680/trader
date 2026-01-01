@@ -955,6 +955,7 @@ export function App() {
       : platformKeyMode === "binance"
         ? Boolean(binanceApiKey.trim() || binanceApiSecret.trim())
         : false;
+  const binanceKeyLocalReady = Boolean(binanceApiKey.trim() && binanceApiSecret.trim());
   const normalizedSymbol = form.binanceSymbol.trim().toUpperCase();
   const symbolFormatError = useMemo(() => {
     if (!normalizedSymbol) return null;
@@ -1105,6 +1106,14 @@ export function App() {
   const keysTradeTest =
     activeKeysStatus && isBinanceKeysStatus(activeKeysStatus) ? activeKeysStatus.tradeTest ?? null : null;
   const keysCheckedAtMs = keys.platform === platform ? keys.checkedAtMs : null;
+  const botTradeKeysIssue = useMemo(() => {
+    if (!isBinancePlatform || !form.tradeArmed) return null;
+    if (binanceKeyLocalReady || keysProvided === true) return null;
+    if (keysProvided === false) {
+      return "Trading armed requires Binance API keys. Add keys or disable Arm trading for paper mode.";
+    }
+    return 'Trading armed requires Binance API keys. Add keys or click "Check keys" to verify server env keys, or disable Arm trading for paper mode.';
+  }, [binanceKeyLocalReady, form.tradeArmed, isBinancePlatform, keysProvided]);
 
   const [cacheUi, setCacheUi] = useState<CacheUiState>({ loading: false, error: null, stats: null });
 
@@ -1184,6 +1193,10 @@ export function App() {
   const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
+  const [pendingComboStart, setPendingComboStart] = useState<{
+    signature: string;
+    symbols: string[];
+  } | null>(null);
   const topCombosRef = useRef<OptimizationCombo[]>([]);
   const topCombosSyncRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null);
   const dataLogRef = useRef<HTMLDivElement | null>(null);
@@ -1394,7 +1407,29 @@ export function App() {
   );
 
   const handleComboPreview = useCallback((combo: OptimizationCombo) => setSelectedComboId(combo.id), []);
-  const handleComboApply = useCallback((combo: OptimizationCombo) => applyCombo(combo, { respectManual: true }), [applyCombo]);
+  const handleComboApply = useCallback(
+    (combo: OptimizationCombo) => {
+      const baseForm = formRef.current;
+      const manualOverrides = manualOverridesRef.current;
+      const nextForm = applyComboToForm(baseForm, combo, apiComputeLimitsRef.current, manualOverrides, true);
+      const nextSignature = formApplySignature(nextForm);
+      const symbols = parseSymbolsInput(nextForm.binanceSymbol);
+      setPendingComboStart({ signature: nextSignature, symbols });
+      applyCombo(combo, { respectManual: true, allowPositioning: true });
+    },
+    [applyCombo],
+  );
+  const handleComboStart = useCallback(
+    (combo: OptimizationCombo) => {
+      const baseForm = formRef.current;
+      const nextForm = applyComboToForm(baseForm, combo, apiComputeLimitsRef.current, undefined, true);
+      const nextSignature = formApplySignature(nextForm);
+      const symbols = parseSymbolsInput(nextForm.binanceSymbol);
+      setPendingComboStart({ signature: nextSignature, symbols });
+      applyCombo(combo, { respectManual: false, allowPositioning: true });
+    },
+    [applyCombo],
+  );
   const refreshTopCombos = useCallback(() => {
     topCombosSyncRef.current?.({ silent: false });
   }, []);
@@ -3042,12 +3077,13 @@ export function App() {
     [apiBase, authHeaders, botSelectedSymbol],
   );
 
-  type StartBotOptions = { auto?: boolean; forceAdopt?: boolean; silent?: boolean };
+  type StartBotOptions = { auto?: boolean; forceAdopt?: boolean; silent?: boolean; symbolsOverride?: string[] };
 
   const startLiveBot = useCallback(
     async (opts?: StartBotOptions) => {
       const silent = Boolean(opts?.silent);
       const forceAdopt = Boolean(opts?.forceAdopt);
+      const symbolsOverride = opts?.symbolsOverride ? parseSymbolsInput(opts.symbolsOverride.join(",")) : [];
       if (!opts?.auto) botAutoStartSuppressedRef.current = false;
 
       const isAdoptError = (msg: string) => {
@@ -3103,9 +3139,13 @@ export function App() {
           botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
           botMaxPoints: clamp(Math.trunc(form.botMaxPoints), 100, 100000),
         };
-        if (botSymbolsInput.length > 0) payload.botSymbols = botSymbolsInput;
+        if (symbolsOverride.length > 0) payload.botSymbols = symbolsOverride;
+        else if (botSymbolsInput.length > 0) payload.botSymbols = botSymbolsInput;
         const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+        if (symbolsOverride.length > 0) {
+          setBotSelectedSymbol(symbolsOverride[0] ?? null);
+        }
         if (adoptOverride && !form.botAdoptExistingPosition) {
           setForm((f) => ({ ...f, botAdoptExistingPosition: true }));
         }
@@ -3898,6 +3938,22 @@ export function App() {
     autoAppliedCombo && autoAppliedCombo.atMs ? fmtDurationMs(Math.max(0, Date.now() - autoAppliedCombo.atMs)) : null;
   const topCombo = topCombosAll.length > 0 ? topCombosAll[0] : null;
   const topComboDisplay = topCombosOrdered.length > 0 ? topCombosOrdered[0] : null;
+  const selectedCombo = useMemo(() => {
+    if (selectedComboId == null) return null;
+    return topCombosAll.find((combo) => combo.id === selectedComboId) ?? null;
+  }, [selectedComboId, topCombosAll]);
+  const selectedComboForm = useMemo(() => {
+    if (!selectedCombo) return null;
+    return applyComboToForm(form, selectedCombo, apiComputeLimits, undefined, true);
+  }, [apiComputeLimits, form, selectedCombo]);
+  const selectedComboLabel = selectedCombo ? `#${selectedCombo.rank ?? selectedCombo.id}` : null;
+  const selectedComboSymbol = selectedComboForm ? selectedComboForm.binanceSymbol.trim().toUpperCase() : "";
+  const selectedComboStartLabel =
+    selectedComboLabel && selectedComboSymbol
+      ? `Start bot with ${selectedComboLabel} (${selectedComboSymbol})`
+      : selectedComboLabel
+        ? `Start bot with ${selectedComboLabel}`
+        : "Start bot with selected combo";
   const topComboSig = useMemo(() => {
     if (!topCombo) return null;
     return comboApplySignature(topCombo, apiComputeLimits, form, manualOverrides, true);
@@ -4093,16 +4149,16 @@ export function App() {
     ],
   );
   const requestIssueDetails = useMemo(() => buildRequestIssueDetails(requestIssueInput), [requestIssueInput]);
-  const botIssueDetails = useMemo(
-    () =>
-      buildRequestIssueDetails({
-        ...requestIssueInput,
-        missingSymbol: botMissingSymbol,
-        symbolTargetId: "botSymbols",
-        symbolError: botSymbolsFormatError,
-      }),
-    [botMissingSymbol, botSymbolsFormatError, requestIssueInput],
-  );
+  const botIssueDetails = useMemo(() => {
+    const base = buildRequestIssueDetails({
+      ...requestIssueInput,
+      missingSymbol: botMissingSymbol,
+      symbolTargetId: "botSymbols",
+      symbolError: botSymbolsFormatError,
+    });
+    if (!botTradeKeysIssue) return base;
+    return [...base, { message: botTradeKeysIssue, targetId: "platformKeys" }];
+  }, [botMissingSymbol, botSymbolsFormatError, botTradeKeysIssue, requestIssueInput]);
   const requestIssues = useMemo(() => requestIssueDetails.map((issue) => issue.message), [requestIssueDetails]);
   const primaryIssue = requestIssueDetails[0] ?? null;
   const extraIssueCount = Math.max(0, requestIssueDetails.length - 1);
@@ -4176,6 +4232,28 @@ export function App() {
   );
   const botStartBlocked = bot.loading || botStarting || Boolean(botStartBlockedReason);
   const longShortBotDisabled = botAnyRunning || botStarting;
+  const comboStartPending = pendingComboStart !== null;
+  const comboStartBlockedReason = useMemo(() => {
+    if (!selectedComboForm) return null;
+    const comboSymbol = selectedComboForm.binanceSymbol.trim().toUpperCase();
+    const interval = selectedComboForm.interval.trim();
+    const intervalOk =
+      interval.length > 0 && PLATFORM_INTERVAL_SET[selectedComboForm.platform].has(interval);
+    const symbolKey = comboSymbol ? normalizeSymbolKey(comboSymbol) : "";
+    return firstReason(
+      rateLimitReason,
+      apiBlockedReason ?? apiStatusIssue,
+      botTradeKeysIssue,
+      selectedComboForm.platform !== "binance" ? "Live bot is supported on Binance only." : null,
+      !comboSymbol ? "Combo is missing a symbol." : null,
+      !intervalOk ? "Combo is missing a valid interval." : null,
+      selectedComboForm.positioning === "long-short" && selectedComboForm.market !== "futures"
+        ? "Live bot long/short requires the Futures market."
+        : null,
+      symbolKey && botActiveSymbolSet.has(symbolKey) ? `Live bot already running for ${comboSymbol}.` : null,
+    );
+  }, [apiBlockedReason, apiStatusIssue, botActiveSymbolSet, botTradeKeysIssue, rateLimitReason, selectedComboForm]);
+  const comboStartBlocked = bot.loading || botStarting || comboStartPending || Boolean(comboStartBlockedReason);
 
   useEffect(() => {
     if (!botAutoStartReady) return;
@@ -4189,6 +4267,16 @@ export function App() {
     botAutoStartRef.current.lastAttemptAtMs = now;
     void startLiveBot({ auto: true, silent: true });
   }, [apiOk, botAnyRunning, botAutoStartReady, botStartBlocked, startLiveBot]);
+  useEffect(() => {
+    if (!pendingComboStart) return;
+    if (formApplySignature(form) !== pendingComboStart.signature) return;
+    setPendingComboStart(null);
+    if (comboStartBlockedReason) {
+      showToast(`Start bot disabled: ${comboStartBlockedReason}`);
+      return;
+    }
+    void startLiveBot({ symbolsOverride: pendingComboStart.symbols });
+  }, [comboStartBlockedReason, form, pendingComboStart, showToast, startLiveBot]);
   const orderQuoteFractionError = useMemo(() => {
     const f = form.orderQuoteFraction;
     if (!Number.isFinite(f)) return "Order quote fraction must be a number.";
@@ -4463,7 +4551,7 @@ export function App() {
               ) : null}
             </div>
             <div className="row" style={{ gridTemplateColumns: "1fr" }} id="section-api">
-              <div className="field">
+              <div className="field" id="platformKeys">
                 <div className="label">API</div>
                 <div className="kv">
                   <div className="k">Base URL</div>
@@ -4904,7 +4992,23 @@ export function App() {
                 >
                   Apply top combo now
                 </button>
+                {selectedCombo ? (
+                  <button
+                    className="btnSmall btnPrimary"
+                    type="button"
+                    onClick={() => handleComboStart(selectedCombo)}
+                    disabled={comboStartBlocked}
+                    title={comboStartBlockedReason ?? undefined}
+                  >
+                    {comboStartPending ? "Starting…" : selectedComboStartLabel}
+                  </button>
+                ) : null}
               </div>
+              {selectedCombo && comboStartBlockedReason ? (
+                <div className="hint" style={{ marginBottom: 8, color: "rgba(239, 68, 68, 0.85)" }}>
+                  Start bot with selected combo is disabled: {comboStartBlockedReason}
+                </div>
+              ) : null}
               <TopCombosChart
                 combos={topCombos}
                 loading={topCombosLoading}
@@ -4914,7 +5018,7 @@ export function App() {
                 onApply={handleComboApply}
               />
               <div className="hint">
-                Select a combo to preview. Click Apply to load params into the form (and the symbol, when provided). bars=0 uses all CSV data or the exchange default (500).
+                Select a combo to preview. Click Apply to load params into the form and auto-start a live bot for that symbol (Binance only). bars=0 uses all CSV data or the exchange default (500).
               </div>
               <div className="hint">
                 Top combos auto-apply when available (manual overrides respected). If the bot is idle, it will auto-start once the top combo is applied.

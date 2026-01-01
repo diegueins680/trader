@@ -14,8 +14,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
-- Live bot: auto-start keeps bots running for the current top 5 combos from `top-combos.json` (Binance only), prioritizing higher `metrics.tradeCount` combos.
-- Live bot: auto-start warns when fewer than 5 unique top-combo symbols are available to start all top-combo bots.
+- Live bot: auto-start keeps bots running for the current top 10 combos from `top-combos.json` (Binance only), prioritizing higher `metrics.tradeCount` combos.
+- Live bot: auto-start warns when fewer than 10 unique top-combo symbols are available to start all top-combo bots.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
 - Live bot: attempt an order on every candle based on the desired position (even when holding).
 - Observability: log Binance API requests (`binance.request`) and minute-by-minute bot status snapshots (`bot.status`), plus a live/offline timeline chart in the UI.
@@ -66,6 +66,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
+- Web UI: block live bot start when trading is armed but Binance keys are missing or unverified (use Check keys or switch to paper mode).
 - Web UI: warn when the bot status timeline range falls outside available ops history.
 - Web UI: send explicit zero/false values for default-on risk settings so disable toggles take effect.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
@@ -121,6 +122,7 @@ All notable changes to this project will be documented in this file.
 - Trading: daily-loss halts reset at UTC day boundaries when bar timestamps are available (exchange/CSV timestamps; otherwise interval-based).
 - Trading: entries gated by `--min-signal-to-noise`, `--max-volatility`, or `--vol-target` now wait for a volatility estimate.
 - Trading: latest signals now apply the same volatility gating and confidence close-direction gating (including blend) as backtests, without applying min-position-size to exits.
+- Trading: latest signals now honor full tri-layer gating settings (cloud padding/slope/width/touch lookback, price-action toggle/body) and use high/low series when available.
 - Trading: conformal/quantile confirmations use the close threshold when gating close signals.
 - Trading: add optional tri-layer entry gating (Kalman cloud trend + price-action reversal triggers) via `--tri-layer`.
 - Trading: min-position-size only gates entries when confidence sizing is enabled, and close-direction gating no longer applies the min-position-size threshold.
@@ -151,6 +153,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: show optimizer combo source (API vs static) and last update time.
 - Web UI: show optimizer combo counts and increase the default list to 12 combos.
 - Web UI: optimizer combo loads preserve the current positioning unless the combo explicitly specifies one.
+- Web UI: applying optimizer combos auto-starts a live bot for the combo symbol, plus a start-bot action for the selected combo.
 - Web UI: hides the Agree overlay for LSTM-only backtests and clarifies bars=0 combo behavior.
 - Web UI: optimizer combo refresh errors keep the last known combos visible with a warning.
 - API/Trading: latest signals include `closeDirection`, and live order decisions respect `closeThreshold` for exits.

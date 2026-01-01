@@ -165,10 +165,10 @@ loadCombosFromJsonl path = do
               case KM.lookup (Key.fromString "finalEquity") rec >>= coerceFloatValue of
                 Nothing -> Nothing
                 Just finalEq ->
-                    let source =
-                          case KM.lookup (Key.fromString "source") rec of
-                            Just (String s) -> Just (T.unpack s)
-                            _ -> Nothing
+                  let source =
+                        case KM.lookup (Key.fromString "source") rec of
+                          Just (String s) -> Just (T.unpack s)
+                          _ -> Nothing
                       params =
                         case KM.lookup (Key.fromString "params") rec of
                           Just (Object p) -> p

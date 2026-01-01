@@ -269,6 +269,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--tri-layer-exit-on-slow` exit when price crosses and closes on the opposite side of the slow Kalman line
     - `--kalman-band-lookback 0` rolling window (bars) for Kalman-band exits (`0` disables; hits use candle high/low)
     - `--kalman-band-std-mult 0` band width in std devs for Kalman-band exits (`0` disables; `2` = PDF default)
+  - When high/low data is available (CSV `--high-column`/`--low-column` or exchange candles), tri-layer cloud touches and price-action checks use those highs/lows for latest signals/live bots.
   - `--max-position-size 0.8` cap position size/leverage (`1` = full size)
   - `--vol-target F` target annualized volatility for position sizing (`0` disables; default: `0.7`)
     - `--vol-lookback N` realized-vol lookback window (bars) when EWMA alpha is not set
@@ -379,7 +380,7 @@ Endpoints:
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail)
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
 - `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000, and open trade entries are clamped to the tail).
-- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) and also keeps bots running for the current top 5 combos in `top-combos.json` (Binance only), prioritized by `metrics.tradeCount` (most trades); it warns if fewer unique symbols exist to start all top-combo bots. Trading is enabled by default (requires Binance API keys) and missing bots restart on the next poll interval.
+- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) and also keeps bots running for the current top 10 combos in `top-combos.json` (Binance only), prioritized by `metrics.tradeCount` (most trades); it warns if fewer than 10 unique symbols exist to start all top-combo bots. Trading is enabled by default (requires Binance API keys) and missing bots restart on the next poll interval.
 
 Always-on live bot (cron watchdog):
 - Use `deploy/ensure-bot-running.sh` to check `/bot/status` and call `/bot/start` if the bot is not running.
@@ -606,7 +607,7 @@ The UI shows whether combos are coming from the live API or the static fallback,
 Optimizer combos show when each combo was obtained, support ordering by date, and can be filtered by minimum final equity.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
-Combos can be previewed without applying; use Apply (or Apply top combo) to load values, and Refresh combos to resync.
+Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), and Refresh combos resyncs.
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load, interval/market changes, and Binance key/auth updates including API token changes).
@@ -662,6 +663,7 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` requi
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
 The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize each buy/sell operation on the selected bot chart (supports long/short on futures). It includes a live/offline timeline chart with start/end controls when ops persistence is enabled. The chart reflects the available ops history and warns when the selected range extends beyond it.
+When trading is armed, the UI blocks live bot start until Binance keys are provided or verified via “Check keys” (otherwise switch to paper mode).
 Optimizer combos are clamped to the API compute limits reported by `/health` when available.
 
 Troubleshooting: “No live operations yet”

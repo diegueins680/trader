@@ -608,7 +608,7 @@ main = do
 
         let lookback = argLookback args'
         if argTradeOnly args'
-          then runTradeOnly mWebhook args' lookback prices mBinanceEnv
+          then runTradeOnly mWebhook args' lookback series mBinanceEnv
           else runBacktestPipeline mWebhook args' lookback series mBinanceEnv
   case (r :: Either SomeException ()) of
     Left ex -> do
@@ -2035,6 +2035,8 @@ data BotState = BotState
   , botEnv :: !BinanceEnv
   , botLookback :: !Int
   , botPrices :: !(V.Vector Double)
+  , botHighs :: !(V.Vector Double)
+  , botLows :: !(V.Vector Double)
   , botOpenTimes :: !(V.Vector Int64)
   , botKalmanPredNext :: !(V.Vector Double) -- predicted next price at each bar (len == prices)
   , botLstmPredNext :: !(V.Vector Double)   -- predicted next price at each bar (len == prices)
@@ -2220,6 +2222,8 @@ botStateTail tailN st =
          in
           st
             { botPrices = V.drop dropCount (botPrices st)
+            , botHighs = V.drop dropCount (botHighs st)
+            , botLows = V.drop dropCount (botLows st)
             , botOpenTimes = V.drop dropCount (botOpenTimes st)
             , botKalmanPredNext = V.drop dropCount (botKalmanPredNext st)
             , botLstmPredNext = V.drop dropCount (botLstmPredNext st)
@@ -3178,8 +3182,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
         case symbolsOrErr of
           Left _ -> []
           Right xs -> xs
-      minTopComboBots = 5
-      maxTopComboBots = 5
+      minTopComboBots = 10
+      maxTopComboBots = 10
   case symbolsOrErr of
     Left err -> putStrLn ("Live bot auto-start base symbols missing: " ++ err)
     Right _ -> pure ()
@@ -3399,8 +3403,12 @@ initBotState mOps args settings sym = do
   ks <- fetchKlines env sym (argInterval args) initBars
   if length ks < 2 then error "Not enough klines to start bot" else pure ()
   let closes = map kClose ks
+      highs = map kHigh ks
+      lows = map kLow ks
       openTimes = map kOpenTime ks
       pricesV = V.fromList closes
+      highsV = V.fromList highs
+      lowsV = V.fromList lows
       openV = V.fromList openTimes
       n = V.length pricesV
 
@@ -3487,7 +3495,17 @@ initBotState mOps args settings sym = do
                       predObs = predictNext lstmModel window
                    in inverseNorm normState predObs
 
-      latest0Raw = computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx Nothing (Just (kalPred0, lstmPred0))
+      latest0Raw =
+        computeLatestSignal
+          args
+          lookback
+          pricesV
+          (Just highsV)
+          (Just lowsV)
+          mLstmCtx
+          mKalmanCtx
+          Nothing
+          (Just (kalPred0, lstmPred0))
 
       -- Startup decision:
       -- - Adopted positions use closeThreshold (hysteresis) via the gated closeDirection.
@@ -3603,9 +3621,9 @@ initBotState mOps args settings sym = do
       maxPoints = max (lookback + 3) (bsMaxPoints settings)
       dropCount = max 0 (V.length pricesV - maxPoints)
 
-      (pricesV2, openV2, kalPred2, lstmPred2, eq2, pos2, ops2, orders2, openTrade2, startIndex2, mLstmCtx2) =
+      (pricesV2, highsV2, lowsV2, openV2, kalPred2, lstmPred2, eq2, pos2, ops2, orders2, openTrade2, startIndex2, mLstmCtx2) =
         if dropCount <= 0
-          then (pricesV, openV, kalPred0, lstmPred0, eq1, pos1, ops, orders, openTrade, 0, mLstmCtx)
+          then (pricesV, highsV, lowsV, openV, kalPred0, lstmPred0, eq1, pos1, ops, orders, openTrade, 0, mLstmCtx)
           else
             let openTradeShifted =
                   case openTrade of
@@ -3627,7 +3645,9 @@ initBotState mOps args settings sym = do
                     Just (normState, obsAll, lstmModel) ->
                       Just (normState, drop dropCount obsAll, lstmModel)
              in
-              ( V.drop dropCount pricesV
+             ( V.drop dropCount pricesV
+              , V.drop dropCount highsV
+              , V.drop dropCount lowsV
               , V.drop dropCount openV
               , V.drop dropCount kalPred0
               , V.drop dropCount lstmPred0
@@ -3661,6 +3681,8 @@ initBotState mOps args settings sym = do
           , botEnv = env
           , botLookback = lookback
           , botPrices = pricesV2
+          , botHighs = highsV2
+          , botLows = lowsV2
           , botOpenTimes = openV2
           , botKalmanPredNext = kalPred2
           , botLstmPredNext = lstmPred2
@@ -3843,6 +3865,8 @@ botOptimizeAfterOperation st = do
                   args'
                   lookback
                   pricesV
+                  (Just (botHighs st))
+                  (Just (botLows st))
                   (botLstmCtx st)
                   (botKalmanCtx st)
                   Nothing
@@ -3902,7 +3926,17 @@ botApplyOptimizerUpdate st upd = do
       if not hasLstmWindow
         then pure st { botError = Just "Optimizer update skipped: not enough data for lookback.", botUpdatedAtMs = now }
         else do
-          let latest = computeLatestSignal args' lookback' pricesV mLstmCtx' mKalmanCtx' Nothing Nothing
+          let latest =
+                computeLatestSignal
+                  args'
+                  lookback'
+                  pricesV
+                  (Just (botHighs st))
+                  (Just (botLows st))
+                  mLstmCtx'
+                  mKalmanCtx'
+                  Nothing
+                  Nothing
           pure
             st
               { botArgs = args'
@@ -5088,6 +5122,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
       halted = isJust haltReason1
 
       pricesV = V.snoc pricesPrev priceNew
+      highsV = V.snoc (botHighs st) (kHigh k)
+      lowsV = V.snoc (botLows st) (kLow k)
       openTimesV = V.snoc (botOpenTimes st) openTimeNew
 
   -- Update Kalman/HMM/sensor variance with the realized return on the last step.
@@ -5141,6 +5177,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
           args
           lookback
           pricesV
+          (Just highsV)
+          (Just lowsV)
           mLstmCtx1
           mKalmanCtx1
           Nothing
@@ -5564,9 +5602,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
       maxPoints = max (lookback + 3) (bsMaxPoints settings)
       dropCount = max 0 (V.length pricesV - maxPoints)
 
-      (pricesV2, openTimesV2, kalPred2, lstmPred2, eqV2, posV2, ops2, orders2, trades2, openTrade2, startIndex2) =
+      (pricesV2, highsV2, lowsV2, openTimesV2, kalPred2, lstmPred2, eqV2, posV2, ops2, orders2, trades2, openTrade2, startIndex2) =
         if dropCount <= 0
-          then (pricesV, openTimesV, kalPred1, lstmPred1, eqV1, posV1, ops', orders', trades', openTrade', botStartIndex st)
+          then (pricesV, highsV, lowsV, openTimesV, kalPred1, lstmPred1, eqV1, posV1, ops', orders', trades', openTrade', botStartIndex st)
           else
             let shiftTrade tr =
                   tr { trEntryIndex = trEntryIndex tr - dropCount, trExitIndex = trExitIndex tr - dropCount }
@@ -5592,6 +5630,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
                   ]
              in
              ( V.drop dropCount pricesV
+             , V.drop dropCount highsV
+             , V.drop dropCount lowsV
              , V.drop dropCount openTimesV
               , V.drop dropCount kalPred1
               , V.drop dropCount lstmPred1
@@ -5615,6 +5655,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
   let st1 =
         st
           { botPrices = pricesV2
+          , botHighs = highsV2
+          , botLows = lowsV2
           , botOpenTimes = openTimesV2
           , botKalmanPredNext = kalPred2
           , botLstmPredNext = lstmPred2
@@ -9429,7 +9471,7 @@ computeLatestSignalFromArgs mOps args = do
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
-  computeTradeOnlySignal args lookback prices mBinanceEnv
+  computeTradeOnlySignal args lookback series mBinanceEnv
 
 computeTradeFromArgs :: Maybe OpsStore -> Args -> IO ApiTradeResponse
 computeTradeFromArgs mOps args = do
@@ -9437,7 +9479,7 @@ computeTradeFromArgs mOps args = do
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
-  sig <- computeTradeOnlySignal args lookback prices mBinanceEnv
+  sig <- computeTradeOnlySignal args lookback series mBinanceEnv
   order <-
     case argPlatform args of
       PlatformBinance ->
@@ -10763,9 +10805,9 @@ metricsToJson m =
     , "turnover" .= bmTurnover m
     ]
 
-runTradeOnly :: Maybe Webhook -> Args -> Int -> [Double] -> Maybe BinanceEnv -> IO ()
-runTradeOnly mWebhook args lookback prices mBinanceEnv = do
-  signal <- computeTradeOnlySignal args lookback prices mBinanceEnv
+runTradeOnly :: Maybe Webhook -> Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO ()
+runTradeOnly mWebhook args lookback series mBinanceEnv = do
+  signal <- computeTradeOnlySignal args lookback series mBinanceEnv
   if argJson args
     then
       if argBinanceTrade args
@@ -10934,8 +10976,8 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
 printJsonStdout :: ToJSON a => a -> IO ()
 printJsonStdout v = BS.putStrLn (BL.toStrict (encode v))
 
-computeTradeOnlySignal :: Args -> Int -> [Double] -> Maybe BinanceEnv -> IO LatestSignal
-computeTradeOnlySignal args lookback prices mBinanceEnv = do
+computeTradeOnlySignal :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO LatestSignal
+computeTradeOnlySignal args lookback series mBinanceEnv = do
   if argSweepThreshold args
     then error "Cannot use --sweep-threshold with --trade-only (sweep requires a backtest split)."
     else pure ()
@@ -10943,7 +10985,10 @@ computeTradeOnlySignal args lookback prices mBinanceEnv = do
     then error "Cannot use --optimize-operations with --trade-only (optimization requires a backtest split)."
     else pure ()
 
-  let method = argMethod args
+  let prices = psClose series
+      highsV = V.fromList <$> psHigh series
+      lowsV = V.fromList <$> psLow series
+      method = argMethod args
       pricesV = V.fromList prices
       n = V.length pricesV
   if n <= lookback
@@ -11048,7 +11093,7 @@ computeTradeOnlySignal args lookback prices mBinanceEnv = do
           (MethodRouter, Just kalHist, Just lstmHist) -> Just (kalHist, lstmHist)
           _ -> Nothing
 
-  pure (computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPredHistory)
+  pure (computeLatestSignal args lookback pricesV highsV lowsV mLstmCtx mKalmanCtx mMarketModel mPredHistory)
 
 -- LSTM weight persistence (for incremental training across backtests)
 
@@ -11245,6 +11290,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
               MethodRouter -> MethodBoth
               _ -> methodRequested
       pricesV = V.fromList prices
+      highsV = V.fromList highsAll
+      lowsV = V.fromList lowsAll
 
       lstmCfg =
         LSTMConfig
@@ -11660,7 +11707,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             then args { argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr }
             else args
 
-      latestSignal = computeLatestSignal argsForSignal lookback pricesV mLstmCtx mKalmanCtx mMarketModel Nothing
+      latestSignal = computeLatestSignal argsForSignal lookback pricesV (Just highsV) (Just lowsV) mLstmCtx mKalmanCtx mMarketModel Nothing
       finiteMaybe x =
         if isNaN x || isInfinite x
           then Nothing
@@ -12024,12 +12071,14 @@ computeLatestSignal
   :: Args
   -> Int
   -> V.Vector Double
+  -> Maybe (V.Vector Double)
+  -> Maybe (V.Vector Double)
   -> Maybe LstmCtx
   -> Maybe KalmanCtx
   -> Maybe MarketModel
   -> Maybe PredHistory
   -> LatestSignal
-computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPredHistory =
+computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMarketModel mPredHistory =
   case method of
     MethodBoth ->
       case (mKalmanCtx, mLstmCtx) of
@@ -12096,6 +12145,16 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
                       _ -> Nothing
 
                   bad x = isNaN x || isInfinite x
+
+                  alignVector mv =
+                    case mv of
+                      Just v
+                        | V.length v == n -> Just v
+                        | V.length v > n -> Just (V.drop (V.length v - n) v)
+                      _ -> Nothing
+
+                  highsV = alignVector mHighsV
+                  lowsV = alignVector mLowsV
 
                   returnsFromPrices =
                     case n of
@@ -12187,8 +12246,18 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
                                   _ -> True
 
                   triLayerEnabled = argTriLayer args
+                  requirePriceAction = argTriLayerRequirePriceAction args
+                  priceActionBodyMin = max 0 (argTriLayerPriceActionBody args)
+                  bodyMinFracBase = max 1e-6 (0.25 * openThr)
+                  bodyMinFrac =
+                    if priceActionBodyMin > 0
+                      then priceActionBodyMin
+                      else bodyMinFracBase
+                  cloudPadFrac = max 0 (argTriLayerCloudPadding args)
+                  cloudSlopeMin = max 0 (argTriLayerCloudSlope args)
+                  cloudWidthMax = max 0 (argTriLayerCloudWidth args)
+                  touchLookback = max 1 (argTriLayerTouchLookback args)
                   cloudReady = triLayerEnabled && n >= 2
-                  bodyMinFrac = max 1e-6 (0.25 * openThr)
                   kalDt = max 1e-12 (argKalmanDt args)
                   kalProcessVar = max 0 (argKalmanProcessVar args)
                   kalMeasVar = max 1e-12 (argKalmanMeasurementVar args)
@@ -12208,8 +12277,16 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
                   candleAt i =
                     let c = pricesV V.! i
                         o = if i <= 0 then c else pricesV V.! (i - 1)
-                        h = max o c
-                        l = min o c
+                        hRaw =
+                          case highsV of
+                            Just hv | i >= 0 && i < V.length hv -> hv V.! i
+                            _ -> c
+                        lRaw =
+                          case lowsV of
+                            Just lv | i >= 0 && i < V.length lv -> lv V.! i
+                            _ -> c
+                        h = if bad hRaw then c else hRaw
+                        l = if bad lRaw then c else lRaw
                      in (o, h, l, c)
 
                   candleOpen (o, _, _, _) = o
@@ -12283,6 +12360,27 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
                     let midPrev = (candleOpen prev + candleClose prev) / 2
                      in candleBear cur && candleBull prev && candleClose cur < midPrev
 
+                  touchCloudAt idx =
+                    let fastIdx = cloudFastV V.! idx
+                        slowIdx = cloudSlowV V.! idx
+                        cloudTopIdx = max fastIdx slowIdx
+                        cloudBotIdx = min fastIdx slowIdx
+                        pxIdx = pricesV V.! idx
+                        padIdx = cloudPadFrac * (if bad pxIdx then 0 else abs pxIdx)
+                        cloudTopPadIdx = cloudTopIdx + padIdx
+                        cloudBotPadIdx = cloudBotIdx - padIdx
+                        (_, h, l, _) = candleAt idx
+                     in not (bad fastIdx || bad slowIdx)
+                          && l <= cloudTopPadIdx
+                          && h >= cloudBotPadIdx
+
+                  touchCloudInWindow t' =
+                    if not cloudReady
+                      then True
+                      else
+                        let start = max 0 (t' - touchLookback + 1)
+                         in any touchCloudAt [start .. t']
+
                   cloudOk dir =
                     if not cloudReady || t <= 0
                       then True
@@ -12292,19 +12390,28 @@ computeLatestSignal args lookback pricesV mLstmCtx mKalmanCtx mMarketModel mPred
                             slope = slow - cloudSlowV V.! (t - 1)
                             cloudTop = max fast slow
                             cloudBot = min fast slow
-                            (_, h, l, _) = candleAt t
-                            touchCloud = l <= cloudTop && h >= cloudBot
+                            px = pricesV V.! t
+                            slopeFrac =
+                              if bad px || px == 0
+                                then 0
+                                else slope / abs px
+                            widthFrac =
+                              if bad px || px == 0
+                                then 0
+                                else (cloudTop - cloudBot) / abs px
+                            widthOk = cloudWidthMax <= 0 || bad widthFrac || widthFrac <= cloudWidthMax
+                            touchCloud = touchCloudInWindow t
                             trendOkCloud =
                               case dir of
-                                1 -> fast > slow && slope >= 0
-                                (-1) -> fast < slow && slope <= 0
+                                1 -> fast > slow && slopeFrac >= cloudSlopeMin
+                                (-1) -> fast < slow && slopeFrac <= negate cloudSlopeMin
                                 _ -> True
                          in if bad fast || bad slow || bad slope
                               then True
-                              else touchCloud && trendOkCloud
+                              else touchCloud && trendOkCloud && widthOk
 
                   priceActionOk dir =
-                    if not triLayerEnabled || t < 2
+                    if not triLayerEnabled || not requirePriceAction || t < 2
                       then True
                       else
                         let cur = candleAt t
