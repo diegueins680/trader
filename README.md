@@ -614,6 +614,7 @@ The UI includes a “Binance account trades” panel that surfaces full exchange
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load, interval/market changes, and Binance key/auth updates including API token changes).
 The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
 The bot state timeline shows the hovered timestamp.
+Chart tooltips show the hovered bar timestamp when available.
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).

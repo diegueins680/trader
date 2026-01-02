@@ -392,6 +392,7 @@ export type BacktestResponse = {
   latestSignal: LatestSignal;
   equityCurve: number[];
   prices: number[];
+  openTimes?: number[] | null;
   kalmanPredNext: Array<number | null>;
   lstmPredNext: Array<number | null>;
   positions: number[];

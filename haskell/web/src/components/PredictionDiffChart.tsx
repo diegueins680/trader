@@ -1,9 +1,11 @@
 import React, { useId, useMemo, useRef, useState } from "react";
+import { fmtTimeMs } from "../app/utils";
 
 type Series = Array<number | null | undefined>;
 
 type Props = {
   prices: number[];
+  openTimes?: number[] | null;
   kalmanPredNext?: Series;
   lstmPredNext?: Series;
   startIndex?: number;
@@ -126,6 +128,7 @@ function pathFor(series: Array<number | null>, w: number, h: number, pad: Pads, 
 
 export function PredictionDiffChart({
   prices,
+  openTimes,
   kalmanPredNext,
   lstmPredNext,
   startIndex = 0,
@@ -181,6 +184,8 @@ export function PredictionDiffChart({
     if (hoverIdx === null) return null;
     if (nPred < 1) return null;
     const idx = clamp(hoverIdx, 0, nPred - 1);
+    const openTime = openTimes?.[idx];
+    const atMs = typeof openTime === "number" && Number.isFinite(openTime) ? openTime : null;
     const actualNext = prices[idx + 1]!;
     const kalPred = kalmanPredNext?.[idx];
     const lstmPred = lstmPredNext?.[idx];
@@ -191,6 +196,7 @@ export function PredictionDiffChart({
     const lstmDiff = isFiniteNumber(lstmPred) ? lstmPred - currentPrice : null;
     return {
       idx,
+      atMs,
       currentPrice,
       actualNext,
       kalPred: isFiniteNumber(kalPred) ? kalPred : null,
@@ -200,14 +206,14 @@ export function PredictionDiffChart({
       kalErr: isFiniteNumber(kalE) ? kalE : null,
       lstmErr: isFiniteNumber(lstmE) ? lstmE : null,
     };
-  }, [hoverIdx, kalErr, kalmanPredNext, lstmErr, lstmPredNext, nPred, prices]);
+  }, [hoverIdx, kalErr, kalmanPredNext, lstmErr, lstmPredNext, nPred, openTimes, prices]);
 
   const tooltipStyle = useMemo(() => {
     if (!pointer || !hover) return { display: "none" } as React.CSSProperties;
     const pad = 12;
     const tw = 300;
     const left = clamp(pointer.x + 12, pad, pointer.w - tw - pad);
-    const top = clamp(pointer.y + 12, pad, pointer.h - 140 - pad);
+    const top = clamp(pointer.y + 12, pad, pointer.h - 170 - pad);
     return { left, top, width: tw } as React.CSSProperties;
   }, [hover, pointer]);
 
@@ -258,13 +264,19 @@ export function PredictionDiffChart({
       >
         {hover ? (
           <div className="btTooltip" style={tooltipStyle} aria-hidden={false}>
-            <div className="btTooltipTitle">
-              <span className="badge">bar {startIndex + hover.idx}</span>
-              <span className="badge">{mode === "pct" ? "percent" : "absolute"}</span>
-            </div>
+          <div className="btTooltipTitle">
+            <span className="badge">bar {startIndex + hover.idx}</span>
+            <span className="badge">{mode === "pct" ? "percent" : "absolute"}</span>
+          </div>
+          {hover.atMs !== null ? (
             <div className="btTooltipRow">
-              <div className="k">current close</div>
-              <div className="v">{fmt(hover.currentPrice, 6)}</div>
+              <div className="k">time</div>
+              <div className="v">{fmtTimeMs(hover.atMs)}</div>
+            </div>
+          ) : null}
+          <div className="btTooltipRow">
+            <div className="k">current close</div>
+            <div className="v">{fmt(hover.currentPrice, 6)}</div>
             </div>
             <div className="btTooltipRow">
               <div className="k">next close (actual)</div>

@@ -7216,6 +7216,7 @@ export function App() {
                               <BacktestChart
                                 prices={st.prices}
                                 equityCurve={st.equityCurve}
+                                openTimes={st.openTimes}
                                 kalmanPredNext={st.kalmanPredNext}
                                 positions={st.positions}
                                 trades={st.trades}
@@ -7251,6 +7252,7 @@ export function App() {
 	                  <BacktestChart
 	                    prices={botDisplay.prices}
 	                    equityCurve={botDisplay.equityCurve}
+                      openTimes={botDisplay.openTimes}
 	                    kalmanPredNext={botDisplay.kalmanPredNext}
 	                    positions={botDisplay.positions}
 	                    trades={botDisplay.trades}
@@ -7265,6 +7267,7 @@ export function App() {
 		                    </div>
 		                    <PredictionDiffChart
 		                      prices={botDisplay.prices}
+                          openTimes={botDisplay.openTimes}
 		                      kalmanPredNext={botDisplay.kalmanPredNext}
 		                      lstmPredNext={botDisplay.lstmPredNext}
 		                      startIndex={botDisplay.startIndex}
@@ -8474,6 +8477,7 @@ export function App() {
                             <BacktestChart
                               prices={prices}
                               equityCurve={equityCurve}
+                              openTimes={chart?.openTimes}
                               positions={positionsSeries}
                               trades={[]}
                               height={260}
@@ -8578,6 +8582,7 @@ export function App() {
                             <BacktestChart
                               prices={prices}
                               equityCurve={equityCurve}
+                              openTimes={chart?.openTimes}
                               positions={positionsSeries}
                               trades={[]}
                               height={240}
@@ -8609,6 +8614,7 @@ export function App() {
 			                  <BacktestChart
 				                    prices={state.backtest.prices}
 				                    equityCurve={state.backtest.equityCurve}
+                            openTimes={state.backtest.openTimes}
 				                    kalmanPredNext={state.backtest.kalmanPredNext}
 				                    positions={state.backtest.positions}
 				                    agreementOk={state.backtest.method === "01" ? undefined : state.backtest.agreementOk}
@@ -8627,6 +8633,7 @@ export function App() {
                           </div>
                           <PredictionDiffChart
                             prices={state.backtest.prices}
+                            openTimes={state.backtest.openTimes}
                             kalmanPredNext={state.backtest.kalmanPredNext}
                             lstmPredNext={state.backtest.lstmPredNext}
                             startIndex={state.backtest.split.backtestStartIndex}

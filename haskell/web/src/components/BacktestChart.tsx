@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { fmtTimeMs } from "../app/utils";
 
 type Trade = {
   entryIndex: number;
@@ -20,6 +21,7 @@ type Operation = {
 type Props = {
   prices: number[];
   equityCurve: number[];
+  openTimes?: number[] | null;
   kalmanPredNext?: Array<number | null>;
   lstmPredNext?: Array<number | null>;
   positions: number[];
@@ -153,6 +155,7 @@ function deriveOpenTrade(trades: Trade[], pos: number[], equityCurve: number[], 
 export function BacktestChart({
   prices,
   equityCurve,
+  openTimes,
   kalmanPredNext,
   lstmPredNext,
   positions,
@@ -633,20 +636,35 @@ export function BacktestChart({
     if (hoverIdx === null || hoverIdx < 0 || hoverIdx >= n) return null;
     const price = prices[hoverIdx]!;
     const eq = equityCurve[hoverIdx] ?? equityCurve[equityCurve.length - 1] ?? 1;
+    const openTime = openTimes?.[hoverIdx];
+    const atMs = typeof openTime === "number" && Number.isFinite(openTime) ? openTime : null;
     const kalPred = legend.showKalman ? kalman?.[hoverIdx] ?? null : null;
     const position = pos[hoverIdx] ?? 0;
     const ok = agree ? (agree[hoverIdx] ?? false) : null;
     const trade = findTrade(tradesAll, hoverIdx);
     const op = findOp(operations, hoverIdx);
     const bar = backtestStartIndex + hoverIdx;
-    return { idx: hoverIdx, bar, price, kalPred, eq, position, ok, trade, op };
-  }, [agree, backtestStartIndex, equityCurve, hoverIdx, kalman, legend.showKalman, n, operations, pos, prices, tradesAll]);
+    return { idx: hoverIdx, bar, price, atMs, kalPred, eq, position, ok, trade, op };
+  }, [
+    agree,
+    backtestStartIndex,
+    equityCurve,
+    hoverIdx,
+    kalman,
+    legend.showKalman,
+    n,
+    openTimes,
+    operations,
+    pos,
+    prices,
+    tradesAll,
+  ]);
 
   const tooltipStyle = useMemo(() => {
     if (!pointer) return { display: "none" } as React.CSSProperties;
     const pad = 14;
     const w = 270;
-    const h = 160;
+    const h = 190;
     const left = clamp(pointer.x + 12, pad, size.w - w - pad);
     const top = clamp(pointer.y + 12, pad, size.h - h - pad);
     return { left, top, width: w } as React.CSSProperties;
@@ -824,14 +842,20 @@ export function BacktestChart({
 	        <div className="btTooltip" style={tooltipStyle} aria-hidden={!hover}>
 	          {hover ? (
 	            <>
-	              <div className="btTooltipTitle">
-	                Bar <span style={{ fontFamily: "var(--mono)" }}>#{hover.bar}</span>{" "}
-	                <span className="badge">{hover.position > 0 ? "LONG" : hover.position < 0 ? "SHORT" : "FLAT"}</span>{" "}
-	                {hover.position !== 0 && Math.abs(hover.position) < 0.9999 ? (
-	                  <span className="badge">size {pct(Math.abs(hover.position), 1)}</span>
-	                ) : null}{" "}
-	                {hover.ok !== null ? <span className="badge">{hover.ok ? "AGREE" : "NO-AGREE"}</span> : null}
-	              </div>
+              <div className="btTooltipTitle">
+                Bar <span style={{ fontFamily: "var(--mono)" }}>#{hover.bar}</span>{" "}
+                <span className="badge">{hover.position > 0 ? "LONG" : hover.position < 0 ? "SHORT" : "FLAT"}</span>{" "}
+                {hover.position !== 0 && Math.abs(hover.position) < 0.9999 ? (
+                  <span className="badge">size {pct(Math.abs(hover.position), 1)}</span>
+                ) : null}{" "}
+                {hover.ok !== null ? <span className="badge">{hover.ok ? "AGREE" : "NO-AGREE"}</span> : null}
+              </div>
+              {hover.atMs !== null ? (
+                <div className="btTooltipRow">
+                  <div className="k">Time</div>
+                  <div className="v">{fmtTimeMs(hover.atMs)}</div>
+                </div>
+              ) : null}
               <div className="btTooltipRow">
                 <div className="k">Close</div>
                 <div className="v">{fmt(hover.price, 4)}</div>

@@ -528,6 +528,7 @@ data BacktestSummary = BacktestSummary
   , bsLatestSignal :: !LatestSignal
   , bsEquityCurve :: ![Double]
   , bsBacktestPrices :: ![Double]
+  , bsOpenTimes :: !(Maybe [Int64])
   , bsKalmanPredNext :: ![Maybe Double]
   , bsLstmPredNext :: ![Maybe Double]
   , bsPositions :: ![Double]
@@ -10771,6 +10772,7 @@ backtestSummaryJson summary =
     , "latestSignal" .= bsLatestSignal summary
     , "equityCurve" .= bsEquityCurve summary
     , "prices" .= bsBacktestPrices summary
+    , "openTimes" .= bsOpenTimes summary
     , "kalmanPredNext" .= bsKalmanPredNext summary
     , "lstmPredNext" .= bsLstmPredNext summary
     , "positions" .= bsPositions summary
@@ -11819,6 +11821,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsLatestSignal = latestSignal
       , bsEquityCurve = brEquityCurve backtest
       , bsBacktestPrices = backtestPrices
+      , bsOpenTimes = backtestOpenTimes
       , bsKalmanPredNext = kalmanPredNext
       , bsLstmPredNext = lstmPredNext
       , bsPositions = brPositions backtest
