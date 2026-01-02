@@ -251,6 +251,7 @@ textarea {
   position: sticky;
   top: 18px;
   max-height: calc(100vh - 36px);
+  height: calc(100vh - 36px);
   display: flex;
   flex-direction: column;
 }
@@ -268,22 +269,11 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .card {
-    max-height: none;
-  }
-
-  .cardBody {
-    overflow: visible;
-  }
-
   .configCard {
     position: static;
-    max-height: none;
-    display: block;
   }
 
   .configCard .cardBody {
-    overflow: visible;
     padding-right: 16px;
   }
 }
@@ -299,6 +289,8 @@ textarea {
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 36px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .cardHeader {
