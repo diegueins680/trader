@@ -1461,10 +1461,10 @@ export function App() {
   const requestSeqRef = useRef(0);
   const botRequestSeqRef = useRef(0);
   const keysRequestSeqRef = useRef(0);
-  const errorRef = useRef<HTMLDetailsElement | null>(null);
-  const signalRef = useRef<HTMLDetailsElement | null>(null);
-  const backtestRef = useRef<HTMLDetailsElement | null>(null);
-  const tradeRef = useRef<HTMLDetailsElement | null>(null);
+  const errorRef = useRef<HTMLDetailsElement>(null!);
+  const signalRef = useRef<HTMLDetailsElement>(null!);
+  const backtestRef = useRef<HTMLDetailsElement>(null!);
+  const tradeRef = useRef<HTMLDetailsElement>(null!);
 
   useEffect(() => {
     writeJson(STORAGE_KEY, form);
@@ -7841,7 +7841,6 @@ export function App() {
                   ) : null}
                 </div>
               ) : null}
-            </div>
 
           </CollapsibleSection>
 
