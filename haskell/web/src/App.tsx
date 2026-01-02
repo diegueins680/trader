@@ -77,6 +77,7 @@ import {
   SIGNAL_TIMEOUT_MS,
   STORAGE_KEY,
   STORAGE_ORDER_LOG_PREFS_KEY,
+  STORAGE_PANEL_PREFS_KEY,
   STORAGE_PERSIST_SECRETS_KEY,
   STORAGE_PROFILES_KEY,
   TRADE_TIMEOUT_MS,
@@ -138,6 +139,8 @@ type RateLimitState = {
   lastHitAtMs: number;
 };
 
+type PanelPrefs = Record<string, boolean>;
+
 type KeysStatus = BinanceKeysStatus | CoinbaseKeysStatus;
 
 type OpsUiState = {
@@ -156,8 +159,37 @@ type BotStatusOp = {
   symbol: string | null;
 };
 
+type CollapsibleCardProps = {
+  panelId: string;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  className?: string;
+  summaryId?: string;
+  style?: React.CSSProperties;
+  containerRef?: React.RefObject<HTMLDetailsElement>;
+};
+
+type CollapsibleSectionProps = {
+  panelId: string;
+  title: string;
+  meta?: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+};
+
 const BOT_STATUS_OPS_LIMIT = 5000;
 const CHART_HEIGHT = "var(--chart-height)";
+const CONFIG_SECTION_IDS = [
+  "section-market",
+  "section-lookback",
+  "section-thresholds",
+  "section-risk",
+  "section-optimization",
+  "section-livebot",
+  "section-trade",
+] as const;
 
 function isCoinbaseKeysStatus(status: KeysStatus): status is CoinbaseKeysStatus {
   return "hasApiPassphrase" in status;
@@ -1210,6 +1242,8 @@ export function App() {
   const [pendingMarket, setPendingMarket] = useState<Market | null>(null);
 
   const orderPrefsInit = readJson<OrderLogPrefs>(STORAGE_ORDER_LOG_PREFS_KEY);
+  const panelPrefsInit = readJson<PanelPrefs>(STORAGE_PANEL_PREFS_KEY);
+  const [panelPrefs, setPanelPrefs] = useState<PanelPrefs>(() => panelPrefsInit ?? {});
   const [state, setState] = useState<UiState>({
     loading: false,
     error: null,
@@ -1427,10 +1461,10 @@ export function App() {
   const requestSeqRef = useRef(0);
   const botRequestSeqRef = useRef(0);
   const keysRequestSeqRef = useRef(0);
-  const errorRef = useRef<HTMLDivElement | null>(null);
-  const signalRef = useRef<HTMLDivElement | null>(null);
-  const backtestRef = useRef<HTMLDivElement | null>(null);
-  const tradeRef = useRef<HTMLDivElement | null>(null);
+  const errorRef = useRef<HTMLDetailsElement | null>(null);
+  const signalRef = useRef<HTMLDetailsElement | null>(null);
+  const backtestRef = useRef<HTMLDetailsElement | null>(null);
+  const tradeRef = useRef<HTMLDetailsElement | null>(null);
 
   useEffect(() => {
     writeJson(STORAGE_KEY, form);
@@ -1474,6 +1508,62 @@ export function App() {
     orderShowStatus,
     orderSideFilter,
   ]);
+
+  useEffect(() => {
+    writeJson(STORAGE_PANEL_PREFS_KEY, panelPrefs);
+  }, [panelPrefs]);
+
+  const setPanelOpen = useCallback((panelId: string, open: boolean) => {
+    setPanelPrefs((prev) => (prev[panelId] === open ? prev : { ...prev, [panelId]: open }));
+  }, []);
+
+  const setPanelsOpen = useCallback((panelIds: readonly string[], open: boolean) => {
+    setPanelPrefs((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const panelId of panelIds) {
+        if (next[panelId] !== open) {
+          next[panelId] = open;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const isPanelOpen = useCallback(
+    (panelId: string, defaultOpen: boolean) => {
+      const stored = panelPrefs[panelId];
+      return typeof stored === "boolean" ? stored : defaultOpen;
+    },
+    [panelPrefs],
+  );
+
+  const handlePanelToggle = useCallback(
+    (panelId: string) => (event: React.SyntheticEvent<HTMLDetailsElement>) => {
+      setPanelOpen(panelId, event.currentTarget.open);
+    },
+    [setPanelOpen],
+  );
+
+  const openPanelAncestors = useCallback(
+    (el: HTMLElement) => {
+      let current: HTMLElement | null = el;
+      let opened = false;
+      while (current) {
+        const details = current.closest("details[data-panel]") as HTMLDetailsElement | null;
+        if (!details) return opened;
+        const panelId = details.getAttribute("data-panel");
+        if (panelId && !details.open) {
+          setPanelOpen(panelId, true);
+          opened = true;
+        }
+        current = details.parentElement;
+      }
+      return opened;
+    },
+    [setPanelOpen],
+  );
 
   useEffect(() => {
     const v = binanceApiKey.trim();
@@ -2562,47 +2652,67 @@ export function App() {
 
   const scrollToResult = useCallback((kind: RequestKind) => {
     const ref = kind === "signal" ? signalRef : kind === "backtest" ? backtestRef : tradeRef;
-    const prefersReducedMotion =
-      typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
-    ref.current?.scrollIntoView({ behavior, block: "start" });
-  }, []);
+    const el = ref.current;
+    if (!el) return;
+    const openedPanels = openPanelAncestors(el);
+    const runScroll = () => {
+      const prefersReducedMotion =
+        typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+      el.scrollIntoView({ behavior, block: "start" });
+    };
+    if (openedPanels && typeof window !== "undefined") {
+      window.setTimeout(runScroll, 0);
+    } else {
+      runScroll();
+    }
+  }, [openPanelAncestors]);
   const scrollToSection = useCallback((id?: string) => {
     if (!id || typeof document === "undefined") return;
     const el = document.getElementById(id);
     if (!el) return;
-    const prefersReducedMotion =
-      typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
-    el.scrollIntoView({ behavior, block: "start" });
+    const openedPanels = openPanelAncestors(el);
 
-    const focusSelector =
-      "input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
-    const focusTarget = el.matches(focusSelector) ? el : el.querySelector<HTMLElement>(focusSelector);
-    if (focusTarget) {
-      focusTarget.focus({ preventScroll: true });
-    } else {
-      if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
-      el.focus({ preventScroll: true });
-    }
+    const runScroll = () => {
+      const prefersReducedMotion =
+        typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+      el.scrollIntoView({ behavior, block: "start" });
 
-    if (sectionFlashRef.current && sectionFlashRef.current !== el) {
-      sectionFlashRef.current.classList.remove("sectionFlash");
-    }
-    sectionFlashRef.current = el;
-    if (sectionFlashTimeoutRef.current) {
-      window.clearTimeout(sectionFlashTimeoutRef.current);
-      sectionFlashTimeoutRef.current = null;
-    }
-    if (!prefersReducedMotion) {
-      el.classList.remove("sectionFlash");
-      void el.offsetWidth;
-      el.classList.add("sectionFlash");
-      sectionFlashTimeoutRef.current = window.setTimeout(() => {
+      const focusSelector =
+        "input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
+      const focusTarget = el.matches(focusSelector) ? el : el.querySelector<HTMLElement>(focusSelector);
+      if (focusTarget) {
+        focusTarget.focus({ preventScroll: true });
+      } else {
+        if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+        el.focus({ preventScroll: true });
+      }
+
+      if (sectionFlashRef.current && sectionFlashRef.current !== el) {
+        sectionFlashRef.current.classList.remove("sectionFlash");
+      }
+      sectionFlashRef.current = el;
+      if (sectionFlashTimeoutRef.current) {
+        window.clearTimeout(sectionFlashTimeoutRef.current);
+        sectionFlashTimeoutRef.current = null;
+      }
+      if (!prefersReducedMotion) {
         el.classList.remove("sectionFlash");
-      }, 1200);
+        void el.offsetWidth;
+        el.classList.add("sectionFlash");
+        sectionFlashTimeoutRef.current = window.setTimeout(() => {
+          el.classList.remove("sectionFlash");
+        }, 1200);
+      }
+    };
+
+    if (openedPanels && typeof window !== "undefined") {
+      window.setTimeout(runScroll, 0);
+    } else {
+      runScroll();
     }
-  }, []);
+  }, [openPanelAncestors]);
 
   useEffect(() => {
     return () => {
@@ -5130,6 +5240,53 @@ export function App() {
     : null;
   const tradeOrder = state.trade?.order ?? null;
 
+  const CollapsibleCard = ({
+    panelId,
+    title,
+    subtitle,
+    children,
+    defaultOpen = true,
+    className,
+    summaryId,
+    style,
+    containerRef,
+  }: CollapsibleCardProps) => (
+    <details
+      className={`card cardCollapsible${className ? ` ${className}` : ""}`}
+      open={isPanelOpen(panelId, defaultOpen)}
+      onToggle={handlePanelToggle(panelId)}
+      data-panel={panelId}
+      ref={containerRef}
+      style={style}
+    >
+      <summary className="cardHeader cardSummary" id={summaryId}>
+        <div className="cardHeaderText">
+          <h2 className="cardTitle">{title}</h2>
+          {subtitle ? <p className="cardSubtitle">{subtitle}</p> : null}
+        </div>
+        <span className="cardToggle" aria-hidden="true">
+          <span className="cardToggleLabel" data-open="Collapse" data-closed="Expand" />
+          <span className="cardToggleIcon" />
+        </span>
+      </summary>
+      <div className="cardBody">{children}</div>
+    </details>
+  );
+
+  const CollapsibleSection = ({ panelId, title, meta, children, defaultOpen = true }: CollapsibleSectionProps) => (
+    <details className="sectionPanel" open={isPanelOpen(panelId, defaultOpen)} onToggle={handlePanelToggle(panelId)} data-panel={panelId}>
+      <summary className="sectionHeading" id={panelId}>
+        <span className="sectionTitle">{title}</span>
+        {meta ? <span className="sectionMeta">{meta}</span> : null}
+        <span className="sectionToggle" aria-hidden="true">
+          <span className="sectionToggleLabel" data-open="Hide" data-closed="Show" />
+          <span className="sectionToggleIcon" />
+        </span>
+      </summary>
+      <div className="sectionBody">{children}</div>
+    </details>
+  );
+
   return (
     <div className="container">
       <header className="header">
@@ -5179,12 +5336,12 @@ export function App() {
       ) : null}
 
       <div className="grid">
-        <section className="card configCard">
-          <div className="cardHeader">
-            <h2 className="cardTitle">Configuration</h2>
-            <p className="cardSubtitle">Safe defaults, minimal knobs, and clear outputs.</p>
-          </div>
-          <div className="cardBody">
+        <CollapsibleCard
+          panelId="panel-config"
+          title="Configuration"
+          subtitle="Safe defaults, minimal knobs, and clear outputs."
+          className="configCard"
+        >
             <div className="stickyActions">
               <div className="pillRow">
                 <span className={`pill ${requestIssues.length ? "pillWarn" : "pillOk"}`}>
@@ -5258,6 +5415,15 @@ export function App() {
                     {target.label}
                   </button>
                 ))}
+              </div>
+              <div className="pillRow jumpRow">
+                <span className="jumpLabel">Panels</span>
+                <button className="btnSmall" type="button" onClick={() => setPanelsOpen(CONFIG_SECTION_IDS, true)}>
+                  Expand all
+                </button>
+                <button className="btnSmall" type="button" onClick={() => setPanelsOpen(CONFIG_SECTION_IDS, false)}>
+                  Collapse all
+                </button>
               </div>
               {requestIssueDetails.length > 1 ? (
                 <details className="details">
@@ -5771,10 +5937,7 @@ export function App() {
             </div>
           </div>
 
-          <div className="sectionHeading" id="section-market">
-            <span className="sectionTitle">Market</span>
-            <span className="sectionMeta">Pair, market type, interval, bars.</span>
-          </div>
+          <CollapsibleSection panelId="section-market" title="Market" meta="Pair, market type, interval, bars.">
           <div className="row rowSingle">
             <div className="field">
               <label className="label" htmlFor="platform">
@@ -5973,10 +6136,9 @@ export function App() {
             </div>
           </div>
 
-            <div className="sectionHeading" id="section-lookback">
-              <span className="sectionTitle">Lookback</span>
-              <span className="sectionMeta">Window length and bar overrides.</span>
-            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection panelId="section-lookback" title="Lookback" meta="Window length and bar overrides.">
             <div className="row">
               <div className="field">
                 <label className="label" htmlFor="lookbackWindow">
@@ -6031,13 +6193,12 @@ export function App() {
                     </button>
                   </div>
                 ) : null}
-              </div>
             </div>
+          </div>
 
-            <div className="sectionHeading" id="section-thresholds">
-              <span className="sectionTitle">Thresholds</span>
-              <span className="sectionMeta">Method, positioning, entry/exit gates.</span>
-            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection panelId="section-thresholds" title="Thresholds" meta="Method, positioning, entry/exit gates.">
             <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
               <div className="field">
                 <label className="label" htmlFor="method">
@@ -6428,10 +6589,9 @@ export function App() {
               </div>
             </div>
 
-            <div className="sectionHeading" id="section-risk">
-              <span className="sectionTitle">Risk</span>
-              <span className="sectionMeta">Stops, pacing, sizing, and kill-switches.</span>
-            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection panelId="section-risk" title="Risk" meta="Stops, pacing, sizing, and kill-switches.">
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
               <div className="label">Bracket exits (fractions)</div>
@@ -6983,10 +7143,9 @@ export function App() {
               </div>
             </div>
 
-            <div className="sectionHeading" id="section-optimization">
-              <span className="sectionTitle">Optimization</span>
-              <span className="sectionMeta">Tuning sweeps, presets, and constraints.</span>
-            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection panelId="section-optimization" title="Optimization" meta="Tuning sweeps, presets, and constraints.">
             <div className="row">
               <div className="field">
               <div className="label">Optimization</div>
@@ -7232,7 +7391,9 @@ export function App() {
               </div>
             </div>
 
-            <div style={{ marginTop: 14 }} id="section-livebot">
+          </CollapsibleSection>
+
+          <CollapsibleSection panelId="section-livebot" title="Live bot" meta="Start, stop, and tune the continuous loop.">
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
                 <div className="field">
                   <div className="label">Live bot</div>
@@ -7407,9 +7568,9 @@ export function App() {
                   </details>
                 </div>
               </div>
-            </div>
+          </CollapsibleSection>
 
-            <div style={{ marginTop: 14 }} id="section-trade">
+          <CollapsibleSection panelId="section-trade" title="Trade" meta="Arm trading, size orders, and run /trade.">
               <div className="row">
                 <div className="field">
                   <div className="label">Trade controls</div>
@@ -7682,7 +7843,9 @@ export function App() {
               ) : null}
             </div>
 
-            <p className="footerNote">
+          </CollapsibleSection>
+
+          <p className="footerNote">
               Backend: start with{" "}
               <span style={{ fontFamily: "var(--mono)" }}>
                 cd haskell && cabal run -v0 trader-hs -- --serve --port {API_PORT}
@@ -7699,31 +7862,28 @@ export function App() {
                 </>
               )}
             </p>
-          </div>
-        </section>
+        </CollapsibleCard>
 
         <section className="resultGrid">
           {state.error ? (
-            <div className="card" ref={errorRef}>
-              <div className="cardHeader">
-                <h2 className="cardTitle">Error</h2>
-                <p className="cardSubtitle">Fix the request or backend and try again.</p>
-              </div>
-              <div className="cardBody">
-                <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
-                  {state.error}
-                </pre>
-              </div>
-            </div>
+            <CollapsibleCard
+              panelId="panel-error"
+              title="Error"
+              subtitle="Fix the request or backend and try again."
+              containerRef={errorRef}
+            >
+              <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                {state.error}
+              </pre>
+            </CollapsibleCard>
           ) : null}
 
-          <div className="card">
-            <div className="cardHeader">
-              <h2 className="cardTitle">Overview</h2>
-              <p className="cardSubtitle">At-a-glance status for connection, execution mode, and latest outputs.</p>
-            </div>
-            <div className="cardBody">
-              <div className="summaryGrid">
+          <CollapsibleCard
+            panelId="panel-overview"
+            title="Overview"
+            subtitle="At-a-glance status for connection, execution mode, and latest outputs."
+          >
+            <div className="summaryGrid">
                 <div className="summaryItem">
                   <div className="summaryLabel">Connection</div>
                   <div className="summaryValue">
@@ -7812,16 +7972,14 @@ export function App() {
                     )}
                   </div>
                 </div>
-              </div>
             </div>
-          </div>
+          </CollapsibleCard>
 
-          <div className="card">
-            <div className="cardHeader">
-              <h2 className="cardTitle">Live bot</h2>
-              <p className="cardSubtitle">Non-stop loop (server-side): fetches new bars, updates the model each bar, and records each buy/sell operation.</p>
-            </div>
-            <div className="cardBody">
+          <CollapsibleCard
+            panelId="panel-live-bot"
+            title="Live bot"
+            subtitle="Non-stop loop (server-side): fetches new bars, updates the model each bar, and records each buy/sell operation."
+          >
               {botDisplay ? (
                 <>
                   {botSymbolOptions.length > 1 ? (
@@ -8708,15 +8866,13 @@ export function App() {
                       : "Bot is stopped. Use “Start live bot” on the left."}
                 </div>
               )}
-            </div>
-          </div>
+          </CollapsibleCard>
 
-          <div className="card">
-            <div className="cardHeader">
-              <h2 className="cardTitle">Binance account trades</h2>
-              <p className="cardSubtitle">Full exchange history from your Binance account (API keys required).</p>
-            </div>
-            <div className="cardBody">
+          <CollapsibleCard
+            panelId="panel-binance-trades"
+            title="Binance account trades"
+            subtitle="Full exchange history from your Binance account (API keys required)."
+          >
               <div className="row">
                 <div className="field" style={{ flex: "2 1 360px" }}>
                   <label className="label" htmlFor="binanceTradesSymbols">
@@ -8911,15 +9067,14 @@ export function App() {
                   No trades loaded yet.
                 </div>
               )}
-            </div>
-          </div>
+          </CollapsibleCard>
 
-          <div className="card" ref={signalRef}>
-            <div className="cardHeader">
-              <h2 className="cardTitle">Latest signal</h2>
-              <p className="cardSubtitle">{state.latestSignal ? "Computed from the most recent bar." : "Run “Get signal” or “Run backtest” to populate."}</p>
-            </div>
-            <div className="cardBody">
+          <CollapsibleCard
+            panelId="panel-latest-signal"
+            title="Latest signal"
+            subtitle={state.latestSignal ? "Computed from the most recent bar." : "Run “Get signal” or “Run backtest” to populate."}
+            containerRef={signalRef}
+          >
               {state.latestSignal ? (
                 <>
                   <div className="pillRow" style={{ marginBottom: 10 }}>
@@ -9111,15 +9266,14 @@ export function App() {
           ) : (
             <div className="hint">No signal yet.</div>
           )}
-        </div>
-      </div>
+          </CollapsibleCard>
 
-          <div className="card" id="section-positions">
-            <div className="cardHeader">
-              <h2 className="cardTitle">Open positions</h2>
-              <p className="cardSubtitle">Charts for every open Binance futures position (positionRisk + klines).</p>
-            </div>
-            <div className="cardBody">
+          <CollapsibleCard
+            panelId="panel-positions"
+            title="Open positions"
+            subtitle="Charts for every open Binance futures position (positionRisk + klines)."
+            summaryId="section-positions"
+          >
               <div className="row" style={{ marginBottom: 10 }}>
                 <div className="field">
                   <label className="label" htmlFor="positionsBars">
@@ -9226,15 +9380,13 @@ export function App() {
               ) : (
                 <div className="hint">No positions loaded yet.</div>
               )}
-            </div>
-          </div>
+          </CollapsibleCard>
 
-          <div className="card">
-            <div className="cardHeader">
-              <h2 className="cardTitle">Orphaned operations</h2>
-              <p className="cardSubtitle">Open futures positions that are not currently adopted by a running/starting bot.</p>
-            </div>
-            <div className="cardBody">
+          <CollapsibleCard
+            panelId="panel-orphaned-operations"
+            title="Orphaned operations"
+            subtitle="Open futures positions that are not currently adopted by a running/starting bot."
+          >
               <div className="pillRow" style={{ marginBottom: 10 }}>
                 <span className="badge">
                   {binancePositionsUi.response ? orphanPositions.length : "—"} orphaned
@@ -9331,15 +9483,14 @@ export function App() {
               ) : (
                 <div className="hint">Load open positions above to see orphaned operations.</div>
               )}
-            </div>
-          </div>
+          </CollapsibleCard>
 
-          <div className="card" ref={backtestRef}>
-	            <div className="cardHeader">
-	              <h2 className="cardTitle">Backtest summary</h2>
-	              <p className="cardSubtitle">Uses a time split (train vs held-out backtest). When optimizing, tunes on a fit/tune split inside train.</p>
-	            </div>
-            <div className="cardBody">
+          <CollapsibleCard
+            panelId="panel-backtest-summary"
+            title="Backtest summary"
+            subtitle="Uses a time split (train vs held-out backtest). When optimizing, tunes on a fit/tune split inside train."
+            containerRef={backtestRef}
+          >
               {state.backtest ? (
                 <>
 			                  <BacktestChart
@@ -9618,15 +9769,14 @@ export function App() {
               ) : (
                 <div className="hint">No backtest yet.</div>
               )}
-            </div>
-          </div>
+          </CollapsibleCard>
 
-          <div className="card" ref={tradeRef}>
-            <div className="cardHeader">
-              <h2 className="cardTitle">Trade result</h2>
-              <p className="cardSubtitle">Shows current key status, and trade output after calling /trade.</p>
-            </div>
-            <div className="cardBody">
+          <CollapsibleCard
+            panelId="panel-trade-result"
+            title="Trade result"
+            subtitle="Shows current key status, and trade output after calling /trade."
+            containerRef={tradeRef}
+          >
               <div className="pillRow" style={{ marginBottom: 10 }}>
                 <span className="badge">Keys: {keysProvidedLabel}</span>
                 {isBinancePlatform ? (
@@ -9749,15 +9899,13 @@ export function App() {
               ) : (
                 <div className="hint">No trade attempt yet.</div>
               )}
-            </div>
-          </div>
+          </CollapsibleCard>
 
-          <div className="card">
-            <div className="cardHeader">
-              <h2 className="cardTitle">User data stream (listenKey)</h2>
-              <p className="cardSubtitle">Keeps the Binance user-data listen key alive via the API, and connects the browser to Binance WebSocket.</p>
-            </div>
-            <div className="cardBody">
+          <CollapsibleCard
+            panelId="panel-user-data-stream"
+            title="User data stream (listenKey)"
+            subtitle="Keeps the Binance user-data listen key alive via the API, and connects the browser to Binance WebSocket."
+          >
               <div className="pillRow" style={{ marginBottom: 10 }}>
                 <span className="badge">
                   {marketLabel(form.market)}
@@ -9869,15 +10017,14 @@ export function App() {
               ) : (
                 <div className="hint">Not running.</div>
               )}
-            </div>
-          </div>
+          </CollapsibleCard>
 
-          <div className="card">
-            <div className="cardHeader">
-              <h2 className="cardTitle">Request preview</h2>
-              <p className="cardSubtitle">This JSON is what the UI sends to the API (excluding session-stored secrets).</p>
-            </div>
-            <div className="cardBody">
+          <CollapsibleCard
+            panelId="panel-request-preview"
+            title="Request preview"
+            subtitle="This JSON is what the UI sends to the API (excluding session-stored secrets)."
+            defaultOpen={false}
+          >
               <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
                 <button
                   className="btn"
@@ -9911,17 +10058,17 @@ export function App() {
                 </button>
               </div>
               <pre className="code">{JSON.stringify(requestPreview, null, 2)}</pre>
-            </div>
-          </div>
+          </CollapsibleCard>
         </section>
       </div>
 
-      <section className="card" style={{ marginTop: "18px" }}>
-        <div className="cardHeader">
-          <h2 className="cardTitle">Data Log</h2>
-          <p className="cardSubtitle">All incoming API responses (last 100 entries)</p>
-        </div>
-        <div className="cardBody">
+      <CollapsibleCard
+        panelId="panel-data-log"
+        title="Data Log"
+        subtitle="All incoming API responses (last 100 entries)"
+        defaultOpen={false}
+        style={{ marginTop: "18px" }}
+      >
 	          <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
 	            <button
 	              className="btn"
@@ -10017,10 +10164,9 @@ export function App() {
 	                  </div>
 	                </div>
 	              ))
-	            )}
+            )}
           </div>
-        </div>
-      </section>
+      </CollapsibleCard>
     </div>
   );
 }

@@ -293,6 +293,30 @@ textarea {
   padding: 18px 18px 0;
 }
 
+.cardSummary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.cardSummary::-webkit-details-marker {
+  display: none;
+}
+
+.cardSummary::marker {
+  content: "";
+}
+
+.cardHeaderText {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
 .cardTitle {
   margin: 0;
   font-size: 15px;
@@ -309,6 +333,47 @@ textarea {
 
 .cardBody {
   padding: 18px;
+}
+
+.cardCollapsible:not([open]) .cardHeader {
+  padding-bottom: 18px;
+}
+
+.cardToggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cardToggleLabel::after {
+  content: attr(data-closed);
+}
+
+.cardToggleIcon {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 140ms ease;
+}
+
+.cardCollapsible[open] .cardToggleLabel::after {
+  content: attr(data-open);
+}
+
+.cardCollapsible[open] .cardToggleIcon {
+  transform: rotate(-135deg);
 }
 
 .stickyActions {
@@ -347,7 +412,7 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  align-items: baseline;
+  align-items: center;
   padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid var(--stroke);
@@ -365,6 +430,60 @@ textarea {
 .sectionMeta {
   font-size: 12px;
   color: var(--faint);
+}
+
+.sectionPanel > summary.sectionHeading {
+  list-style: none;
+  cursor: pointer;
+}
+
+.sectionPanel > summary.sectionHeading::-webkit-details-marker {
+  display: none;
+}
+
+.sectionPanel > summary.sectionHeading::marker {
+  content: "";
+}
+
+.sectionBody {
+  padding-bottom: 6px;
+}
+
+.sectionToggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sectionToggleLabel::after {
+  content: attr(data-closed);
+}
+
+.sectionToggleIcon {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 140ms ease;
+}
+
+.sectionPanel[open] .sectionToggleLabel::after {
+  content: attr(data-open);
+}
+
+.sectionPanel[open] .sectionToggleIcon {
+  transform: rotate(-135deg);
 }
 
 [id^="section-"] {
@@ -557,7 +676,9 @@ textarea {
 .btn:focus-visible,
 .btnSmall:focus-visible,
 .comboRow:focus-visible,
-.details > summary:focus-visible {
+.details > summary:focus-visible,
+.cardSummary:focus-visible,
+.sectionHeading:focus-visible {
   outline: none;
   box-shadow: var(--ring);
   border-color: rgba(var(--accent-rgb), 0.55);
