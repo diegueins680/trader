@@ -271,6 +271,7 @@ const CollapsibleSection = ({ panelId, title, meta, children, open, onToggle }: 
 
 const BOT_STATUS_OPS_LIMIT = 5000;
 const BOT_DISPLAY_STALE_MS = 6_000;
+const BOT_DISPLAY_STARTING_STALE_MS = 5 * 60_000;
 const CHART_HEIGHT = "var(--chart-height)";
 const ChartFallback = ({
   height = CHART_HEIGHT,
@@ -360,6 +361,15 @@ function botStatusSymbol(status: BotStatusSingle): string | null {
 
 function botStatusKey(status: { market: Market; symbol: string; interval: string }): string {
   return `${status.market}:${normalizeSymbolKey(status.symbol)}:${status.interval}`;
+}
+
+function botStatusKeyFromSingle(status: BotStatusSingle): string | null {
+  const symbol = botStatusSymbol(status);
+  if (!symbol) return null;
+  const market = status.running ? status.market : status.market ?? status.snapshot?.market;
+  const interval = status.running ? status.interval : status.interval ?? status.snapshot?.interval;
+  if (!market || !interval) return null;
+  return botStatusKey({ market, symbol, interval });
 }
 
 function formatDatetimeLocal(ms: number): string {
@@ -3195,6 +3205,11 @@ export function App() {
         .filter((entry): entry is { symbol: string; status: BotStatusSingle } => Boolean(entry)),
     [botEntries],
   );
+  const botEntriesStarting = useMemo(() => {
+    if ("starting" in bot.status && bot.status.starting === true) return true;
+    return botEntriesWithSymbolLive.some((entry) => !entry.status.running && entry.status.starting === true);
+  }, [bot.status, botEntriesWithSymbolLive]);
+  const botEntriesStaleLimitMs = botEntriesStarting ? BOT_DISPLAY_STARTING_STALE_MS : BOT_DISPLAY_STALE_MS;
   const botEntriesCacheRef = useRef<{ entries: { symbol: string; status: BotStatusSingle }[]; atMs: number } | null>(null);
   useEffect(() => {
     if (botEntriesWithSymbolLive.length === 0) return;
@@ -3202,13 +3217,13 @@ export function App() {
     const now = Date.now();
     const prevAgeMs = prev ? now - prev.atMs : null;
     const shouldReplace =
-      !prev || botEntriesWithSymbolLive.length >= prev.entries.length || (prevAgeMs != null && prevAgeMs > BOT_DISPLAY_STALE_MS);
+      !prev || botEntriesWithSymbolLive.length >= prev.entries.length || (prevAgeMs != null && prevAgeMs > botEntriesStaleLimitMs);
     if (shouldReplace) {
       botEntriesCacheRef.current = { entries: botEntriesWithSymbolLive, atMs: now };
     }
-  }, [botEntriesWithSymbolLive]);
+  }, [botEntriesStaleLimitMs, botEntriesWithSymbolLive]);
   const botEntriesCacheAgeMs = botEntriesCacheRef.current ? Date.now() - botEntriesCacheRef.current.atMs : null;
-  const botEntriesCacheFresh = botEntriesCacheAgeMs != null && botEntriesCacheAgeMs <= BOT_DISPLAY_STALE_MS;
+  const botEntriesCacheFresh = botEntriesCacheAgeMs != null && botEntriesCacheAgeMs <= botEntriesStaleLimitMs;
   const botEntriesShrank =
     botEntriesCacheRef.current && botEntriesWithSymbolLive.length < botEntriesCacheRef.current.entries.length;
   const botEntriesUseCache = botEntriesCacheFresh && (botEntriesWithSymbolLive.length === 0 || botEntriesShrank);
@@ -3271,21 +3286,39 @@ export function App() {
     () => (botSelectedStatus && !botSelectedStatus.running ? botSelectedStatus.snapshot ?? null : null),
     [botSelectedStatus],
   );
+  const botSelectedStarting = useMemo(() => {
+    if (!botSelectedStatus || botSelectedStatus.running) return false;
+    return botSelectedStatus.starting === true;
+  }, [botSelectedStatus]);
   const botDisplayCandidate = botSelectedStatus?.running ? botSelectedStatus : botSnapshot;
-  const botDisplayCacheRef = useRef<{ data: BotStatusRunning; atMs: number } | null>(null);
+  const botDisplayKeyCandidate = botDisplayCandidate ? botStatusKey(botDisplayCandidate) : null;
+  const botSelectedKey = useMemo(
+    () => (botSelectedStatus ? botStatusKeyFromSingle(botSelectedStatus) : null),
+    [botSelectedStatus],
+  );
+  const botDisplayCacheRef = useRef<Record<string, { data: BotStatusRunning; atMs: number }>>({});
+  const botDisplayLastKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (botDisplayCandidate) {
-      botDisplayCacheRef.current = { data: botDisplayCandidate, atMs: Date.now() };
+    if (!botDisplayCandidate || !botDisplayKeyCandidate) return;
+    botDisplayCacheRef.current[botDisplayKeyCandidate] = { data: botDisplayCandidate, atMs: Date.now() };
+    botDisplayLastKeyRef.current = botDisplayKeyCandidate;
+  }, [botDisplayCandidate, botDisplayKeyCandidate]);
+  useEffect(() => {
+    if (botSelectedKey) {
+      botDisplayLastKeyRef.current = botSelectedKey;
     }
-  }, [botDisplayCandidate]);
+  }, [botSelectedKey]);
+  const botDisplayCacheKey = botSelectedKey ?? botDisplayLastKeyRef.current;
+  const botDisplayCacheEntry = botDisplayCacheKey ? botDisplayCacheRef.current[botDisplayCacheKey] ?? null : null;
   const botDisplayCacheAgeMs = botDisplayCandidate
     ? 0
-    : botDisplayCacheRef.current
-      ? Date.now() - botDisplayCacheRef.current.atMs
+    : botDisplayCacheEntry
+      ? Date.now() - botDisplayCacheEntry.atMs
       : null;
+  const botDisplayStaleLimitMs = botSelectedStarting ? BOT_DISPLAY_STARTING_STALE_MS : BOT_DISPLAY_STALE_MS;
   const botDisplayStale =
-    botDisplayCandidate == null && botDisplayCacheAgeMs != null && botDisplayCacheAgeMs <= BOT_DISPLAY_STALE_MS;
-  const botDisplay = botDisplayCandidate ?? (botDisplayStale ? botDisplayCacheRef.current!.data : null);
+    botDisplayCandidate == null && botDisplayCacheAgeMs != null && botDisplayCacheAgeMs <= botDisplayStaleLimitMs;
+  const botDisplay = botDisplayCandidate ?? (botDisplayStale && botDisplayCacheEntry ? botDisplayCacheEntry.data : null);
   const botSnapshotAtMs = botSelectedStatus?.running ? null : botSelectedStatus?.snapshotAtMs ?? null;
   const botHasSnapshot = botSnapshot !== null;
   const botDisplayStaleLabel =
@@ -5518,7 +5551,7 @@ export function App() {
       return makeBarsFix(minBars, "to fit the lookback");
     })();
 
-    const lookbackFix = (() => {
+    const lookbackFix: ErrorFix | null = (() => {
       if (!Number.isFinite(lookbackBars) || lookbackBars == null || lookbackBars < MIN_LOOKBACK_BARS) return null;
       let maxLookback: number | null = null;
       if (Number.isFinite(gotPrices) && gotPrices != null && gotPrices > 1) {
@@ -5534,23 +5567,25 @@ export function App() {
 
       const intervalSec = lookbackState.intervalSec;
       if (lookbackState.overrideOn || !intervalSec) {
-        return {
+        const fix: ErrorFix = {
           label: `Suggested fix: set lookback bars to ${normalizedMax}.`,
           action: "lookbackBars",
           value: normalizedMax,
           targetId: "lookbackBars",
           toast: `Lookback bars set to ${normalizedMax} to fit available bars.`,
         };
+        return fix;
       }
 
       const window = formatDurationSeconds(normalizedMax * intervalSec);
-      return {
+      const fix: ErrorFix = {
         label: `Suggested fix: set lookback window to ${window}.`,
         action: "lookbackWindow",
         value: window,
         targetId: "lookbackWindow",
         toast: `Lookback window set to ${window} to fit available bars.`,
       };
+      return fix;
     })();
 
     if (fitError) return tuneFix ?? lookbackFix ?? backtestBarsFix ?? null;
