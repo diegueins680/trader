@@ -12,7 +12,9 @@ All notable changes to this project will be documented in this file.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.
 - Web UI: keep collapsible panels mounted so config scroll stays stable and the UI stops blinking during refreshes.
 - Web UI: let each panel scroll independently for long outputs.
+- Web UI: split the configuration pane into multiple scrollable sub-panels with drag-and-drop reordering.
 - Web UI: keep live bot panels from flickering by reusing the last status and bot list until fresh status arrives (including while bots are starting).
+- Web UI: make code/log panels more opaque so background content does not bleed through.
 - Web UI: align Data Log toolbar controls, match the log styling to the UI theme, and make the log viewport responsive.
 - Web UI: pause Data Log auto-scroll when you scroll away from the latest entries and resume when you jump back to latest.
 - Web UI: add a Run optimizer form to the Optimizer combos panel to launch `/optimizer/run`, apply constraints, and show the last output.

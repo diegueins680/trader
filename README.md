@@ -611,8 +611,8 @@ Web UI
 A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST API and visualizes signals/backtests (including the equity curve).
 The UI layout uses a refreshed header, section grouping, and spacing for faster scanning on desktop and mobile.
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
-Configuration sections and result panels are collapsible; the UI remembers open/closed state locally, offers expand/collapse-all controls in the configuration panel, and starts low-signal panels (Data Log, Request preview) collapsed by default.
-The Data Log panel aligns toolbar controls and uses theme-matched styling with a responsive log viewport.
+Configuration is split into multiple scrollable sub-panels (drag to reorder) while sections and result panels remain collapsible; the UI remembers open/closed state locally, offers expand/collapse-all controls in the configuration panel, and starts low-signal panels (Data Log, Request preview) collapsed by default.
+The Data Log panel aligns toolbar controls and uses theme-matched styling with a responsive log viewport; code/log surfaces are more opaque so background content doesn't bleed through.
 The configuration pane preserves its scroll position during live updates.
 The overview card summarizes connection, execution mode, and the latest signal/backtest/trade results for quick scanning.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
