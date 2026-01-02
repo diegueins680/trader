@@ -3185,7 +3185,7 @@ export function App() {
     () => (isBotStatusMulti(bot.status) ? bot.status.bots : [bot.status as BotStatusSingle]),
     [bot.status],
   );
-  const botEntriesWithSymbol = useMemo(
+  const botEntriesWithSymbolLive = useMemo(
     () =>
       botEntries
         .map((status) => {
@@ -3195,6 +3195,25 @@ export function App() {
         .filter((entry): entry is { symbol: string; status: BotStatusSingle } => Boolean(entry)),
     [botEntries],
   );
+  const botEntriesCacheRef = useRef<{ entries: { symbol: string; status: BotStatusSingle }[]; atMs: number } | null>(null);
+  useEffect(() => {
+    if (botEntriesWithSymbolLive.length === 0) return;
+    const prev = botEntriesCacheRef.current;
+    const now = Date.now();
+    const prevAgeMs = prev ? now - prev.atMs : null;
+    const shouldReplace =
+      !prev || botEntriesWithSymbolLive.length >= prev.entries.length || (prevAgeMs != null && prevAgeMs > BOT_DISPLAY_STALE_MS);
+    if (shouldReplace) {
+      botEntriesCacheRef.current = { entries: botEntriesWithSymbolLive, atMs: now };
+    }
+  }, [botEntriesWithSymbolLive]);
+  const botEntriesCacheAgeMs = botEntriesCacheRef.current ? Date.now() - botEntriesCacheRef.current.atMs : null;
+  const botEntriesCacheFresh = botEntriesCacheAgeMs != null && botEntriesCacheAgeMs <= BOT_DISPLAY_STALE_MS;
+  const botEntriesShrank =
+    botEntriesCacheRef.current && botEntriesWithSymbolLive.length < botEntriesCacheRef.current.entries.length;
+  const botEntriesUseCache = botEntriesCacheFresh && (botEntriesWithSymbolLive.length === 0 || botEntriesShrank);
+  const botEntriesWithSymbol =
+    botEntriesUseCache && botEntriesCacheRef.current ? botEntriesCacheRef.current.entries : botEntriesWithSymbolLive;
   const botRunningEntries = useMemo(
     () =>
       botEntriesWithSymbol.filter(
