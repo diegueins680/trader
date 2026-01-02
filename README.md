@@ -305,7 +305,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - When confidence sizing is enabled, live orders also scale entry size by LSTM confidence (score = clamp01(|lstmNext/current - 1| / (2 * openThreshold))): use `--lstm-confidence-hard/soft` thresholds (defaults 80%/60%).
   - The UI defaults to `orderQuote=100` so new setups clear common minQty/step sizes; adjust sizing to your account.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
-  - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio to restore valid fit/tune windows.
+  - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio, backtest ratio, bars, or lookback to restore a valid split.
   - Close-direction gating ignores `--min-position-size` so exits are not blocked by size floors.
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
@@ -612,12 +612,14 @@ A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST 
 The UI layout uses a refreshed header, section grouping, and spacing for faster scanning on desktop and mobile.
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 Configuration sections and result panels are collapsible; the UI remembers open/closed state locally, offers expand/collapse-all controls in the configuration panel, and starts low-signal panels (Data Log, Request preview) collapsed by default.
+The Data Log panel aligns toolbar controls and uses theme-matched styling with a responsive log viewport.
 The configuration pane preserves its scroll position during live updates.
 The overview card summarizes connection, execution mode, and the latest signal/backtest/trade results for quick scanning.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
+The Live bot panel keeps the last bot status visible during brief polling gaps to avoid flicker.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
@@ -635,6 +637,7 @@ The UI includes an “Orphaned operations” panel that highlights open futures 
 The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available.
 Charts scale to use most of the viewport height for easier inspection.
+Charts lazy-load to reduce the initial bundle size; placeholders appear while chart chunks load.
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
 The Binance account trades panel requires a non-negative From ID when provided.
 Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
@@ -642,7 +645,9 @@ Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
 Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.
-The configuration panel keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
+The configuration panel scrolls independently and keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
+Result panels scroll independently so longer outputs don't push other panels off-screen.
+Info popovers align to stay within the configuration panel.
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
 The backtest summary chart includes a Download log button to export the backtest operations.
 Backtest charts allow deeper zoom (mouse wheel down to ~6 bars) for close inspection.
@@ -650,7 +655,7 @@ When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must
 The UI auto-applies top combos when available and shows when a combo auto-applied; it also auto-starts missing bots for the top 5 combo symbols (Binance only), and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
-The Data Log panel supports auto-scroll to keep the newest responses in view.
+The Data Log panel supports auto-scroll to keep the newest responses in view; scrolling up pauses auto-scroll until you jump back to latest.
 Filter the Data Log by label; Copy shown respects the current filter, and Jump to latest scrolls back down.
 
 Run it:

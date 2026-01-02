@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ApiBinancePositionsRequest,
   ApiBinancePositionsResponse,
@@ -62,6 +62,7 @@ import {
   BOT_STATUS_TIMEOUT_MS,
   BOT_AUTOSTART_RETRY_MS,
   BOT_TELEMETRY_POINTS,
+  DATA_LOG_AUTO_SCROLL_SLOP_PX,
   DATA_LOG_COLLAPSED_MAX_LINES,
   PLATFORM_DEFAULT_SYMBOL,
   PLATFORM_INTERVALS,
@@ -118,12 +119,7 @@ import {
   normalizeSymbolKey,
   numFromInput,
 } from "./app/utils";
-import { BacktestChart } from "./components/BacktestChart";
-import { BotStateChart } from "./components/BotStateChart";
-import { LiveVisuals } from "./components/LiveVisuals";
-import { PredictionDiffChart } from "./components/PredictionDiffChart";
-import { TelemetryChart } from "./components/TelemetryChart";
-import { TopCombosChart, type OptimizationCombo, type OptimizationComboOperation } from "./components/TopCombosChart";
+import type { OptimizationCombo, OptimizationComboOperation } from "./components/TopCombosChart";
 
 type RequestKind = "signal" | "backtest" | "trade";
 
@@ -216,6 +212,15 @@ const InfoList = ({ items }: InfoListProps) => (
   </ul>
 );
 
+const BacktestChart = lazy(() => import("./components/BacktestChart").then((mod) => ({ default: mod.BacktestChart })));
+const BotStateChart = lazy(() => import("./components/BotStateChart").then((mod) => ({ default: mod.BotStateChart })));
+const LiveVisuals = lazy(() => import("./components/LiveVisuals").then((mod) => ({ default: mod.LiveVisuals })));
+const PredictionDiffChart = lazy(() =>
+  import("./components/PredictionDiffChart").then((mod) => ({ default: mod.PredictionDiffChart })),
+);
+const TelemetryChart = lazy(() => import("./components/TelemetryChart").then((mod) => ({ default: mod.TelemetryChart })));
+const TopCombosChart = lazy(() => import("./components/TopCombosChart").then((mod) => ({ default: mod.TopCombosChart })));
+
 const CollapsibleCard = ({
   panelId,
   title,
@@ -265,7 +270,29 @@ const CollapsibleSection = ({ panelId, title, meta, children, open, onToggle }: 
 );
 
 const BOT_STATUS_OPS_LIMIT = 5000;
+const BOT_DISPLAY_STALE_MS = 6_000;
 const CHART_HEIGHT = "var(--chart-height)";
+const ChartFallback = ({
+  height = CHART_HEIGHT,
+  label = "Loading chart…",
+}: {
+  height?: number | string;
+  label?: string;
+}) => (
+  <div className="chart" style={{ height }}>
+    <div className="chartEmpty">{label}</div>
+  </div>
+);
+const ChartSuspense = ({
+  height,
+  label,
+  children,
+}: {
+  height?: number | string;
+  label?: string;
+  children: React.ReactNode;
+}) => <Suspense fallback={<ChartFallback height={height} label={label} />}>{children}</Suspense>;
+const PanelFallback = ({ label }: { label: string }) => <div className="hint">{label}</div>;
 const CONFIG_SECTION_IDS = [
   "section-market",
   "section-lookback",
@@ -576,13 +603,42 @@ type UiState = {
   trade: ApiTradeResponse | null;
 };
 
-type ErrorFix = {
-  label: string;
-  action: "tuneRatio";
-  value: number;
-  targetId?: string;
-  toast: string;
-};
+type ErrorFix =
+  | {
+      label: string;
+      action: "tuneRatio";
+      value: number;
+      targetId?: string;
+      toast: string;
+    }
+  | {
+      label: string;
+      action: "backtestRatio";
+      value: number;
+      targetId?: string;
+      toast: string;
+    }
+  | {
+      label: string;
+      action: "bars";
+      value: number;
+      targetId?: string;
+      toast: string;
+    }
+  | {
+      label: string;
+      action: "lookbackBars";
+      value: number;
+      targetId?: string;
+      toast: string;
+    }
+  | {
+      label: string;
+      action: "lookbackWindow";
+      value: string;
+      targetId?: string;
+      toast: string;
+    };
 
 type BotUiState = {
   loading: boolean;
@@ -1350,6 +1406,29 @@ function tuneRatioBounds(bars: number, backtestRatio: number, lookbackBars: numb
   };
 }
 
+function maxBarsForPlatform(platform: Platform, method: Method, apiLimits: ComputeLimits | null): number {
+  let maxBars = platform === "binance" ? 1000 : Number.POSITIVE_INFINITY;
+  if (method !== "10" && apiLimits) {
+    const maxBarsRaw = Math.trunc(apiLimits.maxBarsLstm);
+    if (Number.isFinite(maxBarsRaw) && maxBarsRaw > 0) {
+      maxBars = Math.min(maxBars, maxBarsRaw);
+    }
+  }
+  return maxBars;
+}
+
+function maxLookbackForSplit(bars: number, backtestRatio: number, tuneRatio: number, tuningEnabled: boolean): number | null {
+  if (!Number.isFinite(bars) || bars <= 0) return null;
+  const ratio = clamp(backtestRatio, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
+  const trainEndRaw = Math.floor(bars * (1 - ratio) + 1e-9);
+  if (trainEndRaw <= 0) return null;
+  if (!tuningEnabled) return trainEndRaw - 1;
+  const tuneRatioSafe = clamp(tuneRatio, 0, 0.99);
+  const tuneBars = Math.max(0, Math.min(trainEndRaw, Math.floor(trainEndRaw * tuneRatioSafe)));
+  const fitBars = Math.max(0, trainEndRaw - tuneBars);
+  return fitBars - 1;
+}
+
 function minTrainEndForTune(minTrainBars: number, tuneRatio: number, tuningEnabled: boolean, maxTrainEnd: number): number {
   if (!tuningEnabled) return minTrainBars;
   const ratio = clamp(tuneRatio, 0, 0.99);
@@ -2094,6 +2173,7 @@ export function App() {
   const topCombosRef = useRef<OptimizationCombo[]>([]);
   const topCombosSyncRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null);
   const dataLogRef = useRef<HTMLDivElement | null>(null);
+  const dataLogPinnedRef = useRef(true);
   const sectionFlashRef = useRef<HTMLElement | null>(null);
   const sectionFlashTimeoutRef = useRef<number | null>(null);
 
@@ -2607,6 +2687,13 @@ export function App() {
     const el = dataLogRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
+    dataLogPinnedRef.current = true;
+  }, []);
+  const handleDataLogScroll = useCallback(() => {
+    const el = dataLogRef.current;
+    if (!el) return;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    dataLogPinnedRef.current = gap <= DATA_LOG_AUTO_SCROLL_SLOP_PX;
   }, []);
   const downloadBacktestOps = useCallback(() => {
     if (!state.backtest) return;
@@ -2628,11 +2715,17 @@ export function App() {
 
   useEffect(() => {
     if (!dataLogAutoScroll) return;
+    if (!dataLogPinnedRef.current) return;
     window.requestAnimationFrame(() => {
       if (!dataLogAutoScroll) return;
+      if (!dataLogPinnedRef.current) return;
       scrollDataLogToBottom();
     });
   }, [dataLog, dataLogAutoScroll, scrollDataLogToBottom]);
+  useEffect(() => {
+    if (!dataLogAutoScroll) return;
+    scrollDataLogToBottom();
+  }, [dataLogAutoScroll, scrollDataLogToBottom]);
 
   useEffect(() => {
     activeAsyncJobRef.current = activeAsyncJob;
@@ -3159,9 +3252,25 @@ export function App() {
     () => (botSelectedStatus && !botSelectedStatus.running ? botSelectedStatus.snapshot ?? null : null),
     [botSelectedStatus],
   );
-  const botDisplay = botSelectedStatus?.running ? botSelectedStatus : botSnapshot;
+  const botDisplayCandidate = botSelectedStatus?.running ? botSelectedStatus : botSnapshot;
+  const botDisplayCacheRef = useRef<{ data: BotStatusRunning; atMs: number } | null>(null);
+  useEffect(() => {
+    if (botDisplayCandidate) {
+      botDisplayCacheRef.current = { data: botDisplayCandidate, atMs: Date.now() };
+    }
+  }, [botDisplayCandidate]);
+  const botDisplayCacheAgeMs = botDisplayCandidate
+    ? 0
+    : botDisplayCacheRef.current
+      ? Date.now() - botDisplayCacheRef.current.atMs
+      : null;
+  const botDisplayStale =
+    botDisplayCandidate == null && botDisplayCacheAgeMs != null && botDisplayCacheAgeMs <= BOT_DISPLAY_STALE_MS;
+  const botDisplay = botDisplayCandidate ?? (botDisplayStale ? botDisplayCacheRef.current!.data : null);
   const botSnapshotAtMs = botSelectedStatus?.running ? null : botSelectedStatus?.snapshotAtMs ?? null;
   const botHasSnapshot = botSnapshot !== null;
+  const botDisplayStaleLabel =
+    botDisplayStale && botDisplayCacheAgeMs != null ? fmtDurationMs(Math.max(0, botDisplayCacheAgeMs)) : null;
   const botDisplayKey = botDisplay ? botStatusKey(botDisplay) : null;
   const botRt = botDisplayKey ? botRtByKey[botDisplayKey] ?? emptyBotRt : emptyBotRt;
   const botStatusRange = useMemo(() => {
@@ -5264,13 +5373,18 @@ export function App() {
   ]);
   const errorFix = useMemo<ErrorFix | null>(() => {
     if (!state.error) return null;
-    const tuningEnabled = form.optimizeOperations || form.sweepThreshold;
-    if (!tuningEnabled) return null;
-
     const error = state.error;
-    const fitError = error.includes("Fit window too small");
-    const tuneError = error.includes("Tune window too small");
-    if (!fitError && !tuneError) return null;
+    const errorLower = error.toLowerCase();
+    const fitError = errorLower.includes("fit window too small");
+    const tuneError = errorLower.includes("tune window too small");
+    const backtestRatioError = errorLower.includes("backtest-ratio") || errorLower.includes("backtest ratio");
+    const lookbackError =
+      errorLower.includes("lookback") &&
+      (errorLower.includes("not enough") || errorLower.includes("need") || errorLower.includes("train/backtest"));
+    if (!fitError && !tuneError && !backtestRatioError && !lookbackError) return null;
+
+    const tuningEnabled = form.optimizeOperations || form.sweepThreshold;
+    const isBacktest = state.lastKind === "backtest";
 
     const lookbackMatch = error.match(/lookback=(\d+)/i);
     const lookbackFromError = lookbackMatch ? Number(lookbackMatch[1]) : null;
@@ -5278,63 +5392,168 @@ export function App() {
       Number.isFinite(lookbackFromError) && lookbackFromError != null
         ? lookbackFromError
         : lookbackState.effectiveBars;
-    if (!Number.isFinite(lookbackBars) || lookbackBars == null || lookbackBars < MIN_LOOKBACK_BARS) return null;
 
     const bars = lookbackState.bars;
-    if (!Number.isFinite(bars) || bars <= 0) return null;
-
     const backtestRatio =
       typeof form.backtestRatio === "number" && Number.isFinite(form.backtestRatio)
         ? clamp(form.backtestRatio, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO)
         : 0.2;
-    const bounds = tuneRatioBounds(bars, backtestRatio, lookbackBars);
-    if (!bounds) return null;
-    if (bounds.maxRatio < bounds.minRatio || bounds.maxTuneBars < bounds.minTuneBars) return null;
-
     const currentTuneRatio =
       typeof form.tuneRatio === "number" && Number.isFinite(form.tuneRatio) ? clamp(form.tuneRatio, 0, 0.99) : 0;
+    const barsCap = maxBarsForPlatform(platform, form.method, apiComputeLimits);
+    const gotPricesMatch = error.match(/got\s+(\d+)/i);
+    const gotPrices = gotPricesMatch ? Number(gotPricesMatch[1]) : null;
+    const needBarsMatch = error.match(/need bars >= (\d+)/i);
+    const needPricesMatch = error.match(/need >= (\d+) prices/i);
+    const neededBars = needBarsMatch ? Number(needBarsMatch[1]) : needPricesMatch ? Number(needPricesMatch[1]) : null;
 
-    if (fitError) {
-      if (currentTuneRatio <= bounds.maxRatio + 1e-6) return null;
-      let nextTuneRatio = roundRatioDown(Math.min(currentTuneRatio, bounds.maxRatio));
-      if (nextTuneRatio < bounds.minRatio) nextTuneRatio = bounds.maxRatio;
-      nextTuneRatio = clamp(nextTuneRatio, 0, 0.99);
-      if (nextTuneRatio >= currentTuneRatio || nextTuneRatio < bounds.minRatio - 1e-6) return null;
-      const label = fmtNum(nextTuneRatio, RATIO_ROUND_DIGITS);
+    const makeBarsFix = (nextBars: number, reason: string): ErrorFix | null => {
+      if (!Number.isFinite(nextBars) || nextBars <= 0) return null;
+      const normalized = Math.max(MIN_LOOKBACK_BARS, Math.trunc(nextBars));
+      if (bars > 0 && normalized <= bars) return null;
+      if (Number.isFinite(barsCap) && normalized > barsCap) return null;
+      return {
+        label: `Suggested fix: set bars to ${normalized}.`,
+        action: "bars",
+        value: normalized,
+        targetId: "bars",
+        toast: `Bars set to ${normalized} ${reason}.`,
+      };
+    };
+
+    const makeBacktestRatioFix = (nextRatio: number, reason: string): ErrorFix | null => {
+      if (!Number.isFinite(nextRatio)) return null;
+      const normalized = clamp(nextRatio, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
+      if (Math.abs(normalized - backtestRatio) < 1e-6) return null;
+      const label = fmtNum(normalized, RATIO_ROUND_DIGITS);
+      return {
+        label: `Suggested fix: set backtest ratio to ${label}.`,
+        action: "backtestRatio",
+        value: normalized,
+        targetId: "backtestRatio",
+        toast: `Backtest ratio set to ${label} ${reason}.`,
+      };
+    };
+
+    const makeTuneRatioFix = (nextRatio: number, reason: string): ErrorFix | null => {
+      if (!Number.isFinite(nextRatio)) return null;
+      const normalized = clamp(nextRatio, 0, 0.99);
+      if (Math.abs(normalized - currentTuneRatio) < 1e-6) return null;
+      const label = fmtNum(normalized, RATIO_ROUND_DIGITS);
       return {
         label: `Suggested fix: set tune ratio to ${label}.`,
         action: "tuneRatio",
-        value: nextTuneRatio,
+        value: normalized,
         targetId: "tuneRatio",
-        toast: `Tune ratio set to ${label} to keep fit >= lookback.`,
+        toast: `Tune ratio set to ${label} ${reason}.`,
       };
-    }
+    };
 
-    if (tuneError) {
-      if (currentTuneRatio >= bounds.minRatio - 1e-6) return null;
-      let nextTuneRatio = roundRatioUp(Math.max(currentTuneRatio, bounds.minRatio));
-      if (nextTuneRatio > bounds.maxRatio) nextTuneRatio = bounds.minRatio;
-      nextTuneRatio = clamp(nextTuneRatio, 0, bounds.maxRatio);
-      if (nextTuneRatio <= currentTuneRatio || nextTuneRatio > bounds.maxRatio + 1e-6) return null;
-      const label = fmtNum(nextTuneRatio, RATIO_ROUND_DIGITS);
+    const tuneFix = (() => {
+      if (!isBacktest || !tuningEnabled) return null;
+      if (!Number.isFinite(lookbackBars) || lookbackBars == null || lookbackBars < MIN_LOOKBACK_BARS) return null;
+      if (!Number.isFinite(bars) || bars <= 0) return null;
+      const bounds = tuneRatioBounds(bars, backtestRatio, lookbackBars);
+      if (!bounds) return null;
+      if (bounds.maxRatio < bounds.minRatio || bounds.maxTuneBars < bounds.minTuneBars) return null;
+
+      if (fitError) {
+        if (currentTuneRatio <= bounds.maxRatio + 1e-6) return null;
+        let nextTuneRatio = roundRatioDown(Math.min(currentTuneRatio, bounds.maxRatio));
+        if (nextTuneRatio < bounds.minRatio) nextTuneRatio = bounds.maxRatio;
+        if (nextTuneRatio >= currentTuneRatio || nextTuneRatio < bounds.minRatio - 1e-6) return null;
+        return makeTuneRatioFix(nextTuneRatio, "to keep fit >= lookback");
+      }
+
+      if (tuneError) {
+        if (currentTuneRatio >= bounds.minRatio - 1e-6) return null;
+        let nextTuneRatio = roundRatioUp(Math.max(currentTuneRatio, bounds.minRatio));
+        if (nextTuneRatio > bounds.maxRatio) nextTuneRatio = bounds.minRatio;
+        if (nextTuneRatio <= currentTuneRatio || nextTuneRatio > bounds.maxRatio + 1e-6) return null;
+        return makeTuneRatioFix(nextTuneRatio, "to reach at least 2 tune bars");
+      }
+
+      return null;
+    })();
+
+    const backtestAdjust = isBacktest ? adjustBacktestParams(commonParams) : null;
+    const backtestAdjustFix = (() => {
+      const changes = backtestAdjust?.changes ?? null;
+      if (!changes) return null;
+      if (changes.bars !== undefined) {
+        return makeBarsFix(changes.bars, "to satisfy the split");
+      }
+      if (changes.backtestRatio !== undefined) {
+        return makeBacktestRatioFix(changes.backtestRatio, "to satisfy the split");
+      }
+      return null;
+    })();
+
+    const backtestBarsFix = backtestAdjustFix?.action === "bars" ? backtestAdjustFix : null;
+    const backtestRatioFix = backtestAdjustFix?.action === "backtestRatio" ? backtestAdjustFix : null;
+
+    const simpleBarsFix = (() => {
+      if (isBacktest) return null;
+      const minBars = Number.isFinite(neededBars) && neededBars != null ? neededBars : lookbackBars != null ? lookbackBars + 1 : null;
+      if (!Number.isFinite(minBars) || minBars == null) return null;
+      return makeBarsFix(minBars, "to fit the lookback");
+    })();
+
+    const lookbackFix = (() => {
+      if (!Number.isFinite(lookbackBars) || lookbackBars == null || lookbackBars < MIN_LOOKBACK_BARS) return null;
+      let maxLookback: number | null = null;
+      if (Number.isFinite(gotPrices) && gotPrices != null && gotPrices > 1) {
+        maxLookback = gotPrices - 1;
+      } else if (isBacktest) {
+        maxLookback = maxLookbackForSplit(bars, backtestRatio, currentTuneRatio, tuningEnabled);
+      } else if (Number.isFinite(bars) && bars > 0) {
+        maxLookback = bars - 1;
+      }
+      if (!Number.isFinite(maxLookback) || maxLookback == null) return null;
+      const normalizedMax = Math.trunc(maxLookback);
+      if (normalizedMax < MIN_LOOKBACK_BARS || normalizedMax >= lookbackBars) return null;
+
+      const intervalSec = lookbackState.intervalSec;
+      if (lookbackState.overrideOn || !intervalSec) {
+        return {
+          label: `Suggested fix: set lookback bars to ${normalizedMax}.`,
+          action: "lookbackBars",
+          value: normalizedMax,
+          targetId: "lookbackBars",
+          toast: `Lookback bars set to ${normalizedMax} to fit available bars.`,
+        };
+      }
+
+      const window = formatDurationSeconds(normalizedMax * intervalSec);
       return {
-        label: `Suggested fix: set tune ratio to ${label}.`,
-        action: "tuneRatio",
-        value: nextTuneRatio,
-        targetId: "tuneRatio",
-        toast: `Tune ratio set to ${label} to reach at least 2 tune bars.`,
+        label: `Suggested fix: set lookback window to ${window}.`,
+        action: "lookbackWindow",
+        value: window,
+        targetId: "lookbackWindow",
+        toast: `Lookback window set to ${window} to fit available bars.`,
       };
-    }
+    })();
 
-    return null;
+    if (fitError) return tuneFix ?? lookbackFix ?? backtestBarsFix ?? null;
+    if (tuneError) return tuneFix ?? backtestRatioFix ?? backtestBarsFix ?? null;
+    if (backtestRatioError) return backtestRatioFix ?? backtestBarsFix ?? null;
+    if (lookbackError) return (isBacktest ? backtestBarsFix : simpleBarsFix) ?? lookbackFix ?? null;
+    return (isBacktest ? backtestBarsFix ?? backtestRatioFix : simpleBarsFix ?? lookbackFix) ?? null;
   }, [
+    apiComputeLimits,
+    commonParams,
     form.backtestRatio,
+    form.method,
     form.optimizeOperations,
     form.sweepThreshold,
     form.tuneRatio,
     lookbackState.bars,
     lookbackState.effectiveBars,
+    lookbackState.intervalSec,
+    lookbackState.overrideOn,
+    platform,
     state.error,
+    state.lastKind,
   ]);
   const dataLogFiltered = useMemo(() => {
     const term = dataLogFilterText.trim().toLowerCase();
@@ -5445,6 +5664,27 @@ export function App() {
       setForm((prev) => {
         const nextTuneRatio = clamp(errorFix.value, 0, 0.99);
         return nextTuneRatio === prev.tuneRatio ? prev : { ...prev, tuneRatio: nextTuneRatio };
+      });
+    } else if (errorFix.action === "backtestRatio") {
+      setForm((prev) => {
+        const nextRatio = clamp(errorFix.value, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
+        return nextRatio === prev.backtestRatio ? prev : { ...prev, backtestRatio: nextRatio };
+      });
+    } else if (errorFix.action === "bars") {
+      setForm((prev) => {
+        const nextBars = Math.max(MIN_LOOKBACK_BARS, Math.trunc(errorFix.value));
+        return nextBars === prev.bars ? prev : { ...prev, bars: nextBars };
+      });
+    } else if (errorFix.action === "lookbackBars") {
+      setForm((prev) => {
+        const nextBars = Math.max(MIN_LOOKBACK_BARS, Math.trunc(errorFix.value));
+        return nextBars === prev.lookbackBars ? prev : { ...prev, lookbackBars: nextBars };
+      });
+    } else if (errorFix.action === "lookbackWindow") {
+      setForm((prev) => {
+        const nextWindow = errorFix.value.trim();
+        if (nextWindow === prev.lookbackWindow && prev.lookbackBars === 0) return prev;
+        return { ...prev, lookbackWindow: nextWindow, lookbackBars: 0 };
       });
     }
     showToast(errorFix.toast);
@@ -8071,14 +8311,16 @@ export function App() {
                 ) : null}
                 </div>
               </details>
-              <TopCombosChart
-                combos={topCombos}
-                loading={topCombosLoading}
-                error={topCombosError}
-                selectedId={selectedComboId}
-                onSelect={handleComboPreview}
-                onApply={handleComboApply}
-              />
+              <Suspense fallback={<PanelFallback label="Loading optimizer combos…" />}>
+                <TopCombosChart
+                  combos={topCombos}
+                  loading={topCombosLoading}
+                  error={topCombosError}
+                  selectedId={selectedComboId}
+                  onSelect={handleComboPreview}
+                  onApply={handleComboApply}
+                />
+              </Suspense>
               <div className="hint">
                 Select a combo to preview. Click Apply to load params into the form and auto-start a live bot for that symbol (Binance only). bars=0 uses all CSV data or the exchange default (500).
               </div>
@@ -10629,29 +10871,33 @@ export function App() {
                                 <span className="badge">{st.halted ? "HALTED" : "ACTIVE"}</span>
                                 <span className="badge">{st.error ? "Error" : "OK"}</span>
                               </div>
-                                <BacktestChart
-                                  prices={st.prices}
-                                  equityCurve={st.equityCurve}
-                                  openTimes={st.openTimes}
-                                  kalmanPredNext={st.kalmanPredNext}
-                                  positions={st.positions}
-                                  trades={st.trades}
-                                  operations={st.operations}
-                                  backtestStartIndex={st.startIndex}
-                                  height={CHART_HEIGHT}
-                                />
+                                <ChartSuspense height={CHART_HEIGHT}>
+                                  <BacktestChart
+                                    prices={st.prices}
+                                    equityCurve={st.equityCurve}
+                                    openTimes={st.openTimes}
+                                    kalmanPredNext={st.kalmanPredNext}
+                                    positions={st.positions}
+                                    trades={st.trades}
+                                    operations={st.operations}
+                                    backtestStartIndex={st.startIndex}
+                                    height={CHART_HEIGHT}
+                                  />
+                                </ChartSuspense>
                                 <div style={{ marginTop: 8 }}>
                                   <div className="hint" style={{ marginBottom: 6 }}>
                                     Bot state timeline
                                   </div>
                                   {botStateRangeOk ? (
-                                    <BotStateChart
-                                      points={botStatePoints}
-                                      startMs={botStatusRange.startMs}
-                                      endMs={botStatusRange.endMs}
-                                      height={160}
-                                      label={`Bot state timeline (${st.symbol})`}
-                                    />
+                                    <ChartSuspense height={160} label="Loading timeline…">
+                                      <BotStateChart
+                                        points={botStatePoints}
+                                        startMs={botStatusRange.startMs}
+                                        endMs={botStatusRange.endMs}
+                                        height={160}
+                                        label={`Bot state timeline (${st.symbol})`}
+                                      />
+                                    </ChartSuspense>
                                   ) : (
                                     <div className="chart" style={{ height: 160 }}>
                                       <div className="chartEmpty">Select a valid time range</div>
@@ -10669,66 +10915,80 @@ export function App() {
 	                    <span className="badge">{botDisplay.interval}</span>
 	                    <span className="badge">{marketLabel(botDisplay.market)}</span>
 	                    <span className="badge">{methodLabel(botDisplay.method)}</span>
-	                    <span className="badge">open {fmtPct(botDisplay.openThreshold ?? botDisplay.threshold, 3)}</span>
-	                    <span className="badge">
-	                      close {fmtPct(botDisplay.closeThreshold ?? botDisplay.openThreshold ?? botDisplay.threshold, 3)}
-	                    </span>
-	                    <span className="badge">{botDisplay.halted ? "HALTED" : "ACTIVE"}</span>
-	                    <span className="badge">{botDisplay.error ? "Error" : "OK"}</span>
+                    <span className="badge">open {fmtPct(botDisplay.openThreshold ?? botDisplay.threshold, 3)}</span>
+                    <span className="badge">
+                      close {fmtPct(botDisplay.closeThreshold ?? botDisplay.openThreshold ?? botDisplay.threshold, 3)}
+                    </span>
+                    <span className="badge">{botDisplay.halted ? "HALTED" : "ACTIVE"}</span>
+                    <span className="badge">{botDisplay.error ? "Error" : "OK"}</span>
                       {botHasSnapshot ? <span className="badge">SNAPSHOT</span> : null}
+                      {botDisplayStale ? <span className="badge badgeWarn">STALE</span> : null}
 	                  </div>
                     {botHasSnapshot ? (
                       <div className="hint" style={{ marginBottom: 10 }}>
                         Snapshot {botSnapshotAtMs ? `from ${fmtTimeMs(botSnapshotAtMs)}` : "loaded"} (bot not running).
                       </div>
                     ) : null}
+                    {botDisplayStale ? (
+                      <div className="hint" style={{ marginBottom: 10, color: "rgba(245, 158, 11, 0.9)" }}>
+                        Showing last bot status{botDisplayStaleLabel ? ` (${botDisplayStaleLabel} old)` : ""}. Live status unavailable.
+                      </div>
+                    ) : null}
 
-                    <LiveVisuals
-                      prices={botDisplay.prices}
-                      signal={botDisplay.latestSignal}
-                      position={botLastPosition}
-                      risk={botRisk}
-                      halted={botDisplay.halted}
-                      cooldownLeft={botDisplay.cooldownLeft ?? null}
-                      orderErrors={botDisplay.consecutiveOrderErrors ?? null}
-                      candleAgeMs={botRealtime?.candleAgeMs ?? null}
-                      closeEtaMs={botRealtime?.closeEtaMs ?? null}
-                      statusAgeMs={botRealtime?.statusAgeMs ?? null}
-                    />
+                    <Suspense fallback={<PanelFallback label="Loading live visuals…" />}>
+                      <LiveVisuals
+                        prices={botDisplay.prices}
+                        signal={botDisplay.latestSignal}
+                        position={botLastPosition}
+                        risk={botRisk}
+                        halted={botDisplay.halted}
+                        cooldownLeft={botDisplay.cooldownLeft ?? null}
+                        orderErrors={botDisplay.consecutiveOrderErrors ?? null}
+                        candleAgeMs={botRealtime?.candleAgeMs ?? null}
+                        closeEtaMs={botRealtime?.closeEtaMs ?? null}
+                        statusAgeMs={botRealtime?.statusAgeMs ?? null}
+                      />
+                    </Suspense>
 
-	                  <BacktestChart
-	                    prices={botDisplay.prices}
-	                    equityCurve={botDisplay.equityCurve}
-                      openTimes={botDisplay.openTimes}
-	                    kalmanPredNext={botDisplay.kalmanPredNext}
-	                    positions={botDisplay.positions}
-	                    trades={botDisplay.trades}
-	                    operations={botDisplay.operations}
-	                    backtestStartIndex={botDisplay.startIndex}
-	                    height={CHART_HEIGHT}
-	                  />
+                    <ChartSuspense height={CHART_HEIGHT}>
+                      <BacktestChart
+                        prices={botDisplay.prices}
+                        equityCurve={botDisplay.equityCurve}
+                        openTimes={botDisplay.openTimes}
+                        kalmanPredNext={botDisplay.kalmanPredNext}
+                        positions={botDisplay.positions}
+                        trades={botDisplay.trades}
+                        operations={botDisplay.operations}
+                        backtestStartIndex={botDisplay.startIndex}
+                        height={CHART_HEIGHT}
+                      />
+                    </ChartSuspense>
 
 		                  <div style={{ marginTop: 10 }}>
 		                    <div className="hint" style={{ marginBottom: 8 }}>
 		                      Prediction values vs thresholds (hover for details)
 		                    </div>
-		                    <PredictionDiffChart
-		                      prices={botDisplay.prices}
-                          openTimes={botDisplay.openTimes}
-		                      kalmanPredNext={botDisplay.kalmanPredNext}
-		                      lstmPredNext={botDisplay.lstmPredNext}
-		                      startIndex={botDisplay.startIndex}
-		                      height={CHART_HEIGHT}
-		                      openThreshold={botDisplay.openThreshold ?? botDisplay.threshold}
-		                      closeThreshold={botDisplay.closeThreshold ?? botDisplay.openThreshold ?? botDisplay.threshold}
-		                    />
+                    <ChartSuspense height={CHART_HEIGHT}>
+                      <PredictionDiffChart
+                        prices={botDisplay.prices}
+                        openTimes={botDisplay.openTimes}
+                        kalmanPredNext={botDisplay.kalmanPredNext}
+                        lstmPredNext={botDisplay.lstmPredNext}
+                        startIndex={botDisplay.startIndex}
+                        height={CHART_HEIGHT}
+                        openThreshold={botDisplay.openThreshold ?? botDisplay.threshold}
+                        closeThreshold={botDisplay.closeThreshold ?? botDisplay.openThreshold ?? botDisplay.threshold}
+                      />
+                    </ChartSuspense>
 		                  </div>
 
                   <div style={{ marginTop: 10 }}>
                     <div className="hint" style={{ marginBottom: 8 }}>
                       Telemetry (Binance poll latency + close drift; hover for details)
                     </div>
-                    <TelemetryChart points={botRt.telemetry} height={CHART_HEIGHT} label="Live bot telemetry chart" />
+                    <ChartSuspense height={CHART_HEIGHT}>
+                      <TelemetryChart points={botRt.telemetry} height={CHART_HEIGHT} label="Live bot telemetry chart" />
+                    </ChartSuspense>
                   </div>
 
                   <div style={{ marginTop: 10 }}>
@@ -10777,7 +11037,9 @@ export function App() {
                     {!botStatusOps.enabled ? (
                       <div className="hint">{botStatusOps.hint ?? "Enable TRADER_OPS_DIR to track bot status history."}</div>
                     ) : botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error ? (
-                      <BotStateChart points={botStatusPoints} startMs={botStatusRange.startMs} endMs={botStatusRange.endMs} height={CHART_HEIGHT} />
+                      <ChartSuspense height={CHART_HEIGHT} label="Loading timeline…">
+                        <BotStateChart points={botStatusPoints} startMs={botStatusRange.startMs} endMs={botStatusRange.endMs} height={CHART_HEIGHT} />
+                      </ChartSuspense>
                     ) : (
                       <div className="chart" style={{ height: CHART_HEIGHT }}>
                         <div className="chartEmpty">Select a valid time range</div>
@@ -11958,14 +12220,16 @@ export function App() {
                             {pos.marginType ? <span className="badge">{pos.marginType}</span> : null}
                           </div>
                           {prices.length > 1 ? (
-                            <BacktestChart
-                              prices={prices}
-                              equityCurve={equityCurve}
-                              openTimes={chart?.openTimes}
-                              positions={positionsSeries}
-                              trades={[]}
-                              height={CHART_HEIGHT}
-                            />
+                            <ChartSuspense height={CHART_HEIGHT}>
+                              <BacktestChart
+                                prices={prices}
+                                equityCurve={equityCurve}
+                                openTimes={chart?.openTimes}
+                                positions={positionsSeries}
+                                trades={[]}
+                                height={CHART_HEIGHT}
+                              />
+                            </ChartSuspense>
                           ) : (
                             <div className="chart" style={{ height: CHART_HEIGHT }}>
                               <div className="chartEmpty">No chart data available.</div>
@@ -12063,14 +12327,16 @@ export function App() {
                             {pos.marginType ? <span className="badge">{pos.marginType}</span> : null}
                           </div>
                           {prices.length > 1 ? (
-                            <BacktestChart
-                              prices={prices}
-                              equityCurve={equityCurve}
-                              openTimes={chart?.openTimes}
-                              positions={positionsSeries}
-                              trades={[]}
-                              height={CHART_HEIGHT}
-                            />
+                            <ChartSuspense height={CHART_HEIGHT}>
+                              <BacktestChart
+                                prices={prices}
+                                equityCurve={equityCurve}
+                                openTimes={chart?.openTimes}
+                                positions={positionsSeries}
+                                trades={[]}
+                                height={CHART_HEIGHT}
+                              />
+                            </ChartSuspense>
                           ) : (
                             <div className="chart" style={{ height: CHART_HEIGHT }}>
                               <div className="chartEmpty">No chart data available.</div>
@@ -12096,39 +12362,43 @@ export function App() {
           >
               {state.backtest ? (
                 <>
-			                  <BacktestChart
-				                    prices={state.backtest.prices}
-				                    equityCurve={state.backtest.equityCurve}
-                            openTimes={state.backtest.openTimes}
-				                    kalmanPredNext={state.backtest.kalmanPredNext}
-				                    positions={state.backtest.positions}
-				                    agreementOk={state.backtest.method === "01" ? undefined : state.backtest.agreementOk}
-				                    trades={state.backtest.trades}
-				                    backtestStartIndex={state.backtest.split.backtestStartIndex}
-				                    height={CHART_HEIGHT}
-                        actions={
-                          <button className="btn" type="button" onClick={downloadBacktestOps}>
-                            Download log
-                          </button>
+                  <ChartSuspense height={CHART_HEIGHT}>
+                    <BacktestChart
+                      prices={state.backtest.prices}
+                      equityCurve={state.backtest.equityCurve}
+                      openTimes={state.backtest.openTimes}
+                      kalmanPredNext={state.backtest.kalmanPredNext}
+                      positions={state.backtest.positions}
+                      agreementOk={state.backtest.method === "01" ? undefined : state.backtest.agreementOk}
+                      trades={state.backtest.trades}
+                      backtestStartIndex={state.backtest.split.backtestStartIndex}
+                      height={CHART_HEIGHT}
+                      actions={
+                        <button className="btn" type="button" onClick={downloadBacktestOps}>
+                          Download log
+                        </button>
+                      }
+                    />
+                  </ChartSuspense>
+                  <div style={{ marginTop: 10 }}>
+                    <div className="hint" style={{ marginBottom: 8 }}>
+                      Prediction values vs thresholds (hover for details)
+                    </div>
+                    <ChartSuspense height={CHART_HEIGHT}>
+                      <PredictionDiffChart
+                        prices={state.backtest.prices}
+                        openTimes={state.backtest.openTimes}
+                        kalmanPredNext={state.backtest.kalmanPredNext}
+                        lstmPredNext={state.backtest.lstmPredNext}
+                        startIndex={state.backtest.split.backtestStartIndex}
+                        height={CHART_HEIGHT}
+                        openThreshold={state.backtest.openThreshold ?? state.backtest.threshold}
+                        closeThreshold={
+                          state.backtest.closeThreshold ?? state.backtest.openThreshold ?? state.backtest.threshold
                         }
-				                  />
-                        <div style={{ marginTop: 10 }}>
-                          <div className="hint" style={{ marginBottom: 8 }}>
-                            Prediction values vs thresholds (hover for details)
-                          </div>
-                          <PredictionDiffChart
-                            prices={state.backtest.prices}
-                            openTimes={state.backtest.openTimes}
-                            kalmanPredNext={state.backtest.kalmanPredNext}
-                            lstmPredNext={state.backtest.lstmPredNext}
-                            startIndex={state.backtest.split.backtestStartIndex}
-                            height={CHART_HEIGHT}
-                            openThreshold={state.backtest.openThreshold ?? state.backtest.threshold}
-                            closeThreshold={
-                              state.backtest.closeThreshold ?? state.backtest.openThreshold ?? state.backtest.threshold
-                            }
-                          />
-                        </div>
+                      />
+                    </ChartSuspense>
+                  </div>
 			                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
 			                    {state.backtest.split.tune > 0 ? (
 			                      <>
@@ -12678,7 +12948,7 @@ export function App() {
         subtitle="All incoming API responses (last 100 entries)"
         style={{ marginTop: "18px" }}
       >
-	          <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
+	          <div className="actions dataLogActions">
 	            <button
 	              className="btn"
 	              onClick={() => setDataLog([])}
@@ -12699,8 +12969,7 @@ export function App() {
 	              {dataLogFilterText.trim() ? "Copy shown" : "Copy all"}
 	            </button>
               <input
-                className="input"
-                style={{ height: 32, width: 180, padding: "0 10px" }}
+                className="input dataLogFilter"
                 value={dataLogFilterText}
                 onChange={(e) => setDataLogFilterText(e.target.value)}
                 placeholder="Filter log…"
@@ -12733,35 +13002,20 @@ export function App() {
                 </span>
               ) : null}
 	          </div>
-          <div
-            ref={dataLogRef}
-            style={{
-              height: "500px",
-              overflowY: "auto",
-              backgroundColor: "#0a0e27",
-              border: "1px solid #374151",
-              borderRadius: "6px",
-              padding: "12px",
-              fontFamily: "var(--mono)",
-              fontSize: "12px",
-              color: "#e5e7eb",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
+          <div ref={dataLogRef} className="dataLogBox" onScroll={handleDataLogScroll}>
             {dataLogShown.length === 0 ? (
-              <div style={{ color: "#6b7280" }}>
+              <div className="dataLogEmpty">
                 {dataLog.length === 0
                   ? "No data logged yet. Run a signal, backtest, or trade to see incoming data."
                   : "No entries match the current filter."}
               </div>
             ) : (
               dataLogShown.map((entry, idx) => (
-                <div key={idx} style={{ marginBottom: "12px", paddingBottom: "12px", borderBottom: "1px solid #1f2937" }}>
-                  <div style={{ color: "#60a5fa", marginBottom: "4px" }}>
-                    [{new Date(entry.timestamp).toLocaleTimeString()}] <span style={{ color: "#34d399" }}>{entry.label}</span>
+                <div key={idx} className="dataLogEntry">
+                  <div className="dataLogEntryHeader">
+                    [{new Date(entry.timestamp).toLocaleTimeString()}] <span className="dataLogEntryLabel">{entry.label}</span>
 	                  </div>
-	                  <div style={{ color: "#d1d5db", fontSize: "11px" }}>
+	                  <div className="dataLogEntryBody">
                       {(() => {
                         const data = dataLogIndexArrays ? indexTopLevelPrimitiveArrays(entry.data) : entry.data;
                         const json = JSON.stringify(data, null, 2);

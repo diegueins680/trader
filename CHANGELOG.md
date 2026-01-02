@@ -11,6 +11,10 @@ All notable changes to this project will be documented in this file.
 - Web UI: add live trading visual aids (price pulse, signal/position compass, risk buffer) to the Live bot panel.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.
 - Web UI: keep collapsible panels mounted so config scroll stays stable and the UI stops blinking during refreshes.
+- Web UI: let each panel scroll independently for long outputs.
+- Web UI: keep live bot panels from flickering by reusing the last status during brief polling gaps.
+- Web UI: align Data Log toolbar controls, match the log styling to the UI theme, and make the log viewport responsive.
+- Web UI: pause Data Log auto-scroll when you scroll away from the latest entries and resume when you jump back to latest.
 - Web UI: add a Run optimizer form to the Optimizer combos panel to launch `/optimizer/run`, apply constraints, and show the last output.
 - Web UI: optimizer run forms add an annualized-equity preset, validate backtest/tune ratios, and honor advanced JSON overrides for source/data/symbol plus `timeoutSec`.
 - Web UI: add info buttons with equity tips next to optimizer run fields and complex config parameters (method, thresholds, splits, LSTM, optimization).
@@ -87,12 +91,13 @@ All notable changes to this project will be documented in this file.
 - Web UI: reduce bot state timeline chart height in bot cards.
 - Web UI: chart tooltips now show bar date/time when timestamps are available.
 - Web UI: charts now scale to use most of the viewport height.
+- Web UI: lazy-load chart panels to trim the main bundle and show placeholders while they load.
 - Web UI: show a live bot chart for each running bot in the Live bot panel.
 - Web UI: keep live bot telemetry and realtime feeds per bot when multiple bots are running.
 - Web UI: open positions/orphaned operations cards key by position side, ignore bots with trade disabled when determining adoption, and label trade-off bots explicitly.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Web UI: backtest split auto-adjusts bars without exceeding API max bars.
-- Web UI: error panel adds an Apply fix button to adjust tune ratio when split windows are invalid.
+- Web UI: error panel adds an Apply fix button to adjust tune ratio, backtest ratio, bars, or lookback when split windows are invalid.
 - Web UI: show combo obtained timestamps, display annualized equity, default combo ordering by annualized equity, and filter optimizer combos by minimum equity.
 - Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).
 - Metrics: agreement rate now counts only bars where both models emit a direction (warm-up/no-signal bars excluded).
@@ -147,6 +152,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: numeric inputs accept comma decimals and strip thousands separators; auto-refresh interval input disables when off.
 - Web UI: router mode clears optimize/sweep toggles and omits them from API requests.
 - Web UI: add a sticky run bar in the configuration panel showing readiness issues and keeping run actions visible.
+- Web UI: keep the configuration panel scrollable and align info popovers within the panel.
 - Web UI: add section headings plus issue shortcuts that jump and highlight the relevant inputs.
 - Web UI: when trading is armed, automatically switches Market to Futures when Positioning is set to Long/Short.
 - Web UI: falls back to `GET` for async polling when `POST` hits proxy errors (e.g. 502/503).
