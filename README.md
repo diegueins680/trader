@@ -624,7 +624,7 @@ Jump shortcuts move focus to the target section, with clearer focus rings for ke
 The configuration panel keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
 The backtest summary chart includes a Download log button to export the backtest operations.
-Backtest charts allow deeper zoom (mouse wheel down to ~12 bars) for close inspection.
+Backtest charts allow deeper zoom (mouse wheel down to ~6 bars) for close inspection.
 When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must be `/api` to avoid CORS issues (the quick AWS deploy script enforces this when a distribution ID is provided unless `--ui-api-direct` is set). When the script can discover the App Runner URL, it also sets `apiFallbackUrl` to that URL so the UI can fail over if the `/api/*` proxy returns 5xx/HTML; override with `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
 The UI auto-applies top combos when available and shows when a combo auto-applied; it also auto-starts missing bots for the top 5 combo symbols (Binance only), and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.

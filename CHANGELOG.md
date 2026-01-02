@@ -71,7 +71,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: warn when the bot status timeline range falls outside available ops history.
 - Web UI: send explicit zero/false values for default-on risk settings so disable toggles take effect.
 - Web UI: add a Download log button to export backtest operations from the summary chart.
-- Web UI: allow deeper zoom on charts (down to ~12 bars) for close inspection.
+- Web UI: allow deeper zoom on charts (down to ~6 bars) for close inspection.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
 - Deploy: quick AWS deploy reuses existing App Runner S3 state settings + instance role when updating a service unless new values are provided.
 - Deploy: quick AWS deploy now exports `TRADER_API_MAX_HIDDEN_SIZE` (defaults to 50) for larger LSTM models.

@@ -38,7 +38,7 @@ function clamp(n: number, lo: number, hi: number): number {
 }
 
 const CHART_MARGIN = { l: 14, r: 78, t: 10, b: 26 };
-const MIN_ZOOM_WINDOW = 12;
+const MIN_ZOOM_WINDOW = 6;
 
 function fmt(n: number, digits = 4): string {
   if (!Number.isFinite(n)) return "—";
