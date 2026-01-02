@@ -209,6 +209,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--predictors gbdt,tcn,transformer,hmm,quantile,conformal` comma-separated predictors to train/use (`all`/`none` accepted; default is all; `all` and `none` cannot be combined)
     - Conformal intervals use the GBDT model internally, even if `gbdt` isn't selected as a sensor.
     - HMM/quantile/conformal confirmations only apply when their predictors are enabled.
+    - If a predictor output is missing for a bar, its confirmation/width gates are skipped (treated as pass).
 
 - Strategy / costs
   - `--open-threshold 0.002` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)

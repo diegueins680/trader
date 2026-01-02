@@ -232,7 +232,7 @@ simulateEnsemble
   -> Int            -- lookback (for LSTM alignment)
   -> [Double]       -- prices length n
   -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
-  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> [Double]       -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
   -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> BacktestResult
 simulateEnsemble = simulateEnsembleLongFlat
@@ -244,7 +244,7 @@ simulateEnsembleWithHL
   -> [Double]       -- highs length n (aligned to closes; bar i high is for close[i-1]..close[i])
   -> [Double]       -- lows length n
   -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
-  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> [Double]       -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
   -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> BacktestResult
 simulateEnsembleWithHL cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
@@ -259,7 +259,7 @@ simulateEnsembleWithHLChecked
   -> [Double]       -- highs length n (aligned to closes; bar i high is for close[i-1]..close[i])
   -> [Double]       -- lows length n
   -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
-  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> [Double]       -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
   -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> Either String BacktestResult
 simulateEnsembleWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
@@ -313,7 +313,7 @@ simulateEnsembleLongFlat
   -> Int            -- lookback (for LSTM alignment)
   -> [Double]       -- prices length n
   -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
-  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> [Double]       -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
   -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> BacktestResult
 simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext mMeta =
@@ -332,7 +332,7 @@ simulateEnsembleLongFlatWithHL
   -> [Double]       -- highs length n (aligned to closes; bar i high is for close[i-1]..close[i])
   -> [Double]       -- lows length n
   -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
-  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> [Double]       -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
   -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> BacktestResult
 simulateEnsembleLongFlatWithHL cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
@@ -347,7 +347,7 @@ simulateEnsembleLongFlatWithHLChecked
   -> [Double]       -- highs length n (aligned to closes; bar i high is for close[i-1]..close[i])
   -> [Double]       -- lows length n
   -> [Double]       -- kalman predicted next prices length n-1 (for t=0..n-2)
-  -> [Double]       -- lstm predicted next prices length n-lookback (for t=lookback-1..n-2)
+  -> [Double]       -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
   -> Maybe [StepMeta] -- optional per-step confidence meta (length n-1)
   -> Either String BacktestResult
 simulateEnsembleLongFlatWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
@@ -450,7 +450,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
       lstmNeed = max 0 (stepCount - startT)
       lstmPredAtE
         | lstmLen >= stepCount =
-            Right (\t -> lstmPredNextV V.! t)
+            let dropCount = lstmLen - stepCount
+                v = if dropCount == 0 then lstmPredNextV else V.drop dropCount lstmPredNextV
+             in Right (\t -> v V.! t)
         | lstmLen >= lstmNeed =
             let dropCount = lstmLen - lstmNeed
                 v = if dropCount == 0 then lstmPredNextV else V.drop dropCount lstmPredNextV

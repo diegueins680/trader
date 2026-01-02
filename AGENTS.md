@@ -17,7 +17,7 @@ This file provides contributor guidance for CI agents working in this repository
 - **Formatting:** prefer `fourmolu` (or `ormolu` if `fourmolu` is unavailable).
   - Example: `fourmolu -i $(rg --files -g '*.hs')`
 - **Linting:** `hlint`.
-  - Example: `hlint haskell/app haskell/test`
+  - Example: `cd haskell && hlint app test`
 - **Testing:** `cabal test`
 
 Avoid mixing formatters (e.g., do not run `stylish-haskell` alongside `ormolu/fourmolu`).

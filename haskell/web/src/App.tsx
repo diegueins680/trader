@@ -190,7 +190,6 @@ const CONFIG_SECTION_IDS = [
   "section-lookback",
   "section-thresholds",
   "section-risk",
-  "section-optimizer-run",
   "section-optimization",
   "section-livebot",
   "section-trade",
@@ -1843,16 +1842,40 @@ export function App() {
   }, [comboMinEquityInput]);
   const optimizerRunExtras = useMemo(() => parseOptimizerExtras(optimizerRunForm.extraJson), [optimizerRunForm.extraJson]);
   const optimizerRunValidationError = useMemo(() => {
-    if (optimizerRunForm.source === "csv") {
-      if (!optimizerRunForm.dataPath.trim()) return "CSV source requires a data path.";
-      const high = optimizerRunForm.highColumn.trim();
-      const low = optimizerRunForm.lowColumn.trim();
+    if (optimizerRunExtras.error) return optimizerRunExtras.error;
+    const extras = optimizerRunExtras.value ?? {};
+    const extraSourceRaw = typeof extras.source === "string" ? extras.source.trim().toLowerCase() : "";
+    const source =
+      extraSourceRaw === "binance" ||
+      extraSourceRaw === "coinbase" ||
+      extraSourceRaw === "kraken" ||
+      extraSourceRaw === "poloniex" ||
+      extraSourceRaw === "csv"
+        ? (extraSourceRaw as OptimizerSource)
+        : optimizerRunForm.source;
+    const dataPath = optimizerRunForm.dataPath.trim();
+    const extraData = typeof extras.data === "string" ? extras.data.trim() : "";
+    const symbol = optimizerRunForm.symbol.trim();
+    const extraSymbol = typeof extras.binanceSymbol === "string" ? extras.binanceSymbol.trim() : "";
+    const high = optimizerRunForm.highColumn.trim() || (typeof extras.highColumn === "string" ? extras.highColumn.trim() : "");
+    const low = optimizerRunForm.lowColumn.trim() || (typeof extras.lowColumn === "string" ? extras.lowColumn.trim() : "");
+
+    if (source === "csv") {
+      if (!dataPath && !extraData) return "CSV source requires a data path.";
       if ((high && !low) || (!high && low)) return "Provide both High/Low columns or leave both empty.";
-    } else if (!optimizerRunForm.symbol.trim()) {
+    } else if (!symbol && !extraSymbol) {
       return "Symbol is required for exchange sources.";
     }
-    return optimizerRunExtras.error;
-  }, [optimizerRunExtras.error, optimizerRunForm.dataPath, optimizerRunForm.highColumn, optimizerRunForm.lowColumn, optimizerRunForm.source, optimizerRunForm.symbol]);
+    return null;
+  }, [
+    optimizerRunExtras.error,
+    optimizerRunExtras.value,
+    optimizerRunForm.dataPath,
+    optimizerRunForm.highColumn,
+    optimizerRunForm.lowColumn,
+    optimizerRunForm.source,
+    optimizerRunForm.symbol,
+  ]);
   const optimizerRunRecordJson = useMemo(() => {
     if (!optimizerRunUi.response) return null;
     try {
@@ -1959,6 +1982,17 @@ export function App() {
   useEffect(() => {
     writeJson(STORAGE_KEY, form);
   }, [form]);
+
+  const syncOptimizerRunForm = useCallback(() => {
+    setOptimizerRunForm((prev) => ({
+      ...prev,
+      source: prev.source === "csv" ? "csv" : optimizerSourceForPlatform(form.platform),
+      symbol: form.binanceSymbol.trim().toUpperCase(),
+      intervals: form.interval.trim() || prev.intervals,
+      lookbackWindow: form.lookbackWindow.trim() || prev.lookbackWindow,
+    }));
+    setOptimizerRunDirty(false);
+  }, [form.binanceSymbol, form.interval, form.lookbackWindow, form.platform]);
 
   useEffect(() => {
     if (optimizerRunDirty) return;
@@ -2242,25 +2276,30 @@ export function App() {
   const refreshTopCombos = useCallback(() => {
     topCombosSyncRef.current?.({ silent: false });
   }, []);
-  const updateOptimizerRunForm = useCallback((updates: Partial<OptimizerRunForm>) => {
-    setOptimizerRunDirty(true);
-    setOptimizerRunForm((prev) => ({ ...prev, ...updates }));
-  }, []);
   const resetOptimizerRunForm = useCallback(() => {
     setOptimizerRunForm(buildDefaultOptimizerRunForm(form.binanceSymbol, platform));
     setOptimizerRunUi((prev) => ({ ...prev, error: null }));
     setOptimizerRunDirty(false);
   }, [form.binanceSymbol, platform]);
-  const syncOptimizerRunForm = useCallback(() => {
+  const syncOptimizerRunSymbolInterval = useCallback(() => {
+    setOptimizerRunDirty(true);
     setOptimizerRunForm((prev) => ({
       ...prev,
-      source: prev.source === "csv" ? "csv" : optimizerSourceForPlatform(form.platform),
       symbol: form.binanceSymbol.trim().toUpperCase(),
       intervals: form.interval.trim() || prev.intervals,
-      lookbackWindow: form.lookbackWindow.trim() || prev.lookbackWindow,
     }));
-    setOptimizerRunDirty(false);
-  }, [form.binanceSymbol, form.interval, form.lookbackWindow, form.platform]);
+  }, [form.binanceSymbol, form.interval]);
+  const applyEquityPreset = useCallback(() => {
+    setOptimizerRunDirty(true);
+    setOptimizerRunForm((prev) => ({
+      ...prev,
+      objective: "annualized-equity",
+      tuneObjective: "annualized-equity",
+      trials: "100",
+      timeoutSec: "120",
+    }));
+    showToast("Preset: annualized equity focus");
+  }, [showToast]);
   const cancelOptimizerRun = useCallback(() => {
     if (!optimizerRunUi.loading) return;
     optimizerRunRequestSeqRef.current += 1;
@@ -2283,11 +2322,25 @@ export function App() {
     setOptimizerRunUi((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
+      const extraTimeoutSec = (() => {
+        const raw = optimizerRunExtras.value?.timeoutSec;
+        if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+        if (typeof raw === "string") {
+          const parsed = Number(raw);
+          return Number.isFinite(parsed) ? parsed : null;
+        }
+        return null;
+      })();
+      const timeoutSec = extraTimeoutSec ?? parseOptionalNumber(optimizerRunForm.timeoutSec);
+      const timeoutMs =
+        typeof timeoutSec === "number" && Number.isFinite(timeoutSec) && timeoutSec > 0
+          ? Math.max(1000, Math.round(timeoutSec * 1000))
+          : BACKTEST_TIMEOUT_MS;
       const payload = buildOptimizerRunRequest(optimizerRunForm, optimizerRunExtras.value);
       const out = await optimizerRun(apiBase, payload, {
         signal: controller.signal,
         headers: authHeaders,
-        timeoutMs: BACKTEST_TIMEOUT_MS,
+        timeoutMs,
       });
       if (requestId !== optimizerRunRequestSeqRef.current) return;
       setOptimizerRunUi({ loading: false, error: null, response: out, lastRunAtMs: Date.now() });
@@ -6608,6 +6661,7 @@ export function App() {
               ) : null}
               <details className="details" style={{ marginBottom: 12 }}>
                 <summary>Run optimizer (create combos)</summary>
+                <div onChange={() => setOptimizerRunDirty((prev) => (prev ? prev : true))}>
                 <div className="row" style={{ marginTop: 10 }}>
                   <div className="field">
                     <label className="label" htmlFor="optimizerSource">
@@ -7000,15 +7054,19 @@ export function App() {
                   <button className="btn" type="button" onClick={cancelOptimizerRun} disabled={!optimizerRunUi.loading}>
                     Cancel
                   </button>
-                  <button className="btn" type="button" onClick={syncOptimizerRunForm}>
+                  <button className="btn" type="button" onClick={syncOptimizerRunSymbolInterval}>
                     Use current symbol/interval
+                  </button>
+                  <button className="btn" type="button" onClick={applyEquityPreset}>
+                    Preset: Equity focus
                   </button>
                   <button className="btn" type="button" onClick={resetOptimizerRunForm}>
                     Reset defaults
                   </button>
                 </div>
                 <div className="hint" style={{ marginTop: 8 }}>
-                  Runs <code>/optimizer/run</code> to generate new combos and refreshes the list above.
+                  Runs <code>/optimizer/run</code> to generate new combos and refreshes the list above. For annualized equity, keep objective/tune objective on
+                  <code>annualized-equity</code> and increase trials/timeout.
                 </div>
                 {optimizerRunValidationError ? (
                   <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.85)" }}>
@@ -7874,6 +7932,7 @@ export function App() {
                     {optimizerRunUi.error}
                   </div>
                 ) : null}
+                </div>
               </details>
               <TopCombosChart
                 combos={topCombos}
@@ -9098,285 +9157,6 @@ export function App() {
               </div>
             </div>
 
-          </CollapsibleSection>
-
-          <CollapsibleSection
-            panelId="section-optimizer-run"
-            title="Optimizer run"
-            meta="Kick off /optimizer/run with the current config or a CSV source."
-          >
-            <div className="row">
-              <div className="field">
-                <div className="label">Request</div>
-                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-                  <div className="field">
-                    <label className="label" htmlFor="optimizerSource">
-                      Source
-                    </label>
-                    <select
-                      id="optimizerSource"
-                      className="select"
-                      value={optimizerRunForm.source}
-                      onChange={(e) => updateOptimizerRunForm({ source: e.target.value as OptimizerSource })}
-                    >
-                      <option value="binance">Binance</option>
-                      <option value="coinbase">Coinbase</option>
-                      <option value="kraken">Kraken</option>
-                      <option value="poloniex">Poloniex</option>
-                      <option value="csv">CSV (file path)</option>
-                    </select>
-                    <div className="hint">Exchange determines symbol format; CSV bypasses the API.</div>
-                  </div>
-                  {optimizerRunForm.source === "csv" ? (
-                    <>
-                      <div className="field">
-                        <label className="label" htmlFor="optimizerDataPath">
-                          CSV path
-                        </label>
-                        <input
-                          id="optimizerDataPath"
-                          className={optimizerRunValidationError ? "input inputError" : "input"}
-                          value={optimizerRunForm.dataPath}
-                          onChange={(e) => updateOptimizerRunForm({ dataPath: e.target.value })}
-                          placeholder="data/my-prices.csv"
-                        />
-                        <div className="hint">Required for CSV source.</div>
-                      </div>
-                      <div className="field">
-                        <label className="label" htmlFor="optimizerPriceColumn">
-                          Price / High / Low
-                        </label>
-                        <input
-                          id="optimizerPriceColumn"
-                          className="input"
-                          value={optimizerRunForm.priceColumn}
-                          onChange={(e) => updateOptimizerRunForm({ priceColumn: e.target.value })}
-                          placeholder="close"
-                        />
-                        <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 6 }}>
-                          <input
-                            className={optimizerRunValidationError ? "input inputError" : "input"}
-                            value={optimizerRunForm.highColumn}
-                            onChange={(e) => updateOptimizerRunForm({ highColumn: e.target.value })}
-                            placeholder="high (optional)"
-                          />
-                          <input
-                            className={optimizerRunValidationError ? "input inputError" : "input"}
-                            value={optimizerRunForm.lowColumn}
-                            onChange={(e) => updateOptimizerRunForm({ lowColumn: e.target.value })}
-                            placeholder="low (optional)"
-                          />
-                        </div>
-                        <div className="hint">Provide both High/Low or leave both blank.</div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="field" style={{ gridColumn: "span 2" }}>
-                      <label className="label" htmlFor="optimizerSymbol">
-                        Symbol
-                      </label>
-                      <input
-                        id="optimizerSymbol"
-                        className={optimizerRunValidationError ? "input inputError" : "input"}
-                        value={optimizerRunForm.symbol}
-                        onChange={(e) => updateOptimizerRunForm({ symbol: e.target.value.toUpperCase() })}
-                        placeholder="BTCUSDT"
-                      />
-                      <div className="hint">Defaults to the current symbol/platform.</div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
-                  <div className="field">
-                    <label className="label" htmlFor="optimizerIntervals">
-                      Intervals
-                    </label>
-                    <input
-                      id="optimizerIntervals"
-                      className="input"
-                      value={optimizerRunForm.intervals}
-                      onChange={(e) => updateOptimizerRunForm({ intervals: e.target.value })}
-                      placeholder="1h,4h,1d"
-                    />
-                    <div className="hint">Comma-separated list.</div>
-                  </div>
-                  <div className="field">
-                    <label className="label" htmlFor="optimizerLookback">
-                      Lookback window
-                    </label>
-                    <input
-                      id="optimizerLookback"
-                      className="input"
-                      value={optimizerRunForm.lookbackWindow}
-                      onChange={(e) => updateOptimizerRunForm({ lookbackWindow: e.target.value })}
-                      placeholder="7d"
-                    />
-                    <div className="hint">Same format as main form (e.g., 7d, 30d).</div>
-                  </div>
-                  <div className="field">
-                    <label className="label" htmlFor="optimizerTrials">
-                      Trials / Timeout / Seed
-                    </label>
-                    <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
-                      <input
-                        id="optimizerTrials"
-                        className="input"
-                        type="number"
-                        min={1}
-                        value={optimizerRunForm.trials}
-                        onChange={(e) => updateOptimizerRunForm({ trials: e.target.value })}
-                        placeholder="50"
-                      />
-                      <input
-                        className="input"
-                        type="number"
-                        min={5}
-                        value={optimizerRunForm.timeoutSec}
-                        onChange={(e) => updateOptimizerRunForm({ timeoutSec: e.target.value })}
-                        placeholder="60"
-                      />
-                      <input
-                        className="input"
-                        type="number"
-                        value={optimizerRunForm.seed}
-                        onChange={(e) => updateOptimizerRunForm({ seed: e.target.value })}
-                        placeholder="42"
-                      />
-                    </div>
-                    <div className="hint">Numbers are optional; blanks are omitted.</div>
-                  </div>
-                </div>
-
-                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
-                  <div className="field">
-                    <label className="label" htmlFor="optimizerObjective">
-                      Objective
-                    </label>
-                    <input
-                      id="optimizerObjective"
-                      className="input"
-                      value={optimizerRunForm.objective}
-                      onChange={(e) => updateOptimizerRunForm({ objective: e.target.value })}
-                      placeholder="annualized-equity"
-                    />
-                    <div className="hint">Matches backend objective names.</div>
-                  </div>
-                  <div className="field">
-                    <label className="label" htmlFor="optimizerRatios">
-                      Backtest / Tune ratio
-                    </label>
-                    <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                      <input
-                        id="optimizerBacktestRatio"
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={0.9}
-                        step="0.01"
-                        value={optimizerRunForm.backtestRatio}
-                        onChange={(e) => updateOptimizerRunForm({ backtestRatio: e.target.value })}
-                        placeholder="0.2"
-                      />
-                      <input
-                        id="optimizerTuneRatio"
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={0.9}
-                        step="0.01"
-                        value={optimizerRunForm.tuneRatio}
-                        onChange={(e) => updateOptimizerRunForm({ tuneRatio: e.target.value })}
-                        placeholder="0.25"
-                      />
-                    </div>
-                    <div className="hint">Leave blank to use defaults.</div>
-                  </div>
-                  <div className="field">
-                    <label className="label" htmlFor="optimizerExtra">
-                      Extra JSON (advanced)
-                    </label>
-                    <textarea
-                      id="optimizerExtra"
-                      className={optimizerRunExtras.error ? "input inputError" : "input"}
-                      value={optimizerRunForm.extraJson}
-                      onChange={(e) => updateOptimizerRunForm({ extraJson: e.target.value })}
-                      placeholder='{"minSharpe":1.0,"minRoundTrips":5}'
-                      rows={4}
-                      spellCheck={false}
-                    />
-                    <div className="hint">{optimizerRunExtras.error ?? "Merged into the payload verbatim."}</div>
-                  </div>
-                </div>
-
-                <div className="actions" style={{ marginTop: 10 }}>
-                  <button
-                    className="btn btnPrimary"
-                    type="button"
-                    disabled={optimizerRunUi.loading || Boolean(optimizerRunValidationError)}
-                    onClick={runOptimizer}
-                  >
-                    {optimizerRunUi.loading ? "Running optimizer…" : "Run optimizer"}
-                  </button>
-                  <button className="btn" type="button" disabled={!optimizerRunUi.loading} onClick={cancelOptimizerRun}>
-                    Cancel run
-                  </button>
-                  <button
-                    className="btn"
-                    type="button"
-                    onClick={() => {
-                      syncOptimizerRunForm();
-                    }}
-                  >
-                    Sync from config
-                  </button>
-                  <button className="btn" type="button" onClick={resetOptimizerRunForm}>
-                    Reset
-                  </button>
-                  <span className="hint">
-                    {optimizerRunValidationError
-                      ? optimizerRunValidationError
-                      : optimizerRunUi.loading
-                        ? "Submitting to /optimizer/run…"
-                        : "Uses the same auth/proxy settings as other requests."}
-                  </span>
-                </div>
-              </div>
-
-              <div className="field">
-                <div className="label">Result</div>
-                {optimizerRunUi.error ? (
-                  <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
-                    {optimizerRunUi.error}
-                  </pre>
-                ) : null}
-                {optimizerRunUi.response ? (
-                  <div className="hint" style={{ marginBottom: 8 }}>
-                    Last run: {optimizerRunUi.lastRunAtMs ? fmtTimeMs(optimizerRunUi.lastRunAtMs) : "just now"}
-                  </div>
-                ) : null}
-                {optimizerRunUi.response?.stdout ? (
-                  <details className="details" open>
-                    <summary>Stdout</summary>
-                    <pre className="code">{optimizerRunUi.response.stdout}</pre>
-                  </details>
-                ) : null}
-                {optimizerRunUi.response?.stderr ? (
-                  <details className="details">
-                    <summary>Stderr</summary>
-                    <pre className="code">{optimizerRunUi.response.stderr}</pre>
-                  </details>
-                ) : null}
-                {optimizerRunRecordJson ? (
-                  <details className="details" open>
-                    <summary>Last record</summary>
-                    <pre className="code">{optimizerRunRecordJson}</pre>
-                  </details>
-                ) : (
-                  <div className="hint">No optimizer run yet.</div>
-                )}
-              </div>
-            </div>
           </CollapsibleSection>
 
           <CollapsibleSection panelId="section-optimization" title="Optimization" meta="Tuning sweeps, presets, and constraints.">
