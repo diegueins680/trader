@@ -22,6 +22,9 @@ import type {
   Method,
   Normalization,
   OpsOperation,
+  OptimizerRunRequest,
+  OptimizerRunResponse,
+  OptimizerSource,
   Platform,
   Positioning,
 } from "./lib/types";
@@ -43,6 +46,7 @@ import {
   health,
   ops,
   optimizerCombos,
+  optimizerRun,
   signal,
   trade,
 } from "./lib/api";
@@ -186,6 +190,7 @@ const CONFIG_SECTION_IDS = [
   "section-lookback",
   "section-thresholds",
   "section-risk",
+  "section-optimizer-run",
   "section-optimization",
   "section-livebot",
   "section-trade",
@@ -428,6 +433,24 @@ function listenKeyKeepAliveIntervalMs(keepAliveMs: number): number {
   return Math.max(60_000, Math.round(keepAliveMs * 0.9));
 }
 
+function parseOptionalNumber(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const parsed = numFromInput(trimmed, Number.NaN);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseOptionalInt(raw: string): number | undefined {
+  const parsed = parseOptionalNumber(raw);
+  if (parsed == null) return undefined;
+  return Math.trunc(parsed);
+}
+
+function parseOptionalString(raw: string): string | undefined {
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 type UiState = {
   loading: boolean;
   error: string | null;
@@ -435,6 +458,14 @@ type UiState = {
   latestSignal: LatestSignal | null;
   backtest: BacktestResponse | null;
   trade: ApiTradeResponse | null;
+};
+
+type ErrorFix = {
+  label: string;
+  action: "tuneRatio";
+  value: number;
+  targetId?: string;
+  toast: string;
 };
 
 type BotUiState = {
@@ -540,6 +571,96 @@ type BinancePositionsUiState = {
   response: ApiBinancePositionsResponse | null;
 };
 
+type OptimizerRunUiState = {
+  loading: boolean;
+  error: string | null;
+  response: OptimizerRunResponse | null;
+  lastRunAtMs: number | null;
+};
+
+type OptimizerRunForm = {
+  source: OptimizerSource;
+  symbol: string;
+  dataPath: string;
+  priceColumn: string;
+  highColumn: string;
+  lowColumn: string;
+  platforms: string;
+  intervals: string;
+  lookbackWindow: string;
+  barsMin: string;
+  barsMax: string;
+  barsAutoProb: string;
+  barsDistribution: "" | "uniform" | "log";
+  trials: string;
+  timeoutSec: string;
+  seed: string;
+  seedTrials: string;
+  seedRatio: string;
+  survivorFraction: string;
+  perturbScaleDouble: string;
+  perturbScaleInt: string;
+  earlyStopNoImprove: string;
+  objective: string;
+  tuneObjective: string;
+  backtestRatio: string;
+  tuneRatio: string;
+  penaltyMaxDrawdown: string;
+  penaltyTurnover: string;
+  normalizations: string;
+  epochsMin: string;
+  epochsMax: string;
+  hiddenSizeMin: string;
+  hiddenSizeMax: string;
+  lrMin: string;
+  lrMax: string;
+  patienceMax: string;
+  gradClipMin: string;
+  gradClipMax: string;
+  pDisableGradClip: string;
+  slippageMax: string;
+  spreadMax: string;
+  minRoundTrips: string;
+  minWinRate: string;
+  minSharpe: string;
+  minAnnualizedReturn: string;
+  minCalmar: string;
+  minProfitFactor: string;
+  maxTurnover: string;
+  minExposure: string;
+  minWalkForwardSharpeMean: string;
+  maxWalkForwardSharpeStd: string;
+  walkForwardFoldsMin: string;
+  walkForwardFoldsMax: string;
+  minHoldBarsMin: string;
+  minHoldBarsMax: string;
+  cooldownBarsMin: string;
+  cooldownBarsMax: string;
+  maxHoldBarsMin: string;
+  maxHoldBarsMax: string;
+  minEdgeMin: string;
+  minEdgeMax: string;
+  minSignalToNoiseMin: string;
+  minSignalToNoiseMax: string;
+  edgeBufferMin: string;
+  edgeBufferMax: string;
+  trendLookbackMin: string;
+  trendLookbackMax: string;
+  pCostAwareEdge: string;
+  stopMin: string;
+  stopMax: string;
+  tpMin: string;
+  tpMax: string;
+  trailMin: string;
+  trailMax: string;
+  methodWeightBlend: string;
+  blendWeightMin: string;
+  blendWeightMax: string;
+  disableLstmPersistence: boolean;
+  noSweepThreshold: boolean;
+  extraJson: string;
+};
+
 type TopCombosSource = "api" | "static";
 
 type TopCombosMeta = {
@@ -576,6 +697,304 @@ type PendingProfileLoad = {
 
 type ComputeLimits = NonNullable<Awaited<ReturnType<typeof health>>["computeLimits"]>;
 type ManualOverrideKey = "method" | "openThreshold" | "closeThreshold";
+
+function optimizerSourceForPlatform(platform: Platform): OptimizerSource {
+  switch (platform) {
+    case "coinbase":
+      return "coinbase";
+    case "kraken":
+      return "kraken";
+    case "poloniex":
+      return "poloniex";
+    default:
+      return "binance";
+  }
+}
+
+function buildDefaultOptimizerRunForm(symbol: string, platform: Platform): OptimizerRunForm {
+  return {
+    source: optimizerSourceForPlatform(platform),
+    symbol: symbol.trim().toUpperCase(),
+    dataPath: "",
+    priceColumn: "close",
+    highColumn: "",
+    lowColumn: "",
+    platforms: "",
+    intervals: "1h,2h,4h,6h,12h,1d",
+    lookbackWindow: "7d",
+    barsMin: "",
+    barsMax: "",
+    barsAutoProb: "",
+    barsDistribution: "",
+    trials: "50",
+    timeoutSec: "60",
+    seed: "42",
+    seedTrials: "",
+    seedRatio: "",
+    survivorFraction: "",
+    perturbScaleDouble: "",
+    perturbScaleInt: "",
+    earlyStopNoImprove: "",
+    objective: "annualized-equity",
+    tuneObjective: "annualized-equity",
+    backtestRatio: "0.2",
+    tuneRatio: "0.25",
+    penaltyMaxDrawdown: "",
+    penaltyTurnover: "",
+    normalizations: "none,minmax,standard,log",
+    epochsMin: "",
+    epochsMax: "",
+    hiddenSizeMin: "",
+    hiddenSizeMax: "",
+    lrMin: "",
+    lrMax: "",
+    patienceMax: "",
+    gradClipMin: "",
+    gradClipMax: "",
+    pDisableGradClip: "",
+    slippageMax: "",
+    spreadMax: "",
+    minRoundTrips: "",
+    minWinRate: "",
+    minSharpe: "",
+    minAnnualizedReturn: "",
+    minCalmar: "",
+    minProfitFactor: "",
+    maxTurnover: "",
+    minExposure: "",
+    minWalkForwardSharpeMean: "",
+    maxWalkForwardSharpeStd: "",
+    walkForwardFoldsMin: "",
+    walkForwardFoldsMax: "",
+    minHoldBarsMin: "",
+    minHoldBarsMax: "",
+    cooldownBarsMin: "",
+    cooldownBarsMax: "",
+    maxHoldBarsMin: "",
+    maxHoldBarsMax: "",
+    minEdgeMin: "",
+    minEdgeMax: "",
+    minSignalToNoiseMin: "",
+    minSignalToNoiseMax: "",
+    edgeBufferMin: "",
+    edgeBufferMax: "",
+    trendLookbackMin: "",
+    trendLookbackMax: "",
+    pCostAwareEdge: "",
+    stopMin: "",
+    stopMax: "",
+    tpMin: "",
+    tpMax: "",
+    trailMin: "",
+    trailMax: "",
+    methodWeightBlend: "",
+    blendWeightMin: "",
+    blendWeightMax: "",
+    disableLstmPersistence: false,
+    noSweepThreshold: false,
+    extraJson: "",
+  };
+}
+
+function parseOptimizerExtras(raw: string): { value: Record<string, unknown> | null; error: string | null } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { value: null, error: null };
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { value: null, error: "Extra options must be a JSON object." };
+    }
+    return { value: parsed as Record<string, unknown>, error: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid JSON.";
+    return { value: null, error: `Invalid JSON: ${msg}` };
+  }
+}
+
+function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<string, unknown> | null): OptimizerRunRequest {
+  const req: OptimizerRunRequest = {
+    source: form.source,
+  };
+
+  const symbol = parseOptionalString(form.symbol);
+  const dataPath = parseOptionalString(form.dataPath);
+  const priceColumn = parseOptionalString(form.priceColumn);
+  const highColumn = parseOptionalString(form.highColumn);
+  const lowColumn = parseOptionalString(form.lowColumn);
+
+  if (form.source === "csv") {
+    if (dataPath) req.data = dataPath;
+    if (priceColumn) req.priceColumn = priceColumn;
+    if (highColumn && lowColumn) {
+      req.highColumn = highColumn;
+      req.lowColumn = lowColumn;
+    }
+  } else {
+    if (symbol) req.binanceSymbol = symbol.toUpperCase();
+    const platforms = parseOptionalString(form.platforms);
+    if (platforms) req.platforms = platforms;
+  }
+
+  const intervals = parseOptionalString(form.intervals);
+  if (intervals) req.intervals = intervals;
+  const lookbackWindow = parseOptionalString(form.lookbackWindow);
+  if (lookbackWindow) req.lookbackWindow = lookbackWindow;
+
+  const barsMin = parseOptionalInt(form.barsMin);
+  if (barsMin != null) req.barsMin = barsMin;
+  const barsMax = parseOptionalInt(form.barsMax);
+  if (barsMax != null) req.barsMax = barsMax;
+  const barsAutoProb = parseOptionalNumber(form.barsAutoProb);
+  if (barsAutoProb != null) req.barsAutoProb = barsAutoProb;
+  if (form.barsDistribution) req.barsDistribution = form.barsDistribution;
+
+  const trials = parseOptionalInt(form.trials);
+  if (trials != null) req.trials = trials;
+  const timeoutSec = parseOptionalNumber(form.timeoutSec);
+  if (timeoutSec != null) req.timeoutSec = timeoutSec;
+  const seed = parseOptionalInt(form.seed);
+  if (seed != null) req.seed = seed;
+  const seedTrials = parseOptionalInt(form.seedTrials);
+  if (seedTrials != null) req.seedTrials = seedTrials;
+  const seedRatio = parseOptionalNumber(form.seedRatio);
+  if (seedRatio != null) req.seedRatio = seedRatio;
+  const survivorFraction = parseOptionalNumber(form.survivorFraction);
+  if (survivorFraction != null) req.survivorFraction = survivorFraction;
+  const perturbScaleDouble = parseOptionalNumber(form.perturbScaleDouble);
+  if (perturbScaleDouble != null) req.perturbScaleDouble = perturbScaleDouble;
+  const perturbScaleInt = parseOptionalInt(form.perturbScaleInt);
+  if (perturbScaleInt != null) req.perturbScaleInt = perturbScaleInt;
+  const earlyStopNoImprove = parseOptionalInt(form.earlyStopNoImprove);
+  if (earlyStopNoImprove != null) req.earlyStopNoImprove = earlyStopNoImprove;
+
+  const objective = parseOptionalString(form.objective);
+  if (objective) req.objective = objective;
+  const tuneObjective = parseOptionalString(form.tuneObjective);
+  if (tuneObjective) req.tuneObjective = tuneObjective;
+  const backtestRatio = parseOptionalNumber(form.backtestRatio);
+  if (backtestRatio != null) req.backtestRatio = backtestRatio;
+  const tuneRatio = parseOptionalNumber(form.tuneRatio);
+  if (tuneRatio != null) req.tuneRatio = tuneRatio;
+  const penaltyMaxDrawdown = parseOptionalNumber(form.penaltyMaxDrawdown);
+  if (penaltyMaxDrawdown != null) req.penaltyMaxDrawdown = penaltyMaxDrawdown;
+  const penaltyTurnover = parseOptionalNumber(form.penaltyTurnover);
+  if (penaltyTurnover != null) req.penaltyTurnover = penaltyTurnover;
+
+  const normalizations = parseOptionalString(form.normalizations);
+  if (normalizations) req.normalizations = normalizations;
+  const epochsMin = parseOptionalInt(form.epochsMin);
+  if (epochsMin != null) req.epochsMin = epochsMin;
+  const epochsMax = parseOptionalInt(form.epochsMax);
+  if (epochsMax != null) req.epochsMax = epochsMax;
+  const hiddenSizeMin = parseOptionalInt(form.hiddenSizeMin);
+  if (hiddenSizeMin != null) req.hiddenSizeMin = hiddenSizeMin;
+  const hiddenSizeMax = parseOptionalInt(form.hiddenSizeMax);
+  if (hiddenSizeMax != null) req.hiddenSizeMax = hiddenSizeMax;
+  const lrMin = parseOptionalNumber(form.lrMin);
+  if (lrMin != null) req.lrMin = lrMin;
+  const lrMax = parseOptionalNumber(form.lrMax);
+  if (lrMax != null) req.lrMax = lrMax;
+  const patienceMax = parseOptionalInt(form.patienceMax);
+  if (patienceMax != null) req.patienceMax = patienceMax;
+  const gradClipMin = parseOptionalNumber(form.gradClipMin);
+  if (gradClipMin != null) req.gradClipMin = gradClipMin;
+  const gradClipMax = parseOptionalNumber(form.gradClipMax);
+  if (gradClipMax != null) req.gradClipMax = gradClipMax;
+  const pDisableGradClip = parseOptionalNumber(form.pDisableGradClip);
+  if (pDisableGradClip != null) req.pDisableGradClip = pDisableGradClip;
+
+  const slippageMax = parseOptionalNumber(form.slippageMax);
+  if (slippageMax != null) req.slippageMax = slippageMax;
+  const spreadMax = parseOptionalNumber(form.spreadMax);
+  if (spreadMax != null) req.spreadMax = spreadMax;
+
+  const minRoundTrips = parseOptionalInt(form.minRoundTrips);
+  if (minRoundTrips != null) req.minRoundTrips = minRoundTrips;
+  const minWinRate = parseOptionalNumber(form.minWinRate);
+  if (minWinRate != null) req.minWinRate = minWinRate;
+  const minSharpe = parseOptionalNumber(form.minSharpe);
+  if (minSharpe != null) req.minSharpe = minSharpe;
+  const minAnnualizedReturn = parseOptionalNumber(form.minAnnualizedReturn);
+  if (minAnnualizedReturn != null) req.minAnnualizedReturn = minAnnualizedReturn;
+  const minCalmar = parseOptionalNumber(form.minCalmar);
+  if (minCalmar != null) req.minCalmar = minCalmar;
+  const minProfitFactor = parseOptionalNumber(form.minProfitFactor);
+  if (minProfitFactor != null) req.minProfitFactor = minProfitFactor;
+  const maxTurnover = parseOptionalNumber(form.maxTurnover);
+  if (maxTurnover != null) req.maxTurnover = maxTurnover;
+  const minExposure = parseOptionalNumber(form.minExposure);
+  if (minExposure != null) req.minExposure = minExposure;
+  const minWalkForwardSharpeMean = parseOptionalNumber(form.minWalkForwardSharpeMean);
+  if (minWalkForwardSharpeMean != null) req.minWalkForwardSharpeMean = minWalkForwardSharpeMean;
+  const maxWalkForwardSharpeStd = parseOptionalNumber(form.maxWalkForwardSharpeStd);
+  if (maxWalkForwardSharpeStd != null) req.maxWalkForwardSharpeStd = maxWalkForwardSharpeStd;
+
+  const walkForwardFoldsMin = parseOptionalInt(form.walkForwardFoldsMin);
+  if (walkForwardFoldsMin != null) req.walkForwardFoldsMin = walkForwardFoldsMin;
+  const walkForwardFoldsMax = parseOptionalInt(form.walkForwardFoldsMax);
+  if (walkForwardFoldsMax != null) req.walkForwardFoldsMax = walkForwardFoldsMax;
+
+  const minHoldBarsMin = parseOptionalInt(form.minHoldBarsMin);
+  if (minHoldBarsMin != null) req.minHoldBarsMin = minHoldBarsMin;
+  const minHoldBarsMax = parseOptionalInt(form.minHoldBarsMax);
+  if (minHoldBarsMax != null) req.minHoldBarsMax = minHoldBarsMax;
+  const cooldownBarsMin = parseOptionalInt(form.cooldownBarsMin);
+  if (cooldownBarsMin != null) req.cooldownBarsMin = cooldownBarsMin;
+  const cooldownBarsMax = parseOptionalInt(form.cooldownBarsMax);
+  if (cooldownBarsMax != null) req.cooldownBarsMax = cooldownBarsMax;
+  const maxHoldBarsMin = parseOptionalInt(form.maxHoldBarsMin);
+  if (maxHoldBarsMin != null) req.maxHoldBarsMin = maxHoldBarsMin;
+  const maxHoldBarsMax = parseOptionalInt(form.maxHoldBarsMax);
+  if (maxHoldBarsMax != null) req.maxHoldBarsMax = maxHoldBarsMax;
+
+  const minEdgeMin = parseOptionalNumber(form.minEdgeMin);
+  if (minEdgeMin != null) req.minEdgeMin = minEdgeMin;
+  const minEdgeMax = parseOptionalNumber(form.minEdgeMax);
+  if (minEdgeMax != null) req.minEdgeMax = minEdgeMax;
+  const minSignalToNoiseMin = parseOptionalNumber(form.minSignalToNoiseMin);
+  if (minSignalToNoiseMin != null) req.minSignalToNoiseMin = minSignalToNoiseMin;
+  const minSignalToNoiseMax = parseOptionalNumber(form.minSignalToNoiseMax);
+  if (minSignalToNoiseMax != null) req.minSignalToNoiseMax = minSignalToNoiseMax;
+  const edgeBufferMin = parseOptionalNumber(form.edgeBufferMin);
+  if (edgeBufferMin != null) req.edgeBufferMin = edgeBufferMin;
+  const edgeBufferMax = parseOptionalNumber(form.edgeBufferMax);
+  if (edgeBufferMax != null) req.edgeBufferMax = edgeBufferMax;
+  const trendLookbackMin = parseOptionalInt(form.trendLookbackMin);
+  if (trendLookbackMin != null) req.trendLookbackMin = trendLookbackMin;
+  const trendLookbackMax = parseOptionalInt(form.trendLookbackMax);
+  if (trendLookbackMax != null) req.trendLookbackMax = trendLookbackMax;
+  const pCostAwareEdge = parseOptionalNumber(form.pCostAwareEdge);
+  if (pCostAwareEdge != null) req.pCostAwareEdge = pCostAwareEdge;
+
+  const stopMin = parseOptionalNumber(form.stopMin);
+  if (stopMin != null) req.stopMin = stopMin;
+  const stopMax = parseOptionalNumber(form.stopMax);
+  if (stopMax != null) req.stopMax = stopMax;
+  const tpMin = parseOptionalNumber(form.tpMin);
+  if (tpMin != null) req.tpMin = tpMin;
+  const tpMax = parseOptionalNumber(form.tpMax);
+  if (tpMax != null) req.tpMax = tpMax;
+  const trailMin = parseOptionalNumber(form.trailMin);
+  if (trailMin != null) req.trailMin = trailMin;
+  const trailMax = parseOptionalNumber(form.trailMax);
+  if (trailMax != null) req.trailMax = trailMax;
+
+  const methodWeightBlend = parseOptionalNumber(form.methodWeightBlend);
+  if (methodWeightBlend != null) req.methodWeightBlend = methodWeightBlend;
+  const blendWeightMin = parseOptionalNumber(form.blendWeightMin);
+  if (blendWeightMin != null) req.blendWeightMin = blendWeightMin;
+  const blendWeightMax = parseOptionalNumber(form.blendWeightMax);
+  if (blendWeightMax != null) req.blendWeightMax = blendWeightMax;
+
+  if (form.disableLstmPersistence) req.disableLstmPersistence = true;
+  if (form.noSweepThreshold) req.noSweepThreshold = true;
+
+  if (extras) {
+    Object.assign(req, extras);
+  }
+
+  return req;
+}
 
 const CUSTOM_SYMBOL_VALUE = "__custom__";
 const TOP_COMBOS_POLL_MS = 30_000;
@@ -747,6 +1166,18 @@ type SplitStats = {
   fitOk: boolean;
 };
 
+type TuneRatioBounds = {
+  trainEndRaw: number;
+  minTrainBars: number;
+  minTuneBars: number;
+  maxTuneBars: number;
+  minRatio: number;
+  maxRatio: number;
+};
+
+const RATIO_ROUND_DIGITS = 3;
+const RATIO_ROUND_FACTOR = 10 ** RATIO_ROUND_DIGITS;
+
 function splitStats(
   bars: number,
   backtestRatio: number,
@@ -772,6 +1203,35 @@ function splitStats(
     fitOk = fitBars >= minTrainBars;
   }
   return { trainEndRaw, backtestBars, tuneBars, fitBars, trainOk, backtestOk, tuneOk, fitOk };
+}
+
+function roundRatioDown(value: number): number {
+  return Math.floor(value * RATIO_ROUND_FACTOR) / RATIO_ROUND_FACTOR;
+}
+
+function roundRatioUp(value: number): number {
+  return Math.ceil(value * RATIO_ROUND_FACTOR) / RATIO_ROUND_FACTOR;
+}
+
+function tuneRatioBounds(bars: number, backtestRatio: number, lookbackBars: number): TuneRatioBounds | null {
+  if (!Number.isFinite(bars) || bars <= 0) return null;
+  if (!Number.isFinite(lookbackBars) || lookbackBars < MIN_LOOKBACK_BARS) return null;
+  const ratio = clamp(backtestRatio, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
+  const trainEndRaw = Math.floor(bars * (1 - ratio) + 1e-9);
+  const minTrainBars = lookbackBars + 1;
+  if (trainEndRaw < minTrainBars) return null;
+  const minTuneBars = 2;
+  const maxTuneBars = trainEndRaw - minTrainBars;
+  const minRatio = minTuneBars / trainEndRaw;
+  const maxRatio = maxTuneBars / trainEndRaw;
+  return {
+    trainEndRaw,
+    minTrainBars,
+    minTuneBars,
+    maxTuneBars,
+    minRatio: clamp(minRatio, 0, 0.99),
+    maxRatio: clamp(maxRatio, 0, 0.99),
+  };
 }
 
 function minTrainEndForTune(minTrainBars: number, tuneRatio: number, tuningEnabled: boolean, maxTrainEnd: number): number {
@@ -1364,6 +1824,14 @@ export function App() {
   const [dataLogIndexArrays, setDataLogIndexArrays] = useState(true);
   const [dataLogFilterText, setDataLogFilterText] = useState("");
   const [dataLogAutoScroll, setDataLogAutoScroll] = useState(true);
+  const [optimizerRunDirty, setOptimizerRunDirty] = useState(false);
+  const [optimizerRunForm, setOptimizerRunForm] = useState<OptimizerRunForm>(() => buildDefaultOptimizerRunForm(form.binanceSymbol, platform));
+  const [optimizerRunUi, setOptimizerRunUi] = useState<OptimizerRunUiState>({
+    loading: false,
+    error: null,
+    response: null,
+    lastRunAtMs: null,
+  });
   const [topCombosAll, setTopCombosAll] = useState<OptimizationCombo[]>([]);
   const [comboOrder, setComboOrder] = useState<ComboOrder>("annualized-equity");
   const [comboMinEquityInput, setComboMinEquityInput] = useState("");
@@ -1373,6 +1841,26 @@ export function App() {
     const parsed = numFromInput(trimmed, Number.NaN);
     return Number.isFinite(parsed) ? parsed : null;
   }, [comboMinEquityInput]);
+  const optimizerRunExtras = useMemo(() => parseOptimizerExtras(optimizerRunForm.extraJson), [optimizerRunForm.extraJson]);
+  const optimizerRunValidationError = useMemo(() => {
+    if (optimizerRunForm.source === "csv") {
+      if (!optimizerRunForm.dataPath.trim()) return "CSV source requires a data path.";
+      const high = optimizerRunForm.highColumn.trim();
+      const low = optimizerRunForm.lowColumn.trim();
+      if ((high && !low) || (!high && low)) return "Provide both High/Low columns or leave both empty.";
+    } else if (!optimizerRunForm.symbol.trim()) {
+      return "Symbol is required for exchange sources.";
+    }
+    return optimizerRunExtras.error;
+  }, [optimizerRunExtras.error, optimizerRunForm.dataPath, optimizerRunForm.highColumn, optimizerRunForm.lowColumn, optimizerRunForm.source, optimizerRunForm.symbol]);
+  const optimizerRunRecordJson = useMemo(() => {
+    if (!optimizerRunUi.response) return null;
+    try {
+      return JSON.stringify(optimizerRunUi.response.lastRecord, null, 2);
+    } catch {
+      return String(optimizerRunUi.response.lastRecord ?? "");
+    }
+  }, [optimizerRunUi.response]);
   const topCombosFiltered = useMemo(() => {
     if (comboMinEquity == null) return topCombosAll;
     return topCombosAll.filter((combo) => combo.finalEquity > comboMinEquity);
@@ -1458,9 +1946,11 @@ export function App() {
   const abortRef = useRef<AbortController | null>(null);
   const botAbortRef = useRef<AbortController | null>(null);
   const keysAbortRef = useRef<AbortController | null>(null);
+  const optimizerRunAbortRef = useRef<AbortController | null>(null);
   const requestSeqRef = useRef(0);
   const botRequestSeqRef = useRef(0);
   const keysRequestSeqRef = useRef(0);
+  const optimizerRunRequestSeqRef = useRef(0);
   const errorRef = useRef<HTMLDetailsElement>(null!);
   const signalRef = useRef<HTMLDetailsElement>(null!);
   const backtestRef = useRef<HTMLDetailsElement>(null!);
@@ -1469,6 +1959,11 @@ export function App() {
   useEffect(() => {
     writeJson(STORAGE_KEY, form);
   }, [form]);
+
+  useEffect(() => {
+    if (optimizerRunDirty) return;
+    syncOptimizerRunForm();
+  }, [form.binanceSymbol, form.interval, form.lookbackWindow, form.platform, optimizerRunDirty, syncOptimizerRunForm]);
 
   useEffect(() => {
     pendingComboStartRef.current = pendingComboStart;
@@ -1747,6 +2242,111 @@ export function App() {
   const refreshTopCombos = useCallback(() => {
     topCombosSyncRef.current?.({ silent: false });
   }, []);
+  const updateOptimizerRunForm = useCallback((updates: Partial<OptimizerRunForm>) => {
+    setOptimizerRunDirty(true);
+    setOptimizerRunForm((prev) => ({ ...prev, ...updates }));
+  }, []);
+  const resetOptimizerRunForm = useCallback(() => {
+    setOptimizerRunForm(buildDefaultOptimizerRunForm(form.binanceSymbol, platform));
+    setOptimizerRunUi((prev) => ({ ...prev, error: null }));
+    setOptimizerRunDirty(false);
+  }, [form.binanceSymbol, platform]);
+  const syncOptimizerRunForm = useCallback(() => {
+    setOptimizerRunForm((prev) => ({
+      ...prev,
+      source: prev.source === "csv" ? "csv" : optimizerSourceForPlatform(form.platform),
+      symbol: form.binanceSymbol.trim().toUpperCase(),
+      intervals: form.interval.trim() || prev.intervals,
+      lookbackWindow: form.lookbackWindow.trim() || prev.lookbackWindow,
+    }));
+    setOptimizerRunDirty(false);
+  }, [form.binanceSymbol, form.interval, form.lookbackWindow, form.platform]);
+  const cancelOptimizerRun = useCallback(() => {
+    if (!optimizerRunUi.loading) return;
+    optimizerRunRequestSeqRef.current += 1;
+    optimizerRunAbortRef.current?.abort();
+    optimizerRunAbortRef.current = null;
+    setOptimizerRunUi((prev) => ({ ...prev, loading: false }));
+    showToast("Optimizer run cancelled");
+  }, [optimizerRunUi.loading, showToast]);
+  const runOptimizer = useCallback(async () => {
+    if (optimizerRunValidationError) {
+      setOptimizerRunUi((prev) => ({ ...prev, error: optimizerRunValidationError }));
+      showToast(optimizerRunValidationError);
+      return;
+    }
+
+    const requestId = ++optimizerRunRequestSeqRef.current;
+    optimizerRunAbortRef.current?.abort();
+    const controller = new AbortController();
+    optimizerRunAbortRef.current = controller;
+    setOptimizerRunUi((prev) => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const payload = buildOptimizerRunRequest(optimizerRunForm, optimizerRunExtras.value);
+      const out = await optimizerRun(apiBase, payload, {
+        signal: controller.signal,
+        headers: authHeaders,
+        timeoutMs: BACKTEST_TIMEOUT_MS,
+      });
+      if (requestId !== optimizerRunRequestSeqRef.current) return;
+      setOptimizerRunUi({ loading: false, error: null, response: out, lastRunAtMs: Date.now() });
+      setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Optimizer Run", data: out }].slice(-100));
+      setApiOk("ok");
+      showToast("Optimizer run complete");
+      refreshTopCombos();
+    } catch (e) {
+      if (requestId !== optimizerRunRequestSeqRef.current) return;
+      if (isAbortError(e)) return;
+
+      let msg = e instanceof Error ? e.message : String(e);
+      let showErrorToast = true;
+      if (isTimeoutError(e)) msg = "Optimizer run timed out. Increase timeout or reduce trials.";
+      if (e instanceof HttpError && typeof e.payload === "string") {
+        const payload = e.payload;
+        if (payload.includes("ECONNREFUSED") || payload.includes("connect ECONNREFUSED")) {
+          msg = `Backend unreachable. Start it with: cd haskell && cabal run -v0 trader-hs -- --serve --port ${API_PORT}`;
+        }
+      }
+      if (e instanceof HttpError && (e.status === 502 || e.status === 503)) {
+        msg = apiBase.startsWith("/api")
+          ? "CloudFront `/api/*` proxy is unavailable (502/503). Point `/api/*` at your API origin and allow POST/GET/OPTIONS."
+          : "API gateway unavailable (502/503). Try again, or check the API logs.";
+      }
+      if (e instanceof HttpError && e.status === 504) {
+        msg = apiBase.startsWith("/api")
+          ? "CloudFront `/api/*` proxy timed out (504). Point `/api/*` at your API origin and allow POST/OPTIONS."
+          : "API gateway timed out (504). Try again, or reduce trials/timeout, or scale the API.";
+      }
+      if (e instanceof HttpError && e.status === 429) {
+        const untilMs = applyRateLimit(e);
+        msg = `Rate limited. Try again ${fmtEtaMs(Math.max(0, untilMs - Date.now()))}.`;
+        showErrorToast = false;
+      }
+
+      setApiOk((prev) => {
+        if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
+        const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500);
+        return looksDown ? "down" : prev;
+      });
+
+      setOptimizerRunUi((prev) => ({ ...prev, loading: false, error: msg }));
+      if (showErrorToast) showToast("Optimizer run failed");
+    } finally {
+      if (requestId === optimizerRunRequestSeqRef.current) {
+        optimizerRunAbortRef.current = null;
+      }
+    }
+  }, [
+    apiBase,
+    applyRateLimit,
+    authHeaders,
+    optimizerRunExtras.value,
+    optimizerRunForm,
+    optimizerRunValidationError,
+    refreshTopCombos,
+    showToast,
+  ]);
   const scrollDataLogToBottom = useCallback(() => {
     const el = dataLogRef.current;
     if (!el) return;
@@ -4475,6 +5075,80 @@ export function App() {
     lookbackState.bars,
     lookbackState.effectiveBars,
   ]);
+  const errorFix = useMemo<ErrorFix | null>(() => {
+    if (!state.error) return null;
+    const tuningEnabled = form.optimizeOperations || form.sweepThreshold;
+    if (!tuningEnabled) return null;
+
+    const error = state.error;
+    const fitError = error.includes("Fit window too small");
+    const tuneError = error.includes("Tune window too small");
+    if (!fitError && !tuneError) return null;
+
+    const lookbackMatch = error.match(/lookback=(\d+)/i);
+    const lookbackFromError = lookbackMatch ? Number(lookbackMatch[1]) : null;
+    const lookbackBars =
+      Number.isFinite(lookbackFromError) && lookbackFromError != null
+        ? lookbackFromError
+        : lookbackState.effectiveBars;
+    if (!Number.isFinite(lookbackBars) || lookbackBars == null || lookbackBars < MIN_LOOKBACK_BARS) return null;
+
+    const bars = lookbackState.bars;
+    if (!Number.isFinite(bars) || bars <= 0) return null;
+
+    const backtestRatio =
+      typeof form.backtestRatio === "number" && Number.isFinite(form.backtestRatio)
+        ? clamp(form.backtestRatio, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO)
+        : 0.2;
+    const bounds = tuneRatioBounds(bars, backtestRatio, lookbackBars);
+    if (!bounds) return null;
+    if (bounds.maxRatio < bounds.minRatio || bounds.maxTuneBars < bounds.minTuneBars) return null;
+
+    const currentTuneRatio =
+      typeof form.tuneRatio === "number" && Number.isFinite(form.tuneRatio) ? clamp(form.tuneRatio, 0, 0.99) : 0;
+
+    if (fitError) {
+      if (currentTuneRatio <= bounds.maxRatio + 1e-6) return null;
+      let nextTuneRatio = roundRatioDown(Math.min(currentTuneRatio, bounds.maxRatio));
+      if (nextTuneRatio < bounds.minRatio) nextTuneRatio = bounds.maxRatio;
+      nextTuneRatio = clamp(nextTuneRatio, 0, 0.99);
+      if (nextTuneRatio >= currentTuneRatio || nextTuneRatio < bounds.minRatio - 1e-6) return null;
+      const label = fmtNum(nextTuneRatio, RATIO_ROUND_DIGITS);
+      return {
+        label: `Suggested fix: set tune ratio to ${label}.`,
+        action: "tuneRatio",
+        value: nextTuneRatio,
+        targetId: "tuneRatio",
+        toast: `Tune ratio set to ${label} to keep fit >= lookback.`,
+      };
+    }
+
+    if (tuneError) {
+      if (currentTuneRatio >= bounds.minRatio - 1e-6) return null;
+      let nextTuneRatio = roundRatioUp(Math.max(currentTuneRatio, bounds.minRatio));
+      if (nextTuneRatio > bounds.maxRatio) nextTuneRatio = bounds.minRatio;
+      nextTuneRatio = clamp(nextTuneRatio, 0, bounds.maxRatio);
+      if (nextTuneRatio <= currentTuneRatio || nextTuneRatio > bounds.maxRatio + 1e-6) return null;
+      const label = fmtNum(nextTuneRatio, RATIO_ROUND_DIGITS);
+      return {
+        label: `Suggested fix: set tune ratio to ${label}.`,
+        action: "tuneRatio",
+        value: nextTuneRatio,
+        targetId: "tuneRatio",
+        toast: `Tune ratio set to ${label} to reach at least 2 tune bars.`,
+      };
+    }
+
+    return null;
+  }, [
+    form.backtestRatio,
+    form.optimizeOperations,
+    form.sweepThreshold,
+    form.tuneRatio,
+    lookbackState.bars,
+    lookbackState.effectiveBars,
+    state.error,
+  ]);
   const dataLogFiltered = useMemo(() => {
     const term = dataLogFilterText.trim().toLowerCase();
     if (!term) return dataLog;
@@ -4578,6 +5252,17 @@ export function App() {
   const extraIssueCount = Math.max(0, requestIssueDetails.length - 1);
   const requestDisabledReason = primaryIssue?.disabledMessage ?? primaryIssue?.message ?? null;
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
+  const applyErrorFix = useCallback(() => {
+    if (!errorFix) return;
+    if (errorFix.action === "tuneRatio") {
+      setForm((prev) => {
+        const nextTuneRatio = clamp(errorFix.value, 0, 0.99);
+        return nextTuneRatio === prev.tuneRatio ? prev : { ...prev, tuneRatio: nextTuneRatio };
+      });
+    }
+    showToast(errorFix.toast);
+    if (errorFix.targetId) scrollToSection(errorFix.targetId);
+  }, [errorFix, scrollToSection, showToast]);
   const handlePrimaryIssueFix = useCallback(() => {
     const targetId = primaryIssue?.targetId;
     if (!targetId) return;
@@ -5208,6 +5893,7 @@ export function App() {
     { id: "section-lookback", label: "Lookback" },
     { id: "section-thresholds", label: "Thresholds" },
     { id: "section-risk", label: "Risk" },
+    { id: "section-optimizer-run", label: "Optimizer run" },
     { id: "section-optimization", label: "Optimization" },
     { id: "section-livebot", label: "Live bot" },
     { id: "section-trade", label: "Trade" },
@@ -5920,6 +6606,1275 @@ export function App() {
                   Start bot with selected combo is disabled: {comboStartBlockedReason}
                 </div>
               ) : null}
+              <details className="details" style={{ marginBottom: 12 }}>
+                <summary>Run optimizer (create combos)</summary>
+                <div className="row" style={{ marginTop: 10 }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerSource">
+                      Source
+                    </label>
+                    <select
+                      id="optimizerSource"
+                      className="select"
+                      value={optimizerRunForm.source}
+                      onChange={(e) =>
+                        setOptimizerRunForm((prev) => ({
+                          ...prev,
+                          source: e.target.value as OptimizerSource,
+                        }))
+                      }
+                    >
+                      <option value="binance">Binance</option>
+                      <option value="coinbase">Coinbase</option>
+                      <option value="kraken">Kraken</option>
+                      <option value="poloniex">Poloniex</option>
+                      <option value="csv">CSV</option>
+                    </select>
+                    <div className="hint">Choose the source used for optimizer data (CSV requires a path below).</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerSymbol">
+                      Symbol
+                    </label>
+                    <input
+                      id="optimizerSymbol"
+                      className="input"
+                      value={optimizerRunForm.symbol}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, symbol: e.target.value }))}
+                      placeholder="BTCUSDT"
+                      spellCheck={false}
+                      disabled={optimizerRunForm.source === "csv"}
+                    />
+                    <div className="hint">Required for exchange sources; ignored for CSV.</div>
+                  </div>
+                </div>
+                {optimizerRunForm.source === "csv" ? (
+                  <>
+                    <div className="row" style={{ marginTop: 10 }}>
+                      <div className="field">
+                        <label className="label" htmlFor="optimizerDataPath">
+                          CSV path
+                        </label>
+                        <input
+                          id="optimizerDataPath"
+                          className="input"
+                          value={optimizerRunForm.dataPath}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, dataPath: e.target.value }))}
+                          placeholder="../data/sample_prices.csv"
+                          spellCheck={false}
+                        />
+                        <div className="hint">Path is resolved on the API host.</div>
+                      </div>
+                      <div className="field">
+                        <label className="label" htmlFor="optimizerPriceColumn">
+                          Price column
+                        </label>
+                        <input
+                          id="optimizerPriceColumn"
+                          className="input"
+                          value={optimizerRunForm.priceColumn}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, priceColumn: e.target.value }))}
+                          placeholder="close"
+                          spellCheck={false}
+                        />
+                        <div className="hint">Defaults to close when omitted.</div>
+                      </div>
+                    </div>
+                    <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                      <div className="field">
+                        <label className="label" htmlFor="optimizerHighColumn">
+                          High column (optional)
+                        </label>
+                        <input
+                          id="optimizerHighColumn"
+                          className="input"
+                          value={optimizerRunForm.highColumn}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, highColumn: e.target.value }))}
+                          placeholder="high"
+                          spellCheck={false}
+                        />
+                      </div>
+                      <div className="field">
+                        <label className="label" htmlFor="optimizerLowColumn">
+                          Low column (optional)
+                        </label>
+                        <input
+                          id="optimizerLowColumn"
+                          className="input"
+                          value={optimizerRunForm.lowColumn}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, lowColumn: e.target.value }))}
+                          placeholder="low"
+                          spellCheck={false}
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+                <div className="row" style={{ marginTop: 10 }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerIntervals">
+                      Intervals
+                    </label>
+                    <input
+                      id="optimizerIntervals"
+                      className="input"
+                      value={optimizerRunForm.intervals}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, intervals: e.target.value }))}
+                      placeholder="1h,2h,4h,6h,12h,1d"
+                      spellCheck={false}
+                    />
+                    <div className="hint">Comma-separated list; leave blank for API defaults.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerLookbackWindow">
+                      Lookback window
+                    </label>
+                    <input
+                      id="optimizerLookbackWindow"
+                      className="input"
+                      value={optimizerRunForm.lookbackWindow}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, lookbackWindow: e.target.value }))}
+                      placeholder="7d"
+                      spellCheck={false}
+                    />
+                    <div className="hint">Duration string like 48h, 7d, 30d.</div>
+                  </div>
+                </div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1.2fr 0.8fr 0.8fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerBarsMin">
+                      Bars range
+                    </label>
+                    <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                      <input
+                        id="optimizerBarsMin"
+                        className="input"
+                        type="number"
+                        value={optimizerRunForm.barsMin}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, barsMin: e.target.value }))}
+                        placeholder="min"
+                      />
+                      <input
+                        aria-label="Bars max"
+                        className="input"
+                        type="number"
+                        value={optimizerRunForm.barsMax}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, barsMax: e.target.value }))}
+                        placeholder="max"
+                      />
+                    </div>
+                    <div className="hint">0 or blank lets the optimizer choose.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerBarsAutoProb">
+                      Bars auto prob
+                    </label>
+                    <input
+                      id="optimizerBarsAutoProb"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      max={1}
+                      value={optimizerRunForm.barsAutoProb}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, barsAutoProb: e.target.value }))}
+                      placeholder="0.25"
+                    />
+                    <div className="hint">Chance to use bars=0 (exchange default).</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerBarsDistribution">
+                      Bars distribution
+                    </label>
+                    <select
+                      id="optimizerBarsDistribution"
+                      className="select"
+                      value={optimizerRunForm.barsDistribution}
+                      onChange={(e) =>
+                        setOptimizerRunForm((prev) => ({
+                          ...prev,
+                          barsDistribution: e.target.value as OptimizerRunForm["barsDistribution"],
+                        }))
+                      }
+                    >
+                      <option value="">Default (uniform)</option>
+                      <option value="uniform">uniform</option>
+                      <option value="log">log</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerTrials">
+                      Trials
+                    </label>
+                    <input
+                      id="optimizerTrials"
+                      className="input"
+                      type="number"
+                      min={1}
+                      value={optimizerRunForm.trials}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, trials: e.target.value }))}
+                      placeholder="50"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerTimeoutSec">
+                      Timeout (sec)
+                    </label>
+                    <input
+                      id="optimizerTimeoutSec"
+                      className="input"
+                      type="number"
+                      min={1}
+                      step="1"
+                      value={optimizerRunForm.timeoutSec}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, timeoutSec: e.target.value }))}
+                      placeholder="60"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerSeed">
+                      Seed
+                    </label>
+                    <input
+                      id="optimizerSeed"
+                      className="input"
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={optimizerRunForm.seed}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, seed: e.target.value }))}
+                      placeholder="42"
+                    />
+                  </div>
+                </div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerObjective">
+                      Objective
+                    </label>
+                    <select
+                      id="optimizerObjective"
+                      className="select"
+                      value={optimizerRunForm.objective}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, objective: e.target.value }))}
+                    >
+                      <option value="">Default</option>
+                      {TUNE_OBJECTIVES.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="hint">Controls which combos survive.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerTuneObjective">
+                      Tune objective
+                    </label>
+                    <select
+                      id="optimizerTuneObjective"
+                      className="select"
+                      value={optimizerRunForm.tuneObjective}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, tuneObjective: e.target.value }))}
+                    >
+                      <option value="">Default</option>
+                      {TUNE_OBJECTIVES.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="hint">Used during fit/tune scoring.</div>
+                  </div>
+                </div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerBacktestRatio">
+                      Backtest ratio
+                    </label>
+                    <input
+                      id="optimizerBacktestRatio"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      max={0.99}
+                      value={optimizerRunForm.backtestRatio}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, backtestRatio: e.target.value }))}
+                      placeholder="0.2"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerTuneRatio">
+                      Tune ratio
+                    </label>
+                    <input
+                      id="optimizerTuneRatio"
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      max={0.99}
+                      value={optimizerRunForm.tuneRatio}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, tuneRatio: e.target.value }))}
+                      placeholder="0.25"
+                    />
+                  </div>
+                </div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerPenaltyMaxDrawdown">
+                      DD penalty
+                    </label>
+                    <input
+                      id="optimizerPenaltyMaxDrawdown"
+                      className="input"
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={optimizerRunForm.penaltyMaxDrawdown}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, penaltyMaxDrawdown: e.target.value }))}
+                      placeholder="1.5"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerPenaltyTurnover">
+                      Turnover penalty
+                    </label>
+                    <input
+                      id="optimizerPenaltyTurnover"
+                      className="input"
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={optimizerRunForm.penaltyTurnover}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, penaltyTurnover: e.target.value }))}
+                      placeholder="0.2"
+                    />
+                  </div>
+                </div>
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerSlippageMax">
+                      Slippage max
+                    </label>
+                    <input
+                      id="optimizerSlippageMax"
+                      className="input"
+                      type="number"
+                      step="0.0001"
+                      min={0}
+                      value={optimizerRunForm.slippageMax}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, slippageMax: e.target.value }))}
+                      placeholder="0.0005"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerSpreadMax">
+                      Spread max
+                    </label>
+                    <input
+                      id="optimizerSpreadMax"
+                      className="input"
+                      type="number"
+                      step="0.0001"
+                      min={0}
+                      value={optimizerRunForm.spreadMax}
+                      onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, spreadMax: e.target.value }))}
+                      placeholder="0.0005"
+                    />
+                  </div>
+                </div>
+                <div className="actions" style={{ marginTop: 12 }}>
+                  <button
+                    className="btn btnPrimary"
+                    type="button"
+                    onClick={() => void runOptimizer()}
+                    disabled={optimizerRunUi.loading || Boolean(optimizerRunValidationError) || apiOk === "down" || apiOk === "auth"}
+                    title={optimizerRunValidationError ?? undefined}
+                  >
+                    {optimizerRunUi.loading ? "Running…" : "Run optimizer"}
+                  </button>
+                  <button className="btn" type="button" onClick={cancelOptimizerRun} disabled={!optimizerRunUi.loading}>
+                    Cancel
+                  </button>
+                  <button className="btn" type="button" onClick={syncOptimizerRunForm}>
+                    Use current symbol/interval
+                  </button>
+                  <button className="btn" type="button" onClick={resetOptimizerRunForm}>
+                    Reset defaults
+                  </button>
+                </div>
+                <div className="hint" style={{ marginTop: 8 }}>
+                  Runs <code>/optimizer/run</code> to generate new combos and refreshes the list above.
+                </div>
+                {optimizerRunValidationError ? (
+                  <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.85)" }}>
+                    {optimizerRunValidationError}
+                  </div>
+                ) : null}
+                <details className="details" style={{ marginTop: 12 }}>
+                  <summary>Sampling + model ranges</summary>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerPlatforms">
+                        Platforms (optional)
+                      </label>
+                      <input
+                        id="optimizerPlatforms"
+                        className="input"
+                        value={optimizerRunForm.platforms}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, platforms: e.target.value }))}
+                        placeholder="binance,coinbase"
+                        spellCheck={false}
+                        disabled={optimizerRunForm.source === "csv"}
+                      />
+                      <div className="hint">Overrides the source platform for multi-exchange runs.</div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerNormalizations">
+                        Normalizations
+                      </label>
+                      <input
+                        id="optimizerNormalizations"
+                        className="input"
+                        value={optimizerRunForm.normalizations}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, normalizations: e.target.value }))}
+                        placeholder="none,minmax,standard,log"
+                        spellCheck={false}
+                      />
+                      <div className="hint">Comma-separated list for LSTM runs.</div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerEpochsMin">
+                        Epochs range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerEpochsMin"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.epochsMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, epochsMin: e.target.value }))}
+                          placeholder="0"
+                        />
+                        <input
+                          aria-label="Epochs max"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.epochsMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, epochsMax: e.target.value }))}
+                          placeholder="10"
+                        />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerHiddenMin">
+                        Hidden size range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerHiddenMin"
+                          className="input"
+                          type="number"
+                          min={1}
+                          value={optimizerRunForm.hiddenSizeMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, hiddenSizeMin: e.target.value }))}
+                          placeholder="8"
+                        />
+                        <input
+                          aria-label="Hidden size max"
+                          className="input"
+                          type="number"
+                          min={1}
+                          value={optimizerRunForm.hiddenSizeMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, hiddenSizeMax: e.target.value }))}
+                          placeholder="64"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerLrMin">
+                        Learning rate range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerLrMin"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.lrMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, lrMin: e.target.value }))}
+                          placeholder="0.0001"
+                        />
+                        <input
+                          aria-label="Learning rate max"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.lrMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, lrMax: e.target.value }))}
+                          placeholder="0.01"
+                        />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerPatienceMax">
+                        Patience max
+                      </label>
+                      <input
+                        id="optimizerPatienceMax"
+                        className="input"
+                        type="number"
+                        min={0}
+                        value={optimizerRunForm.patienceMax}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, patienceMax: e.target.value }))}
+                        placeholder="20"
+                      />
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerGradClipMin">
+                        Grad clip range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerGradClipMin"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.gradClipMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, gradClipMin: e.target.value }))}
+                          placeholder="0.001"
+                        />
+                        <input
+                          aria-label="Grad clip max"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.gradClipMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, gradClipMax: e.target.value }))}
+                          placeholder="1.0"
+                        />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerDisableGradClipProb">
+                        Disable grad clip prob
+                      </label>
+                      <input
+                        id="optimizerDisableGradClipProb"
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={1}
+                        value={optimizerRunForm.pDisableGradClip}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, pDisableGradClip: e.target.value }))}
+                        placeholder="0.7"
+                      />
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerSeedTrials">
+                        Seed trials
+                      </label>
+                      <input
+                        id="optimizerSeedTrials"
+                        className="input"
+                        type="number"
+                        min={0}
+                        value={optimizerRunForm.seedTrials}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, seedTrials: e.target.value }))}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerSeedRatio">
+                        Seed ratio
+                      </label>
+                      <input
+                        id="optimizerSeedRatio"
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={1}
+                        step="0.01"
+                        value={optimizerRunForm.seedRatio}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, seedRatio: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerSurvivorFraction">
+                        Survivor fraction
+                      </label>
+                      <input
+                        id="optimizerSurvivorFraction"
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={1}
+                        step="0.01"
+                        value={optimizerRunForm.survivorFraction}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, survivorFraction: e.target.value }))}
+                        placeholder="0.5"
+                      />
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerPerturbScaleDouble">
+                        Perturb scale (float)
+                      </label>
+                      <input
+                        id="optimizerPerturbScaleDouble"
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={optimizerRunForm.perturbScaleDouble}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, perturbScaleDouble: e.target.value }))}
+                        placeholder="0.1"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerPerturbScaleInt">
+                        Perturb scale (int)
+                      </label>
+                      <input
+                        id="optimizerPerturbScaleInt"
+                        className="input"
+                        type="number"
+                        step="1"
+                        min={0}
+                        value={optimizerRunForm.perturbScaleInt}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, perturbScaleInt: e.target.value }))}
+                        placeholder="2"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerEarlyStop">
+                        Early stop (no improve)
+                      </label>
+                      <input
+                        id="optimizerEarlyStop"
+                        className="input"
+                        type="number"
+                        step="1"
+                        min={0}
+                        value={optimizerRunForm.earlyStopNoImprove}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, earlyStopNoImprove: e.target.value }))}
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                  <div className="pillRow" style={{ marginTop: 10 }}>
+                    <label className="pill">
+                      <input
+                        type="checkbox"
+                        checked={optimizerRunForm.disableLstmPersistence}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, disableLstmPersistence: e.target.checked }))}
+                      />
+                      Disable LSTM persistence
+                    </label>
+                    <label className="pill">
+                      <input
+                        type="checkbox"
+                        checked={optimizerRunForm.noSweepThreshold}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, noSweepThreshold: e.target.checked }))}
+                      />
+                      No threshold sweep
+                    </label>
+                  </div>
+                </details>
+                <details className="details" style={{ marginTop: 12 }}>
+                  <summary>Quality filters + constraints</summary>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinRoundTrips">
+                        Min round trips
+                      </label>
+                      <input
+                        id="optimizerMinRoundTrips"
+                        className="input"
+                        type="number"
+                        min={0}
+                        value={optimizerRunForm.minRoundTrips}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minRoundTrips: e.target.value }))}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinWinRate">
+                        Min win rate
+                      </label>
+                      <input
+                        id="optimizerMinWinRate"
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={1}
+                        value={optimizerRunForm.minWinRate}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minWinRate: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinSharpe">
+                        Min Sharpe
+                      </label>
+                      <input
+                        id="optimizerMinSharpe"
+                        className="input"
+                        type="number"
+                        step="0.1"
+                        min={0}
+                        value={optimizerRunForm.minSharpe}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minSharpe: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinAnnualizedReturn">
+                        Min annualized return
+                      </label>
+                      <input
+                        id="optimizerMinAnnualizedReturn"
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={optimizerRunForm.minAnnualizedReturn}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minAnnualizedReturn: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinCalmar">
+                        Min Calmar
+                      </label>
+                      <input
+                        id="optimizerMinCalmar"
+                        className="input"
+                        type="number"
+                        step="0.1"
+                        min={0}
+                        value={optimizerRunForm.minCalmar}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minCalmar: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinProfitFactor">
+                        Min profit factor
+                      </label>
+                      <input
+                        id="optimizerMinProfitFactor"
+                        className="input"
+                        type="number"
+                        step="0.1"
+                        min={0}
+                        value={optimizerRunForm.minProfitFactor}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minProfitFactor: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMaxTurnover">
+                        Max turnover
+                      </label>
+                      <input
+                        id="optimizerMaxTurnover"
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={optimizerRunForm.maxTurnover}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, maxTurnover: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinExposure">
+                        Min exposure
+                      </label>
+                      <input
+                        id="optimizerMinExposure"
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={1}
+                        value={optimizerRunForm.minExposure}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minExposure: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinWfSharpeMean">
+                        Min WF Sharpe mean
+                      </label>
+                      <input
+                        id="optimizerMinWfSharpeMean"
+                        className="input"
+                        type="number"
+                        step="0.1"
+                        min={0}
+                        value={optimizerRunForm.minWalkForwardSharpeMean}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minWalkForwardSharpeMean: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMaxWfSharpeStd">
+                        Max WF Sharpe std
+                      </label>
+                      <input
+                        id="optimizerMaxWfSharpeStd"
+                        className="input"
+                        type="number"
+                        step="0.1"
+                        min={0}
+                        value={optimizerRunForm.maxWalkForwardSharpeStd}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, maxWalkForwardSharpeStd: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerWalkForwardMin">
+                        Walk-forward folds min
+                      </label>
+                      <input
+                        id="optimizerWalkForwardMin"
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={optimizerRunForm.walkForwardFoldsMin}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, walkForwardFoldsMin: e.target.value }))}
+                        placeholder="7"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerWalkForwardMax">
+                        Walk-forward folds max
+                      </label>
+                      <input
+                        id="optimizerWalkForwardMax"
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={optimizerRunForm.walkForwardFoldsMax}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, walkForwardFoldsMax: e.target.value }))}
+                        placeholder="7"
+                      />
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinEdgeMin">
+                        Min edge range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerMinEdgeMin"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.minEdgeMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minEdgeMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Min edge max"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.minEdgeMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minEdgeMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinSnrMin">
+                        Min SNR range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerMinSnrMin"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.minSignalToNoiseMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minSignalToNoiseMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Min SNR max"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.minSignalToNoiseMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minSignalToNoiseMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerEdgeBufferMin">
+                        Edge buffer range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerEdgeBufferMin"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.edgeBufferMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, edgeBufferMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Edge buffer max"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.edgeBufferMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, edgeBufferMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerTrendLookbackMin">
+                        Trend lookback range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerTrendLookbackMin"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.trendLookbackMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, trendLookbackMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Trend lookback max"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.trendLookbackMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, trendLookbackMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10 }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerCostAwareEdge">
+                        Cost-aware edge prob
+                      </label>
+                      <input
+                        id="optimizerCostAwareEdge"
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={1}
+                        value={optimizerRunForm.pCostAwareEdge}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, pCostAwareEdge: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                      <div className="hint">Probability of enabling cost-aware edge (0 disables).</div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMinHoldBarsMin">
+                        Min hold bars range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerMinHoldBarsMin"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.minHoldBarsMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minHoldBarsMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Min hold bars max"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.minHoldBarsMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, minHoldBarsMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerCooldownBarsMin">
+                        Cooldown bars range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerCooldownBarsMin"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.cooldownBarsMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, cooldownBarsMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Cooldown bars max"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.cooldownBarsMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, cooldownBarsMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMaxHoldBarsMin">
+                        Max hold bars range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerMaxHoldBarsMin"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.maxHoldBarsMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, maxHoldBarsMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Max hold bars max"
+                          className="input"
+                          type="number"
+                          min={0}
+                          value={optimizerRunForm.maxHoldBarsMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, maxHoldBarsMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerStopMin">
+                        Stop loss range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerStopMin"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.stopMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, stopMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Stop loss max"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.stopMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, stopMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerTpMin">
+                        Take profit range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerTpMin"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.tpMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, tpMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Take profit max"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.tpMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, tpMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerTrailMin">
+                        Trailing stop range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerTrailMin"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.trailMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, trailMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Trailing stop max"
+                          className="input"
+                          type="number"
+                          step="0.0001"
+                          min={0}
+                          value={optimizerRunForm.trailMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, trailMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerMethodWeightBlend">
+                        Blend method weight
+                      </label>
+                      <input
+                        id="optimizerMethodWeightBlend"
+                        className="input"
+                        type="number"
+                        step="0.1"
+                        min={0}
+                        value={optimizerRunForm.methodWeightBlend}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightBlend: e.target.value }))}
+                        placeholder="0.0"
+                      />
+                    </div>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerBlendWeightMin">
+                        Blend weight range
+                      </label>
+                      <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                        <input
+                          id="optimizerBlendWeightMin"
+                          className="input"
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          max={1}
+                          value={optimizerRunForm.blendWeightMin}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, blendWeightMin: e.target.value }))}
+                          placeholder="min"
+                        />
+                        <input
+                          aria-label="Blend weight max"
+                          className="input"
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          max={1}
+                          value={optimizerRunForm.blendWeightMax}
+                          onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, blendWeightMax: e.target.value }))}
+                          placeholder="max"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </details>
+                <details className="details" style={{ marginTop: 12 }}>
+                  <summary>Advanced JSON overrides</summary>
+                  <div className="row" style={{ marginTop: 10 }}>
+                    <div className="field">
+                      <label className="label" htmlFor="optimizerExtraJson">
+                        Extra JSON fields
+                      </label>
+                      <textarea
+                        id="optimizerExtraJson"
+                        className="input"
+                        value={optimizerRunForm.extraJson}
+                        onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, extraJson: e.target.value }))}
+                        placeholder='{"minPositionSizeMin": 0.1, "pConfirmQuantiles": 0.2}'
+                        rows={4}
+                        spellCheck={false}
+                      />
+                      <div className="hint">Merged into the request (overrides form inputs when keys overlap).</div>
+                      {optimizerRunExtras.error ? (
+                        <div className="hint" style={{ color: "rgba(239, 68, 68, 0.85)" }}>
+                          {optimizerRunExtras.error}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </details>
+                {optimizerRunUi.lastRunAtMs ? (
+                  <div className="hint" style={{ marginTop: 12 }}>
+                    Last optimizer run {fmtTimeMs(optimizerRunUi.lastRunAtMs)}.
+                  </div>
+                ) : null}
+                {optimizerRunUi.response ? (
+                  <div style={{ marginTop: 10 }}>
+                    <div className="label">Last optimizer output</div>
+                    {optimizerRunRecordJson ? <pre className="code">{optimizerRunRecordJson}</pre> : null}
+                    {optimizerRunUi.response.stdout ? <pre className="code">{optimizerRunUi.response.stdout}</pre> : null}
+                    {optimizerRunUi.response.stderr ? (
+                      <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                        {optimizerRunUi.response.stderr}
+                      </pre>
+                    ) : null}
+                  </div>
+                ) : null}
+                {optimizerRunUi.error && !optimizerRunValidationError ? (
+                  <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.85)" }}>
+                    {optimizerRunUi.error}
+                  </div>
+                ) : null}
+              </details>
               <TopCombosChart
                 combos={topCombos}
                 loading={topCombosLoading}
@@ -7145,6 +9100,285 @@ export function App() {
 
           </CollapsibleSection>
 
+          <CollapsibleSection
+            panelId="section-optimizer-run"
+            title="Optimizer run"
+            meta="Kick off /optimizer/run with the current config or a CSV source."
+          >
+            <div className="row">
+              <div className="field">
+                <div className="label">Request</div>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerSource">
+                      Source
+                    </label>
+                    <select
+                      id="optimizerSource"
+                      className="select"
+                      value={optimizerRunForm.source}
+                      onChange={(e) => updateOptimizerRunForm({ source: e.target.value as OptimizerSource })}
+                    >
+                      <option value="binance">Binance</option>
+                      <option value="coinbase">Coinbase</option>
+                      <option value="kraken">Kraken</option>
+                      <option value="poloniex">Poloniex</option>
+                      <option value="csv">CSV (file path)</option>
+                    </select>
+                    <div className="hint">Exchange determines symbol format; CSV bypasses the API.</div>
+                  </div>
+                  {optimizerRunForm.source === "csv" ? (
+                    <>
+                      <div className="field">
+                        <label className="label" htmlFor="optimizerDataPath">
+                          CSV path
+                        </label>
+                        <input
+                          id="optimizerDataPath"
+                          className={optimizerRunValidationError ? "input inputError" : "input"}
+                          value={optimizerRunForm.dataPath}
+                          onChange={(e) => updateOptimizerRunForm({ dataPath: e.target.value })}
+                          placeholder="data/my-prices.csv"
+                        />
+                        <div className="hint">Required for CSV source.</div>
+                      </div>
+                      <div className="field">
+                        <label className="label" htmlFor="optimizerPriceColumn">
+                          Price / High / Low
+                        </label>
+                        <input
+                          id="optimizerPriceColumn"
+                          className="input"
+                          value={optimizerRunForm.priceColumn}
+                          onChange={(e) => updateOptimizerRunForm({ priceColumn: e.target.value })}
+                          placeholder="close"
+                        />
+                        <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 6 }}>
+                          <input
+                            className={optimizerRunValidationError ? "input inputError" : "input"}
+                            value={optimizerRunForm.highColumn}
+                            onChange={(e) => updateOptimizerRunForm({ highColumn: e.target.value })}
+                            placeholder="high (optional)"
+                          />
+                          <input
+                            className={optimizerRunValidationError ? "input inputError" : "input"}
+                            value={optimizerRunForm.lowColumn}
+                            onChange={(e) => updateOptimizerRunForm({ lowColumn: e.target.value })}
+                            placeholder="low (optional)"
+                          />
+                        </div>
+                        <div className="hint">Provide both High/Low or leave both blank.</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="field" style={{ gridColumn: "span 2" }}>
+                      <label className="label" htmlFor="optimizerSymbol">
+                        Symbol
+                      </label>
+                      <input
+                        id="optimizerSymbol"
+                        className={optimizerRunValidationError ? "input inputError" : "input"}
+                        value={optimizerRunForm.symbol}
+                        onChange={(e) => updateOptimizerRunForm({ symbol: e.target.value.toUpperCase() })}
+                        placeholder="BTCUSDT"
+                      />
+                      <div className="hint">Defaults to the current symbol/platform.</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerIntervals">
+                      Intervals
+                    </label>
+                    <input
+                      id="optimizerIntervals"
+                      className="input"
+                      value={optimizerRunForm.intervals}
+                      onChange={(e) => updateOptimizerRunForm({ intervals: e.target.value })}
+                      placeholder="1h,4h,1d"
+                    />
+                    <div className="hint">Comma-separated list.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerLookback">
+                      Lookback window
+                    </label>
+                    <input
+                      id="optimizerLookback"
+                      className="input"
+                      value={optimizerRunForm.lookbackWindow}
+                      onChange={(e) => updateOptimizerRunForm({ lookbackWindow: e.target.value })}
+                      placeholder="7d"
+                    />
+                    <div className="hint">Same format as main form (e.g., 7d, 30d).</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerTrials">
+                      Trials / Timeout / Seed
+                    </label>
+                    <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                      <input
+                        id="optimizerTrials"
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={optimizerRunForm.trials}
+                        onChange={(e) => updateOptimizerRunForm({ trials: e.target.value })}
+                        placeholder="50"
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        min={5}
+                        value={optimizerRunForm.timeoutSec}
+                        onChange={(e) => updateOptimizerRunForm({ timeoutSec: e.target.value })}
+                        placeholder="60"
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        value={optimizerRunForm.seed}
+                        onChange={(e) => updateOptimizerRunForm({ seed: e.target.value })}
+                        placeholder="42"
+                      />
+                    </div>
+                    <div className="hint">Numbers are optional; blanks are omitted.</div>
+                  </div>
+                </div>
+
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerObjective">
+                      Objective
+                    </label>
+                    <input
+                      id="optimizerObjective"
+                      className="input"
+                      value={optimizerRunForm.objective}
+                      onChange={(e) => updateOptimizerRunForm({ objective: e.target.value })}
+                      placeholder="annualized-equity"
+                    />
+                    <div className="hint">Matches backend objective names.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerRatios">
+                      Backtest / Tune ratio
+                    </label>
+                    <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                      <input
+                        id="optimizerBacktestRatio"
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={0.9}
+                        step="0.01"
+                        value={optimizerRunForm.backtestRatio}
+                        onChange={(e) => updateOptimizerRunForm({ backtestRatio: e.target.value })}
+                        placeholder="0.2"
+                      />
+                      <input
+                        id="optimizerTuneRatio"
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={0.9}
+                        step="0.01"
+                        value={optimizerRunForm.tuneRatio}
+                        onChange={(e) => updateOptimizerRunForm({ tuneRatio: e.target.value })}
+                        placeholder="0.25"
+                      />
+                    </div>
+                    <div className="hint">Leave blank to use defaults.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerExtra">
+                      Extra JSON (advanced)
+                    </label>
+                    <textarea
+                      id="optimizerExtra"
+                      className={optimizerRunExtras.error ? "input inputError" : "input"}
+                      value={optimizerRunForm.extraJson}
+                      onChange={(e) => updateOptimizerRunForm({ extraJson: e.target.value })}
+                      placeholder='{"minSharpe":1.0,"minRoundTrips":5}'
+                      rows={4}
+                      spellCheck={false}
+                    />
+                    <div className="hint">{optimizerRunExtras.error ?? "Merged into the payload verbatim."}</div>
+                  </div>
+                </div>
+
+                <div className="actions" style={{ marginTop: 10 }}>
+                  <button
+                    className="btn btnPrimary"
+                    type="button"
+                    disabled={optimizerRunUi.loading || Boolean(optimizerRunValidationError)}
+                    onClick={runOptimizer}
+                  >
+                    {optimizerRunUi.loading ? "Running optimizer…" : "Run optimizer"}
+                  </button>
+                  <button className="btn" type="button" disabled={!optimizerRunUi.loading} onClick={cancelOptimizerRun}>
+                    Cancel run
+                  </button>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => {
+                      syncOptimizerRunForm();
+                    }}
+                  >
+                    Sync from config
+                  </button>
+                  <button className="btn" type="button" onClick={resetOptimizerRunForm}>
+                    Reset
+                  </button>
+                  <span className="hint">
+                    {optimizerRunValidationError
+                      ? optimizerRunValidationError
+                      : optimizerRunUi.loading
+                        ? "Submitting to /optimizer/run…"
+                        : "Uses the same auth/proxy settings as other requests."}
+                  </span>
+                </div>
+              </div>
+
+              <div className="field">
+                <div className="label">Result</div>
+                {optimizerRunUi.error ? (
+                  <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                    {optimizerRunUi.error}
+                  </pre>
+                ) : null}
+                {optimizerRunUi.response ? (
+                  <div className="hint" style={{ marginBottom: 8 }}>
+                    Last run: {optimizerRunUi.lastRunAtMs ? fmtTimeMs(optimizerRunUi.lastRunAtMs) : "just now"}
+                  </div>
+                ) : null}
+                {optimizerRunUi.response?.stdout ? (
+                  <details className="details" open>
+                    <summary>Stdout</summary>
+                    <pre className="code">{optimizerRunUi.response.stdout}</pre>
+                  </details>
+                ) : null}
+                {optimizerRunUi.response?.stderr ? (
+                  <details className="details">
+                    <summary>Stderr</summary>
+                    <pre className="code">{optimizerRunUi.response.stderr}</pre>
+                  </details>
+                ) : null}
+                {optimizerRunRecordJson ? (
+                  <details className="details" open>
+                    <summary>Last record</summary>
+                    <pre className="code">{optimizerRunRecordJson}</pre>
+                  </details>
+                ) : (
+                  <div className="hint">No optimizer run yet.</div>
+                )}
+              </div>
+            </div>
+          </CollapsibleSection>
+
           <CollapsibleSection panelId="section-optimization" title="Optimization" meta="Tuning sweeps, presets, and constraints.">
             <div className="row">
               <div className="field">
@@ -7874,6 +10108,14 @@ export function App() {
               <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
                 {state.error}
               </pre>
+              {errorFix ? (
+                <div className="issueItem" style={{ marginTop: 10 }}>
+                  <span>{errorFix.label}</span>
+                  <button className="btnSmall" type="button" onClick={applyErrorFix}>
+                    Apply fix
+                  </button>
+                </div>
+              ) : null}
             </CollapsibleCard>
           ) : null}
 
