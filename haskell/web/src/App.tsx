@@ -271,7 +271,7 @@ const CollapsibleSection = ({ panelId, title, meta, children, open, onToggle }: 
 
 const BOT_STATUS_OPS_LIMIT = 5000;
 const BOT_DISPLAY_STALE_MS = 6_000;
-const BOT_DISPLAY_STARTING_STALE_MS = 5 * 60_000;
+const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const CHART_HEIGHT = "var(--chart-height)";
 const ChartFallback = ({
   height = CHART_HEIGHT,
@@ -3304,11 +3304,12 @@ export function App() {
     botDisplayLastKeyRef.current = botDisplayKeyCandidate;
   }, [botDisplayCandidate, botDisplayKeyCandidate]);
   useEffect(() => {
-    if (botSelectedKey) {
-      botDisplayLastKeyRef.current = botSelectedKey;
-    }
+    if (!botSelectedKey) return;
+    if (!botDisplayCacheRef.current[botSelectedKey]) return;
+    botDisplayLastKeyRef.current = botSelectedKey;
   }, [botSelectedKey]);
-  const botDisplayCacheKey = botSelectedKey ?? botDisplayLastKeyRef.current;
+  const botSelectedCacheEntry = botSelectedKey ? botDisplayCacheRef.current[botSelectedKey] ?? null : null;
+  const botDisplayCacheKey = botSelectedCacheEntry ? botSelectedKey : botDisplayLastKeyRef.current;
   const botDisplayCacheEntry = botDisplayCacheKey ? botDisplayCacheRef.current[botDisplayCacheKey] ?? null : null;
   const botDisplayCacheAgeMs = botDisplayCandidate
     ? 0
