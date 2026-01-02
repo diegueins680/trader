@@ -156,6 +156,7 @@ type BotStatusOp = {
 };
 
 const BOT_STATUS_OPS_LIMIT = 5000;
+const CHART_HEIGHT = "var(--chart-height)";
 
 function isCoinbaseKeysStatus(status: KeysStatus): status is CoinbaseKeysStatus {
   return "hasApiPassphrase" in status;
@@ -476,7 +477,7 @@ type TopCombosMeta = {
   comboCount: number | null;
 };
 
-type ComboOrder = "rank" | "date-desc" | "date-asc";
+type ComboOrder = "annualized-equity" | "rank" | "date-desc" | "date-asc";
 
 type OrderSideFilter = "ALL" | "BUY" | "SELL";
 
@@ -565,6 +566,100 @@ function sigBool(value: boolean | null | undefined): string {
 function formatDirectionLabel(value: LatestSignal["closeDirection"]): string {
   if (value === undefined) return "—";
   return value ?? "NEUTRAL";
+}
+
+type DecisionCheckStatus = "ok" | "warn" | "bad" | "skip";
+
+type DecisionCheck = {
+  id: string;
+  label: string;
+  status: DecisionCheckStatus;
+  detail: string;
+};
+
+type DecisionSummary = {
+  isHold: boolean;
+  reason: string | null;
+  checks: DecisionCheck[];
+};
+
+const DIRECTION_HOLD_REASONS = new Set([
+  "DIRECTIONS_DISAGREE",
+  "BOTH_NEUTRAL",
+  "KALMAN_NEUTRAL",
+  "LSTM_NEUTRAL",
+  "BLEND_NEUTRAL",
+  "ROUTER_NEUTRAL",
+]);
+
+function isFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatSignalDirection(value: LatestSignal["chosenDirection"]): string {
+  return value ?? "NEUTRAL";
+}
+
+function parseActionReason(action: string): string | null {
+  const match = /\(([^)]+)\)/.exec(action);
+  if (!match) return null;
+  const reason = match[1]?.trim() ?? "";
+  return reason ? reason : null;
+}
+
+function normalizeHoldReason(reason: string | null): string | null {
+  if (!reason) return null;
+  const clean = reason.trim();
+  if (!clean) return null;
+  return clean.toUpperCase().replace(/\s+/g, "_");
+}
+
+function decisionDotClass(status: DecisionCheckStatus): string {
+  switch (status) {
+    case "ok":
+      return "dot dotOk";
+    case "bad":
+      return "dot dotBad";
+    case "warn":
+      return "dot dotWarn";
+    default:
+      return "dot";
+  }
+}
+
+function decisionBadgeClass(status: DecisionCheckStatus): string {
+  switch (status) {
+    case "ok":
+      return "badge badgeOk";
+    case "bad":
+      return "badge badgeBad";
+    case "warn":
+      return "badge badgeWarn";
+    default:
+      return "badge";
+  }
+}
+
+function decisionStatusLabel(status: DecisionCheckStatus): string {
+  switch (status) {
+    case "ok":
+      return "pass";
+    case "bad":
+      return "block";
+    case "warn":
+      return "needs data";
+    default:
+      return "off";
+  }
+}
+
+const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
+
+function inferPeriodsPerYear(platform: Platform, interval: string): number | null {
+  const seconds = platformIntervalSeconds(platform, interval);
+  if (!seconds || seconds <= 0) return null;
+  const out = SECONDS_PER_YEAR / seconds;
+  return Number.isFinite(out) && out > 0 ? out : null;
 }
 
 type SplitStats = {
@@ -862,6 +957,13 @@ function comboApplySignature(
   allowPositioning = true,
 ): string {
   return formApplySignature(applyComboToForm(baseForm, combo, apiLimits, manualOverrides, allowPositioning));
+}
+
+function comboAnnualizedEquity(combo: OptimizationCombo): number | null {
+  const annReturn = combo.metrics?.annualizedReturn;
+  if (typeof annReturn !== "number" || !Number.isFinite(annReturn)) return null;
+  const annEq = annReturn + 1;
+  return Number.isFinite(annEq) ? annEq : null;
 }
 
 function formApplySignature(form: FormState): string {
@@ -1219,7 +1321,7 @@ export function App() {
   const [dataLogFilterText, setDataLogFilterText] = useState("");
   const [dataLogAutoScroll, setDataLogAutoScroll] = useState(true);
   const [topCombosAll, setTopCombosAll] = useState<OptimizationCombo[]>([]);
-  const [comboOrder, setComboOrder] = useState<ComboOrder>("rank");
+  const [comboOrder, setComboOrder] = useState<ComboOrder>("annualized-equity");
   const [comboMinEquityInput, setComboMinEquityInput] = useState("");
   const comboMinEquity = useMemo(() => {
     const trimmed = comboMinEquityInput.trim();
@@ -1234,6 +1336,18 @@ export function App() {
   const topCombosOrdered = useMemo(() => {
     if (comboOrder === "rank") return topCombosFiltered;
     const sorted = [...topCombosFiltered];
+    if (comboOrder === "annualized-equity") {
+      sorted.sort((a, b) => {
+        const aRating = comboAnnualizedEquity(a) ?? a.finalEquity;
+        const bRating = comboAnnualizedEquity(b) ?? b.finalEquity;
+        const diff = bRating - aRating;
+        if (diff !== 0) return diff;
+        const eqDiff = b.finalEquity - a.finalEquity;
+        if (eqDiff !== 0) return eqDiff;
+        return a.id - b.id;
+      });
+      return sorted;
+    }
     sorted.sort((a, b) => {
       const aMs = typeof a.createdAtMs === "number" && Number.isFinite(a.createdAtMs) ? a.createdAtMs : 0;
       const bMs = typeof b.createdAtMs === "number" && Number.isFinite(b.createdAtMs) ? b.createdAtMs : 0;
@@ -2169,17 +2283,32 @@ export function App() {
     return { startMs, endMs, error: null };
   }, [botStatusEndInput, botStatusStartInput]);
   const botStatusTargetSymbol = botSelectedSymbol ?? botDisplay?.symbol ?? null;
-  const botStatusOpsParsed = useMemo(() => {
-    const parsed = botStatusOps.ops
-      .map((op) => parseBotStatusOp(op))
-      .filter((op): op is BotStatusOp => op !== null)
-      .filter((op) => (botStatusTargetSymbol ? op.symbol === botStatusTargetSymbol : true));
+  const botStatusOpsAll = useMemo(() => {
+    const parsed = botStatusOps.ops.map((op) => parseBotStatusOp(op)).filter((op): op is BotStatusOp => op !== null);
     return parsed.sort((a, b) => a.atMs - b.atMs);
-  }, [botStatusOps.ops, botStatusTargetSymbol]);
+  }, [botStatusOps.ops]);
+  const botStatusOpsParsed = useMemo(
+    () => botStatusOpsAll.filter((op) => (botStatusTargetSymbol ? op.symbol === botStatusTargetSymbol : true)),
+    [botStatusOpsAll, botStatusTargetSymbol],
+  );
   const botStatusPoints = useMemo(
     () => botStatusOpsParsed.map((op) => ({ atMs: op.atMs, running: op.running })),
     [botStatusOpsParsed],
   );
+  const botStatusPointsBySymbol = useMemo(() => {
+    const map = new Map<string, Array<{ atMs: number; running: boolean }>>();
+    for (const op of botStatusOpsAll) {
+      if (!op.symbol) continue;
+      const key = normalizeSymbolKey(op.symbol);
+      const list = map.get(key) ?? [];
+      list.push({ atMs: op.atMs, running: op.running });
+      if (!map.has(key)) map.set(key, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => a.atMs - b.atMs);
+    }
+    return map;
+  }, [botStatusOpsAll]);
   const botStatusOpsWindow = useMemo(() => {
     if (botStatusOpsParsed.length === 0) return null;
     return {
@@ -3838,9 +3967,13 @@ export function App() {
             typeof metricsRec["roundTrips"] === "number" && Number.isFinite(metricsRec["roundTrips"])
               ? Math.trunc(metricsRec["roundTrips"] as number)
               : null;
+          const annualizedReturn =
+            typeof metricsRec["annualizedReturn"] === "number" && Number.isFinite(metricsRec["annualizedReturn"])
+              ? (metricsRec["annualizedReturn"] as number)
+              : null;
           const metrics =
-            sharpe != null || maxDrawdown != null || turnover != null || roundTrips != null
-              ? { sharpe, maxDrawdown, turnover, roundTrips }
+            sharpe != null || maxDrawdown != null || turnover != null || roundTrips != null || annualizedReturn != null
+              ? { sharpe, maxDrawdown, turnover, roundTrips, annualizedReturn }
               : null;
           const operationsRaw = Array.isArray(rawRec.operations) ? rawRec.operations : [];
           const operations = operationsRaw
@@ -3978,6 +4111,13 @@ export function App() {
           };
         });
         sanitized.sort((a, b) => {
+          const aAnnEq = comboAnnualizedEquity(a);
+          const bAnnEq = comboAnnualizedEquity(b);
+          if (aAnnEq != null || bAnnEq != null) {
+            const diff = (bAnnEq ?? Number.NEGATIVE_INFINITY) - (aAnnEq ?? Number.NEGATIVE_INFINITY);
+            if (diff !== 0) return diff;
+          }
+
           const ar = typeof a.rank === "number" && Number.isFinite(a.rank) ? a.rank : null;
           const br = typeof b.rank === "number" && Number.isFinite(b.rank) ? b.rank : null;
           if (ar != null && br != null) return ar - br;
@@ -4556,6 +4696,396 @@ export function App() {
     const base = apiBaseAbsolute;
     return `curl -s -X POST ${base}${endpoint} -H 'Content-Type: application/json'${auth} -d '${safe}'`;
   }, [apiBaseAbsolute, apiToken, requestPreview, requestPreviewKind]);
+  const latestSignalDecision = useMemo<DecisionSummary | null>(() => {
+    const sig = state.latestSignal;
+    if (!sig) return null;
+
+    const action = sig.action ?? "";
+    const isHold = action.toUpperCase().startsWith("HOLD");
+    const rawReason = parseActionReason(action);
+    const reason = rawReason ? rawReason.replace(/_/g, " ") : null;
+    const reasonKey = normalizeHoldReason(rawReason);
+    const directionHold = reasonKey ? DIRECTION_HOLD_REASONS.has(reasonKey) : false;
+
+    const openThrRaw = sig.openThreshold ?? sig.threshold ?? 0;
+    const openThr = isFiniteNumber(openThrRaw) ? openThrRaw : 0;
+
+    const currentPrice = sig.currentPrice;
+    const edgeFromPred = (pred: number | null | undefined): number | null => {
+      if (!isFiniteNumber(pred) || !isFiniteNumber(currentPrice) || currentPrice === 0) return null;
+      const edge = Math.abs(pred / currentPrice - 1);
+      return Number.isFinite(edge) ? edge : null;
+    };
+
+    const kalEdge = edgeFromPred(sig.kalmanNext);
+    const lstmEdge = edgeFromPred(sig.lstmNext);
+    const blendWeight = clamp(form.blendWeight, 0, 1);
+    const blendNext =
+      isFiniteNumber(sig.kalmanNext) && isFiniteNumber(sig.lstmNext)
+        ? blendWeight * sig.kalmanNext + (1 - blendWeight) * sig.lstmNext
+        : null;
+    const blendEdge = edgeFromPred(blendNext);
+
+    let edgeForMethod: number | null = null;
+    let edgeSource = "";
+    switch (sig.method) {
+      case "11":
+        edgeForMethod = kalEdge != null && lstmEdge != null ? Math.min(kalEdge, lstmEdge) : null;
+        edgeSource = "min(kalman,lstm)";
+        break;
+      case "10":
+        edgeForMethod = kalEdge;
+        edgeSource = "kalman";
+        break;
+      case "01":
+        edgeForMethod = lstmEdge;
+        edgeSource = "lstm";
+        break;
+      case "blend":
+        edgeForMethod = blendEdge;
+        edgeSource = "blend";
+        break;
+      case "router":
+        edgeForMethod = null;
+        edgeSource = `router (kal ${kalEdge != null ? fmtPct(kalEdge, 3) : "n/a"}, lstm ${
+          lstmEdge != null ? fmtPct(lstmEdge, 3) : "n/a"
+        }, blend ${blendEdge != null ? fmtPct(blendEdge, 3) : "n/a"})`;
+        break;
+      default:
+        edgeForMethod = null;
+        edgeSource = "unknown";
+        break;
+    }
+
+    const volEstimate = isFiniteNumber(sig.volatility) ? sig.volatility : null;
+    const periodsPerYear = inferPeriodsPerYear(form.platform, form.interval);
+    const volPerBar = volEstimate != null && periodsPerYear ? volEstimate / Math.sqrt(periodsPerYear) : null;
+
+    const checks: DecisionCheck[] = [];
+
+    const kalDir = sig.kalmanDirection ?? null;
+    const lstmDir = sig.lstmDirection ?? null;
+    const chosenDir = sig.chosenDirection ?? null;
+    const directionDetail = `Kalman ${formatSignalDirection(kalDir)} / LSTM ${formatSignalDirection(lstmDir)} / chosen ${formatSignalDirection(chosenDir)}`;
+    const directionStatus: DecisionCheckStatus = chosenDir ? "ok" : kalDir || lstmDir ? "warn" : "bad";
+    checks.push({ id: "direction", label: "Direction vote", status: directionStatus, detail: directionDetail });
+
+    if (sig.method === "11") {
+      let status: DecisionCheckStatus = "warn";
+      let detail = "One or both models are neutral.";
+      if (kalDir && lstmDir) {
+        status = kalDir === lstmDir ? "ok" : "bad";
+        detail = kalDir === lstmDir ? `Agree on ${kalDir}.` : `Disagree (${kalDir} vs ${lstmDir}).`;
+      }
+      checks.push({ id: "agreement", label: "Agreement gate", status, detail });
+    } else {
+      checks.push({
+        id: "agreement",
+        label: "Agreement gate",
+        status: "skip",
+        detail: `Not required for ${methodLabel(sig.method)}.`,
+      });
+    }
+
+    const kalmanEnabled = sig.method !== "01";
+    if (!kalmanEnabled) {
+      checks.push({
+        id: "kalman-z",
+        label: "Kalman z-score",
+        status: "skip",
+        detail: "Kalman disabled for this method.",
+      });
+    } else if (form.kalmanZMin <= 0) {
+      checks.push({
+        id: "kalman-z",
+        label: "Kalman z-score",
+        status: "skip",
+        detail: "Min z gate disabled.",
+      });
+    } else if (!isFiniteNumber(sig.kalmanZ)) {
+      checks.push({
+        id: "kalman-z",
+        label: "Kalman z-score",
+        status: "warn",
+        detail: "Kalman z not available.",
+      });
+    } else {
+      const status: DecisionCheckStatus = sig.kalmanZ >= form.kalmanZMin ? "ok" : "bad";
+      const detail = `z ${fmtNum(sig.kalmanZ, 2)} >= min ${fmtNum(form.kalmanZMin, 2)}`;
+      checks.push({ id: "kalman-z", label: "Kalman z-score", status, detail });
+    }
+
+    if (!kalmanEnabled) {
+      checks.push({
+        id: "hmm-high-vol",
+        label: "High-vol regime",
+        status: "skip",
+        detail: "Kalman disabled for this method.",
+      });
+    } else if (form.maxHighVolProb <= 0) {
+      checks.push({
+        id: "hmm-high-vol",
+        label: "High-vol regime",
+        status: "skip",
+        detail: "High-vol gate disabled.",
+      });
+    } else if (!sig.regimes || !isFiniteNumber(sig.regimes.highVol)) {
+      checks.push({
+        id: "hmm-high-vol",
+        label: "High-vol regime",
+        status: "warn",
+        detail: "Regime estimate missing.",
+      });
+    } else {
+      const status: DecisionCheckStatus = sig.regimes.highVol <= form.maxHighVolProb ? "ok" : "bad";
+      const detail = `high vol ${fmtPct(sig.regimes.highVol, 1)} <= max ${fmtPct(form.maxHighVolProb, 1)}`;
+      checks.push({ id: "hmm-high-vol", label: "High-vol regime", status, detail });
+    }
+
+    if (!kalmanEnabled) {
+      checks.push({
+        id: "conformal-width",
+        label: "Conformal width",
+        status: "skip",
+        detail: "Kalman disabled for this method.",
+      });
+    } else if (form.maxConformalWidth <= 0) {
+      checks.push({
+        id: "conformal-width",
+        label: "Conformal width",
+        status: "skip",
+        detail: "Width gate disabled.",
+      });
+    } else if (!sig.conformalInterval || !isFiniteNumber(sig.conformalInterval.width)) {
+      checks.push({
+        id: "conformal-width",
+        label: "Conformal width",
+        status: "warn",
+        detail: "Conformal interval missing.",
+      });
+    } else {
+      const status: DecisionCheckStatus = sig.conformalInterval.width <= form.maxConformalWidth ? "ok" : "bad";
+      const detail = `width ${fmtPct(sig.conformalInterval.width, 2)} <= max ${fmtPct(form.maxConformalWidth, 2)}`;
+      checks.push({ id: "conformal-width", label: "Conformal width", status, detail });
+    }
+
+    if (!kalmanEnabled) {
+      checks.push({
+        id: "quantile-width",
+        label: "Quantile width",
+        status: "skip",
+        detail: "Kalman disabled for this method.",
+      });
+    } else if (form.maxQuantileWidth <= 0) {
+      checks.push({
+        id: "quantile-width",
+        label: "Quantile width",
+        status: "skip",
+        detail: "Width gate disabled.",
+      });
+    } else if (!sig.quantiles || !isFiniteNumber(sig.quantiles.width)) {
+      checks.push({
+        id: "quantile-width",
+        label: "Quantile width",
+        status: "warn",
+        detail: "Quantile estimate missing.",
+      });
+    } else {
+      const status: DecisionCheckStatus = sig.quantiles.width <= form.maxQuantileWidth ? "ok" : "bad";
+      const detail = `width ${fmtPct(sig.quantiles.width, 2)} <= max ${fmtPct(form.maxQuantileWidth, 2)}`;
+      checks.push({ id: "quantile-width", label: "Quantile width", status, detail });
+    }
+
+    if (!kalmanEnabled) {
+      checks.push({
+        id: "conformal-confirm",
+        label: "Conformal confirm",
+        status: "skip",
+        detail: "Kalman disabled for this method.",
+      });
+    } else if (!form.confirmConformal) {
+      checks.push({
+        id: "conformal-confirm",
+        label: "Conformal confirm",
+        status: "skip",
+        detail: "Confirmation disabled.",
+      });
+    } else if (!sig.conformalInterval) {
+      checks.push({
+        id: "conformal-confirm",
+        label: "Conformal confirm",
+        status: "warn",
+        detail: "Conformal interval missing.",
+      });
+    } else if (!kalDir) {
+      checks.push({
+        id: "conformal-confirm",
+        label: "Conformal confirm",
+        status: "warn",
+        detail: "No Kalman direction.",
+      });
+    } else {
+      const status: DecisionCheckStatus =
+        (kalDir === "UP" && sig.conformalInterval.lo > openThr) ||
+        (kalDir === "DOWN" && sig.conformalInterval.hi < -openThr)
+          ? "ok"
+          : "bad";
+      const detail =
+        kalDir === "UP"
+          ? `lo ${fmtPct(sig.conformalInterval.lo, 3)} > thr ${fmtPct(openThr, 3)}`
+          : `hi ${fmtPct(sig.conformalInterval.hi, 3)} < ${fmtPct(-openThr, 3)}`;
+      checks.push({ id: "conformal-confirm", label: "Conformal confirm", status, detail });
+    }
+
+    if (!kalmanEnabled) {
+      checks.push({
+        id: "quantile-confirm",
+        label: "Quantile confirm",
+        status: "skip",
+        detail: "Kalman disabled for this method.",
+      });
+    } else if (!form.confirmQuantiles) {
+      checks.push({
+        id: "quantile-confirm",
+        label: "Quantile confirm",
+        status: "skip",
+        detail: "Confirmation disabled.",
+      });
+    } else if (!sig.quantiles) {
+      checks.push({
+        id: "quantile-confirm",
+        label: "Quantile confirm",
+        status: "warn",
+        detail: "Quantile estimate missing.",
+      });
+    } else if (!kalDir) {
+      checks.push({
+        id: "quantile-confirm",
+        label: "Quantile confirm",
+        status: "warn",
+        detail: "No Kalman direction.",
+      });
+    } else {
+      const status: DecisionCheckStatus =
+        (kalDir === "UP" && sig.quantiles.q10 > openThr) ||
+        (kalDir === "DOWN" && sig.quantiles.q90 < -openThr)
+          ? "ok"
+          : "bad";
+      const detail =
+        kalDir === "UP"
+          ? `q10 ${fmtPct(sig.quantiles.q10, 3)} > thr ${fmtPct(openThr, 3)}`
+          : `q90 ${fmtPct(sig.quantiles.q90, 3)} < ${fmtPct(-openThr, 3)}`;
+      checks.push({ id: "quantile-confirm", label: "Quantile confirm", status, detail });
+    }
+
+    if (form.minSignalToNoise <= 0) {
+      checks.push({
+        id: "signal-to-noise",
+        label: "Signal-to-noise",
+        status: "skip",
+        detail: "SNR filter disabled.",
+      });
+    } else {
+      const edgeLabel = edgeForMethod != null ? fmtPct(edgeForMethod, 3) : "—";
+      const volLabel = volPerBar != null ? fmtPct(volPerBar, 3) : "—";
+      const snr = edgeForMethod != null && volPerBar != null ? edgeForMethod / volPerBar : null;
+      const snrLabel = snr != null && Number.isFinite(snr) ? fmtNum(snr, 2) : "—";
+      const detail = `edge ${edgeLabel} (${edgeSource}) / vol ${volLabel} = ${snrLabel} (min ${fmtNum(form.minSignalToNoise, 2)})`;
+      let status: DecisionCheckStatus = "bad";
+      if (sig.method === "router" && edgeForMethod == null) {
+        status = "warn";
+      } else if (edgeForMethod != null && volPerBar != null) {
+        status = snr != null && Number.isFinite(snr) && snr >= form.minSignalToNoise ? "ok" : "bad";
+      }
+      checks.push({ id: "signal-to-noise", label: "Signal-to-noise", status, detail });
+    }
+
+    if (form.maxVolatility <= 0) {
+      checks.push({
+        id: "max-volatility",
+        label: "Max volatility",
+        status: "skip",
+        detail: "Max volatility gate disabled.",
+      });
+    } else if (volEstimate == null) {
+      checks.push({
+        id: "max-volatility",
+        label: "Max volatility",
+        status: "bad",
+        detail: `No volatility estimate (max ${fmtPct(form.maxVolatility, 2)}).`,
+      });
+    } else {
+      const status: DecisionCheckStatus = volEstimate <= form.maxVolatility ? "ok" : "bad";
+      const detail = `vol ${fmtPct(volEstimate, 2)} <= max ${fmtPct(form.maxVolatility, 2)}`;
+      checks.push({ id: "max-volatility", label: "Max volatility", status, detail });
+    }
+
+    if (form.volTarget <= 0) {
+      checks.push({
+        id: "vol-target",
+        label: "Vol target warmup",
+        status: "skip",
+        detail: "Vol target disabled.",
+      });
+    } else if (volEstimate == null) {
+      checks.push({
+        id: "vol-target",
+        label: "Vol target warmup",
+        status: "bad",
+        detail: `Waiting for volatility estimate (target ${fmtPct(form.volTarget, 2)}).`,
+      });
+    } else {
+      const detail = `vol ${fmtPct(volEstimate, 2)} target ${fmtPct(form.volTarget, 2)}`;
+      checks.push({ id: "vol-target", label: "Vol target warmup", status: "ok", detail });
+    }
+
+    if (!isFiniteNumber(sig.positionSize)) {
+      checks.push({
+        id: "position-size",
+        label: "Position size",
+        status: "warn",
+        detail: "Position size missing.",
+      });
+    } else {
+      const size = sig.positionSize;
+      const sizeParts = [`size ${fmtPct(size, 1)}`];
+      if (isFiniteNumber(sig.confidence)) sizeParts.push(`confidence ${fmtPct(sig.confidence, 1)}`);
+      if (form.confidenceSizing && form.minPositionSize > 0) {
+        sizeParts.push(`min ${fmtPct(form.minPositionSize, 1)}`);
+      } else if (!form.confidenceSizing) {
+        sizeParts.push("confidence sizing off");
+      }
+      if (form.maxPositionSize > 0) sizeParts.push(`max ${fmtPct(form.maxPositionSize, 1)}`);
+      const detail = sizeParts.join(" / ");
+      let status: DecisionCheckStatus = size > 0 ? "ok" : "bad";
+      if (form.confidenceSizing && form.minPositionSize > 0 && size < form.minPositionSize) {
+        status = "bad";
+      }
+      if (directionHold && status === "ok") {
+        status = "warn";
+      }
+      checks.push({ id: "position-size", label: "Position size", status, detail });
+    }
+
+    return { isHold, reason, checks };
+  }, [
+    form.blendWeight,
+    form.confirmConformal,
+    form.confirmQuantiles,
+    form.confidenceSizing,
+    form.interval,
+    form.kalmanZMin,
+    form.maxConformalWidth,
+    form.maxHighVolProb,
+    form.maxPositionSize,
+    form.maxQuantileWidth,
+    form.maxVolatility,
+    form.minPositionSize,
+    form.minSignalToNoise,
+    form.platform,
+    form.volTarget,
+    state.latestSignal,
+  ]);
   const jumpTargets = [
     { id: "section-api", label: "API" },
     { id: "section-market", label: "Market" },
@@ -5061,7 +5591,7 @@ export function App() {
                 const filteredCount = topCombosFiltered.length;
                 const totalCount = topCombosMeta.comboCount ?? topCombosAll.length;
                 const filterLabel =
-                  comboMinEquity != null ? ` (min equity > ${fmtRatio(comboMinEquity, 4)})` : "";
+                  comboMinEquity != null ? ` (min final equity > ${fmtRatio(comboMinEquity, 4)})` : "";
                 const countLabel =
                   comboMinEquity != null
                     ? `Showing ${displayCount} of ${filteredCount} combos${filterLabel}`
@@ -5137,12 +5667,13 @@ export function App() {
                   onChange={(e) => setComboOrder(e.target.value as ComboOrder)}
                   style={{ minWidth: 180 }}
                 >
-                  <option value="rank">Rank (score/equity)</option>
+                  <option value="annualized-equity">Annualized equity</option>
+                  <option value="rank">Rank (score/final equity)</option>
                   <option value="date-desc">Date (newest)</option>
                   <option value="date-asc">Date (oldest)</option>
                 </select>
                 <label className="label" htmlFor="comboMinEquity">
-                  Min equity
+                  Min final equity
                 </label>
                 <input
                   id="comboMinEquity"
@@ -5157,7 +5688,7 @@ export function App() {
               </div>
               {comboMinEquity != null && topCombosFiltered.length === 0 ? (
                 <div className="hint" style={{ marginBottom: 8 }}>
-                  No combos match the equity filter.
+                  No combos match the final equity filter.
                 </div>
               ) : null}
               <div className="actions" style={{ marginBottom: 8 }}>
@@ -7199,6 +7730,9 @@ export function App() {
                       <div className="botChartsGrid">
                         {botRunningCharts.map((entry) => {
                           const st = entry.status;
+                          const botStatePoints = botStatusPointsBySymbol.get(normalizeSymbolKey(st.symbol)) ?? [];
+                          const botStateRangeOk =
+                            botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error;
                           return (
                             <div key={entry.symbol} className="botChartCard">
                               <div className="pillRow" style={{ marginBottom: 8 }}>
@@ -7213,17 +7747,35 @@ export function App() {
                                 <span className="badge">{st.halted ? "HALTED" : "ACTIVE"}</span>
                                 <span className="badge">{st.error ? "Error" : "OK"}</span>
                               </div>
-                              <BacktestChart
-                                prices={st.prices}
-                                equityCurve={st.equityCurve}
-                                openTimes={st.openTimes}
-                                kalmanPredNext={st.kalmanPredNext}
-                                positions={st.positions}
-                                trades={st.trades}
-                                operations={st.operations}
-                                backtestStartIndex={st.startIndex}
-                                height={280}
-                              />
+                                <BacktestChart
+                                  prices={st.prices}
+                                  equityCurve={st.equityCurve}
+                                  openTimes={st.openTimes}
+                                  kalmanPredNext={st.kalmanPredNext}
+                                  positions={st.positions}
+                                  trades={st.trades}
+                                  operations={st.operations}
+                                  backtestStartIndex={st.startIndex}
+                                  height={CHART_HEIGHT}
+                                />
+                                <div style={{ marginTop: 8 }}>
+                                  <div className="hint" style={{ marginBottom: 6 }}>
+                                    Bot state timeline
+                                  </div>
+                                  {botStateRangeOk ? (
+                                    <BotStateChart
+                                      points={botStatePoints}
+                                      startMs={botStatusRange.startMs}
+                                      endMs={botStatusRange.endMs}
+                                      height={160}
+                                      label={`Bot state timeline (${st.symbol})`}
+                                    />
+                                  ) : (
+                                    <div className="chart" style={{ height: 160 }}>
+                                      <div className="chartEmpty">Select a valid time range</div>
+                                    </div>
+                                  )}
+                                </div>
                             </div>
                           );
                         })}
@@ -7258,7 +7810,7 @@ export function App() {
 	                    trades={botDisplay.trades}
 	                    operations={botDisplay.operations}
 	                    backtestStartIndex={botDisplay.startIndex}
-	                    height={360}
+	                    height={CHART_HEIGHT}
 	                  />
 
 		                  <div style={{ marginTop: 10 }}>
@@ -7271,7 +7823,7 @@ export function App() {
 		                      kalmanPredNext={botDisplay.kalmanPredNext}
 		                      lstmPredNext={botDisplay.lstmPredNext}
 		                      startIndex={botDisplay.startIndex}
-		                      height={140}
+		                      height={CHART_HEIGHT}
 		                      openThreshold={botDisplay.openThreshold ?? botDisplay.threshold}
 		                      closeThreshold={botDisplay.closeThreshold ?? botDisplay.openThreshold ?? botDisplay.threshold}
 		                    />
@@ -7281,7 +7833,7 @@ export function App() {
                     <div className="hint" style={{ marginBottom: 8 }}>
                       Telemetry (Binance poll latency + close drift; hover for details)
                     </div>
-                    <TelemetryChart points={botRt.telemetry} height={120} label="Live bot telemetry chart" />
+                    <TelemetryChart points={botRt.telemetry} height={CHART_HEIGHT} label="Live bot telemetry chart" />
                   </div>
 
                   <div style={{ marginTop: 10 }}>
@@ -7330,9 +7882,9 @@ export function App() {
                     {!botStatusOps.enabled ? (
                       <div className="hint">{botStatusOps.hint ?? "Enable TRADER_OPS_DIR to track bot status history."}</div>
                     ) : botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error ? (
-                      <BotStateChart points={botStatusPoints} startMs={botStatusRange.startMs} endMs={botStatusRange.endMs} height={90} />
+                      <BotStateChart points={botStatusPoints} startMs={botStatusRange.startMs} endMs={botStatusRange.endMs} height={CHART_HEIGHT} />
                     ) : (
-                      <div className="chart" style={{ height: 90 }}>
+                      <div className="chart" style={{ height: CHART_HEIGHT }}>
                         <div className="chartEmpty">Select a valid time range</div>
                       </div>
                     )}
@@ -8307,6 +8859,36 @@ export function App() {
                     </div>
                   ) : null}
 
+                  {latestSignalDecision ? (
+                    <div className="decisionBlock">
+                      <div className="decisionHeader">
+                        <div>
+                          <div className="decisionTitle">Decision logic</div>
+                          <div className="decisionSubtitle">
+                            {latestSignalDecision.isHold
+                              ? `Holding${latestSignalDecision.reason ? `: ${latestSignalDecision.reason}` : "."}`
+                              : "Signal cleared gates and is eligible to operate."}
+                          </div>
+                        </div>
+                        <span className={decisionBadgeClass(latestSignalDecision.isHold ? "bad" : "ok")}>
+                          {latestSignalDecision.isHold ? "hold" : "operate"}
+                        </span>
+                      </div>
+                      <div className="decisionGrid">
+                        {latestSignalDecision.checks.map((check) => (
+                          <div key={check.id} className="decisionRow">
+                            <span className={decisionDotClass(check.status)} aria-hidden="true" />
+                            <div>
+                              <div className="decisionLabel">{check.label}</div>
+                              <div className="decisionDetail">{check.detail}</div>
+                            </div>
+                            <span className={decisionBadgeClass(check.status)}>{decisionStatusLabel(check.status)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
                   {(() => {
                     const sig = state.latestSignal;
                     const std = sig.kalmanStd;
@@ -8480,10 +9062,10 @@ export function App() {
                               openTimes={chart?.openTimes}
                               positions={positionsSeries}
                               trades={[]}
-                              height={260}
+                              height={CHART_HEIGHT}
                             />
                           ) : (
-                            <div className="chart" style={{ height: 220 }}>
+                            <div className="chart" style={{ height: CHART_HEIGHT }}>
                               <div className="chartEmpty">No chart data available.</div>
                             </div>
                           )}
@@ -8585,10 +9167,10 @@ export function App() {
                               openTimes={chart?.openTimes}
                               positions={positionsSeries}
                               trades={[]}
-                              height={240}
+                              height={CHART_HEIGHT}
                             />
                           ) : (
-                            <div className="chart" style={{ height: 220 }}>
+                            <div className="chart" style={{ height: CHART_HEIGHT }}>
                               <div className="chartEmpty">No chart data available.</div>
                             </div>
                           )}
@@ -8620,7 +9202,7 @@ export function App() {
 				                    agreementOk={state.backtest.method === "01" ? undefined : state.backtest.agreementOk}
 				                    trades={state.backtest.trades}
 				                    backtestStartIndex={state.backtest.split.backtestStartIndex}
-				                    height={360}
+				                    height={CHART_HEIGHT}
                         actions={
                           <button className="btn" type="button" onClick={downloadBacktestOps}>
                             Download log
@@ -8637,7 +9219,7 @@ export function App() {
                             kalmanPredNext={state.backtest.kalmanPredNext}
                             lstmPredNext={state.backtest.lstmPredNext}
                             startIndex={state.backtest.split.backtestStartIndex}
-                            height={140}
+                            height={CHART_HEIGHT}
                             openThreshold={state.backtest.openThreshold ?? state.backtest.threshold}
                             closeThreshold={
                               state.backtest.closeThreshold ?? state.backtest.openThreshold ?? state.backtest.threshold

@@ -608,7 +608,7 @@ When trading is armed, Long/Short positioning requires Futures market (the UI sw
 Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
 The UI shows whether combos are coming from the live API or the static fallback, their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
-Optimizer combos show when each combo was obtained, support ordering by date, and can be filtered by minimum final equity.
+Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, and can be filtered by minimum final equity.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
 Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), selecting the existing bot if it is already running; top-combo auto-apply pauses while a manual Apply is starting a bot, and Refresh combos resyncs.

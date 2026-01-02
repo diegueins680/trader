@@ -67,7 +67,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: open positions/orphaned operations cards key by position side, ignore bots with trade disabled when determining adoption, and label trade-off bots explicitly.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Web UI: backtest split auto-adjusts bars without exceeding API max bars.
-- Web UI: show combo obtained timestamps, add date ordering, and filter optimizer combos by minimum equity.
+- Web UI: show combo obtained timestamps, display annualized equity, default combo ordering by annualized equity, and filter optimizer combos by minimum equity.
 - Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).
 - Metrics: agreement rate now counts only bars where both models emit a direction (warm-up/no-signal bars excluded).
 - Backtests: validate open timestamp vectors against closes to avoid misaligned day boundaries.
@@ -189,6 +189,7 @@ All notable changes to this project will be documented in this file.
 - Predictors: guard empty TCN dilations to avoid crashes.
 - API: `/bot/start` error responses include per-symbol errors when all requested symbols fail.
 - Web UI: live bot start/status errors surface CloudFront `/api/*` proxy hints and avoid a stuck `Starting...` state when the API is down.
+- Web UI: add compact bot-state timeline charts for each running bot card.
 - Live bot: support long/short positioning on Binance futures (including adopting/closing existing short positions).
 - Optimizer: adds a `--quality` preset plus CSV high/low auto-detection for deeper equity searches.
 - Optimizer: adds trade-quality filters (win rate, profit factor, exposure) and samples min-hold/cooldown bars for churn control.
