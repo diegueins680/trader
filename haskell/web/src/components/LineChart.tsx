@@ -2,9 +2,11 @@ import React from "react";
 
 type Props = {
   series: number[];
-  height?: number;
+  height?: number | string;
   label?: string;
 };
+
+const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
@@ -48,14 +50,16 @@ function niceTicks(min: number, max: number, ticks = 5): { ticks: number[]; min:
   return { ticks: out, min: lo, max: hi, step };
 }
 
-export function LineChart({ series, height = 96, label = "Series chart" }: Props) {
+export function LineChart({ series, height = DEFAULT_CHART_HEIGHT, label = "Series chart" }: Props) {
   const w = 1000;
   const h = 240;
   const pad = { l: 66, r: 14, t: 14, b: 34 };
+  const resolvedHeight = typeof height === "string" ? height : DEFAULT_CHART_HEIGHT;
+  const minHeight = typeof height === "number" ? height : undefined;
 
   if (series.length < 2) {
     return (
-      <div className="chart" style={{ height }} aria-label={label}>
+      <div className="chart" style={{ height: resolvedHeight, minHeight }} aria-label={label}>
         <div className="chartEmpty">Not enough points</div>
       </div>
     );
@@ -83,7 +87,7 @@ export function LineChart({ series, height = 96, label = "Series chart" }: Props
   const area = `${line} L ${last.x} ${yBase} L ${first.x} ${yBase} Z`;
 
   return (
-    <div className="chart" style={{ height }} role="img" aria-label={label}>
+    <div className="chart" style={{ height: resolvedHeight, minHeight }} role="img" aria-label={label}>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="chartSvg">
         <g>
           {yAxis.ticks.map((tv) => {

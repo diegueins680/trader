@@ -8,9 +8,11 @@ export type TelemetryPoint = {
 
 type Props = {
   points: TelemetryPoint[];
-  height?: number;
+  height?: number | string;
   label?: string;
 };
+
+const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
 
 type Pads = { l: number; r: number; t: number; b: number };
 
@@ -105,10 +107,12 @@ function pathFor(series: Array<number | null>, xFor: (i: number) => number, yFor
   return pts < 2 ? "" : d.trim();
 }
 
-export function TelemetryChart({ points, height = 120, label = "Telemetry chart" }: Props) {
+export function TelemetryChart({ points, height = DEFAULT_CHART_HEIGHT, label = "Telemetry chart" }: Props) {
   const w = 1000;
   const h = 240;
   const pad: Pads = { l: 66, r: 66, t: 18, b: 34 };
+  const resolvedHeight = typeof height === "string" ? height : DEFAULT_CHART_HEIGHT;
+  const minHeight = typeof height === "number" ? height : undefined;
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -199,7 +203,7 @@ export function TelemetryChart({ points, height = 120, label = "Telemetry chart"
     <div
       ref={wrapRef}
       className="chart btChart"
-      style={{ height, position: "relative" }}
+      style={{ height: resolvedHeight, minHeight, position: "relative" }}
       role="img"
       aria-label={label}
       onPointerMove={onPointerMove}
@@ -289,4 +293,3 @@ export function TelemetryChart({ points, height = 120, label = "Telemetry chart"
     </div>
   );
 }
-

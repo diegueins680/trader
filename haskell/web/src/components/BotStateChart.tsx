@@ -15,9 +15,11 @@ type Props = {
   points: BotStatePoint[];
   startMs: number;
   endMs: number;
-  height?: number;
+  height?: number | string;
   label?: string;
 };
+
+const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
 
 function fmtTimeShort(ms: number): string {
   if (!Number.isFinite(ms)) return "--";
@@ -76,10 +78,12 @@ function buildSegments(points: BotStatePoint[], startMs: number, endMs: number):
   return { segments, hasData: true };
 }
 
-export function BotStateChart({ points, startMs, endMs, height = 90, label = "Bot state timeline" }: Props) {
+export function BotStateChart({ points, startMs, endMs, height = DEFAULT_CHART_HEIGHT, label = "Bot state timeline" }: Props) {
   const w = 1000;
   const h = 180;
   const pad = { l: 16, r: 16, t: 12, b: 26 };
+  const resolvedHeight = typeof height === "string" ? height : DEFAULT_CHART_HEIGHT;
+  const minHeight = typeof height === "number" ? height : undefined;
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [hoverMs, setHoverMs] = useState<number | null>(null);
@@ -132,7 +136,7 @@ export function BotStateChart({ points, startMs, endMs, height = 90, label = "Bo
     <div
       ref={wrapRef}
       className="chart"
-      style={{ height, position: "relative" }}
+      style={{ height: resolvedHeight, minHeight, position: "relative" }}
       role="img"
       aria-label={label}
       onPointerMove={onPointerMove}

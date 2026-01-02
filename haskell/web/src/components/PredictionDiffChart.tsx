@@ -9,11 +9,13 @@ type Props = {
   kalmanPredNext?: Series;
   lstmPredNext?: Series;
   startIndex?: number;
-  height?: number;
+  height?: number | string;
   label?: string;
   openThreshold?: number;
   closeThreshold?: number;
 };
+
+const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
 
 type ErrorMode = "abs" | "pct";
 
@@ -132,7 +134,7 @@ export function PredictionDiffChart({
   kalmanPredNext,
   lstmPredNext,
   startIndex = 0,
-  height = 140,
+  height = DEFAULT_CHART_HEIGHT,
   label = "Prediction error chart",
   openThreshold,
   closeThreshold,
@@ -141,6 +143,8 @@ export function PredictionDiffChart({
   const h = 240;
   const pad: Pads = { l: 66, r: 18, t: 18, b: 34 };
   const nPred = Math.max(0, prices.length - 1);
+  const resolvedHeight = typeof height === "string" ? height : DEFAULT_CHART_HEIGHT;
+  const minHeight = typeof height === "number" ? height : undefined;
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const group = useId();
@@ -254,11 +258,11 @@ export function PredictionDiffChart({
       </div>
 
       <div
-        ref={wrapRef}
-        className="chart"
-        style={{ height, position: "relative" }}
-        role="img"
-        aria-label={label}
+      ref={wrapRef}
+      className="chart"
+      style={{ height: resolvedHeight, minHeight, position: "relative" }}
+      role="img"
+      aria-label={label}
         onPointerMove={onPointerMove}
         onPointerLeave={onPointerLeave}
       >

@@ -29,7 +29,7 @@ type Props = {
   trades: Trade[];
   operations?: Operation[];
   backtestStartIndex?: number;
-  height?: number;
+  height?: number | string;
   actions?: React.ReactNode;
 };
 
@@ -38,6 +38,8 @@ type View = { start: number; end: number };
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
+
+const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
 
 const CHART_MARGIN = { l: 14, r: 78, t: 10, b: 26 };
 const MIN_ZOOM_WINDOW = 6;
@@ -163,14 +165,17 @@ export function BacktestChart({
   trades,
   operations,
   backtestStartIndex = 0,
-  height = 340,
+  height = DEFAULT_CHART_HEIGHT,
   actions,
 }: Props) {
   const n = prices.length;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: height });
+  const resolvedHeight = typeof height === "string" ? height : DEFAULT_CHART_HEIGHT;
+  const minHeight = typeof height === "number" ? height : undefined;
+  const initialHeight = typeof height === "number" ? height : 0;
+  const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: initialHeight });
   const [view, setView] = useState<View>(() => ({ start: 0, end: Math.max(1, n - 1) }));
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
@@ -289,7 +294,7 @@ export function BacktestChart({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     ctx.clearRect(0, 0, size.w, size.h);
-    if (n < 2) return;
+    if (n < 2 || size.w < 2 || size.h < 2) return;
 
     const start = clamp(view.start, 0, n - 2);
     const end = clamp(view.end, start + 1, n - 1);
@@ -828,7 +833,7 @@ export function BacktestChart({
       <div
         className="chart btChart"
         ref={wrapRef}
-        style={{ height }}
+        style={{ height: resolvedHeight, minHeight }}
         onPointerMove={onPointerMove}
         onPointerLeave={onPointerLeave}
         onPointerDown={onPointerDown}
