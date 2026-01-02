@@ -163,12 +163,15 @@ type BotStatusOp = {
   symbol: string | null;
 };
 
+type PanelToggleHandler = (event: React.SyntheticEvent<HTMLDetailsElement>) => void;
+
 type CollapsibleCardProps = {
   panelId: string;
   title: string;
   subtitle?: string;
   children: React.ReactNode;
-  defaultOpen?: boolean;
+  open: boolean;
+  onToggle: PanelToggleHandler;
   className?: string;
   summaryId?: string;
   style?: React.CSSProperties;
@@ -180,7 +183,8 @@ type CollapsibleSectionProps = {
   title: string;
   meta?: string;
   children: React.ReactNode;
-  defaultOpen?: boolean;
+  open: boolean;
+  onToggle: PanelToggleHandler;
 };
 
 type InfoPopoverProps = {
@@ -210,6 +214,54 @@ const InfoList = ({ items }: InfoListProps) => (
       <li key={item}>{item}</li>
     ))}
   </ul>
+);
+
+const CollapsibleCard = ({
+  panelId,
+  title,
+  subtitle,
+  children,
+  open,
+  onToggle,
+  className,
+  summaryId,
+  style,
+  containerRef,
+}: CollapsibleCardProps) => (
+  <details
+    className={`card cardCollapsible${className ? ` ${className}` : ""}`}
+    open={open}
+    onToggle={onToggle}
+    data-panel={panelId}
+    ref={containerRef}
+    style={style}
+  >
+    <summary className="cardHeader cardSummary" id={summaryId}>
+      <div className="cardHeaderText">
+        <h2 className="cardTitle">{title}</h2>
+        {subtitle ? <p className="cardSubtitle">{subtitle}</p> : null}
+      </div>
+      <span className="cardToggle" aria-hidden="true">
+        <span className="cardToggleLabel" data-open="Collapse" data-closed="Expand" />
+        <span className="cardToggleIcon" />
+      </span>
+    </summary>
+    <div className="cardBody">{children}</div>
+  </details>
+);
+
+const CollapsibleSection = ({ panelId, title, meta, children, open, onToggle }: CollapsibleSectionProps) => (
+  <details className="sectionPanel" open={open} onToggle={onToggle} data-panel={panelId}>
+    <summary className="sectionHeading" id={panelId}>
+      <span className="sectionTitle">{title}</span>
+      {meta ? <span className="sectionMeta">{meta}</span> : null}
+      <span className="sectionToggle" aria-hidden="true">
+        <span className="sectionToggleLabel" data-open="Hide" data-closed="Show" />
+        <span className="sectionToggleIcon" />
+      </span>
+    </summary>
+    <div className="sectionBody">{children}</div>
+  </details>
 );
 
 const BOT_STATUS_OPS_LIMIT = 5000;
@@ -6061,53 +6113,6 @@ export function App() {
     : null;
   const tradeOrder = state.trade?.order ?? null;
 
-  const CollapsibleCard = ({
-    panelId,
-    title,
-    subtitle,
-    children,
-    defaultOpen = true,
-    className,
-    summaryId,
-    style,
-    containerRef,
-  }: CollapsibleCardProps) => (
-    <details
-      className={`card cardCollapsible${className ? ` ${className}` : ""}`}
-      open={isPanelOpen(panelId, defaultOpen)}
-      onToggle={handlePanelToggle(panelId)}
-      data-panel={panelId}
-      ref={containerRef}
-      style={style}
-    >
-      <summary className="cardHeader cardSummary" id={summaryId}>
-        <div className="cardHeaderText">
-          <h2 className="cardTitle">{title}</h2>
-          {subtitle ? <p className="cardSubtitle">{subtitle}</p> : null}
-        </div>
-        <span className="cardToggle" aria-hidden="true">
-          <span className="cardToggleLabel" data-open="Collapse" data-closed="Expand" />
-          <span className="cardToggleIcon" />
-        </span>
-      </summary>
-      <div className="cardBody">{children}</div>
-    </details>
-  );
-
-  const CollapsibleSection = ({ panelId, title, meta, children, defaultOpen = true }: CollapsibleSectionProps) => (
-    <details className="sectionPanel" open={isPanelOpen(panelId, defaultOpen)} onToggle={handlePanelToggle(panelId)} data-panel={panelId}>
-      <summary className="sectionHeading" id={panelId}>
-        <span className="sectionTitle">{title}</span>
-        {meta ? <span className="sectionMeta">{meta}</span> : null}
-        <span className="sectionToggle" aria-hidden="true">
-          <span className="sectionToggleLabel" data-open="Hide" data-closed="Show" />
-          <span className="sectionToggleIcon" />
-        </span>
-      </summary>
-      <div className="sectionBody">{children}</div>
-    </details>
-  );
-
   return (
     <div className="container">
       <header className="header">
@@ -6159,6 +6164,8 @@ export function App() {
       <div className="grid">
         <CollapsibleCard
           panelId="panel-config"
+          open={isPanelOpen("panel-config", true)}
+          onToggle={handlePanelToggle("panel-config")}
           title="Configuration"
           subtitle="Safe defaults, minimal knobs, and clear outputs."
           className="configCard"
@@ -8081,7 +8088,13 @@ export function App() {
             </div>
           </div>
 
-          <CollapsibleSection panelId="section-market" title="Market" meta="Pair, market type, interval, bars.">
+          <CollapsibleSection
+            panelId="section-market"
+            open={isPanelOpen("section-market", true)}
+            onToggle={handlePanelToggle("section-market")}
+            title="Market"
+            meta="Pair, market type, interval, bars."
+          >
           <div className="row rowSingle">
             <div className="field">
               <label className="label" htmlFor="platform">
@@ -8282,7 +8295,13 @@ export function App() {
 
           </CollapsibleSection>
 
-          <CollapsibleSection panelId="section-lookback" title="Lookback" meta="Window length and bar overrides.">
+          <CollapsibleSection
+            panelId="section-lookback"
+            open={isPanelOpen("section-lookback", true)}
+            onToggle={handlePanelToggle("section-lookback")}
+            title="Lookback"
+            meta="Window length and bar overrides."
+          >
             <div className="row">
               <div className="field">
                 <label className="label" htmlFor="lookbackWindow">
@@ -8342,7 +8361,13 @@ export function App() {
 
           </CollapsibleSection>
 
-          <CollapsibleSection panelId="section-thresholds" title="Thresholds" meta="Method, positioning, entry/exit gates.">
+          <CollapsibleSection
+            panelId="section-thresholds"
+            open={isPanelOpen("section-thresholds", true)}
+            onToggle={handlePanelToggle("section-thresholds")}
+            title="Thresholds"
+            meta="Method, positioning, entry/exit gates."
+          >
             <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
               <div className="field">
                 <div className="labelRow">
@@ -8790,7 +8815,13 @@ export function App() {
 
           </CollapsibleSection>
 
-          <CollapsibleSection panelId="section-risk" title="Risk" meta="Stops, pacing, sizing, and kill-switches.">
+          <CollapsibleSection
+            panelId="section-risk"
+            open={isPanelOpen("section-risk", true)}
+            onToggle={handlePanelToggle("section-risk")}
+            title="Risk"
+            meta="Stops, pacing, sizing, and kill-switches."
+          >
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
               <div className="label">Bracket exits (fractions)</div>
@@ -9356,6 +9387,8 @@ export function App() {
 
           <CollapsibleSection
             panelId="section-optimizer-run"
+            open={isPanelOpen("section-optimizer-run", true)}
+            onToggle={handlePanelToggle("section-optimizer-run")}
             title="Optimizer run"
             meta="Kick off /optimizer/run with the current config or a CSV source."
           >
@@ -9659,7 +9692,13 @@ export function App() {
             </div>
           </CollapsibleSection>
 
-          <CollapsibleSection panelId="section-optimization" title="Optimization" meta="Tuning sweeps, presets, and constraints.">
+          <CollapsibleSection
+            panelId="section-optimization"
+            open={isPanelOpen("section-optimization", true)}
+            onToggle={handlePanelToggle("section-optimization")}
+            title="Optimization"
+            meta="Tuning sweeps, presets, and constraints."
+          >
             <div className="row">
               <div className="field">
               <div className="labelRow">
@@ -9922,7 +9961,13 @@ export function App() {
 
           </CollapsibleSection>
 
-          <CollapsibleSection panelId="section-livebot" title="Live bot" meta="Start, stop, and tune the continuous loop.">
+          <CollapsibleSection
+            panelId="section-livebot"
+            open={isPanelOpen("section-livebot", true)}
+            onToggle={handlePanelToggle("section-livebot")}
+            title="Live bot"
+            meta="Start, stop, and tune the continuous loop."
+          >
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
                 <div className="field">
                   <div className="label">Live bot</div>
@@ -10099,7 +10144,13 @@ export function App() {
               </div>
           </CollapsibleSection>
 
-          <CollapsibleSection panelId="section-trade" title="Trade" meta="Arm trading, size orders, and run /trade.">
+          <CollapsibleSection
+            panelId="section-trade"
+            open={isPanelOpen("section-trade", true)}
+            onToggle={handlePanelToggle("section-trade")}
+            title="Trade"
+            meta="Arm trading, size orders, and run /trade."
+          >
               <div className="row">
                 <div className="field">
                   <div className="label">Trade controls</div>
@@ -10396,6 +10447,8 @@ export function App() {
           {state.error ? (
             <CollapsibleCard
               panelId="panel-error"
+              open={isPanelOpen("panel-error", true)}
+              onToggle={handlePanelToggle("panel-error")}
               title="Error"
               subtitle="Fix the request or backend and try again."
               containerRef={errorRef}
@@ -10416,6 +10469,8 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-overview"
+            open={isPanelOpen("panel-overview", true)}
+            onToggle={handlePanelToggle("panel-overview")}
             title="Overview"
             subtitle="At-a-glance status for connection, execution mode, and latest outputs."
           >
@@ -10513,6 +10568,8 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-live-bot"
+            open={isPanelOpen("panel-live-bot", true)}
+            onToggle={handlePanelToggle("panel-live-bot")}
             title="Live bot"
             subtitle="Non-stop loop (server-side): fetches new bars, updates the model each bar, and records each buy/sell operation."
           >
@@ -11406,6 +11463,8 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-binance-trades"
+            open={isPanelOpen("panel-binance-trades", true)}
+            onToggle={handlePanelToggle("panel-binance-trades")}
             title="Binance account trades"
             subtitle="Full exchange history from your Binance account (API keys required)."
           >
@@ -11607,6 +11666,8 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-latest-signal"
+            open={isPanelOpen("panel-latest-signal", true)}
+            onToggle={handlePanelToggle("panel-latest-signal")}
             title="Latest signal"
             subtitle={state.latestSignal ? "Computed from the most recent bar." : "Run “Get signal” or “Run backtest” to populate."}
             containerRef={signalRef}
@@ -11806,6 +11867,8 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-positions"
+            open={isPanelOpen("panel-positions", true)}
+            onToggle={handlePanelToggle("panel-positions")}
             title="Open positions"
             subtitle="Charts for every open Binance futures position (positionRisk + klines)."
             summaryId="section-positions"
@@ -11920,6 +11983,8 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-orphaned-operations"
+            open={isPanelOpen("panel-orphaned-operations", true)}
+            onToggle={handlePanelToggle("panel-orphaned-operations")}
             title="Orphaned operations"
             subtitle="Open futures positions that are not currently adopted by a running/starting bot."
           >
@@ -12023,6 +12088,8 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-backtest-summary"
+            open={isPanelOpen("panel-backtest-summary", true)}
+            onToggle={handlePanelToggle("panel-backtest-summary")}
             title="Backtest summary"
             subtitle="Uses a time split (train vs held-out backtest). When optimizing, tunes on a fit/tune split inside train."
             containerRef={backtestRef}
@@ -12309,6 +12376,8 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-trade-result"
+            open={isPanelOpen("panel-trade-result", true)}
+            onToggle={handlePanelToggle("panel-trade-result")}
             title="Trade result"
             subtitle="Shows current key status, and trade output after calling /trade."
             containerRef={tradeRef}
@@ -12439,6 +12508,8 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-user-data-stream"
+            open={isPanelOpen("panel-user-data-stream", true)}
+            onToggle={handlePanelToggle("panel-user-data-stream")}
             title="User data stream (listenKey)"
             subtitle="Keeps the Binance user-data listen key alive via the API, and connects the browser to Binance WebSocket."
           >
@@ -12557,9 +12628,10 @@ export function App() {
 
           <CollapsibleCard
             panelId="panel-request-preview"
+            open={isPanelOpen("panel-request-preview", false)}
+            onToggle={handlePanelToggle("panel-request-preview")}
             title="Request preview"
             subtitle="This JSON is what the UI sends to the API (excluding session-stored secrets)."
-            defaultOpen={false}
           >
               <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>
                 <button
@@ -12600,9 +12672,10 @@ export function App() {
 
       <CollapsibleCard
         panelId="panel-data-log"
+        open={isPanelOpen("panel-data-log", false)}
+        onToggle={handlePanelToggle("panel-data-log")}
         title="Data Log"
         subtitle="All incoming API responses (last 100 entries)"
-        defaultOpen={false}
         style={{ marginTop: "18px" }}
       >
 	          <div className="actions" style={{ marginTop: 0, marginBottom: 10 }}>

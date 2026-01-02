@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add a decision-logic checklist to the Latest signal card showing the gates and sizing behind operate/hold outcomes.
 - Web UI: add live trading visual aids (price pulse, signal/position compass, risk buffer) to the Live bot panel.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.
+- Web UI: keep collapsible panels mounted so config scroll stays stable and the UI stops blinking during refreshes.
 - Web UI: add a Run optimizer form to the Optimizer combos panel to launch `/optimizer/run`, apply constraints, and show the last output.
 - Web UI: optimizer run forms add an annualized-equity preset, validate backtest/tune ratios, and honor advanced JSON overrides for source/data/symbol plus `timeoutSec`.
 - Web UI: add info buttons with equity tips next to optimizer run fields and complex config parameters (method, thresholds, splits, LSTM, optimization).
