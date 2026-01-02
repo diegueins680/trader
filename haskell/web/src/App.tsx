@@ -183,6 +183,35 @@ type CollapsibleSectionProps = {
   defaultOpen?: boolean;
 };
 
+type InfoPopoverProps = {
+  label: string;
+  children: React.ReactNode;
+  align?: "left" | "right";
+};
+
+type InfoListProps = {
+  items: string[];
+};
+
+const InfoPopover = ({ label, children, align = "right" }: InfoPopoverProps) => (
+  <details className={`infoPopover${align === "left" ? " infoPopoverLeft" : ""}`}>
+    <summary className="infoButton" aria-label={label} title={label}>
+      i
+    </summary>
+    <div className="infoContent" role="note">
+      {children}
+    </div>
+  </details>
+);
+
+const InfoList = ({ items }: InfoListProps) => (
+  <ul className="infoList">
+    {items.map((item) => (
+      <li key={item}>{item}</li>
+    ))}
+  </ul>
+);
+
 const BOT_STATUS_OPS_LIMIT = 5000;
 const CHART_HEIGHT = "var(--chart-height)";
 const CONFIG_SECTION_IDS = [
@@ -195,6 +224,18 @@ const CONFIG_SECTION_IDS = [
   "section-livebot",
   "section-trade",
 ] as const;
+const EQUITY_TIPS = {
+  preset: [
+    'Use "Preset: Equity focus", then bump Trials/Timeout to widen the search.',
+    'To bias toward raw equity, reduce or clear drawdown/turnover penalties while keeping Objective/Tune objective on "annualized-equity".',
+    "For short windows (e.g., 48h), shorter intervals (15m/30m/1h) increase sample size; keep Backtest + Tune ratios < 1.",
+  ],
+  trials: ["Higher Trials/Timeout expands the search (slower) and can lift annualized equity."],
+  objective: ['Keep Objective and Tune objective on "annualized-equity" for equity-focused ranking.'],
+  penalties: ["Reduce or clear drawdown/turnover penalties to favor raw equity."],
+  intervals: ["For short windows (e.g., 48h), shorter intervals (15m/30m/1h) increase sample size."],
+  ratios: ["Keep Backtest ratio + Tune ratio < 1 to leave enough training data."],
+};
 
 function isCoinbaseKeysStatus(status: KeysStatus): status is CoinbaseKeysStatus {
   return "hasApiPassphrase" in status;
@@ -6784,9 +6825,14 @@ export function App() {
                 ) : null}
                 <div className="row" style={{ marginTop: 10 }}>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerIntervals">
-                      Intervals
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerIntervals">
+                        Intervals
+                      </label>
+                      <InfoPopover label="Equity tip: intervals">
+                        <InfoList items={EQUITY_TIPS.intervals} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="optimizerIntervals"
                       className="input"
@@ -6877,9 +6923,14 @@ export function App() {
                 </div>
                 <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerTrials">
-                      Trials
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerTrials">
+                        Trials
+                      </label>
+                      <InfoPopover label="Equity tip: trials and timeout">
+                        <InfoList items={EQUITY_TIPS.trials} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="optimizerTrials"
                       className="input"
@@ -6891,9 +6942,14 @@ export function App() {
                     />
                   </div>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerTimeoutSec">
-                      Timeout (sec)
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerTimeoutSec">
+                        Timeout (sec)
+                      </label>
+                      <InfoPopover label="Equity tip: trials and timeout">
+                        <InfoList items={EQUITY_TIPS.trials} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="optimizerTimeoutSec"
                       className="input"
@@ -6923,9 +6979,14 @@ export function App() {
                 </div>
                 <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerObjective">
-                      Objective
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerObjective">
+                        Objective
+                      </label>
+                      <InfoPopover label="Equity tip: objective">
+                        <InfoList items={EQUITY_TIPS.objective} />
+                      </InfoPopover>
+                    </div>
                     <select
                       id="optimizerObjective"
                       className="select"
@@ -6942,9 +7003,14 @@ export function App() {
                     <div className="hint">Controls which combos survive.</div>
                   </div>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerTuneObjective">
-                      Tune objective
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerTuneObjective">
+                        Tune objective
+                      </label>
+                      <InfoPopover label="Equity tip: objective">
+                        <InfoList items={EQUITY_TIPS.objective} />
+                      </InfoPopover>
+                    </div>
                     <select
                       id="optimizerTuneObjective"
                       className="select"
@@ -6963,9 +7029,14 @@ export function App() {
                 </div>
                 <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerBacktestRatio">
-                      Backtest ratio
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerBacktestRatio">
+                        Backtest ratio
+                      </label>
+                      <InfoPopover label="Equity tip: backtest and tune ratios">
+                        <InfoList items={EQUITY_TIPS.ratios} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="optimizerBacktestRatio"
                       className="input"
@@ -6979,9 +7050,14 @@ export function App() {
                     />
                   </div>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerTuneRatio">
-                      Tune ratio
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerTuneRatio">
+                        Tune ratio
+                      </label>
+                      <InfoPopover label="Equity tip: backtest and tune ratios">
+                        <InfoList items={EQUITY_TIPS.ratios} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="optimizerTuneRatio"
                       className="input"
@@ -6997,9 +7073,14 @@ export function App() {
                 </div>
                 <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerPenaltyMaxDrawdown">
-                      DD penalty
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerPenaltyMaxDrawdown">
+                        DD penalty
+                      </label>
+                      <InfoPopover label="Equity tip: penalties">
+                        <InfoList items={EQUITY_TIPS.penalties} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="optimizerPenaltyMaxDrawdown"
                       className="input"
@@ -7012,9 +7093,14 @@ export function App() {
                     />
                   </div>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerPenaltyTurnover">
-                      Turnover penalty
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerPenaltyTurnover">
+                        Turnover penalty
+                      </label>
+                      <InfoPopover label="Equity tip: penalties">
+                        <InfoList items={EQUITY_TIPS.penalties} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="optimizerPenaltyTurnover"
                       className="input"
@@ -7078,6 +7164,9 @@ export function App() {
                   <button className="btn" type="button" onClick={applyEquityPreset}>
                     Preset: Equity focus
                   </button>
+                  <InfoPopover label="Equity options" align="left">
+                    <InfoList items={EQUITY_TIPS.preset} />
+                  </InfoPopover>
                   <button className="btn" type="button" onClick={resetOptimizerRunForm}>
                     Reset defaults
                   </button>
@@ -9266,9 +9355,14 @@ export function App() {
 
                 <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerRunIntervals">
-                      Intervals
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerRunIntervals">
+                        Intervals
+                      </label>
+                      <InfoPopover label="Equity tip: intervals">
+                        <InfoList items={EQUITY_TIPS.intervals} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="optimizerRunIntervals"
                       className="input"
@@ -9292,9 +9386,14 @@ export function App() {
                     <div className="hint">Same format as main form (e.g., 7d, 30d).</div>
                   </div>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerRunTrials">
-                      Trials / Timeout / Seed
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerRunTrials">
+                        Trials / Timeout / Seed
+                      </label>
+                      <InfoPopover label="Equity tip: trials and timeout">
+                        <InfoList items={EQUITY_TIPS.trials} />
+                      </InfoPopover>
+                    </div>
                     <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
                       <input
                         id="optimizerRunTrials"
@@ -9327,9 +9426,14 @@ export function App() {
 
                 <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerRunObjective">
-                      Objective
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerRunObjective">
+                        Objective
+                      </label>
+                      <InfoPopover label="Equity tip: objective">
+                        <InfoList items={EQUITY_TIPS.objective} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="optimizerRunObjective"
                       className="input"
@@ -9340,9 +9444,14 @@ export function App() {
                     <div className="hint">Matches backend objective names.</div>
                   </div>
                   <div className="field">
-                    <label className="label" htmlFor="optimizerRunBacktestRatio">
-                      Backtest / Tune ratio
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="optimizerRunBacktestRatio">
+                        Backtest / Tune ratio
+                      </label>
+                      <InfoPopover label="Equity tip: backtest and tune ratios">
+                        <InfoList items={EQUITY_TIPS.ratios} />
+                      </InfoPopover>
+                    </div>
                     <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
                       <input
                         id="optimizerRunBacktestRatio"
@@ -9410,6 +9519,9 @@ export function App() {
                   <button className="btn" type="button" onClick={applyEquityPreset}>
                     Preset: Equity focus
                   </button>
+                  <InfoPopover label="Equity options" align="left">
+                    <InfoList items={EQUITY_TIPS.preset} />
+                  </InfoPopover>
                   <button className="btn" type="button" onClick={resetOptimizerRunForm}>
                     Reset
                   </button>

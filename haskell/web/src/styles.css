@@ -565,6 +565,94 @@ textarea {
   color: var(--muted);
 }
 
+.labelRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.infoPopover {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.infoPopover > summary {
+  list-style: none;
+}
+
+.infoPopover > summary::-webkit-details-marker {
+  display: none;
+}
+
+.infoButton {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke2);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease, background 140ms ease;
+}
+
+.infoButton:hover {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  color: var(--text);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+.infoButton:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-color: rgba(var(--accent-rgb), 0.55);
+}
+
+.infoPopover[open] .infoButton {
+  border-color: rgba(var(--accent-rgb), 0.6);
+  color: var(--text);
+}
+
+.infoContent {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 220px;
+  max-width: min(320px, 80vw);
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke2);
+  background: var(--card2);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.infoPopoverLeft .infoContent {
+  left: 0;
+  right: auto;
+}
+
+.infoList {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.infoList li {
+  margin-bottom: 6px;
+}
+
+.infoList li:last-child {
+  margin-bottom: 0;
+}
+
 .input,
 .select {
   height: 40px;
