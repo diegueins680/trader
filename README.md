@@ -623,7 +623,7 @@ Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
 The UI shows whether combos are coming from the live API or the static fallback, their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
 Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, and can be filtered by minimum final equity.
-The Optimizer combos panel includes a Run optimizer form to launch `/optimizer/run` with constraints (plus advanced JSON overrides) and refresh the list.
+Optimizer run forms (including the Optimizer combos panel) launch `/optimizer/run` with constraints, accept advanced JSON overrides for `source`/`binanceSymbol`/`data` and `timeoutSec`, validate backtest/tune ratios, and include an annualized-equity preset button.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
 Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), selecting the existing bot if it is already running; top-combo auto-apply pauses while a manual Apply is starting a bot, and Refresh combos resyncs.
@@ -682,6 +682,7 @@ If live bot start/status returns 502/503/504, verify the `/api/*` proxy target a
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
+- Web UI: `trader-config.js` is read at startup, so ensure it is served at `/trader-config.js` for static hosts.
 - Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it when a CloudFront distribution is used and the API URL is known). If the fallback host blocks CORS, the UI disables it for the session.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 

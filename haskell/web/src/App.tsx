@@ -190,6 +190,7 @@ const CONFIG_SECTION_IDS = [
   "section-lookback",
   "section-thresholds",
   "section-risk",
+  "section-optimizer-run",
   "section-optimization",
   "section-livebot",
   "section-trade",
@@ -1859,6 +1860,9 @@ export function App() {
     const extraSymbol = typeof extras.binanceSymbol === "string" ? extras.binanceSymbol.trim() : "";
     const high = optimizerRunForm.highColumn.trim() || (typeof extras.highColumn === "string" ? extras.highColumn.trim() : "");
     const low = optimizerRunForm.lowColumn.trim() || (typeof extras.lowColumn === "string" ? extras.lowColumn.trim() : "");
+    const backtestRatio =
+      typeof extras.backtestRatio === "number" ? extras.backtestRatio : parseOptionalNumber(optimizerRunForm.backtestRatio);
+    const tuneRatio = typeof extras.tuneRatio === "number" ? extras.tuneRatio : parseOptionalNumber(optimizerRunForm.tuneRatio);
 
     if (source === "csv") {
       if (!dataPath && !extraData) return "CSV source requires a data path.";
@@ -1866,15 +1870,26 @@ export function App() {
     } else if (!symbol && !extraSymbol) {
       return "Symbol is required for exchange sources.";
     }
+    if (backtestRatio != null && (backtestRatio < 0 || backtestRatio >= 1)) {
+      return "Backtest ratio must be between 0 and 1.";
+    }
+    if (tuneRatio != null && (tuneRatio < 0 || tuneRatio >= 1)) {
+      return "Tune ratio must be between 0 and 1.";
+    }
+    if (backtestRatio != null && tuneRatio != null && backtestRatio + tuneRatio >= 1) {
+      return "Backtest ratio + tune ratio must be < 1.";
+    }
     return null;
   }, [
     optimizerRunExtras.error,
     optimizerRunExtras.value,
+    optimizerRunForm.backtestRatio,
     optimizerRunForm.dataPath,
     optimizerRunForm.highColumn,
     optimizerRunForm.lowColumn,
     optimizerRunForm.source,
     optimizerRunForm.symbol,
+    optimizerRunForm.tuneRatio,
   ]);
   const optimizerRunRecordJson = useMemo(() => {
     if (!optimizerRunUi.response) return null;
@@ -2276,6 +2291,10 @@ export function App() {
   const refreshTopCombos = useCallback(() => {
     topCombosSyncRef.current?.({ silent: false });
   }, []);
+  const updateOptimizerRunForm = useCallback((updates: Partial<OptimizerRunForm>) => {
+    setOptimizerRunDirty(true);
+    setOptimizerRunForm((prev) => ({ ...prev, ...updates }));
+  }, []);
   const resetOptimizerRunForm = useCallback(() => {
     setOptimizerRunForm(buildDefaultOptimizerRunForm(form.binanceSymbol, platform));
     setOptimizerRunUi((prev) => ({ ...prev, error: null }));
@@ -2308,6 +2327,74 @@ export function App() {
     setOptimizerRunUi((prev) => ({ ...prev, loading: false }));
     showToast("Optimizer run cancelled");
   }, [optimizerRunUi.loading, showToast]);
+  const authHeaders = useMemo(() => {
+    const token = apiToken.trim();
+    if (!token) return undefined;
+    return { Authorization: `Bearer ${token}`, "X-API-Key": token };
+  }, [apiToken]);
+
+  const apiBaseCandidate = useMemo(() => normalizeApiBaseUrlInput(deployApiBaseUrl), [deployApiBaseUrl]);
+
+  const apiBaseError = useMemo(() => {
+    const raw = deployApiBaseUrl.trim();
+    if (!raw) return null;
+    const candidate = apiBaseCandidate.trim();
+    if (candidate.startsWith("/")) return null;
+    if (/^https?:\/\//i.test(candidate)) {
+      try {
+        // Validate host-like input early to avoid confusing fetch errors later.
+        new URL(candidate);
+        return null;
+      } catch {
+        return "Configured apiBaseUrl must be a valid URL (e.g. https://your-api-host) or a path like /api";
+      }
+    }
+    return "Configured apiBaseUrl must start with http(s):// or /api";
+  }, [apiBaseCandidate, deployApiBaseUrl]);
+
+  const apiBase = useMemo(() => {
+    const raw = apiBaseCandidate.trim();
+    if (raw && !apiBaseError) return raw.replace(/\/+$/, "");
+    if (!import.meta.env.DEV && /^https?:\/\//.test(API_TARGET)) {
+      try {
+        const u = new URL(API_TARGET);
+        if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") return API_TARGET.replace(/\/+$/, "");
+      } catch {
+        // ignore
+      }
+    }
+    return "/api";
+  }, [apiBaseCandidate, apiBaseError]);
+
+  const apiBaseCrossOrigin = useMemo(() => {
+    if (!/^https?:\/\//i.test(apiBase)) return false;
+    try {
+      const apiOrigin = new URL(apiBase).origin;
+      if (typeof window === "undefined") return false;
+      return apiOrigin !== window.location.origin;
+    } catch {
+      return false;
+    }
+  }, [apiBase]);
+
+  const apiBaseCorsHint = useMemo(() => {
+    if (!apiBaseCrossOrigin || typeof window === "undefined") return null;
+    if (window.location.hostname.endsWith("cloudfront.net")) {
+      return "Cross-origin API base. If CloudFront has a /api/* behavior, set apiBaseUrl to /api to avoid CORS/preflight.";
+    }
+    return "Cross-origin API base. Ensure the API allows this origin, or use a same-origin /api proxy.";
+  }, [apiBaseCrossOrigin]);
+
+  const apiBaseAbsolute = useMemo(() => {
+    if (/^https?:\/\//.test(apiBase)) return apiBase;
+    if (typeof window !== "undefined") return `${window.location.origin}${apiBase}`;
+    return apiBase;
+  }, [apiBase]);
+
+  const apiHealthUrl = useMemo(() => {
+    if (!apiBaseAbsolute) return "";
+    return `${apiBaseAbsolute.replace(/\/+$/, "")}/health`;
+  }, [apiBaseAbsolute]);
   const runOptimizer = useCallback(async () => {
     if (optimizerRunValidationError) {
       setOptimizerRunUi((prev) => ({ ...prev, error: optimizerRunValidationError }));
@@ -2540,75 +2627,6 @@ export function App() {
       ws?.close();
     };
   }, []);
-
-  const authHeaders = useMemo(() => {
-    const token = apiToken.trim();
-    if (!token) return undefined;
-    return { Authorization: `Bearer ${token}`, "X-API-Key": token };
-  }, [apiToken]);
-
-  const apiBaseCandidate = useMemo(() => normalizeApiBaseUrlInput(deployApiBaseUrl), [deployApiBaseUrl]);
-
-  const apiBaseError = useMemo(() => {
-    const raw = deployApiBaseUrl.trim();
-    if (!raw) return null;
-    const candidate = apiBaseCandidate.trim();
-    if (candidate.startsWith("/")) return null;
-    if (/^https?:\/\//i.test(candidate)) {
-      try {
-        // Validate host-like input early to avoid confusing fetch errors later.
-        new URL(candidate);
-        return null;
-      } catch {
-        return "Configured apiBaseUrl must be a valid URL (e.g. https://your-api-host) or a path like /api";
-      }
-    }
-    return "Configured apiBaseUrl must start with http(s):// or /api";
-  }, [apiBaseCandidate, deployApiBaseUrl]);
-
-  const apiBase = useMemo(() => {
-    const raw = apiBaseCandidate.trim();
-    if (raw && !apiBaseError) return raw.replace(/\/+$/, "");
-    if (!import.meta.env.DEV && /^https?:\/\//.test(API_TARGET)) {
-      try {
-        const u = new URL(API_TARGET);
-        if (u.hostname !== "localhost" && u.hostname !== "127.0.0.1") return API_TARGET.replace(/\/+$/, "");
-      } catch {
-        // ignore
-      }
-    }
-    return "/api";
-  }, [apiBaseCandidate, apiBaseError]);
-
-  const apiBaseCrossOrigin = useMemo(() => {
-    if (!/^https?:\/\//i.test(apiBase)) return false;
-    try {
-      const apiOrigin = new URL(apiBase).origin;
-      if (typeof window === "undefined") return false;
-      return apiOrigin !== window.location.origin;
-    } catch {
-      return false;
-    }
-  }, [apiBase]);
-
-  const apiBaseCorsHint = useMemo(() => {
-    if (!apiBaseCrossOrigin || typeof window === "undefined") return null;
-    if (window.location.hostname.endsWith("cloudfront.net")) {
-      return "Cross-origin API base. If CloudFront has a /api/* behavior, set apiBaseUrl to /api to avoid CORS/preflight.";
-    }
-    return "Cross-origin API base. Ensure the API allows this origin, or use a same-origin /api proxy.";
-  }, [apiBaseCrossOrigin]);
-
-  const apiBaseAbsolute = useMemo(() => {
-    if (/^https?:\/\//.test(apiBase)) return apiBase;
-    if (typeof window !== "undefined") return `${window.location.origin}${apiBase}`;
-    return apiBase;
-  }, [apiBase]);
-
-  const apiHealthUrl = useMemo(() => {
-    if (!apiBaseAbsolute) return "";
-    return `${apiBaseAbsolute.replace(/\/+$/, "")}/health`;
-  }, [apiBaseAbsolute]);
 
   useEffect(() => {
     let mounted = true;
@@ -9157,6 +9175,288 @@ export function App() {
               </div>
             </div>
 
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            panelId="section-optimizer-run"
+            title="Optimizer run"
+            meta="Kick off /optimizer/run with the current config or a CSV source."
+          >
+            <div className="row">
+              <div className="field">
+                <div className="label">Request</div>
+                <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerRunSource">
+                      Source
+                    </label>
+                    <select
+                      id="optimizerRunSource"
+                      className="select"
+                      value={optimizerRunForm.source}
+                      onChange={(e) => updateOptimizerRunForm({ source: e.target.value as OptimizerSource })}
+                    >
+                      <option value="binance">Binance</option>
+                      <option value="coinbase">Coinbase</option>
+                      <option value="kraken">Kraken</option>
+                      <option value="poloniex">Poloniex</option>
+                      <option value="csv">CSV (file path)</option>
+                    </select>
+                    <div className="hint">Exchange determines symbol format; CSV bypasses the API.</div>
+                  </div>
+                  {optimizerRunForm.source === "csv" ? (
+                    <>
+                      <div className="field">
+                        <label className="label" htmlFor="optimizerRunDataPath">
+                          CSV path
+                        </label>
+                        <input
+                          id="optimizerRunDataPath"
+                          className={optimizerRunValidationError ? "input inputError" : "input"}
+                          value={optimizerRunForm.dataPath}
+                          onChange={(e) => updateOptimizerRunForm({ dataPath: e.target.value })}
+                          placeholder="data/my-prices.csv"
+                        />
+                        <div className="hint">Required for CSV source.</div>
+                      </div>
+                      <div className="field">
+                        <label className="label" htmlFor="optimizerRunPriceColumn">
+                          Price / High / Low
+                        </label>
+                        <input
+                          id="optimizerRunPriceColumn"
+                          className="input"
+                          value={optimizerRunForm.priceColumn}
+                          onChange={(e) => updateOptimizerRunForm({ priceColumn: e.target.value })}
+                          placeholder="close"
+                        />
+                        <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 6 }}>
+                          <input
+                            className={optimizerRunValidationError ? "input inputError" : "input"}
+                            value={optimizerRunForm.highColumn}
+                            onChange={(e) => updateOptimizerRunForm({ highColumn: e.target.value })}
+                            placeholder="high (optional)"
+                          />
+                          <input
+                            className={optimizerRunValidationError ? "input inputError" : "input"}
+                            value={optimizerRunForm.lowColumn}
+                            onChange={(e) => updateOptimizerRunForm({ lowColumn: e.target.value })}
+                            placeholder="low (optional)"
+                          />
+                        </div>
+                        <div className="hint">Provide both High/Low or leave both blank.</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="field" style={{ gridColumn: "span 2" }}>
+                      <label className="label" htmlFor="optimizerRunSymbol">
+                        Symbol
+                      </label>
+                      <input
+                        id="optimizerRunSymbol"
+                        className={optimizerRunValidationError ? "input inputError" : "input"}
+                        value={optimizerRunForm.symbol}
+                        onChange={(e) => updateOptimizerRunForm({ symbol: e.target.value.toUpperCase() })}
+                        placeholder="BTCUSDT"
+                      />
+                      <div className="hint">Defaults to the current symbol/platform.</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerRunIntervals">
+                      Intervals
+                    </label>
+                    <input
+                      id="optimizerRunIntervals"
+                      className="input"
+                      value={optimizerRunForm.intervals}
+                      onChange={(e) => updateOptimizerRunForm({ intervals: e.target.value })}
+                      placeholder="1h,4h,1d"
+                    />
+                    <div className="hint">Comma-separated list.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerRunLookback">
+                      Lookback window
+                    </label>
+                    <input
+                      id="optimizerRunLookback"
+                      className="input"
+                      value={optimizerRunForm.lookbackWindow}
+                      onChange={(e) => updateOptimizerRunForm({ lookbackWindow: e.target.value })}
+                      placeholder="7d"
+                    />
+                    <div className="hint">Same format as main form (e.g., 7d, 30d).</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerRunTrials">
+                      Trials / Timeout / Seed
+                    </label>
+                    <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+                      <input
+                        id="optimizerRunTrials"
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={optimizerRunForm.trials}
+                        onChange={(e) => updateOptimizerRunForm({ trials: e.target.value })}
+                        placeholder="50"
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        min={5}
+                        value={optimizerRunForm.timeoutSec}
+                        onChange={(e) => updateOptimizerRunForm({ timeoutSec: e.target.value })}
+                        placeholder="60"
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        value={optimizerRunForm.seed}
+                        onChange={(e) => updateOptimizerRunForm({ seed: e.target.value })}
+                        placeholder="42"
+                      />
+                    </div>
+                    <div className="hint">Numbers are optional; blanks are omitted.</div>
+                  </div>
+                </div>
+
+                <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerRunObjective">
+                      Objective
+                    </label>
+                    <input
+                      id="optimizerRunObjective"
+                      className="input"
+                      value={optimizerRunForm.objective}
+                      onChange={(e) => updateOptimizerRunForm({ objective: e.target.value })}
+                      placeholder="annualized-equity"
+                    />
+                    <div className="hint">Matches backend objective names.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerRunBacktestRatio">
+                      Backtest / Tune ratio
+                    </label>
+                    <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                      <input
+                        id="optimizerRunBacktestRatio"
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={0.9}
+                        step="0.01"
+                        value={optimizerRunForm.backtestRatio}
+                        onChange={(e) => updateOptimizerRunForm({ backtestRatio: e.target.value })}
+                        placeholder="0.2"
+                      />
+                      <input
+                        id="optimizerRunTuneRatio"
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={0.9}
+                        step="0.01"
+                        value={optimizerRunForm.tuneRatio}
+                        onChange={(e) => updateOptimizerRunForm({ tuneRatio: e.target.value })}
+                        placeholder="0.25"
+                      />
+                    </div>
+                    <div className="hint">Leave blank to use defaults.</div>
+                  </div>
+                  <div className="field">
+                    <label className="label" htmlFor="optimizerRunExtra">
+                      Extra JSON (advanced)
+                    </label>
+                    <textarea
+                      id="optimizerRunExtra"
+                      className={optimizerRunExtras.error ? "input inputError" : "input"}
+                      value={optimizerRunForm.extraJson}
+                      onChange={(e) => updateOptimizerRunForm({ extraJson: e.target.value })}
+                      placeholder='{"minSharpe":1.0,"minRoundTrips":5}'
+                      rows={4}
+                      spellCheck={false}
+                    />
+                    <div className="hint">{optimizerRunExtras.error ?? "Merged into the payload verbatim."}</div>
+                  </div>
+                </div>
+
+                <div className="actions" style={{ marginTop: 10 }}>
+                  <button
+                    className="btn btnPrimary"
+                    type="button"
+                    disabled={optimizerRunUi.loading || Boolean(optimizerRunValidationError)}
+                    onClick={runOptimizer}
+                  >
+                    {optimizerRunUi.loading ? "Running optimizer…" : "Run optimizer"}
+                  </button>
+                  <button className="btn" type="button" disabled={!optimizerRunUi.loading} onClick={cancelOptimizerRun}>
+                    Cancel run
+                  </button>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => {
+                      syncOptimizerRunForm();
+                    }}
+                  >
+                    Sync from config
+                  </button>
+                  <button className="btn" type="button" onClick={applyEquityPreset}>
+                    Preset: Equity focus
+                  </button>
+                  <button className="btn" type="button" onClick={resetOptimizerRunForm}>
+                    Reset
+                  </button>
+                  <span className="hint">
+                    {optimizerRunValidationError
+                      ? optimizerRunValidationError
+                      : optimizerRunUi.loading
+                        ? "Submitting to /optimizer/run…"
+                        : "Uses the same auth/proxy settings as other requests."}
+                  </span>
+                </div>
+              </div>
+
+              <div className="field">
+                <div className="label">Result</div>
+                {optimizerRunUi.error ? (
+                  <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)" }}>
+                    {optimizerRunUi.error}
+                  </pre>
+                ) : null}
+                {optimizerRunUi.response ? (
+                  <div className="hint" style={{ marginBottom: 8 }}>
+                    Last run: {optimizerRunUi.lastRunAtMs ? fmtTimeMs(optimizerRunUi.lastRunAtMs) : "just now"}
+                  </div>
+                ) : null}
+                {optimizerRunUi.response?.stdout ? (
+                  <details className="details" open>
+                    <summary>Stdout</summary>
+                    <pre className="code">{optimizerRunUi.response.stdout}</pre>
+                  </details>
+                ) : null}
+                {optimizerRunUi.response?.stderr ? (
+                  <details className="details">
+                    <summary>Stderr</summary>
+                    <pre className="code">{optimizerRunUi.response.stderr}</pre>
+                  </details>
+                ) : null}
+                {optimizerRunRecordJson ? (
+                  <details className="details" open>
+                    <summary>Last record</summary>
+                    <pre className="code">{optimizerRunRecordJson}</pre>
+                  </details>
+                ) : (
+                  <div className="hint">No optimizer run yet.</div>
+                )}
+              </div>
+            </div>
           </CollapsibleSection>
 
           <CollapsibleSection panelId="section-optimization" title="Optimization" meta="Tuning sweeps, presets, and constraints.">

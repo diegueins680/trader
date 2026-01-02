@@ -2,6 +2,8 @@
 
 declare const __TRADER_API_TARGET__: string;
 
+declare module "/trader-config.js";
+
 interface Window {
   __TRADER_CONFIG__?: {
     apiBaseUrl?: string;
