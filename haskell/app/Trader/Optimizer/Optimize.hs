@@ -3112,7 +3112,15 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
         , trFinalEquity tr /= Nothing
         , trScore tr /= Nothing
         ]
-      sorted = sortBy (flip (comparing trScore)) successful
+      sortKey tr =
+        let ann = metricFloat (trMetrics tr) "annualizedReturn" (-1 / 0)
+            ann' = if isNaN ann || isInfinite ann then -1 / 0 else ann
+            score = fromMaybe (-1 / 0) (trScore tr)
+            score' = if isNaN score || isInfinite score then -1 / 0 else score
+            eq = fromMaybe 0 (trFinalEquity tr)
+            eq' = if isNaN eq || isInfinite eq then 0 else eq
+         in (ann', score', eq')
+      sorted = sortBy (flip (comparing sortKey)) successful
       combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
       topMetrics =
         let topN = take 5 sorted

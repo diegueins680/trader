@@ -12,6 +12,7 @@ import Data.Aeson (Value (..), object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace, toLower, toUpper)
@@ -347,18 +348,38 @@ writeTopJson path combos maxItems = do
 
 compareCombos :: Combo -> Combo -> Ordering
 compareCombos a b =
-  let objA = comboObjective a
-      objB = comboObjective b
-      scoreA = fromMaybe (-1 / 0) (comboScore a)
-      scoreB = fromMaybe (-1 / 0) (comboScore b)
-      eqA = comboFinalEquity a
-      eqB = comboFinalEquity b
-   in if objA == objB
-        then
+  let annA = comboAnnualizedReturn a
+      annB = comboAnnualizedReturn b
+      scoreA = sanitizeScore (fromMaybe (-1 / 0) (comboScore a))
+      scoreB = sanitizeScore (fromMaybe (-1 / 0) (comboScore b))
+      eqA = sanitizeEq (comboFinalEquity a)
+      eqB = sanitizeEq (comboFinalEquity b)
+   in case compareDesc annA annB of
+        EQ ->
           case compareDesc scoreA scoreB of
             EQ -> compareDesc eqA eqB
             ord -> ord
-        else compareDesc eqA eqB
+        ord -> ord
+
+comboMetricDouble :: String -> Combo -> Maybe Double
+comboMetricDouble key combo = do
+  metrics <- comboMetrics combo
+  KM.lookup (Key.fromString key) metrics >>= AT.parseMaybe Aeson.parseJSON
+
+comboAnnualizedReturn :: Combo -> Double
+comboAnnualizedReturn combo =
+  let ann = fromMaybe (-1 / 0) (comboMetricDouble "annualizedReturn" combo)
+   in if isNaN ann || isInfinite ann then -1 / 0 else ann
+
+sanitizeScore :: Double -> Double
+sanitizeScore score
+  | isNaN score || isInfinite score = -1 / 0
+  | otherwise = score
+
+sanitizeEq :: Double -> Double
+sanitizeEq eq
+  | isNaN eq || isInfinite eq = 0
+  | otherwise = eq
 
 compareDesc :: Ord a => a -> a -> Ordering
 compareDesc a b
