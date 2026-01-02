@@ -139,6 +139,17 @@ optimizerArgsParser =
     <*> option auto (long "min-edge-max" <> value 0.001 <> metavar "FLOAT")
     <*> option auto (long "min-signal-to-noise-min" <> value 0.5 <> metavar "FLOAT")
     <*> option auto (long "min-signal-to-noise-max" <> value 1.2 <> metavar "FLOAT")
+    <*> option auto (long "p-threshold-factor" <> value 0.0 <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-alpha-min" <> value 0.1 <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-alpha-max" <> value 0.4 <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-min-min" <> value 0.5 <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-min-max" <> value 0.9 <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-max-min" <> value 1.1 <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-max-max" <> value 2.0 <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-floor-min" <> value 0.0 <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-floor-max" <> value 0.0 <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-weight-min" <> value (-1.0) <> metavar "FLOAT")
+    <*> option auto (long "threshold-factor-weight-max" <> value 1.0 <> metavar "FLOAT")
     <*> option auto (long "edge-buffer-min" <> value 0.0001 <> metavar "FLOAT")
     <*> option auto (long "edge-buffer-max" <> value 0.0005 <> metavar "FLOAT")
     <*> option auto (long "p-cost-aware-edge" <> value (-1.0) <> metavar "FLOAT")
@@ -314,6 +325,21 @@ validateArgs args = do
           ++ intercalate ", " barsDistributionChoices
           ++ ")"
       )
+  when (oaPThresholdFactor args < 0 || oaPThresholdFactor args > 1) $
+    Left "--p-threshold-factor must be between 0 and 1."
+  when
+    ( oaThresholdFactorAlphaMin args < 0
+        || oaThresholdFactorAlphaMin args > 1
+        || oaThresholdFactorAlphaMax args < 0
+        || oaThresholdFactorAlphaMax args > 1
+    )
+    $ Left "--threshold-factor-alpha-min/max must be between 0 and 1."
+  when (oaThresholdFactorMinMin args < 0 || oaThresholdFactorMinMax args < 0) $
+    Left "--threshold-factor-min-min/max must be >= 0."
+  when (oaThresholdFactorMaxMin args < 0 || oaThresholdFactorMaxMax args < 0) $
+    Left "--threshold-factor-max-min/max must be >= 0."
+  when (oaThresholdFactorFloorMin args < 0 || oaThresholdFactorFloorMax args < 0) $
+    Left "--threshold-factor-floor-min/max must be >= 0."
   pure args'
 
 objectiveChoices :: [String]

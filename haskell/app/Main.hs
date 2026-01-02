@@ -683,6 +683,19 @@ data ApiParams = ApiParams
   , apMaxDailyLoss :: Maybe Double
   , apMinEdge :: Maybe Double
   , apMinSignalToNoise :: Maybe Double
+  , apThresholdFactorEnabled :: Maybe Bool
+  , apThresholdFactorAlpha :: Maybe Double
+  , apThresholdFactorMin :: Maybe Double
+  , apThresholdFactorMax :: Maybe Double
+  , apThresholdFactorFloor :: Maybe Double
+  , apThresholdFactorEdgeKalWeight :: Maybe Double
+  , apThresholdFactorEdgeLstmWeight :: Maybe Double
+  , apThresholdFactorKalmanZWeight :: Maybe Double
+  , apThresholdFactorHighVolWeight :: Maybe Double
+  , apThresholdFactorConformalWeight :: Maybe Double
+  , apThresholdFactorQuantileWeight :: Maybe Double
+  , apThresholdFactorLstmConfWeight :: Maybe Double
+  , apThresholdFactorLstmHealthWeight :: Maybe Double
   , apCostAwareEdge :: Maybe Bool
   , apEdgeBuffer :: Maybe Double
   , apTrendLookback :: Maybe Int
@@ -850,6 +863,17 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrMinEdgeMax :: !(Maybe Double)
   , arrMinSignalToNoiseMin :: !(Maybe Double)
   , arrMinSignalToNoiseMax :: !(Maybe Double)
+  , arrPThresholdFactor :: !(Maybe Double)
+  , arrThresholdFactorAlphaMin :: !(Maybe Double)
+  , arrThresholdFactorAlphaMax :: !(Maybe Double)
+  , arrThresholdFactorMinMin :: !(Maybe Double)
+  , arrThresholdFactorMinMax :: !(Maybe Double)
+  , arrThresholdFactorMaxMin :: !(Maybe Double)
+  , arrThresholdFactorMaxMax :: !(Maybe Double)
+  , arrThresholdFactorFloorMin :: !(Maybe Double)
+  , arrThresholdFactorFloorMax :: !(Maybe Double)
+  , arrThresholdFactorWeightMin :: !(Maybe Double)
+  , arrThresholdFactorWeightMax :: !(Maybe Double)
   , arrEdgeBufferMin :: !(Maybe Double)
   , arrEdgeBufferMax :: !(Maybe Double)
   , arrPCostAwareEdge :: !(Maybe Double)
@@ -1608,6 +1632,19 @@ argsPublicJson args =
       , "maxDailyLoss" .= argMaxDailyLoss args
       , "minEdge" .= argMinEdge args
       , "minSignalToNoise" .= argMinSignalToNoise args
+      , "thresholdFactorEnabled" .= argThresholdFactorEnabled args
+      , "thresholdFactorAlpha" .= argThresholdFactorAlpha args
+      , "thresholdFactorMin" .= argThresholdFactorMin args
+      , "thresholdFactorMax" .= argThresholdFactorMax args
+      , "thresholdFactorFloor" .= argThresholdFactorFloor args
+      , "thresholdFactorEdgeKalWeight" .= argThresholdFactorEdgeKalWeight args
+      , "thresholdFactorEdgeLstmWeight" .= argThresholdFactorEdgeLstmWeight args
+      , "thresholdFactorKalmanZWeight" .= argThresholdFactorKalmanZWeight args
+      , "thresholdFactorHighVolWeight" .= argThresholdFactorHighVolWeight args
+      , "thresholdFactorConformalWeight" .= argThresholdFactorConformalWeight args
+      , "thresholdFactorQuantileWeight" .= argThresholdFactorQuantileWeight args
+      , "thresholdFactorLstmConfWeight" .= argThresholdFactorLstmConfWeight args
+      , "thresholdFactorLstmHealthWeight" .= argThresholdFactorLstmHealthWeight args
       , "costAwareEdge" .= argCostAwareEdge args
       , "edgeBuffer" .= argEdgeBuffer args
       , "trendLookback" .= argTrendLookback args
@@ -3780,6 +3817,20 @@ botOptimizeAfterOperation st = do
                   , ecMaxPositionSize = argMaxPositionSize args
                   , ecMinEdge = minEdge
                   , ecMinSignalToNoise = argMinSignalToNoise args
+                  , ecThresholdFactorEnabled = argThresholdFactorEnabled args
+                  , ecThresholdFactorAlpha = argThresholdFactorAlpha args
+                  , ecThresholdFactorMin = argThresholdFactorMin args
+                  , ecThresholdFactorMax = argThresholdFactorMax args
+                  , ecThresholdFactorFloor = argThresholdFactorFloor args
+                  , ecThresholdFactorEdgeKalWeight = argThresholdFactorEdgeKalWeight args
+                  , ecThresholdFactorEdgeLstmWeight = argThresholdFactorEdgeLstmWeight args
+                  , ecThresholdFactorKalmanZWeight = argThresholdFactorKalmanZWeight args
+                  , ecThresholdFactorHighVolWeight = argThresholdFactorHighVolWeight args
+                  , ecThresholdFactorConformalWeight = argThresholdFactorConformalWeight args
+                  , ecThresholdFactorQuantileWeight = argThresholdFactorQuantileWeight args
+                  , ecThresholdFactorLstmConfWeight = argThresholdFactorLstmConfWeight args
+                  , ecThresholdFactorLstmHealthWeight = argThresholdFactorLstmHealthWeight args
+                  , ecLstmTrainingHealth = Nothing
                   , ecTrendLookback = argTrendLookback args
                   , ecPeriodsPerYear = periodsPerYear args
                   , ecVolTarget = argVolTarget args
@@ -3831,8 +3882,13 @@ botOptimizeAfterOperation st = do
               hasBothCtx = isJust (botLstmCtx st) && isJust (botKalmanCtx st)
               ppy = periodsPerYear args
               tuneCfg =
+                let objective =
+                      if argThresholdFactorEnabled args
+                        then TuneAnnualizedEquity
+                        else argTuneObjective args
+                 in
                 TuneConfig
-                  { tcObjective = argTuneObjective args
+                  { tcObjective = objective
                   , tcPenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
                   , tcPenaltyTurnover = argTunePenaltyTurnover args
                   , tcPeriodsPerYear = ppy
@@ -6057,6 +6113,19 @@ argsCacheJsonSignal args =
       , "maxHoldBars" .= argMaxHoldBars args
       , "minEdge" .= argMinEdge args
       , "minSignalToNoise" .= argMinSignalToNoise args
+      , "thresholdFactorEnabled" .= argThresholdFactorEnabled args
+      , "thresholdFactorAlpha" .= argThresholdFactorAlpha args
+      , "thresholdFactorMin" .= argThresholdFactorMin args
+      , "thresholdFactorMax" .= argThresholdFactorMax args
+      , "thresholdFactorFloor" .= argThresholdFactorFloor args
+      , "thresholdFactorEdgeKalWeight" .= argThresholdFactorEdgeKalWeight args
+      , "thresholdFactorEdgeLstmWeight" .= argThresholdFactorEdgeLstmWeight args
+      , "thresholdFactorKalmanZWeight" .= argThresholdFactorKalmanZWeight args
+      , "thresholdFactorHighVolWeight" .= argThresholdFactorHighVolWeight args
+      , "thresholdFactorConformalWeight" .= argThresholdFactorConformalWeight args
+      , "thresholdFactorQuantileWeight" .= argThresholdFactorQuantileWeight args
+      , "thresholdFactorLstmConfWeight" .= argThresholdFactorLstmConfWeight args
+      , "thresholdFactorLstmHealthWeight" .= argThresholdFactorLstmHealthWeight args
       , "costAwareEdge" .= argCostAwareEdge args
       , "edgeBuffer" .= argEdgeBuffer args
       , "trendLookback" .= argTrendLookback args
@@ -6093,6 +6162,10 @@ argsCacheJsonBacktest args =
   let market = marketCode (argBinanceMarket args)
       barsResolved = barsResolvedForCache args
       lookbackResolved = argLookback args
+      tuneObjectiveUsed =
+        if argThresholdFactorEnabled args
+          then TuneAnnualizedEquity
+          else argTuneObjective args
    in
     object
       [ "data" .= argData args
@@ -6125,7 +6198,7 @@ argsCacheJsonBacktest args =
       , "positioning" .= positioningCode (argPositioning args)
       , "backtestRatio" .= argBacktestRatio args
       , "tuneRatio" .= argTuneRatio args
-      , "tuneObjective" .= tuneObjectiveCode (argTuneObjective args)
+      , "tuneObjective" .= tuneObjectiveCode tuneObjectiveUsed
       , "tunePenaltyMaxDrawdown" .= argTunePenaltyMaxDrawdown args
       , "tunePenaltyTurnover" .= argTunePenaltyTurnover args
       , "tuneStressVolMult" .= argTuneStressVolMult args
@@ -6152,6 +6225,19 @@ argsCacheJsonBacktest args =
       , "maxDailyLoss" .= argMaxDailyLoss args
       , "minEdge" .= argMinEdge args
       , "minSignalToNoise" .= argMinSignalToNoise args
+      , "thresholdFactorEnabled" .= argThresholdFactorEnabled args
+      , "thresholdFactorAlpha" .= argThresholdFactorAlpha args
+      , "thresholdFactorMin" .= argThresholdFactorMin args
+      , "thresholdFactorMax" .= argThresholdFactorMax args
+      , "thresholdFactorFloor" .= argThresholdFactorFloor args
+      , "thresholdFactorEdgeKalWeight" .= argThresholdFactorEdgeKalWeight args
+      , "thresholdFactorEdgeLstmWeight" .= argThresholdFactorEdgeLstmWeight args
+      , "thresholdFactorKalmanZWeight" .= argThresholdFactorKalmanZWeight args
+      , "thresholdFactorHighVolWeight" .= argThresholdFactorHighVolWeight args
+      , "thresholdFactorConformalWeight" .= argThresholdFactorConformalWeight args
+      , "thresholdFactorQuantileWeight" .= argThresholdFactorQuantileWeight args
+      , "thresholdFactorLstmConfWeight" .= argThresholdFactorLstmConfWeight args
+      , "thresholdFactorLstmHealthWeight" .= argThresholdFactorLstmHealthWeight args
       , "costAwareEdge" .= argCostAwareEdge args
       , "edgeBuffer" .= argEdgeBuffer args
       , "trendLookback" .= argTrendLookback args
@@ -7431,6 +7517,18 @@ prepareOptimizerArgs outputPath req = do
           minSignalToNoiseArgs =
             maybeDoubleArg "--min-signal-to-noise-min" (fmap (max 0) (arrMinSignalToNoiseMin req))
               ++ maybeDoubleArg "--min-signal-to-noise-max" (fmap (max 0) (arrMinSignalToNoiseMax req))
+          thresholdFactorArgs =
+            maybeDoubleArg "--p-threshold-factor" (fmap clamp01 (arrPThresholdFactor req))
+              ++ maybeDoubleArg "--threshold-factor-alpha-min" (fmap clamp01 (arrThresholdFactorAlphaMin req))
+              ++ maybeDoubleArg "--threshold-factor-alpha-max" (fmap clamp01 (arrThresholdFactorAlphaMax req))
+              ++ maybeDoubleArg "--threshold-factor-min-min" (fmap (max 0) (arrThresholdFactorMinMin req))
+              ++ maybeDoubleArg "--threshold-factor-min-max" (fmap (max 0) (arrThresholdFactorMinMax req))
+              ++ maybeDoubleArg "--threshold-factor-max-min" (fmap (max 0) (arrThresholdFactorMaxMin req))
+              ++ maybeDoubleArg "--threshold-factor-max-max" (fmap (max 0) (arrThresholdFactorMaxMax req))
+              ++ maybeDoubleArg "--threshold-factor-floor-min" (fmap (max 0) (arrThresholdFactorFloorMin req))
+              ++ maybeDoubleArg "--threshold-factor-floor-max" (fmap (max 0) (arrThresholdFactorFloorMax req))
+              ++ maybeDoubleArg "--threshold-factor-weight-min" (arrThresholdFactorWeightMin req)
+              ++ maybeDoubleArg "--threshold-factor-weight-max" (arrThresholdFactorWeightMax req)
           edgeBufferArgs =
             maybeDoubleArg "--edge-buffer-min" (fmap (max 0) (arrEdgeBufferMin req))
               ++ maybeDoubleArg "--edge-buffer-max" (fmap (max 0) (arrEdgeBufferMax req))
@@ -7641,6 +7739,7 @@ prepareOptimizerArgs outputPath req = do
               ++ maxHoldBarsArgs
               ++ minEdgeArgs
               ++ minSignalToNoiseArgs
+              ++ thresholdFactorArgs
               ++ edgeBufferArgs
               ++ pCostAwareEdgeArgs
               ++ trendLookbackArgs
@@ -9427,6 +9526,19 @@ argsFromApi baseArgs p = do
           , argMaxDailyLoss = pickMaybe (apMaxDailyLoss p) (argMaxDailyLoss baseArgs)
           , argMinEdge = pick (apMinEdge p) (argMinEdge baseArgs)
           , argMinSignalToNoise = pick (apMinSignalToNoise p) (argMinSignalToNoise baseArgs)
+          , argThresholdFactorEnabled = pick (apThresholdFactorEnabled p) (argThresholdFactorEnabled baseArgs)
+          , argThresholdFactorAlpha = pick (apThresholdFactorAlpha p) (argThresholdFactorAlpha baseArgs)
+          , argThresholdFactorMin = pick (apThresholdFactorMin p) (argThresholdFactorMin baseArgs)
+          , argThresholdFactorMax = pick (apThresholdFactorMax p) (argThresholdFactorMax baseArgs)
+          , argThresholdFactorFloor = pick (apThresholdFactorFloor p) (argThresholdFactorFloor baseArgs)
+          , argThresholdFactorEdgeKalWeight = pick (apThresholdFactorEdgeKalWeight p) (argThresholdFactorEdgeKalWeight baseArgs)
+          , argThresholdFactorEdgeLstmWeight = pick (apThresholdFactorEdgeLstmWeight p) (argThresholdFactorEdgeLstmWeight baseArgs)
+          , argThresholdFactorKalmanZWeight = pick (apThresholdFactorKalmanZWeight p) (argThresholdFactorKalmanZWeight baseArgs)
+          , argThresholdFactorHighVolWeight = pick (apThresholdFactorHighVolWeight p) (argThresholdFactorHighVolWeight baseArgs)
+          , argThresholdFactorConformalWeight = pick (apThresholdFactorConformalWeight p) (argThresholdFactorConformalWeight baseArgs)
+          , argThresholdFactorQuantileWeight = pick (apThresholdFactorQuantileWeight p) (argThresholdFactorQuantileWeight baseArgs)
+          , argThresholdFactorLstmConfWeight = pick (apThresholdFactorLstmConfWeight p) (argThresholdFactorLstmConfWeight baseArgs)
+          , argThresholdFactorLstmHealthWeight = pick (apThresholdFactorLstmHealthWeight p) (argThresholdFactorLstmHealthWeight baseArgs)
           , argCostAwareEdge = pick (apCostAwareEdge p) (argCostAwareEdge baseArgs)
           , argEdgeBuffer = pick (apEdgeBuffer p) (argEdgeBuffer baseArgs)
           , argTrendLookback = pick (apTrendLookback p) (argTrendLookback baseArgs)
@@ -11448,6 +11560,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       hasHmm = predictorEnabled (argPredictors args) SensorHMM
       hasConformal = predictorEnabled (argPredictors args) SensorConformal
       hasQuantile = predictorEnabled (argPredictors args) SensorQuantile
+      lstmHealth = mHistory >>= lstmHealthScore
       maxHighVolProb = if hasHmm then argMaxHighVolProb args else Nothing
       maxConformalWidth = if hasConformal then argMaxConformalWidth args else Nothing
       maxQuantileWidth = if hasQuantile then argMaxQuantileWidth args else Nothing
@@ -11480,6 +11593,20 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecMaxPositionSize = argMaxPositionSize args
           , ecMinEdge = minEdge
           , ecMinSignalToNoise = argMinSignalToNoise args
+          , ecThresholdFactorEnabled = argThresholdFactorEnabled args
+          , ecThresholdFactorAlpha = argThresholdFactorAlpha args
+          , ecThresholdFactorMin = argThresholdFactorMin args
+          , ecThresholdFactorMax = argThresholdFactorMax args
+          , ecThresholdFactorFloor = argThresholdFactorFloor args
+          , ecThresholdFactorEdgeKalWeight = argThresholdFactorEdgeKalWeight args
+          , ecThresholdFactorEdgeLstmWeight = argThresholdFactorEdgeLstmWeight args
+          , ecThresholdFactorKalmanZWeight = argThresholdFactorKalmanZWeight args
+          , ecThresholdFactorHighVolWeight = argThresholdFactorHighVolWeight args
+          , ecThresholdFactorConformalWeight = argThresholdFactorConformalWeight args
+          , ecThresholdFactorQuantileWeight = argThresholdFactorQuantileWeight args
+          , ecThresholdFactorLstmConfWeight = argThresholdFactorLstmConfWeight args
+          , ecThresholdFactorLstmHealthWeight = argThresholdFactorLstmHealthWeight args
+          , ecLstmTrainingHealth = lstmHealth
           , ecTrendLookback = argTrendLookback args
           , ecPeriodsPerYear = periodsPerYear args
           , ecVolTarget = argVolTarget args
@@ -11541,9 +11668,13 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       metaTune = fmap (take (max 0 (tuneSize - 1))) mMetaAll
 
       ppy = periodsPerYear args
+      tuneObjectiveUsed =
+        if argThresholdFactorEnabled args
+          then TuneAnnualizedEquity
+          else argTuneObjective args
       tuneCfg =
         TuneConfig
-          { tcObjective = argTuneObjective args
+          { tcObjective = tuneObjectiveUsed
           , tcPenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
           , tcPenaltyTurnover = argTunePenaltyTurnover args
           , tcPeriodsPerYear = ppy
@@ -11777,7 +11908,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsFitSize = fitSize
       , bsTuneSize = tuneSize
       , bsTuneRatio = tuneRatioUsed
-      , bsTuneObjective = argTuneObjective args
+      , bsTuneObjective = tuneObjectiveUsed
       , bsTunePenaltyMaxDrawdown = argTunePenaltyMaxDrawdown args
       , bsTunePenaltyTurnover = argTunePenaltyTurnover args
       , bsTuneStressVolMult = argTuneStressVolMult args
@@ -13394,6 +13525,20 @@ printLstmSummary history =
     _ ->
       let bestVal = minimum (map esValLoss history)
        in putStrLn (printf "LSTM: epochs=%d best_val_loss=%.6f" (length history) bestVal)
+
+lstmHealthScore :: [EpochStats] -> Maybe Double
+lstmHealthScore history =
+  case reverse history of
+    (latest : prev : _) ->
+      let prevLoss = esValLoss prev
+          latestLoss = esValLoss latest
+          denom = max 1e-12 (abs prevLoss)
+          trend = (prevLoss - latestLoss) / denom
+          score = clamp01 (0.5 + 0.5 * trend)
+       in if bad score then Nothing else Just score
+    _ -> Nothing
+  where
+    bad x = isNaN x || isInfinite x
 
 printMetrics :: Method -> BacktestMetrics -> IO ()
 printMetrics method m = do

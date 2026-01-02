@@ -40,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
 - Trading: allow Kalman-band exits without `--tri-layer` when the band flags are enabled.
 - Trading: apply `--min-position-size` only as a final size floor, not as a confidence gate.
+- Trading: add dynamic threshold-factor multipliers for open/close thresholds and min-edge/min-signal-to-noise, with CLI/optimizer tuning (forces tune objective to annualized equity when enabled).
 - Backtests: ignore mismatched timestamp vectors for daily-loss and fall back to interval-based day keys.
 - Backtests: daily-loss now honors timestamp vectors even when interval seconds are unavailable.
 - Metrics: round trips now exclude end-of-series `EOD` exits (affects `--min-round-trips` and tie-breakers).

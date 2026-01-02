@@ -114,6 +114,19 @@ data Args = Args
   , argMaxDailyLoss :: Maybe Double
   , argMinEdge :: Double
   , argMinSignalToNoise :: Double
+  , argThresholdFactorEnabled :: Bool
+  , argThresholdFactorAlpha :: Double
+  , argThresholdFactorMin :: Double
+  , argThresholdFactorMax :: Double
+  , argThresholdFactorFloor :: Double
+  , argThresholdFactorEdgeKalWeight :: Double
+  , argThresholdFactorEdgeLstmWeight :: Double
+  , argThresholdFactorKalmanZWeight :: Double
+  , argThresholdFactorHighVolWeight :: Double
+  , argThresholdFactorConformalWeight :: Double
+  , argThresholdFactorQuantileWeight :: Double
+  , argThresholdFactorLstmConfWeight :: Double
+  , argThresholdFactorLstmHealthWeight :: Double
   , argCostAwareEdge :: Bool
   , argEdgeBuffer :: Double
   , argTrendLookback :: Int
@@ -252,6 +265,10 @@ opts = do
         flag' True (long onFlag <> help helpOn)
           <|> flag' False (long offFlag <> help helpOff)
           <|> pure True
+      defaultOffSwitch onFlag offFlag helpOn helpOff =
+        flag' True (long onFlag <> help helpOn)
+          <|> flag' False (long offFlag <> help helpOff)
+          <|> pure False
   argData <- optional (strOption (long "data" <> metavar "PATH" <> help "CSV file containing prices"))
   argPriceCol <- strOption (long "price-column" <> value "close" <> help "CSV column name for price (case-insensitive; prints suggestions on error)")
   argHighCol <- optional (strOption (long "high-column" <> help "CSV column name for high (requires --low-column; enables intrabar stops/TP/trailing)"))
@@ -346,6 +363,24 @@ opts = do
       )
   argOpenThreshold <- option auto (long "open-threshold" <> long "threshold" <> value 0.002 <> help "Entry/open direction threshold (fractional deadband)")
   mCloseThreshold <- optional (option auto (long "close-threshold" <> help "Exit/close threshold (fractional deadband; defaults to open-threshold when omitted)"))
+  argThresholdFactorEnabled <-
+    defaultOffSwitch
+      "threshold-factor"
+      "no-threshold-factor"
+      "Enable dynamic threshold factor learning."
+      "Disable dynamic threshold factor learning."
+  argThresholdFactorAlpha <- option auto (long "threshold-factor-alpha" <> value 0.2 <> help "EMA alpha for threshold factor updates (0 disables updates)")
+  argThresholdFactorMin <- option auto (long "threshold-factor-min" <> value 0.5 <> help "Minimum multiplier for the threshold factor")
+  argThresholdFactorMax <- option auto (long "threshold-factor-max" <> value 2.0 <> help "Maximum multiplier for the threshold factor")
+  argThresholdFactorFloor <- option auto (long "threshold-factor-floor" <> value 0.0 <> help "Floor for adjusted thresholds after applying the factor")
+  argThresholdFactorEdgeKalWeight <- option auto (long "threshold-factor-edge-kal-weight" <> value 0 <> help "Weight for Kalman edge feature in threshold factor")
+  argThresholdFactorEdgeLstmWeight <- option auto (long "threshold-factor-edge-lstm-weight" <> value 0 <> help "Weight for LSTM edge feature in threshold factor")
+  argThresholdFactorKalmanZWeight <- option auto (long "threshold-factor-kalman-z-weight" <> value 0 <> help "Weight for Kalman z-score feature in threshold factor")
+  argThresholdFactorHighVolWeight <- option auto (long "threshold-factor-high-vol-weight" <> value 0 <> help "Weight for HMM high-vol probability feature in threshold factor")
+  argThresholdFactorConformalWeight <- option auto (long "threshold-factor-conformal-weight" <> value 0 <> help "Weight for conformal width feature in threshold factor")
+  argThresholdFactorQuantileWeight <- option auto (long "threshold-factor-quantile-weight" <> value 0 <> help "Weight for quantile width feature in threshold factor")
+  argThresholdFactorLstmConfWeight <- option auto (long "threshold-factor-lstm-conf-weight" <> value 0 <> help "Weight for LSTM confidence feature in threshold factor")
+  argThresholdFactorLstmHealthWeight <- option auto (long "threshold-factor-lstm-health-weight" <> value 0 <> help "Weight for LSTM training health feature in threshold factor")
   argMethod <-
     option
       (eitherReader parseMethod)
@@ -690,6 +725,10 @@ validateArgs args0 = do
     Just v -> ensure "--max-daily-loss must be > 0 and < 1" (v > 0 && v < 1)
   ensure "--min-edge must be >= 0" (argMinEdge args >= 0)
   ensure "--min-signal-to-noise must be >= 0" (argMinSignalToNoise args >= 0)
+  ensure "--threshold-factor-alpha must be between 0 and 1" (argThresholdFactorAlpha args >= 0 && argThresholdFactorAlpha args <= 1)
+  ensure "--threshold-factor-min must be >= 0" (argThresholdFactorMin args >= 0)
+  ensure "--threshold-factor-max must be >= --threshold-factor-min" (argThresholdFactorMax args >= argThresholdFactorMin args)
+  ensure "--threshold-factor-floor must be >= 0" (argThresholdFactorFloor args >= 0)
   ensure "--edge-buffer must be >= 0" (argEdgeBuffer args >= 0)
   ensure "--trend-lookback must be >= 0" (argTrendLookback args >= 0)
   ensure "--max-position-size must be >= 0" (argMaxPositionSize args >= 0)

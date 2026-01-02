@@ -59,6 +59,21 @@ data EnsembleConfig = EnsembleConfig
   , ecMaxPositionSize :: !Double       -- 0..N, caps position sizing (1=full)
   , ecMinEdge :: !Double               -- min predicted return magnitude required for entry
   , ecMinSignalToNoise :: !Double      -- min edge / per-bar sigma required for entry
+  -- Dynamic threshold factor (multiplicative)
+  , ecThresholdFactorEnabled :: !Bool
+  , ecThresholdFactorAlpha :: !Double
+  , ecThresholdFactorMin :: !Double
+  , ecThresholdFactorMax :: !Double
+  , ecThresholdFactorFloor :: !Double
+  , ecThresholdFactorEdgeKalWeight :: !Double
+  , ecThresholdFactorEdgeLstmWeight :: !Double
+  , ecThresholdFactorKalmanZWeight :: !Double
+  , ecThresholdFactorHighVolWeight :: !Double
+  , ecThresholdFactorConformalWeight :: !Double
+  , ecThresholdFactorQuantileWeight :: !Double
+  , ecThresholdFactorLstmConfWeight :: !Double
+  , ecThresholdFactorLstmHealthWeight :: !Double
+  , ecLstmTrainingHealth :: !(Maybe Double)
   , ecTrendLookback :: !Int            -- bars; 0 disables
   , ecPeriodsPerYear :: !Double        -- for annualized volatility sizing
   , ecVolTarget :: !(Maybe Double)     -- target annualized volatility (0 disables)
@@ -448,6 +463,25 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               openThrRaw = max 0 (ecOpenThreshold cfg)
               minEdge = max 0 (ecMinEdge cfg)
               minSignalToNoise = max 0 (ecMinSignalToNoise cfg)
+              factorEnabled = ecThresholdFactorEnabled cfg
+              factorAlpha = clamp01 (ecThresholdFactorAlpha cfg)
+              factorMinRaw = ecThresholdFactorMin cfg
+              factorMaxRaw = ecThresholdFactorMax cfg
+              factorMin = max 1e-6 (min factorMinRaw factorMaxRaw)
+              factorMax = max factorMin (max factorMinRaw factorMaxRaw)
+              factorFloor = max 0 (ecThresholdFactorFloor cfg)
+              factorWEdgeKal = ecThresholdFactorEdgeKalWeight cfg
+              factorWEdgeLstm = ecThresholdFactorEdgeLstmWeight cfg
+              factorWKalmanZ = ecThresholdFactorKalmanZWeight cfg
+              factorWHighVol = ecThresholdFactorHighVolWeight cfg
+              factorWConformal = ecThresholdFactorConformalWeight cfg
+              factorWQuantile = ecThresholdFactorQuantileWeight cfg
+              factorWLstmConf = ecThresholdFactorLstmConfWeight cfg
+              factorWLstmHealth = ecThresholdFactorLstmHealthWeight cfg
+              lstmHealthScore =
+                case ecLstmTrainingHealth cfg of
+                  Just v | not (isBad v) -> clamp01 v
+                  _ -> 0.5
               openThr = max openThrRaw minEdge
               priceActionBodyMin = max 0 (ecTriLayerPriceActionBody cfg)
               bodyMinFracBase = max 1e-6 (0.25 * openThr)
@@ -863,13 +897,13 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                       Just _ -> True
                       Nothing -> False
 
-              signalToNoiseOkAt :: Int -> Double -> Bool
-              signalToNoiseOkAt t edge =
-                if minSignalToNoise <= 0
+              signalToNoiseOkAt :: Int -> Double -> Double -> Bool
+              signalToNoiseOkAt t minSn edge =
+                if minSn <= 0
                   then True
                   else
                     case volPerBarAt t of
-                      Just vol | vol > 0 -> edge / vol >= minSignalToNoise
+                      Just vol | vol > 0 -> edge / vol >= minSn
                       _ -> False
 
               trendOkAt :: Int -> PositionSide -> Bool
@@ -966,6 +1000,27 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
               clamp01 :: Double -> Double
               clamp01 x = max 0 (min 1 x)
+
+              clampRange :: Double -> Double -> Double -> Double
+              clampRange lo hi x =
+                let lo' = min lo hi
+                    hi' = max lo hi
+                 in max lo' (min hi' x)
+
+              signedScore :: Double -> Double
+              signedScore s = 2 * clamp01 s - 1
+
+              scoreOrNeutral :: Maybe Double -> Double
+              scoreOrNeutral mv =
+                case mv of
+                  Just v | not (isBad v) -> clamp01 v
+                  _ -> 0.5
+
+              edgeScore :: Double -> Double -> Double
+              edgeScore thr edge =
+                let denom = max 1e-12 (abs thr)
+                    raw = edge / (2 * denom)
+                 in if isBad raw then 0.5 else clamp01 raw
 
               lstmConfidenceScore :: Double -> Double -> Maybe Double
               lstmConfidenceScore prev next =
@@ -1164,7 +1219,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                     then (Nothing, 0)
                                     else (Just side, size0)
 
-              stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, agreeValidAcc, changes, openTrade, tradesAcc, dead, cooldownLeft, riskState0) t =
+              stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, agreeValidAcc, changes, openTrade, tradesAcc, dead, cooldownLeft, riskState0, factorOpenPrev, factorClosePrev) t =
                 if dead
                   then
                     ( Nothing
@@ -1180,6 +1235,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                     , True
                     , 0
                     , riskState0
+                    , factorOpenPrev
+                    , factorClosePrev
                     )
                   else
                     let (peakEq0, dayKey0, dayStartEq0, haltReason0) = riskState0
@@ -1222,6 +1279,26 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         nextClose = pricesV V.! (t + 1)
                         hi = barHigh (t + 1)
                         lo = barLow (t + 1)
+                        factorOpenBase0 =
+                          if factorEnabled && not (isBad factorOpenPrev)
+                            then factorOpenPrev
+                            else 1
+                        factorCloseBase0 =
+                          if factorEnabled && not (isBad factorClosePrev)
+                            then factorClosePrev
+                            else 1
+                        factorOpenBase =
+                          if factorEnabled
+                            then clampRange factorMin factorMax factorOpenBase0
+                            else 1
+                        factorCloseBase =
+                          if factorEnabled
+                            then clampRange factorMin factorMax factorCloseBase0
+                            else 1
+                        minEdgeAdj = max factorFloor (minEdge * factorOpenBase)
+                        openThrAdj = max minEdgeAdj (max factorFloor (openThr * factorOpenBase))
+                        closeThrAdj = max factorFloor (closeThr * factorCloseBase)
+                        minSignalToNoiseAdj = max factorFloor (minSignalToNoise * factorOpenBase)
                         openTrade0 =
                           case posSide of
                             Nothing -> Nothing
@@ -1234,9 +1311,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             Just ot -> otHoldingPeriods ot
                         cooldownActive = posSide == Nothing && cooldownLeft > 0
                         cooldownNext0 = if posSide == Nothing then max 0 (cooldownLeft - 1) else 0
-                        (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, mOpenSignal, lstmCloseDir, lstmEntryScaleRaw, lstmConfScoreMaybe) =
+                        (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, edgeKal, edgeLstm, mOpenSignal, lstmCloseDir, lstmEntryScaleRaw, lstmConfScoreMaybe, metaNow) =
                           if t < startT
-                            then (False, False, posSide, posSize, 0, Nothing, Nothing, 1, Nothing)
+                            then (False, False, posSide, posSize, 0, 0, 0, Nothing, Nothing, 1, Nothing, Nothing)
                             else
                               let kp = kalPredNextV V.! t
                                   lp = lstmPredNextV V.! (t - startT)
@@ -1246,11 +1323,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                       else
                                         let edge = abs (p / prev - 1)
                                          in if isBad edge then 0 else edge
-                                  edgeRaw = min (edgePred kp) (edgePred lp)
-                                  kalOpenDirRaw = direction openThr prev kp
-                                  kalCloseDirRaw = direction closeThr prev kp
+                                  edgeKal = edgePred kp
+                                  edgeLstm = edgePred lp
+                                  edgeRaw = min edgeKal edgeLstm
+                                  kalOpenDirRaw = direction openThrAdj prev kp
+                                  kalCloseDirRaw = direction closeThrAdj prev kp
+                                  metaNow = metaAt t
                                   (kalOpenDir, kalSize, kalCloseDir) =
-                                    case metaAt t of
+                                    case metaNow of
                                       Nothing ->
                                         ( kalOpenDirRaw
                                         , if kalOpenDirRaw == Nothing then 0 else 1
@@ -1258,11 +1338,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         )
                                       Just m ->
                                         let confScore = confidenceScoreKalman m
-                                            (openDir, openSize) = gateKalmanDir (ecConfidenceSizing cfg) m openThr confScore kalOpenDirRaw
-                                            (closeDir, _) = gateKalmanDir False m closeThr confScore kalCloseDirRaw
+                                            (openDir, openSize) = gateKalmanDir (ecConfidenceSizing cfg) m openThrAdj confScore kalOpenDirRaw
+                                            (closeDir, _) = gateKalmanDir False m closeThrAdj confScore kalCloseDirRaw
                                          in (openDir, openSize, closeDir)
-                                  lstmOpenDir = direction openThr prev lp
-                                  lstmCloseDir = direction closeThr prev lp
+                                  lstmOpenDir = direction openThrAdj prev lp
+                                  lstmCloseDir = direction closeThrAdj prev lp
                                   agreeValid =
                                     case (kalOpenDir, lstmOpenDir) of
                                       (Just _, Just _) -> True
@@ -1302,7 +1382,78 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                               else (Nothing, 0)
                                   lstmEntryScale = lstmConfidenceSizing prev lp
                                   lstmScore = lstmConfidenceScore prev lp
-                               in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, openSignal, lstmCloseDir, lstmEntryScale, lstmScore)
+                               in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, edgeKal, edgeLstm, openSignal, lstmCloseDir, lstmEntryScale, lstmScore, metaNow)
+
+                        pendingFactorUpdate =
+                          factorEnabled && (posSide /= Nothing || mOpenSignal /= Nothing)
+
+                        factorTarget thr =
+                          let edgeKalScore = edgeScore thr edgeKal
+                              edgeLstmScore = edgeScore thr edgeLstm
+                              zScore =
+                                scoreOrNeutral $
+                                  case metaNow of
+                                    Nothing -> Nothing
+                                    Just m ->
+                                      let zMin = max 0 (ecKalmanZMin cfg)
+                                          zMax = max zMin (ecKalmanZMax cfg)
+                                       in Just (scale01 zMin zMax (kalmanZ m))
+                              hvScore =
+                                scoreOrNeutral $
+                                  case metaNow >>= smHighVolProb of
+                                    Nothing -> Nothing
+                                    Just hv ->
+                                      let score =
+                                            case ecMaxHighVolProb cfg of
+                                              Just maxHv | maxHv > 0 -> clamp01 ((maxHv - hv) / max 1e-12 maxHv)
+                                              _ -> clamp01 (1 - hv)
+                                       in Just score
+                              confScore =
+                                scoreOrNeutral $
+                                  case metaNow >>= intervalWidth of
+                                    Nothing -> Nothing
+                                    Just w ->
+                                      case ecMaxConformalWidth cfg of
+                                        Just maxW | maxW > 0 -> Just (clamp01 ((maxW - w) / max 1e-12 maxW))
+                                        _ -> Nothing
+                              qScore =
+                                scoreOrNeutral $
+                                  case metaNow >>= quantileWidth of
+                                    Nothing -> Nothing
+                                    Just w ->
+                                      case ecMaxQuantileWidth cfg of
+                                        Just maxW | maxW > 0 -> Just (clamp01 ((maxW - w) / max 1e-12 maxW))
+                                        _ -> Nothing
+                              lstmScore = scoreOrNeutral lstmConfScoreMaybe
+                              healthScore = lstmHealthScore
+                              raw =
+                                1
+                                  + factorWEdgeKal * signedScore edgeKalScore
+                                  + factorWEdgeLstm * signedScore edgeLstmScore
+                                  + factorWKalmanZ * signedScore zScore
+                                  + factorWHighVol * signedScore hvScore
+                                  + factorWConformal * signedScore confScore
+                                  + factorWQuantile * signedScore qScore
+                                  + factorWLstmConf * signedScore lstmScore
+                                  + factorWLstmHealth * signedScore healthScore
+                           in if isBad raw then 1 else raw
+
+                        updateFactor prev target =
+                          if factorAlpha <= 0
+                            then prev
+                            else
+                              let next = (1 - factorAlpha) * prev + factorAlpha * target
+                               in if isBad next then prev else clampRange factorMin factorMax next
+
+                        factorOpenNext =
+                          if pendingFactorUpdate
+                            then updateFactor factorOpenBase (factorTarget openThr)
+                            else factorOpenBase
+
+                        factorCloseNext =
+                          if pendingFactorUpdate
+                            then updateFactor factorCloseBase (factorTarget closeThr)
+                            else factorCloseBase
 
                         lstmFlipStrongOk =
                           if not lstmFlipStrongOnly
@@ -1357,7 +1508,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                         snrOk =
                           if needsEntry
-                            then signalToNoiseOkAt t (max 0 edgeRaw)
+                            then signalToNoiseOkAt t minSignalToNoiseAdj (max 0 edgeRaw)
                             else True
 
                         volTargetReady =
@@ -1832,9 +1983,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                       , dead2
                       , cooldownNext
                       , (max peakEq1 equityFinal3, dayKey1, dayStartEq1, haltReason2)
+                      , factorOpenNext
+                      , factorCloseNext
                       )
 
-              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, agreeValidRev, changes, openTrade, tradesRev, _deadFinal, _cooldownFinal, _riskFinal) =
+              (_finalPos, finalPosSize, finalEq, eqRev, posRev, agreeRev, agreeValidRev, changes, openTrade, tradesRev, _deadFinal, _cooldownFinal, _riskFinal, _factorOpenFinal, _factorCloseFinal) =
                 foldl'
                   stepFn
                   ( Nothing :: Maybe PositionSide
@@ -1850,6 +2003,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                   , False
                   , 0 :: Int
                   , (1.0, dayKeyAt 0, 1.0, Nothing)
+                  , 1.0
+                  , 1.0
                   )
                   [0 .. stepCount - 1]
 

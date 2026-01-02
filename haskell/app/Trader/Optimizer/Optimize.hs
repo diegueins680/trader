@@ -528,6 +528,17 @@ data OptimizerArgs = OptimizerArgs
   , oaMinEdgeMax :: !Double
   , oaMinSignalToNoiseMin :: !Double
   , oaMinSignalToNoiseMax :: !Double
+  , oaPThresholdFactor :: !Double
+  , oaThresholdFactorAlphaMin :: !Double
+  , oaThresholdFactorAlphaMax :: !Double
+  , oaThresholdFactorMinMin :: !Double
+  , oaThresholdFactorMinMax :: !Double
+  , oaThresholdFactorMaxMin :: !Double
+  , oaThresholdFactorMaxMax :: !Double
+  , oaThresholdFactorFloorMin :: !Double
+  , oaThresholdFactorFloorMax :: !Double
+  , oaThresholdFactorWeightMin :: !Double
+  , oaThresholdFactorWeightMax :: !Double
   , oaEdgeBufferMin :: !Double
   , oaEdgeBufferMax :: !Double
   , oaPCostAwareEdge :: !Double
@@ -717,6 +728,19 @@ data TrialParams = TrialParams
   , tpMaxHoldBars :: !(Maybe Int)
   , tpMinEdge :: !Double
   , tpMinSignalToNoise :: !Double
+  , tpThresholdFactorEnabled :: !Bool
+  , tpThresholdFactorAlpha :: !Double
+  , tpThresholdFactorMin :: !Double
+  , tpThresholdFactorMax :: !Double
+  , tpThresholdFactorFloor :: !Double
+  , tpThresholdFactorEdgeKalWeight :: !Double
+  , tpThresholdFactorEdgeLstmWeight :: !Double
+  , tpThresholdFactorKalmanZWeight :: !Double
+  , tpThresholdFactorHighVolWeight :: !Double
+  , tpThresholdFactorConformalWeight :: !Double
+  , tpThresholdFactorQuantileWeight :: !Double
+  , tpThresholdFactorLstmConfWeight :: !Double
+  , tpThresholdFactorLstmHealthWeight :: !Double
   , tpEdgeBuffer :: !Double
   , tpCostAwareEdge :: !Bool
   , tpTrendLookback :: !Int
@@ -865,10 +889,38 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , "--edge-buffer"
              , printf "%.12g" (max 0 (tpEdgeBuffer params))
              ]
+      cmd6a =
+        cmd6
+          ++ (if tpThresholdFactorEnabled params then ["--threshold-factor"] else ["--no-threshold-factor"])
+          ++ [ "--threshold-factor-alpha"
+             , printf "%.6f" (clamp (tpThresholdFactorAlpha params) 0 1)
+             , "--threshold-factor-min"
+             , printf "%.6f" (max 0 (tpThresholdFactorMin params))
+             , "--threshold-factor-max"
+             , printf "%.6f" (max 0 (tpThresholdFactorMax params))
+             , "--threshold-factor-floor"
+             , printf "%.12g" (max 0 (tpThresholdFactorFloor params))
+             , "--threshold-factor-edge-kal-weight"
+             , printf "%.6f" (tpThresholdFactorEdgeKalWeight params)
+             , "--threshold-factor-edge-lstm-weight"
+             , printf "%.6f" (tpThresholdFactorEdgeLstmWeight params)
+             , "--threshold-factor-kalman-z-weight"
+             , printf "%.6f" (tpThresholdFactorKalmanZWeight params)
+             , "--threshold-factor-high-vol-weight"
+             , printf "%.6f" (tpThresholdFactorHighVolWeight params)
+             , "--threshold-factor-conformal-weight"
+             , printf "%.6f" (tpThresholdFactorConformalWeight params)
+             , "--threshold-factor-quantile-weight"
+             , printf "%.6f" (tpThresholdFactorQuantileWeight params)
+             , "--threshold-factor-lstm-conf-weight"
+             , printf "%.6f" (tpThresholdFactorLstmConfWeight params)
+             , "--threshold-factor-lstm-health-weight"
+             , printf "%.6f" (tpThresholdFactorLstmHealthWeight params)
+             ]
       cmd7 =
         if tpCostAwareEdge params
-          then cmd6 ++ ["--cost-aware-edge"]
-          else cmd6 ++ ["--no-cost-aware-edge"]
+          then cmd6a ++ ["--cost-aware-edge"]
+          else cmd6a ++ ["--no-cost-aware-edge"]
       cmd8 =
         cmd7
           ++ [ "--trend-lookback"
@@ -1067,7 +1119,11 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
         if useSweepThreshold
           then cmd34 ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
           else cmd34
-   in cmd35 ++ ["--json"]
+      cmd36 =
+        if tpThresholdFactorEnabled params
+          then cmd35 ++ ["--tune-objective", "annualized-equity"]
+          else cmd35
+   in cmd36 ++ ["--json"]
 
 runTrial :: FilePath -> [String] -> TrialParams -> Double -> Bool -> Double -> Bool -> IO TrialResult
 runTrial traderBin baseArgs params tuneRatio useSweepThreshold timeoutSec disableLstm = do
@@ -1263,6 +1319,19 @@ trialToRecord tr symbolLabel =
         , "maxHoldBars" .= tpMaxHoldBars (trParams tr)
         , "minEdge" .= tpMinEdge (trParams tr)
         , "minSignalToNoise" .= tpMinSignalToNoise (trParams tr)
+        , "thresholdFactorEnabled" .= tpThresholdFactorEnabled (trParams tr)
+        , "thresholdFactorAlpha" .= tpThresholdFactorAlpha (trParams tr)
+        , "thresholdFactorMin" .= tpThresholdFactorMin (trParams tr)
+        , "thresholdFactorMax" .= tpThresholdFactorMax (trParams tr)
+        , "thresholdFactorFloor" .= tpThresholdFactorFloor (trParams tr)
+        , "thresholdFactorEdgeKalWeight" .= tpThresholdFactorEdgeKalWeight (trParams tr)
+        , "thresholdFactorEdgeLstmWeight" .= tpThresholdFactorEdgeLstmWeight (trParams tr)
+        , "thresholdFactorKalmanZWeight" .= tpThresholdFactorKalmanZWeight (trParams tr)
+        , "thresholdFactorHighVolWeight" .= tpThresholdFactorHighVolWeight (trParams tr)
+        , "thresholdFactorConformalWeight" .= tpThresholdFactorConformalWeight (trParams tr)
+        , "thresholdFactorQuantileWeight" .= tpThresholdFactorQuantileWeight (trParams tr)
+        , "thresholdFactorLstmConfWeight" .= tpThresholdFactorLstmConfWeight (trParams tr)
+        , "thresholdFactorLstmHealthWeight" .= tpThresholdFactorLstmHealthWeight (trParams tr)
         , "edgeBuffer" .= tpEdgeBuffer (trParams tr)
         , "costAwareEdge" .= tpCostAwareEdge (trParams tr)
         , "trendLookback" .= tpTrendLookback (trParams tr)
@@ -1380,6 +1449,12 @@ sampleParams
   maxHoldBarsRange
   minEdgeRange
   minSignalToNoiseRange
+  pThresholdFactor
+  thresholdFactorAlphaRange
+  thresholdFactorMinRange
+  thresholdFactorMaxRange
+  thresholdFactorFloorRange
+  thresholdFactorWeightRange
   edgeBufferRange
   trendLookbackRange
   maxPositionSizeRange
@@ -1800,6 +1875,52 @@ sampleParams
                  in (val, r')
             )
             rng60
+        (thresholdFactorEnabled, rng62) =
+          let (r, rng') = nextDouble rng61
+           in (r < clamp pThresholdFactor 0 1, rng')
+        (thresholdFactorAlpha0, rng63) =
+          let (lo, hi) = ordered thresholdFactorAlphaRange
+              (val, rng') = nextUniform lo hi rng62
+           in (clamp val 0 1, rng')
+        (thresholdFactorMin0, rng64) =
+          let (lo, hi) = ordered thresholdFactorMinRange
+              (val, rng') = nextUniform lo hi rng63
+           in (max 0 val, rng')
+        (thresholdFactorMax0, rng65) =
+          let (lo, hi) = ordered thresholdFactorMaxRange
+              (val, rng') = nextUniform lo hi rng64
+           in (max 0 val, rng')
+        (thresholdFactorMin, thresholdFactorMax) =
+          let (lo, hi) = ordered (thresholdFactorMin0, thresholdFactorMax0)
+           in (lo, max lo hi)
+        (thresholdFactorFloor, rng66) =
+          let (lo, hi) = ordered thresholdFactorFloorRange
+              (val, rng') = nextUniform lo hi rng65
+           in (max 0 val, rng')
+        (thresholdFactorEdgeKalWeight, rng67) =
+          let (lo, hi) = ordered thresholdFactorWeightRange
+           in nextUniform lo hi rng66
+        (thresholdFactorEdgeLstmWeight, rng68) =
+          let (lo, hi) = ordered thresholdFactorWeightRange
+           in nextUniform lo hi rng67
+        (thresholdFactorKalmanZWeight, rng69) =
+          let (lo, hi) = ordered thresholdFactorWeightRange
+           in nextUniform lo hi rng68
+        (thresholdFactorHighVolWeight, rng70) =
+          let (lo, hi) = ordered thresholdFactorWeightRange
+           in nextUniform lo hi rng69
+        (thresholdFactorConformalWeight, rng71) =
+          let (lo, hi) = ordered thresholdFactorWeightRange
+           in nextUniform lo hi rng70
+        (thresholdFactorQuantileWeight, rng72) =
+          let (lo, hi) = ordered thresholdFactorWeightRange
+           in nextUniform lo hi rng71
+        (thresholdFactorLstmConfWeight, rng73) =
+          let (lo, hi) = ordered thresholdFactorWeightRange
+           in nextUniform lo hi rng72
+        (thresholdFactorLstmHealthWeight, rng74) =
+          let (lo, hi) = ordered thresholdFactorWeightRange
+           in nextUniform lo hi rng73
      in ( TrialParams
             { tpPlatform = platform
             , tpInterval = interval
@@ -1815,6 +1936,19 @@ sampleParams
             , tpMaxHoldBars = maxHoldBars
             , tpMinEdge = minEdge
             , tpMinSignalToNoise = minSignalToNoise
+            , tpThresholdFactorEnabled = thresholdFactorEnabled
+            , tpThresholdFactorAlpha = thresholdFactorAlpha0
+            , tpThresholdFactorMin = thresholdFactorMin
+            , tpThresholdFactorMax = thresholdFactorMax
+            , tpThresholdFactorFloor = thresholdFactorFloor
+            , tpThresholdFactorEdgeKalWeight = thresholdFactorEdgeKalWeight
+            , tpThresholdFactorEdgeLstmWeight = thresholdFactorEdgeLstmWeight
+            , tpThresholdFactorKalmanZWeight = thresholdFactorKalmanZWeight
+            , tpThresholdFactorHighVolWeight = thresholdFactorHighVolWeight
+            , tpThresholdFactorConformalWeight = thresholdFactorConformalWeight
+            , tpThresholdFactorQuantileWeight = thresholdFactorQuantileWeight
+            , tpThresholdFactorLstmConfWeight = thresholdFactorLstmConfWeight
+            , tpThresholdFactorLstmHealthWeight = thresholdFactorLstmHealthWeight
             , tpEdgeBuffer = edgeBuffer'
             , tpCostAwareEdge = costAwareEdge
             , tpTrendLookback = trendLookback
@@ -1887,7 +2021,7 @@ sampleParams
             , tpConfidenceSizing = confidenceSizing
             , tpMinPositionSize = minPositionSize
             }
-        , rng61
+        , rng74
         )
   where
     ordered (a, b) = if a <= b then (a, b) else (b, a)
@@ -2076,6 +2210,20 @@ runOptimizer args0 = do
                               minEdgeMax = max minEdgeMin (oaMinEdgeMax args)
                               minSnMin = max 0 (oaMinSignalToNoiseMin args)
                               minSnMax = max minSnMin (oaMinSignalToNoiseMax args)
+                              pThresholdFactor = clamp (oaPThresholdFactor args) 0 1
+                              thresholdFactorAlphaMin = clamp (oaThresholdFactorAlphaMin args) 0 1
+                              thresholdFactorAlphaMax = clamp (oaThresholdFactorAlphaMax args) 0 1
+                              thresholdFactorAlphaRange = (thresholdFactorAlphaMin, thresholdFactorAlphaMax)
+                              thresholdFactorMinMin = max 0 (oaThresholdFactorMinMin args)
+                              thresholdFactorMinMax = max thresholdFactorMinMin (oaThresholdFactorMinMax args)
+                              thresholdFactorMinRange = (thresholdFactorMinMin, thresholdFactorMinMax)
+                              thresholdFactorMaxMin = max 0 (oaThresholdFactorMaxMin args)
+                              thresholdFactorMaxMax = max thresholdFactorMaxMin (oaThresholdFactorMaxMax args)
+                              thresholdFactorMaxRange = (thresholdFactorMaxMin, thresholdFactorMaxMax)
+                              thresholdFactorFloorMin = max 0 (oaThresholdFactorFloorMin args)
+                              thresholdFactorFloorMax = max thresholdFactorFloorMin (oaThresholdFactorFloorMax args)
+                              thresholdFactorFloorRange = (thresholdFactorFloorMin, thresholdFactorFloorMax)
+                              thresholdFactorWeightRange = (oaThresholdFactorWeightMin args, oaThresholdFactorWeightMax args)
                               edgeBufferMin = max 0 (oaEdgeBufferMin args)
                               edgeBufferMax = max edgeBufferMin (oaEdgeBufferMax args)
                               trendLookbackMin = max 0 (oaTrendLookbackMin args)
@@ -2268,6 +2416,12 @@ runOptimizer args0 = do
                                           (maxHoldMin, maxHoldMax)
                                           (minEdgeMin, minEdgeMax)
                                           (minSnMin, minSnMax)
+                                          pThresholdFactor
+                                          thresholdFactorAlphaRange
+                                          thresholdFactorMinRange
+                                          thresholdFactorMaxRange
+                                          thresholdFactorFloorRange
+                                          thresholdFactorWeightRange
                                           (edgeBufferMin, edgeBufferMax)
                                           (trendLookbackMin, trendLookbackMax)
                                           maxPositionSizeRange
@@ -2831,6 +2985,29 @@ printBest tr = do
   putStrLn ("  maxHoldBars:  " ++ showMaybe (tpMaxHoldBars p))
   putStrLn ("  minEdge:      " ++ show (tpMinEdge p))
   putStrLn ("  minSignalToNoise: " ++ show (tpMinSignalToNoise p))
+  putStrLn ("  thresholdFactorEnabled: " ++ show (tpThresholdFactorEnabled p))
+  putStrLn ("  thresholdFactorAlpha: " ++ show (tpThresholdFactorAlpha p))
+  putStrLn ("  thresholdFactorBounds: " ++ show (tpThresholdFactorMin p) ++ ".." ++ show (tpThresholdFactorMax p))
+  putStrLn ("  thresholdFactorFloor: " ++ show (tpThresholdFactorFloor p))
+  putStrLn
+    ( "  thresholdFactorWeights:"
+        ++ " edgeKal="
+        ++ show (tpThresholdFactorEdgeKalWeight p)
+        ++ " edgeLstm="
+        ++ show (tpThresholdFactorEdgeLstmWeight p)
+        ++ " kalmanZ="
+        ++ show (tpThresholdFactorKalmanZWeight p)
+        ++ " highVol="
+        ++ show (tpThresholdFactorHighVolWeight p)
+        ++ " conformal="
+        ++ show (tpThresholdFactorConformalWeight p)
+        ++ " quantile="
+        ++ show (tpThresholdFactorQuantileWeight p)
+        ++ " lstmConf="
+        ++ show (tpThresholdFactorLstmConfWeight p)
+        ++ " lstmHealth="
+        ++ show (tpThresholdFactorLstmHealthWeight p)
+    )
   putStrLn ("  edgeBuffer:   " ++ show (tpEdgeBuffer p))
   putStrLn ("  costAwareEdge:" ++ show (tpCostAwareEdge p))
   putStrLn ("  trendLookback:" ++ show (tpTrendLookback p))
@@ -3048,6 +3225,18 @@ perturbTrialParams scaleDouble scaleInt p rng0 =
       (rebalanceBars', rng30) = perturbInt (tpRebalanceBars p) scaleInt rng29
       (rebalanceThreshold', rng31) = perturbDouble (tpRebalanceThreshold p) scaleDouble rng30
       (learningRate', rng32) = perturbDouble (tpLearningRate p) scaleDouble rng31
+      (thresholdFactorAlpha', rng33) = perturbDouble (tpThresholdFactorAlpha p) scaleDouble rng32
+      (thresholdFactorMin', rng34) = perturbDouble (tpThresholdFactorMin p) scaleDouble rng33
+      (thresholdFactorMax', rng35) = perturbDouble (tpThresholdFactorMax p) scaleDouble rng34
+      (thresholdFactorFloor', rng36) = perturbDouble (tpThresholdFactorFloor p) scaleDouble rng35
+      (thresholdFactorEdgeKalWeight', rng37) = perturbDoubleSigned (tpThresholdFactorEdgeKalWeight p) scaleDouble rng36
+      (thresholdFactorEdgeLstmWeight', rng38) = perturbDoubleSigned (tpThresholdFactorEdgeLstmWeight p) scaleDouble rng37
+      (thresholdFactorKalmanZWeight', rng39) = perturbDoubleSigned (tpThresholdFactorKalmanZWeight p) scaleDouble rng38
+      (thresholdFactorHighVolWeight', rng40) = perturbDoubleSigned (tpThresholdFactorHighVolWeight p) scaleDouble rng39
+      (thresholdFactorConformalWeight', rng41) = perturbDoubleSigned (tpThresholdFactorConformalWeight p) scaleDouble rng40
+      (thresholdFactorQuantileWeight', rng42) = perturbDoubleSigned (tpThresholdFactorQuantileWeight p) scaleDouble rng41
+      (thresholdFactorLstmConfWeight', rng43) = perturbDoubleSigned (tpThresholdFactorLstmConfWeight p) scaleDouble rng42
+      (thresholdFactorLstmHealthWeight', rng44) = perturbDoubleSigned (tpThresholdFactorLstmHealthWeight p) scaleDouble rng43
    in ( p
           { tpBars = bars'
           , tpBlendWeight = clamp blendWeight' 0 1
@@ -3055,6 +3244,18 @@ perturbTrialParams scaleDouble scaleInt p rng0 =
           , tpBaseCloseThreshold = closeThreshold'
           , tpMinEdge = minEdge'
           , tpMinSignalToNoise = minSn'
+          , tpThresholdFactorAlpha = thresholdFactorAlpha'
+          , tpThresholdFactorMin = thresholdFactorMin'
+          , tpThresholdFactorMax = thresholdFactorMax'
+          , tpThresholdFactorFloor = thresholdFactorFloor'
+          , tpThresholdFactorEdgeKalWeight = thresholdFactorEdgeKalWeight'
+          , tpThresholdFactorEdgeLstmWeight = thresholdFactorEdgeLstmWeight'
+          , tpThresholdFactorKalmanZWeight = thresholdFactorKalmanZWeight'
+          , tpThresholdFactorHighVolWeight = thresholdFactorHighVolWeight'
+          , tpThresholdFactorConformalWeight = thresholdFactorConformalWeight'
+          , tpThresholdFactorQuantileWeight = thresholdFactorQuantileWeight'
+          , tpThresholdFactorLstmConfWeight = thresholdFactorLstmConfWeight'
+          , tpThresholdFactorLstmHealthWeight = thresholdFactorLstmHealthWeight'
           , tpEdgeBuffer = edgeBuffer'
           , tpTrendLookback = trendLookback'
           , tpMaxPositionSize = maxPositionSize'
@@ -3082,7 +3283,7 @@ perturbTrialParams scaleDouble scaleInt p rng0 =
           , tpRebalanceThreshold = rebalanceThreshold'
           , tpLearningRate = learningRate'
           }
-      , rng32
+      , rng44
       )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
