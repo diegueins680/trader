@@ -607,7 +607,7 @@ The UI shows whether combos are coming from the live API or the static fallback,
 Optimizer combos show when each combo was obtained, support ordering by date, and can be filtered by minimum final equity.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
-Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), and Refresh combos resyncs.
+Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), selecting the existing bot if it is already running, and Refresh combos resyncs.
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads on page load, interval/market changes, and Binance key/auth updates including API token changes).
@@ -664,6 +664,7 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` requi
 
 The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize each buy/sell operation on the selected bot chart (supports long/short on futures). It includes a live/offline timeline chart with start/end controls when ops persistence is enabled. The chart reflects the available ops history and warns when the selected range extends beyond it.
 When trading is armed, the UI blocks live bot start until Binance keys are provided or verified via “Check keys” (otherwise switch to paper mode).
+When starting multi-symbol live bots, the UI uses the first bot symbol as the request symbol so `/bot/start` validation succeeds even if the main Symbol field is empty.
 Optimizer combos are clamped to the API compute limits reported by `/health` when available.
 
 Troubleshooting: “No live operations yet”

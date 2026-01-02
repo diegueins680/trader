@@ -67,6 +67,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
 - Web UI: block live bot start when trading is armed but Binance keys are missing or unverified (use Check keys or switch to paper mode).
+- Web UI: ensure live bot starts include a primary symbol when using multi-symbol requests so `/bot/start` validation succeeds.
 - Web UI: warn when the bot status timeline range falls outside available ops history.
 - Web UI: send explicit zero/false values for default-on risk settings so disable toggles take effect.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
@@ -97,6 +98,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: let users choose how many optimizer combos to display (default 5, capped by available combos).
 - Web UI: top combos now auto-apply when available to keep the form aligned with the top performer.
 - Web UI: idle live bot auto-starts after the top combo is applied.
+- Web UI: applying a combo that already has a running bot now selects the existing bot instead of re-sending `/bot/start`.
 - API: futures MIN_NOTIONAL parsing now honors the `notional` field to skip trade tests below minNotional.
 - Web UI: API panel adds base URL copy + /health open shortcuts; loading a profile clears manual override locks.
 - Web UI: add quick-jump buttons in the config panel to navigate major sections.

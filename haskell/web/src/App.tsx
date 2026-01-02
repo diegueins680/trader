@@ -3085,10 +3085,40 @@ export function App() {
       const forceAdopt = Boolean(opts?.forceAdopt);
       const symbolsOverride = opts?.symbolsOverride ? parseSymbolsInput(opts.symbolsOverride.join(",")) : [];
       if (!opts?.auto) botAutoStartSuppressedRef.current = false;
+      const startSymbols = symbolsOverride.length > 0 ? symbolsOverride : botSymbolsInput;
+      const primarySymbolRaw = startSymbols[0] ?? form.binanceSymbol.trim();
+      const primarySymbol = primarySymbolRaw ? normalizeSymbolKey(primarySymbolRaw) : "";
+
+      if (primarySymbol && botActiveSymbolSet.has(primarySymbol)) {
+        setBot((s) => ({ ...s, error: null }));
+        setBotSelectedSymbol(primarySymbol);
+        if (!silent) showToast(`Live bot already running for ${primarySymbol}.`);
+        return;
+      }
 
       const isAdoptError = (msg: string) => {
         const lower = msg.toLowerCase();
         return lower.includes("existing long position") || lower.includes("botadoptexistingposition=true");
+      };
+
+      const isAlreadyRunningError = (err: unknown) => {
+        if (!(err instanceof HttpError)) return false;
+        const msg = err.message.toLowerCase();
+        if (msg.includes("already running") || msg.includes("bot is starting")) return true;
+        const payload = err.payload;
+        if (!payload || typeof payload !== "object") return false;
+        if ("error" in payload && typeof payload.error === "string") {
+          const errMsg = payload.error.toLowerCase();
+          if (errMsg.includes("already running") || errMsg.includes("bot is starting")) return true;
+        }
+        if ("errors" in payload && Array.isArray(payload.errors)) {
+          return payload.errors.some((entry) => {
+            if (!entry || typeof entry !== "object") return false;
+            const errText = "error" in entry && typeof entry.error === "string" ? entry.error.toLowerCase() : "";
+            return errText.includes("already running") || errText.includes("bot is starting");
+          });
+        }
+        return false;
       };
 
       const formatStartError = (err: unknown) => {
@@ -3139,12 +3169,12 @@ export function App() {
           botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),
           botMaxPoints: clamp(Math.trunc(form.botMaxPoints), 100, 100000),
         };
-        if (symbolsOverride.length > 0) payload.botSymbols = symbolsOverride;
-        else if (botSymbolsInput.length > 0) payload.botSymbols = botSymbolsInput;
+        if (primarySymbol) payload.binanceSymbol = primarySymbol;
+        if (startSymbols.length > 0) payload.botSymbols = startSymbols;
         const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         if (symbolsOverride.length > 0) {
-          setBotSelectedSymbol(symbolsOverride[0] ?? null);
+          setBotSelectedSymbol(primarySymbol || null);
         }
         if (adoptOverride && !form.botAdoptExistingPosition) {
           setForm((f) => ({ ...f, botAdoptExistingPosition: true }));
@@ -3167,6 +3197,12 @@ export function App() {
         await runStart(forceAdopt, false);
       } catch (e) {
         if (isAbortError(e)) return;
+        if (isAlreadyRunningError(e)) {
+          setBot((s) => ({ ...s, loading: false, error: null }));
+          if (primarySymbol) setBotSelectedSymbol(primarySymbol);
+          if (!silent) showToast(`Live bot already running${primarySymbol ? ` for ${primarySymbol}` : ""}.`);
+          return;
+        }
         const baseMsg = e instanceof Error ? e.message : String(e);
         if (!forceAdopt && isAdoptError(baseMsg)) {
           if (!silent) showToast("Existing position detected. Adopting and retrying…");
@@ -3190,7 +3226,9 @@ export function App() {
       apiBase,
       applyRateLimit,
       authHeaders,
+      botActiveSymbolSet,
       botSymbolsInput,
+      form.binanceSymbol,
       form.botMaxPoints,
       form.botAdoptExistingPosition,
       form.botOnlineEpochs,
