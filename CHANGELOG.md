@@ -99,6 +99,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: top combos now auto-apply when available to keep the form aligned with the top performer.
 - Web UI: idle live bot auto-starts after the top combo is applied.
 - Web UI: applying a combo that already has a running bot now selects the existing bot instead of re-sending `/bot/start`.
+- Web UI: manual combo Apply no longer gets overridden by top-combo auto-apply while a start is queued.
 - API: futures MIN_NOTIONAL parsing now honors the `notional` field to skip trade tests below minNotional.
 - Web UI: API panel adds base URL copy + /health open shortcuts; loading a profile clears manual override locks.
 - Web UI: add quick-jump buttons in the config panel to navigate major sections.

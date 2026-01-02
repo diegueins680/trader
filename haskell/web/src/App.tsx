@@ -1197,6 +1197,7 @@ export function App() {
     signature: string;
     symbols: string[];
   } | null>(null);
+  const pendingComboStartRef = useRef(pendingComboStart);
   const topCombosRef = useRef<OptimizationCombo[]>([]);
   const topCombosSyncRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null);
   const dataLogRef = useRef<HTMLDivElement | null>(null);
@@ -1217,6 +1218,10 @@ export function App() {
   useEffect(() => {
     writeJson(STORAGE_KEY, form);
   }, [form]);
+
+  useEffect(() => {
+    pendingComboStartRef.current = pendingComboStart;
+  }, [pendingComboStart]);
 
   useEffect(() => {
     if (!symbolIsCustom) return;
@@ -1414,6 +1419,7 @@ export function App() {
       const nextForm = applyComboToForm(baseForm, combo, apiComputeLimitsRef.current, manualOverrides, true);
       const nextSignature = formApplySignature(nextForm);
       const symbols = parseSymbolsInput(nextForm.binanceSymbol);
+      pendingComboStartRef.current = { signature: nextSignature, symbols };
       setPendingComboStart({ signature: nextSignature, symbols });
       applyCombo(combo, { respectManual: true, allowPositioning: true });
     },
@@ -1425,6 +1431,7 @@ export function App() {
       const nextForm = applyComboToForm(baseForm, combo, apiComputeLimitsRef.current, undefined, true);
       const nextSignature = formApplySignature(nextForm);
       const symbols = parseSymbolsInput(nextForm.binanceSymbol);
+      pendingComboStartRef.current = { signature: nextSignature, symbols };
       setPendingComboStart({ signature: nextSignature, symbols });
       applyCombo(combo, { respectManual: false, allowPositioning: true });
     },
@@ -3911,14 +3918,16 @@ export function App() {
           );
           const formSig = formApplySignature(currentForm);
           if (topSig !== formSig) {
-            applyCombo(topCombo, { silent: true, respectManual: true, allowPositioning: true });
-            const now = Date.now();
-            setAutoAppliedCombo({ id: topCombo.id, atMs: now });
-            const prev = autoAppliedComboRef.current;
-            const shouldToast = !prev.atMs || prev.id !== topCombo.id || now - prev.atMs > 120_000;
-            autoAppliedComboRef.current = { id: topCombo.id, atMs: now };
-            if (shouldToast) {
-              showToast(`Auto-applied top combo #${topCombo.id} (manual overrides respected)`);
+            if (!pendingComboStartRef.current) {
+              applyCombo(topCombo, { silent: true, respectManual: true, allowPositioning: true });
+              const now = Date.now();
+              setAutoAppliedCombo({ id: topCombo.id, atMs: now });
+              const prev = autoAppliedComboRef.current;
+              const shouldToast = !prev.atMs || prev.id !== topCombo.id || now - prev.atMs > 120_000;
+              autoAppliedComboRef.current = { id: topCombo.id, atMs: now };
+              if (shouldToast) {
+                showToast(`Auto-applied top combo #${topCombo.id} (manual overrides respected)`);
+              }
             }
           }
         }
@@ -4277,7 +4286,6 @@ export function App() {
     const interval = selectedComboForm.interval.trim();
     const intervalOk =
       interval.length > 0 && PLATFORM_INTERVAL_SET[selectedComboForm.platform].has(interval);
-    const symbolKey = comboSymbol ? normalizeSymbolKey(comboSymbol) : "";
     return firstReason(
       rateLimitReason,
       apiBlockedReason ?? apiStatusIssue,
@@ -4288,9 +4296,8 @@ export function App() {
       selectedComboForm.positioning === "long-short" && selectedComboForm.market !== "futures"
         ? "Live bot long/short requires the Futures market."
         : null,
-      symbolKey && botActiveSymbolSet.has(symbolKey) ? `Live bot already running for ${comboSymbol}.` : null,
     );
-  }, [apiBlockedReason, apiStatusIssue, botActiveSymbolSet, botTradeKeysIssue, rateLimitReason, selectedComboForm]);
+  }, [apiBlockedReason, apiStatusIssue, botTradeKeysIssue, rateLimitReason, selectedComboForm]);
   const comboStartBlocked = bot.loading || botStarting || comboStartPending || Boolean(comboStartBlockedReason);
 
   useEffect(() => {
