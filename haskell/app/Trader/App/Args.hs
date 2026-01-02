@@ -311,7 +311,7 @@ opts = do
       ( long "tune-objective"
           <> value TuneEquityDdTurnover
           <> showDefaultWith tuneObjectiveCode
-          <> help "Objective for --optimize-operations/--sweep-threshold: final-equity|sharpe|calmar|equity-dd|equity-dd-turnover"
+          <> help "Objective for --optimize-operations/--sweep-threshold: annualized-equity|final-equity|sharpe|calmar|equity-dd|equity-dd-turnover"
       )
   argTunePenaltyMaxDrawdown <- option auto (long "tune-penalty-max-drawdown" <> value 1.5 <> help "Penalty weight for max drawdown (used by equity-dd objectives)")
   argTunePenaltyTurnover <- option auto (long "tune-penalty-turnover" <> value 0.2 <> help "Penalty weight for turnover (used by equity-dd-turnover)")

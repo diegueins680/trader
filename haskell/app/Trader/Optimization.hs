@@ -25,6 +25,7 @@ import Trader.Metrics (BacktestMetrics(..), computeMetrics)
 
 data TuneObjective
   = TuneFinalEquity
+  | TuneAnnualizedEquity
   | TuneSharpe
   | TuneCalmar
   | TuneEquityDd
@@ -35,6 +36,7 @@ tuneObjectiveCode :: TuneObjective -> String
 tuneObjectiveCode o =
   case o of
     TuneFinalEquity -> "final-equity"
+    TuneAnnualizedEquity -> "annualized-equity"
     TuneSharpe -> "sharpe"
     TuneCalmar -> "calmar"
     TuneEquityDd -> "equity-dd"
@@ -46,6 +48,12 @@ parseTuneObjective raw =
     "finalequity" -> Right TuneFinalEquity
     "final-equity" -> Right TuneFinalEquity
     "final_equity" -> Right TuneFinalEquity
+    "annualizedequity" -> Right TuneAnnualizedEquity
+    "annualized-equity" -> Right TuneAnnualizedEquity
+    "annualized_equity" -> Right TuneAnnualizedEquity
+    "annualizedreturn" -> Right TuneAnnualizedEquity
+    "annualized-return" -> Right TuneAnnualizedEquity
+    "annualized_return" -> Right TuneAnnualizedEquity
     "sharpe" -> Right TuneSharpe
     "calmar" -> Right TuneCalmar
     "equitydd" -> Right TuneEquityDd
@@ -57,7 +65,9 @@ parseTuneObjective raw =
     _ ->
       Left
         ( "Invalid tune objective (expected one of: "
-            ++ intercalate ", " (map tuneObjectiveCode [TuneFinalEquity, TuneSharpe, TuneCalmar, TuneEquityDd, TuneEquityDdTurnover])
+            ++ intercalate
+              ", "
+              (map tuneObjectiveCode [TuneAnnualizedEquity, TuneFinalEquity, TuneSharpe, TuneCalmar, TuneEquityDd, TuneEquityDdTurnover])
             ++ ")"
         )
   where
@@ -127,6 +137,7 @@ scoreObjective cfg m =
       pTurn = max 0 (tcPenaltyTurnover cfg)
    in case tcObjective cfg of
         TuneFinalEquity -> finalEq
+        TuneAnnualizedEquity -> bmAnnualizedReturn m
         TuneSharpe -> bmSharpe m
         TuneCalmar ->
           let denom = max 1e-12 maxDd

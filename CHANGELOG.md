@@ -70,6 +70,8 @@ All notable changes to this project will be documented in this file.
 - Web UI: ensure live bot starts include a primary symbol when using multi-symbol requests so `/bot/start` validation succeeds.
 - Web UI: warn when the bot status timeline range falls outside available ops history.
 - Web UI: send explicit zero/false values for default-on risk settings so disable toggles take effect.
+- Web UI: add a Download log button to export backtest operations from the summary chart.
+- Web UI: allow deeper zoom on charts (down to ~12 bars) for close inspection.
 - Deploy: quick AWS deploy supports S3 state configuration and optional App Runner instance roles.
 - Deploy: quick AWS deploy reuses existing App Runner S3 state settings + instance role when updating a service unless new values are provided.
 - Deploy: quick AWS deploy now exports `TRADER_API_MAX_HIDDEN_SIZE` (defaults to 50) for larger LSTM models.
@@ -89,6 +91,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: add platform sampling (`--platforms`) and persist platform in top-combo outputs.
 - Optimizer: allow `merge-top-combos --max 0` to emit an empty combo list.
 - Optimizer: avoid crashes when random sampling pools are empty (skips invalid picks).
+- Optimizer: add `annualized-equity` objective and make it the default for optimizer runs.
 - Optimizer: refresh the top-N combos daily by re-running backtests against the latest data and persisting updated metrics to `top-combos.json`.
 - API: prefer local bot snapshots and optimizer combos on reads, falling back to S3 only when local state is missing to reduce proxy 5xx.
 - API: add backtest concurrency gating + timeout controls (`TRADER_API_MAX_BACKTEST_RUNNING`, `TRADER_API_BACKTEST_TIMEOUT_SEC`) to keep the server responsive under heavy backtests.
@@ -99,6 +102,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: top combos now auto-apply when available to keep the form aligned with the top performer.
 - Web UI: idle live bot auto-starts after the top combo is applied.
 - Web UI: applying a combo that already has a running bot now selects the existing bot instead of re-sending `/bot/start`.
+- Web UI: auto-starts missing bots for the top 5 combo symbols to keep multiple live bots running.
 - Web UI: manual combo Apply no longer gets overridden by top-combo auto-apply while a start is queued.
 - API: futures MIN_NOTIONAL parsing now honors the `notional` field to skip trade tests below minNotional.
 - Web UI: API panel adds base URL copy + /health open shortcuts; loading a profile clears manual override locks.

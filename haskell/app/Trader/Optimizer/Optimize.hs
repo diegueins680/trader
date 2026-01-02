@@ -325,6 +325,8 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
       obj = map toLower (trim objective)
    in if obj `elem` ["final-equity", "final_equity", "finalequity"]
         then finalEq
+        else if obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"]
+          then annRet
         else if obj == "sharpe"
           then sharpe
           else if obj == "calmar"

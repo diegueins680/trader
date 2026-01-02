@@ -231,7 +231,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
   - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.
   - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
-    - `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
+    - `annualized-equity` | `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
   - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips, and non-inverted hysteresis (close <= open) without reducing equity.
   - `--tune-penalty-max-drawdown 1.5` penalty weight for max drawdown (used by `equity-dd*` objectives)
   - `--tune-penalty-turnover 0.2` penalty weight for turnover (used by `equity-dd-turnover`)
@@ -408,7 +408,8 @@ Backtest limits:
 - `TRADER_API_BACKTEST_TIMEOUT_SEC` (default: `900`) cancels long-running backtests (sync returns 504; async jobs return an error).
 
 Optimizer script tips:
-- `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, equity-dd-turnover, smaller splits).
+- `optimize-equity` defaults to `--objective annualized-equity` (annualized return).
+- `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - `--platform`/`--platforms` sample exchange platforms when using `--binance-symbol`/`--symbol` (default: binance; supports coinbase/kraken/poloniex).
 - `--bars-auto-prob` and `--bars-distribution` tune how often bars=auto/all is sampled and how explicit bars are drawn.
@@ -622,8 +623,10 @@ The configuration panel includes quick-jump buttons for major sections (API, mar
 Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.
 The configuration panel keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs.
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
+The backtest summary chart includes a Download log button to export the backtest operations.
+Backtest charts allow deeper zoom (mouse wheel down to ~12 bars) for close inspection.
 When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must be `/api` to avoid CORS issues (the quick AWS deploy script enforces this when a distribution ID is provided unless `--ui-api-direct` is set). When the script can discover the App Runner URL, it also sets `apiFallbackUrl` to that URL so the UI can fail over if the `/api/*` proxy returns 5xx/HTML; override with `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
-The UI auto-applies top combos when available and shows when a combo auto-applied; if the live bot is idle it auto-starts after the top combo applies, and manual override locks include an unlock button to let combos update those fields again.
+The UI auto-applies top combos when available and shows when a combo auto-applied; it also auto-starts missing bots for the top 5 combo symbols (Binance only), and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
 The Data Log panel supports auto-scroll to keep the newest responses in view.

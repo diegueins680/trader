@@ -180,7 +180,14 @@ export const PLATFORM_DEFAULT_SYMBOL: Record<Platform, string> = {
   poloniex: "BTC_USDT",
 };
 
-export const TUNE_OBJECTIVES = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"] as const;
+export const TUNE_OBJECTIVES = [
+  "annualized-equity",
+  "final-equity",
+  "sharpe",
+  "calmar",
+  "equity-dd",
+  "equity-dd-turnover",
+] as const;
 export const TUNE_OBJECTIVE_SET = new Set<string>(TUNE_OBJECTIVES);
 
 export const DATA_LOG_COLLAPSED_MAX_LINES = 50;

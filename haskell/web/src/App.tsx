@@ -280,6 +280,77 @@ function parseTimeInputMs(raw: string): number | null {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function sanitizeFilenameSegment(raw: string, fallback: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return fallback;
+  const cleaned = trimmed.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+/, "").replace(/-+$/, "");
+  return cleaned || fallback;
+}
+
+function csvEscape(value: unknown): string {
+  if (value == null) return "";
+  const text = String(value);
+  if (text === "") return "";
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
+}
+
+function backtestTradePhase(split: BacktestResponse["split"], entryIndex: number): string {
+  if (entryIndex >= split.backtestStartIndex) return "backtest";
+  if (split.tune > 0 && entryIndex >= split.tuneStartIndex) return "tune";
+  return split.tune > 0 ? "fit" : "train";
+}
+
+function buildBacktestOpsCsv(backtest: BacktestResponse): string {
+  const header = [
+    "tradeIndex",
+    "phase",
+    "entryIndex",
+    "exitIndex",
+    "entryPrice",
+    "exitPrice",
+    "entryEquity",
+    "exitEquity",
+    "return",
+    "holdingPeriods",
+    "exitReason",
+  ].join(",");
+  const prices = backtest.prices ?? [];
+  const rows = backtest.trades.map((trade, idx) => {
+    const entryPrice = prices[trade.entryIndex];
+    const exitPrice = prices[trade.exitIndex];
+    const phase = backtestTradePhase(backtest.split, trade.entryIndex);
+    return [
+      idx + 1,
+      phase,
+      trade.entryIndex,
+      trade.exitIndex,
+      Number.isFinite(entryPrice) ? entryPrice : "",
+      Number.isFinite(exitPrice) ? exitPrice : "",
+      trade.entryEquity,
+      trade.exitEquity,
+      trade.return,
+      trade.holdingPeriods,
+      trade.exitReason ?? "",
+    ]
+      .map(csvEscape)
+      .join(",");
+  });
+  return [header, ...rows].join("\n");
+}
+
+function downloadTextFile(filename: string, contents: string, contentType = "text/plain"): void {
+  if (typeof window === "undefined") return;
+  const blob = new Blob([contents], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function buildPositionSeries(prices: number[], side: number): number[] {
   if (prices.length === 0) return [];
   if (!Number.isFinite(side) || side === 0) return Array.from({ length: prices.length }, () => 0);
@@ -435,6 +506,7 @@ const CUSTOM_SYMBOL_VALUE = "__custom__";
 const TOP_COMBOS_POLL_MS = 30_000;
 const TOP_COMBOS_DISPLAY_DEFAULT = 5;
 const TOP_COMBOS_DISPLAY_MIN = 1;
+const TOP_COMBOS_BOT_TARGET = 5;
 const MIN_LOOKBACK_BARS = 2;
 const MIN_BACKTEST_BARS = 2;
 const MIN_BACKTEST_RATIO = 0.01;
@@ -1170,6 +1242,23 @@ export function App() {
     });
     return sorted;
   }, [comboOrder, topCombosFiltered]);
+  const topComboBotTargets = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const combo of topCombosOrdered) {
+      const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
+      if (platform && platform !== "binance") continue;
+      const rawSymbol = combo.params.binanceSymbol ?? "";
+      const normalized = normalizeSymbolKey(rawSymbol);
+      if (!normalized) continue;
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+      if (out.length >= TOP_COMBOS_BOT_TARGET) break;
+    }
+    return out;
+  }, [topCombosOrdered]);
+  const topComboBotTargetsKey = useMemo(() => topComboBotTargets.join("|"), [topComboBotTargets]);
   const [topCombosDisplayCount, setTopCombosDisplayCount] = useState(() => TOP_COMBOS_DISPLAY_DEFAULT);
   const topCombos = useMemo(
     () => topCombosOrdered.slice(0, topCombosDisplayCount),
@@ -1197,6 +1286,10 @@ export function App() {
     signature: string;
     symbols: string[];
   } | null>(null);
+  const botAutoStartTopCombosRef = useRef<{ lastAttemptAtMs: number; lastKey: string }>({
+    lastAttemptAtMs: 0,
+    lastKey: "",
+  });
   const pendingComboStartRef = useRef(pendingComboStart);
   const topCombosRef = useRef<OptimizationCombo[]>([]);
   const topCombosSyncRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null);
@@ -1445,6 +1538,14 @@ export function App() {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, []);
+  const downloadBacktestOps = useCallback(() => {
+    if (!state.backtest) return;
+    const csv = buildBacktestOpsCsv(state.backtest);
+    const symbolPart = sanitizeFilenameSegment(form.binanceSymbol, "backtest");
+    const intervalPart = sanitizeFilenameSegment(form.interval, "interval");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    downloadTextFile(`backtest-ops-${symbolPart}-${intervalPart}-${stamp}.csv`, csv, "text/csv");
+  }, [form.binanceSymbol, form.interval, state.backtest]);
 
   useEffect(() => {
     topCombosRef.current = topCombosAll;
@@ -3095,11 +3196,21 @@ export function App() {
       const startSymbols = symbolsOverride.length > 0 ? symbolsOverride : botSymbolsInput;
       const primarySymbolRaw = startSymbols[0] ?? form.binanceSymbol.trim();
       const primarySymbol = primarySymbolRaw ? normalizeSymbolKey(primarySymbolRaw) : "";
+      const startSymbolsNormalized = startSymbols.map((sym) => normalizeSymbolKey(sym)).filter(Boolean);
+      const requestedSymbols =
+        startSymbolsNormalized.length > 0 ? startSymbolsNormalized : primarySymbol ? [primarySymbol] : [];
+      const missingSymbols = requestedSymbols.filter((sym) => !botActiveSymbolSet.has(sym));
 
-      if (primarySymbol && botActiveSymbolSet.has(primarySymbol)) {
+      if (primarySymbol && missingSymbols.length === 0) {
         setBot((s) => ({ ...s, error: null }));
         setBotSelectedSymbol(primarySymbol);
-        if (!silent) showToast(`Live bot already running for ${primarySymbol}.`);
+        if (!silent) {
+          const msg =
+            requestedSymbols.length > 1
+              ? "All requested bot symbols are already running."
+              : `Live bot already running for ${primarySymbol}.`;
+          showToast(msg);
+        }
         return;
       }
 
@@ -4312,6 +4423,32 @@ export function App() {
     botAutoStartRef.current.lastAttemptAtMs = now;
     void startLiveBot({ auto: true, silent: true });
   }, [apiOk, botAnyRunning, botAutoStartReady, botStartBlocked, startLiveBot]);
+  useEffect(() => {
+    if (apiOk !== "ok") return;
+    if (!botStatusFetchedRef.current) return;
+    if (botAutoStartSuppressedRef.current) return;
+    if (comboStartPending) return;
+    if (bot.loading || botStarting) return;
+    if (topComboBotTargets.length === 0) return;
+
+    const missing = topComboBotTargets.filter((sym) => !botActiveSymbolSet.has(normalizeSymbolKey(sym)));
+    if (missing.length === 0) return;
+
+    const now = Date.now();
+    const last = botAutoStartTopCombosRef.current;
+    if (last.lastKey === topComboBotTargetsKey && now - last.lastAttemptAtMs < BOT_AUTOSTART_RETRY_MS) return;
+    botAutoStartTopCombosRef.current = { lastAttemptAtMs: now, lastKey: topComboBotTargetsKey };
+    void startLiveBot({ auto: true, silent: true, symbolsOverride: topComboBotTargets });
+  }, [
+    apiOk,
+    bot.loading,
+    botActiveSymbolSet,
+    botStarting,
+    comboStartPending,
+    startLiveBot,
+    topComboBotTargets,
+    topComboBotTargetsKey,
+  ]);
   useEffect(() => {
     if (!pendingComboStart) return;
     if (formApplySignature(form) !== pendingComboStart.signature) return;
@@ -8478,6 +8615,11 @@ export function App() {
 				                    trades={state.backtest.trades}
 				                    backtestStartIndex={state.backtest.split.backtestStartIndex}
 				                    height={360}
+                        actions={
+                          <button className="btn" type="button" onClick={downloadBacktestOps}>
+                            Download log
+                          </button>
+                        }
 				                  />
                         <div style={{ marginTop: 10 }}>
                           <div className="hint" style={{ marginBottom: 8 }}>

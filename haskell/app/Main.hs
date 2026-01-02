@@ -4505,12 +4505,19 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                         case tuneEnv >>= readMaybe of
                           Just n -> clamp01 n
                           _ -> 0.25
-                      objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
+                      objectiveAllowed =
+                        [ "annualized-equity"
+                        , "final-equity"
+                        , "sharpe"
+                        , "calmar"
+                        , "equity-dd"
+                        , "equity-dd-turnover"
+                        ]
                       objectiveRaw = fmap (map toLower . trim) objectiveEnv
                       objective =
                         case objectiveRaw of
                           Just v | v `elem` objectiveAllowed -> v
-                          _ -> "equity-dd-turnover"
+                          _ -> "annualized-equity"
                       symbols =
                         case symbolsEnv of
                           Just raw ->
@@ -7267,7 +7274,14 @@ prepareOptimizerArgs outputPath req = do
                 if isJust highCol || isJust lowCol
                   then Left "highColumn/lowColumn are only supported for csv source"
                   else Right []
-          objectiveAllowed = ["final-equity", "sharpe", "calmar", "equity-dd", "equity-dd-turnover"]
+          objectiveAllowed =
+            [ "annualized-equity"
+            , "final-equity"
+            , "sharpe"
+            , "calmar"
+            , "equity-dd"
+            , "equity-dd-turnover"
+            ]
           objectiveRaw = fmap (map toLower . trim) (arrObjective req)
           objectiveArgsResult =
             case objectiveRaw of
@@ -8082,6 +8096,7 @@ objectiveScoreFromMetrics args objective metricsVal =
       penaltyMaxDd = max 0 (argTunePenaltyMaxDrawdown args)
       penaltyTurnover = max 0 (argTunePenaltyTurnover args)
       rawScore
+        | obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"] = annRet
         | obj `elem` ["final-equity", "final_equity", "finalequity"] = finalEq
         | obj == "sharpe" = sharpe
         | obj == "calmar" = annRet / max 1e-12 maxDd

@@ -28,6 +28,7 @@ type Props = {
   operations?: Operation[];
   backtestStartIndex?: number;
   height?: number;
+  actions?: React.ReactNode;
 };
 
 type View = { start: number; end: number };
@@ -37,6 +38,7 @@ function clamp(n: number, lo: number, hi: number): number {
 }
 
 const CHART_MARGIN = { l: 14, r: 78, t: 10, b: 26 };
+const MIN_ZOOM_WINDOW = 12;
 
 function fmt(n: number, digits = 4): string {
   if (!Number.isFinite(n)) return "—";
@@ -159,6 +161,7 @@ export function BacktestChart({
   operations,
   backtestStartIndex = 0,
   height = 340,
+  actions,
 }: Props) {
   const n = prices.length;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -256,7 +259,7 @@ export function BacktestChart({
 
         const zoomIn = e.deltaY < 0;
         const factor = zoomIn ? 0.86 : 1.18;
-        const minWin = Math.min(60, n);
+        const minWin = Math.min(MIN_ZOOM_WINDOW, n);
         const nextLen = clamp(Math.round(len * factor), minWin, n);
         const ratio = len <= 1 ? 0 : (pivot - start) / (len - 1);
         const nextStart = clamp(Math.round(pivot - ratio * (nextLen - 1)), 0, n - nextLen);
@@ -745,6 +748,7 @@ export function BacktestChart({
           <button className="btn" type="button" onClick={resetView} disabled={empty}>
             Reset zoom
           </button>
+          {actions}
         </div>
       </div>
 
