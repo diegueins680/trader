@@ -17,8 +17,9 @@ All notable changes to this project will be documented in this file.
 - Ops: restore the newest `ops.jsonl` from S3 on boot and sync on a timer when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
+- Optimizer: rank top combos by annualized equity (`annualizedReturn`) so the #1 combo is the highest annualized equity.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
-- Live bot: auto-start keeps bots running for the current top 10 combos from `top-combos.json` (Binance only), prioritizing higher `metrics.tradeCount` combos.
+- Live bot: auto-start keeps bots running for the current top 10 combos from `top-combos.json` (Binance only), prioritizing higher annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker.
 - Live bot: auto-start warns when fewer than 10 unique top-combo symbols are available to start all top-combo bots.
 - Live bot: top-combo sync treats interval-less combos as compatible with the current interval.
 - Live bot: attempt an order on every candle based on the desired position (even when holding).
@@ -29,14 +30,17 @@ All notable changes to this project will be documented in this file.
 - Trading: `--lstm-confidence-soft 0` disables the half-size step so LSTM sizing becomes binary at the hard threshold.
 - Trading: futures order placement checks available balance (and leverage) before submitting.
 - Trading: add `--method router` with `--router-lookback`/`--router-min-score` for adaptive Kalman/LSTM/blend selection.
-- Trading: router signals now apply Kalman confidence/risk gates to routed selections (including LSTM-routed bars).
+- Trading: router signals apply Kalman confidence/risk gates only on Kalman-selected bars.
+- Backtests: router threshold sweeps use routed predictions when `method=router` is selected.
 - Backtests: router scoring now uses the effective open threshold (including cost-aware min-edge floors).
 - Backtests: router agreement rate now reflects Kalman vs LSTM agreement instead of routed predictions.
 - Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
+- Trading: LSTM flip exits now apply only to LSTM-based methods (`11`/`01`).
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
 - Trading: allow Kalman-band exits without `--tri-layer` when the band flags are enabled.
 - Trading: apply `--min-position-size` only as a final size floor, not as a confidence gate.
 - Backtests: ignore mismatched timestamp vectors for daily-loss and fall back to interval-based day keys.
+- Backtests: daily-loss now honors timestamp vectors even when interval seconds are unavailable.
 - Metrics: round trips now exclude end-of-series `EOD` exits (affects `--min-round-trips` and tie-breakers).
 - Predictors: fall back to the GBDT base prediction when feature dimensions mismatch.
 - Predictors: skip transformer/quantile outputs on feature dimension mismatches instead of crashing, and keep the quantile sensor mean as the raw median while reported quantiles remain clamped.
@@ -209,7 +213,7 @@ All notable changes to this project will be documented in this file.
 - Backtests: slice exchange open-time vectors for walk-forward folds to avoid length mismatches.
 - Optimizer/API: expose intrabar fill probability, bracket-stop ranges (incl. vol-mult), confidence gating, and LSTM training sampling controls to `/optimizer/run`.
 - Optimizer: threshold sweep tie-breakers now prefer higher final equity, then lower turnover/more round trips, and avoid inverted hysteresis unless equity is unchanged.
-- Optimizer: top-combo merges compare scores only within the same objective, fall back to final equity across objectives, and break ties by final equity.
+- Optimizer: top-combo merges rank by annualized equity (`annualizedReturn`), using score and final equity as tie-breakers.
 - Optimizer: truncated trial errors now use the legacy ellipsis marker (`…`).
 - Optimizer: accept numeric strings for backtest numeric fields and treat invalid threshold values as schema errors.
 - Optimizer: pretty-printed JSON output now uses stable, sorted keys.

@@ -300,9 +300,12 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
       eps = 1e-12
       baseOpenThreshold = max 0 (ecOpenThreshold baseCfg)
       baseCloseThreshold = max 0 (ecCloseThreshold baseCfg)
+      minEdge = max 0 (ecMinEdge baseCfg)
       maxCandidates = 60 :: Int
       minRoundTripsReq = max 0 (tcMinRoundTrips cfg)
       ineligibleScore = -1e18 :: Double
+      routerLookback = max 2 (ecRouterLookback baseCfg)
+      routerMinScore = clamp01 (ecRouterMinScore baseCfg)
 
       downsample :: Int -> [Double] -> [Double]
       downsample k xs
@@ -330,7 +333,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
       blendWeight = clamp01 (ecBlendWeight baseCfg)
       blendV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalV lstmV
 
-      (kalUsedV, lstmUsedV) =
+      (kalUsedV0, lstmUsedV0) =
         case method of
           MethodBoth -> (kalV, lstmV)
           MethodRouter -> (kalV, lstmV)
@@ -417,7 +420,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
       predSources =
         case method of
           MethodBoth -> [kalV, lstmV]
-          MethodRouter -> [kalV, lstmV]
+          MethodRouter -> [kalV, lstmV, blendV]
           MethodBlend -> [blendV]
           MethodKalmanOnly -> [kalV]
           MethodLstmOnly -> [lstmV]
@@ -456,58 +459,87 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
           }
       emptyMetrics = computeMetrics ppy emptyBacktest
 
-      eval openThr closeThr =
-        let btCfg = baseCfg { ecOpenThreshold = openThr, ecCloseThreshold = closeThr }
-            btFullE = simulateEnsembleVWithHLChecked btCfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
-            (btFull, metrics, eligible, foldScores) =
-              case btFullE of
-                Left _ ->
-                  (emptyBacktest, emptyMetrics, False, [ineligibleScore])
-                Right btFull' ->
-                  let metrics' = computeMetrics ppy btFull'
-                      eligible' =
-                        if minRoundTripsReq <= 0
-                          then True
-                          else bmRoundTrips metrics' >= minRoundTripsReq
-                      foldsReq = max 1 (tcWalkForwardFolds cfg)
-                      foldRs = foldRanges stepCount foldsReq
-                      foldScores' =
-                        if not eligible'
-                          then [ineligibleScore]
-                          else
-                            if length foldRs <= 1
-                              then [scoreBacktest cfg btFull']
-                              else
-                                [ let steps = t1 - t0 + 1
-                                      pricesF = V.slice t0 (steps + 1) pricesV
-                                      highsF = V.slice t0 (steps + 1) highsV
-                                      lowsF = V.slice t0 (steps + 1) lowsV
-                                      kalF = V.slice t0 steps kalUsedV
-                                      lstmF = V.slice t0 steps lstmUsedV
-                                      metaF = fmap (\mv -> V.slice t0 steps mv) metaUsed
-                                      openTimesF = fmap (\ot -> V.slice t0 (steps + 1) ot) (ecOpenTimes btCfg)
-                                      btCfgFold = btCfg { ecOpenTimes = openTimesF }
-                                      btFoldE = simulateEnsembleVWithHLChecked btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
-                                   in case btFoldE of
-                                        Left _ -> ineligibleScore
-                                        Right btFold -> scoreBacktest cfg btFold
-                                | (t0, t1) <- foldRs
-                                , t1 >= t0
-                                ]
-                   in (btFull', metrics', eligible', foldScores')
-            m = mean foldScores
-            s = stddev foldScores
-            stats =
-              TuneStats
-                { tsFoldCount = length foldScores
-                , tsFoldScores = foldScores
-                , tsMeanScore = m
-                , tsStdScore = s
-                }
-         in (eligible, m, s, openThr, closeThr, btFull, stats, metrics)
+      lstmFlipEnabled =
+        case method of
+          MethodBoth -> True
+          MethodLstmOnly -> True
+          _ -> False
+
+      applyLstmFlip cfg =
+        if lstmFlipEnabled
+          then cfg
+          else cfg { ecLstmExitFlipBars = 0, ecLstmExitFlipGraceBars = 0 }
+
+      evalForOpen openThr =
+        let (kalUsedV, lstmUsedV, metaMask) =
+              case method of
+                MethodRouter ->
+                  let routerOpenThr = max openThr minEdge
+                      (routerPredV, routerModelsV) =
+                        routerPredictionsWithModelsV routerOpenThr routerLookback routerMinScore pricesV kalV lstmV blendV
+                      routerMaskV = V.map (== Just RouterKalman) routerModelsV
+                   in (routerPredV, routerPredV, Just routerMaskV)
+                _ -> (kalUsedV0, lstmUsedV0, Nothing)
+            evalClose closeThr =
+              let btCfg0 =
+                    baseCfg
+                      { ecOpenThreshold = openThr
+                      , ecCloseThreshold = closeThr
+                      , ecMetaMask = metaMask
+                      }
+                  btCfg = applyLstmFlip btCfg0
+                  btFullE = simulateEnsembleVWithHLChecked btCfg 1 pricesV highsV lowsV kalUsedV lstmUsedV metaUsed
+                  (btFull, metrics, eligible, foldScores) =
+                    case btFullE of
+                      Left _ ->
+                        (emptyBacktest, emptyMetrics, False, [ineligibleScore])
+                      Right btFull' ->
+                        let metrics' = computeMetrics ppy btFull'
+                            eligible' =
+                              if minRoundTripsReq <= 0
+                                then True
+                                else bmRoundTrips metrics' >= minRoundTripsReq
+                            foldsReq = max 1 (tcWalkForwardFolds cfg)
+                            foldRs = foldRanges stepCount foldsReq
+                            foldScores' =
+                              if not eligible'
+                                then [ineligibleScore]
+                                else
+                                  if length foldRs <= 1
+                                    then [scoreBacktest cfg btFull']
+                                    else
+                                      [ let steps = t1 - t0 + 1
+                                            pricesF = V.slice t0 (steps + 1) pricesV
+                                            highsF = V.slice t0 (steps + 1) highsV
+                                            lowsF = V.slice t0 (steps + 1) lowsV
+                                            kalF = V.slice t0 steps kalUsedV
+                                            lstmF = V.slice t0 steps lstmUsedV
+                                            metaF = fmap (\mv -> V.slice t0 steps mv) metaUsed
+                                            openTimesF = fmap (\ot -> V.slice t0 (steps + 1) ot) (ecOpenTimes btCfg)
+                                            metaMaskF = fmap (\mask -> V.slice t0 steps mask) metaMask
+                                            btCfgFold = btCfg { ecOpenTimes = openTimesF, ecMetaMask = metaMaskF }
+                                            btFoldE = simulateEnsembleVWithHLChecked btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
+                                         in case btFoldE of
+                                              Left _ -> ineligibleScore
+                                              Right btFold -> scoreBacktest cfg btFold
+                                      | (t0, t1) <- foldRs
+                                      , t1 >= t0
+                                      ]
+                         in (btFull', metrics', eligible', foldScores')
+                  m = mean foldScores
+                  s = stddev foldScores
+                  stats =
+                    TuneStats
+                      { tsFoldCount = length foldScores
+                      , tsFoldScores = foldScores
+                      , tsMeanScore = m
+                      , tsStdScore = s
+                      }
+               in (eligible, m, s, openThr, closeThr, btFull, stats, metrics)
+         in evalClose
 
       (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats, baseMetrics) =
-        eval baseOpenThreshold baseCloseThreshold
+        evalForOpen baseOpenThreshold baseCloseThreshold
       eqEps = 1e-12
       preferTie metrics openThr closeThr bestMetrics bestOpen bestClose =
         let eq = bmFinalEquity metrics
@@ -536,9 +568,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                             else False
                       else False
                 else False
-      pick (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics) (openThr, closeThr) =
-        let (eligible, m, s, openThr', closeThr', bt, stats, metrics) = eval openThr closeThr
-         in case (bestEligible, eligible) of
+      pickResult (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics) (eligible, m, s, openThr', closeThr', bt, stats, metrics) =
+        case (bestEligible, eligible) of
               (False, True) -> (True, m, s, openThr', closeThr', bt, stats, metrics)
               (True, False) -> (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
               _ ->
@@ -553,7 +584,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                           else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
                     else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
 
-      foldClose acc openThr = foldl' (\acc0 closeThr -> pick acc0 (openThr, closeThr)) acc candidates
+      foldClose acc openThr =
+        let evalClose = evalForOpen openThr
+         in foldl' (\acc0 closeThr -> pickResult acc0 (evalClose closeThr)) acc candidates
       (bestEligible, _, _, bestOpenThr, bestCloseThr, bestBt, bestStats, _bestMetrics) =
         foldl' foldClose (baseEligible, baseMean, baseStd, baseOpenThr, baseCloseThr, baseBt, baseStats, baseMetrics) candidates
 
@@ -565,3 +598,133 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         if minRoundTripsReq > 0 && not bestEligible
           then Left ("sweepThreshold: no eligible candidates (minRoundTrips=" ++ show minRoundTripsReq ++ ")")
           else Right result
+
+data RouterModel
+  = RouterKalman
+  | RouterLstm
+  | RouterBlend
+  deriving (Eq, Show)
+
+data RouterStats = RouterStats
+  { rsScore :: !Double
+  , rsAccuracy :: !Double
+  , rsCoverage :: !Double
+  , rsSignals :: !Int
+  } deriving (Eq, Show)
+
+routerStatsWindow :: Double -> V.Vector Double -> V.Vector Double -> Int -> Int -> RouterStats
+routerStatsWindow openThr pricesV predsV start0 end0 =
+  let stepCount = min (V.length predsV) (V.length pricesV - 1)
+      start = max 0 start0
+      end = min end0 (stepCount - 1)
+      bad x = isNaN x || isInfinite x
+      direction prev next =
+        if prev <= 0 || bad prev || bad next
+          then Nothing
+          else
+            let up = prev * (1 + openThr)
+                down = prev * (1 - openThr)
+             in if next > up
+                  then Just (1 :: Int)
+                  else if next < down then Just (-1) else Nothing
+      step (correct, wrong, signals) i =
+        let prev = pricesV V.! i
+            next = pricesV V.! (i + 1)
+            pred = predsV V.! i
+            predDir = direction prev pred
+            actualDir = direction prev next
+         in case predDir of
+              Nothing -> (correct, wrong, signals)
+              Just dir ->
+                let signals' = signals + 1
+                 in if actualDir == Just dir
+                      then (correct + 1, wrong, signals')
+                      else (correct, wrong + 1, signals')
+   in
+    if stepCount <= 0 || end < start
+      then RouterStats { rsScore = 0, rsAccuracy = 0, rsCoverage = 0, rsSignals = 0 }
+      else
+        let windowLen = end - start + 1
+            (correct, _wrong, signals) = foldl' step (0, 0, 0) [start .. end]
+            accuracy =
+              if signals <= 0
+                then 0
+                else fromIntegral correct / fromIntegral signals
+            coverage =
+              if windowLen <= 0
+                then 0
+                else fromIntegral signals / fromIntegral windowLen
+            score = accuracy * coverage
+         in RouterStats { rsScore = score, rsAccuracy = accuracy, rsCoverage = coverage, rsSignals = signals }
+
+routerSelectModelAt
+  :: Double
+  -> Int
+  -> Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> Int
+  -> (Maybe RouterModel, Double, Maybe String)
+routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV t =
+  let stepCount =
+        minimum
+          [ V.length pricesV - 1
+          , V.length kalPredV
+          , V.length lstmPredV
+          , V.length blendPredV
+          ]
+      lookback = max 1 lookback0
+      minScore = max 0 (min 1 minScore0)
+      windowEnd = min (t - 1) (stepCount - 1)
+      modelRank m =
+        case m of
+          RouterBlend -> 2 :: Int
+          RouterKalman -> 1
+          RouterLstm -> 0
+      scoreKey (m, stats) = (rsScore stats, rsCoverage stats, rsAccuracy stats, modelRank m)
+      pick best cand =
+        if scoreKey cand > scoreKey best
+          then cand
+          else best
+   in
+    if stepCount <= 0 || windowEnd < 0
+      then (Nothing, 0, Just "ROUTER_WARMUP")
+      else
+        let windowStart = max 0 (windowEnd - lookback + 1)
+            statsKal = routerStatsWindow openThr pricesV kalPredV windowStart windowEnd
+            statsLstm = routerStatsWindow openThr pricesV lstmPredV windowStart windowEnd
+            statsBlend = routerStatsWindow openThr pricesV blendPredV windowStart windowEnd
+            (bestModel, bestStats) =
+              foldl' pick (RouterKalman, statsKal) [(RouterLstm, statsLstm), (RouterBlend, statsBlend)]
+            bestScore = rsScore bestStats
+         in if bestScore < minScore
+              then (Nothing, bestScore, Just "ROUTER_MIN_SCORE")
+              else (Just bestModel, bestScore, Nothing)
+
+routerPredictionsWithModelsV
+  :: Double
+  -> Int
+  -> Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> (V.Vector Double, V.Vector (Maybe RouterModel))
+routerPredictionsWithModelsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV =
+  let stepCount =
+        minimum
+          [ V.length pricesV - 1
+          , V.length kalPredV
+          , V.length lstmPredV
+          , V.length blendPredV
+          ]
+      pickPred t =
+        case routerSelectModelAt openThr lookback minScore pricesV kalPredV lstmPredV blendPredV t of
+          (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
+          (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
+          (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
+          _ -> (pricesV V.! t, Nothing)
+      picks = V.generate (max 0 stepCount) pickPred
+   in (V.map fst picks, V.map snd picks)

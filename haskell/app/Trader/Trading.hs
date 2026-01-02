@@ -53,6 +53,7 @@ data EnsembleConfig = EnsembleConfig
   , ecMaxDailyLoss :: !(Maybe Double)  -- fraction, e.g. 0.05 (5%); halts and exits to flat
   , ecIntervalSeconds :: !(Maybe Int)  -- required for daily-loss; inferred from CLI interval
   , ecOpenTimes :: !(Maybe (V.Vector Int64)) -- optional bar open times (ms since epoch) for daily-loss day keys
+  , ecMetaMask :: !(Maybe (V.Vector Bool)) -- optional per-bar mask to apply Kalman meta gating
   , ecPositioning :: !Positioning
   , ecIntrabarFill :: !IntrabarFill
   , ecMaxPositionSize :: !Double       -- 0..N, caps position sizing (1=full)
@@ -74,6 +75,8 @@ data EnsembleConfig = EnsembleConfig
   , ecFundingBySide :: !Bool           -- when True, apply funding sign by side
   , ecFundingOnOpen :: !Bool           -- when True, charge funding for bars opened with a position
   , ecBlendWeight :: !Double           -- Kalman weight for blend method
+  , ecRouterLookback :: !Int           -- bars; router scoring window
+  , ecRouterMinScore :: !Double        -- 0..1; router min score for accepting a model
   -- Tri-layer gating (Kalman cloud + price action trigger)
   , ecKalmanDt :: !Double
   , ecKalmanProcessVar :: !Double
@@ -392,6 +395,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
             | V.length ts > n -> Just (V.drop (V.length ts - n) ts)
             | otherwise -> Nothing
           _ -> Nothing
+      metaMaskV =
+        case ecMetaMask cfg of
+          Just mask
+            | V.length mask == stepCount -> Just mask
+            | V.length mask > stepCount -> Just (V.drop (V.length mask - stepCount) mask)
+            | otherwise -> Nothing
+          _ -> Nothing
+      metaMaskMismatch =
+        case ecMetaMask cfg of
+          Just mask | V.length mask < stepCount -> Just "meta mask vector too short for simulateEnsembleLongFlatVWithHL"
+          _ -> Nothing
       validationError =
         if n < 2
           then Just "Need at least 2 prices to simulate"
@@ -402,27 +416,30 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
             if lookback >= n
               then Just "lookback must be less than number of prices"
               else
-                if maybe False (\mv -> V.length mv < stepCount) mMetaV
-                  then Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
-                  else
-                    if V.length kalPredNextV < kalNeed
-                      then
-                        Just
-                          ( "kalPredNext too short: need at least "
-                              ++ show kalNeed
-                              ++ ", got "
-                              ++ show (V.length kalPredNextV)
-                          )
+                case metaMaskMismatch of
+                  Just err -> Just err
+                  Nothing ->
+                    if maybe False (\mv -> V.length mv < stepCount) mMetaV
+                      then Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
                       else
-                        if V.length lstmPredNextV < lstmNeed
+                        if V.length kalPredNextV < kalNeed
                           then
                             Just
-                              ( "lstmPredNext too short: need at least "
-                                  ++ show lstmNeed
+                              ( "kalPredNext too short: need at least "
+                                  ++ show kalNeed
                                   ++ ", got "
-                                  ++ show (V.length lstmPredNextV)
+                                  ++ show (V.length kalPredNextV)
                               )
-                          else Nothing
+                          else
+                            if V.length lstmPredNextV < lstmNeed
+                              then
+                                Just
+                                  ( "lstmPredNext too short: need at least "
+                                      ++ show lstmNeed
+                                      ++ ", got "
+                                      ++ show (V.length lstmPredNextV)
+                                  )
+                              else Nothing
    in case validationError of
         Just err -> Left err
         Nothing ->
@@ -453,9 +470,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                 case ecIntervalSeconds cfg of
                   Just s | s > 0 -> Just s
                   _ -> Nothing
+              hasDailyKey =
+                case openTimesV of
+                  Just _ -> True
+                  Nothing ->
+                    case intervalSeconds of
+                      Just _ -> True
+                      Nothing -> False
               maxDailyLossLim =
-                case (ecMaxDailyLoss cfg, intervalSeconds) of
-                  (Just v, Just _) | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
+                case ecMaxDailyLoss cfg of
+                  Just v
+                    | hasDailyKey && v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
                   _ -> Nothing
               maxPositionSize = max 0 (ecMaxPositionSize cfg)
               minPositionSize = max 0 (ecMinPositionSize cfg)
@@ -1028,7 +1053,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               metaAt t =
                 case mMetaV of
                   Nothing -> Nothing
-                  Just mv -> if t >= 0 && t < V.length mv then Just (mv V.! t) else Nothing
+                  Just mv ->
+                    case metaMaskV of
+                      Just mask
+                        | t >= 0 && t < V.length mask && not (mask V.! t) -> Nothing
+                      _ ->
+                        if t >= 0 && t < V.length mv
+                          then Just (mv V.! t)
+                          else Nothing
 
               intervalWidth :: StepMeta -> Maybe Double
               intervalWidth m =
@@ -1152,13 +1184,13 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                   else
                     let (peakEq0, dayKey0, dayStartEq0, haltReason0) = riskState0
                         (dayKey1, dayStartEq1, dayChanged) =
-                          case intervalSeconds of
-                            Nothing -> (dayKey0, dayStartEq0, False)
-                            Just _ ->
+                          if hasDailyKey
+                            then
                               let dk = dayKeyAt t
                                   changed = dk /= dayKey0
                                   dayStart = if changed then equity else dayStartEq0
                                in (dk, dayStart, changed)
+                            else (dayKey0, dayStartEq0, False)
                         peakEq1 = max peakEq0 equity
                         drawdown =
                           if peakEq1 > 0

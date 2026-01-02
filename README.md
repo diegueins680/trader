@@ -221,7 +221,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average), `router` (adaptive model selection)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
-    - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy, then applies Kalman confidence/risk gates to the routed direction (including LSTM selections). Router scoring uses the effective open threshold (open-threshold plus any cost-aware min-edge floor).
+    - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy; Kalman confidence/risk gates apply only when Kalman is selected. Router scoring uses the effective open threshold (open-threshold plus any cost-aware min-edge floor).
     - `--blend-weight 0.5` Kalman weight for `blend` (`0..1`, default: `0.5`)
     - `--router-lookback 30` lookback bars for router scoring (`>= 2`)
     - `--router-min-score 0.25` minimum router score (accuracy × coverage) to accept a model (`0..1`)
@@ -253,9 +253,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-hold-bars N` minimum holding periods before allowing a signal-based exit (`0` disables; default: `4`; bracket exits still apply)
   - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
-  - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables)
-  - `--lstm-exit-flip-grace-bars N` ignore LSTM flip exits during the first `N` bars of a trade
-  - `--lstm-exit-flip-strong` require strong LSTM confidence for flip exits (uses `--lstm-confidence-hard`)
+  - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables; LSTM methods only)
+  - `--lstm-exit-flip-grace-bars N` ignore LSTM flip exits during the first `N` bars of a trade (LSTM methods only)
+  - `--lstm-exit-flip-strong` require strong LSTM confidence for flip exits (uses `--lstm-confidence-hard`; LSTM methods only)
   - `--trend-lookback N` simple moving average filter for entries (`0` disables; default: `30`)
   - `--tri-layer` enable Kalman cloud + price-action entry gating (uses the last candle and Kalman cloud trend)
     - `--tri-layer-fast-mult 0.5` fast Kalman measurement-variance multiplier for the cloud
@@ -302,7 +302,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
-    - Backtests reset daily-loss using bar timestamps when available (exchange data or CSV time columns); if timestamps are missing or mismatched they fall back to interval-based day keys.
+    - Backtests use bar timestamps when available (exchange data or CSV time columns); otherwise they fall back to interval-based day keys.
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
   - Risk halts are evaluated on post-bar equity and can close open positions at the bar close.
   - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as the exit reason.
@@ -369,7 +369,7 @@ Endpoints:
 - Backtest endpoints return 400 for inconsistent inputs (e.g., lookback >= bars, high/low length mismatches).
 - `POST /optimizer/run` → runs the optimizer executable, merges the run into `top-combos.json`, and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
-  - Top-combo merges compare scores only within the same objective; when objectives differ, ranking falls back to final equity to avoid mixing metrics.
+  - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), using score and final equity as tie-breakers.
   - `top-combos.json` also includes `bestOptimizationTechniques`, a curated list of optimization best practices with short explanations for downstream consumers, plus `optimizationTechniquesApplied`/`ensemble` sections that summarize the Sobol seeding, successive halving, Bayesian-inspired exploitation, walk-forward validation, and ensemble construction applied during a run.
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or minNotional)
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
@@ -381,7 +381,7 @@ Endpoints:
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail)
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
 - `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000, and open trade entries are clamped to the tail).
-- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) and also keeps bots running for the current top 10 combos in `top-combos.json` (Binance only), prioritized by `metrics.tradeCount` (most trades); it warns if fewer than 10 unique symbols exist to start all top-combo bots. Trading is enabled by default (requires Binance API keys) and missing bots restart on the next poll interval.
+- On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) and also keeps bots running for the current top 10 combos in `top-combos.json` (Binance only), prioritized by annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker; it warns if fewer than 10 unique symbols exist to start all top-combo bots. Trading is enabled by default (requires Binance API keys) and missing bots restart on the next poll interval.
 
 Always-on live bot (cron watchdog):
 - Use `deploy/ensure-bot-running.sh` to check `/bot/status` and call `/bot/start` if the bot is not running.
@@ -586,7 +586,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
-- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), `"blend"` (weighted average; see `--blend-weight`), or `"router"` (adaptive selection with Kalman confidence/risk gates; see `--router-lookback` / `--router-min-score`).
+- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), `"blend"` (weighted average; see `--blend-weight`), or `"router"` (adaptive selection; Kalman confidence/risk gates apply only on Kalman-selected bars; see `--router-lookback` / `--router-min-score`).
 - `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
 - Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption or futures trade requests.
 

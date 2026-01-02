@@ -3774,6 +3774,7 @@ botOptimizeAfterOperation st = do
                   , ecMaxDailyLoss = argMaxDailyLoss args
                   , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
                   , ecOpenTimes = Just (V.drop start (botOpenTimes st))
+                  , ecMetaMask = Nothing
                   , ecPositioning = argPositioning args
                   , ecIntrabarFill = argIntrabarFill args
                   , ecMaxPositionSize = argMaxPositionSize args
@@ -3795,6 +3796,8 @@ botOptimizeAfterOperation st = do
                   , ecFundingBySide = argFundingBySide args
                   , ecFundingOnOpen = argFundingOnOpen args
                   , ecBlendWeight = argBlendWeight args
+                  , ecRouterLookback = argRouterLookback args
+                  , ecRouterMinScore = argRouterMinScore args
                   , ecKalmanDt = argKalmanDt args
                   , ecKalmanProcessVar = argKalmanProcessVar args
                   , ecKalmanMeasurementVar = argKalmanMeasurementVar args
@@ -8027,17 +8030,22 @@ comboIdentityKey val = do
           ]
   pure (BL.toStrict (encodePretty identity))
 
-comboPerformanceKey :: Aeson.Value -> (Double, Double, Int)
+comboPerformanceKey :: Aeson.Value -> (Double, Double, Double, Int)
 comboPerformanceKey val =
-  let eq = fromMaybe 0 (comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val)
+  let ann =
+        fromMaybe
+          (negate (1 / 0))
+          (comboMetricsDouble "annualizedReturn" val <|> comboMetricDouble "annualizedReturn" val)
+      eq = fromMaybe 0 (comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val)
       score = fromMaybe (negate (1 / 0)) (comboMetricDouble "score" val)
       rank =
         case val of
           Aeson.Object o -> fromMaybe maxBound (KM.lookup (AK.fromString "rank") o >>= AT.parseMaybe parseJSON)
           _ -> maxBound
+      ann' = if isNaN ann || isInfinite ann then negate (1 / 0) else ann
       eq' = if isNaN eq || isInfinite eq then 0 else eq
       score' = if isNaN score || isInfinite score then negate (1 / 0) else score
-   in (negate eq', negate score', rank)
+   in (negate ann', negate eq', negate score', rank)
 
 extractBacktestMetrics :: Aeson.Value -> Maybe Aeson.Value
 extractBacktestMetrics val =
@@ -8163,21 +8171,33 @@ topComboMetricInt key combo = do
   metrics <- tcMetrics combo
   KM.lookup (AK.fromString key) metrics >>= AT.parseMaybe parseJSON
 
+topComboMetricDouble :: String -> TopCombo -> Maybe Double
+topComboMetricDouble key combo = do
+  metrics <- tcMetrics combo
+  KM.lookup (AK.fromString key) metrics >>= AT.parseMaybe parseJSON
+
 topComboTradeCount :: TopCombo -> Int
 topComboTradeCount combo = fromMaybe 0 (topComboMetricInt "tradeCount" combo)
 
-topComboRankKey :: TopCombo -> (Int, Double, Double)
+topComboAnnualizedReturn :: TopCombo -> Double
+topComboAnnualizedReturn combo =
+  let ann = fromMaybe (negate (1 / 0)) (topComboMetricDouble "annualizedReturn" combo)
+   in if isNaN ann || isInfinite ann then negate (1 / 0) else ann
+
+topComboRankKey :: TopCombo -> (Double, Double, Double, Int)
 topComboRankKey combo =
   let rank = fromMaybe (maxBound :: Int) (tcRank combo)
       score = fromMaybe (negate (1 / 0)) (tcScore combo)
       eq = fromMaybe 0 (tcFinalEquity combo)
-   in (rank, negate score, negate eq)
+      score' = if isNaN score || isInfinite score then negate (1 / 0) else score
+      eq' = if isNaN eq || isInfinite eq then 0 else eq
+   in (negate (topComboAnnualizedReturn combo), negate score', negate eq', rank)
 
-topComboTradePriorityKey :: TopCombo -> (Int, Int, Double, Double)
+topComboTradePriorityKey :: TopCombo -> (Double, Int, Double, Double, Int)
 topComboTradePriorityKey combo =
   let trades = negate (topComboTradeCount combo)
-      (rank, score, eq) = topComboRankKey combo
-   in (trades, rank, score, eq)
+      (ann, score, eq, rank) = topComboRankKey combo
+   in (ann, trades, score, eq, rank)
 
 topComboMatchesSymbol :: String -> Maybe String -> TopCombo -> Bool
 topComboMatchesSymbol symRaw mInterval combo =
@@ -8359,20 +8379,8 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
       let s = trim raw
        in if null s then Nothing else Just s
 
-    comboMetric key val =
-      case val of
-        Aeson.Object o -> KM.lookup key o >>= AT.parseMaybe parseJSON
-        _ -> Nothing
-
-    comboKey :: Aeson.Value -> (Double, Double, Int)
-    comboKey v =
-      let eq = fromMaybe 0 (comboMetric "finalEquity" v)
-          score = fromMaybe (negate (1 / 0)) (comboMetric "score" v)
-          rank =
-            case v of
-              Aeson.Object o -> fromMaybe maxBound (KM.lookup "rank" o >>= AT.parseMaybe parseJSON)
-              _ -> maxBound
-       in (negate eq, negate score, rank)
+    comboKey :: Aeson.Value -> (Double, Double, Double, Int)
+    comboKey = comboPerformanceKey
 
     addRank :: Int -> Aeson.Value -> Aeson.Value
     addRank rank val =
@@ -11466,6 +11474,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecMaxDailyLoss = argMaxDailyLoss args
           , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
           , ecOpenTimes = Nothing
+          , ecMetaMask = Nothing
           , ecPositioning = argPositioning args
           , ecIntrabarFill = argIntrabarFill args
           , ecMaxPositionSize = argMaxPositionSize args
@@ -11487,6 +11496,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecFundingBySide = argFundingBySide args
           , ecFundingOnOpen = argFundingOnOpen args
           , ecBlendWeight = argBlendWeight args
+          , ecRouterLookback = argRouterLookback args
+          , ecRouterMinScore = argRouterMinScore args
           , ecKalmanDt = argKalmanDt args
           , ecKalmanProcessVar = argKalmanProcessVar args
           , ecKalmanMeasurementVar = argKalmanMeasurementVar args
@@ -11556,12 +11567,20 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 Right (openThr, closeThr, btTune, stats) -> (methodRequested, openThr, closeThr, Just stats, Just (computeMetrics ppy btTune))
             else (methodRequested, argOpenThreshold args, argCloseThreshold args, Nothing, Nothing)
 
-      backtestCfg = baseCfgBacktest { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
+      lstmFlipEnabled method =
+        case method of
+          MethodBoth -> True
+          MethodLstmOnly -> True
+          _ -> False
+      applyLstmFlip method cfg =
+        if lstmFlipEnabled method
+          then cfg
+          else cfg { ecLstmExitFlipBars = 0, ecLstmExitFlipGraceBars = 0 }
       routerOpenThr = max bestOpenThr minEdge
       blendWeight0 = argBlendWeight args
       blendWeight = max 0 (min 1 blendWeight0)
       blendPredBacktest = zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredBacktest lstmPredBacktest
-      routerPredBacktestV =
+      routerPredBacktest =
         case methodUsed of
           MethodRouter ->
             let pricesV = V.fromList backtestPrices
@@ -11570,7 +11589,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 blendV = V.fromList blendPredBacktest
              in
               Just
-                ( routerPredictionsV
+                ( routerPredictionsWithModelsV
                     routerOpenThr
                     (argRouterLookback args)
                     (argRouterMinScore args)
@@ -11580,14 +11599,15 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     blendV
                 )
           _ -> Nothing
-      (kalPredUsedBacktest, lstmPredUsedBacktest, metaUsedBacktest) =
+      (kalPredUsedBacktest, lstmPredUsedBacktest, metaUsedBacktest, metaMaskUsedBacktest) =
         case methodUsed of
           MethodRouter ->
-            case routerPredBacktestV of
-              Just routerPredV ->
+            case routerPredBacktest of
+              Just (routerPredV, routerModelsV) ->
                 let routerPred = V.toList routerPredV
-                 in (routerPred, routerPred, metaBacktest)
-              Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest)
+                    routerMaskV = V.map (== Just RouterKalman) routerModelsV
+                 in (routerPred, routerPred, metaBacktest, Just routerMaskV)
+              Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest, Nothing)
           _ ->
             let (kalPredUsed, lstmPredUsed) =
                   selectPredictions methodUsed blendWeight0 kalPredBacktest lstmPredBacktest
@@ -11595,7 +11615,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                   case methodUsed of
                     MethodLstmOnly -> Nothing
                     _ -> metaBacktest
-             in (kalPredUsed, lstmPredUsed, metaUsed)
+             in (kalPredUsed, lstmPredUsed, metaUsed, Nothing)
+
+      backtestCfgBase = baseCfgBacktest { ecOpenThreshold = bestOpenThr, ecCloseThreshold = bestCloseThr }
+      backtestCfgNoMask = applyLstmFlip methodUsed backtestCfgBase
+      backtestCfg = backtestCfgNoMask { ecMetaMask = metaMaskUsedBacktest }
+      backtestCfgAgreement = backtestCfgNoMask { ecMetaMask = Nothing }
 
   let backtestRawE =
         simulateEnsembleWithHLChecked
@@ -11616,7 +11641,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           MethodRouter ->
             let agreementBacktestE =
                   simulateEnsembleWithHLChecked
-                    backtestCfg
+                    backtestCfgAgreement
                     1
                     backtestPrices
                     backtestHighs
@@ -11679,7 +11704,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                   lstmF = take steps (drop t0 lstmPredUsedBacktest)
                   metaF = fmap (take steps . drop t0) metaUsedBacktest
                   openTimesF = fmap (\ot -> V.slice t0 (steps + 1) ot) (ecOpenTimes backtestCfg)
-                  backtestCfgFold = backtestCfg { ecOpenTimes = openTimesF }
+                  metaMaskF = fmap (\mask -> V.slice t0 steps mask) metaMaskUsedBacktest
+                  backtestCfgFold = backtestCfg { ecOpenTimes = openTimesF, ecMetaMask = metaMaskF }
                   btFold =
                     case simulateEnsembleWithHLChecked backtestCfgFold 1 pricesF highsF lowsF kalF lstmF metaF of
                       Left err -> error err
@@ -12058,7 +12084,33 @@ routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blend
             bestScore = rsScore bestStats
          in if bestScore < minScore
               then (Nothing, bestScore, Just "ROUTER_MIN_SCORE")
-         else (Just bestModel, bestScore, Nothing)
+              else (Just bestModel, bestScore, Nothing)
+
+routerPredictionsWithModelsV
+  :: Double
+  -> Int
+  -> Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> V.Vector Double
+  -> (V.Vector Double, V.Vector (Maybe RouterModel))
+routerPredictionsWithModelsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV =
+  let stepCount =
+        minimum
+          [ V.length pricesV - 1
+          , V.length kalPredV
+          , V.length lstmPredV
+          , V.length blendPredV
+          ]
+      pickPred t =
+        case routerSelectModelAt openThr lookback minScore pricesV kalPredV lstmPredV blendPredV t of
+          (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
+          (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
+          (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
+          _ -> (pricesV V.! t, Nothing)
+      picks = V.generate (max 0 stepCount) pickPred
+   in (V.map fst picks, V.map snd picks)
 
 routerPredictionsV
   :: Double
@@ -12070,20 +12122,7 @@ routerPredictionsV
   -> V.Vector Double
   -> V.Vector Double
 routerPredictionsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV =
-  let stepCount =
-        minimum
-          [ V.length pricesV - 1
-          , V.length kalPredV
-          , V.length lstmPredV
-          , V.length blendPredV
-          ]
-      pickPred t =
-        case routerSelectModelAt openThr lookback minScore pricesV kalPredV lstmPredV blendPredV t of
-          (Just RouterKalman, _, _) -> kalPredV V.! t
-          (Just RouterLstm, _, _) -> lstmPredV V.! t
-          (Just RouterBlend, _, _) -> blendPredV V.! t
-          _ -> pricesV V.! t
-   in V.generate (max 0 stepCount) pickPred
+  fst (routerPredictionsWithModelsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV)
 
 computeLatestSignal
   :: Args
@@ -12715,31 +12754,38 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                    in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
                          in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
                       _ -> (Nothing, Nothing, Nothing, Nothing)
-                  (routerDirGated, routerCloseDirGated, routerPosSize, routerGateReason) =
-                    case (mKalZ, mConfidence) of
-                      (Just kalZ, Just confScore) ->
-                        let sizeRaw =
-                              if argConfidenceSizing args
-                                then confScore
-                                else if routerDirRaw == Nothing then 0 else 1
-                            (dirUsed, mWhy) =
-                              gateKalmanDir (argConfidenceSizing args) openThr kalZ mRegimes mConformal mQuantiles confScore routerDirRaw
-                            (closeDirUsed, _) =
-                              gateKalmanDir False closeThr kalZ mRegimes mConformal mQuantiles confScore routerCloseDirRaw
-                            sizeUsed =
-                              case dirUsed of
-                                Nothing -> 0
-                                Just _ ->
-                                  let s0 = if argConfidenceSizing args then sizeRaw else 1
-                                   in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
-                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                  (routerDirGated, routerCloseDirGated, routerPosSize, routerGateReason, routerConfidence) =
+                    case mRouterModel of
+                      Just RouterKalman ->
+                        case (mKalZ, mConfidence) of
+                          (Just kalZ, Just confScore) ->
+                            let sizeRaw =
+                                  if argConfidenceSizing args
+                                    then confScore
+                                    else if routerDirRaw == Nothing then 0 else 1
+                                (dirUsed, mWhy) =
+                                  gateKalmanDir (argConfidenceSizing args) openThr kalZ mRegimes mConformal mQuantiles confScore routerDirRaw
+                                (closeDirUsed, _) =
+                                  gateKalmanDir False closeThr kalZ mRegimes mConformal mQuantiles confScore routerCloseDirRaw
+                                sizeUsed =
+                                  case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                      let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                       in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                             in (dirUsed, closeDirUsed, Just sizeUsed, mWhy, Just confScore)
+                          _ ->
+                            let sizeFallback =
+                                  if routerDirRaw == Nothing
+                                    then 0
+                                    else 1
+                             in (routerDirRaw, routerCloseDirRaw, Just sizeFallback, Nothing, mConfidence)
                       _ ->
                         let sizeFallback =
                               if routerDirRaw == Nothing
                                 then 0
                                 else 1
-                         in (routerDirRaw, routerCloseDirRaw, Just sizeFallback, Nothing)
-                  routerConfidence = mConfidence
+                         in (routerDirRaw, routerCloseDirRaw, Just sizeFallback, Nothing, Nothing)
 
                   closeDir =
                     case method of
