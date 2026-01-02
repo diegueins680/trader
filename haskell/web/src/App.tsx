@@ -178,6 +178,10 @@ function botStatusSymbol(status: BotStatusSingle): string | null {
   return null;
 }
 
+function botStatusKey(status: { market: Market; symbol: string; interval: string }): string {
+  return `${status.market}:${normalizeSymbolKey(status.symbol)}:${status.interval}`;
+}
+
 function formatDatetimeLocal(ms: number): string {
   if (!Number.isFinite(ms)) return "";
   const d = new Date(ms);
@@ -428,6 +432,43 @@ type BotRtUiState = {
   telemetry: BotTelemetryPoint[];
   feed: BotRtEvent[];
 };
+
+type BotRtTracker = {
+  lastOpenTimeMs: number | null;
+  lastError: string | null;
+  lastHalted: boolean | null;
+  lastFetchedOpenTimeMs: number | null;
+  lastFetchedClose: number | null;
+  lastMethod: Method | null;
+  lastOpenThreshold: number | null;
+  lastCloseThreshold: number | null;
+  lastTradeEnabled: boolean | null;
+  lastTelemetryPolledAtMs: number | null;
+};
+
+const emptyBotRtState = (): BotRtUiState => ({
+  lastFetchAtMs: null,
+  lastFetchDurationMs: null,
+  lastNewCandles: 0,
+  lastNewCandlesAtMs: null,
+  lastKlineUpdates: 0,
+  lastKlineUpdatesAtMs: null,
+  telemetry: [],
+  feed: [],
+});
+
+const emptyBotRtTracker = (): BotRtTracker => ({
+  lastOpenTimeMs: null,
+  lastError: null,
+  lastHalted: null,
+  lastFetchedOpenTimeMs: null,
+  lastFetchedClose: null,
+  lastMethod: null,
+  lastOpenThreshold: null,
+  lastCloseThreshold: null,
+  lastTradeEnabled: null,
+  lastTelemetryPolledAtMs: null,
+});
 
 type KeysUiState = {
   loading: boolean;
@@ -1223,41 +1264,9 @@ export function App() {
   const [binancePositionsBars, setBinancePositionsBars] = useState(200);
   const binancePositionsAutoKeyRef = useRef<string | null>(null);
 
-  const [botRt, setBotRt] = useState<BotRtUiState>({
-    lastFetchAtMs: null,
-    lastFetchDurationMs: null,
-    lastNewCandles: 0,
-    lastNewCandlesAtMs: null,
-    lastKlineUpdates: 0,
-    lastKlineUpdatesAtMs: null,
-    telemetry: [],
-    feed: [],
-  });
-  const botRtRef = useRef<{
-    botKey: string | null;
-    lastOpenTimeMs: number | null;
-    lastError: string | null;
-    lastHalted: boolean | null;
-    lastFetchedOpenTimeMs: number | null;
-    lastFetchedClose: number | null;
-    lastMethod: Method | null;
-    lastOpenThreshold: number | null;
-    lastCloseThreshold: number | null;
-    lastTradeEnabled: boolean | null;
-    lastTelemetryPolledAtMs: number | null;
-  }>({
-    botKey: null,
-    lastOpenTimeMs: null,
-    lastError: null,
-    lastHalted: null,
-    lastFetchedOpenTimeMs: null,
-    lastFetchedClose: null,
-    lastMethod: null,
-    lastOpenThreshold: null,
-    lastCloseThreshold: null,
-    lastTradeEnabled: null,
-    lastTelemetryPolledAtMs: null,
-  });
+  const [botRtByKey, setBotRtByKey] = useState<Record<string, BotRtUiState>>({});
+  const emptyBotRt = useMemo(() => emptyBotRtState(), []);
+  const botRtRef = useRef<Record<string, BotRtTracker>>({});
   const botStatusFetchedRef = useRef(false);
   const botAutoStartSuppressedRef = useRef(false);
   const botAutoStartRef = useRef<{ lastAttemptAtMs: number }>({ lastAttemptAtMs: 0 });
@@ -2276,6 +2285,8 @@ export function App() {
   const botDisplay = botSelectedStatus?.running ? botSelectedStatus : botSnapshot;
   const botSnapshotAtMs = botSelectedStatus?.running ? null : botSelectedStatus?.snapshotAtMs ?? null;
   const botHasSnapshot = botSnapshot !== null;
+  const botDisplayKey = botDisplay ? botStatusKey(botDisplay) : null;
+  const botRt = botDisplayKey ? botRtByKey[botDisplayKey] ?? emptyBotRt : emptyBotRt;
   const botStatusRange = useMemo(() => {
     const startMs = parseDatetimeLocal(botStatusStartInput);
     const endMs = parseDatetimeLocal(botStatusEndInput);
@@ -3113,178 +3124,165 @@ export function App() {
         const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
         botStatusFetchedRef.current = true;
-        const selectedStatus: BotStatusSingle | null = (() => {
-          if (!isBotStatusMulti(out)) return out;
-          if (out.bots.length === 0) return null;
-          if (botSelectedSymbol) {
-            const match = out.bots.find((entry) => botStatusSymbol(entry) === botSelectedSymbol);
-            if (match) return match;
+        const botStatuses = isBotStatusMulti(out) ? out.bots : [out];
+        const runningStatuses = botStatuses.filter((status): status is BotStatusRunning => status.running);
+        setBotRtByKey((prev) => {
+          if (runningStatuses.length === 0) {
+            const hasPrev = Object.keys(prev).length > 0;
+            const hasRef = Object.keys(botRtRef.current).length > 0;
+            if (!hasPrev && !hasRef) return prev;
+            botRtRef.current = {};
+            return {};
           }
-          return out.bots[0] ?? null;
-        })();
-        const selectedRunning = selectedStatus && selectedStatus.running ? selectedStatus : null;
-        setBotRt((prev) => {
-          const base: BotRtUiState = {
-            ...prev,
-            lastFetchAtMs: finishedAtMs,
-            lastFetchDurationMs: Math.max(0, finishedAtMs - startedAtMs),
-            lastNewCandles: 0,
-            lastKlineUpdates: 0,
-          };
 
-          const rt = botRtRef.current;
+          const next: Record<string, BotRtUiState> = {};
+          const nextRef: Record<string, BotRtTracker> = {};
 
-          if (!selectedRunning) {
-            botRtRef.current = {
-              botKey: null,
-              lastOpenTimeMs: null,
-              lastError: null,
-              lastHalted: null,
-              lastFetchedOpenTimeMs: null,
-              lastFetchedClose: null,
-              lastMethod: null,
-              lastOpenThreshold: null,
-              lastCloseThreshold: null,
-              lastTradeEnabled: null,
-              lastTelemetryPolledAtMs: null,
-            };
-            return {
-              ...base,
+          for (const st of runningStatuses) {
+            const botKey = botStatusKey(st);
+            const prevState = prev[botKey] ?? emptyBotRtState();
+            const tracker = botRtRef.current[botKey] ?? emptyBotRtTracker();
+            const base: BotRtUiState = {
+              ...prevState,
+              lastFetchAtMs: finishedAtMs,
+              lastFetchDurationMs: Math.max(0, finishedAtMs - startedAtMs),
               lastNewCandles: 0,
-              lastNewCandlesAtMs: null,
               lastKlineUpdates: 0,
-              lastKlineUpdatesAtMs: null,
-              telemetry: [],
-              feed: [],
             };
+
+            let feed = base.feed;
+            let telemetry = base.telemetry;
+
+            const openTimes = st.openTimes;
+            const lastOpen = openTimes[openTimes.length - 1] ?? null;
+            const prevLastOpen = tracker.lastOpenTimeMs;
+            const newTimes = typeof prevLastOpen === "number" ? openTimes.filter((t) => t > prevLastOpen) : [];
+            const newCount = newTimes.length;
+
+            let lastNewCandlesAtMs: number | null = prevState.lastNewCandlesAtMs;
+            if (newCount > 0) {
+              lastNewCandlesAtMs = finishedAtMs;
+              const lastNew = newTimes[newTimes.length - 1]!;
+              const idx = openTimes.lastIndexOf(lastNew);
+              const closePx = idx >= 0 ? st.prices[idx] : null;
+              const action = st.latestSignal.action;
+              const pollMs =
+                typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? Math.max(0, Math.round(st.pollLatencyMs)) : null;
+              const batchMs =
+                typeof st.lastBatchMs === "number" && Number.isFinite(st.lastBatchMs) ? Math.max(0, Math.round(st.lastBatchMs)) : null;
+              const batchSize =
+                typeof st.lastBatchSize === "number" && Number.isFinite(st.lastBatchSize) ? Math.max(0, Math.round(st.lastBatchSize)) : null;
+              const perBarMs = batchMs !== null && batchSize && batchSize > 0 ? batchMs / batchSize : null;
+              const msg =
+                `candle +${newCount}: open ${fmtTimeMs(lastNew)}` +
+                (typeof closePx === "number" && Number.isFinite(closePx) ? ` close ${fmtMoney(closePx, 4)}` : "") +
+                (action ? ` • action ${action}` : "") +
+                (pollMs !== null ? ` • poll ${pollMs}ms` : "") +
+                (batchMs !== null ? ` • proc ${batchMs}ms${perBarMs !== null ? ` (${fmtNum(perBarMs, 1)}ms/bar)` : ""}` : "");
+              feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+            }
+
+            let lastKlineUpdatesAtMs: number | null = prevState.lastKlineUpdatesAtMs;
+            let klineUpdates = 0;
+            const fetchedLast = st.fetchedLastKline;
+            if (fetchedLast && typeof fetchedLast.openTime === "number" && Number.isFinite(fetchedLast.openTime)) {
+              const openTime = fetchedLast.openTime;
+              const close = fetchedLast.close;
+              if (typeof close === "number" && Number.isFinite(close)) {
+                const prevFetchedOpen = tracker.lastFetchedOpenTimeMs;
+                const prevFetchedClose = tracker.lastFetchedClose;
+                if (
+                  newCount === 0 &&
+                  prevFetchedOpen === openTime &&
+                  typeof prevFetchedClose === "number" &&
+                  Number.isFinite(prevFetchedClose) &&
+                  close !== prevFetchedClose
+                ) {
+                  klineUpdates = 1;
+                  lastKlineUpdatesAtMs = finishedAtMs;
+                  const d = prevFetchedClose !== 0 ? (close - prevFetchedClose) / prevFetchedClose : null;
+                  const msg = `kline update: close ${fmtMoney(close, 4)}${d !== null ? ` (Δ ${fmtPct(d, 2)})` : ""}`;
+                  feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+                }
+                tracker.lastFetchedOpenTimeMs = openTime;
+                tracker.lastFetchedClose = close;
+              }
+            }
+
+            const polledAtMs = typeof st.polledAtMs === "number" && Number.isFinite(st.polledAtMs) ? st.polledAtMs : null;
+            if (polledAtMs !== null && polledAtMs !== tracker.lastTelemetryPolledAtMs) {
+              tracker.lastTelemetryPolledAtMs = polledAtMs;
+              const pollLatencyMs = typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? st.pollLatencyMs : null;
+              const processedOpenTime = st.openTimes[st.openTimes.length - 1] ?? null;
+              const processedClose = st.prices[st.prices.length - 1] ?? null;
+              const driftBps =
+                fetchedLast &&
+                typeof fetchedLast.openTime === "number" &&
+                Number.isFinite(fetchedLast.openTime) &&
+                processedOpenTime === fetchedLast.openTime &&
+                typeof fetchedLast.close === "number" &&
+                Number.isFinite(fetchedLast.close) &&
+                typeof processedClose === "number" &&
+                Number.isFinite(processedClose) &&
+                processedClose !== 0
+                  ? ((fetchedLast.close - processedClose) / processedClose) * 10000
+                  : null;
+              const point: BotTelemetryPoint = { atMs: polledAtMs, pollLatencyMs, driftBps };
+              telemetry = [...telemetry, point].slice(-BOT_TELEMETRY_POINTS);
+            }
+
+            const openThr = st.openThreshold ?? st.threshold;
+            const closeThr = st.closeThreshold ?? st.openThreshold ?? st.threshold;
+            const tradeEnabled = st.settings?.tradeEnabled ?? null;
+
+            if (
+              tracker.lastMethod !== null &&
+              (st.method !== tracker.lastMethod || openThr !== tracker.lastOpenThreshold || closeThr !== tracker.lastCloseThreshold)
+            ) {
+              const msg =
+                `params: ${methodLabel(st.method)}` +
+                ` • open ${fmtPct(openThr, 3)}` +
+                ` • close ${fmtPct(closeThr, 3)}` +
+                (typeof tradeEnabled === "boolean" ? ` • trade ${tradeEnabled ? "ON" : "OFF"}` : "");
+              feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
+            }
+
+            if (typeof tradeEnabled === "boolean" && tracker.lastTradeEnabled !== null && tradeEnabled !== tracker.lastTradeEnabled) {
+              feed = [{ atMs: finishedAtMs, message: `trade ${tradeEnabled ? "enabled" : "disabled"}` }, ...feed].slice(0, 50);
+            }
+
+            const err = st.error ?? null;
+            if (err && err !== tracker.lastError) {
+              feed = [{ atMs: finishedAtMs, message: `error: ${err}` }, ...feed].slice(0, 50);
+            }
+
+            if (tracker.lastHalted !== null && tracker.lastHalted !== st.halted) {
+              feed = [{ atMs: finishedAtMs, message: st.halted ? `halted: ${st.haltReason ?? "true"}` : "resumed" }, ...feed].slice(0, 50);
+            }
+
+            tracker.lastOpenTimeMs = lastOpen;
+            tracker.lastError = err;
+            tracker.lastHalted = st.halted;
+            tracker.lastMethod = st.method;
+            tracker.lastOpenThreshold = openThr;
+            tracker.lastCloseThreshold = closeThr;
+            tracker.lastTradeEnabled = typeof tradeEnabled === "boolean" ? tradeEnabled : null;
+
+            next[botKey] = {
+              ...base,
+              lastNewCandles: newCount,
+              lastNewCandlesAtMs,
+              lastKlineUpdates: klineUpdates,
+              lastKlineUpdatesAtMs,
+              telemetry,
+              feed,
+            };
+            nextRef[botKey] = tracker;
           }
 
-          const st = selectedRunning;
-          const botKey = `${st.market}:${st.symbol}:${st.interval}`;
-          let feed = base.feed;
-          let telemetry = base.telemetry;
-          if (rt.botKey !== botKey) {
-            feed = [];
-            telemetry = [];
-            rt.botKey = botKey;
-            rt.lastOpenTimeMs = null;
-            rt.lastError = null;
-            rt.lastHalted = null;
-            rt.lastFetchedOpenTimeMs = null;
-            rt.lastFetchedClose = null;
-            rt.lastMethod = null;
-            rt.lastOpenThreshold = null;
-            rt.lastCloseThreshold = null;
-            rt.lastTradeEnabled = null;
-            rt.lastTelemetryPolledAtMs = null;
-          }
-
-          const openTimes = st.openTimes;
-          const lastOpen = openTimes[openTimes.length - 1] ?? null;
-          const prevLastOpen = rt.lastOpenTimeMs;
-          const newTimes = typeof prevLastOpen === "number" ? openTimes.filter((t) => t > prevLastOpen) : [];
-          const newCount = newTimes.length;
-
-	          let lastNewCandlesAtMs: number | null = prev.lastNewCandlesAtMs;
-	          if (newCount > 0) {
-	            lastNewCandlesAtMs = finishedAtMs;
-	            const lastNew = newTimes[newTimes.length - 1]!;
-	            const idx = openTimes.lastIndexOf(lastNew);
-	            const closePx = idx >= 0 ? st.prices[idx] : null;
-	            const action = st.latestSignal.action;
-	            const pollMs = typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? Math.max(0, Math.round(st.pollLatencyMs)) : null;
-	            const batchMs = typeof st.lastBatchMs === "number" && Number.isFinite(st.lastBatchMs) ? Math.max(0, Math.round(st.lastBatchMs)) : null;
-	            const batchSize =
-	              typeof st.lastBatchSize === "number" && Number.isFinite(st.lastBatchSize) ? Math.max(0, Math.round(st.lastBatchSize)) : null;
-	            const perBarMs = batchMs !== null && batchSize && batchSize > 0 ? batchMs / batchSize : null;
-	            const msg =
-	              `candle +${newCount}: open ${fmtTimeMs(lastNew)}` +
-	              (typeof closePx === "number" && Number.isFinite(closePx) ? ` close ${fmtMoney(closePx, 4)}` : "") +
-	              (action ? ` • action ${action}` : "") +
-	              (pollMs !== null ? ` • poll ${pollMs}ms` : "") +
-	              (batchMs !== null ? ` • proc ${batchMs}ms${perBarMs !== null ? ` (${fmtNum(perBarMs, 1)}ms/bar)` : ""}` : "");
-	            feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
-	          }
-
-          let lastKlineUpdatesAtMs: number | null = prev.lastKlineUpdatesAtMs;
-          let klineUpdates = 0;
-          const fetchedLast = st.fetchedLastKline;
-	          if (fetchedLast && typeof fetchedLast.openTime === "number" && Number.isFinite(fetchedLast.openTime)) {
-	            const openTime = fetchedLast.openTime;
-	            const close = fetchedLast.close;
-	            if (typeof close === "number" && Number.isFinite(close)) {
-	              const prevFetchedOpen = rt.lastFetchedOpenTimeMs;
-	              const prevFetchedClose = rt.lastFetchedClose;
-	              if (newCount === 0 && prevFetchedOpen === openTime && typeof prevFetchedClose === "number" && Number.isFinite(prevFetchedClose) && close !== prevFetchedClose) {
-	                klineUpdates = 1;
-	                lastKlineUpdatesAtMs = finishedAtMs;
-	                const d = prevFetchedClose !== 0 ? (close - prevFetchedClose) / prevFetchedClose : null;
-	                const msg = `kline update: close ${fmtMoney(close, 4)}${d !== null ? ` (Δ ${fmtPct(d, 2)})` : ""}`;
-	                feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
-	              }
-	              rt.lastFetchedOpenTimeMs = openTime;
-	              rt.lastFetchedClose = close;
-	            }
-	          }
-
-	          const polledAtMs = typeof st.polledAtMs === "number" && Number.isFinite(st.polledAtMs) ? st.polledAtMs : null;
-	          if (polledAtMs !== null && polledAtMs !== rt.lastTelemetryPolledAtMs) {
-	            rt.lastTelemetryPolledAtMs = polledAtMs;
-	            const pollLatencyMs = typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? st.pollLatencyMs : null;
-	            const processedOpenTime = st.openTimes[st.openTimes.length - 1] ?? null;
-	            const processedClose = st.prices[st.prices.length - 1] ?? null;
-	            const driftBps =
-	              fetchedLast &&
-	              typeof fetchedLast.openTime === "number" &&
-	              Number.isFinite(fetchedLast.openTime) &&
-	              processedOpenTime === fetchedLast.openTime &&
-	              typeof fetchedLast.close === "number" &&
-	              Number.isFinite(fetchedLast.close) &&
-	              typeof processedClose === "number" &&
-	              Number.isFinite(processedClose) &&
-	              processedClose !== 0
-	                ? ((fetchedLast.close - processedClose) / processedClose) * 10000
-	                : null;
-	            const point: BotTelemetryPoint = { atMs: polledAtMs, pollLatencyMs, driftBps };
-	            telemetry = [...telemetry, point].slice(-BOT_TELEMETRY_POINTS);
-	          }
-
-	          const openThr = st.openThreshold ?? st.threshold;
-	          const closeThr = st.closeThreshold ?? st.openThreshold ?? st.threshold;
-	          const tradeEnabled = st.settings?.tradeEnabled ?? null;
-
-	          if (rt.lastMethod !== null && (st.method !== rt.lastMethod || openThr !== rt.lastOpenThreshold || closeThr !== rt.lastCloseThreshold)) {
-	            const msg =
-	              `params: ${methodLabel(st.method)}` +
-	              ` • open ${fmtPct(openThr, 3)}` +
-	              ` • close ${fmtPct(closeThr, 3)}` +
-	              (typeof tradeEnabled === "boolean" ? ` • trade ${tradeEnabled ? "ON" : "OFF"}` : "");
-	            feed = [{ atMs: finishedAtMs, message: msg }, ...feed].slice(0, 50);
-	          }
-
-	          if (typeof tradeEnabled === "boolean" && rt.lastTradeEnabled !== null && tradeEnabled !== rt.lastTradeEnabled) {
-	            feed = [{ atMs: finishedAtMs, message: `trade ${tradeEnabled ? "enabled" : "disabled"}` }, ...feed].slice(0, 50);
-	          }
-
-	          const err = st.error ?? null;
-	          if (err && err !== rt.lastError) {
-	            feed = [{ atMs: finishedAtMs, message: `error: ${err}` }, ...feed].slice(0, 50);
-	          }
-
-          if (rt.lastHalted !== null && rt.lastHalted !== st.halted) {
-            feed = [{ atMs: finishedAtMs, message: st.halted ? `halted: ${st.haltReason ?? "true"}` : "resumed" }, ...feed].slice(0, 50);
-          }
-
-	          rt.lastOpenTimeMs = lastOpen;
-	          rt.lastError = err;
-	          rt.lastHalted = st.halted;
-	          rt.lastMethod = st.method;
-	          rt.lastOpenThreshold = openThr;
-	          rt.lastCloseThreshold = closeThr;
-	          rt.lastTradeEnabled = typeof tradeEnabled === "boolean" ? tradeEnabled : null;
-
-	          return { ...base, lastNewCandles: newCount, lastNewCandlesAtMs, lastKlineUpdates: klineUpdates, lastKlineUpdatesAtMs, telemetry, feed };
-	        });
+          botRtRef.current = nextRef;
+          return next;
+        });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         setApiOk("ok");
       } catch (e) {
@@ -3319,7 +3317,7 @@ export function App() {
         if (requestId === botRequestSeqRef.current) botAbortRef.current = null;
       }
     },
-    [apiBase, authHeaders, botSelectedSymbol],
+    [apiBase, authHeaders],
   );
 
   type StartBotOptions = { auto?: boolean; forceAdopt?: boolean; silent?: boolean; symbolsOverride?: string[] };
@@ -8380,7 +8378,12 @@ export function App() {
                         type="button"
                         disabled={botRt.feed.length === 0}
                         onClick={() => {
-                          setBotRt((s) => ({ ...s, feed: [] }));
+                          if (!botDisplayKey) return;
+                          setBotRtByKey((prev) => {
+                            const cur = prev[botDisplayKey];
+                            if (!cur || cur.feed.length === 0) return prev;
+                            return { ...prev, [botDisplayKey]: { ...cur, feed: [] } };
+                          });
                           showToast("Cleared realtime feed");
                         }}
                       >

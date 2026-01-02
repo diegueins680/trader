@@ -73,6 +73,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: chart tooltips now show bar date/time when timestamps are available.
 - Web UI: charts now scale to use most of the viewport height.
 - Web UI: show a live bot chart for each running bot in the Live bot panel.
+- Web UI: keep live bot telemetry and realtime feeds per bot when multiple bots are running.
 - Web UI: open positions/orphaned operations cards key by position side, ignore bots with trade disabled when determining adoption, and label trade-off bots explicitly.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Web UI: backtest split auto-adjusts bars without exceeding API max bars.
