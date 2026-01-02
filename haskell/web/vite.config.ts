@@ -23,6 +23,11 @@ export default defineConfig(({ mode }) => {
     define: {
       __TRADER_API_TARGET__: JSON.stringify(apiTarget),
     },
+    build: {
+      rollupOptions: {
+        external: ["/trader-config.js"],
+      },
+    },
     server: {
       proxy: {
         "/api": {

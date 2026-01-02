@@ -236,6 +236,29 @@ const EQUITY_TIPS = {
   intervals: ["For short windows (e.g., 48h), shorter intervals (15m/30m/1h) increase sample size."],
   ratios: ["Keep Backtest ratio + Tune ratio < 1 to leave enough training data."],
 };
+const COMPLEX_TIPS = {
+  method: [
+    "11 requires Kalman + LSTM agreement beyond the open threshold; fewer trades, higher confidence.",
+    "blend averages predictions; blend weight sets the Kalman vs LSTM mix.",
+    "router picks the best recent model using router lookback; min score gates to HOLD.",
+  ],
+  thresholds: [
+    "Open threshold is the entry deadband; below break-even can churn after costs.",
+    "Close threshold is often <= open threshold to reduce whipsaw.",
+  ],
+  edge: [
+    "Min edge is the minimum predicted return to trade; cost-aware edge adds break-even + buffer.",
+    "Edge buffer adds extra margin above break-even when cost-aware edge is on.",
+  ],
+  snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
+  blend: ["0 = LSTM only, 1 = Kalman only. Only used with method=blend."],
+  router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
+  split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
+  lstm: ["Normalization affects scaling for LSTM only; keep consistent with training.", "Epochs/hidden size trade off fit vs runtime and overfitting."],
+  optimization: ["Sweep thresholds searches open/close gates only.", "Optimize operations also tries methods and thresholds; router disables both."],
+  tuneObjective: ["Tune objective defines the score used during fit/tune; it can differ from backtest objective."],
+  walkForward: ["Walk-forward folds split data into sequential folds to estimate stability."],
+};
 
 function isCoinbaseKeysStatus(status: KeysStatus): status is CoinbaseKeysStatus {
   return "hasApiPassphrase" in status;
@@ -8322,9 +8345,14 @@ export function App() {
           <CollapsibleSection panelId="section-thresholds" title="Thresholds" meta="Method, positioning, entry/exit gates.">
             <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
               <div className="field">
-                <label className="label" htmlFor="method">
-                  Method
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="method">
+                    Method
+                  </label>
+                  <InfoPopover label="Method details">
+                    <InfoList items={COMPLEX_TIPS.method} />
+                  </InfoPopover>
+                </div>
                 <select
                   id="method"
                   className="select"
@@ -8388,9 +8416,14 @@ export function App() {
                 </div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="openThreshold">
-                  Open threshold (fraction)
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="openThreshold">
+                    Open threshold (fraction)
+                  </label>
+                  <InfoPopover label="Threshold details">
+                    <InfoList items={COMPLEX_TIPS.thresholds} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="openThreshold"
                   className={estimatedCosts.breakEven > 0 && form.openThreshold < estimatedCosts.breakEven ? "input inputError" : "input"}
@@ -8465,9 +8498,14 @@ export function App() {
                 </div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="closeThreshold">
-                  Close threshold (fraction)
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="closeThreshold">
+                    Close threshold (fraction)
+                  </label>
+                  <InfoPopover label="Threshold details">
+                    <InfoList items={COMPLEX_TIPS.thresholds} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="closeThreshold"
                   className={
@@ -8500,9 +8538,14 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
               <div className="field">
-                <label className="label" htmlFor="minEdge">
-                  Min edge (fraction)
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="minEdge">
+                    Min edge (fraction)
+                  </label>
+                  <InfoPopover label="Edge filters">
+                    <InfoList items={COMPLEX_TIPS.edge} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="minEdge"
                   className="input"
@@ -8529,9 +8572,14 @@ export function App() {
                 </div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="edgeBuffer">
-                  Edge buffer (fraction)
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="edgeBuffer">
+                    Edge buffer (fraction)
+                  </label>
+                  <InfoPopover label="Edge filters">
+                    <InfoList items={COMPLEX_TIPS.edge} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="edgeBuffer"
                   className="input"
@@ -8544,9 +8592,14 @@ export function App() {
                 <div className="hint">{form.costAwareEdge ? "Extra buffer above break-even." : "Used when cost-aware edge is enabled."}</div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="minSignalToNoise">
-                  Min signal/vol (x)
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="minSignalToNoise">
+                    Min signal/vol (x)
+                  </label>
+                  <InfoPopover label="Signal-to-noise filter">
+                    <InfoList items={COMPLEX_TIPS.snr} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="minSignalToNoise"
                   className="input"
@@ -8562,9 +8615,14 @@ export function App() {
                 </div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="blendWeight">
-                  Blend weight (Kalman)
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="blendWeight">
+                    Blend weight (Kalman)
+                  </label>
+                  <InfoPopover label="Blend weight">
+                    <InfoList items={COMPLEX_TIPS.blend} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="blendWeight"
                   className="input"
@@ -8582,9 +8640,14 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr" }}>
               <div className="field">
-                <label className="label" htmlFor="routerLookback">
-                  Router lookback (bars)
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="routerLookback">
+                    Router lookback (bars)
+                  </label>
+                  <InfoPopover label="Router settings">
+                    <InfoList items={COMPLEX_TIPS.router} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="routerLookback"
                   className="input"
@@ -8598,9 +8661,14 @@ export function App() {
                 <div className="hint">Used with method=router; evaluates recent signal accuracy.</div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="routerMinScore">
-                  Router min score
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="routerMinScore">
+                    Router min score
+                  </label>
+                  <InfoPopover label="Router settings">
+                    <InfoList items={COMPLEX_TIPS.router} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="routerMinScore"
                   className="input"
@@ -8618,9 +8686,14 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr 1fr" }}>
               <div className="field">
-                <label className="label" htmlFor="backtestRatio">
-                  Backtest ratio
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="backtestRatio">
+                    Backtest ratio
+                  </label>
+                  <InfoPopover label="Backtest and tune split">
+                    <InfoList items={COMPLEX_TIPS.split} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="backtestRatio"
                   className="input"
@@ -8634,9 +8707,14 @@ export function App() {
                 <div className="hint">Time-split holdout (last portion). Train and backtest are different.</div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="tuneRatio">
-                  Tune ratio
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="tuneRatio">
+                    Tune ratio
+                  </label>
+                  <InfoPopover label="Backtest and tune split">
+                    <InfoList items={COMPLEX_TIPS.split} />
+                  </InfoPopover>
+                </div>
                 <input
                   id="tuneRatio"
                   className="input"
@@ -9215,9 +9293,14 @@ export function App() {
 
             <div className="row" style={{ marginTop: 12 }}>
               <div className="field">
-                <label className="label" htmlFor="norm">
-                  Normalization
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="norm">
+                    Normalization
+                  </label>
+                  <InfoPopover label="LSTM normalization">
+                    <InfoList items={COMPLEX_TIPS.lstm} />
+                  </InfoPopover>
+                </div>
                 <select
                   id="norm"
                   className="select"
@@ -9232,9 +9315,14 @@ export function App() {
                 <div className="hint">Used for the LSTM pipeline.</div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="epochs">
-                  Epochs / Hidden size
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="epochs">
+                    Epochs / Hidden size
+                  </label>
+                  <InfoPopover label="LSTM epochs and hidden size">
+                    <InfoList items={COMPLEX_TIPS.lstm} />
+                  </InfoPopover>
+                </div>
                 <div className="row" style={{ gridTemplateColumns: "1fr 1fr" }}>
                   <input
                     id="epochs"
@@ -9574,7 +9662,12 @@ export function App() {
           <CollapsibleSection panelId="section-optimization" title="Optimization" meta="Tuning sweeps, presets, and constraints.">
             <div className="row">
               <div className="field">
-              <div className="label">Optimization</div>
+              <div className="labelRow">
+                <div className="label">Optimization</div>
+                <InfoPopover label="Optimization modes">
+                  <InfoList items={COMPLEX_TIPS.optimization} />
+                </InfoPopover>
+              </div>
                 <div className="pillRow">
                   <label className="pill">
                     <input
@@ -9637,9 +9730,14 @@ export function App() {
                 </div>
                 <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr" }}>
                   <div className="field">
-                    <label className="label" htmlFor="tuneObjective">
-                      Tune objective
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="tuneObjective">
+                        Tune objective
+                      </label>
+                      <InfoPopover label="Tune objective">
+                        <InfoList items={COMPLEX_TIPS.tuneObjective} />
+                      </InfoPopover>
+                    </div>
                     <select
                       id="tuneObjective"
                       className="select"
@@ -9700,9 +9798,14 @@ export function App() {
                     <div className="hint">Only used when optimizing/sweeping. 0 disables.</div>
                   </div>
                   <div className="field">
-                    <label className="label" htmlFor="walkForwardFolds">
-                      Walk-forward folds
-                    </label>
+                    <div className="labelRow">
+                      <label className="label" htmlFor="walkForwardFolds">
+                        Walk-forward folds
+                      </label>
+                      <InfoPopover label="Walk-forward folds">
+                        <InfoList items={COMPLEX_TIPS.walkForward} />
+                      </InfoPopover>
+                    </div>
                     <input
                       id="walkForwardFolds"
                       className="input"

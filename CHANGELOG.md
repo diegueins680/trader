@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.
 - Web UI: add a Run optimizer form to the Optimizer combos panel to launch `/optimizer/run`, apply constraints, and show the last output.
 - Web UI: optimizer run forms add an annualized-equity preset, validate backtest/tune ratios, and honor advanced JSON overrides for source/data/symbol plus `timeoutSec`.
-- Web UI: add info buttons with equity tips next to optimizer run fields (intervals, trials/timeout, objective, ratios, penalties).
+- Web UI: add info buttons with equity tips next to optimizer run fields and complex config parameters (method, thresholds, splits, LSTM, optimization).
 - Web UI: fix optimizer form sync startup crash and ensure `trader-config.js` is loaded before the app bundle.
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
 - Deploy: quick AWS UI config auto-fills `apiFallbackUrl` for CloudFront deployments (direct API URLs fall back to `/api`, and `/api` falls back to the API URL when known).
