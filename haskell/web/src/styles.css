@@ -1,41 +1,67 @@
 :root {
-  color-scheme: dark;
-  --bg0: #070a12;
-  --bg1: #0b1020;
-  --card: rgba(255, 255, 255, 0.06);
-  --card2: rgba(255, 255, 255, 0.08);
-  --stroke: rgba(255, 255, 255, 0.12);
-  --stroke2: rgba(255, 255, 255, 0.16);
-  --text: rgba(255, 255, 255, 0.92);
-  --muted: rgba(255, 255, 255, 0.66);
-  --faint: rgba(255, 255, 255, 0.5);
-  --shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
-  --radius: 16px;
+  color-scheme: light;
+  --bg0: #f6f2ec;
+  --bg1: #eef2f5;
+  --bg-accent-1: rgba(14, 165, 233, 0.18);
+  --bg-accent-2: rgba(249, 115, 22, 0.14);
+  --bg-accent-3: rgba(16, 185, 129, 0.12);
+  --card: rgba(255, 255, 255, 0.86);
+  --card2: rgba(255, 255, 255, 0.96);
+  --card-sheen: rgba(255, 255, 255, 0.7);
+  --stroke: rgba(15, 23, 42, 0.12);
+  --stroke2: rgba(15, 23, 42, 0.18);
+  --text: rgba(15, 23, 42, 0.96);
+  --muted: rgba(15, 23, 42, 0.62);
+  --faint: rgba(15, 23, 42, 0.48);
+  --shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
+  --glow: 0 18px 40px rgba(14, 165, 233, 0.12);
+  --chart-bg: rgba(15, 23, 42, 0.08);
+  --code-bg: rgba(15, 23, 42, 0.07);
+  --surface-subtle: rgba(15, 23, 42, 0.04);
+  --dot-idle: rgba(15, 23, 42, 0.25);
+  --pattern: rgba(15, 23, 42, 0.06);
+  --chart-height: clamp(360px, 75vh, 960px);
+  --radius: 18px;
   --radius-sm: 12px;
-  --ring: 0 0 0 3px rgba(99, 102, 241, 0.35);
-  --accent: #7c3aed;
-  --accent2: #22c55e;
+  --accent-rgb: 14, 165, 233;
+  --accent-alt-rgb: 20, 184, 166;
+  --accent-warm-rgb: 249, 115, 22;
+  --ring: 0 0 0 3px rgba(14, 165, 233, 0.25);
+  --accent: #0ea5e9;
+  --accent2: #14b8a6;
   --warn: #f59e0b;
   --danger: #ef4444;
-  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+  --mono: "JetBrains Mono", "IBM Plex Mono", SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
-  --sans: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --sans: "Sora", "Space Grotesk", "IBM Plex Sans", "Work Sans", sans-serif;
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root {
-    color-scheme: light;
-    --bg0: #f6f7fb;
-    --bg1: #eef1fb;
-    --card: rgba(255, 255, 255, 0.82);
-    --card2: rgba(255, 255, 255, 0.92);
-    --stroke: rgba(2, 6, 23, 0.12);
-    --stroke2: rgba(2, 6, 23, 0.18);
-    --text: rgba(2, 6, 23, 0.9);
-    --muted: rgba(2, 6, 23, 0.62);
-    --faint: rgba(2, 6, 23, 0.5);
-    --shadow: 0 12px 40px rgba(2, 6, 23, 0.12);
+    color-scheme: dark;
+    --bg0: #0b1114;
+    --bg1: #101b22;
+    --bg-accent-1: rgba(56, 189, 248, 0.22);
+    --bg-accent-2: rgba(249, 115, 22, 0.2);
+    --bg-accent-3: rgba(45, 212, 191, 0.18);
+    --card: rgba(16, 24, 30, 0.78);
+    --card2: rgba(19, 29, 35, 0.9);
+    --card-sheen: rgba(255, 255, 255, 0.08);
+    --stroke: rgba(148, 163, 184, 0.18);
+    --stroke2: rgba(148, 163, 184, 0.26);
+    --text: rgba(248, 250, 252, 0.92);
+    --muted: rgba(226, 232, 240, 0.65);
+    --faint: rgba(226, 232, 240, 0.5);
+    --shadow: 0 20px 50px rgba(4, 6, 8, 0.6);
+    --glow: 0 20px 46px rgba(14, 165, 233, 0.2);
+    --chart-bg: rgba(0, 0, 0, 0.28);
+    --code-bg: rgba(0, 0, 0, 0.32);
+    --surface-subtle: rgba(255, 255, 255, 0.05);
+    --dot-idle: rgba(255, 255, 255, 0.32);
+    --pattern: rgba(148, 163, 184, 0.12);
+    --ring: 0 0 0 3px rgba(56, 189, 248, 0.35);
+    --accent: #38bdf8;
+    --accent2: #2dd4bf;
   }
 }
 
@@ -56,11 +82,29 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  line-height: 1.5;
+  position: relative;
   background:
-    radial-gradient(1100px 600px at 12% 8%, rgba(124, 58, 237, 0.22), transparent 60%),
-    radial-gradient(1000px 520px at 88% 16%, rgba(34, 197, 94, 0.16), transparent 62%),
-    radial-gradient(900px 520px at 50% 95%, rgba(14, 165, 233, 0.14), transparent 65%),
+    radial-gradient(1100px 620px at 12% 10%, var(--bg-accent-1), transparent 60%),
+    radial-gradient(980px 520px at 88% 14%, var(--bg-accent-2), transparent 62%),
+    radial-gradient(880px 520px at 50% 95%, var(--bg-accent-3), transparent 65%),
     linear-gradient(180deg, var(--bg0), var(--bg1));
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle at 1px 1px, var(--pattern) 1px, transparent 0);
+  background-size: 28px 28px;
+  opacity: 0.35;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
 }
 
 a {
@@ -77,13 +121,13 @@ textarea {
 }
 
 ::selection {
-  background: rgba(124, 58, 237, 0.35);
+  background: rgba(var(--accent-rgb), 0.25);
 }
 
 .container {
-  width: min(1160px, calc(100% - 32px));
+  width: min(1200px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 28px 0 64px;
+  padding: 32px 0 72px;
   animation: pageEnter 0.6s ease both;
 }
 
@@ -98,6 +142,46 @@ textarea {
   }
 }
 
+@keyframes cardEnter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.grid > .card,
+.resultGrid > .card {
+  animation: cardEnter 0.5s ease both;
+}
+
+.resultGrid > .card:nth-child(1) {
+  animation-delay: 40ms;
+}
+
+.resultGrid > .card:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.resultGrid > .card:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+.resultGrid > .card:nth-child(4) {
+  animation-delay: 160ms;
+}
+
+.resultGrid > .card:nth-child(5) {
+  animation-delay: 200ms;
+}
+
+.resultGrid > .card:nth-child(6) {
+  animation-delay: 240ms;
+}
+
 .header {
   display: flex;
   flex-wrap: wrap;
@@ -105,10 +189,12 @@ textarea {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 22px;
-  padding: 16px 18px;
+  padding: 18px 20px;
   border-radius: var(--radius);
   border: 1px solid var(--stroke);
-  background: var(--card);
+  background:
+    linear-gradient(140deg, var(--card-sheen), rgba(255, 255, 255, 0)),
+    var(--card);
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
 }
@@ -129,9 +215,9 @@ textarea {
   border-radius: 14px;
   background:
     radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0)),
-    linear-gradient(135deg, rgba(124, 58, 237, 0.95), rgba(14, 165, 233, 0.85));
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 10px 25px rgba(124, 58, 237, 0.2);
+    linear-gradient(135deg, rgba(var(--accent-rgb), 0.95), rgba(var(--accent-alt-rgb), 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 12px 26px rgba(var(--accent-rgb), 0.2);
 }
 
 .title {
@@ -142,15 +228,15 @@ textarea {
 
 .title h1 {
   margin: 0;
-  font-size: 20px;
-  letter-spacing: 0.3px;
+  font-size: 22px;
+  letter-spacing: 0.4px;
   font-weight: 600;
 }
 
 .title p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   max-width: 48ch;
 }
 
@@ -195,7 +281,7 @@ textarea {
 
 .card {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    linear-gradient(160deg, var(--card-sheen), rgba(255, 255, 255, 0)),
     var(--card);
   border: 1px solid var(--stroke);
   border-radius: var(--radius);
@@ -204,23 +290,25 @@ textarea {
 }
 
 .cardHeader {
-  padding: 16px 16px 0;
+  padding: 18px 18px 0;
 }
 
 .cardTitle {
   margin: 0;
-  font-size: 14px;
-  letter-spacing: 0.2px;
+  font-size: 15px;
+  letter-spacing: 0.3px;
+  font-weight: 600;
 }
 
 .cardSubtitle {
   margin: 8px 0 0;
   font-size: 12px;
   color: var(--muted);
+  line-height: 1.45;
 }
 
 .cardBody {
-  padding: 16px;
+  padding: 18px;
 }
 
 .stickyActions {
@@ -229,9 +317,11 @@ textarea {
   z-index: 3;
   margin: -16px -16px 16px;
   padding: 12px 16px;
-  background: var(--card2);
+  background:
+    linear-gradient(180deg, var(--card-sheen), rgba(255, 255, 255, 0)),
+    var(--card2);
   border-bottom: 1px solid var(--stroke);
-  border-radius: 14px;
+  border-radius: var(--radius-sm);
   backdrop-filter: blur(14px);
   display: grid;
   gap: 10px;
@@ -261,7 +351,7 @@ textarea {
   padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid var(--stroke);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-subtle);
 }
 
 .sectionTitle {
@@ -322,10 +412,10 @@ textarea {
 
 @keyframes sectionFlash {
   0% {
-    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.7);
+    box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.55);
   }
   100% {
-    box-shadow: 0 0 0 14px rgba(124, 58, 237, 0);
+    box-shadow: 0 0 0 14px rgba(var(--accent-rgb), 0);
   }
 }
 
@@ -369,13 +459,13 @@ textarea {
 
 .input:hover,
 .select:hover {
-  border-color: rgba(255, 255, 255, 0.26);
+  border-color: rgba(var(--accent-rgb), 0.25);
 }
 
 .input:focus,
 .select:focus {
   box-shadow: var(--ring);
-  border-color: rgba(99, 102, 241, 0.5);
+  border-color: rgba(var(--accent-rgb), 0.55);
 }
 
 .inputError,
@@ -404,7 +494,7 @@ textarea {
 .select:disabled {
   opacity: 0.7;
   cursor: not-allowed;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-subtle);
 }
 
 .input::placeholder,
@@ -421,7 +511,7 @@ textarea {
 .details {
   border-radius: 12px;
   border: 1px solid var(--stroke);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-subtle);
   padding: 10px 12px;
 }
 
@@ -446,8 +536,8 @@ textarea {
   height: 40px;
   padding: 0 14px;
   border-radius: 12px;
-  background: rgba(124, 58, 237, 0.16);
-  border: 1px solid rgba(124, 58, 237, 0.36);
+  background: rgba(var(--accent-rgb), 0.14);
+  border: 1px solid rgba(var(--accent-rgb), 0.32);
   cursor: pointer;
   font-weight: 600;
   letter-spacing: 0.1px;
@@ -456,8 +546,8 @@ textarea {
 
 .btn:hover {
   transform: translateY(-1px);
-  background: rgba(124, 58, 237, 0.22);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+  background: rgba(var(--accent-rgb), 0.22);
+  box-shadow: 0 10px 24px rgba(var(--accent-rgb), 0.18);
 }
 
 .btn:active {
@@ -470,7 +560,7 @@ textarea {
 .details > summary:focus-visible {
   outline: none;
   box-shadow: var(--ring);
-  border-color: rgba(99, 102, 241, 0.55);
+  border-color: rgba(var(--accent-rgb), 0.55);
 }
 
 .btn:disabled {
@@ -483,8 +573,8 @@ textarea {
   height: 28px;
   padding: 0 10px;
   border-radius: 10px;
-  background: rgba(124, 58, 237, 0.14);
-  border: 1px solid rgba(124, 58, 237, 0.32);
+  background: rgba(var(--accent-rgb), 0.14);
+  border: 1px solid rgba(var(--accent-rgb), 0.32);
   cursor: pointer;
   transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
   font-size: 12px;
@@ -493,7 +583,7 @@ textarea {
 
 .btnSmall:hover {
   transform: translateY(-1px);
-  background: rgba(124, 58, 237, 0.2);
+  background: rgba(var(--accent-rgb), 0.2);
 }
 
 .btnSmall:active {
@@ -507,13 +597,13 @@ textarea {
 }
 
 .btnPrimary {
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.95), rgba(14, 165, 233, 0.85));
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 14px 28px rgba(20, 18, 38, 0.35);
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.95), rgba(var(--accent-alt-rgb), 0.9));
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: var(--glow);
 }
 
 .btnPrimary:hover {
-  background: linear-gradient(135deg, rgba(124, 58, 237, 1), rgba(14, 165, 233, 0.92));
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 1), rgba(var(--accent-alt-rgb), 0.96));
 }
 
 .btnDanger {
@@ -539,21 +629,21 @@ textarea {
   padding: 8px 10px;
   border-radius: 999px;
   border: 1px solid var(--stroke);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-subtle);
   font-size: 12px;
   color: var(--text);
 }
 
 .pill:focus-within {
   box-shadow: var(--ring);
-  border-color: rgba(99, 102, 241, 0.55);
+  border-color: rgba(var(--accent-rgb), 0.55);
 }
 
 .dot {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--dot-idle);
 }
 
 .dotOk {
@@ -579,7 +669,7 @@ textarea {
   grid-template-columns: 150px 1fr;
   gap: 10px;
   padding: 10px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--stroke);
   align-items: baseline;
 }
 
@@ -605,14 +695,14 @@ textarea {
   padding: 0 10px;
   border-radius: 999px;
   border: 1px solid var(--stroke);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-subtle);
   font-size: 12px;
   color: var(--muted);
 }
 
 .badgeStrong {
-  color: rgba(255, 255, 255, 0.92);
-  border-color: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+  border-color: var(--stroke2);
 }
 
 .badgeLong {
@@ -630,6 +720,78 @@ textarea {
   border-color: rgba(148, 163, 184, 0.32);
 }
 
+.badgeOk {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: var(--text);
+}
+
+.badgeWarn {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: var(--text);
+}
+
+.badgeBad {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--text);
+}
+
+.decisionBlock {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--stroke);
+  display: grid;
+  gap: 10px;
+}
+
+.decisionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.decisionTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.decisionSubtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.decisionGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.decisionRow {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.decisionLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.decisionDetail {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .topCombosChart {
   display: grid;
   gap: 8px;
@@ -641,7 +803,7 @@ textarea {
   border: 1px solid var(--stroke2);
   border-radius: 12px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-subtle);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -652,11 +814,11 @@ textarea {
 }
 
 .comboRow:hover {
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(var(--accent-rgb), 0.3);
 }
 
 .comboRowSelected {
-  border-color: rgba(124, 58, 237, 0.75);
+  border-color: rgba(var(--accent-rgb), 0.65);
   box-shadow: var(--ring);
 }
 
@@ -686,14 +848,14 @@ textarea {
 
 .comboBarWrapper {
   height: 4px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
   border-radius: 999px;
   overflow: hidden;
 }
 
 .comboBar {
   height: 100%;
-  background: linear-gradient(90deg, rgba(124, 58, 237, 0.95), rgba(59, 130, 246, 0.9));
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.95), rgba(var(--accent-alt-rgb), 0.9));
 }
 
 .comboDetailRow {
@@ -750,7 +912,7 @@ textarea {
 .comboOpsHeader {
   color: var(--muted);
   padding-bottom: 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--stroke);
 }
 
 .comboOpsList {
@@ -771,7 +933,7 @@ textarea {
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--stroke);
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--code-bg);
   overflow: auto;
   max-height: 220px;
   white-space: pre-wrap;
@@ -780,7 +942,7 @@ textarea {
 .tableWrap {
   border-radius: 12px;
   border: 1px solid var(--stroke);
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--code-bg);
   overflow: auto;
   max-height: 260px;
 }
@@ -796,14 +958,14 @@ textarea {
 .table th,
 .table td {
   padding: 10px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--stroke);
   vertical-align: top;
 }
 
 .table th {
   position: sticky;
   top: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--card2);
   color: var(--muted);
   font-size: 11px;
   letter-spacing: 0.2px;
@@ -812,11 +974,11 @@ textarea {
 }
 
 .table tr:hover td {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--accent-rgb), 0.06);
 }
 
 .table tbody tr:nth-child(even):not(.tableRowSelected) td {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-subtle);
 }
 
 .tableRowClickable {
@@ -824,11 +986,11 @@ textarea {
 }
 
 .tableRowSelected td {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .tableRowSelected:hover td {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 
 .tdMono {
@@ -847,9 +1009,9 @@ textarea {
   width: 100%;
   border-radius: 14px;
   border: 1px solid var(--stroke);
-  background: rgba(0, 0, 0, 0.22);
+  background: var(--chart-bg);
   overflow: hidden;
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow);
 }
 
 .chartSvg {
@@ -938,8 +1100,8 @@ textarea {
   gap: 6px;
   padding: 4px 8px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
   color: var(--muted);
   font-size: 11px;
   letter-spacing: 0.1px;
@@ -954,7 +1116,12 @@ textarea {
 }
 
 .btLegendPrice {
-  background: linear-gradient(90deg, rgba(14, 165, 233, 0.95), rgba(124, 58, 237, 0.95) 55%, rgba(34, 197, 94, 0.9));
+  background: linear-gradient(
+    90deg,
+    rgba(var(--accent-rgb), 0.95),
+    rgba(var(--accent-alt-rgb), 0.9) 55%,
+    rgba(34, 197, 94, 0.85)
+  );
 }
 
 .btLegendKalman {
@@ -962,7 +1129,7 @@ textarea {
 }
 
 .btLegendEquity {
-  background: linear-gradient(90deg, rgba(124, 58, 237, 0.85), rgba(255, 255, 255, 0.68));
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.85), rgba(255, 255, 255, 0.68));
 }
 
 .btLegendLong {
@@ -974,7 +1141,7 @@ textarea {
 }
 
 .btLegendAgree {
-  background: rgba(124, 58, 237, 0.32);
+  background: rgba(var(--accent-rgb), 0.3);
 }
 
 .btLegendTrade {
@@ -1066,12 +1233,12 @@ textarea {
   z-index: 50;
   padding: 10px 12px;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--stroke2);
   background:
-    radial-gradient(circle at 25% 25%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0)),
-    rgba(0, 0, 0, 0.55);
-  color: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.45);
+    radial-gradient(circle at 25% 25%, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0)),
+    var(--card2);
+  color: var(--text);
+  box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
   max-width: min(420px, calc(100% - 36px));
   font-size: 12px;
@@ -1095,6 +1262,10 @@ textarea {
 
 @media (prefers-reduced-motion: reduce) {
   .container {
+    animation: none;
+  }
+
+  .card {
     animation: none;
   }
 
