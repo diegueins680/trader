@@ -6,7 +6,9 @@ All notable changes to this project will be documented in this file.
 - Web UI: default Live orders + Trading armed toggles to on.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.
+- Web UI: add an overview card that summarizes connection, market, execution mode, and the latest signal/backtest/trade results.
 - Web UI: add a decision-logic checklist to the Latest signal card showing the gates and sizing behind operate/hold outcomes.
+- Web UI: add live trading visual aids (price pulse, signal/position compass, risk buffer) to the Live bot panel.
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
@@ -33,6 +35,9 @@ All notable changes to this project will be documented in this file.
 - Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
 - Trading: allow Kalman-band exits without `--tri-layer` when the band flags are enabled.
+- Trading: apply `--min-position-size` only as a final size floor, not as a confidence gate.
+- Backtests: ignore mismatched timestamp vectors for daily-loss and fall back to interval-based day keys.
+- Metrics: round trips now exclude end-of-series `EOD` exits (affects `--min-round-trips` and tie-breakers).
 - Predictors: fall back to the GBDT base prediction when feature dimensions mismatch.
 - Predictors: skip transformer/quantile outputs on feature dimension mismatches instead of crashing, and keep the quantile sensor mean as the raw median while reported quantiles remain clamped.
 - CLI/API: `predictors` rejects mixes of `all` and `none`.

@@ -456,7 +456,7 @@ opts = do
       "Disable price-action triggers for tri-layer."
   argTriLayerPriceActionBody <- option auto (long "tri-layer-price-action-body" <> value 0.0 <> showDefault <> help "Override min candle body fraction for tri-layer price-action patterns (0 = default)")
   argTriLayerExitOnSlow <- switch (long "tri-layer-exit-on-slow" <> help "Exit when price closes across the slow Kalman line (requires --tri-layer)")
-  argKalmanBandLookback <- option auto (long "kalman-band-lookback" <> value 0 <> showDefault <> help "Lookback bars for Kalman-band exits (0 disables)")
+  argKalmanBandLookback <- option auto (long "kalman-band-lookback" <> value 0 <> showDefault <> help "Lookback bars for Kalman-band exits (0 disables; must be >= 2)")
   argKalmanBandStdMult <- option auto (long "kalman-band-std-mult" <> value 0 <> showDefault <> help "Std-dev multiple for Kalman-band exits (0 disables)")
   argLstmExitFlipBars <- option auto (long "lstm-exit-flip-bars" <> value 0 <> showDefault <> help "Exit after N consecutive LSTM bars flip against the position (0 disables)")
   argLstmExitFlipGraceBars <- option auto (long "lstm-exit-flip-grace-bars" <> value 0 <> showDefault <> help "Ignore LSTM flip exits during the first N bars of a trade")
@@ -489,9 +489,9 @@ opts = do
       "no-confidence-sizing"
       "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled (default on)."
       "Disable confidence sizing for entries."
-  argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
+  argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (0 disables the half-size step; requires --confidence-sizing)")
   argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
-  argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "If confidence-sizing yields a size below this, skip the trade (0..1)")
+  argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "Minimum entry size after sizing/vol scaling; skip if below this (0..1)")
   argTuneStressVolMult <- option auto (long "tune-stress-vol-mult" <> value 1.0 <> help "Stress volatility multiplier for tune scoring (1 disables)")
   argTuneStressShock <- option auto (long "tune-stress-shock" <> value 0.0 <> help "Stress shock added to returns for tune scoring (0 disables)")
   argTuneStressWeight <- option auto (long "tune-stress-weight" <> value 0.0 <> help "Penalty weight for stress scenario in tune scoring (0 disables)")

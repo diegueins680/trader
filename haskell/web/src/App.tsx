@@ -115,6 +115,7 @@ import {
 } from "./app/utils";
 import { BacktestChart } from "./components/BacktestChart";
 import { BotStateChart } from "./components/BotStateChart";
+import { LiveVisuals } from "./components/LiveVisuals";
 import { PredictionDiffChart } from "./components/PredictionDiffChart";
 import { TelemetryChart } from "./components/TelemetryChart";
 import { TopCombosChart, type OptimizationCombo, type OptimizationComboOperation } from "./components/TopCombosChart";
@@ -2467,6 +2468,13 @@ export function App() {
     const dd = peak > 0 ? Math.max(0, 1 - lastEq / peak) : 0;
     const dl = dayStart > 0 ? Math.max(0, 1 - lastEq / dayStart) : 0;
     return { lastEq, dd, dl };
+  }, [botDisplay]);
+
+  const botLastPosition = useMemo(() => {
+    const st = botDisplay;
+    if (!st) return null;
+    const last = st.positions[st.positions.length - 1];
+    return typeof last === "number" && Number.isFinite(last) ? last : null;
   }, [botDisplay]);
 
   const botRealtime = useMemo(() => {
@@ -5097,6 +5105,32 @@ export function App() {
     { id: "section-trade", label: "Trade" },
     { id: "section-positions", label: "Positions" },
   ];
+  const apiStatusBadgeClass =
+    apiOk === "ok" ? "badge badgeOk" : apiOk === "auth" ? "badge badgeWarn" : apiOk === "down" ? "badge badgeBad" : "badge";
+  const liveModeBadgeClass = form.binanceLive ? "badge badgeWarn" : "badge";
+  const tradeArmBadgeClass = form.tradeArmed ? "badge badgeWarn" : "badge";
+  const botStatusBadge = bot.error
+    ? { label: "Bot error", className: "badge badgeBad" }
+    : botRunningEntries.length > 0
+      ? { label: "Bot running", className: "badge badgeOk" }
+      : botActiveSymbols.length > 0
+        ? { label: "Bot starting", className: "badge badgeWarn" }
+        : { label: "Bot stopped", className: "badge" };
+  const latestSignalSummary = state.latestSignal
+    ? {
+        action: state.latestSignal.action,
+        direction: state.latestSignal.chosenDirection ?? "NEUTRAL",
+        method: methodLabel(state.latestSignal.method),
+      }
+    : null;
+  const backtestSummary = state.backtest
+    ? {
+        equity: fmtRatio(state.backtest.metrics.finalEquity, 4),
+        sharpe: fmtNum(state.backtest.metrics.sharpe, 2),
+        trades: state.backtest.metrics.tradeCount,
+      }
+    : null;
+  const tradeOrder = state.trade?.order ?? null;
 
   return (
     <div className="container">
@@ -7687,6 +7721,105 @@ export function App() {
 
           <div className="card">
             <div className="cardHeader">
+              <h2 className="cardTitle">Overview</h2>
+              <p className="cardSubtitle">At-a-glance status for connection, execution mode, and latest outputs.</p>
+            </div>
+            <div className="cardBody">
+              <div className="summaryGrid">
+                <div className="summaryItem">
+                  <div className="summaryLabel">Connection</div>
+                  <div className="summaryValue">
+                    <span className={statusDotClass} aria-hidden="true" />
+                    <span className={apiStatusBadgeClass}>{statusLabel}</span>
+                    <span className="summaryMeta" title={apiBaseAbsolute || apiBase}>
+                      {apiBaseAbsolute || apiBase}
+                    </span>
+                  </div>
+                </div>
+                <div className="summaryItem">
+                  <div className="summaryLabel">Market</div>
+                  <div className="summaryValue">
+                    <span className="badge">{platformLabel}</span>
+                    <span className="badge">{normalizedSymbol || "—"}</span>
+                    <span className="badge">{form.interval || "—"}</span>
+                    <span className="badge">{marketLabel(form.market)}</span>
+                  </div>
+                </div>
+                <div className="summaryItem">
+                  <div className="summaryLabel">Execution</div>
+                  <div className="summaryValue">
+                    <span className={liveModeBadgeClass}>{form.binanceLive ? "Live orders" : "Test orders"}</span>
+                    <span className={tradeArmBadgeClass}>{form.tradeArmed ? "Trading armed" : "Trading locked"}</span>
+                    <span className={botStatusBadge.className}>{botStatusBadge.label}</span>
+                    <span className="badge">{botActiveSymbols.length} active</span>
+                    {botDisplay?.symbol ? <span className="badge">{botDisplay.symbol}</span> : null}
+                    {botDisplay?.halted ? <span className="badge badgeWarn">Halted</span> : null}
+                    {bot.error ? (
+                      <span className="summaryMeta" title={bot.error}>
+                        {bot.error}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="summaryItem">
+                  <div className="summaryLabel">Latest signal</div>
+                  <div className="summaryValue">
+                    {latestSignalSummary ? (
+                      <>
+                        <span className={actionBadgeClass(latestSignalSummary.action)}>{latestSignalSummary.action}</span>
+                        <span className="badge">{latestSignalSummary.direction}</span>
+                        <span className="badge">{latestSignalSummary.method}</span>
+                      </>
+                    ) : (
+                      <span className="summaryEmpty">No signal yet</span>
+                    )}
+                  </div>
+                </div>
+                <div className="summaryItem">
+                  <div className="summaryLabel">Backtest</div>
+                  <div className="summaryValue">
+                    {backtestSummary ? (
+                      <>
+                        <span className="badge">Equity {backtestSummary.equity}</span>
+                        <span className="badge">Sharpe {backtestSummary.sharpe}</span>
+                        <span className="badge">{backtestSummary.trades} trades</span>
+                      </>
+                    ) : (
+                      <span className="summaryEmpty">No backtest yet</span>
+                    )}
+                  </div>
+                </div>
+                <div className="summaryItem">
+                  <div className="summaryLabel">Trade</div>
+                  <div className="summaryValue">
+                    {tradeOrder ? (
+                      <>
+                        <span className={tradeOrder.sent ? "badge badgeOk" : "badge badgeBad"}>
+                          {tradeOrder.sent ? "Sent" : "Rejected"}
+                        </span>
+                        {tradeOrder.side ? <span className="badge">{tradeOrder.side}</span> : null}
+                        {tradeOrder.symbol ? <span className="badge">{tradeOrder.symbol}</span> : null}
+                        {tradeOrder.status ? (
+                          <span className="summaryMeta" title={tradeOrder.status}>
+                            {tradeOrder.status}
+                          </span>
+                        ) : tradeOrder.message ? (
+                          <span className="summaryMeta" title={tradeOrder.message}>
+                            {tradeOrder.message}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="summaryEmpty">No trade yet</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="cardHeader">
               <h2 className="cardTitle">Live bot</h2>
               <p className="cardSubtitle">Non-stop loop (server-side): fetches new bars, updates the model each bar, and records each buy/sell operation.</p>
             </div>
@@ -7800,6 +7933,19 @@ export function App() {
                         Snapshot {botSnapshotAtMs ? `from ${fmtTimeMs(botSnapshotAtMs)}` : "loaded"} (bot not running).
                       </div>
                     ) : null}
+
+                    <LiveVisuals
+                      prices={botDisplay.prices}
+                      signal={botDisplay.latestSignal}
+                      position={botLastPosition}
+                      risk={botRisk}
+                      halted={botDisplay.halted}
+                      cooldownLeft={botDisplay.cooldownLeft ?? null}
+                      orderErrors={botDisplay.consecutiveOrderErrors ?? null}
+                      candleAgeMs={botRealtime?.candleAgeMs ?? null}
+                      closeEtaMs={botRealtime?.closeEtaMs ?? null}
+                      statusAgeMs={botRealtime?.statusAgeMs ?? null}
+                    />
 
 	                  <BacktestChart
 	                    prices={botDisplay.prices}

@@ -187,6 +187,7 @@ predictSensors pb prices hmmFilt t =
       feat = if needFeatures then featuresAt fs prices t else Nothing
       gbdtReady = gmFeatureDim (pbGBDT pb) > 0
       quantReady = not (null (lmW (qm50 (pbQuantile pb))))
+      transformerReady = trFeatureDim (pbTransformer pb) > 0
       gbdtPred =
         case feat of
           Nothing -> Nothing
@@ -214,7 +215,7 @@ predictSensors pb prices hmmFilt t =
         case feat of
           Nothing -> []
           Just x ->
-            if not useTransformer
+            if not useTransformer || not transformerReady || length x /= trFeatureDim (pbTransformer pb)
               then []
               else
                 let (mu, sig) = predictTransformer (pbTransformer pb) x
@@ -227,18 +228,19 @@ predictSensors pb prices hmmFilt t =
             if not quantReady || not useQuantile
               then []
               else
-                let (q10', q50', q90', mu, sig) = predictQuantiles (pbQuantile pb) x
-                 in
-                  [ ( SensorQuantile
-                    , SensorOutput
-                        { soMu = mu
-                        , soSigma = sig
-                        , soRegimes = Nothing
-                        , soQuantiles = Just (Quantiles q10' q50' q90')
-                        , soInterval = Nothing
-                        }
-                    )
-                  ]
+                case predictQuantiles (pbQuantile pb) x of
+                  Nothing -> []
+                  Just (q10', q50', q90', mu, sig) ->
+                    [ ( SensorQuantile
+                      , SensorOutput
+                          { soMu = mu
+                          , soSigma = sig
+                          , soRegimes = Nothing
+                          , soQuantiles = Just (Quantiles q10' q50' q90')
+                          , soInterval = Nothing
+                          }
+                      )
+                    ]
 
       conformalOut =
         case gbdtPred of

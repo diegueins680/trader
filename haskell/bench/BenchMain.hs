@@ -130,7 +130,10 @@ benchQuantile cfg = do
     evaluate sumW
     pure m
   _ <- timeIt "Quantile predict" $ do
-    let preds = map (\x -> let (lo, mid, hi, _, _) = predictQuantiles model x in lo + mid + hi) inputs
+    let preds =
+          map
+            (\x -> maybe 0 (\(lo, mid, hi, _, _) -> lo + mid + hi) (predictQuantiles model x))
+            inputs
     evaluate (sum preds)
   pure ()
 

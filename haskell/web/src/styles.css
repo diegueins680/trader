@@ -664,6 +664,53 @@ textarea {
   gap: 14px;
 }
 
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.summaryItem {
+  border-radius: 14px;
+  border: 1px solid var(--stroke);
+  background:
+    linear-gradient(140deg, var(--card-sheen), rgba(255, 255, 255, 0)),
+    var(--surface-subtle);
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  min-height: 86px;
+}
+
+.summaryLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.summaryValue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.summaryMeta {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--faint);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summaryEmpty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .kv {
   display: grid;
   grid-template-columns: 150px 1fr;
@@ -790,6 +837,287 @@ textarea {
   margin-top: 2px;
   font-size: 11px;
   color: var(--muted);
+}
+
+.liveVizGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin: 12px 0 16px;
+}
+
+.liveVizCard {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--stroke);
+  background:
+    radial-gradient(circle at 10% 10%, rgba(var(--accent-rgb), 0.08), transparent 55%),
+    var(--surface-subtle);
+}
+
+.liveVizHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.liveVizLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.liveVizValue {
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.liveVizDelta {
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.liveVizDeltaUp {
+  color: rgba(34, 197, 94, 0.9);
+}
+
+.liveVizDeltaDown {
+  color: rgba(239, 68, 68, 0.9);
+}
+
+.liveVizDeltaFlat {
+  color: var(--muted);
+}
+
+.liveVizSparklineWrap {
+  height: 82px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  background: rgba(15, 23, 42, 0.05);
+  display: grid;
+  place-items: center;
+  padding: 4px;
+}
+
+.liveVizEmpty {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.liveSparkline {
+  width: 100%;
+  height: 100%;
+}
+
+.liveSparklineLine {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.liveSparklineArea {
+  opacity: 0.2;
+}
+
+.liveSparklineUp .liveSparklineLine {
+  stroke: rgba(34, 197, 94, 0.9);
+}
+
+.liveSparklineUp .liveSparklineArea {
+  fill: rgba(34, 197, 94, 0.35);
+}
+
+.liveSparklineDown .liveSparklineLine {
+  stroke: rgba(239, 68, 68, 0.9);
+}
+
+.liveSparklineDown .liveSparklineArea {
+  fill: rgba(239, 68, 68, 0.3);
+}
+
+.liveSparklineFlat .liveSparklineLine {
+  stroke: rgba(148, 163, 184, 0.9);
+}
+
+.liveSparklineFlat .liveSparklineArea {
+  fill: rgba(148, 163, 184, 0.25);
+}
+
+.liveVizMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.liveVizBlock {
+  display: grid;
+  gap: 6px;
+}
+
+.liveVizRowHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.liveVizRowValue {
+  font-family: var(--mono);
+  color: var(--text);
+}
+
+.liveVizValueTag {
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.liveVizValueTagLong {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.liveVizValueTagShort {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.liveVizValueTagFlat {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.liveVizBadge {
+  white-space: nowrap;
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.liveVizBadgeLong {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: var(--text);
+}
+
+.liveVizBadgeShort {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: var(--text);
+}
+
+.liveVizBadgeFlat {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.32);
+  color: var(--text);
+}
+
+.liveVizBadgeOk {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: var(--text);
+}
+
+.liveVizBadgeWarn {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: var(--text);
+}
+
+.liveLaneLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.liveLaneTrack {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.liveLaneCenter {
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  width: 2px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--stroke2);
+}
+
+.liveLaneMarker {
+  position: absolute;
+  top: -4px;
+  width: 12px;
+  height: 18px;
+  border-radius: 6px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
+}
+
+.liveLaneMarkerLong {
+  background: rgba(34, 197, 94, 0.9);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+.liveLaneMarkerShort {
+  background: rgba(239, 68, 68, 0.9);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+}
+
+.liveLaneMarkerFlat {
+  background: rgba(148, 163, 184, 0.9);
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.25);
+}
+
+.liveMeter {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+}
+
+.liveMeterThin {
+  height: 6px;
+}
+
+.liveMeterFill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.9), rgba(var(--accent-alt-rgb), 0.85));
+}
+
+.liveMeterAlt .liveMeterFill {
+  background: linear-gradient(90deg, rgba(var(--accent-alt-rgb), 0.9), rgba(var(--accent-warm-rgb), 0.8));
+}
+
+.liveMeterWarn .liveMeterFill {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.9), rgba(239, 68, 68, 0.9));
+}
+
+.liveMeterMuted .liveMeterFill {
+  background: rgba(148, 163, 184, 0.35);
 }
 
 .topCombosChart {

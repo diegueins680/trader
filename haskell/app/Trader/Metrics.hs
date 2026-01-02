@@ -5,7 +5,7 @@ module Trader.Metrics
 
 import Data.List (foldl')
 
-import Trader.Trading (BacktestResult(..), Trade(..))
+import Trader.Trading (BacktestResult(..), ExitReason(..), Trade(..))
 
 data BacktestMetrics = BacktestMetrics
   { bmPeriods :: !Int
@@ -56,6 +56,10 @@ computeMetrics periodsPerYear br =
 
       trades = brTrades br
       tradeCount = length trades
+      isRoundTrip t =
+        case trExitReason t of
+          Just ExitEod -> False
+          _ -> True
       (wins, sumReturns, grossProfits, grossLossSum, totalHold, roundTrips) =
         foldl'
           (\(w, rSum, gp, gl, hold, rt) t ->
@@ -65,7 +69,7 @@ computeMetrics periodsPerYear br =
                   gp' = if pnl > 0 then gp + pnl else gp
                   gl' = if pnl < 0 then gl + pnl else gl
                   hold' = hold + trHoldingPeriods t
-                  rt' = if trEntryIndex t < trExitIndex t then rt + 1 else rt
+                  rt' = if isRoundTrip t then rt + 1 else rt
                in (w', rSum + r, gp', gl', hold', rt')
           )
           (0, 0, 0, 0, 0, 0)

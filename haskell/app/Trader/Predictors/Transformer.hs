@@ -45,7 +45,7 @@ predictTransformer m query =
               d = fromIntegral actual
            in
             if expected > 0 && actual /= expected
-              then error ("Transformer feature dimension mismatch: expected " ++ show expected ++ ", got " ++ show actual)
+              then (0, Nothing)
               else
                 let sim k = dot query k / sqrt (max 1 d)
                     scoresRaw = map (\k -> trTemperature m * sim k) keys

@@ -232,10 +232,10 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.
   - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
     - `annualized-equity` | `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
-  - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips, and non-inverted hysteresis (close <= open) without reducing equity.
+  - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips (excludes end-of-series EOD exits), and non-inverted hysteresis (close <= open) without reducing equity.
   - `--tune-penalty-max-drawdown 1.5` penalty weight for max drawdown (used by `equity-dd*` objectives)
   - `--tune-penalty-turnover 0.2` penalty weight for turnover (used by `equity-dd-turnover`)
-  - `--min-round-trips N` (default: `0`) when optimizing/sweeping, require at least `N` round trips in the tune split (helps avoid picking "no-trade" configs)
+  - `--min-round-trips N` (default: `0`) when optimizing/sweeping, require at least `N` non-EOD round trips in the tune split (helps avoid picking "no-trade" configs)
   - `--tune-stress-vol-mult F` volatility multiplier for stress scoring (`1` disables)
   - `--tune-stress-shock F` shock added to returns for stress scoring (`0` disables)
   - `--tune-stress-weight F` penalty weight for stress scoring (`0` disables)
@@ -294,7 +294,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
   - `--lstm-confidence-soft 0.6` soft LSTM confidence threshold for sizing (`0` disables the half-size step; requires confidence sizing)
   - `--lstm-confidence-hard 0.8` hard LSTM confidence threshold for sizing (`0` disables; requires confidence sizing)
-  - `--min-position-size 0.15` minimum entry size when confidence sizing is enabled (`0..1`; ignored when confidence sizing is disabled)
+  - `--min-position-size 0.15` minimum entry size after sizing/vol scaling when confidence sizing is enabled (`0..1`; ignored when confidence sizing is disabled)
   - When confidence sizing is enabled, live orders also scale entry size by LSTM confidence (score = clamp01(|lstmNext/current - 1| / (2 * openThreshold))): use `--lstm-confidence-hard/soft` thresholds (defaults 80%/60%).
   - The UI defaults to `orderQuote=100` so new setups clear common minQty/step sizes; adjust sizing to your account.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
@@ -302,7 +302,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
-    - Backtests reset daily-loss using bar timestamps when available (exchange data or CSV time columns); otherwise they fall back to interval-based day keys.
+    - Backtests reset daily-loss using bar timestamps when available (exchange data or CSV time columns); if timestamps are missing or mismatched they fall back to interval-based day keys.
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
   - Risk halts are evaluated on post-bar equity and can close open positions at the bar close.
   - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as the exit reason.
@@ -601,9 +601,11 @@ Web UI
 A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST API and visualizes signals/backtests (including the equity curve).
 The UI layout uses a refreshed header, section grouping, and spacing for faster scanning on desktop and mobile.
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
+The overview card summarizes connection, execution mode, and the latest signal/backtest/trade results for quick scanning.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
+The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.

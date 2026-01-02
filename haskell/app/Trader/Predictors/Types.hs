@@ -88,16 +88,18 @@ predictorSetFromString raw =
                   ++ intercalate ", " bad
                   ++ " (expected gbdt,tcn,transformer,hmm,quantile,conformal, all, none)."
               )
-        else if hasAll
-          then Right allPredictors
-        else if hasNone
-          then
-            if length lowered == 1
-              then Right Set.empty
-              else Left "Predictors list mixes 'none' with other entries."
-        else
-          let parsed = map parseOne lowered
-           in Right (Set.fromList [sid | Right sid <- parsed])
+          else if hasAll && hasNone
+            then Left "Predictors list mixes 'all' with 'none'."
+            else if hasAll
+              then Right allPredictors
+              else if hasNone
+                then
+                  if length lowered == 1
+                    then Right Set.empty
+                    else Left "Predictors list mixes 'none' with other entries."
+                else
+                  let parsed = map parseOne lowered
+                   in Right (Set.fromList [sid | Right sid <- parsed])
   where
     splitTokens =
       filter (not . null) . words . map (\c -> if c == ',' then ' ' else c)

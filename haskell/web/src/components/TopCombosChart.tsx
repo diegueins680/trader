@@ -95,6 +95,7 @@ export type OptimizationCombo = {
     maxDrawdown?: number | null;
     turnover?: number | null;
     roundTrips?: number | null;
+    annualizedReturn?: number | null;
   } | null;
   openThreshold: number | null;
   closeThreshold: number | null;
@@ -131,7 +132,14 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
     );
   }
 
-  const maxEq = combos.reduce((acc, combo) => Math.max(acc, combo.finalEquity), 0.0) || 1.0;
+  const annualizedEquityValue = (combo: OptimizationCombo): number | null => {
+    const annReturn = combo.metrics?.annualizedReturn;
+    if (typeof annReturn !== "number" || !Number.isFinite(annReturn)) return null;
+    const annEq = annReturn + 1;
+    return Number.isFinite(annEq) ? annEq : null;
+  };
+  const maxRating =
+    combos.reduce((acc, combo) => Math.max(acc, annualizedEquityValue(combo) ?? combo.finalEquity), 0.0) || 1.0;
   const fmtOptRatio = (v: number | null | undefined, digits = 4): string =>
     typeof v === "number" && Number.isFinite(v) ? fmtRatio(v, digits) : "—";
   const fmtOptPct = (v: number | null | undefined, digits = 2): string =>
@@ -151,7 +159,10 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
         const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
         const sourceLabel = platform ? PLATFORM_LABELS[platform] : combo.source === "csv" ? "CSV" : "Unknown";
         const symbolLabel = combo.params.binanceSymbol ? combo.params.binanceSymbol : null;
-        const barWidth = Math.max(1, (combo.finalEquity / maxEq) * 100);
+        const annualizedEquity = annualizedEquityValue(combo);
+        const annualizedEquityLabel = annualizedEquity != null ? fmtRatio(annualizedEquity, 4) : null;
+        const ratingValue = annualizedEquity ?? combo.finalEquity;
+        const barWidth = Math.max(1, (ratingValue / maxRating) * 100);
         const objectiveLabel = typeof combo.objective === "string" && combo.objective ? combo.objective : null;
         const scoreLabel =
           typeof combo.score === "number" && Number.isFinite(combo.score) ? combo.score.toFixed(4) : null;
@@ -248,6 +259,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
               <div className="comboBar" style={{ width: `${barWidth}%` }} />
             </div>
             <div className="comboDetailRow">
+              {annualizedEquityLabel ? <span className="badge">AnnEq {annualizedEquityLabel}</span> : null}
               {objectiveLabel ? <span className="badge">Obj {objectiveLabel}</span> : null}
               {scoreLabel ? <span className="badge">Score {scoreLabel}</span> : null}
               {sharpeLabel ? <span className="badge">Sharpe {sharpeLabel}</span> : null}

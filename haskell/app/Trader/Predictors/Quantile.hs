@@ -40,15 +40,28 @@ trainQuantileModel epochs lr l2 dataset
           qs0 = QuantileModel initM initM initM
        in applyN epochs (epochStep lr l2 dataset) qs0
 
-predictQuantiles :: QuantileModel -> [Double] -> (Double, Double, Double, Double, Maybe Double)
+predictQuantiles :: QuantileModel -> [Double] -> Maybe (Double, Double, Double, Double, Maybe Double)
 predictQuantiles qm x =
-  let q10' = predictLin (qm10 qm) x
-      q50' = predictLin (qm50 qm) x
-      q90' = predictLin (qm90 qm) x
-      (lo, hi) = if q10' <= q90' then (q10', q90') else (q90', q10')
-      q50 = min hi (max lo q50')
-      sigma = sigmaFromQ1090 lo hi
-   in (lo, q50, hi, q50, sigma)
+  let dims =
+        [ length (lmW (qm10 qm))
+        , length (lmW (qm50 qm))
+        , length (lmW (qm90 qm))
+        ]
+      expected =
+        case dims of
+          [] -> 0
+          (d:ds) -> if d > 0 && all (== d) ds then d else 0
+      actual = length x
+   in if expected <= 0 || actual /= expected
+        then Nothing
+        else
+          let q10Raw = predictLin (qm10 qm) x
+              q50Raw = predictLin (qm50 qm) x
+              q90Raw = predictLin (qm90 qm) x
+              (lo, hi) = if q10Raw <= q90Raw then (q10Raw, q90Raw) else (q90Raw, q10Raw)
+              q50Clamped = min hi (max lo q50Raw)
+              sigma = sigmaFromQ1090 lo hi
+           in Just (lo, q50Clamped, hi, q50Raw, sigma)
 
 predictLin :: LinModel -> [Double] -> Double
 predictLin m x = dot (lmW m) x + lmB m

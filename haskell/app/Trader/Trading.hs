@@ -392,10 +392,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
             | V.length ts > n -> Just (V.drop (V.length ts - n) ts)
             | otherwise -> Nothing
           _ -> Nothing
-      openTimesMismatch =
-        case ecOpenTimes cfg of
-          Just ts | V.length ts < n -> Just "openTimes vector must match closes length"
-          _ -> Nothing
       validationError =
         if n < 2
           then Just "Need at least 2 prices to simulate"
@@ -403,33 +399,30 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
           if V.length highsV /= n || V.length lowsV /= n
             then Just "high/low vectors must match closes length"
           else
-            case openTimesMismatch of
-              Just err -> Just err
-              Nothing ->
-                if lookback >= n
-                  then Just "lookback must be less than number of prices"
+            if lookback >= n
+              then Just "lookback must be less than number of prices"
+              else
+                if maybe False (\mv -> V.length mv < stepCount) mMetaV
+                  then Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
                   else
-                    if maybe False (\mv -> V.length mv < stepCount) mMetaV
-                      then Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
+                    if V.length kalPredNextV < kalNeed
+                      then
+                        Just
+                          ( "kalPredNext too short: need at least "
+                              ++ show kalNeed
+                              ++ ", got "
+                              ++ show (V.length kalPredNextV)
+                          )
                       else
-                        if V.length kalPredNextV < kalNeed
+                        if V.length lstmPredNextV < lstmNeed
                           then
                             Just
-                              ( "kalPredNext too short: need at least "
-                                  ++ show kalNeed
+                              ( "lstmPredNext too short: need at least "
+                                  ++ show lstmNeed
                                   ++ ", got "
-                                  ++ show (V.length kalPredNextV)
+                                  ++ show (V.length lstmPredNextV)
                               )
-                          else
-                            if V.length lstmPredNextV < lstmNeed
-                              then
-                                Just
-                                  ( "lstmPredNext too short: need at least "
-                                      ++ show lstmNeed
-                                      ++ ", got "
-                                      ++ show (V.length lstmPredNextV)
-                                  )
-                              else Nothing
+                          else Nothing
    in case validationError of
         Just err -> Left err
         Nothing ->
@@ -479,7 +472,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               fundingBySide = ecFundingBySide cfg
               fundingOnOpen = ecFundingOnOpen cfg
               triLayerEnabled = ecTriLayer cfg
-              cloudReady = triLayerEnabled && n >= 2
               kalDt = max 1e-12 (ecKalmanDt cfg)
               kalProcessVar = max 0 (ecKalmanProcessVar cfg)
               kalMeasVar = max 1e-12 (ecKalmanMeasurementVar cfg)
@@ -493,11 +485,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               triLayerExitOnSlow = ecTriLayerExitOnSlow cfg
               kalmanBandLookback = max 0 (ecKalmanBandLookback cfg)
               kalmanBandStdMult = max 0 (ecKalmanBandStdMult cfg)
+              kalmanBandEnabled =
+                n >= 2 && kalmanBandStdMult > 0 && kalmanBandLookback >= 2
+              kalmanCloudEnabled = (triLayerEnabled || kalmanBandEnabled) && n >= 2
+              cloudReady = triLayerEnabled && n >= 2
               lstmFlipBars = max 0 (ecLstmExitFlipBars cfg)
               lstmFlipGraceBars = max 0 (ecLstmExitFlipGraceBars cfg)
               lstmFlipStrongOnly = ecLstmExitFlipStrong cfg
               (cloudFastV, cloudSlowV) =
-                if cloudReady
+                if kalmanCloudEnabled
                   then
                     let run mult =
                           let mv = max 1e-12 (kalMeasVar * mult)
@@ -506,8 +502,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                            in V.fromList filts
                      in (run fastMult, run slowMult)
                   else (pricesV, pricesV)
-              kalmanBandEnabled =
-                cloudReady && kalmanBandStdMult > 0 && kalmanBandLookback >= 2
               kalmanResidualV =
                 if kalmanBandEnabled
                   then V.zipWith (-) pricesV cloudSlowV
@@ -965,10 +959,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                 if not (ecConfidenceSizing cfg)
                   then 1
                   else
-                    let hard0 = clamp01 (ecLstmConfidenceHard cfg)
-                        soft0 = clamp01 (ecLstmConfidenceSoft cfg)
-                        hard = hard0
-                        soft = min soft0 hard
+                    let hard = clamp01 (ecLstmConfidenceHard cfg)
+                        softRaw = clamp01 (ecLstmConfidenceSoft cfg)
+                        soft =
+                          if softRaw <= 0
+                            then hard
+                            else min softRaw hard
                      in if hard <= 0
                           then 1
                           else
@@ -1118,7 +1114,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             (Just maxW, Just w) -> w <= maxW
                             (Just _, Nothing) -> False
                             _ -> True
-                        confOk = confScore >= max 0 (min 1 (ecMinPositionSize cfg))
                         size0 = if useSizing then confScore else 1
                      in
                       if kalZ < zMin
@@ -1133,7 +1128,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                 then (Nothing, 0)
                                 else if not (confirmQuantiles thr m side)
                                   then (Nothing, 0)
-                                  else if useSizing && (not confOk || size0 <= 0)
+                                  else if useSizing && size0 <= 0
                                     then (Nothing, 0)
                                     else (Just side, size0)
 
