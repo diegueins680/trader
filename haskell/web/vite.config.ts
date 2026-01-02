@@ -26,6 +26,12 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         external: ["/trader-config.js"],
+        output: {
+          manualChunks: (id) => {
+            if (id.includes("node_modules")) return "vendor";
+            return undefined;
+          },
+        },
       },
     },
     server: {

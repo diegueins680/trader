@@ -192,4 +192,5 @@ export const TUNE_OBJECTIVES = [
 export const TUNE_OBJECTIVE_SET = new Set<string>(TUNE_OBJECTIVES);
 
 export const DATA_LOG_COLLAPSED_MAX_LINES = 50;
+export const DATA_LOG_AUTO_SCROLL_SLOP_PX = 24;
 export const DATA_LOG_BAR_SERIES_KEYS = new Set(["prices", "positions", "equityCurve", "agreementOk", "kalmanPredNext", "lstmPredNext"]);
