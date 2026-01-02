@@ -10,7 +10,9 @@ All notable changes to this project will be documented in this file.
 - Web UI: add a decision-logic checklist to the Latest signal card showing the gates and sizing behind operate/hold outcomes.
 - Web UI: add live trading visual aids (price pulse, signal/position compass, risk buffer) to the Live bot panel.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.
+- Web UI: add a Run optimizer form to the Optimizer combos panel to launch `/optimizer/run`, apply constraints, and show the last output.
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
+- Deploy: quick AWS UI config auto-fills `apiFallbackUrl` for CloudFront deployments (direct API URLs fall back to `/api`, and `/api` falls back to the API URL when known).
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.
@@ -40,13 +42,19 @@ All notable changes to this project will be documented in this file.
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
 - Trading: allow Kalman-band exits without `--tri-layer` when the band flags are enabled.
 - Trading: apply `--min-position-size` only as a final size floor, not as a confidence gate.
+- Trading: align LSTM prediction indexing to bar positions and trim meta gating inputs consistently.
+- Trading: skip confirmation/width gates when the corresponding predictor outputs are missing.
+- Trading: rebalancing now requires non-zero `--rebalance-bars` and `--rebalance-threshold`, and resets honor the latest same-side signal anchor.
 - Trading: add dynamic threshold-factor multipliers for open/close thresholds and min-edge/min-signal-to-noise, with CLI/optimizer tuning (forces tune objective to annualized equity when enabled).
 - Backtests: ignore mismatched timestamp vectors for daily-loss and fall back to interval-based day keys.
 - Backtests: daily-loss now honors timestamp vectors even when interval seconds are unavailable.
+- Backtests: `--max-daily-loss` errors when day keys cannot be derived from timestamps or interval seconds.
 - Metrics: round trips now exclude end-of-series `EOD` exits (affects `--min-round-trips` and tie-breakers).
 - Predictors: fall back to the GBDT base prediction when feature dimensions mismatch.
 - Predictors: skip transformer/quantile outputs on feature dimension mismatches instead of crashing, and keep the quantile sensor mean as the raw median while reported quantiles remain clamped.
 - CLI/API: `predictors` rejects mixes of `all` and `none`.
+- CLI/API: validate `--min-position-size <= --max-position-size`.
+- CLI: when optimizing/sweeping thresholds, print a tip for `--tune-objective annualized-equity`.
 - Predictors: add `--predictors` (CLI/API `predictors`) to select which predictors train/use; disabled predictors skip their confirmation gates.
 - Web UI: default order sizing uses `orderQuote=100` to avoid orders rounding to zero on common minQty/step sizes.
 - Backtests: API queues requests when the backtest slot is busy; UI waits and notifies when the backtest completes.
@@ -72,6 +80,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add an orphaned operations panel that highlights open futures positions not currently adopted by a running bot.
 - Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates (including API token changes).
 - Web UI: bot state timeline hover now shows the corresponding timestamp.
+- Web UI: reduce bot state timeline chart height in bot cards.
 - Web UI: chart tooltips now show bar date/time when timestamps are available.
 - Web UI: charts now scale to use most of the viewport height.
 - Web UI: show a live bot chart for each running bot in the Live bot panel.
@@ -79,6 +88,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: open positions/orphaned operations cards key by position side, ignore bots with trade disabled when determining adoption, and label trade-off bots explicitly.
 - Web UI: Fix button clamps bars/epochs/hidden size to API limits when exceeded.
 - Web UI: backtest split auto-adjusts bars without exceeding API max bars.
+- Web UI: error panel adds an Apply fix button to adjust tune ratio when split windows are invalid.
 - Web UI: show combo obtained timestamps, display annualized equity, default combo ordering by annualized equity, and filter optimizer combos by minimum equity.
 - Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).
 - Metrics: agreement rate now counts only bars where both models emit a direction (warm-up/no-signal bars excluded).

@@ -1249,9 +1249,12 @@ main() {
       ui_api_url="$api_url"
     fi
     ui_api_fallback="$UI_API_FALLBACK_URL"
-    if [[ -z "$ui_api_fallback" && "$ui_api_url" == "/api" && "$api_url_from_service" == "true" && -n "$api_url" ]]; then
+    if [[ -z "$ui_api_fallback" && "$ui_api_url" == "/api" && -n "$api_url" ]]; then
       ui_api_fallback="$api_url"
-      echo -e "${YELLOW}✓ Using apiFallbackUrl from App Runner URL${NC}" >&2
+      echo -e "${YELLOW}✓ Using apiFallbackUrl from API URL${NC}" >&2
+    elif [[ -z "$ui_api_fallback" && "$ui_api_url" != "/api" && -n "${UI_DISTRIBUTION_ID:-}" && -n "$api_url" ]]; then
+      ui_api_fallback="/api"
+      echo -e "${YELLOW}✓ Using apiFallbackUrl=/api for CloudFront proxy fallback${NC}" >&2
     fi
     deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
   fi

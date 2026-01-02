@@ -831,6 +831,7 @@ validateArgs args0 = do
     Nothing -> pure ()
     Just v -> ensure "--max-quantile-width must be >= 0" (v >= 0)
   ensure "--min-position-size must be between 0 and 1" (argMinPositionSize args >= 0 && argMinPositionSize args <= 1)
+  ensure "--min-position-size must be <= --max-position-size" (argMinPositionSize args <= argMaxPositionSize args)
   ensure "--tune-stress-vol-mult must be > 0" (argTuneStressVolMult args > 0)
   ensure "--tune-stress-weight must be >= 0" (argTuneStressWeight args >= 0)
 

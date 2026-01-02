@@ -11066,6 +11066,10 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                 )
             else pure ()
 
+      when (argOptimizeOperations args || argSweepThreshold args) $
+        when (bsTuneObjective summary /= TuneAnnualizedEquity) $
+          putStrLn "Tip: To optimize annualized equity, rerun with --tune-objective annualized-equity (alias: annualized-return)."
+
       printCostGuidance
         (max (bsBestOpenThreshold summary) (bsMinEdge summary))
         (bsBestCloseThreshold summary)

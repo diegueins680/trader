@@ -236,6 +236,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
     - `annualized-equity` | `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
     - When `--threshold-factor` is enabled, the tune objective is forced to `annualized-equity`.
+    - To maximize annualized equity, set `--tune-objective annualized-equity` (alias: `annualized-return`).
   - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips (excludes end-of-series EOD exits), and non-inverted hysteresis (close <= open) without reducing equity.
   - `--tune-penalty-max-drawdown 1.5` penalty weight for max drawdown (used by `equity-dd*` objectives)
   - `--tune-penalty-turnover 0.2` penalty weight for turnover (used by `equity-dd-turnover`)
@@ -282,8 +283,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--vol-floor F` annualized vol floor for sizing (default: `0.15`)
     - `--vol-scale-max F` cap volatility scaling (limits leverage)
     - `--max-volatility F` block entries when annualized vol exceeds this (`0` disables; default: `1.5`)
-  - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables; backtests only; default: `24`, entry-anchored)
-  - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables; default: `0.05`)
+  - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables rebalancing; backtests only; default: `24`, entry-anchored)
+  - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables rebalancing; default: `0.05`)
   - `--rebalance-global` optional: anchor rebalance cadence to global bars instead of entry age
   - `--rebalance-reset-on-signal` optional: reset rebalance cadence when a same-side open signal updates size
   - `--funding-rate F` optional: annualized funding/borrow rate applied per bar in backtests (`0` disables; negative allowed; default: `0.1`)
@@ -298,15 +299,18 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
   - `--lstm-confidence-soft 0.6` soft LSTM confidence threshold for sizing (`0` disables the half-size step; requires confidence sizing)
   - `--lstm-confidence-hard 0.8` hard LSTM confidence threshold for sizing (`0` disables; requires confidence sizing)
-  - `--min-position-size 0.15` minimum entry size after sizing/vol scaling when confidence sizing is enabled (`0..1`; ignored when confidence sizing is disabled)
+  - `--min-position-size 0.15` minimum entry size after sizing/vol scaling (`0..1`; entries below this are skipped)
+    - Must be <= `--max-position-size`.
   - When confidence sizing is enabled, live orders also scale entry size by LSTM confidence (score = clamp01(|lstmNext/current - 1| / (2 * openThreshold))): use `--lstm-confidence-hard/soft` thresholds (defaults 80%/60%).
   - The UI defaults to `orderQuote=100` so new setups clear common minQty/step sizes; adjust sizing to your account.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
-  - Close-direction gating ignores `--min-position-size` so exits are not blocked by low confidence.
+  - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio to restore valid fit/tune windows.
+  - Close-direction gating ignores `--min-position-size` so exits are not blocked by size floors.
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
     - Backtests use bar timestamps when available (exchange data or CSV time columns); otherwise they fall back to interval-based day keys.
+    - If neither timestamps nor interval seconds are available, `--max-daily-loss` errors instead of silently disabling.
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
   - Risk halts are evaluated on post-bar equity and can close open positions at the bar close.
   - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as the exit reason.
@@ -618,6 +622,7 @@ Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
 The UI shows whether combos are coming from the live API or the static fallback, their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
 Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, and can be filtered by minimum final equity.
+The Optimizer combos panel includes a Run optimizer form to launch `/optimizer/run` with constraints (plus advanced JSON overrides) and refresh the list.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
 Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), selecting the existing bot if it is already running; top-combo auto-apply pauses while a manual Apply is starting a bot, and Refresh combos resyncs.
@@ -639,7 +644,7 @@ The configuration panel keeps a sticky action bar with readiness status, run but
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
 The backtest summary chart includes a Download log button to export the backtest operations.
 Backtest charts allow deeper zoom (mouse wheel down to ~6 bars) for close inspection.
-When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must be `/api` to avoid CORS issues (the quick AWS deploy script enforces this when a distribution ID is provided unless `--ui-api-direct` is set). When the script can discover the App Runner URL, it also sets `apiFallbackUrl` to that URL so the UI can fail over if the `/api/*` proxy returns 5xx/HTML; override with `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
+When the UI is served via CloudFront with a `/api/*` behavior, `apiBaseUrl` must be `/api` to avoid CORS issues (the quick AWS deploy script enforces this when a distribution ID is provided unless `--ui-api-direct` is set). When the script knows the API URL and a CloudFront distribution is in play, it auto-fills `apiFallbackUrl` for failover: `/api` falls back to the API URL, and direct API URLs fall back to `/api` (override with `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed). The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
 The UI auto-applies top combos when available and shows when a combo auto-applied; it also auto-starts missing bots for the top 5 combo symbols (Binance only), and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
@@ -676,10 +681,10 @@ If live bot start/status returns 502/503/504, verify the `/api/*` proxy target a
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
-- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it when it discovers App Runner + CloudFront). If the fallback host blocks CORS, the UI disables it for the session.
+- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it when a CloudFront distribution is used and the API URL is known). If the fallback host blocks CORS, the UI disables it for the session.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
-The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize each buy/sell operation on the selected bot chart (supports long/short on futures). It includes live/offline timeline charts with start/end controls when ops persistence is enabled: the selected bot shows the full timeline, and each running bot card shows a compact timeline. The chart reflects the available ops history and warns when the selected range extends beyond it.
+The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize each buy/sell operation on the selected bot chart (supports long/short on futures). It includes live/offline timeline charts with start/end controls when ops persistence is enabled: the selected bot shows the full timeline, and each running bot card shows a compact, shorter timeline. The chart reflects the available ops history and warns when the selected range extends beyond it.
 When trading is armed, the UI blocks live bot start until Binance keys are provided or verified via “Check keys” (otherwise switch to paper mode).
 When starting multi-symbol live bots, the UI uses the first bot symbol as the request symbol so `/bot/start` validation succeeds even if the main Symbol field is empty.
 Optimizer combos are clamped to the API compute limits reported by `/health` when available.

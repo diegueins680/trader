@@ -14,6 +14,8 @@ import type {
   CoinbaseKeysStatus,
   LatestSignal,
   OpsResponse,
+  OptimizerRunRequest,
+  OptimizerRunResponse,
 } from "./types";
 import { TRADER_UI_CONFIG } from "./deployConfig";
 
@@ -814,4 +816,21 @@ export async function ops(
 
 export async function optimizerCombos(baseUrl: string, opts?: FetchJsonOptions): Promise<unknown> {
   return fetchJson<unknown>(baseUrl, "/optimizer/combos", { method: "GET" }, opts);
+}
+
+export async function optimizerRun(
+  baseUrl: string,
+  params: OptimizerRunRequest,
+  opts?: FetchJsonOptions,
+): Promise<OptimizerRunResponse> {
+  return fetchJson<OptimizerRunResponse>(
+    baseUrl,
+    "/optimizer/run",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
 }

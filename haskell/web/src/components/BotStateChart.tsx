@@ -82,7 +82,7 @@ export function BotStateChart({ points, startMs, endMs, height = DEFAULT_CHART_H
   const w = 1000;
   const h = 180;
   const pad = { l: 16, r: 16, t: 12, b: 26 };
-  const resolvedHeight = typeof height === "string" ? height : DEFAULT_CHART_HEIGHT;
+  const resolvedHeight = height;
   const minHeight = typeof height === "number" ? height : undefined;
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
