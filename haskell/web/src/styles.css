@@ -252,8 +252,8 @@ textarea {
   top: 18px;
   max-height: calc(100vh - 36px);
   height: calc(100vh - 36px);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .configCard .cardBody {

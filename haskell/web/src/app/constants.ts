@@ -11,6 +11,7 @@ export const SESSION_COINBASE_SECRET_KEY = "trader.ui.coinbaseApiSecret.v1";
 export const SESSION_COINBASE_PASSPHRASE_KEY = "trader.ui.coinbaseApiPassphrase.v1";
 export const STORAGE_ORDER_LOG_PREFS_KEY = "trader.ui.orderLogPrefs.v1";
 export const STORAGE_PANEL_PREFS_KEY = "trader.ui.panelPrefs.v1";
+export const STORAGE_CONFIG_PANEL_ORDER_KEY = "trader.ui.configPanelOrder.v1";
 
 const DEFAULT_SIGNAL_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_BACKTEST_TIMEOUT_MS = 20 * 60_000;
