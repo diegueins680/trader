@@ -115,7 +115,7 @@ import Trader.LstmPersistence (lstmModelKey)
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
 import Trader.MarketContext (MarketModel, buildMarketModel, marketMeasurementAt)
 import Trader.BinanceIntervals (binanceIntervals)
-import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
+import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom, parseIntervalSeconds)
 import Trader.Normalization (NormState, NormType(..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Predictors
@@ -314,7 +314,13 @@ loadCsvPriceSeries path closeCol mHighCol mLowCol = do
           closeSeries = zipWith (\i row -> extractCellDoubleAt i closeKey row) [1 :: Int ..] rowsList
           highSeries = fmap (\k -> zipWith (\i row -> extractCellDoubleAt i k row) [1 :: Int ..] rowsList) mHighKey
           lowSeries = fmap (\k -> zipWith (\i row -> extractCellDoubleAt i k row) [1 :: Int ..] rowsList) mLowKey
-          openTimes = mTimeKey >>= \tk -> parseCsvTimes tk rowsList
+          openTimes =
+            case mTimeKey of
+              Nothing -> Nothing
+              Just tk ->
+                case parseCsvTimes tk rowsList of
+                  Left err -> error err
+                  Right ts -> Just ts
       pure (closeSeries, highSeries, lowSeries, openTimes)
 
 csvTimeKey :: [BS.ByteString] -> Maybe BS.ByteString
@@ -356,13 +362,26 @@ sortCsvRowsByTime timeKey rows =
                    in map snd (sortOn fst pairs)
                 else rows
 
-parseCsvTimes :: BS.ByteString -> [Csv.NamedRecord] -> Maybe [Int64]
+parseCsvTimes :: BS.ByteString -> [Csv.NamedRecord] -> Either String [Int64]
 parseCsvTimes timeKey rows =
   case traverse (lookupCell timeKey) rows of
-    Nothing -> Nothing
+    Nothing ->
+      Left ("Time column missing: " ++ BS.unpack timeKey)
     Just rawTimes ->
       let times = map (trim . BS.unpack) rawTimes
-       in traverse parseTimeMs times
+          parseAt (idx, s) =
+            case parseTimeMs s of
+              Just t -> Right t
+              Nothing ->
+                Left
+                  ( "Failed to parse time value at row "
+                      ++ show idx
+                      ++ " ("
+                      ++ BS.unpack timeKey
+                      ++ "): "
+                      ++ s
+                  )
+       in traverse parseAt (zip [1 :: Int ..] times)
 
 lookupCell :: BS.ByteString -> Csv.NamedRecord -> Maybe BS.ByteString
 lookupCell key rec = HM.lookup key rec
@@ -11359,16 +11378,14 @@ computeBacktestSummary args lookback series mBinanceEnv = do
   let prices = psClose series
       n = length prices
       backtestRatio = argBacktestRatio args
-      split =
-        case splitTrainBacktest lookback backtestRatio prices of
-          Left err -> error err
-          Right s -> s
-
-      trainEndRaw = splitTrainEndRaw split
+  split <-
+    case splitTrainBacktest lookback backtestRatio prices of
+      Left err -> throwIO (userError err)
+      Right s -> pure s
+  let trainEndRaw = splitTrainEndRaw split
       trainEnd = splitTrainEnd split
       trainPrices = splitTrain split
       backtestPrices = splitBacktest split
-
       trainSize = length trainPrices
       tuningEnabled = argOptimizeOperations args || argSweepThreshold args
       tuneRatio = max 0 (min 0.999999 (argTuneRatio args))
@@ -11381,20 +11398,24 @@ computeBacktestSummary args lookback series mBinanceEnv = do
 
   if tuningEnabled && tuneSize < 2
     then
-      error
-        ( printf
-            "Tune window too small (%d). Increase --tune-ratio, reduce --backtest-ratio, or increase the number of bars."
-            tuneSize
+      throwIO
+        ( userError
+            ( printf
+                "Tune window too small (%d). Increase --tune-ratio, reduce --backtest-ratio, or increase the number of bars."
+                tuneSize
+            )
         )
     else pure ()
   if tuningEnabled && fitSize < lookback + 1
     then
-      error
-        ( printf
-            "Fit window too small for lookback=%d (fit=%d, tune=%d). Decrease --tune-ratio, reduce --lookback-bars/--lookback-window, or increase the number of bars."
-            lookback
-            fitSize
-            tuneSize
+      throwIO
+        ( userError
+            ( printf
+                "Fit window too small for lookback=%d (fit=%d, tune=%d). Decrease --tune-ratio, reduce --lookback-bars/--lookback-window, or increase the number of bars."
+                lookback
+                fitSize
+                tuneSize
+            )
         )
     else pure ()
 
@@ -13393,26 +13414,6 @@ periodsPerYear args =
     Just v -> v
     Nothing ->
       inferPeriodsPerYear (argInterval args)
-
-inferPeriodsPerYear :: String -> Double
-inferPeriodsPerYear interval =
-  case interval of
-    "1m" -> 60 * 24 * 365
-    "3m" -> 20 * 24 * 365
-    "5m" -> 12 * 24 * 365
-    "15m" -> 4 * 24 * 365
-    "30m" -> 2 * 24 * 365
-    "1h" -> 24 * 365
-    "2h" -> 12 * 365
-    "4h" -> 6 * 365
-    "6h" -> 4 * 365
-    "8h" -> 3 * 365
-    "12h" -> 2 * 365
-    "1d" -> 365
-    "3d" -> 365 / 3
-    "1w" -> 52
-    "1M" -> 12
-    _ -> 365
 
 forwardReturns :: [Double] -> [Double]
 forwardReturns ps =

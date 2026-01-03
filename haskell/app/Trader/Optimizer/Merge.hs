@@ -36,6 +36,7 @@ import System.Directory
 import System.FilePath ((</>), takeDirectory)
 import System.IO (hPutStrLn, stderr)
 
+import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
 
 data MergeArgs = MergeArgs
@@ -394,6 +395,31 @@ sanitizeEq eq
   | isNaN eq || isInfinite eq = 0
   | otherwise = eq
 
+calcAnnualizedReturn :: Double -> Double -> Int -> Double
+calcAnnualizedReturn finalEq periodsPerYear periods
+  | periodsPerYear <= 0 = 0
+  | periods <= 0 = 0
+  | otherwise = finalEq ** (periodsPerYear / fromIntegral periods) - 1
+
+metricsHasAnnualizedReturn :: KM.KeyMap Value -> Bool
+metricsHasAnnualizedReturn metrics =
+  case KM.lookup (Key.fromString "annualizedReturn") metrics >>= coerceFloatValue of
+    Just v -> not (isNaN v || isInfinite v)
+    Nothing -> False
+
+ensureAnnualizedReturnMetrics :: Maybe (KM.KeyMap Value) -> Double -> Double -> Int -> Maybe (KM.KeyMap Value)
+ensureAnnualizedReturnMetrics metrics finalEq periodsPerYear periods =
+  let eq = max 0 (sanitizeEq finalEq)
+      annRet = calcAnnualizedReturn eq periodsPerYear periods
+      annVal = toJSON annRet
+      addMetric m = KM.insert (Key.fromString "annualizedReturn") annVal m
+   in case metrics of
+        Just m ->
+          if metricsHasAnnualizedReturn m
+            then Just m
+            else Just (addMetric m)
+        Nothing -> Just (KM.fromList [(Key.fromString "annualizedReturn", annVal)])
+
 compareDesc :: Ord a => a -> a -> Ordering
 compareDesc a b
   | a > b = LT
@@ -459,7 +485,7 @@ normalizeCombo value =
           platform = normalizePlatform paramsRaw source
           objective = KM.lookup (Key.fromString "objective") obj >>= normalizeObjectiveValue
           score = KM.lookup (Key.fromString "score") obj >>= coerceFloatValue
-          metrics =
+          metricsRaw =
             case KM.lookup (Key.fromString "metrics") obj of
               Just (Object m) -> Just m
               _ -> Nothing
@@ -467,6 +493,11 @@ normalizeCombo value =
           createdAtMs = KM.lookup (Key.fromString "createdAtMs") obj >>= coerceIntValue
           interval = valueToStringMaybe (KM.lookup (Key.fromString "interval") paramsRaw)
           bars = fromMaybe 0 (KM.lookup (Key.fromString "bars") paramsRaw >>= coerceIntValue)
+          periodsPerYear =
+            fromMaybe
+              (inferPeriodsPerYear interval)
+              (KM.lookup (Key.fromString "periodsPerYear") paramsRaw >>= coerceFloatValue)
+          metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear bars
           method = valueToStringMaybe (KM.lookup (Key.fromString "method") paramsRaw)
           normalization = valueToStringMaybe (KM.lookup (Key.fromString "normalization") paramsRaw)
           epochs = fromMaybe 0 (KM.lookup (Key.fromString "epochs") paramsRaw >>= coerceIntValue)
@@ -517,7 +548,7 @@ normalizeCombo value =
                   , (Key.fromString "volFloor", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volFloor") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "volScaleMax", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volScaleMax") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "maxVolatility", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxVolatility") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "periodsPerYear", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "periodsPerYear") paramsRaw >>= coerceFloatValue))
+                  , (Key.fromString "periodsPerYear", Number (fromFloatDigits periodsPerYear))
                   , (Key.fromString "kalmanMarketTopN", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "kalmanMarketTopN") paramsRaw >>= coerceIntValue))
                   , (Key.fromString "fee", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "fee") paramsRaw >>= coerceFloatValue))
                   , (Key.fromString "epochs", Number (fromIntegral epochs))

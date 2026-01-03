@@ -84,7 +84,12 @@ sgdOne lr l2 x y qm =
           -- Pinball loss gradient wrt prediction:
           -- y > pred  => dL/dpred = -tau
           -- y < pred  => dL/dpred = 1 - tau
-          g = if y > pred then (-tau) else (1 - tau)
+          g =
+            if y > pred
+              then (-tau)
+              else if y < pred
+                then (1 - tau)
+                else 0
           w' = zipWith (\wi xi -> wi - lr * (g * xi + l2 * wi)) (lmW m) x
           b' = lmB m - lr * g
        in LinModel { lmW = w', lmB = b' }

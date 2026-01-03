@@ -14,8 +14,10 @@ All notable changes to this project will be documented in this file.
 - Web UI: let each panel scroll independently for long outputs.
 - Web UI: split the configuration pane into multiple scrollable sub-panels with drag-and-drop reordering.
 - Web UI: fix configuration panel scrolling so the pane scrolls consistently.
+- Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
 - Web UI: keep live bot panels from flickering by reusing the last status and bot list until fresh status arrives (including while bots are starting).
 - Web UI: make code/log panels more opaque so background content does not bleed through.
+- Web UI: expand Live bot and per-bot panels to show full contents without internal clipping.
 - Web UI: dock configuration at the top, dock optimizer combos at the bottom, and split running bots into independent scrollable panels.
 - Web UI: align Data Log toolbar controls, match the log styling to the UI theme, and make the log viewport responsive.
 - Web UI: pause Data Log auto-scroll when you scroll away from the latest entries and resume when you jump back to latest.
@@ -28,7 +30,9 @@ All notable changes to this project will be documented in this file.
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.
+- Optimizer: top-combos now stamp `params.binanceSymbol` for CSV runs (auto-derived from `--symbol-label` or filename) and backfill missing `metrics.annualizedReturn`.
 - Optimizer: add seeding/exploitation controls, new quality filters (annualized return/calmar/turnover), and funding/rebalance sampling parameters.
+- Optimizer: Calmar objective falls back to annualized return when max drawdown is zero.
 - Ops: restore the newest `ops.jsonl` from S3 on boot and sync on a timer when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
@@ -60,10 +64,12 @@ All notable changes to this project will be documented in this file.
 - Trading: add dynamic threshold-factor multipliers for open/close thresholds and min-edge/min-signal-to-noise, with CLI/optimizer tuning (forces tune objective to annualized equity when enabled).
 - Backtests: ignore mismatched timestamp vectors for daily-loss and fall back to interval-based day keys.
 - Backtests: daily-loss now honors timestamp vectors even when interval seconds are unavailable.
+- Backtests: invalid CSV time values now error instead of silently disabling time-based day keys.
 - Backtests: `--max-daily-loss` errors when day keys cannot be derived from timestamps or interval seconds.
 - Metrics: round trips now exclude end-of-series `EOD` exits (affects `--min-round-trips` and tie-breakers).
 - Predictors: fall back to the GBDT base prediction when feature dimensions mismatch.
 - Predictors: skip transformer/quantile outputs on feature dimension mismatches instead of crashing, and keep the quantile sensor mean as the raw median while reported quantiles remain clamped.
+- Predictors: quantile SGD uses a zero-gradient on exact ties to avoid bias.
 - CLI/API: `predictors` rejects mixes of `all` and `none`.
 - CLI/API: validate `--min-position-size <= --max-position-size`.
 - CLI: when optimizing/sweeping thresholds, print a tip for `--tune-objective annualized-equity`.

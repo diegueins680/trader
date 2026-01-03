@@ -143,11 +143,9 @@ textarea {
 @keyframes pageEnter {
   from {
     opacity: 0;
-    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -219,29 +217,25 @@ textarea {
 
 .dockTop,
 .dockBottom {
-  position: fixed;
-  left: 50%;
+  position: static;
   width: var(--dock-width);
-  transform: translateX(-50%);
-  z-index: 20;
+  margin: 0 auto;
+  transform: none;
   display: grid;
   gap: var(--dock-gap);
 }
 
 .dockTop {
-  top: var(--dock-gap);
-  height: var(--dock-top-height);
-  grid-template-rows: auto minmax(0, 1fr);
+  margin-top: var(--dock-gap);
 }
 
 .dockBottom {
-  bottom: var(--dock-gap);
-  height: var(--dock-bottom-height);
+  margin-bottom: var(--dock-gap);
 }
 
 .dockMain {
-  padding-top: calc(var(--dock-top-height) + var(--dock-gap) * 2);
-  padding-bottom: calc(var(--dock-bottom-height) + var(--dock-gap) * 2);
+  padding: 0;
+  margin: var(--dock-gap) 0;
 }
 
 .dockTop .header {
@@ -251,18 +245,18 @@ textarea {
 .dockTop .configCard {
   position: static;
   top: auto;
-  height: 100%;
+  height: auto;
   max-height: none;
 }
 
 .dockBottom .card {
-  height: 100%;
+  height: auto;
   max-height: none;
 }
 
 .dockMain .card {
-  max-height: var(--dock-main-height);
-  scroll-margin-top: calc(var(--dock-top-height) + var(--dock-gap) * 2);
+  max-height: none;
+  scroll-margin-top: calc(var(--dock-gap) * 2);
 }
 
 .brand {
@@ -343,8 +337,8 @@ textarea {
   flex-direction: column;
   min-height: 220px;
   height: auto;
-  max-height: var(--panel-height, 320px);
-  overflow: hidden;
+  max-height: none;
+  overflow: visible;
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
@@ -380,9 +374,7 @@ textarea {
 
 .configPanelBody {
   padding: 14px;
-  overflow: auto;
-  flex: 1;
-  min-height: 0;
+  overflow: visible;
   scrollbar-gutter: stable;
 }
 
@@ -443,10 +435,10 @@ textarea {
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  max-height: calc(100vh - 36px);
+  grid-template-rows: auto auto;
+  max-height: none;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .cardHeader {
@@ -493,10 +485,20 @@ textarea {
 
 .cardBody {
   padding: 18px;
-  overflow: auto;
-  flex: 1;
-  min-height: 0;
+  overflow: visible;
   scrollbar-gutter: stable;
+}
+
+.card[data-panel="panel-livebot"],
+.card[data-panel^="panel-bot-"] {
+  max-height: none;
+  overflow: visible;
+  grid-template-rows: auto auto;
+}
+
+.card[data-panel="panel-livebot"] .cardBody,
+.card[data-panel^="panel-bot-"] .cardBody {
+  overflow: visible;
 }
 
 .cardCollapsible:not([open]) .cardHeader {
@@ -1994,7 +1996,7 @@ textarea {
 .toastFixed {
   position: fixed;
   right: 18px;
-  bottom: calc(var(--dock-bottom-height) + var(--dock-gap) * 2);
+  bottom: 18px;
   z-index: 50;
   padding: 10px 12px;
   border-radius: 14px;
@@ -2021,7 +2023,7 @@ textarea {
   .toastFixed {
     right: 12px;
     left: 12px;
-    bottom: calc(var(--dock-bottom-height) + var(--dock-gap) * 2);
+    bottom: 12px;
   }
 }
 

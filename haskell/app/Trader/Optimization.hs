@@ -140,8 +140,11 @@ scoreObjective cfg m =
         TuneAnnualizedEquity -> bmAnnualizedReturn m
         TuneSharpe -> bmSharpe m
         TuneCalmar ->
-          let denom = max 1e-12 maxDd
-           in bmAnnualizedReturn m / denom
+          if maxDd <= 0
+            then bmAnnualizedReturn m
+            else
+              let denom = max 1e-12 maxDd
+               in bmAnnualizedReturn m / denom
         TuneEquityDd -> finalEq - pDd * maxDd
         TuneEquityDdTurnover -> finalEq - pDd * maxDd - pTurn * turnover
 

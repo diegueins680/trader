@@ -37,7 +37,7 @@ import System.Directory
   )
 import System.Environment (getEnvironment)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>), takeDirectory)
+import System.FilePath ((</>), takeBaseName, takeDirectory)
 import System.IO
   ( IOMode (..)
   , hClose
@@ -62,7 +62,7 @@ import System.Timeout (timeout)
 import Text.Printf (printf)
 
 import Trader.BinanceIntervals (binanceIntervalsCsv)
-import Trader.Duration (lookbackBarsFrom)
+import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Optimizer.Random
   ( Rng
@@ -314,6 +314,36 @@ coerceIntValue value =
               [(v, "")] -> Just (truncate (v :: Double))
               _ -> Nothing
     _ -> Nothing
+
+sanitizeFinalEquity :: Double -> Double
+sanitizeFinalEquity eq
+  | isNaN eq || isInfinite eq || eq < 0 = 0
+  | otherwise = eq
+
+calcAnnualizedReturn :: Double -> Double -> Int -> Double
+calcAnnualizedReturn finalEq periodsPerYear periods
+  | periodsPerYear <= 0 = 0
+  | periods <= 0 = 0
+  | otherwise = finalEq ** (periodsPerYear / fromIntegral periods) - 1
+
+metricsHasAnnualizedReturn :: KM.KeyMap Value -> Bool
+metricsHasAnnualizedReturn metrics =
+  case KM.lookup (Key.fromString "annualizedReturn") metrics >>= coerceFloatValue of
+    Just v -> not (isNaN v || isInfinite v)
+    Nothing -> False
+
+ensureAnnualizedReturnMetrics :: Maybe (KM.KeyMap Value) -> Double -> Double -> Int -> Maybe (KM.KeyMap Value)
+ensureAnnualizedReturnMetrics metrics finalEq periodsPerYear periods =
+  let eq = sanitizeFinalEquity finalEq
+      annRet = calcAnnualizedReturn eq periodsPerYear periods
+      annVal = Aeson.toJSON annRet
+      addMetric m = KM.insert (Key.fromString "annualizedReturn") annVal m
+   in case metrics of
+        Just m ->
+          if metricsHasAnnualizedReturn m
+            then Just m
+            else Just (addMetric m)
+        Nothing -> Just (KM.fromList [(Key.fromString "annualizedReturn", annVal)])
 
 objectiveScore :: KM.KeyMap Value -> String -> Double -> Double -> Double
 objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
@@ -2348,9 +2378,17 @@ runOptimizer args0 = do
                                       sourceOverride = map toLower (trim (oaSourceLabel args))
                                       symbolLabel = normalizeSymbol (Just (oaSymbolLabel args))
                                       symbolFallback = normalizeSymbol (oaBinanceSymbol args)
-                                      symbolFinal = case symbolLabel of
-                                        Just _ -> symbolLabel
-                                        Nothing -> symbolFallback
+                                      symbolFromData =
+                                        case oaData args of
+                                          Just path -> normalizeSymbol (Just (takeBaseName path))
+                                          Nothing -> Nothing
+                                      symbolFinal =
+                                        case symbolLabel of
+                                          Just _ -> symbolLabel
+                                          Nothing ->
+                                            case symbolFallback of
+                                              Just _ -> symbolFallback
+                                              Nothing -> symbolFromData
                                       trials = max 1 (oaTrials args)
                                       seedTrialsOverride = oaSeedTrials args
                                       seedRatioOverride = oaSeedRatio args
@@ -3353,14 +3391,17 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
 
 comboFromTrial :: Int -> String -> String -> Maybe String -> Int -> TrialResult -> Value
 comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
-  let metrics = trMetrics tr
-      sharpe = metricFloat metrics "sharpe" 0
-      maxDd = metricFloat metrics "maxDrawdown" 0
-      turnover = metricFloat metrics "turnover" 0
-      roundTrips = metricInt metrics "roundTrips" 0
-      symbol = normalizeSymbol symbolLabel
-      source = resolveSourceLabel (tpPlatform (trParams tr)) dataSource sourceOverride
+  let metricsRaw = trMetrics tr
       params = trParams tr
+      finalEq = fromMaybe 0 (trFinalEquity tr)
+      periodsPerYear = fromMaybe (inferPeriodsPerYear (tpInterval params)) (tpPeriodsPerYear params)
+      metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear (tpBars params)
+      metricsVal =
+        case metrics of
+          Just m -> Object m
+          Nothing -> Null
+      symbol = normalizeSymbol symbolLabel
+      source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
       paramsValue =
         object
           [ "platform" .= tpPlatform params
@@ -3387,7 +3428,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
           , "volFloor" .= tpVolFloor params
           , "volScaleMax" .= tpVolScaleMax params
           , "maxVolatility" .= tpMaxVolatility params
-          , "periodsPerYear" .= tpPeriodsPerYear params
+          , "periodsPerYear" .= periodsPerYear
           , "kalmanMarketTopN" .= tpKalmanMarketTopN params
           , "fee" .= tpFee params
           , "fundingRate" .= tpFundingRate params
@@ -3460,12 +3501,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
           , "openThreshold" .= trOpenThreshold tr
           , "closeThreshold" .= trCloseThreshold tr
           , "source" .= source
-          , "metrics" .= object
-              [ "sharpe" .= sharpe
-              , "maxDrawdown" .= maxDd
-              , "turnover" .= turnover
-              , "roundTrips" .= roundTrips
-              ]
+          , "metrics" .= metricsVal
           , "params" .= paramsValue
           ]
    in case extractOperations (trStdoutJson tr) of

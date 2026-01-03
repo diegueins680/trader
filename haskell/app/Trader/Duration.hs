@@ -1,6 +1,7 @@
 module Trader.Duration
   ( parseDurationSeconds
   , parseIntervalSeconds
+  , inferPeriodsPerYear
   , lookbackBarsFrom
   ) where
 
@@ -52,6 +53,26 @@ lookbackBarsFrom intervalStr lookbackWindowStr = do
         -- Use ceiling so the effective history covers at least the requested duration.
         let bars = (lookbackSec + intervalSec - 1) `div` intervalSec
          in Right (max 1 bars)
+
+inferPeriodsPerYear :: String -> Double
+inferPeriodsPerYear interval =
+  case interval of
+    "1m" -> 60 * 24 * 365
+    "3m" -> 20 * 24 * 365
+    "5m" -> 12 * 24 * 365
+    "15m" -> 4 * 24 * 365
+    "30m" -> 2 * 24 * 365
+    "1h" -> 24 * 365
+    "2h" -> 12 * 365
+    "4h" -> 6 * 365
+    "6h" -> 4 * 365
+    "8h" -> 3 * 365
+    "12h" -> 2 * 365
+    "1d" -> 365
+    "3d" -> 365 / 3
+    "1w" -> 52
+    "1M" -> 12
+    _ -> 365
 
 unitSeconds :: Char -> Maybe Int
 unitSeconds u =
