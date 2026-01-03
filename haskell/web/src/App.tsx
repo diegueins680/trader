@@ -344,9 +344,9 @@ const ConfigPanel = ({
   const isDragging = dragState.draggingId === panelId;
   return (
     <details
-      className={`configPanel configPanelCollapsible${maximized ? " configPanelMaximized" : ""}${draggable ? " configPanelDraggable" : ""}${
-        isDragOver ? " configPanelDrop" : ""
-      }${isDragging ? " configPanelDragging" : ""}`}
+      className={`configPanel${maximized ? " configPanelMaximized" : ""}${isDragOver ? " configPanelDrop" : ""}${
+        isDragging ? " configPanelDragging" : ""
+      }`}
       open={open}
       onToggle={onToggle}
       style={{ order, ...style }}
@@ -2451,6 +2451,12 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [maximizedPanelId]);
+
+  useEffect(() => {
+    if (!maximizedPanelId || typeof document === "undefined") return;
+    const panel = document.querySelector(`[data-panel="${maximizedPanelId}"]`);
+    if (!panel) setMaximizedPanelId(null);
+  });
 
   useEffect(() => {
     writeJson(STORAGE_CONFIG_PANEL_ORDER_KEY, configPanelOrder);
@@ -7230,6 +7236,10 @@ export function App() {
                 title="Market & Lookback"
                 subtitle="Platform, symbol, interval, and window sizing."
                 order={configPanelOrderIndex["config-market"]}
+                open={isPanelOpen("config-market", true)}
+                onToggle={handlePanelToggle("config-market")}
+                maximized={isPanelMaximized("config-market")}
+                onToggleMaximize={() => togglePanelMaximize("config-market")}
                 style={configPanelStyle("config-market")}
                 {...configPanelHandlers}
               >
@@ -7511,6 +7521,10 @@ export function App() {
                 title="Strategy & Risk"
                 subtitle="Thresholds, exits, sizing, and safeguards."
                 order={configPanelOrderIndex["config-strategy"]}
+                open={isPanelOpen("config-strategy", true)}
+                onToggle={handlePanelToggle("config-strategy")}
+                maximized={isPanelMaximized("config-strategy")}
+                onToggleMaximize={() => togglePanelMaximize("config-strategy")}
                 style={configPanelStyle("config-strategy")}
                 {...configPanelHandlers}
               >
@@ -8543,6 +8557,10 @@ export function App() {
                 title="Optimization & Runs"
                 subtitle="Tune sweeps and launch optimizer runs."
                 order={configPanelOrderIndex["config-optimization"]}
+                open={isPanelOpen("config-optimization", true)}
+                onToggle={handlePanelToggle("config-optimization")}
+                maximized={isPanelMaximized("config-optimization")}
+                onToggleMaximize={() => togglePanelMaximize("config-optimization")}
                 style={configPanelStyle("config-optimization")}
                 {...configPanelHandlers}
               >
@@ -9127,6 +9145,10 @@ export function App() {
                 title="Live Bot & Trade"
                 subtitle="Arm trading, run bots, and size orders."
                 order={configPanelOrderIndex["config-execution"]}
+                open={isPanelOpen("config-execution", true)}
+                onToggle={handlePanelToggle("config-execution")}
+                maximized={isPanelMaximized("config-execution")}
+                onToggleMaximize={() => togglePanelMaximize("config-execution")}
                 style={configPanelStyle("config-execution")}
                 {...configPanelHandlers}
               >
@@ -11984,6 +12006,8 @@ export function App() {
           panelId="panel-combos"
           open={isPanelOpen("panel-combos", true)}
           onToggle={handlePanelToggle("panel-combos")}
+          maximized={isPanelMaximized("panel-combos")}
+          onToggleMaximize={() => togglePanelMaximize("panel-combos")}
           title="Optimizer Combos"
           subtitle="Browse, apply, and run optimizer payloads."
           className="combosCard"
