@@ -185,6 +185,8 @@ type CollapsibleCardProps = {
   summaryId?: string;
   style?: React.CSSProperties;
   containerRef?: React.RefObject<HTMLDetailsElement>;
+  maximized?: boolean;
+  onToggleMaximize?: () => void;
 };
 
 type CollapsibleSectionProps = {
@@ -202,6 +204,10 @@ type ConfigPanelProps = {
   subtitle?: string;
   draggable?: boolean;
   order: number;
+  open: boolean;
+  onToggle: PanelToggleHandler;
+  maximized: boolean;
+  onToggleMaximize: () => void;
   dragState: ConfigPanelDragState;
   onDragStart: (panelId: ConfigPanelId) => (event: React.DragEvent<HTMLButtonElement>) => void;
   onDragOver: (panelId: ConfigPanelId) => (event: React.DragEvent<HTMLElement>) => void;
@@ -260,9 +266,11 @@ const CollapsibleCard = ({
   summaryId,
   style,
   containerRef,
+  maximized = false,
+  onToggleMaximize,
 }: CollapsibleCardProps) => (
   <details
-    className={`card cardCollapsible${className ? ` ${className}` : ""}`}
+    className={`card cardCollapsible${maximized ? " cardMaximized" : ""}${className ? ` ${className}` : ""}`}
     open={open}
     onToggle={onToggle}
     data-panel={panelId}
@@ -274,10 +282,27 @@ const CollapsibleCard = ({
         <h2 className="cardTitle">{title}</h2>
         {subtitle ? <p className="cardSubtitle">{subtitle}</p> : null}
       </div>
-      <span className="cardToggle" aria-hidden="true">
-        <span className="cardToggleLabel" data-open="Collapse" data-closed="Expand" />
-        <span className="cardToggleIcon" />
-      </span>
+      <div className="cardControls">
+        {onToggleMaximize ? (
+          <button
+            className="cardControl"
+            type="button"
+            aria-pressed={maximized}
+            aria-label={maximized ? "Restore panel size" : "Maximize panel"}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleMaximize();
+            }}
+          >
+            {maximized ? "Restore" : "Maximize"}
+          </button>
+        ) : null}
+        <span className="cardToggle" aria-hidden="true">
+          <span className="cardToggleLabel" data-open="Collapse" data-closed="Expand" />
+          <span className="cardToggleIcon" />
+        </span>
+      </div>
     </summary>
     <div className="cardBody">{children}</div>
   </details>
@@ -303,6 +328,10 @@ const ConfigPanel = ({
   subtitle,
   draggable = true,
   order,
+  open,
+  onToggle,
+  maximized,
+  onToggleMaximize,
   dragState,
   onDragStart,
   onDragOver,
@@ -314,36 +343,61 @@ const ConfigPanel = ({
   const isDragOver = dragState.overId === panelId && dragState.draggingId !== panelId;
   const isDragging = dragState.draggingId === panelId;
   return (
-    <section
-      className={`configPanel${draggable ? " configPanelDraggable" : ""}${isDragOver ? " configPanelDrop" : ""}${
-        isDragging ? " configPanelDragging" : ""
-      }`}
+    <details
+      className={`configPanel configPanelCollapsible${maximized ? " configPanelMaximized" : ""}${draggable ? " configPanelDraggable" : ""}${
+        isDragOver ? " configPanelDrop" : ""
+      }${isDragging ? " configPanelDragging" : ""}`}
+      open={open}
+      onToggle={onToggle}
       style={{ order, ...style }}
       onDragOver={onDragOver(panelId)}
       onDrop={onDrop(panelId)}
       data-panel={panelId}
     >
-      <div className="configPanelHeader">
+      <summary className="configPanelHeader configPanelSummary">
         <div className="configPanelHeaderText">
           <span className="configPanelTitle">{title}</span>
           {subtitle ? <span className="configPanelSubtitle">{subtitle}</span> : null}
         </div>
-        {draggable ? (
+        <div className="configPanelControls">
+          {draggable ? (
+            <button
+              className="configPanelHandle"
+              type="button"
+              draggable={!maximized}
+              onDragStart={onDragStart(panelId)}
+              onDragEnd={onDragEnd}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              aria-label={`Drag ${title} panel`}
+              title="Drag to reorder"
+            >
+              Drag
+            </button>
+          ) : null}
           <button
-            className="configPanelHandle"
+            className="configPanelControl"
             type="button"
-            draggable
-            onDragStart={onDragStart(panelId)}
-            onDragEnd={onDragEnd}
-            aria-label={`Drag ${title} panel`}
-            title="Drag to reorder"
+            aria-pressed={maximized}
+            aria-label={maximized ? "Restore panel size" : "Maximize panel"}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleMaximize();
+            }}
           >
-            Drag
+            {maximized ? "Restore" : "Maximize"}
           </button>
-        ) : null}
-      </div>
+          <span className="configPanelToggle" aria-hidden="true">
+            <span className="configPanelToggleLabel" data-open="Minimize" data-closed="Expand" />
+            <span className="configPanelToggleIcon" />
+          </span>
+        </div>
+      </summary>
       <div className="configPanelBody">{children}</div>
-    </section>
+    </details>
   );
 };
 
@@ -2026,6 +2080,7 @@ export function App() {
   );
   const [draggingConfigPanel, setDraggingConfigPanel] = useState<ConfigPanelId | null>(null);
   const [dragOverConfigPanel, setDragOverConfigPanel] = useState<ConfigPanelId | null>(null);
+  const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
   const [state, setState] = useState<UiState>({
     loading: false,
     error: null,
@@ -2381,6 +2436,23 @@ export function App() {
   }, [panelPrefs]);
 
   useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.body.classList.toggle("panelMaximized", Boolean(maximizedPanelId));
+    return () => {
+      document.body.classList.remove("panelMaximized");
+    };
+  }, [maximizedPanelId]);
+
+  useEffect(() => {
+    if (!maximizedPanelId || typeof window === "undefined") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMaximizedPanelId(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [maximizedPanelId]);
+
+  useEffect(() => {
     writeJson(STORAGE_CONFIG_PANEL_ORDER_KEY, configPanelOrder);
   }, [configPanelOrder]);
 
@@ -2412,7 +2484,19 @@ export function App() {
 
   const handlePanelToggle = useCallback(
     (panelId: string) => (event: React.SyntheticEvent<HTMLDetailsElement>) => {
-      setPanelOpen(panelId, event.currentTarget.open);
+      const nextOpen = event.currentTarget.open;
+      setPanelOpen(panelId, nextOpen);
+      if (!nextOpen) {
+        setMaximizedPanelId((prev) => (prev === panelId ? null : prev));
+      }
+    },
+    [setPanelOpen],
+  );
+
+  const togglePanelMaximize = useCallback(
+    (panelId: string) => {
+      setPanelOpen(panelId, true);
+      setMaximizedPanelId((prev) => (prev === panelId ? null : panelId));
     },
     [setPanelOpen],
   );
@@ -6579,6 +6663,7 @@ export function App() {
     () => ({ draggingId: draggingConfigPanel, overId: dragOverConfigPanel }),
     [draggingConfigPanel, dragOverConfigPanel],
   );
+  const isPanelMaximized = useCallback((panelId: string) => maximizedPanelId === panelId, [maximizedPanelId]);
   const configPanelHandlers = {
     dragState: configPanelDragState,
     onDragStart: handleConfigPanelDragStart,
@@ -6622,50 +6707,80 @@ export function App() {
       ) : null}
       <div className="dockLayout">
         <div className="dockTop">
-          <header className="header">
-            <div className="brand">
-              <div className="logo" aria-hidden="true" />
-              <div className="title">
-                <h1>Trader UI</h1>
-                <p>Configure, backtest, optimize, and trade via the local REST API.</p>
+          <details
+            className={`card cardCollapsible headerCard${isPanelMaximized("panel-header") ? " cardMaximized" : ""}`}
+            open={isPanelOpen("panel-header", true)}
+            onToggle={handlePanelToggle("panel-header")}
+            data-panel="panel-header"
+          >
+            <summary className="cardSummary headerSummary">
+              <div className="brand">
+                <div className="logo" aria-hidden="true" />
+                <div className="title">
+                  <h1>Trader UI</h1>
+                  <p>Configure, backtest, optimize, and trade via the local REST API.</p>
+                </div>
               </div>
-            </div>
-            <div className="pillRow" aria-live="polite">
-              <span className="pill">
-                <span className={statusDotClass} aria-hidden="true" />
-                {statusLabel}
-              </span>
-              {state.loading ? (
-                <span className="pill">
-                  <span className="dot dotWarn" aria-hidden="true" />
-                  Working…
-                </span>
-              ) : null}
-              <span className="pill">
-                <span className={form.binanceLive ? "dot dotWarn" : "dot"} aria-hidden="true" />
-                {form.binanceLive ? "Live orders" : "Test orders"}
-              </span>
-              <span className="pill">
-                <span className={form.tradeArmed ? "dot dotWarn" : "dot"} aria-hidden="true" />
-                {form.tradeArmed ? "Trading armed" : "Trading locked"}
-              </span>
-              <span className="pill">
-                {import.meta.env.DEV && apiBase === "/api" ? (
-                  <>
-                    Proxy: <span style={{ fontFamily: "var(--mono)" }}>/api → {API_TARGET}</span>
-                  </>
-                ) : (
-                  <>
-                    API: <span style={{ fontFamily: "var(--mono)" }}>{apiBase}</span>
-                  </>
-                )}
-              </span>
-            </div>
-          </header>
+              <div className="headerActions">
+                <div className="pillRow" aria-live="polite">
+                  <span className="pill">
+                    <span className={statusDotClass} aria-hidden="true" />
+                    {statusLabel}
+                  </span>
+                  {state.loading ? (
+                    <span className="pill">
+                      <span className="dot dotWarn" aria-hidden="true" />
+                      Working…
+                    </span>
+                  ) : null}
+                  <span className="pill">
+                    <span className={form.binanceLive ? "dot dotWarn" : "dot"} aria-hidden="true" />
+                    {form.binanceLive ? "Live orders" : "Test orders"}
+                  </span>
+                  <span className="pill">
+                    <span className={form.tradeArmed ? "dot dotWarn" : "dot"} aria-hidden="true" />
+                    {form.tradeArmed ? "Trading armed" : "Trading locked"}
+                  </span>
+                  <span className="pill">
+                    {import.meta.env.DEV && apiBase === "/api" ? (
+                      <>
+                        Proxy: <span style={{ fontFamily: "var(--mono)" }}>/api → {API_TARGET}</span>
+                      </>
+                    ) : (
+                      <>
+                        API: <span style={{ fontFamily: "var(--mono)" }}>{apiBase}</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+                <div className="cardControls">
+                  <button
+                    className="cardControl"
+                    type="button"
+                    aria-pressed={isPanelMaximized("panel-header")}
+                    aria-label={isPanelMaximized("panel-header") ? "Restore panel size" : "Maximize panel"}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      togglePanelMaximize("panel-header");
+                    }}
+                  >
+                    {isPanelMaximized("panel-header") ? "Restore" : "Maximize"}
+                  </button>
+                  <span className="cardToggle" aria-hidden="true">
+                    <span className="cardToggleLabel" data-open="Collapse" data-closed="Expand" />
+                    <span className="cardToggleIcon" />
+                  </span>
+                </div>
+              </div>
+            </summary>
+          </details>
           <CollapsibleCard
           panelId="panel-config"
           open={isPanelOpen("panel-config", true)}
           onToggle={handlePanelToggle("panel-config")}
+          maximized={isPanelMaximized("panel-config")}
+          onToggleMaximize={() => togglePanelMaximize("panel-config")}
           title="Configuration"
           subtitle="Safe defaults, minimal knobs, and clear outputs."
           className="configCard"
@@ -6794,6 +6909,10 @@ export function App() {
                 title="Access & Profiles"
                 subtitle="API health, keys, and saved setups."
                 order={configPanelOrderIndex["config-access"]}
+                open={isPanelOpen("config-access", true)}
+                onToggle={handlePanelToggle("config-access")}
+                maximized={isPanelMaximized("config-access")}
+                onToggleMaximize={() => togglePanelMaximize("config-access")}
                 style={configPanelStyle("config-access")}
                 {...configPanelHandlers}
               >
@@ -9502,6 +9621,8 @@ export function App() {
               panelId="panel-error"
               open={isPanelOpen("panel-error", true)}
               onToggle={handlePanelToggle("panel-error")}
+              maximized={isPanelMaximized("panel-error")}
+              onToggleMaximize={() => togglePanelMaximize("panel-error")}
               title="Error"
               subtitle="Fix the request or backend and try again."
               containerRef={errorRef}
@@ -9524,6 +9645,8 @@ export function App() {
             panelId="panel-overview"
             open={isPanelOpen("panel-overview", true)}
             onToggle={handlePanelToggle("panel-overview")}
+            maximized={isPanelMaximized("panel-overview")}
+            onToggleMaximize={() => togglePanelMaximize("panel-overview")}
             title="Overview"
             subtitle="At-a-glance status for connection, execution mode, and latest outputs."
           >
@@ -9623,6 +9746,8 @@ export function App() {
             panelId="panel-live-bot"
             open={isPanelOpen("panel-live-bot", true)}
             onToggle={handlePanelToggle("panel-live-bot")}
+            maximized={isPanelMaximized("panel-live-bot")}
+            onToggleMaximize={() => togglePanelMaximize("panel-live-bot")}
             title="Live bot"
             subtitle="Non-stop loop (server-side): fetches new bars, updates the model each bar, and records each buy/sell operation."
           >
@@ -10477,6 +10602,8 @@ export function App() {
                 panelId={panelId}
                 open={isPanelOpen(panelId, true)}
                 onToggle={handlePanelToggle(panelId)}
+                maximized={isPanelMaximized(panelId)}
+                onToggleMaximize={() => togglePanelMaximize(panelId)}
                 title={`Bot ${st.symbol}`}
                 subtitle={subtitle}
               >
@@ -10531,6 +10658,8 @@ export function App() {
             panelId="panel-binance-trades"
             open={isPanelOpen("panel-binance-trades", true)}
             onToggle={handlePanelToggle("panel-binance-trades")}
+            maximized={isPanelMaximized("panel-binance-trades")}
+            onToggleMaximize={() => togglePanelMaximize("panel-binance-trades")}
             title="Binance account trades"
             subtitle="Full exchange history from your Binance account (API keys required)."
           >
@@ -10734,6 +10863,8 @@ export function App() {
             panelId="panel-latest-signal"
             open={isPanelOpen("panel-latest-signal", true)}
             onToggle={handlePanelToggle("panel-latest-signal")}
+            maximized={isPanelMaximized("panel-latest-signal")}
+            onToggleMaximize={() => togglePanelMaximize("panel-latest-signal")}
             title="Latest signal"
             subtitle={state.latestSignal ? "Computed from the most recent bar." : "Run “Get signal” or “Run backtest” to populate."}
             containerRef={signalRef}
@@ -10935,6 +11066,8 @@ export function App() {
             panelId="panel-positions"
             open={isPanelOpen("panel-positions", true)}
             onToggle={handlePanelToggle("panel-positions")}
+            maximized={isPanelMaximized("panel-positions")}
+            onToggleMaximize={() => togglePanelMaximize("panel-positions")}
             title="Open positions"
             subtitle="Charts for every open Binance futures position (positionRisk + klines)."
             summaryId="section-positions"
@@ -11053,6 +11186,8 @@ export function App() {
             panelId="panel-orphaned-operations"
             open={isPanelOpen("panel-orphaned-operations", true)}
             onToggle={handlePanelToggle("panel-orphaned-operations")}
+            maximized={isPanelMaximized("panel-orphaned-operations")}
+            onToggleMaximize={() => togglePanelMaximize("panel-orphaned-operations")}
             title="Orphaned operations"
             subtitle="Open futures positions that are not currently adopted by a running/starting bot."
           >
@@ -11160,6 +11295,8 @@ export function App() {
             panelId="panel-backtest-summary"
             open={isPanelOpen("panel-backtest-summary", true)}
             onToggle={handlePanelToggle("panel-backtest-summary")}
+            maximized={isPanelMaximized("panel-backtest-summary")}
+            onToggleMaximize={() => togglePanelMaximize("panel-backtest-summary")}
             title="Backtest summary"
             subtitle="Uses a time split (train vs held-out backtest). When optimizing, tunes on a fit/tune split inside train."
             containerRef={backtestRef}
@@ -11452,6 +11589,8 @@ export function App() {
             panelId="panel-trade-result"
             open={isPanelOpen("panel-trade-result", true)}
             onToggle={handlePanelToggle("panel-trade-result")}
+            maximized={isPanelMaximized("panel-trade-result")}
+            onToggleMaximize={() => togglePanelMaximize("panel-trade-result")}
             title="Trade result"
             subtitle="Shows current key status, and trade output after calling /trade."
             containerRef={tradeRef}
@@ -11584,6 +11723,8 @@ export function App() {
             panelId="panel-user-data-stream"
             open={isPanelOpen("panel-user-data-stream", true)}
             onToggle={handlePanelToggle("panel-user-data-stream")}
+            maximized={isPanelMaximized("panel-user-data-stream")}
+            onToggleMaximize={() => togglePanelMaximize("panel-user-data-stream")}
             title="User data stream (listenKey)"
             subtitle="Keeps the Binance user-data listen key alive via the API, and connects the browser to Binance WebSocket."
           >
@@ -11704,6 +11845,8 @@ export function App() {
             panelId="panel-request-preview"
             open={isPanelOpen("panel-request-preview", false)}
             onToggle={handlePanelToggle("panel-request-preview")}
+            maximized={isPanelMaximized("panel-request-preview")}
+            onToggleMaximize={() => togglePanelMaximize("panel-request-preview")}
             title="Request preview"
             subtitle="This JSON is what the UI sends to the API (excluding session-stored secrets)."
           >
@@ -11747,6 +11890,8 @@ export function App() {
           panelId="panel-data-log"
           open={isPanelOpen("panel-data-log", false)}
           onToggle={handlePanelToggle("panel-data-log")}
+          maximized={isPanelMaximized("panel-data-log")}
+          onToggleMaximize={() => togglePanelMaximize("panel-data-log")}
           title="Data Log"
           subtitle="All incoming API responses (last 100 entries)"
           style={{ marginTop: "18px" }}

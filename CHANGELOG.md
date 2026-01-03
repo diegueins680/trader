@@ -15,9 +15,10 @@ All notable changes to this project will be documented in this file.
 - Web UI: split the configuration pane into multiple scrollable sub-panels with drag-and-drop reordering.
 - Web UI: fix configuration panel scrolling so the pane scrolls consistently.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
+- Web UI: make the header status card collapsible.
 - Web UI: keep live bot panels from flickering by reusing the last status and bot list until fresh status arrives (including while bots are starting).
 - Web UI: make code/log panels more opaque so background content does not bleed through.
-- Web UI: expand Live bot and per-bot panels to show full contents without internal clipping.
+- Web UI: keep Live bot, per-bot, and optimizer combo panels scrollable so docked panels stay visible while viewing long content.
 - Web UI: dock configuration at the top, dock optimizer combos at the bottom, and split running bots into independent scrollable panels.
 - Web UI: align Data Log toolbar controls, match the log styling to the UI theme, and make the log viewport responsive.
 - Web UI: pause Data Log auto-scroll when you scroll away from the latest entries and resume when you jump back to latest.
