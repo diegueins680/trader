@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: fix configuration panel scrolling so the pane scrolls consistently.
 - Web UI: keep live bot panels from flickering by reusing the last status and bot list until fresh status arrives (including while bots are starting).
 - Web UI: make code/log panels more opaque so background content does not bleed through.
+- Web UI: dock configuration at the top, dock optimizer combos at the bottom, and split running bots into independent scrollable panels.
 - Web UI: align Data Log toolbar controls, match the log styling to the UI theme, and make the log viewport responsive.
 - Web UI: pause Data Log auto-scroll when you scroll away from the latest entries and resume when you jump back to latest.
 - Web UI: add a Run optimizer form to the Optimizer combos panel to launch `/optimizer/run`, apply constraints, and show the last output.
