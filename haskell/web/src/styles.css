@@ -377,8 +377,8 @@ textarea {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   max-height: calc(100vh - 36px);
   min-height: 0;
   overflow: hidden;
