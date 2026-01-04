@@ -32,6 +32,7 @@
   --dock-top-height-collapsed: clamp(140px, 20vh, 190px);
   --dock-bottom-height: clamp(220px, 30vh, 420px);
   --dock-bottom-height-collapsed: clamp(96px, 16vh, 150px);
+  --card-maximized-body-offset: 140px;
   --dock-main-height: max(
     220px,
     calc(100vh - var(--dock-top-height) - var(--dock-bottom-height) - var(--dock-gap) * 4)
@@ -570,6 +571,7 @@ textarea {
     --dock-top-height-collapsed: clamp(150px, 26vh, 210px);
     --dock-bottom-height: clamp(200px, 28vh, 360px);
     --dock-bottom-height-collapsed: clamp(84px, 18vh, 140px);
+    --card-maximized-body-offset: 156px;
     --dock-main-height: max(
       200px,
       calc(100vh - var(--dock-top-height) - var(--dock-bottom-height) - var(--dock-gap) * 4)
@@ -647,6 +649,10 @@ body.panelMaximized .cardMaximized {
   background: var(--card-solid);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+.cardMaximized .cardBody {
+  max-height: calc(100vh - var(--card-maximized-body-offset));
 }
 
 .cardHeader {
