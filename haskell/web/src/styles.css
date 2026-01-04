@@ -28,7 +28,7 @@
   --dock-gap: 16px;
   --dock-width: min(1200px, calc(100% - 32px));
   --dock-top-height: clamp(260px, 36vh, 480px);
-  --dock-top-height-collapsed: clamp(160px, 22vh, 220px);
+  --dock-top-height-collapsed: clamp(140px, 20vh, 190px);
   --dock-bottom-height: clamp(220px, 30vh, 420px);
   --dock-bottom-height-collapsed: clamp(96px, 16vh, 150px);
   --dock-main-height: max(
@@ -273,6 +273,7 @@ textarea {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  overflow: hidden;
 }
 
 .dockMain {
@@ -299,6 +300,10 @@ textarea {
   align-self: start;
 }
 
+.configCard:not([open]) .cardSubtitle {
+  display: none;
+}
+
 .dockBottom .card {
   flex: 1;
   max-height: none;
@@ -307,9 +312,15 @@ textarea {
   flex-direction: column;
 }
 
+.dockBottom .card:not(.cardMaximized) {
+  height: 100%;
+  max-height: 100%;
+}
+
 .dockBottom .cardBody {
   flex: 1;
   min-height: 0;
+  overflow: auto;
 }
 
 .dockMain .card {
@@ -570,7 +581,7 @@ textarea {
     --dock-gap: 12px;
     --dock-width: calc(100% - 24px);
     --dock-top-height: clamp(240px, 40vh, 440px);
-    --dock-top-height-collapsed: clamp(170px, 28vh, 230px);
+    --dock-top-height-collapsed: clamp(150px, 26vh, 210px);
     --dock-bottom-height: clamp(200px, 28vh, 360px);
     --dock-bottom-height-collapsed: clamp(84px, 18vh, 140px);
     --dock-main-height: max(

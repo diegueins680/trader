@@ -626,7 +626,7 @@ Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`,
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.
-Live bot, per-bot, and optimizer combo panels scroll within their cards when content exceeds the docked viewport.
+Live bot, per-bot, and optimizer combo panels scroll within their cards when content exceeds the docked viewport, keeping the combos list reachable.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
@@ -653,7 +653,7 @@ Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
 Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.
-The configuration panel is docked to the top of the viewport, scrolls independently, keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs, and shrinks to a compact bar when collapsed; scrolling stays responsive within the panel.
+The configuration panel is docked to the top of the viewport, scrolls independently, keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs, and shrinks to a compact bar with its subtitle hidden when collapsed; scrolling stays responsive within the panel.
 The Optimizer combos panel is docked to the bottom of the viewport for quick access and shrinks to a compact bar when collapsed.
 Result panels scroll independently so longer outputs don't push other panels off-screen.
 Info popovers align to stay within the configuration panel.
