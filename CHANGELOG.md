@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
 - Web UI: make the header status card collapsible.
 - Web UI: shrink the docked optimizer combos panel when collapsed.
+- Web UI: shrink the docked configuration panel when collapsed.
 - Web UI: keep live bot panels from flickering by reusing the last status and bot list until fresh status arrives (including while bots are starting).
 - Web UI: make code/log panels more opaque so background content does not bleed through.
 - Web UI: keep Live bot, per-bot, and optimizer combo panels scrollable so docked panels stay visible while viewing long content.
@@ -103,6 +104,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: bot state timeline hover now shows the corresponding timestamp.
 - Web UI: reduce bot state timeline chart height in bot cards.
 - Web UI: chart tooltips now show bar date/time when timestamps are available.
+- Web UI: optimize chart viewing with an analysis deck layout, compact side charts, and chart header badges for range and change.
 - Web UI: charts now scale to use most of the viewport height.
 - Web UI: lazy-load chart panels to trim the main bundle and show placeholders while they load.
 - Web UI: show a live bot chart for each running bot in the Live bot panel.

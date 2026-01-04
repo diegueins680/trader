@@ -39,7 +39,7 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
 
-const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
+const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
 
 const CHART_MARGIN = { l: 14, r: 78, t: 10, b: 26 };
 const MIN_ZOOM_WINDOW = 6;
@@ -52,6 +52,23 @@ function fmt(n: number, digits = 4): string {
 function pct(n: number, digits = 2): string {
   if (!Number.isFinite(n)) return "—";
   return `${(n * 100).toFixed(digits)}%`;
+}
+
+function fmtRatio(n: number, digits = 4): string {
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toFixed(digits)}x`;
+}
+
+function fmtSigned(n: number, digits = 4): string {
+  if (!Number.isFinite(n)) return "—";
+  const sign = n > 0 ? "+" : n < 0 ? "-" : "";
+  return `${sign}${Math.abs(n).toFixed(digits)}`;
+}
+
+function fmtSignedPct(n: number, digits = 2): string {
+  if (!Number.isFinite(n)) return "—";
+  const sign = n > 0 ? "+" : n < 0 ? "-" : "";
+  return `${sign}${pct(Math.abs(n), digits)}`;
 }
 
 function decimalsForStep(step: number, maxDecimals = 6): number {
@@ -224,6 +241,61 @@ export function BacktestChart({
       hasShort,
     };
   }, [agree, kalman, openTrade, operations, pos, trades.length]);
+
+  const viewSummary = useMemo(() => {
+    if (n < 2) return null;
+    const start = clamp(view.start, 0, n - 1);
+    const end = clamp(view.end, 0, n - 1);
+    if (end < start) return null;
+
+    let priceStart: number | null = null;
+    let priceEnd: number | null = null;
+    let priceMin = Number.POSITIVE_INFINITY;
+    let priceMax = Number.NEGATIVE_INFINITY;
+    let eqStart: number | null = null;
+    let eqEnd: number | null = null;
+    let eqMin = Number.POSITIVE_INFINITY;
+    let eqMax = Number.NEGATIVE_INFINITY;
+    const eqFallback = equityCurve.length > 0 ? equityCurve[equityCurve.length - 1]! : null;
+
+    for (let i = start; i <= end; i += 1) {
+      const p = prices[i];
+      if (typeof p === "number" && Number.isFinite(p)) {
+        if (priceStart === null) priceStart = p;
+        priceEnd = p;
+        priceMin = Math.min(priceMin, p);
+        priceMax = Math.max(priceMax, p);
+      }
+
+      const e = equityCurve[i] ?? eqFallback;
+      if (typeof e === "number" && Number.isFinite(e)) {
+        if (eqStart === null) eqStart = e;
+        eqEnd = e;
+        eqMin = Math.min(eqMin, e);
+        eqMax = Math.max(eqMax, e);
+      }
+    }
+
+    if (priceStart === null || priceEnd === null) return null;
+    const priceChange = priceEnd - priceStart;
+    const priceChangePct = priceStart !== 0 ? priceChange / priceStart : null;
+    const eqChange = eqStart !== null && eqEnd !== null ? eqEnd - eqStart : null;
+    const eqChangePct = eqStart && eqChange !== null ? eqChange / eqStart : null;
+
+    return {
+      bars: end - start + 1,
+      priceEnd,
+      priceMin: Number.isFinite(priceMin) ? priceMin : null,
+      priceMax: Number.isFinite(priceMax) ? priceMax : null,
+      priceChange,
+      priceChangePct,
+      eqEnd,
+      eqMin: Number.isFinite(eqMin) ? eqMin : null,
+      eqMax: Number.isFinite(eqMax) ? eqMax : null,
+      eqChange,
+      eqChangePct,
+    };
+  }, [equityCurve, n, prices, view]);
 
   useEffect(() => {
     setView({ start: 0, end: Math.max(1, n - 1) });
@@ -417,7 +489,7 @@ export function BacktestChart({
         if (!ok) continue;
         const x0 = xFor(i);
         const x1 = xFor(Math.min(end, i + 1));
-        ctx.fillStyle = "rgba(124, 58, 237, 0.22)";
+        ctx.fillStyle = "rgba(20, 184, 166, 0.22)";
         ctx.fillRect(x0, yPos0, Math.max(1, x1 - x0), stripeH);
       }
     }
@@ -442,7 +514,7 @@ export function BacktestChart({
     // Price line
     const priceGrad = ctx.createLinearGradient(marginL, 0, marginL + w, 0);
     priceGrad.addColorStop(0, "rgba(14, 165, 233, 0.95)");
-    priceGrad.addColorStop(0.55, "rgba(124, 58, 237, 0.95)");
+    priceGrad.addColorStop(0.55, "rgba(20, 184, 166, 0.95)");
     priceGrad.addColorStop(1, "rgba(34, 197, 94, 0.9)");
     ctx.strokeStyle = priceGrad;
     ctx.lineWidth = 2.25;
@@ -458,7 +530,7 @@ export function BacktestChart({
     // Kalman prediction (overlay)
     if (legend.showKalman && kalman) {
       ctx.save();
-      ctx.strokeStyle = "rgba(250, 204, 21, 0.92)";
+      ctx.strokeStyle = "rgba(245, 158, 11, 0.92)";
       ctx.lineWidth = 1.8;
       ctx.setLineDash([6, 4]);
       ctx.beginPath();
@@ -485,7 +557,7 @@ export function BacktestChart({
 
     // Equity line
     const eqGrad = ctx.createLinearGradient(marginL, 0, marginL + w, 0);
-    eqGrad.addColorStop(0, "rgba(124, 58, 237, 0.85)");
+    eqGrad.addColorStop(0, "rgba(20, 184, 166, 0.85)");
     eqGrad.addColorStop(1, "rgba(255, 255, 255, 0.68)");
     ctx.strokeStyle = eqGrad;
     ctx.lineWidth = 2;
@@ -757,14 +829,40 @@ export function BacktestChart({
 
   const empty = n < 2 || equityCurve.length < 2;
   const showBuySell = legend.showTrades || legend.showOps;
+  const priceChangeLabel =
+    viewSummary && viewSummary.priceChange !== null
+      ? viewSummary.priceChangePct !== null
+        ? fmtSignedPct(viewSummary.priceChangePct, 2)
+        : fmtSigned(viewSummary.priceChange, 4)
+      : "—";
+  const priceLabel =
+    viewSummary && viewSummary.priceEnd !== null
+      ? priceChangeLabel === "—"
+        ? fmt(viewSummary.priceEnd, 4)
+        : `${fmt(viewSummary.priceEnd, 4)} (${priceChangeLabel})`
+      : "—";
+  const priceRangeLabel =
+    viewSummary && viewSummary.priceMin !== null && viewSummary.priceMax !== null
+      ? `${fmt(viewSummary.priceMin, 4)} - ${fmt(viewSummary.priceMax, 4)}`
+      : "—";
+  const eqLabel =
+    viewSummary && viewSummary.eqEnd !== null
+      ? viewSummary.eqChangePct !== null
+        ? `${fmtRatio(viewSummary.eqEnd, 4)} (${fmtSignedPct(viewSummary.eqChangePct, 2)})`
+        : fmtRatio(viewSummary.eqEnd, 4)
+      : "—";
 
   return (
     <div className="btChartWrap">
       <div className="btChartHeader">
         <div className="btChartTitle">Chart</div>
         <div className="btChartMeta">
-          <span className="badge">Range: {backtestStartIndex + view.start}–{backtestStartIndex + view.end}</span>
+          <span className="badge">Window {backtestStartIndex + view.start}-{backtestStartIndex + view.end}</span>
           <span className="badge">Zoom: {Math.round(((view.end - view.start + 1) / Math.max(1, n)) * 100)}%</span>
+          {viewSummary ? <span className="badge">Bars {viewSummary.bars}</span> : null}
+          {viewSummary ? <span className="badge">Price {priceLabel}</span> : null}
+          {viewSummary ? <span className="badge">Price range {priceRangeLabel}</span> : null}
+          {viewSummary && viewSummary.eqEnd !== null ? <span className="badge">Equity {eqLabel}</span> : null}
           <span className="badge">{locked ? "Locked" : "Hover"}</span>
         </div>
         <div className="btChartActions">

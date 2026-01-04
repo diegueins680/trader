@@ -15,7 +15,7 @@ type Props = {
   closeThreshold?: number;
 };
 
-const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
+const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
 
 type ErrorMode = "abs" | "pct";
 
@@ -387,8 +387,8 @@ export function PredictionDiffChart({
               })()}
             </g>
 
-            {kalPath ? <path d={kalPath} fill="none" stroke="rgba(14, 165, 233, 0.85)" strokeWidth="3.5" /> : null}
-            {lstmPath ? <path d={lstmPath} fill="none" stroke="rgba(124, 58, 237, 0.9)" strokeWidth="3.5" /> : null}
+            {kalPath ? <path d={kalPath} fill="none" stroke="rgba(245, 158, 11, 0.9)" strokeWidth="3.5" /> : null}
+            {lstmPath ? <path d={lstmPath} fill="none" stroke="rgba(20, 184, 166, 0.9)" strokeWidth="3.5" /> : null}
 
             {hover ? (
               <>
@@ -400,18 +400,18 @@ export function PredictionDiffChart({
                   stroke="rgba(255,255,255,0.16)"
                   strokeWidth="1.5"
                 />
-                {hover.kalErr !== null ? <circle cx={xFor(hover.idx)} cy={yFor(hover.kalErr)} r={5} fill="rgba(14, 165, 233, 0.95)" /> : null}
-                {hover.lstmErr !== null ? <circle cx={xFor(hover.idx)} cy={yFor(hover.lstmErr)} r={5} fill="rgba(124, 58, 237, 0.95)" /> : null}
+                {hover.kalErr !== null ? <circle cx={xFor(hover.idx)} cy={yFor(hover.kalErr)} r={5} fill="rgba(245, 158, 11, 0.95)" /> : null}
+                {hover.lstmErr !== null ? <circle cx={xFor(hover.idx)} cy={yFor(hover.lstmErr)} r={5} fill="rgba(20, 184, 166, 0.95)" /> : null}
               </>
             ) : null}
 
             <g>
               <rect x={pad.l} y={pad.t - 12} width={500} height={28} rx={8} fill="rgba(0,0,0,0.35)" />
-              <circle cx={pad.l + 12} cy={pad.t + 2} r={4} fill="rgba(14, 165, 233, 0.85)" />
+              <circle cx={pad.l + 12} cy={pad.t + 2} r={4} fill="rgba(245, 158, 11, 0.9)" />
               <text x={pad.l + 22} y={pad.t + 6} fill="rgba(255,255,255,0.78)" fontSize="12" fontFamily="monospace">
                 Kalman {mode === "pct" ? "% error" : "error"}
               </text>
-              <circle cx={pad.l + 160} cy={pad.t + 2} r={4} fill="rgba(124, 58, 237, 0.9)" />
+              <circle cx={pad.l + 160} cy={pad.t + 2} r={4} fill="rgba(20, 184, 166, 0.9)" />
               <text x={pad.l + 170} y={pad.t + 6} fill="rgba(255,255,255,0.78)" fontSize="12" fontFamily="monospace">
                 LSTM {mode === "pct" ? "% error" : "error"}
               </text>

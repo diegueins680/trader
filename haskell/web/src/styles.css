@@ -2003,7 +2003,7 @@ body.panelMaximized::after {
 }
 
 .analysisDeck.analysisDeckSplit {
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto;
 }
 
 .analysisDeck.analysisDeckSplit .analysisDeckMain {

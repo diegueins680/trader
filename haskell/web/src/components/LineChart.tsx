@@ -6,7 +6,7 @@ type Props = {
   label?: string;
 };
 
-const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
+const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
@@ -108,12 +108,12 @@ export function LineChart({ series, height = DEFAULT_CHART_HEIGHT, label = "Seri
 
         <defs>
           <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgba(124, 58, 237, 0.35)" />
-            <stop offset="85%" stopColor="rgba(124, 58, 237, 0.02)" />
+            <stop offset="0%" stopColor="rgba(14, 165, 233, 0.28)" />
+            <stop offset="85%" stopColor="rgba(14, 165, 233, 0.02)" />
           </linearGradient>
           <linearGradient id="eqStroke" x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%" stopColor="rgba(14, 165, 233, 0.85)" />
-            <stop offset="55%" stopColor="rgba(124, 58, 237, 0.95)" />
+            <stop offset="55%" stopColor="rgba(20, 184, 166, 0.95)" />
             <stop offset="100%" stopColor="rgba(34, 197, 94, 0.85)" />
           </linearGradient>
         </defs>

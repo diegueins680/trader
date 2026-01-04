@@ -12,7 +12,7 @@ type Props = {
   label?: string;
 };
 
-const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
+const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
 
 type Pads = { l: number; r: number; t: number; b: number };
 
@@ -275,19 +275,19 @@ export function TelemetryChart({ points, height = DEFAULT_CHART_HEIGHT, label = 
             x2={w - pad.r}
             y1={driftZeroY}
             y2={driftZeroY}
-            stroke="rgba(124, 58, 237, 0.22)"
+            stroke="rgba(249, 115, 22, 0.22)"
             strokeWidth="2"
             strokeDasharray="6 6"
           />
 
           {pollPath ? <path d={pollPath} fill="none" stroke="rgba(14, 165, 233, 0.95)" strokeWidth="3" strokeLinecap="round" /> : null}
-          {driftPath ? <path d={driftPath} fill="none" stroke="rgba(124, 58, 237, 0.95)" strokeWidth="3" strokeLinecap="round" /> : null}
+          {driftPath ? <path d={driftPath} fill="none" stroke="rgba(249, 115, 22, 0.95)" strokeWidth="3" strokeLinecap="round" /> : null}
 
           {hoverX !== null ? (
             <line x1={hoverX} x2={hoverX} y1={pad.t} y2={h - pad.b} stroke="rgba(255,255,255,0.16)" strokeWidth="1" />
           ) : null}
           {hoverX !== null && hoverYLeft !== null ? <circle cx={hoverX} cy={hoverYLeft} r="6" fill="rgba(14, 165, 233, 0.95)" /> : null}
-          {hoverX !== null && hoverYRight !== null ? <circle cx={hoverX} cy={hoverYRight} r="6" fill="rgba(124, 58, 237, 0.95)" /> : null}
+          {hoverX !== null && hoverYRight !== null ? <circle cx={hoverX} cy={hoverYRight} r="6" fill="rgba(249, 115, 22, 0.95)" /> : null}
         </svg>
       )}
     </div>

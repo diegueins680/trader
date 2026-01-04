@@ -19,7 +19,7 @@ type Props = {
   label?: string;
 };
 
-const DEFAULT_CHART_HEIGHT = "clamp(360px, 75vh, 960px)";
+const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
 
 function fmtTimeShort(ms: number): string {
   if (!Number.isFinite(ms)) return "--";
