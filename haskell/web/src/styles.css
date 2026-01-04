@@ -1010,7 +1010,7 @@ body.panelMaximized .cardMaximized {
 
 @media (max-width: 520px) {
   .row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
   }
 }
 
