@@ -608,6 +608,7 @@ Assumptions:
 Deploy to AWS
 -------------
 See `DEPLOY_AWS_QUICKSTART.md`, `DEPLOY_AWS.md`, and `deploy/aws/README.md`.
+The quick deploy script supports `--ensure-resources` (reuse/create S3 buckets + App Runner S3 role) and `--cloudfront` (reuse/create a UI CloudFront distribution).
 
 Note: `/bot/*` is stateful, and async endpoints persist job state to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default (local only). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to a shared writable directory. If the UI reports "Async job not found", the backend likely restarted or the load balancer is not sticky; use shared async storage or run a single instance.
 

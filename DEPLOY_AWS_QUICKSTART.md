@@ -18,6 +18,10 @@ API_TOKEN=$(openssl rand -hex 32)
 # Run the automated deployment script
 bash deploy-aws-quick.sh ap-northeast-1 "$API_TOKEN"
 
+# Optional: auto-provision S3 state + CloudFront (reuses existing resources if present)
+# bash deploy-aws-quick.sh --ensure-resources --cloudfront --region ap-northeast-1 --api-token "$API_TOKEN"
+#   # defaults: trader-api-state-<account>-<region>, trader-ui-<account>-<region>
+#
 # Optional: override the state directory (default: /var/lib/trader/state)
 # bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" --state-dir "/var/lib/trader/state"
 #
@@ -34,6 +38,8 @@ The script will:
 5. ✅ Create/update App Runner service (single-instance)
 6. ✅ Return the public API URL
 
+With `--ensure-resources`, it also creates or reuses the state S3 bucket and App Runner instance role (and `--cloudfront` will create or reuse the UI bucket + CloudFront distribution).
+
 **Total time: 5-10 minutes**
 
 ---
@@ -44,7 +50,8 @@ Checklist (App Runner + S3):
 1. Create an S3 bucket for state (private).
 2. Create an IAM role for App Runner with `s3:GetObject`/`s3:PutObject` on the bucket/prefix.
 3. Pass `--state-s3-bucket` (plus optional `--state-s3-prefix`, `--state-s3-region`) and `--instance-role-arn` to the deploy script.
-4. App Runner does **not** support EFS volumes; S3 is the supported persistence option.
+4. Or use `--ensure-resources` to create/reuse the bucket + instance role automatically.
+5. App Runner does **not** support EFS volumes; S3 is the supported persistence option.
 
 ---
 
@@ -138,6 +145,7 @@ bash deploy-aws-quick.sh --ui-only \
 
 Notes:
 - When `--distribution-id` is set, the script forces `apiBaseUrl` to `/api` in `trader-config.js` unless you pass `--ui-api-direct` (which keeps the full API URL and relies on CORS); `--api-url` is used to configure the CloudFront `/api/*` origin. When the script can discover the App Runner URL it also fills `apiFallbackUrl` for failover; override it via `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed (CORS required).
+- Use `--cloudfront` (and optionally `--ensure-resources`) to auto-create or reuse a CloudFront distribution and set the UI bucket policy.
 - CloudFront is non-sticky. Keep App Runner min=1/max=1 unless you have shared async job storage (`TRADER_API_ASYNC_DIR` or `TRADER_STATE_DIR`).
 
 ### Option B: Manual deploy (S3 website hosting)

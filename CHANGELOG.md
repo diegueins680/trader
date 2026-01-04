@@ -45,6 +45,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add info buttons with equity tips next to optimizer run fields and complex config parameters (method, thresholds, splits, LSTM, optimization).
 - Web UI: fix optimizer form sync startup crash and ensure `trader-config.js` is loaded before the app bundle.
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
+- Deploy: quick AWS deploy can reuse or create S3 buckets, App Runner S3 instance roles, and CloudFront distributions with `--ensure-resources`/`--cloudfront`.
 - Deploy: quick AWS UI config auto-fills `apiFallbackUrl` for CloudFront deployments (direct API URLs fall back to `/api`, and `/api` falls back to the API URL when known).
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.

@@ -47,6 +47,11 @@ UI_SERVICE_ARN="${TRADER_UI_SERVICE_ARN:-}"
 APP_RUNNER_INSTANCE_ROLE_ARN="${APP_RUNNER_INSTANCE_ROLE_ARN:-${TRADER_APP_RUNNER_INSTANCE_ROLE_ARN:-}}"
 APP_RUNNER_CPU="${APP_RUNNER_CPU:-${TRADER_APP_RUNNER_CPU:-}}"
 APP_RUNNER_MEMORY="${APP_RUNNER_MEMORY:-${TRADER_APP_RUNNER_MEMORY:-}}"
+ENSURE_RESOURCES="${TRADER_AWS_ENSURE_RESOURCES:-false}"
+UI_CLOUDFRONT_AUTO="${TRADER_UI_CLOUDFRONT_AUTO:-false}"
+UI_CLOUDFRONT_OAC_NAME="${TRADER_UI_CLOUDFRONT_OAC_NAME:-trader-ui-oac}"
+APP_RUNNER_INSTANCE_ROLE_NAME="${TRADER_APP_RUNNER_INSTANCE_ROLE_NAME:-TraderAppRunnerS3Role}"
+APP_RUNNER_STATE_POLICY_NAME="${TRADER_APP_RUNNER_STATE_POLICY_NAME:-TraderAppRunnerS3StatePolicy}"
 
 # Configuration (defaults)
 ECR_REPO="trader-api"
@@ -55,6 +60,8 @@ APP_RUNNER_ECR_ACCESS_ROLE_NAME="${APP_RUNNER_ECR_ACCESS_ROLE_NAME:-AppRunnerECR
 
 ECR_URI=""
 APP_RUNNER_SERVICE_URL=""
+AWS_ACCOUNT_ID=""
+LAST_S3_BUCKET_CREATED="false"
 
 if [[ -z "${TRADER_STATE_DIR+x}" ]]; then
   TRADER_STATE_DIR="/var/lib/trader/state"
@@ -83,9 +90,11 @@ Flags:
   --state-s3-prefix <prefix>        S3 key prefix for state (TRADER_STATE_S3_PREFIX)
   --state-s3-region <region>        S3 region override (TRADER_STATE_S3_REGION)
   --instance-role-arn <arn>         App Runner instance role ARN (for S3 access)
+  --ensure-resources                Create/reuse AWS resources (defaults state bucket; CloudFront when --cloudfront or --distribution-id)
   --api-only                         Deploy API only
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
+  --cloudfront                      Auto-create/reuse CloudFront distribution for the UI bucket
   --distribution-id <id>            CloudFront distribution ID (optional; forces UI apiBaseUrl to /api unless --ui-api-direct)
   --api-url <url>                   API origin URL for UI-only deploys (also configures CloudFront /api/* behavior)
   --ui-api-fallback <url>           Optional UI fallback API URL (CORS required)
@@ -107,16 +116,21 @@ Environment variables (equivalents):
   TRADER_BOT_SYMBOLS
   TRADER_BOT_SYMBOL
   TRADER_BOT_TRADE
+  TRADER_AWS_ENSURE_RESOURCES
   BINANCE_API_KEY
   BINANCE_API_SECRET
   TRADER_UI_BUCKET / S3_BUCKET
+  TRADER_UI_CLOUDFRONT_AUTO
   TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID / CLOUDFRONT_DISTRIBUTION_ID
+  TRADER_UI_CLOUDFRONT_OAC_NAME
   TRADER_UI_SKIP_BUILD
   TRADER_UI_DIST_DIR
   TRADER_UI_API_URL
   TRADER_UI_API_FALLBACK_URL
   TRADER_UI_API_MODE (proxy|direct)
   TRADER_UI_SERVICE_ARN
+  TRADER_APP_RUNNER_INSTANCE_ROLE_NAME
+  TRADER_APP_RUNNER_STATE_POLICY_NAME
   APP_RUNNER_INSTANCE_ROLE_ARN / TRADER_APP_RUNNER_INSTANCE_ROLE_ARN
 EOF
 }
@@ -181,6 +195,10 @@ while [[ $# -gt 0 ]]; do
       APP_RUNNER_INSTANCE_ROLE_ARN="${2:-}"
       shift 2
       ;;
+    --ensure-resources)
+      ENSURE_RESOURCES="true"
+      shift
+      ;;
     --api-only)
       API_ONLY="true"
       shift
@@ -192,6 +210,10 @@ while [[ $# -gt 0 ]]; do
     --ui-bucket|--bucket)
       UI_BUCKET="${2:-}"
       shift 2
+      ;;
+    --cloudfront|--cloudfront-auto)
+      UI_CLOUDFRONT_AUTO="true"
+      shift
       ;;
     --distribution-id)
       UI_DISTRIBUTION_ID="${2:-}"
@@ -241,7 +263,7 @@ fi
 
 DEPLOY_API="true"
 DEPLOY_UI="false"
-if [[ -n "${UI_BUCKET:-}" || "$UI_ONLY" == "true" ]]; then
+if [[ -n "${UI_BUCKET:-}" || "$UI_ONLY" == "true" ]] || is_true "$UI_CLOUDFRONT_AUTO"; then
   DEPLOY_UI="true"
 fi
 if [[ "$API_ONLY" == "true" ]]; then
@@ -315,6 +337,357 @@ check_prerequisites() {
 # Get AWS account ID
 get_account_id() {
   aws sts get-caller-identity --query Account --output text
+}
+
+ensure_account_id() {
+  if [[ -z "${AWS_ACCOUNT_ID:-}" ]]; then
+    AWS_ACCOUNT_ID="$(get_account_id)"
+  fi
+}
+
+ensure_s3_bucket() {
+  local bucket="$1"
+  local region="${2:-$AWS_REGION}"
+  LAST_S3_BUCKET_CREATED="false"
+
+  if aws s3api head-bucket --bucket "$bucket" --region "$region" >/dev/null 2>&1; then
+    echo -e "${YELLOW}✓ S3 bucket exists: ${bucket}${NC}" >&2
+    return 0
+  fi
+
+  local args=(--bucket "$bucket" --region "$region")
+  if [[ "$region" != "us-east-1" ]]; then
+    args+=(--create-bucket-configuration "LocationConstraint=${region}")
+  fi
+
+  if aws s3api create-bucket "${args[@]}" >/dev/null; then
+    LAST_S3_BUCKET_CREATED="true"
+    echo -e "${GREEN}✓ S3 bucket created: ${bucket}${NC}" >&2
+    return 0
+  fi
+
+  echo -e "${RED}✗ Unable to create S3 bucket: ${bucket}${NC}" >&2
+  echo "Ensure the bucket name is available and you have permissions." >&2
+  exit 1
+}
+
+apply_bucket_private_defaults() {
+  local bucket="$1"
+  local region="${2:-$AWS_REGION}"
+  aws s3api put-public-access-block \
+    --bucket "$bucket" \
+    --region "$region" \
+    --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true >/dev/null
+  aws s3api put-bucket-ownership-controls \
+    --bucket "$bucket" \
+    --region "$region" \
+    --ownership-controls Rules=[{ObjectOwnership=BucketOwnerEnforced}] >/dev/null || true
+}
+
+write_state_policy_doc() {
+  local bucket="$1"
+  local prefix_raw="$2"
+  local out="$3"
+  local prefix="${prefix_raw#/}"
+  prefix="${prefix%/}"
+  local list_condition=""
+  if [[ -n "$prefix" ]]; then
+    list_condition=$',\n      "Condition": {\n        "StringLike": {\n          "s3:prefix": ["'"${prefix}"'", "'"${prefix}"'/*"]\n        }\n      }'
+  fi
+  local object_arn="arn:aws:s3:::${bucket}"
+  if [[ -n "$prefix" ]]; then
+    object_arn="${object_arn}/${prefix}/*"
+  else
+    object_arn="${object_arn}/*"
+  fi
+
+  cat > "$out" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListStateBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::${bucket}"${list_condition}
+    },
+    {
+      "Sid": "ReadWriteStateObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "${object_arn}"
+    }
+  ]
+}
+EOF
+}
+
+ensure_state_instance_role() {
+  local bucket="$1"
+  local prefix="$2"
+  local role_name="$APP_RUNNER_INSTANCE_ROLE_NAME"
+  local policy_name="$APP_RUNNER_STATE_POLICY_NAME"
+
+  local role_arn=""
+  role_arn="$(aws iam get-role --role-name "$role_name" --query 'Role.Arn' --output text 2>/dev/null || true)"
+  if [[ -z "$role_arn" || "$role_arn" == "None" ]]; then
+    echo "Creating App Runner instance role: ${role_name}" >&2
+    local trust_doc
+    trust_doc="$(mktemp)"
+    cat >"$trust_doc" <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "tasks.apprunner.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+    aws iam create-role \
+      --role-name "$role_name" \
+      --assume-role-policy-document "file://${trust_doc}" \
+      --description "App Runner instance role for Trader S3 state" \
+      >/dev/null
+    rm -f "$trust_doc"
+  else
+    echo -e "${YELLOW}✓ Reusing App Runner instance role: ${role_name}${NC}" >&2
+  fi
+
+  local policy_doc
+  policy_doc="$(mktemp)"
+  write_state_policy_doc "$bucket" "$prefix" "$policy_doc"
+  aws iam put-role-policy \
+    --role-name "$role_name" \
+    --policy-name "$policy_name" \
+    --policy-document "file://${policy_doc}" \
+    >/dev/null
+  rm -f "$policy_doc"
+
+  if [[ -z "$role_arn" || "$role_arn" == "None" ]]; then
+    for _ in {1..12}; do
+      role_arn="$(aws iam get-role --role-name "$role_name" --query 'Role.Arn' --output text 2>/dev/null || true)"
+      if [[ -n "$role_arn" && "$role_arn" != "None" ]]; then
+        break
+      fi
+      sleep 2
+    done
+  fi
+
+  if [[ -z "$role_arn" || "$role_arn" == "None" ]]; then
+    echo -e "${RED}✗ Failed to resolve App Runner instance role ARN${NC}" >&2
+    exit 1
+  fi
+
+  echo "$role_arn"
+}
+
+ensure_cloudfront_oac() {
+  local name="$1"
+  local oac_id=""
+  oac_id="$(
+    aws cloudfront list-origin-access-controls \
+      --query "OriginAccessControlList.Items[?Name=='${name}'].Id | [0]" \
+      --output text 2>/dev/null || true
+  )"
+  if [[ -n "$oac_id" && "$oac_id" != "None" ]]; then
+    echo "$oac_id"
+    return 0
+  fi
+
+  local cfg
+  cfg="$(mktemp)"
+  cat >"$cfg" <<EOF
+{
+  "Name": "${name}",
+  "Description": "Trader UI CloudFront OAC",
+  "SigningProtocol": "sigv4",
+  "SigningBehavior": "always",
+  "OriginAccessControlOriginType": "s3"
+}
+EOF
+  oac_id="$(
+    aws cloudfront create-origin-access-control \
+      --origin-access-control-config "file://${cfg}" \
+      --query OriginAccessControl.Id \
+      --output text
+  )"
+  rm -f "$cfg"
+  echo "$oac_id"
+}
+
+discover_cloudfront_distribution_id_for_bucket() {
+  local bucket="$1"
+  local domain_primary="${bucket}.s3.${AWS_REGION}.amazonaws.com"
+  local domain_alt="${bucket}.s3.amazonaws.com"
+  local ids
+  ids="$(
+    aws cloudfront list-distributions \
+      --query "DistributionList.Items[?Origins.Items[?DomainName=='${domain_primary}' || DomainName=='${domain_alt}']].Id" \
+      --output text 2>/dev/null || true
+  )"
+  if [[ -z "$ids" || "$ids" == "None" ]]; then
+    return 1
+  fi
+  local id_list=()
+  read -r -a id_list <<<"$ids"
+  if (( ${#id_list[@]} == 0 )); then
+    return 1
+  fi
+  if (( ${#id_list[@]} > 1 )); then
+    echo -e "${YELLOW}Warning: multiple CloudFront distributions found for ${bucket}; using ${id_list[0]}${NC}" >&2
+  fi
+  echo "${id_list[0]}"
+}
+
+ensure_cloudfront_distribution() {
+  local bucket="$1"
+  local existing=""
+  existing="$(discover_cloudfront_distribution_id_for_bucket "$bucket" || true)"
+  if [[ -n "$existing" ]]; then
+    echo -e "${YELLOW}✓ Reusing CloudFront distribution ${existing}${NC}" >&2
+    echo "$existing"
+    return 0
+  fi
+
+  local oac_id
+  oac_id="$(ensure_cloudfront_oac "$UI_CLOUDFRONT_OAC_NAME")"
+  local cache_policy_id
+  cache_policy_id="$(get_managed_cache_policy_id "Managed-CachingOptimized")"
+  if [[ -z "$cache_policy_id" || "$cache_policy_id" == "None" ]]; then
+    cache_policy_id="$(get_managed_cache_policy_id "Managed-CachingDisabled")"
+  fi
+  if [[ -z "$cache_policy_id" || "$cache_policy_id" == "None" ]]; then
+    echo -e "${RED}✗ CloudFront managed cache policy not found${NC}" >&2
+    exit 1
+  fi
+
+  local domain="${bucket}.s3.${AWS_REGION}.amazonaws.com"
+  local cfg
+  cfg="$(mktemp)"
+  local ref="trader-ui-$(date +%s)"
+  cat >"$cfg" <<EOF
+{
+  "CallerReference": "${ref}",
+  "Comment": "trader-ui",
+  "Enabled": true,
+  "IsIPV6Enabled": true,
+  "PriceClass": "PriceClass_100",
+  "DefaultRootObject": "index.html",
+  "Aliases": {"Quantity": 0},
+  "Origins": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "Id": "trader-ui-origin",
+        "DomainName": "${domain}",
+        "OriginPath": "",
+        "CustomHeaders": {"Quantity": 0},
+        "S3OriginConfig": {"OriginAccessIdentity": ""},
+        "OriginAccessControlId": "${oac_id}"
+      }
+    ]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "trader-ui-origin",
+    "ViewerProtocolPolicy": "redirect-to-https",
+    "AllowedMethods": {
+      "Quantity": 3,
+      "Items": ["GET", "HEAD", "OPTIONS"],
+      "CachedMethods": {"Quantity": 2, "Items": ["GET", "HEAD"]}
+    },
+    "Compress": true,
+    "CachePolicyId": "${cache_policy_id}",
+    "TrustedSigners": {"Enabled": false, "Quantity": 0},
+    "TrustedKeyGroups": {"Enabled": false, "Quantity": 0}
+  },
+  "CustomErrorResponses": {
+    "Quantity": 2,
+    "Items": [
+      {"ErrorCode": 403, "ResponsePagePath": "/index.html", "ResponseCode": "200", "ErrorCachingMinTTL": 0},
+      {"ErrorCode": 404, "ResponsePagePath": "/index.html", "ResponseCode": "200", "ErrorCachingMinTTL": 0}
+    ]
+  },
+  "Restrictions": {
+    "GeoRestriction": {"RestrictionType": "none", "Quantity": 0}
+  },
+  "ViewerCertificate": {"CloudFrontDefaultCertificate": true}
+}
+EOF
+  local dist_id
+  dist_id="$(
+    aws cloudfront create-distribution \
+      --distribution-config "file://${cfg}" \
+      --query Distribution.Id \
+      --output text
+  )"
+  rm -f "$cfg"
+  echo -e "${GREEN}✓ CloudFront distribution created: ${dist_id}${NC}" >&2
+  echo "$dist_id"
+}
+
+ensure_cloudfront_bucket_policy() {
+  local bucket="$1"
+  local dist_id="$2"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo -e "${RED}✗ python3 not found (required to update CloudFront bucket policy).${NC}" >&2
+    exit 1
+  fi
+  ensure_account_id
+
+  local tmp_in
+  local tmp_out
+  tmp_in="$(mktemp)"
+  tmp_out="$(mktemp)"
+  aws s3api get-bucket-policy --bucket "$bucket" --output json > "$tmp_in" 2>/dev/null || true
+  python3 - "$tmp_in" "$tmp_out" "$bucket" "$AWS_ACCOUNT_ID" "$dist_id" <<'PY'
+import json
+import sys
+
+src, out, bucket, account_id, dist_id = sys.argv[1:6]
+raw = ""
+try:
+    with open(src) as f:
+        raw = f.read().strip()
+except FileNotFoundError:
+    raw = ""
+
+policy = {"Version": "2012-10-17", "Statement": []}
+if raw:
+    data = json.loads(raw)
+    if isinstance(data, dict) and "Policy" in data:
+        policy = json.loads(data["Policy"])
+    else:
+        policy = data
+
+statements = policy.get("Statement") or []
+if isinstance(statements, dict):
+    statements = [statements]
+
+statements = [s for s in statements if s.get("Sid") != "AllowCloudFrontServiceRead"]
+statements.append(
+    {
+        "Sid": "AllowCloudFrontServiceRead",
+        "Effect": "Allow",
+        "Principal": {"Service": "cloudfront.amazonaws.com"},
+        "Action": "s3:GetObject",
+        "Resource": f"arn:aws:s3:::{bucket}/*",
+        "Condition": {
+            "StringEquals": {
+                "AWS:SourceArn": f"arn:aws:cloudfront::{account_id}:distribution/{dist_id}"
+            }
+        },
+    }
+)
+
+policy["Statement"] = statements
+with open(out, "w") as f:
+    json.dump(policy, f, indent=2)
+PY
+  aws s3api put-bucket-policy --bucket "$bucket" --policy "file://${tmp_out}" >/dev/null
+  rm -f "$tmp_in" "$tmp_out"
 }
 
 discover_apprunner_service_url() {
@@ -1161,12 +1534,61 @@ main() {
 
   check_prerequisites "$need_docker" "$need_npm"
 
+  local ui_cloudfront_enabled="false"
+  if [[ -n "${UI_DISTRIBUTION_ID:-}" ]] || is_true "$UI_CLOUDFRONT_AUTO"; then
+    ui_cloudfront_enabled="true"
+  fi
+
+  if [[ "$DEPLOY_UI" == "true" && "$ui_cloudfront_enabled" == "true" && -z "${UI_BUCKET:-}" ]]; then
+    if is_true "$ENSURE_RESOURCES" || is_true "$UI_CLOUDFRONT_AUTO"; then
+      ensure_account_id
+      UI_BUCKET="trader-ui-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+      echo -e "${YELLOW}✓ Using default UI bucket: ${UI_BUCKET}${NC}" >&2
+    else
+      echo -e "${RED}✗ Missing UI bucket. Provide --ui-bucket or enable --cloudfront with --ensure-resources.${NC}" >&2
+      exit 2
+    fi
+  fi
+
+  if [[ "$DEPLOY_API" == "true" && -z "${TRADER_STATE_S3_BUCKET:-}" ]] && is_true "$ENSURE_RESOURCES"; then
+    ensure_account_id
+    TRADER_STATE_S3_BUCKET="trader-api-state-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+    echo -e "${YELLOW}✓ Using default state bucket: ${TRADER_STATE_S3_BUCKET}${NC}" >&2
+  fi
+
   if [[ -n "${TRADER_STATE_S3_BUCKET:-}" && -z "${TRADER_STATE_S3_REGION:-}" ]]; then
     TRADER_STATE_S3_REGION="$AWS_REGION"
   fi
 
+  if [[ -n "${TRADER_STATE_S3_BUCKET:-}" ]] && is_true "$ENSURE_RESOURCES"; then
+    ensure_s3_bucket "$TRADER_STATE_S3_BUCKET" "$TRADER_STATE_S3_REGION"
+    if [[ "$LAST_S3_BUCKET_CREATED" == "true" ]]; then
+      apply_bucket_private_defaults "$TRADER_STATE_S3_BUCKET" "$TRADER_STATE_S3_REGION"
+    fi
+    if [[ -z "${APP_RUNNER_INSTANCE_ROLE_ARN:-}" ]]; then
+      APP_RUNNER_INSTANCE_ROLE_ARN="$(ensure_state_instance_role "$TRADER_STATE_S3_BUCKET" "$TRADER_STATE_S3_PREFIX")"
+      echo -e "${GREEN}✓ Using App Runner instance role: ${APP_RUNNER_INSTANCE_ROLE_ARN}${NC}" >&2
+    fi
+  fi
+
+  if [[ "$DEPLOY_UI" == "true" && "$ui_cloudfront_enabled" == "true" ]]; then
+    if is_true "$ENSURE_RESOURCES" || is_true "$UI_CLOUDFRONT_AUTO"; then
+      ensure_s3_bucket "$UI_BUCKET" "$AWS_REGION"
+      if [[ "$LAST_S3_BUCKET_CREATED" == "true" ]]; then
+        apply_bucket_private_defaults "$UI_BUCKET" "$AWS_REGION"
+      fi
+    fi
+    if [[ -z "${UI_DISTRIBUTION_ID:-}" ]] && is_true "$UI_CLOUDFRONT_AUTO"; then
+      UI_DISTRIBUTION_ID="$(ensure_cloudfront_distribution "$UI_BUCKET")"
+    fi
+    if [[ -n "${UI_DISTRIBUTION_ID:-}" ]] && (is_true "$ENSURE_RESOURCES" || is_true "$UI_CLOUDFRONT_AUTO"); then
+      ensure_cloudfront_bucket_policy "$UI_BUCKET" "$UI_DISTRIBUTION_ID"
+    fi
+  fi
+
   echo "Configuration:"
   echo "  Region: $AWS_REGION"
+  echo "  Ensure AWS Resources: ${ENSURE_RESOURCES}"
   echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
   if [[ -n "${TRADER_STATE_DIR:-}" ]]; then
     echo "  State Dir: ${TRADER_STATE_DIR}"
@@ -1187,6 +1609,9 @@ main() {
     echo "  UI Bucket: ${UI_BUCKET:-"(not set)"}"
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
       echo "  UI CF Dist: ${UI_DISTRIBUTION_ID}"
+    fi
+    if is_true "$UI_CLOUDFRONT_AUTO"; then
+      echo "  UI CF Auto: ${UI_CLOUDFRONT_AUTO}"
     fi
     echo "  UI API Mode: ${UI_API_MODE}"
     echo "  UI Dist Dir: ${UI_DIST_DIR}"
