@@ -304,25 +304,6 @@ textarea {
   display: none;
 }
 
-.dockBottom .card {
-  flex: 1;
-  max-height: none;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.dockBottom .card:not(.cardMaximized) {
-  height: 100%;
-  max-height: 100%;
-}
-
-.dockBottom .cardBody {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
 .dockMain .card {
   max-height: var(--dock-main-height);
   scroll-margin-top: calc(var(--dock-top-height) + var(--dock-gap) * 2);
@@ -682,6 +663,36 @@ body.panelMaximized::after {
   padding: 18px;
   overflow: auto;
   min-height: 0;
+  scrollbar-gutter: stable;
+}
+
+.dockBottom .card:not(.cardMaximized) {
+  flex: 1;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+}
+
+.dockBottom .cardBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.combosCard .cardBody {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.combosList {
+  flex: 1;
+  min-height: 160px;
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+  padding-right: 4px;
   scrollbar-gutter: stable;
 }
 
