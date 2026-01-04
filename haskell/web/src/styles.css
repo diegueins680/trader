@@ -274,6 +274,13 @@ textarea {
   height: 100%;
   max-height: none;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dockBottom .cardBody {
+  flex: 1;
+  min-height: 0;
 }
 
 .dockMain .card {
