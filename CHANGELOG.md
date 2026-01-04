@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: cap maximized panel bodies so long optimizer run forms can scroll and the run actions stay visible.
 - Web UI: fix configuration panel scrolling so the pane scrolls consistently.
 - Web UI: let configuration sub-panels expand to fit content so long sections stay visible.
+- Web UI: let the configuration panel maximize outside the dock so it fills the viewport.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
 - Web UI: make the header status card collapsible.
 - Web UI: shrink the docked optimizer combos panel when collapsed.

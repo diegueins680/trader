@@ -289,15 +289,15 @@ textarea {
   margin-bottom: 0;
 }
 
-.dockTop .configCard {
+.dockTop .configCard:not(.cardMaximized) {
   position: static;
   top: auto;
   height: 100%;
   max-height: none;
 }
 
-.dockTop .configCard:not([open]),
-.dockLayout.dockLayoutCompactTop .dockTop .configCard {
+.dockTop .configCard:not(.cardMaximized):not([open]),
+.dockLayout.dockLayoutCompactTop .dockTop .configCard:not(.cardMaximized) {
   height: auto;
   max-height: none;
   align-self: start;
