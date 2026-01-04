@@ -707,6 +707,7 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` requi
 
 - Web UI: `trader-config.js` is read at startup, so ensure it is served at `/trader-config.js` for static hosts.
 - Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it when a CloudFront distribution is used and the API URL is known). If the fallback host blocks CORS, the UI disables it for the session.
+- Quick deploy uploads `trader-config.js` with no-cache headers so updated API tokens take effect without browser hard refreshes.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
 The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize each buy/sell operation on the selected bot chart (supports long/short on futures). It includes live/offline timeline charts with start/end controls when ops persistence is enabled: the selected bot shows the full timeline, and each running bot card shows a compact, shorter timeline. The chart reflects the available ops history and warns when the selected range extends beyond it.

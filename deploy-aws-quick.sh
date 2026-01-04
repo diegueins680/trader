@@ -905,7 +905,10 @@ EOF
 
   echo "Uploading UI to s3://${UI_BUCKET}/ ..." >&2
   aws s3 sync "${UI_DIST_DIR}/" "s3://${UI_BUCKET}/" --delete --region "$AWS_REGION" >/dev/null
-  aws s3 cp "${UI_DIST_DIR}/trader-config.js" "s3://${UI_BUCKET}/trader-config.js" --region "$AWS_REGION" >/dev/null
+  aws s3 cp "${UI_DIST_DIR}/trader-config.js" "s3://${UI_BUCKET}/trader-config.js" \
+    --cache-control "no-cache, no-store, must-revalidate" \
+    --content-type "application/javascript" \
+    --region "$AWS_REGION" >/dev/null
   echo -e "${GREEN}✓ UI uploaded${NC}" >&2
 
   if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
