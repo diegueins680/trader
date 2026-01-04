@@ -123,6 +123,7 @@ export function buildOrphanedPositions<T extends { symbol: string; positionAmt: 
       const statuses = statusesBySymbol.get(normalizeSymbolKey(pos.symbol)) ?? [];
       const activeStatuses = statuses.filter((status) => status.running || status.starting === true);
       const activeTradingStatuses = activeStatuses.filter((status) => botTradeEnabled(status) !== false);
+      const hasStarting = activeTradingStatuses.some((status) => !status.running && status.starting === true);
       const sideRaw = normalizePositionSide(pos.positionSide);
       const posSide = sideRaw && sideRaw !== "BOTH" ? sideRaw : positionSideFromAmount(pos.positionAmt);
       const activeSides = uniqueSides(
@@ -130,7 +131,9 @@ export function buildOrphanedPositions<T extends { symbol: string; positionAmt: 
           .map((status) => botPositionSide(status))
           .filter((side): side is "LONG" | "SHORT" => Boolean(side)),
       );
-      const adopted = posSide != null && activeSides.some((side) => side === posSide);
+      const adopted =
+        posSide != null &&
+        (activeSides.some((side) => side === posSide) || (activeSides.length === 0 && hasStarting));
       if (adopted) return null;
       let reason = "no bot";
       if (targetMarket && statuses.length === 0 && otherMarketSymbols.has(normalizeSymbolKey(pos.symbol))) reason = "market mismatch";

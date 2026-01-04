@@ -2639,6 +2639,41 @@ ensureBinanceKeysPresent env =
       then throwIO (userError "botTrade=true requires BINANCE_API_KEY and BINANCE_API_SECRET (or pass binanceApiKey/binanceApiSecret in request)")
       else pure ()
 
+normalizeBinanceCredential :: Maybe String -> Maybe String
+normalizeBinanceCredential raw =
+  case raw of
+    Nothing -> Nothing
+    Just v ->
+      let trimmed = trim v
+       in if null trimmed then Nothing else Just trimmed
+
+applyBinanceKeyFallback :: Maybe String -> Maybe String -> Args -> Args
+applyBinanceKeyFallback mKey mSecret args =
+  let key = normalizeBinanceCredential (argBinanceApiKey args) <|> mKey
+      secret = normalizeBinanceCredential (argBinanceApiSecret args) <|> mSecret
+   in
+    args
+      { argBinanceApiKey = key
+      , argBinanceApiSecret = secret
+      }
+
+argsWithBinanceEnvKeys :: BinanceEnv -> Args -> Args
+argsWithBinanceEnvKeys env =
+  applyBinanceKeyFallback
+    (normalizeBinanceCredential (BS.unpack <$> beApiKey env))
+    (normalizeBinanceCredential (BS.unpack <$> beApiSecret env))
+
+argsWithBinanceKeysFromArgs :: Args -> Args -> Args
+argsWithBinanceKeysFromArgs source =
+  applyBinanceKeyFallback
+    (normalizeBinanceCredential (argBinanceApiKey source))
+    (normalizeBinanceCredential (argBinanceApiSecret source))
+
+hasBinanceKeys :: Args -> Bool
+hasBinanceKeys args =
+  isJust (normalizeBinanceCredential (argBinanceApiKey args))
+    && isJust (normalizeBinanceCredential (argBinanceApiSecret args))
+
 fetchLongFlatAccountPos :: Args -> BinanceEnv -> String -> IO Int
 fetchLongFlatAccountPos args env sym =
   case argBinanceMarket args of
@@ -3296,8 +3331,8 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                             )
                       else writeIORef topTargetsWarnRef Nothing
                     pure targets
-              startSymbol sym mCombo = do
-                let argsSym = argsBase { argBinanceSymbol = Just sym }
+              startSymbol argsStart sym mCombo = do
+                let argsSym = argsStart { argBinanceSymbol = Just sym }
                     adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
                 adoptReqOrErr <-
                   if adoptable
@@ -3350,16 +3385,27 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                     topSymbols = map fst topTargets
                     targetSymbolsBase = dedupeStable (baseSymbols ++ topSymbols)
                 mrt <- readMVar (bcRuntime botCtrl)
-                let runningSymbols = HM.keys mrt
+                botStates <- mapM runtimeStateToState (HM.elems mrt)
+                let mCredsArgs =
+                      listToMaybe
+                        [ botArgs st
+                        | Just st <- botStates
+                        , hasBinanceKeys (botArgs st)
+                        ]
+                    argsWithKeys =
+                      case mCredsArgs of
+                        Nothing -> argsBase
+                        Just credsArgs -> argsWithBinanceKeysFromArgs credsArgs argsBase
+                    runningSymbols = HM.keys mrt
                     orphanRequested = dedupeStable (targetSymbolsBase ++ runningSymbols)
-                orphanSymbols <- resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsBase orphanRequested
+                orphanSymbols <- resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsWithKeys orphanRequested
                 let targetSymbols = dedupeStable (targetSymbolsBase ++ orphanSymbols)
                 prevTargets <- readIORef targetsRef
                 when (prevTargets /= targetSymbols) $ do
                   writeIORef targetsRef targetSymbols
                   putStrLn ("Live bot auto-start targets: " ++ formatList targetSymbols)
                 let missing = filter (not . (`HM.member` mrt)) targetSymbols
-                mapM_ (\sym -> startSymbol sym (HM.lookup sym topTargetMap)) missing
+                mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap)) missing
                 sleepSec pollSec
                 loop
           loop
@@ -3419,7 +3465,8 @@ initBotState mOps args settings sym = do
   let lookback = argLookback args
   now <- getTimestampMs
   env <- makeBinanceEnv mOps args
-  let tradeEnabled = bsTradeEnabled settings
+  let argsWithKeys = argsWithBinanceEnvKeys env args
+      tradeEnabled = bsTradeEnabled settings
   startPos0 <-
     if tradeEnabled
       then do
@@ -3718,7 +3765,7 @@ initBotState mOps args settings sym = do
 
       st0 =
         BotState
-          { botArgs = args
+          { botArgs = argsWithKeys
           , botSettings = settings
           , botSymbol = sym
           , botEnv = env
@@ -3965,17 +4012,19 @@ argLookbackEither args =
 botApplyOptimizerUpdate :: BotState -> BotOptimizerUpdate -> IO BotState
 botApplyOptimizerUpdate st upd = do
   now <- getTimestampMs
-  let args' =
+  let baseArgs = botArgs st
+      args' =
         (bouArgs upd)
           { argOptimizeOperations = False
           , argSweepThreshold = False
           }
+      argsWithKeys = argsWithBinanceKeysFromArgs baseArgs args'
       lookback' = max 2 (bouLookback upd)
       pricesV = botPrices st
       n = V.length pricesV
       mLstmCtx' = bouLstmCtx upd <|> botLstmCtx st
       mKalmanCtx' = bouKalmanCtx upd <|> botKalmanCtx st
-      method = argMethod args'
+      method = argMethod argsWithKeys
       ctxOk =
         case method of
           MethodBoth -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -3993,7 +4042,7 @@ botApplyOptimizerUpdate st upd = do
         else do
           let latest =
                 computeLatestSignal
-                  args'
+                  argsWithKeys
                   lookback'
                   pricesV
                   (Just (botHighs st))
@@ -4004,7 +4053,7 @@ botApplyOptimizerUpdate st upd = do
                   Nothing
           pure
             st
-              { botArgs = args'
+              { botArgs = argsWithKeys
               , botLookback = lookback'
               , botLstmCtx = mLstmCtx'
               , botKalmanCtx = mKalmanCtx'

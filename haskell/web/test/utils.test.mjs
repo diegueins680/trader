@@ -83,6 +83,13 @@ test("buildOrphanedPositions treats flat bots as orphaned", () => {
   assert.equal(orphans[0]?.reason, "bot side unknown");
 });
 
+test("buildOrphanedPositions treats starting bots as adopted", () => {
+  const positions = [{ symbol: "FILUSDT", positionAmt: 1.2, positionSide: "LONG" }];
+  const bots = [{ symbol: "FILUSDT", status: { running: false, starting: true, market: "futures" } }];
+  const orphans = buildOrphanedPositions(positions, bots, { market: "futures" });
+  assert.equal(orphans.length, 0);
+});
+
 test("buildOrphanedPositions flags market mismatch", () => {
   const positions = [{ symbol: "BTCUSDT", positionAmt: 1, positionSide: "LONG" }];
   const bots = [{ symbol: "BTCUSDT", status: { running: true, market: "spot", positions: [1] } }];
