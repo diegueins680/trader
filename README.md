@@ -621,6 +621,7 @@ Configuration is split into multiple sub-panels (drag to reorder) that expand to
 Maximized panels ignore main-area height caps so full card contents stay visible.
 Maximizing the configuration panel now escapes the docked layout so it fills the viewport cleanly.
 Maximized panels render above the docked layout so they stay visible instead of disappearing behind the dimmer.
+Maximized panels no longer dim the interface background.
 Configuration stays in a fixed top dock, optimizer combos live in a fixed bottom dock, and each running bot has its own scrollable panel.
 The Data Log panel aligns toolbar controls and uses theme-matched styling with a responsive log viewport; code/log surfaces are more opaque so background content doesn't bleed through.
 The configuration pane preserves its scroll position during live updates.
