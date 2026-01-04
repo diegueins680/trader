@@ -617,6 +617,7 @@ The UI layout uses a refreshed header, section grouping, and spacing for faster 
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
 Configuration is split into multiple scrollable sub-panels (drag to reorder) while sections and result panels remain collapsible; cards/panels can be minimized or maximized for focus with the active panel kept opaque, crisp, and unclipped above a dimmed backdrop, the UI remembers open/closed state locally, offers expand/collapse-all controls in the configuration panel, and starts low-signal panels (Data Log, Request preview) collapsed by default.
+Maximized panels ignore main-area height caps so full card contents stay visible.
 Configuration stays in a fixed top dock, optimizer combos live in a fixed bottom dock, and each running bot has its own scrollable panel.
 The Data Log panel aligns toolbar controls and uses theme-matched styling with a responsive log viewport; code/log surfaces are more opaque so background content doesn't bleed through.
 The configuration pane preserves its scroll position during live updates.

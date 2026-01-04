@@ -308,8 +308,11 @@ textarea {
 }
 
 .dockMain .card {
-  max-height: var(--dock-main-height);
   scroll-margin-top: calc(var(--dock-top-height) + var(--dock-gap) * 2);
+}
+
+.dockMain .card:not(.cardMaximized) {
+  max-height: var(--dock-main-height);
 }
 
 .brand {
