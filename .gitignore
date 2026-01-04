@@ -3,6 +3,7 @@
 # Env / secrets
 .env
 .env.*
+.tmp-ui-deploy/
 !.env.example
 
 # Python
