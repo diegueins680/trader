@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: fix configuration panel scrolling so the pane scrolls consistently.
 - Web UI: let configuration sub-panels expand to fit content so long sections stay visible.
 - Web UI: let the configuration panel maximize outside the dock so it fills the viewport.
+- Web UI: keep maximized docked panels above the dimmer instead of disappearing.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
 - Web UI: make the header status card collapsible.
 - Web UI: shrink the docked optimizer combos panel when collapsed.
@@ -102,6 +103,7 @@ All notable changes to this project will be documented in this file.
 - Live bot: adopt existing positions immediately on startup, applying a compatible top combo when available (no blocking wait).
 - Live bot: `/bot/start` auto-adopts orphan open futures positions even when no matching top combo is available.
 - Live bot: auto-start loop now adopts orphan open futures positions when a matching top combo exists (no UI or `/bot/start` required).
+- Live bot: cache Binance API keys in running bot state so order operations keep working without UI key forwarding.
 - Live bot/API: futures position checks now respect hedge-mode sides; bot start/adoption and futures trade requests reject simultaneous long+short positions for the same symbol.
 - Ops: add a cron watchdog script to keep the live bot running (`deploy/ensure-bot-running.sh`).
 - Ops: fix the cron watchdog JSON parsing in zsh so `/bot/status` checks succeed.

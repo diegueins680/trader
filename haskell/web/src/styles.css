@@ -627,9 +627,13 @@ body.panelMaximized::after {
 
 body.panelMaximized .dockTop,
 body.panelMaximized .dockBottom {
-  left: 0;
-  right: 0;
+  position: relative;
+  top: auto;
+  bottom: auto;
+  left: auto;
+  right: auto;
   margin: 0 auto;
+  width: var(--dock-width);
   transform: none;
   overflow: visible;
   z-index: auto;
