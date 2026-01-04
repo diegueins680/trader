@@ -28,7 +28,7 @@
   --dock-gap: 16px;
   --dock-width: min(1200px, calc(100% - 32px));
   --dock-top-height: clamp(260px, 36vh, 480px);
-  --dock-top-height-collapsed: clamp(200px, 22vh, 260px);
+  --dock-top-height-collapsed: clamp(160px, 22vh, 220px);
   --dock-bottom-height: clamp(220px, 30vh, 420px);
   --dock-bottom-height-collapsed: clamp(96px, 16vh, 150px);
   --dock-main-height: max(
@@ -245,6 +245,10 @@ textarea {
   --dock-top-height: var(--dock-top-height-collapsed);
 }
 
+.dockLayout.dockLayoutCompactTop .dockTop {
+  grid-template-rows: auto auto;
+}
+
 .dockTop,
 .dockBottom {
   position: fixed;
@@ -288,7 +292,8 @@ textarea {
   max-height: none;
 }
 
-.dockTop .configCard:not([open]) {
+.dockTop .configCard:not([open]),
+.dockLayout.dockLayoutCompactTop .dockTop .configCard {
   height: auto;
   max-height: none;
   align-self: start;
@@ -565,7 +570,7 @@ textarea {
     --dock-gap: 12px;
     --dock-width: calc(100% - 24px);
     --dock-top-height: clamp(240px, 40vh, 440px);
-    --dock-top-height-collapsed: clamp(180px, 26vh, 240px);
+    --dock-top-height-collapsed: clamp(170px, 28vh, 230px);
     --dock-bottom-height: clamp(200px, 28vh, 360px);
     --dock-bottom-height-collapsed: clamp(84px, 18vh, 140px);
     --dock-main-height: max(
