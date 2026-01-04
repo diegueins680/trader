@@ -6703,6 +6703,7 @@ export function App() {
       }
     : null;
   const tradeOrder = state.trade?.order ?? null;
+  const combosOpen = isPanelOpen("panel-combos", true);
 
   return (
     <div className="container">
@@ -6711,7 +6712,7 @@ export function App() {
           {toast}
         </div>
       ) : null}
-      <div className="dockLayout">
+      <div className={`dockLayout${combosOpen ? "" : " dockLayoutCompactBottom"}`}>
         <div className="dockTop">
           <details
             className={`card cardCollapsible headerCard${isPanelMaximized("panel-header") ? " cardMaximized" : ""}`}

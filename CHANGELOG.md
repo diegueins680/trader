@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: fix configuration panel scrolling so the pane scrolls consistently.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
 - Web UI: make the header status card collapsible.
+- Web UI: shrink the docked optimizer combos panel when collapsed.
 - Web UI: keep live bot panels from flickering by reusing the last status and bot list until fresh status arrives (including while bots are starting).
 - Web UI: make code/log panels more opaque so background content does not bleed through.
 - Web UI: keep Live bot, per-bot, and optimizer combo panels scrollable so docked panels stay visible while viewing long content.

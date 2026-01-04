@@ -653,7 +653,7 @@ Hover optimizer combos to inspect the operations captured for each top performer
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
 Jump shortcuts move focus to the target section, with clearer focus rings for keyboard navigation.
 The configuration panel is docked to the top of the viewport, scrolls independently, and keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs; scrolling stays responsive within the panel.
-The Optimizer combos panel is docked to the bottom of the viewport for quick access.
+The Optimizer combos panel is docked to the bottom of the viewport for quick access and shrinks to a compact bar when collapsed.
 Result panels scroll independently so longer outputs don't push other panels off-screen.
 Info popovers align to stay within the configuration panel.
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
