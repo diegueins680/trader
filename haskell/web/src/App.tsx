@@ -9776,6 +9776,7 @@ export function App() {
             onToggleMaximize={() => togglePanelMaximize("panel-live-bot")}
             title="Live bot"
             subtitle="Non-stop loop (server-side): fetches new bars, updates the model each bar, and records each buy/sell operation."
+            className="chartCard"
           >
               {botDisplay ? (
                 <>
@@ -10632,6 +10633,7 @@ export function App() {
                 onToggleMaximize={() => togglePanelMaximize(panelId)}
                 title={`Bot ${st.symbol}`}
                 subtitle={subtitle}
+                className="chartCard"
               >
                 <div className="pillRow" style={{ marginBottom: 10 }}>
                   <span className="badge">{st.symbol}</span>
@@ -11097,6 +11099,7 @@ export function App() {
             title="Open positions"
             subtitle="Charts for every open Binance futures position (positionRisk + klines)."
             summaryId="section-positions"
+            className="chartCard"
           >
               <div className="row" style={{ marginBottom: 10 }}>
                 <div className="field">
@@ -11216,6 +11219,7 @@ export function App() {
             onToggleMaximize={() => togglePanelMaximize("panel-orphaned-operations")}
             title="Orphaned operations"
             subtitle="Open futures positions that are not currently adopted by a running/starting bot."
+            className="chartCard"
           >
               <div className="pillRow" style={{ marginBottom: 10 }}>
                 <span className="badge">
@@ -11326,6 +11330,7 @@ export function App() {
             title="Backtest summary"
             subtitle="Uses a time split (train vs held-out backtest). When optimizing, tunes on a fit/tune split inside train."
             containerRef={backtestRef}
+            className="chartCard"
           >
               {state.backtest ? (
                 <>

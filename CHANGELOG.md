@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: split the configuration pane into multiple scrollable sub-panels with drag-and-drop reordering.
 - Web UI: allow cards and panels to be maximized or minimized for focused review.
 - Web UI: ensure maximized panels stay opaque and escape dock clipping so full content remains visible.
+- Web UI: let chart panels grow to fit full chart contents without internal clipping.
 - Web UI: fix configuration panel scrolling so the pane scrolls consistently.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
 - Web UI: make the header status card collapsible.

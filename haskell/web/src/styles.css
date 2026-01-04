@@ -596,6 +596,15 @@ textarea {
   overflow: hidden;
 }
 
+.card.chartCard:not(.cardMaximized) {
+  max-height: none;
+  height: auto;
+}
+
+.dockMain .card.chartCard:not(.cardMaximized) {
+  max-height: none;
+}
+
 body.panelMaximized {
   overflow: hidden;
 }
@@ -719,8 +728,8 @@ body.panelMaximized .cardMaximized {
   scrollbar-gutter: stable;
 }
 
-.card[data-panel="panel-live-bot"]:not(.cardMaximized),
-.card[data-panel^="panel-bot-"]:not(.cardMaximized) {
+.card[data-panel="panel-live-bot"]:not(.cardMaximized):not(.chartCard),
+.card[data-panel^="panel-bot-"]:not(.cardMaximized):not(.chartCard) {
   height: var(--dock-main-height);
   max-height: var(--dock-main-height);
   overflow: hidden;
