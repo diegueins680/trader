@@ -405,6 +405,7 @@ const BOT_STATUS_OPS_LIMIT = 5000;
 const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const CHART_HEIGHT = "var(--chart-height)";
+const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const ChartFallback = ({
   height = CHART_HEIGHT,
   label = "Loading chart…",
@@ -6704,6 +6705,8 @@ export function App() {
     : null;
   const tradeOrder = state.trade?.order ?? null;
   const combosOpen = isPanelOpen("panel-combos", true);
+  const configOpen = isPanelOpen("panel-config", true);
+  const dockLayoutClass = `dockLayout${combosOpen ? "" : " dockLayoutCompactBottom"}${configOpen ? "" : " dockLayoutCompactTop"}`;
 
   return (
     <div className="container">
@@ -6712,7 +6715,7 @@ export function App() {
           {toast}
         </div>
       ) : null}
-      <div className={`dockLayout${combosOpen ? "" : " dockLayoutCompactBottom"}`}>
+      <div className={dockLayoutClass}>
         <div className="dockTop">
           <details
             className={`card cardCollapsible headerCard${isPanelMaximized("panel-header") ? " cardMaximized" : ""}`}
@@ -6783,15 +6786,15 @@ export function App() {
             </summary>
           </details>
           <CollapsibleCard
-          panelId="panel-config"
-          open={isPanelOpen("panel-config", true)}
-          onToggle={handlePanelToggle("panel-config")}
-          maximized={isPanelMaximized("panel-config")}
-          onToggleMaximize={() => togglePanelMaximize("panel-config")}
-          title="Configuration"
-          subtitle="Safe defaults, minimal knobs, and clear outputs."
-          className="configCard"
-        >
+            panelId="panel-config"
+            open={configOpen}
+            onToggle={handlePanelToggle("panel-config")}
+            maximized={isPanelMaximized("panel-config")}
+            onToggleMaximize={() => togglePanelMaximize("panel-config")}
+            title="Configuration"
+            subtitle="Safe defaults, minimal knobs, and clear outputs."
+            className="configCard"
+          >
             <div className="stickyActions">
               <div className="pillRow">
                 <span className={`pill ${requestIssues.length ? "pillWarn" : "pillOk"}`}>
@@ -9840,46 +9843,46 @@ export function App() {
                       />
                     </Suspense>
 
-                    <ChartSuspense height={CHART_HEIGHT}>
-                      <BacktestChart
-                        prices={botDisplay.prices}
-                        equityCurve={botDisplay.equityCurve}
-                        openTimes={botDisplay.openTimes}
-                        kalmanPredNext={botDisplay.kalmanPredNext}
-                        positions={botDisplay.positions}
-                        trades={botDisplay.trades}
-                        operations={botDisplay.operations}
-                        backtestStartIndex={botDisplay.startIndex}
-                        height={CHART_HEIGHT}
-                      />
-                    </ChartSuspense>
-
-		                  <div style={{ marginTop: 10 }}>
-		                    <div className="hint" style={{ marginBottom: 8 }}>
-		                      Prediction values vs thresholds (hover for details)
-		                    </div>
-                    <ChartSuspense height={CHART_HEIGHT}>
-                      <PredictionDiffChart
-                        prices={botDisplay.prices}
-                        openTimes={botDisplay.openTimes}
-                        kalmanPredNext={botDisplay.kalmanPredNext}
-                        lstmPredNext={botDisplay.lstmPredNext}
-                        startIndex={botDisplay.startIndex}
-                        height={CHART_HEIGHT}
-                        openThreshold={botDisplay.openThreshold ?? botDisplay.threshold}
-                        closeThreshold={botDisplay.closeThreshold ?? botDisplay.openThreshold ?? botDisplay.threshold}
-                      />
-                    </ChartSuspense>
-		                  </div>
-
-                  <div style={{ marginTop: 10 }}>
-                    <div className="hint" style={{ marginBottom: 8 }}>
-                      Telemetry (Binance poll latency + close drift; hover for details)
+                    <div className="analysisDeck analysisDeckSplit">
+                      <div className="analysisDeckMain">
+                        <ChartSuspense height={CHART_HEIGHT}>
+                          <BacktestChart
+                            prices={botDisplay.prices}
+                            equityCurve={botDisplay.equityCurve}
+                            openTimes={botDisplay.openTimes}
+                            kalmanPredNext={botDisplay.kalmanPredNext}
+                            positions={botDisplay.positions}
+                            trades={botDisplay.trades}
+                            operations={botDisplay.operations}
+                            backtestStartIndex={botDisplay.startIndex}
+                            height={CHART_HEIGHT}
+                          />
+                        </ChartSuspense>
+                      </div>
+                      <div className="analysisDeckSide">
+                        <div className="chartBlock">
+                          <div className="hint">Prediction values vs thresholds (hover for details)</div>
+                          <ChartSuspense height={CHART_HEIGHT_SIDE}>
+                            <PredictionDiffChart
+                              prices={botDisplay.prices}
+                              openTimes={botDisplay.openTimes}
+                              kalmanPredNext={botDisplay.kalmanPredNext}
+                              lstmPredNext={botDisplay.lstmPredNext}
+                              startIndex={botDisplay.startIndex}
+                              height={CHART_HEIGHT_SIDE}
+                              openThreshold={botDisplay.openThreshold ?? botDisplay.threshold}
+                              closeThreshold={botDisplay.closeThreshold ?? botDisplay.openThreshold ?? botDisplay.threshold}
+                            />
+                          </ChartSuspense>
+                        </div>
+                        <div className="chartBlock">
+                          <div className="hint">Telemetry (Binance poll latency + close drift; hover for details)</div>
+                          <ChartSuspense height={CHART_HEIGHT_SIDE}>
+                            <TelemetryChart points={botRt.telemetry} height={CHART_HEIGHT_SIDE} label="Live bot telemetry chart" />
+                          </ChartSuspense>
+                        </div>
+                      </div>
                     </div>
-                    <ChartSuspense height={CHART_HEIGHT}>
-                      <TelemetryChart points={botRt.telemetry} height={CHART_HEIGHT} label="Live bot telemetry chart" />
-                    </ChartSuspense>
-                  </div>
 
                   <div style={{ marginTop: 10 }}>
                     <div className="hint" style={{ marginBottom: 8 }}>
@@ -11326,42 +11329,46 @@ export function App() {
           >
               {state.backtest ? (
                 <>
-                  <ChartSuspense height={CHART_HEIGHT}>
-                    <BacktestChart
-                      prices={state.backtest.prices}
-                      equityCurve={state.backtest.equityCurve}
-                      openTimes={state.backtest.openTimes}
-                      kalmanPredNext={state.backtest.kalmanPredNext}
-                      positions={state.backtest.positions}
-                      agreementOk={state.backtest.method === "01" ? undefined : state.backtest.agreementOk}
-                      trades={state.backtest.trades}
-                      backtestStartIndex={state.backtest.split.backtestStartIndex}
-                      height={CHART_HEIGHT}
-                      actions={
-                        <button className="btn" type="button" onClick={downloadBacktestOps}>
-                          Download log
-                        </button>
-                      }
-                    />
-                  </ChartSuspense>
-                  <div style={{ marginTop: 10 }}>
-                    <div className="hint" style={{ marginBottom: 8 }}>
-                      Prediction values vs thresholds (hover for details)
+                  <div className="analysisDeck">
+                    <div className="analysisDeckMain">
+                      <ChartSuspense height={CHART_HEIGHT}>
+                        <BacktestChart
+                          prices={state.backtest.prices}
+                          equityCurve={state.backtest.equityCurve}
+                          openTimes={state.backtest.openTimes}
+                          kalmanPredNext={state.backtest.kalmanPredNext}
+                          positions={state.backtest.positions}
+                          agreementOk={state.backtest.method === "01" ? undefined : state.backtest.agreementOk}
+                          trades={state.backtest.trades}
+                          backtestStartIndex={state.backtest.split.backtestStartIndex}
+                          height={CHART_HEIGHT}
+                          actions={
+                            <button className="btn" type="button" onClick={downloadBacktestOps}>
+                              Download log
+                            </button>
+                          }
+                        />
+                      </ChartSuspense>
                     </div>
-                    <ChartSuspense height={CHART_HEIGHT}>
-                      <PredictionDiffChart
-                        prices={state.backtest.prices}
-                        openTimes={state.backtest.openTimes}
-                        kalmanPredNext={state.backtest.kalmanPredNext}
-                        lstmPredNext={state.backtest.lstmPredNext}
-                        startIndex={state.backtest.split.backtestStartIndex}
-                        height={CHART_HEIGHT}
-                        openThreshold={state.backtest.openThreshold ?? state.backtest.threshold}
-                        closeThreshold={
-                          state.backtest.closeThreshold ?? state.backtest.openThreshold ?? state.backtest.threshold
-                        }
-                      />
-                    </ChartSuspense>
+                    <div className="analysisDeckSide">
+                      <div className="chartBlock">
+                        <div className="hint">Prediction values vs thresholds (hover for details)</div>
+                        <ChartSuspense height={CHART_HEIGHT_SIDE}>
+                          <PredictionDiffChart
+                            prices={state.backtest.prices}
+                            openTimes={state.backtest.openTimes}
+                            kalmanPredNext={state.backtest.kalmanPredNext}
+                            lstmPredNext={state.backtest.lstmPredNext}
+                            startIndex={state.backtest.split.backtestStartIndex}
+                            height={CHART_HEIGHT_SIDE}
+                            openThreshold={state.backtest.openThreshold ?? state.backtest.threshold}
+                            closeThreshold={
+                              state.backtest.closeThreshold ?? state.backtest.openThreshold ?? state.backtest.threshold
+                            }
+                          />
+                        </ChartSuspense>
+                      </div>
+                    </div>
                   </div>
 			                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
 			                    {state.backtest.split.tune > 0 ? (

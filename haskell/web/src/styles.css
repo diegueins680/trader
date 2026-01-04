@@ -15,15 +15,20 @@
   --faint: rgba(15, 23, 42, 0.48);
   --shadow: 0 18px 44px rgba(15, 23, 42, 0.12);
   --glow: 0 18px 40px rgba(14, 165, 233, 0.12);
-  --chart-bg: rgba(15, 23, 42, 0.08);
+  --chart-bg:
+    radial-gradient(120% 120% at 12% 10%, rgba(var(--accent-rgb), 0.12), transparent 58%),
+    radial-gradient(120% 120% at 92% 16%, rgba(var(--accent-alt-rgb), 0.12), transparent 60%),
+    rgba(15, 23, 42, 0.05);
   --code-bg: rgba(255, 255, 255, 0.92);
   --surface-subtle: rgba(15, 23, 42, 0.04);
   --dot-idle: rgba(15, 23, 42, 0.25);
   --pattern: rgba(15, 23, 42, 0.06);
-  --chart-height: clamp(360px, 75vh, 960px);
+  --chart-height: clamp(380px, 72vh, 980px);
+  --chart-height-side: clamp(200px, 34vh, 420px);
   --dock-gap: 16px;
   --dock-width: min(1200px, calc(100% - 32px));
   --dock-top-height: clamp(260px, 36vh, 480px);
+  --dock-top-height-collapsed: clamp(200px, 22vh, 260px);
   --dock-bottom-height: clamp(220px, 30vh, 420px);
   --dock-bottom-height-collapsed: clamp(96px, 16vh, 150px);
   --dock-main-height: max(
@@ -63,7 +68,10 @@
     --faint: rgba(226, 232, 240, 0.5);
     --shadow: 0 20px 50px rgba(4, 6, 8, 0.6);
     --glow: 0 20px 46px rgba(14, 165, 233, 0.2);
-    --chart-bg: rgba(0, 0, 0, 0.28);
+    --chart-bg:
+      radial-gradient(120% 120% at 10% 8%, rgba(var(--accent-rgb), 0.2), transparent 62%),
+      radial-gradient(120% 120% at 90% 16%, rgba(var(--accent-alt-rgb), 0.18), transparent 64%),
+      rgba(0, 0, 0, 0.3);
     --code-bg: rgba(8, 12, 16, 0.88);
     --surface-subtle: rgba(255, 255, 255, 0.05);
     --dot-idle: rgba(255, 255, 255, 0.32);
@@ -233,6 +241,10 @@ textarea {
   --dock-bottom-height: var(--dock-bottom-height-collapsed);
 }
 
+.dockLayout.dockLayoutCompactTop {
+  --dock-top-height: var(--dock-top-height-collapsed);
+}
+
 .dockTop,
 .dockBottom {
   position: fixed;
@@ -274,6 +286,12 @@ textarea {
   top: auto;
   height: 100%;
   max-height: none;
+}
+
+.dockTop .configCard:not([open]) {
+  height: auto;
+  max-height: none;
+  align-self: start;
 }
 
 .dockBottom .card {
@@ -547,6 +565,7 @@ textarea {
     --dock-gap: 12px;
     --dock-width: calc(100% - 24px);
     --dock-top-height: clamp(240px, 40vh, 440px);
+    --dock-top-height-collapsed: clamp(180px, 26vh, 240px);
     --dock-bottom-height: clamp(200px, 28vh, 360px);
     --dock-bottom-height-collapsed: clamp(84px, 18vh, 140px);
     --dock-main-height: max(
@@ -1966,10 +1985,41 @@ body.panelMaximized::after {
   line-height: 1.45;
 }
 
+.analysisDeck {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+.analysisDeckMain {
+  min-width: 0;
+}
+
+.analysisDeckSide {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.analysisDeck.analysisDeckSplit {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.analysisDeck.analysisDeckSplit .analysisDeckMain {
+  grid-column: 1 / 2;
+  grid-row: 1 / 3;
+}
+
+.chartBlock {
+  display: grid;
+  gap: 8px;
+}
+
 .chart {
   width: 100%;
   border-radius: 14px;
-  border: 1px solid var(--stroke);
+  border: 1px solid var(--stroke2);
   background: var(--chart-bg);
   overflow: hidden;
   box-shadow: var(--shadow);
@@ -1987,6 +2037,27 @@ body.panelMaximized::after {
   place-items: center;
   color: var(--muted);
   font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .analysisDeck {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .analysisDeckMain {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .analysisDeck.analysisDeckSplit {
+    grid-template-rows: auto;
+  }
+
+  .analysisDeck.analysisDeckSplit .analysisDeckMain {
+    grid-column: 1;
+    grid-row: auto;
+  }
 }
 
 .botChartsGrid {
@@ -2086,11 +2157,11 @@ body.panelMaximized::after {
 }
 
 .btLegendKalman {
-  background: linear-gradient(90deg, rgba(250, 204, 21, 0.92), rgba(234, 179, 8, 0.72));
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.92), rgba(251, 191, 36, 0.72));
 }
 
 .btLegendEquity {
-  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.85), rgba(255, 255, 255, 0.68));
+  background: linear-gradient(90deg, rgba(var(--accent-alt-rgb), 0.85), rgba(255, 255, 255, 0.68));
 }
 
 .btLegendLong {
@@ -2102,7 +2173,7 @@ body.panelMaximized::after {
 }
 
 .btLegendAgree {
-  background: rgba(var(--accent-rgb), 0.3);
+  background: rgba(var(--accent-alt-rgb), 0.3);
 }
 
 .btLegendTrade {
