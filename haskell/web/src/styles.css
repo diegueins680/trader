@@ -692,6 +692,12 @@ body.panelMaximized::after {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.card[data-panel="panel-live-bot"]:not(.cardMaximized),
+.card[data-panel^="panel-bot-"]:not(.cardMaximized) {
+  height: var(--dock-main-height);
+  max-height: var(--dock-main-height);
+}
+
 .card[data-panel="panel-live-bot"] .cardBody,
 .card[data-panel^="panel-bot-"] .cardBody {
   overflow: auto;
