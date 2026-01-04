@@ -25,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: fix docked optimizer combos panel scrolling so the combos list stays reachable.
 - Web UI: fix docked Live bot panel scrolling so long content stays reachable.
 - Web UI: keep the optimizer combos controls fixed while the combos list scrolls in the docked panel.
+- Web UI: keep maximized panels crisp above the dimmed backdrop instead of blurring the panel content.
 - Web UI: dock configuration at the top, dock optimizer combos at the bottom, and split running bots into independent scrollable panels.
 - Web UI: align Data Log toolbar controls, match the log styling to the UI theme, and make the log viewport responsive.
 - Web UI: pause Data Log auto-scroll when you scroll away from the latest entries and resume when you jump back to latest.

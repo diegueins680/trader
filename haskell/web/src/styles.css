@@ -605,6 +605,19 @@ body.panelMaximized::after {
   pointer-events: none;
 }
 
+body.panelMaximized .dockTop,
+body.panelMaximized .dockBottom {
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  transform: none;
+  z-index: auto;
+}
+
+body.panelMaximized .cardMaximized {
+  z-index: 70;
+}
+
 .cardMaximized {
   position: fixed;
   top: 24px;
