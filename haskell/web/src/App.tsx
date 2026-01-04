@@ -12172,6 +12172,7 @@ export function App() {
                   Start bot with selected combo is disabled: {comboStartBlockedReason}
                 </div>
               ) : null}
+              <div className="combosList">
               <details className="details" style={{ marginBottom: 12 }}>
                 <summary>Run optimizer (create combos)</summary>
                 <div onChange={() => setOptimizerRunDirty((prev) => (prev ? prev : true))}>
@@ -13510,6 +13511,7 @@ export function App() {
               </div>
               <div className="hint">
                 Top combos auto-apply when available (manual overrides respected). If the bot is idle, it will auto-start once the top combo is applied.
+              </div>
               </div>
             </div>
           </div>

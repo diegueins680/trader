@@ -626,7 +626,7 @@ Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`,
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.
-Live bot, per-bot, and optimizer combo panels scroll within their cards when content exceeds the docked viewport so all controls remain reachable.
+Live bot and per-bot panels scroll within their cards, while the optimizer combos panel keeps controls fixed and the combos list scrollable so results stay reachable.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
