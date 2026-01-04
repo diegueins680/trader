@@ -389,8 +389,8 @@ textarea {
     linear-gradient(160deg, var(--card-sheen), rgba(255, 255, 255, 0)),
     var(--card);
   box-shadow: var(--shadow);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   height: auto;
   max-height: none;
@@ -399,9 +399,9 @@ textarea {
 }
 
 .configPanel[open] {
-  min-height: 220px;
-  height: var(--panel-height, 320px);
-  max-height: var(--panel-height, 320px);
+  min-height: var(--panel-height, 320px);
+  height: auto;
+  max-height: none;
 }
 
 .configPanelHeader {
