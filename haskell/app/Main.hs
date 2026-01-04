@@ -2316,7 +2316,7 @@ botStartingJson rt =
 botStartReasonFromAdopt :: AdoptRequirement -> String
 botStartReasonFromAdopt req =
   if arActive req
-    then "Waiting for a compatible top combo to adopt existing positions or orders."
+    then "Adopting existing positions or orders."
     else "Initializing model."
 
 botStoppedJson :: Aeson.Value
@@ -2832,13 +2832,6 @@ openOrdersRequireShort market orders =
                 Just Sell -> True
                 _ -> False
 
-positionRequiresLongShort :: FuturesPositionRisk -> Bool
-positionRequiresLongShort pos =
-  case fmap normalizeKey (fprPositionSide pos) of
-    Just "short" -> True
-    Just "long" -> False
-    _ -> accountPosSign (fprPositionAmt pos) < 0
-
 data FuturesPositionSummary = FuturesPositionSummary
   { fpsNetAmt :: !Double
   , fpsHasLong :: !Bool
@@ -2883,6 +2876,13 @@ argsCompatibleWithAdoption args req
         _ ->
           not (arRequiresLongShort req) && argPositioning args /= LongShort
 
+applyAdoptRequirementArgs :: Args -> AdoptRequirement -> Args
+applyAdoptRequirementArgs args req
+  | not (arActive req) = args
+  | argBinanceMarket args == MarketFutures && arRequiresLongShort req && argPositioning args /= LongShort =
+      args { argPositioning = LongShort }
+  | otherwise = args
+
 selectCompatibleTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe Args
 selectCompatibleTopComboArgs limits sym args req export =
   let combos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
@@ -2903,29 +2903,22 @@ selectCompatibleTopComboArgs limits sym args req export =
 applyLatestTopCombo :: FilePath -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO Args
 applyLatestTopCombo optimizerTmp limits sym args req = do
   topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-  if arActive req
-    then do
-      pollSec <- comboPollSecondsFromEnv
-      let sleepSec s = threadDelay (max 1 s * 1000000)
-          loop = do
-            combosOrErr <- readTopCombosExport topJsonPath
-            case combosOrErr of
-              Left _ -> sleepSec pollSec >> loop
-              Right export ->
-                case selectCompatibleTopComboArgs limits sym args req export of
-                  Nothing -> sleepSec pollSec >> loop
-                  Just args' -> pure args'
-      loop
-    else do
-      combosOrErr <- readTopCombosExport topJsonPath
-      case combosOrErr of
-        Left _ -> pure args
-        Right export ->
+  combosOrErr <- readTopCombosExport topJsonPath
+  let baseArgs = applyAdoptRequirementArgs args req
+  case combosOrErr of
+    Left _ -> pure baseArgs
+    Right export ->
+      if arActive req
+        then
+          case selectCompatibleTopComboArgs limits sym baseArgs req export of
+            Nothing -> pure baseArgs
+            Just args' -> pure args'
+        else
           case bestTopComboForSymbol sym Nothing export of
-            Nothing -> pure args
+            Nothing -> pure baseArgs
             Just combo ->
-              case applyTopComboForStart args combo of
-                Left _ -> pure args
+              case applyTopComboForStart baseArgs combo of
+                Left _ -> pure baseArgs
                 Right args' -> pure args'
 
 topComboSymbol :: TopCombo -> Maybe String
@@ -2959,50 +2952,39 @@ topCombosTopTargets topN export =
    in take topN (dedupeTopComboTargets targets)
 
 resolveOrphanOpenPositionSymbols :: Maybe OpsStore -> ApiComputeLimits -> FilePath -> Args -> [String] -> IO [String]
-resolveOrphanOpenPositionSymbols mOps limits optimizerTmp args requested =
+resolveOrphanOpenPositionSymbols mOps _limits _optimizerTmp args requested =
   if not (platformSupportsLiveBot (argPlatform args)) || argBinanceMarket args /= MarketFutures
     then pure []
     else do
-      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-      combosOrErr <- readTopCombosExport topJsonPath
-      case combosOrErr of
+      positionsOrErr <-
+        ( try $ do
+            env <- makeBinanceEnv mOps args
+            ensureBinanceKeysPresent env
+            fetchFuturesPositionRisks env
+        ) ::
+          IO (Either SomeException [FuturesPositionRisk])
+      case positionsOrErr of
         Left _ -> pure []
-        Right export -> do
-          positionsOrErr <-
-            ( try $ do
-                env <- makeBinanceEnv mOps args
-                ensureBinanceKeysPresent env
-                fetchFuturesPositionRisks env
-            ) ::
-              IO (Either SomeException [FuturesPositionRisk])
-          case positionsOrErr of
-            Left _ -> pure []
-            Right positions -> do
-              let openPositions = filter (\p -> accountPosSign (fprPositionAmt p) /= 0) positions
-                  requestedNorm = map normalizeSymbol requested
-                  isRequested sym = normalizeSymbol sym `elem` requestedNorm
-                  openBySymbol =
-                    foldl'
-                      ( \acc pos ->
-                          let sym = normalizeSymbol (fprSymbol pos)
-                              requiresShort = positionRequiresLongShort pos
-                           in HM.insertWith (||) sym requiresShort acc
-                      )
-                      HM.empty
-                      openPositions
-                  hasCombo sym requiresShort =
-                    let adoptReq = AdoptRequirement True requiresShort
-                        argsSym = args { argBinanceSymbol = Just sym }
-                     in isJust (selectCompatibleTopComboArgs limits sym argsSym adoptReq export)
-                  orphans =
-                    [ sym
-                    | (sym, requiresShort) <- sortOn fst (HM.toList openBySymbol)
-                    , not (isRequested sym)
-                    , let summary = futuresPositionSummary sym openPositions
-                    , not (fpsHasLong summary && fpsHasShort summary)
-                    , hasCombo sym requiresShort
-                    ]
-              pure (dedupeStable orphans)
+        Right positions -> do
+          let openPositions = filter (\p -> accountPosSign (fprPositionAmt p) /= 0) positions
+              requestedNorm = map normalizeSymbol requested
+              isRequested sym = normalizeSymbol sym `elem` requestedNorm
+              openBySymbol =
+                foldl'
+                  ( \acc pos ->
+                      let sym = normalizeSymbol (fprSymbol pos)
+                       in HM.insertWith (\_ old -> old) sym True acc
+                  )
+                  HM.empty
+                  openPositions
+              orphans =
+                [ sym
+                | (sym, _requiresShort) <- sortOn fst (HM.toList openBySymbol)
+                , not (isRequested sym)
+                , let summary = futuresPositionSummary sym openPositions
+                , not (fpsHasLong summary && fpsHasShort summary)
+                ]
+          pure (dedupeStable orphans)
 
 resolveAdoptionRequirement :: Maybe OpsStore -> Args -> String -> IO (Either String AdoptRequirement)
 resolveAdoptionRequirement mOps args sym = do
@@ -3366,12 +3348,16 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                         HM.empty
                         topTargets
                     topSymbols = map fst topTargets
-                    targetSymbols = dedupeStable (baseSymbols ++ topSymbols)
+                    targetSymbolsBase = dedupeStable (baseSymbols ++ topSymbols)
+                mrt <- readMVar (bcRuntime botCtrl)
+                let runningSymbols = HM.keys mrt
+                    orphanRequested = dedupeStable (targetSymbolsBase ++ runningSymbols)
+                orphanSymbols <- resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsBase orphanRequested
+                let targetSymbols = dedupeStable (targetSymbolsBase ++ orphanSymbols)
                 prevTargets <- readIORef targetsRef
                 when (prevTargets /= targetSymbols) $ do
                   writeIORef targetsRef targetSymbols
                   putStrLn ("Live bot auto-start targets: " ++ formatList targetSymbols)
-                mrt <- readMVar (bcRuntime botCtrl)
                 let missing = filter (not . (`HM.member` mrt)) targetSymbols
                 mapM_ (\sym -> startSymbol sym (HM.lookup sym topTargetMap)) missing
                 sleepSec pollSec

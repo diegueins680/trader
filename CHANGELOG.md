@@ -99,8 +99,9 @@ All notable changes to this project will be documented in this file.
 - Live bot: support multi-symbol bots via `botSymbols` and `TRADER_BOT_SYMBOLS`, with per-symbol status snapshots.
 - Live bot: auto-syncs to the latest top combo (poll interval `TRADER_BOT_COMBOS_POLL_SEC`) and applies it while running.
 - Live bot: always adopts existing positions on startup (`botAdoptExistingPosition` is now implicit).
-- Live bot: startup waits for the top combo compatible with adopted positions or open orders before running.
-- Live bot: `/bot/start` auto-adopts orphan open futures positions when a matching top combo exists.
+- Live bot: adopt existing positions immediately on startup, applying a compatible top combo when available (no blocking wait).
+- Live bot: `/bot/start` auto-adopts orphan open futures positions even when no matching top combo is available.
+- Live bot: auto-start loop now adopts orphan open futures positions when a matching top combo exists (no UI or `/bot/start` required).
 - Live bot/API: futures position checks now respect hedge-mode sides; bot start/adoption and futures trade requests reject simultaneous long+short positions for the same symbol.
 - Ops: add a cron watchdog script to keep the live bot running (`deploy/ensure-bot-running.sh`).
 - Ops: fix the cron watchdog JSON parsing in zsh so `/bot/status` checks succeed.
@@ -111,6 +112,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
 - Web UI: add an open positions panel with charts for every Binance futures position.
 - Web UI: orphaned operations panel now matches by market + hedge side and labels orphan reasons (market mismatch, stopped, trading disabled, side mismatch).
+- Web UI: orphaned operations treat starting bots as adopted while they initialize.
 - Web UI: add an orphaned operations panel that highlights open futures positions not currently adopted by a running bot.
 - Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates (including API token changes).
 - Web UI: bot state timeline hover now shows the corresponding timestamp.
