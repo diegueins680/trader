@@ -392,7 +392,15 @@ write_state_policy_doc() {
   prefix="${prefix%/}"
   local list_condition=""
   if [[ -n "$prefix" ]]; then
-    list_condition=$',\n      "Condition": {\n        "StringLike": {\n          "s3:prefix": ["'"${prefix}"'", "'"${prefix}"'/*"]\n        }\n      }'
+    list_condition="$(cat <<EOF
+,
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": ["${prefix}", "${prefix}/*"]
+        }
+      }
+EOF
+)"
   fi
   local object_arn="arn:aws:s3:::${bucket}"
   if [[ -n "$prefix" ]]; then
