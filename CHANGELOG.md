@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.
 - Web UI: add an overview card that summarizes connection, market, execution mode, and the latest signal/backtest/trade results.
+- Web UI: let overview summary metadata (URLs, errors) wrap so full content stays visible.
 - Web UI: add a decision-logic checklist to the Latest signal card showing the gates and sizing behind operate/hold outcomes.
 - Web UI: add live trading visual aids (price pulse, signal/position compass, risk buffer) to the Live bot panel.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.

@@ -621,6 +621,7 @@ Configuration stays in a fixed top dock, optimizer combos live in a fixed bottom
 The Data Log panel aligns toolbar controls and uses theme-matched styling with a responsive log viewport; code/log surfaces are more opaque so background content doesn't bleed through.
 The configuration pane preserves its scroll position during live updates.
 The overview card summarizes connection, execution mode, and the latest signal/backtest/trade results for quick scanning.
+Overview summary metadata (like API URLs or error strings) wraps so full content stays visible.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
