@@ -4179,6 +4179,18 @@ parseTopComboToArgs base combo = do
               Nothing -> current
               Just n -> Just (max 0 n)
 
+      pickMaybeMaybePositiveDbl k current =
+        case getMaybeDbl k of
+          Nothing -> current
+          Just Nothing -> Nothing
+          Just (Just v) -> if v > 0 then Just v else Nothing
+
+      pickMaybeMaybeFraction k current =
+        case getMaybeDbl k of
+          Nothing -> current
+          Just Nothing -> Nothing
+          Just (Just v) -> if v > 0 && v <= 1 then Just v else Nothing
+
       pickBool k current =
         case getBool k of
           Nothing -> current
@@ -4215,6 +4227,11 @@ parseTopComboToArgs base combo = do
       maxDD = pickMaybeMaybeDbl "maxDrawdown" (argMaxDrawdown base)
       maxDL = pickMaybeMaybeDbl "maxDailyLoss" (argMaxDailyLoss base)
       maxOE = pickMaybeMaybeInt "maxOrderErrors" (argMaxOrderErrors base)
+
+      orderQuantity = pickMaybeMaybePositiveDbl "orderQuantity" (argOrderQuantity base)
+      orderQuote = pickMaybeMaybePositiveDbl "orderQuote" (argOrderQuote base)
+      orderQuoteFraction = pickMaybeMaybeFraction "orderQuoteFraction" (argOrderQuoteFraction base)
+      maxOrderQuote = pickMaybeMaybePositiveDbl "maxOrderQuote" (argMaxOrderQuote base)
 
       stopLoss = pickMaybeMaybeDbl "stopLoss" (argStopLoss base)
       takeProfit = pickMaybeMaybeDbl "takeProfit" (argTakeProfit base)
@@ -4310,6 +4327,10 @@ parseTopComboToArgs base combo = do
           , argMaxDrawdown = maxDD
           , argMaxDailyLoss = maxDL
           , argMaxOrderErrors = maxOE
+          , argOrderQuantity = orderQuantity
+          , argOrderQuote = orderQuote
+          , argOrderQuoteFraction = orderQuoteFraction
+          , argMaxOrderQuote = maxOrderQuote
           , argMinEdge = minEdge
           , argCostAwareEdge = costAwareEdge
           , argEdgeBuffer = edgeBuffer

@@ -92,7 +92,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -1825,7 +1826,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -2046,7 +2048,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -2204,7 +2207,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -2317,7 +2321,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -2754,7 +2759,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -3074,7 +3080,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -3223,7 +3230,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -3327,7 +3335,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -3431,7 +3440,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -3544,7 +3554,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -3657,7 +3668,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -3851,7 +3863,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -4054,7 +4067,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -4248,7 +4262,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -4361,7 +4376,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -4483,7 +4499,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -4596,7 +4613,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -4700,7 +4718,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -4822,7 +4841,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -4926,7 +4946,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -5057,7 +5078,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -5161,7 +5183,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -5274,7 +5297,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -5378,7 +5402,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -5482,7 +5507,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -5595,7 +5621,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -5699,7 +5726,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -5803,7 +5831,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -5907,7 +5936,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -6011,7 +6041,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -6124,7 +6155,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -6354,7 +6386,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -6476,7 +6509,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -6589,7 +6623,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -6693,7 +6728,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -6887,7 +6923,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -6991,7 +7028,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -7104,7 +7142,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -7217,7 +7256,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -7321,7 +7361,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -7452,7 +7493,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -7556,7 +7598,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -7660,7 +7703,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -7773,7 +7817,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -7877,7 +7922,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -7999,7 +8045,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -8112,7 +8159,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -8216,7 +8264,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -8320,7 +8369,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -8433,7 +8483,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -8537,7 +8588,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       }
     },
     {
@@ -8630,7 +8682,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       }
     },
     {
@@ -8723,7 +8776,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       }
     },
     {
@@ -8816,7 +8870,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       }
     },
     {
@@ -8909,7 +8964,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       }
     },
     {
@@ -9002,7 +9058,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       }
     },
     {
@@ -9095,7 +9152,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       }
     },
     {
@@ -9188,7 +9246,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {
@@ -9301,7 +9360,8 @@
         "volLookback": 20,
         "volScaleMax": 1.0,
         "volTarget": null,
-        "walkForwardFolds": 5
+        "walkForwardFolds": 5,
+        "orderQuote": 100
       },
       "operations": [
         {

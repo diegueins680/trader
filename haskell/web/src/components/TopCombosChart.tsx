@@ -42,6 +42,10 @@ export type OptimizationComboParams = {
   maxDrawdown?: number | null;
   maxDailyLoss?: number | null;
   maxOrderErrors?: number | null;
+  orderQuote?: number | null;
+  orderQuantity?: number | null;
+  orderQuoteFraction?: number | null;
+  maxOrderQuote?: number | null;
   kalmanZMin?: number | null;
   kalmanZMax?: number | null;
   kalmanMarketTopN?: number | null;
