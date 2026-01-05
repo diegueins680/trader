@@ -26,6 +26,7 @@
   --pattern: rgba(15, 23, 42, 0.06);
   --chart-height: clamp(380px, 72vh, 980px);
   --chart-height-side: clamp(200px, 34vh, 420px);
+  --chart-height-timeline: clamp(140px, 22vh, 240px);
   --dock-gap: 16px;
   --dock-width: min(1200px, calc(100% - 32px));
   --dock-top-height: clamp(260px, 36vh, 480px);

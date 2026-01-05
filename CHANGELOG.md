@@ -58,6 +58,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
 - Optimizer: rank top combos by annualized equity (`annualizedReturn`) so the #1 combo is the highest annualized equity.
+- Optimizer: apply top-combo order sizing (`orderQuantity`, `orderQuote`, `orderQuoteFraction`, `maxOrderQuote`) in the UI/API and ensure bundled combos include symbols and sizing defaults so orders can execute.
 - Live bot: API auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`) with trading enabled by default and restarts on the next poll interval if stopped.
 - Live bot: auto-start keeps bots running for the current top 10 combos from `top-combos.json` (Binance only), prioritizing higher annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker.
 - Live bot: auto-start warns when fewer than 10 unique top-combo symbols are available to start all top-combo bots.
@@ -123,6 +124,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: auto-load open positions charts on page load, interval/market changes, and Binance key/auth updates (including API token changes).
 - Web UI: bot state timeline hover now shows the corresponding timestamp.
 - Web UI: reduce bot state timeline chart height in bot cards.
+- Web UI: reduce the main bot state timeline chart height so controls stay visible.
 - Web UI: chart tooltips now show bar date/time when timestamps are available.
 - Web UI: optimize chart viewing with an analysis deck layout, compact side charts, and chart header badges for range and change.
 - Web UI: charts now scale to use most of the viewport height.

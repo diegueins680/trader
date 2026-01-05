@@ -406,6 +406,7 @@ const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
+const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
 const ChartFallback = ({
   height = CHART_HEIGHT,
   label = "Loading chart…",
@@ -1742,6 +1743,44 @@ function applyComboToForm(
   const maxQuantileWidthRaw = coerceNumber(combo.params.maxQuantileWidth, 0);
   const maxQuantileWidth = maxQuantileWidthRaw > 0 ? Math.max(0, maxQuantileWidthRaw) : 0;
   const minPositionSize = clampOptionalRange(combo.params.minPositionSize, 0, 1);
+  const comboOrderQuantity = coerceNumber(combo.params.orderQuantity, 0);
+  const comboOrderQuote = coerceNumber(combo.params.orderQuote, 0);
+  const comboOrderQuoteFraction = clampOptionalRange(combo.params.orderQuoteFraction, 0, 1);
+  const comboMaxOrderQuote = Math.max(0, coerceNumber(combo.params.maxOrderQuote, 0));
+  const hasComboSizing =
+    combo.params.orderQuantity != null ||
+    combo.params.orderQuote != null ||
+    combo.params.orderQuoteFraction != null ||
+    combo.params.maxOrderQuote != null;
+
+  let orderQuantity = prev.orderQuantity;
+  let orderQuote = prev.orderQuote;
+  let orderQuoteFraction = prev.orderQuoteFraction;
+  let maxOrderQuote = prev.maxOrderQuote;
+
+  if (hasComboSizing) {
+    if (comboOrderQuantity > 0) {
+      orderQuantity = comboOrderQuantity;
+      orderQuote = 0;
+      orderQuoteFraction = 0;
+      maxOrderQuote = 0;
+    } else if (comboOrderQuote > 0) {
+      orderQuote = comboOrderQuote;
+      orderQuantity = 0;
+      orderQuoteFraction = 0;
+      maxOrderQuote = 0;
+    } else if (comboOrderQuoteFraction > 0) {
+      orderQuoteFraction = comboOrderQuoteFraction;
+      orderQuantity = 0;
+      orderQuote = 0;
+      maxOrderQuote = comboMaxOrderQuote > 0 ? comboMaxOrderQuote : 0;
+    } else {
+      orderQuantity = 0;
+      orderQuote = 0;
+      orderQuoteFraction = 0;
+      maxOrderQuote = 0;
+    }
+  }
 
   let lookbackBars = prev.lookbackBars;
   let lookbackWindow = prev.lookbackWindow;
@@ -1843,6 +1882,10 @@ function applyComboToForm(
     binanceTestnet: nextPlatform === "binance" ? prev.binanceTestnet : false,
     binanceLive: nextPlatform === "binance" ? prev.binanceLive : false,
     tradeArmed: nextPlatform === "binance" ? prev.tradeArmed : false,
+    orderQuantity,
+    orderQuote,
+    orderQuoteFraction,
+    maxOrderQuote,
     tuneStressVolMult,
     tuneStressShock,
     tuneStressWeight,
@@ -1917,6 +1960,10 @@ function formApplySignature(form: FormState): string {
     sigNumber(form.maxDrawdown),
     sigNumber(form.maxDailyLoss),
     sigNumber(form.maxOrderErrors),
+    sigNumber(form.orderQuantity),
+    sigNumber(form.orderQuote),
+    sigNumber(form.orderQuoteFraction),
+    sigNumber(form.maxOrderQuote),
     sigNumber(form.minEdge),
     sigNumber(form.minSignalToNoise),
     sigBool(form.costAwareEdge),
@@ -5282,6 +5329,19 @@ export function App() {
           const minPositionSizeRaw =
             typeof params.minPositionSize === "number" && Number.isFinite(params.minPositionSize) ? clamp(params.minPositionSize, 0, 1) : null;
           const minPositionSize = minPositionSizeRaw != null && minPositionSizeRaw > 0 ? minPositionSizeRaw : null;
+          const orderQuoteRaw =
+            typeof params.orderQuote === "number" && Number.isFinite(params.orderQuote) ? params.orderQuote : null;
+          const orderQuote = orderQuoteRaw != null && orderQuoteRaw > 0 ? Math.max(0, orderQuoteRaw) : null;
+          const orderQuantityRaw =
+            typeof params.orderQuantity === "number" && Number.isFinite(params.orderQuantity) ? params.orderQuantity : null;
+          const orderQuantity = orderQuantityRaw != null && orderQuantityRaw > 0 ? Math.max(0, orderQuantityRaw) : null;
+          const orderQuoteFractionRaw =
+            typeof params.orderQuoteFraction === "number" && Number.isFinite(params.orderQuoteFraction) ? params.orderQuoteFraction : null;
+          const orderQuoteFraction =
+            orderQuoteFractionRaw != null && orderQuoteFractionRaw > 0 ? clamp(orderQuoteFractionRaw, 0, 1) : null;
+          const maxOrderQuoteRaw =
+            typeof params.maxOrderQuote === "number" && Number.isFinite(params.maxOrderQuote) ? params.maxOrderQuote : null;
+          const maxOrderQuote = maxOrderQuoteRaw != null && maxOrderQuoteRaw > 0 ? Math.max(0, maxOrderQuoteRaw) : null;
           const createdAtMsRaw = rawRec.createdAtMs;
           const createdAtMs =
             typeof createdAtMsRaw === "number" && Number.isFinite(createdAtMsRaw) ? Math.trunc(createdAtMsRaw) : null;
@@ -5433,6 +5493,10 @@ export function App() {
               maxDailyLoss: typeof params.maxDailyLoss === "number" && Number.isFinite(params.maxDailyLoss) ? params.maxDailyLoss : null,
               maxOrderErrors:
                 typeof params.maxOrderErrors === "number" && Number.isFinite(params.maxOrderErrors) ? Math.max(1, Math.trunc(params.maxOrderErrors)) : null,
+              orderQuote,
+              orderQuantity,
+              orderQuoteFraction,
+              maxOrderQuote,
               kalmanZMin,
               kalmanZMax,
               kalmanMarketTopN,
@@ -9931,11 +9995,16 @@ export function App() {
                     {!botStatusOps.enabled ? (
                       <div className="hint">{botStatusOps.hint ?? "Enable TRADER_OPS_DIR to track bot status history."}</div>
                     ) : botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error ? (
-                      <ChartSuspense height={CHART_HEIGHT} label="Loading timeline…">
-                        <BotStateChart points={botStatusPoints} startMs={botStatusRange.startMs} endMs={botStatusRange.endMs} height={CHART_HEIGHT} />
+                      <ChartSuspense height={CHART_HEIGHT_TIMELINE} label="Loading timeline…">
+                        <BotStateChart
+                          points={botStatusPoints}
+                          startMs={botStatusRange.startMs}
+                          endMs={botStatusRange.endMs}
+                          height={CHART_HEIGHT_TIMELINE}
+                        />
                       </ChartSuspense>
                     ) : (
-                      <div className="chart" style={{ height: CHART_HEIGHT }}>
+                      <div className="chart" style={{ height: CHART_HEIGHT_TIMELINE }}>
                         <div className="chartEmpty">Select a valid time range</div>
                       </div>
                     )}
