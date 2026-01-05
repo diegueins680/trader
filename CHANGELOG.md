@@ -24,6 +24,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: let the configuration panel maximize outside the dock so it fills the viewport.
 - Web UI: keep maximized docked panels above the dimmer instead of disappearing.
 - Web UI: remove dimming overlay when panels are maximized.
+- Web UI: let tables expand within panels so trade lists are fully visible while panels scroll.
 - Deploy: mark `trader-config.js` as no-cache in the quick AWS deploy so updated API tokens take effect immediately.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
 - Web UI: make the header status card collapsible.

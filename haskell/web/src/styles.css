@@ -2010,8 +2010,9 @@ body.panelMaximized .cardMaximized {
   border-radius: 12px;
   border: 1px solid var(--stroke);
   background: var(--code-bg);
-  overflow: auto;
-  max-height: 260px;
+  overflow-x: auto;
+  overflow-y: visible;
+  max-height: none;
 }
 
 .table {

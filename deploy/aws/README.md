@@ -108,7 +108,7 @@ App Runner note: EFS volumes are not supported; use S3 (`TRADER_STATE_S3_BUCKET`
 
 Security note: if you set Binance keys and expose the service publicly, protect it (at minimum set `TRADER_API_TOKEN`, and ideally restrict ingress or put it behind an authenticated gateway).
 
-Note (AWS CLI): when creating an App Runner service from a **private ECR** image, you must provide `AuthenticationConfiguration.AccessRoleArn` (an IAM role trusted by `build.apprunner.amazonaws.com` with the managed policy `AWSAppRunnerServicePolicyForECRAccess`). The repo’s `deploy-aws-quick.sh` script creates/reuses this role automatically.
+Note (AWS CLI): when creating an App Runner service from a **private ECR** image, you must provide `AuthenticationConfiguration.AccessRoleArn` (an IAM role trusted by `build.apprunner.amazonaws.com` with the managed policy `AWSAppRunnerServicePolicyForECRAccess`). The repo’s `deploy-aws-quick.sh` script creates/reuses this role automatically. It can also create or reuse the S3 state bucket + App Runner instance role (`--ensure-resources`) and, if requested, the UI bucket + CloudFront distribution (`--cloudfront`).
 
 ### Scaling note (important)
 
