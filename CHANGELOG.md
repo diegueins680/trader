@@ -50,7 +50,8 @@ All notable changes to this project will be documented in this file.
 - Web UI: optimizer combos now load only from the API (no static fallback).
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
 - Deploy: quick AWS deploy can reuse or create S3 buckets, App Runner S3 instance roles, and CloudFront distributions with `--ensure-resources`/`--cloudfront`.
-- Deploy: quick AWS UI config auto-fills `apiFallbackUrl` for CloudFront deployments (direct API URLs fall back to `/api`, and `/api` falls back to the API URL when known).
+- Deploy: quick AWS UI deploy defaults to the direct API base even with CloudFront; use `TRADER_UI_API_MODE=proxy`/`--ui-api-proxy` to force `/api`.
+- Deploy: quick AWS UI config auto-fills `apiFallbackUrl` only for `/api` mode (it points at the API URL when known).
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.

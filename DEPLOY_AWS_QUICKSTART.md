@@ -144,7 +144,7 @@ bash deploy-aws-quick.sh --ui-only \
 ```
 
 Notes:
-- When `--distribution-id` is set, the script forces `apiBaseUrl` to `/api` in `trader-config.js` unless you pass `--ui-api-direct` (which keeps the full API URL and relies on CORS); `--api-url` is used to configure the CloudFront `/api/*` origin. When the script can discover the App Runner URL it also fills `apiFallbackUrl` for failover; override it via `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed (CORS required).
+- When `--distribution-id` is set, the script defaults `apiBaseUrl` to the API URL (direct). Use `--ui-api-proxy`/`TRADER_UI_API_MODE=proxy` to force `/api` (CloudFront `/api/*` behavior required). When `/api` is used and the App Runner URL is known, the script fills `apiFallbackUrl` to the API URL; for direct bases, set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly if you want a fallback (CORS required).
 - Use `--cloudfront` (and optionally `--ensure-resources`) to auto-create or reuse a CloudFront distribution and set the UI bucket policy.
 - CloudFront is non-sticky. Keep App Runner min=1/max=1 unless you have shared async job storage (`TRADER_API_ASYNC_DIR` or `TRADER_STATE_DIR`).
 
@@ -159,8 +159,8 @@ TRADER_API_TARGET="${API_URL}" npm run build
 # Configure deploy-time API settings (edit this file before uploading to S3)
 cat > dist/trader-config.js <<EOF
 globalThis.__TRADER_CONFIG__ = {
-  // Use "/api" if CloudFront proxies /api/* to your API origin.
-  apiBaseUrl: "/api",
+  // Use the API URL directly (default). Set "/api" only if CloudFront proxies /api/* to your API origin.
+  apiBaseUrl: "${API_URL}",
   apiToken: "${TRADER_API_TOKEN}",
 };
 EOF
@@ -196,7 +196,7 @@ aws s3api put-bucket-policy --bucket "$S3_BUCKET" --policy '{
 echo "UI: http://${S3_BUCKET}.s3-website-ap-northeast-1.amazonaws.com"
 ```
 
-If you are not using a CloudFront `/api/*` proxy, set `apiBaseUrl` to `${API_URL}` instead.
+If you are using a CloudFront `/api/*` proxy and want same-origin calls, set `apiBaseUrl` to `/api` instead.
 
 ---
 

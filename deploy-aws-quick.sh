@@ -7,7 +7,7 @@
 #
 # Optional: also deploy the web UI (S3 + optional CloudFront invalidation):
 #   bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" --ui-bucket "$S3_BUCKET" --distribution-id "$CF_ID"
-#   - When --distribution-id is set, the UI config apiBaseUrl is forced to /api (to avoid CORS).
+#   - When --distribution-id is set, the UI config apiBaseUrl defaults to the API URL; use --ui-api-proxy to force /api.
 #
 # Notes:
 #   - If region is omitted, uses AWS_REGION/AWS_DEFAULT_REGION/aws-cli config, then ap-northeast-1.
@@ -38,7 +38,7 @@ UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
 UI_DISTRIBUTION_ID="${TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID:-${CLOUDFRONT_DISTRIBUTION_ID:-}}"
 UI_SKIP_BUILD="${TRADER_UI_SKIP_BUILD:-false}"
 UI_DIST_DIR="${TRADER_UI_DIST_DIR:-haskell/web/dist}"
-UI_API_MODE="${TRADER_UI_API_MODE:-proxy}"
+UI_API_MODE="${TRADER_UI_API_MODE:-direct}"
 UI_ONLY="false"
 API_ONLY="false"
 UI_API_URL="${TRADER_UI_API_URL:-}"
@@ -95,10 +95,11 @@ Flags:
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
   --cloudfront                      Auto-create/reuse CloudFront distribution for the UI bucket
-  --distribution-id <id>            CloudFront distribution ID (optional; forces UI apiBaseUrl to /api unless --ui-api-direct)
+  --distribution-id <id>            CloudFront distribution ID (optional; defaults UI apiBaseUrl to the API URL unless --ui-api-proxy)
   --api-url <url>                   API origin URL for UI-only deploys (also configures CloudFront /api/* behavior)
   --ui-api-fallback <url>           Optional UI fallback API URL (CORS required)
-  --ui-api-direct                   Use the full API URL in trader-config.js even with CloudFront (skips forcing /api)
+  --ui-api-direct                   Use the full API URL in trader-config.js even with CloudFront (default)
+  --ui-api-proxy                    Force apiBaseUrl to /api (requires CloudFront /api/* behavior)
   --service-arn <arn>               App Runner service ARN to auto-discover API URL/token (UI-only convenience)
   --skip-ui-build                   Skip `npm run build` (uses existing dist dir)
   --ui-dist-dir <dir>               UI dist dir (default: haskell/web/dist)
@@ -127,7 +128,7 @@ Environment variables (equivalents):
   TRADER_UI_DIST_DIR
   TRADER_UI_API_URL
   TRADER_UI_API_FALLBACK_URL
-  TRADER_UI_API_MODE (proxy|direct)
+  TRADER_UI_API_MODE (direct|proxy)
   TRADER_UI_SERVICE_ARN
   TRADER_APP_RUNNER_INSTANCE_ROLE_NAME
   TRADER_APP_RUNNER_STATE_POLICY_NAME
@@ -239,6 +240,10 @@ while [[ $# -gt 0 ]]; do
       UI_API_MODE="direct"
       shift
       ;;
+    --ui-api-proxy)
+      UI_API_MODE="proxy"
+      shift
+      ;;
     --service-arn)
       UI_SERVICE_ARN="${2:-}"
       shift 2
@@ -257,8 +262,8 @@ if [[ ${#POSITIONAL[@]} -ge 2 && -z "${TRADER_API_TOKEN:-}" ]]; then
   TRADER_API_TOKEN="${POSITIONAL[1]}"
 fi
 
-if [[ "${UI_API_MODE}" != "direct" ]]; then
-  UI_API_MODE="proxy"
+if [[ "${UI_API_MODE}" != "direct" && "${UI_API_MODE}" != "proxy" ]]; then
+  UI_API_MODE="direct"
 fi
 
 DEPLOY_API="true"
@@ -1675,7 +1680,7 @@ main() {
         fi
       else
         if [[ -n "${ui_api_url_override:-}" && "${ui_api_url_override}" != "/api" ]]; then
-          echo -e "${YELLOW}Warning: --api-url override is ignored when --distribution-id is set (UI apiBaseUrl is forced to /api).${NC}" >&2
+          echo -e "${YELLOW}Warning: --api-url override is ignored in proxy mode (apiBaseUrl is /api). Use --ui-api-direct to use the API URL instead.${NC}" >&2
         fi
         ui_api_url="/api"
       fi
@@ -1688,9 +1693,6 @@ main() {
     if [[ -z "$ui_api_fallback" && "$ui_api_url" == "/api" && -n "$api_url" ]]; then
       ui_api_fallback="$api_url"
       echo -e "${YELLOW}✓ Using apiFallbackUrl from API URL${NC}" >&2
-    elif [[ -z "$ui_api_fallback" && "$ui_api_url" != "/api" && -n "${UI_DISTRIBUTION_ID:-}" && -n "$api_url" ]]; then
-      ui_api_fallback="/api"
-      echo -e "${YELLOW}✓ Using apiFallbackUrl=/api for CloudFront proxy fallback${NC}" >&2
     fi
     deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
   fi
