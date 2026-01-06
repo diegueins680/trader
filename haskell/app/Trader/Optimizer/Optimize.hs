@@ -3348,7 +3348,9 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
         [ tr
         | tr <- records
         , trEligible tr
-        , trFinalEquity tr /= Nothing
+        , Just eq <- [trFinalEquity tr]
+        , eq > 1
+        , not (isInfinite eq)
         , trScore tr /= Nothing
         ]
       sortKey tr =

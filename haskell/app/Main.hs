@@ -8138,7 +8138,12 @@ readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
 readTopCombosValue path = do
   localResult <- readTopCombosValueLocal path
   case localResult of
-    Right val -> pure (Right val)
+    Right val -> do
+      let (filteredVal, dropped) = sanitizeTopCombosValue val
+      when (dropped > 0) $ do
+        _ <- writeTopCombosValue path filteredVal
+        persistTopCombosMaybe path
+      pure (Right filteredVal)
     Left localErr -> do
       mS3 <- resolveS3State
       case mS3 of
@@ -8153,11 +8158,14 @@ readTopCombosValue path = do
               case Aeson.eitherDecode' contents of
                 Left err -> pure (Left ("Failed to parse top combos JSON from S3: " ++ err))
                 Right val -> do
-                  _ <- writeTopCombosValue path val
-                  pure (Right val)
+                  let (filteredVal, dropped) = sanitizeTopCombosValue val
+                  _ <- writeTopCombosValue path filteredVal
+                  when (dropped > 0) (persistTopCombosMaybe path)
+                  pure (Right filteredVal)
 
 writeTopCombosValue :: FilePath -> Aeson.Value -> IO (Either String ())
 writeTopCombosValue path val = do
+  let (filteredVal, _) = sanitizeTopCombosValue val
   let dir = takeDirectory path
   dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
   case dirResult of
@@ -8167,7 +8175,7 @@ writeTopCombosValue path val = do
       case tempResult of
         Left e -> pure (Left ("Failed to create temp top combos file: " ++ show e))
         Right (tmpPath, handle) -> do
-          _ <- try (BL.hPut handle (encodePretty val <> "\n")) :: IO (Either SomeException ())
+          _ <- try (BL.hPut handle (encodePretty filteredVal <> "\n")) :: IO (Either SomeException ())
           hClose handle
           renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
           case renameResult of
@@ -8188,6 +8196,31 @@ comboMetricsDouble :: String -> Aeson.Value -> Maybe Double
 comboMetricsDouble key val = do
   metrics <- comboMetricValue "metrics" val
   comboMetricDouble key metrics
+
+comboFinalEquityValue :: Aeson.Value -> Maybe Double
+comboFinalEquityValue val =
+  comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val
+
+comboEquityAboveOne :: Aeson.Value -> Bool
+comboEquityAboveOne val =
+  case comboFinalEquityValue val of
+    Just eq -> eq > 1 && not (isInfinite eq)
+    Nothing -> False
+
+sanitizeTopCombosValue :: Aeson.Value -> (Aeson.Value, Int)
+sanitizeTopCombosValue val =
+  case val of
+    Aeson.Object o ->
+      case KM.lookup (AK.fromString "combos") o of
+        Just (Aeson.Array combos) ->
+          let combosList = V.toList combos
+              kept = filter comboEquityAboveOne combosList
+              dropped = length combosList - length kept
+              combosOut = Aeson.Array (V.fromList kept)
+              o' = KM.insert (AK.fromString "combos") combosOut o
+           in (Aeson.Object o', dropped)
+        _ -> (val, 0)
+    _ -> (val, 0)
 
 comboIdentityKey :: Aeson.Value -> Maybe BS.ByteString
 comboIdentityKey val = do

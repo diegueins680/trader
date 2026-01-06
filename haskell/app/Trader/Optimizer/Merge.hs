@@ -348,7 +348,8 @@ signatureKey combo =
 
 writeTopJson :: FilePath -> [Combo] -> Int -> IO ()
 writeTopJson path combos maxItems = do
-  let sorted = take maxItems (sortBy compareCombos combos)
+  let eligible = filter (\combo -> sanitizeEq (comboFinalEquity combo) > 1) combos
+      sorted = take maxItems (sortBy compareCombos eligible)
   nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
   let comboValues = zipWith comboToValue [1 ..] sorted
       exportVal =
@@ -476,148 +477,152 @@ normalizeCombo :: Value -> Maybe Combo
 normalizeCombo value =
   case value of
     Object obj -> do
-      finalEq <- KM.lookup (Key.fromString "finalEquity") obj >>= coerceFloatValue
-      let source = normalizeSource (KM.lookup (Key.fromString "source") obj)
-          paramsRaw =
-            case KM.lookup (Key.fromString "params") obj of
-              Just (Object p) -> p
-              _ -> KM.empty
-          platform = normalizePlatform paramsRaw source
-          objective = KM.lookup (Key.fromString "objective") obj >>= normalizeObjectiveValue
-          score = KM.lookup (Key.fromString "score") obj >>= coerceFloatValue
-          metricsRaw =
-            case KM.lookup (Key.fromString "metrics") obj of
-              Just (Object m) -> Just m
-              _ -> Nothing
-          operations = KM.lookup (Key.fromString "operations") obj >>= coerceOperations
-          createdAtMs = KM.lookup (Key.fromString "createdAtMs") obj >>= coerceIntValue
-          interval = valueToStringMaybe (KM.lookup (Key.fromString "interval") paramsRaw)
-          bars = fromMaybe 0 (KM.lookup (Key.fromString "bars") paramsRaw >>= coerceIntValue)
-          periodsPerYear =
-            fromMaybe
-              (inferPeriodsPerYear interval)
-              (KM.lookup (Key.fromString "periodsPerYear") paramsRaw >>= coerceFloatValue)
-          metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear bars
-          method = valueToStringMaybe (KM.lookup (Key.fromString "method") paramsRaw)
-          normalization = valueToStringMaybe (KM.lookup (Key.fromString "normalization") paramsRaw)
-          epochs = fromMaybe 0 (KM.lookup (Key.fromString "epochs") paramsRaw >>= coerceIntValue)
-          hiddenSize = KM.lookup (Key.fromString "hiddenSize") paramsRaw >>= coerceIntValue
-          learningRate = KM.lookup (Key.fromString "learningRate") paramsRaw >>= coerceFloatValue
-          valRatio = KM.lookup (Key.fromString "valRatio") paramsRaw >>= coerceFloatValue
-          patience = KM.lookup (Key.fromString "patience") paramsRaw >>= coerceIntValue
-          gradClip = KM.lookup (Key.fromString "gradClip") paramsRaw >>= coerceFloatValue
-          positioning = valueToStringMaybe (KM.lookup (Key.fromString "positioning") paramsRaw)
-          slippage = KM.lookup (Key.fromString "slippage") paramsRaw >>= coerceFloatValue
-          spread = KM.lookup (Key.fromString "spread") paramsRaw >>= coerceFloatValue
-          costAwareEdge = fromMaybe False (KM.lookup (Key.fromString "costAwareEdge") paramsRaw >>= coerceBoolValue)
-          triLayer = fromMaybe False (KM.lookup (Key.fromString "triLayer") paramsRaw >>= coerceBoolValue)
-          confirmConformal = fromMaybe False (KM.lookup (Key.fromString "confirmConformal") paramsRaw >>= coerceBoolValue)
-          confirmQuantiles = fromMaybe False (KM.lookup (Key.fromString "confirmQuantiles") paramsRaw >>= coerceBoolValue)
-          confidenceSizing = fromMaybe False (KM.lookup (Key.fromString "confidenceSizing") paramsRaw >>= coerceBoolValue)
-          symbol =
-            normalizeSymbolValue
-              ( fromMaybe
-                  Null
-                  ( KM.lookup (Key.fromString "binanceSymbol") paramsRaw
-                      <|> KM.lookup (Key.fromString "symbol") paramsRaw
+      finalEqRaw <- KM.lookup (Key.fromString "finalEquity") obj >>= coerceFloatValue
+      let finalEq = sanitizeEq finalEqRaw
+      if finalEq <= 1
+        then Nothing
+        else do
+          let source = normalizeSource (KM.lookup (Key.fromString "source") obj)
+              paramsRaw =
+                case KM.lookup (Key.fromString "params") obj of
+                  Just (Object p) -> p
+                  _ -> KM.empty
+              platform = normalizePlatform paramsRaw source
+              objective = KM.lookup (Key.fromString "objective") obj >>= normalizeObjectiveValue
+              score = KM.lookup (Key.fromString "score") obj >>= coerceFloatValue
+              metricsRaw =
+                case KM.lookup (Key.fromString "metrics") obj of
+                  Just (Object m) -> Just m
+                  _ -> Nothing
+              operations = KM.lookup (Key.fromString "operations") obj >>= coerceOperations
+              createdAtMs = KM.lookup (Key.fromString "createdAtMs") obj >>= coerceIntValue
+              interval = valueToStringMaybe (KM.lookup (Key.fromString "interval") paramsRaw)
+              bars = fromMaybe 0 (KM.lookup (Key.fromString "bars") paramsRaw >>= coerceIntValue)
+              periodsPerYear =
+                fromMaybe
+                  (inferPeriodsPerYear interval)
+                  (KM.lookup (Key.fromString "periodsPerYear") paramsRaw >>= coerceFloatValue)
+              metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear bars
+              method = valueToStringMaybe (KM.lookup (Key.fromString "method") paramsRaw)
+              normalization = valueToStringMaybe (KM.lookup (Key.fromString "normalization") paramsRaw)
+              epochs = fromMaybe 0 (KM.lookup (Key.fromString "epochs") paramsRaw >>= coerceIntValue)
+              hiddenSize = KM.lookup (Key.fromString "hiddenSize") paramsRaw >>= coerceIntValue
+              learningRate = KM.lookup (Key.fromString "learningRate") paramsRaw >>= coerceFloatValue
+              valRatio = KM.lookup (Key.fromString "valRatio") paramsRaw >>= coerceFloatValue
+              patience = KM.lookup (Key.fromString "patience") paramsRaw >>= coerceIntValue
+              gradClip = KM.lookup (Key.fromString "gradClip") paramsRaw >>= coerceFloatValue
+              positioning = valueToStringMaybe (KM.lookup (Key.fromString "positioning") paramsRaw)
+              slippage = KM.lookup (Key.fromString "slippage") paramsRaw >>= coerceFloatValue
+              spread = KM.lookup (Key.fromString "spread") paramsRaw >>= coerceFloatValue
+              costAwareEdge = fromMaybe False (KM.lookup (Key.fromString "costAwareEdge") paramsRaw >>= coerceBoolValue)
+              triLayer = fromMaybe False (KM.lookup (Key.fromString "triLayer") paramsRaw >>= coerceBoolValue)
+              confirmConformal = fromMaybe False (KM.lookup (Key.fromString "confirmConformal") paramsRaw >>= coerceBoolValue)
+              confirmQuantiles = fromMaybe False (KM.lookup (Key.fromString "confirmQuantiles") paramsRaw >>= coerceBoolValue)
+              confidenceSizing = fromMaybe False (KM.lookup (Key.fromString "confidenceSizing") paramsRaw >>= coerceBoolValue)
+              symbol =
+                normalizeSymbolValue
+                  ( fromMaybe
+                      Null
+                      ( KM.lookup (Key.fromString "binanceSymbol") paramsRaw
+                          <|> KM.lookup (Key.fromString "symbol") paramsRaw
+                      )
                   )
-              )
-          normalizedParams =
-            KM.union
-              ( KM.fromList
-                  [ (Key.fromString "platform", maybe Null (String . T.pack) platform)
-                  , (Key.fromString "interval", String (T.pack interval))
-                  , (Key.fromString "bars", Number (fromIntegral bars))
-                  , (Key.fromString "method", String (T.pack method))
-                  , (Key.fromString "normalization", String (T.pack normalization))
-                  , (Key.fromString "positioning", String (T.pack positioning))
-                  , (Key.fromString "baseOpenThreshold", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "baseOpenThreshold") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "baseCloseThreshold", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "baseCloseThreshold") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "blendWeight", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "blendWeight") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "minHoldBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "minHoldBars") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "cooldownBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "cooldownBars") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "maxHoldBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "maxHoldBars") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "minEdge", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "minEdge") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "edgeBuffer", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "edgeBuffer") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "costAwareEdge", Bool costAwareEdge)
-                  , (Key.fromString "trendLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "trendLookback") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "maxPositionSize", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxPositionSize") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "volTarget", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volTarget") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "volLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "volLookback") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "volEwmaAlpha", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volEwmaAlpha") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "volFloor", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volFloor") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "volScaleMax", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volScaleMax") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "maxVolatility", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxVolatility") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "periodsPerYear", Number (fromFloatDigits periodsPerYear))
-                  , (Key.fromString "kalmanMarketTopN", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "kalmanMarketTopN") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "fee", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "fee") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "epochs", Number (fromIntegral epochs))
-                  , (Key.fromString "hiddenSize", maybe Null (Number . fromIntegral) hiddenSize)
-                  , (Key.fromString "learningRate", maybe Null (Number . fromFloatDigits) learningRate)
-                  , (Key.fromString "valRatio", maybe Null (Number . fromFloatDigits) valRatio)
-                  , (Key.fromString "patience", maybe Null (Number . fromIntegral) patience)
-                  , (Key.fromString "walkForwardFolds", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "walkForwardFolds") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "tuneStressVolMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "tuneStressVolMult") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "tuneStressShock", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "tuneStressShock") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "tuneStressWeight", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "tuneStressWeight") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "gradClip", maybe Null (Number . fromFloatDigits) gradClip)
-                  , (Key.fromString "slippage", maybe Null (Number . fromFloatDigits) slippage)
-                  , (Key.fromString "spread", maybe Null (Number . fromFloatDigits) spread)
-                  , (Key.fromString "intrabarFill", maybe Null (String . T.pack) (valueToStringMaybeMaybe (KM.lookup (Key.fromString "intrabarFill") paramsRaw)))
-                  , (Key.fromString "triLayer", Bool triLayer)
-                  , (Key.fromString "triLayerFastMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerFastMult") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "triLayerSlowMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerSlowMult") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "triLayerCloudPadding", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudPadding") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "triLayerCloudSlope", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudSlope") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "triLayerCloudWidth", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudWidth") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "triLayerTouchLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "triLayerTouchLookback") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "triLayerPriceAction", maybe Null Bool (KM.lookup (Key.fromString "triLayerPriceAction") paramsRaw >>= coerceBoolValue))
-                  , (Key.fromString "triLayerPriceActionBody", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerPriceActionBody") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "triLayerExitOnSlow", maybe Null Bool (KM.lookup (Key.fromString "triLayerExitOnSlow") paramsRaw >>= coerceBoolValue))
-                  , (Key.fromString "kalmanBandLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "kalmanBandLookback") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "kalmanBandStdMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanBandStdMult") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "lstmExitFlipBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "lstmExitFlipBars") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "lstmExitFlipGraceBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "lstmExitFlipGraceBars") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "lstmExitFlipStrong", maybe Null Bool (KM.lookup (Key.fromString "lstmExitFlipStrong") paramsRaw >>= coerceBoolValue))
-                  , (Key.fromString "lstmConfidenceSoft", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "lstmConfidenceSoft") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "lstmConfidenceHard", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "lstmConfidenceHard") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "stopLoss", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "stopLoss") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "takeProfit", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "takeProfit") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "trailingStop", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "trailingStop") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "maxDrawdown", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxDrawdown") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "maxDailyLoss", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxDailyLoss") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "maxOrderErrors", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "maxOrderErrors") paramsRaw >>= coerceIntValue))
-                  , (Key.fromString "kalmanDt", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanDt") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "kalmanProcessVar", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanProcessVar") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "kalmanMeasurementVar", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanMeasurementVar") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "kalmanZMin", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanZMin") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "kalmanZMax", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanZMax") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "maxHighVolProb", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxHighVolProb") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "maxConformalWidth", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxConformalWidth") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "maxQuantileWidth", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxQuantileWidth") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "confirmConformal", Bool confirmConformal)
-                  , (Key.fromString "confirmQuantiles", Bool confirmQuantiles)
-                  , (Key.fromString "confidenceSizing", Bool confidenceSizing)
-                  , (Key.fromString "minPositionSize", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "minPositionSize") paramsRaw >>= coerceFloatValue))
-                  , (Key.fromString "binanceSymbol", maybe Null (String . T.pack) symbol)
-                  ]
-              )
-              paramsRaw
-          openThreshold = KM.lookup (Key.fromString "openThreshold") obj >>= coerceFloatValue
-          closeThreshold = KM.lookup (Key.fromString "closeThreshold") obj >>= coerceFloatValue
-      pure
-        Combo
-          { comboFinalEquity = finalEq
-          , comboObjective = objective
-          , comboScore = score
-          , comboOpenThreshold = openThreshold
-          , comboCloseThreshold = closeThreshold
-          , comboCreatedAtMs = createdAtMs
-          , comboSource = source
-          , comboMetrics = metrics
-          , comboOperations = operations
-          , comboParams = normalizedParams
-          }
+              normalizedParams =
+                KM.union
+                  ( KM.fromList
+                      [ (Key.fromString "platform", maybe Null (String . T.pack) platform)
+                      , (Key.fromString "interval", String (T.pack interval))
+                      , (Key.fromString "bars", Number (fromIntegral bars))
+                      , (Key.fromString "method", String (T.pack method))
+                      , (Key.fromString "normalization", String (T.pack normalization))
+                      , (Key.fromString "positioning", String (T.pack positioning))
+                      , (Key.fromString "baseOpenThreshold", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "baseOpenThreshold") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "baseCloseThreshold", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "baseCloseThreshold") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "blendWeight", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "blendWeight") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "minHoldBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "minHoldBars") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "cooldownBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "cooldownBars") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "maxHoldBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "maxHoldBars") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "minEdge", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "minEdge") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "edgeBuffer", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "edgeBuffer") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "costAwareEdge", Bool costAwareEdge)
+                      , (Key.fromString "trendLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "trendLookback") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "maxPositionSize", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxPositionSize") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "volTarget", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volTarget") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "volLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "volLookback") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "volEwmaAlpha", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volEwmaAlpha") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "volFloor", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volFloor") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "volScaleMax", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "volScaleMax") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "maxVolatility", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxVolatility") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "periodsPerYear", Number (fromFloatDigits periodsPerYear))
+                      , (Key.fromString "kalmanMarketTopN", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "kalmanMarketTopN") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "fee", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "fee") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "epochs", Number (fromIntegral epochs))
+                      , (Key.fromString "hiddenSize", maybe Null (Number . fromIntegral) hiddenSize)
+                      , (Key.fromString "learningRate", maybe Null (Number . fromFloatDigits) learningRate)
+                      , (Key.fromString "valRatio", maybe Null (Number . fromFloatDigits) valRatio)
+                      , (Key.fromString "patience", maybe Null (Number . fromIntegral) patience)
+                      , (Key.fromString "walkForwardFolds", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "walkForwardFolds") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "tuneStressVolMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "tuneStressVolMult") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "tuneStressShock", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "tuneStressShock") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "tuneStressWeight", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "tuneStressWeight") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "gradClip", maybe Null (Number . fromFloatDigits) gradClip)
+                      , (Key.fromString "slippage", maybe Null (Number . fromFloatDigits) slippage)
+                      , (Key.fromString "spread", maybe Null (Number . fromFloatDigits) spread)
+                      , (Key.fromString "intrabarFill", maybe Null (String . T.pack) (valueToStringMaybeMaybe (KM.lookup (Key.fromString "intrabarFill") paramsRaw)))
+                      , (Key.fromString "triLayer", Bool triLayer)
+                      , (Key.fromString "triLayerFastMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerFastMult") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "triLayerSlowMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerSlowMult") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "triLayerCloudPadding", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudPadding") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "triLayerCloudSlope", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudSlope") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "triLayerCloudWidth", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerCloudWidth") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "triLayerTouchLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "triLayerTouchLookback") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "triLayerPriceAction", maybe Null Bool (KM.lookup (Key.fromString "triLayerPriceAction") paramsRaw >>= coerceBoolValue))
+                      , (Key.fromString "triLayerPriceActionBody", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "triLayerPriceActionBody") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "triLayerExitOnSlow", maybe Null Bool (KM.lookup (Key.fromString "triLayerExitOnSlow") paramsRaw >>= coerceBoolValue))
+                      , (Key.fromString "kalmanBandLookback", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "kalmanBandLookback") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "kalmanBandStdMult", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanBandStdMult") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "lstmExitFlipBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "lstmExitFlipBars") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "lstmExitFlipGraceBars", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "lstmExitFlipGraceBars") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "lstmExitFlipStrong", maybe Null Bool (KM.lookup (Key.fromString "lstmExitFlipStrong") paramsRaw >>= coerceBoolValue))
+                      , (Key.fromString "lstmConfidenceSoft", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "lstmConfidenceSoft") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "lstmConfidenceHard", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "lstmConfidenceHard") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "stopLoss", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "stopLoss") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "takeProfit", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "takeProfit") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "trailingStop", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "trailingStop") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "maxDrawdown", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxDrawdown") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "maxDailyLoss", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxDailyLoss") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "maxOrderErrors", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "maxOrderErrors") paramsRaw >>= coerceIntValue))
+                      , (Key.fromString "kalmanDt", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanDt") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "kalmanProcessVar", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanProcessVar") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "kalmanMeasurementVar", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanMeasurementVar") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "kalmanZMin", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanZMin") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "kalmanZMax", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "kalmanZMax") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "maxHighVolProb", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxHighVolProb") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "maxConformalWidth", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxConformalWidth") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "maxQuantileWidth", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxQuantileWidth") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "confirmConformal", Bool confirmConformal)
+                      , (Key.fromString "confirmQuantiles", Bool confirmQuantiles)
+                      , (Key.fromString "confidenceSizing", Bool confidenceSizing)
+                      , (Key.fromString "minPositionSize", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "minPositionSize") paramsRaw >>= coerceFloatValue))
+                      , (Key.fromString "binanceSymbol", maybe Null (String . T.pack) symbol)
+                      ]
+                  )
+                  paramsRaw
+              openThreshold = KM.lookup (Key.fromString "openThreshold") obj >>= coerceFloatValue
+              closeThreshold = KM.lookup (Key.fromString "closeThreshold") obj >>= coerceFloatValue
+          pure
+            Combo
+              { comboFinalEquity = finalEq
+              , comboObjective = objective
+              , comboScore = score
+              , comboOpenThreshold = openThreshold
+              , comboCloseThreshold = closeThreshold
+              , comboCreatedAtMs = createdAtMs
+              , comboSource = source
+              , comboMetrics = metrics
+              , comboOperations = operations
+              , comboParams = normalizedParams
+              }
     _ -> Nothing
 
 normalizeSource :: Maybe Value -> Maybe String
