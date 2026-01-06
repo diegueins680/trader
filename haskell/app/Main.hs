@@ -8188,9 +8188,25 @@ comboMetricValue key val =
     Aeson.Object o -> KM.lookup (AK.fromString key) o
     _ -> Nothing
 
+coerceDoubleValue :: Aeson.Value -> Maybe Double
+coerceDoubleValue value =
+  case AT.parseMaybe parseJSON value of
+    Just v
+      | isNaN v || isInfinite v -> Nothing
+      | otherwise -> Just v
+    Nothing ->
+      case value of
+        Aeson.String s ->
+          let trimmed = trim (T.unpack s)
+           in case readMaybe trimmed of
+                Just v | not (isNaN v || isInfinite v) -> Just v
+                _ -> Nothing
+        Aeson.Bool v -> Just (if v then 1 else 0)
+        _ -> Nothing
+
 comboMetricDouble :: String -> Aeson.Value -> Maybe Double
 comboMetricDouble key val =
-  comboMetricValue key val >>= AT.parseMaybe parseJSON
+  comboMetricValue key val >>= coerceDoubleValue
 
 comboMetricsDouble :: String -> Aeson.Value -> Maybe Double
 comboMetricsDouble key val = do
