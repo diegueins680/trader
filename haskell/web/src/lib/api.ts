@@ -18,6 +18,7 @@ import type {
   OptimizerRunResponse,
 } from "./types";
 import { TRADER_UI_CONFIG } from "./deployConfig";
+import { readJson, writeJson } from "./storage";
 
 export class HttpError extends Error {
   readonly status: number;
@@ -111,7 +112,76 @@ function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
-const blockedFallbackBases = new Set<string>();
+const FALLBACK_STORAGE_KEY = "trader_api_fallback_v1";
+const FALLBACK_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
+
+type FallbackStorage = {
+  savedAtMs: number;
+  blocked: string[];
+  preferred: Record<string, string>;
+};
+
+function emptyFallbackStorage(): FallbackStorage {
+  return { savedAtMs: 0, blocked: [], preferred: {} };
+}
+
+function loadFallbackStorage(): FallbackStorage {
+  const raw = readJson<FallbackStorage>(FALLBACK_STORAGE_KEY);
+  if (!raw || typeof raw !== "object") return emptyFallbackStorage();
+  const savedAtMs = typeof raw.savedAtMs === "number" && Number.isFinite(raw.savedAtMs) ? raw.savedAtMs : 0;
+  if (!savedAtMs || Date.now() - savedAtMs > FALLBACK_STORAGE_TTL_MS) return emptyFallbackStorage();
+  const blocked = Array.isArray(raw.blocked)
+    ? raw.blocked
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => normalizeBaseUrl(entry))
+        .filter(Boolean)
+    : [];
+  const preferredEntries =
+    raw.preferred && typeof raw.preferred === "object" ? Object.entries(raw.preferred as Record<string, unknown>) : [];
+  const preferred: Record<string, string> = {};
+  for (const [primary, fallback] of preferredEntries) {
+    if (typeof fallback !== "string") continue;
+    const primaryNorm = normalizeBaseUrl(primary);
+    const fallbackNorm = normalizeBaseUrl(fallback);
+    if (!primaryNorm || !fallbackNorm || primaryNorm === fallbackNorm) continue;
+    preferred[primaryNorm] = fallbackNorm;
+  }
+  return { savedAtMs, blocked: Array.from(new Set(blocked)), preferred };
+}
+
+const fallbackStorage = loadFallbackStorage();
+const blockedFallbackBases = new Set<string>(fallbackStorage.blocked);
+const preferredFallbackBases = new Map<string, string>(Object.entries(fallbackStorage.preferred));
+
+function persistFallbackStorage() {
+  writeJson(FALLBACK_STORAGE_KEY, {
+    savedAtMs: Date.now(),
+    blocked: Array.from(blockedFallbackBases),
+    preferred: Object.fromEntries(preferredFallbackBases),
+  } satisfies FallbackStorage);
+}
+
+function rememberPreferredFallback(primary: string, fallback: string) {
+  if (!primary || !fallback || primary === fallback) return;
+  if (blockedFallbackBases.has(fallback)) return;
+  if (preferredFallbackBases.get(primary) === fallback) return;
+  preferredFallbackBases.set(primary, fallback);
+  persistFallbackStorage();
+}
+
+function clearPreferredFallback(primary: string) {
+  if (!preferredFallbackBases.delete(primary)) return;
+  persistFallbackStorage();
+}
+
+function blockFallbackBase(fallback: string) {
+  if (!fallback || blockedFallbackBases.has(fallback)) return;
+  blockedFallbackBases.add(fallback);
+  for (const [primary, preferred] of preferredFallbackBases.entries()) {
+    if (preferred === fallback) preferredFallbackBases.delete(primary);
+  }
+  persistFallbackStorage();
+}
 
 function isCrossOriginBase(baseUrl: string): boolean {
   if (typeof window === "undefined") return false;
@@ -136,6 +206,14 @@ function resolveFallbackBase(primaryBase: string): string | null {
   if (!fallback || fallback === primary) return null;
   if (blockedFallbackBases.has(fallback)) return null;
   return fallback;
+}
+
+function resolvePreferredFallback(primaryBase: string, fallbackBase: string | null): string | null {
+  if (!fallbackBase) return null;
+  const preferred = preferredFallbackBases.get(primaryBase) ?? null;
+  if (!preferred || preferred !== fallbackBase) return null;
+  if (blockedFallbackBases.has(preferred)) return null;
+  return preferred;
 }
 
 function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string> | undefined): HeadersInit | undefined {
@@ -274,17 +352,32 @@ async function fetchJsonOnce<T>(baseUrl: string, path: string, init: RequestInit
 }
 
 async function fetchJson<T>(baseUrl: string, path: string, init: RequestInit, opts?: FetchJsonOptions): Promise<T> {
-  const fallbackBase = resolveFallbackBase(baseUrl);
+  const primaryBase = normalizeBaseUrl(baseUrl);
+  const fallbackBase = resolveFallbackBase(primaryBase);
   const allowFallback = opts?.allowFallback !== false;
+  const preferredBase = allowFallback ? resolvePreferredFallback(primaryBase, fallbackBase) : null;
+
+  if (preferredBase) {
+    try {
+      return await fetchJsonOnce<T>(preferredBase, path, init, opts);
+    } catch (err) {
+      clearPreferredFallback(primaryBase);
+      if (fallbackBase && preferredBase === fallbackBase && isNetworkError(err) && isCrossOriginBase(fallbackBase)) {
+        blockFallbackBase(fallbackBase);
+      }
+    }
+  }
   try {
-    return await fetchJsonOnce<T>(baseUrl, path, init, opts);
+    return await fetchJsonOnce<T>(primaryBase, path, init, opts);
   } catch (err) {
     if (fallbackBase && allowFallback && shouldFallbackToApiBase(err)) {
       try {
-        return await fetchJsonOnce<T>(fallbackBase, path, init, opts);
+        const out = await fetchJsonOnce<T>(fallbackBase, path, init, opts);
+        rememberPreferredFallback(primaryBase, fallbackBase);
+        return out;
       } catch (fallbackErr) {
         if (isNetworkError(fallbackErr) && isCrossOriginBase(fallbackBase)) {
-          blockedFallbackBases.add(fallbackBase);
+          blockFallbackBase(fallbackBase);
           throw err;
         }
         throw fallbackErr;

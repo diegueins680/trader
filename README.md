@@ -640,7 +640,7 @@ Realtime telemetry and feed history are tracked per running bot so switching bot
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
-The UI shows whether combos are coming from the live API or the static fallback, their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
+The UI reads combos from the API, shows their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
 Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, and can be filtered by minimum final equity.
 Optimizer run forms (including the Optimizer combos panel) launch `/optimizer/run` with constraints, accept advanced JSON overrides for `source`/`binanceSymbol`/`data` and `timeoutSec`, validate backtest/tune ratios, include an annualized-equity preset button, and surface equity-focused info popovers; complex parameters (method/thresholds/splits/LSTM/optimization) include info buttons.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.

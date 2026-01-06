@@ -1010,7 +1010,7 @@ type OptimizerRunForm = {
   extraJson: string;
 };
 
-type TopCombosSource = "api" | "static";
+type TopCombosSource = "api";
 
 type TopCombosMeta = {
   source: TopCombosSource;
@@ -2376,7 +2376,7 @@ export function App() {
   const [topCombosLoading, setTopCombosLoading] = useState(true);
   const [topCombosError, setTopCombosError] = useState<string | null>(null);
   const [topCombosMeta, setTopCombosMeta] = useState<TopCombosMeta>({
-    source: "static",
+    source: "api",
     generatedAtMs: null,
     payloadSource: null,
     payloadSources: null,
@@ -5131,28 +5131,19 @@ export function App() {
     let isCancelled = false;
     let inFlight = false;
     const fetchPayload = async (): Promise<{ payload: unknown; source: TopCombosSource; fallbackReason: string | null }> => {
-      if (apiOk === "ok") {
-        try {
-          const payload = await optimizerCombos(apiBase, { headers: authHeaders });
-          return { payload, source: "api", fallbackReason: null };
-        } catch (err) {
-          const fallbackReason = err instanceof Error ? err.message : "API unreachable";
-          const res = await fetch("/top-combos.json");
-          if (!res.ok) throw new Error(`Static combos unavailable (HTTP ${res.status})`);
-          return { payload: await res.json(), source: "static", fallbackReason };
-        }
+      if (apiOk !== "ok") {
+        const fallbackReason =
+          apiOk === "auth"
+            ? "API unauthorized"
+            : apiOk === "down"
+              ? "API unreachable"
+              : apiOk === "unknown"
+                ? "API unknown"
+                : "API unavailable";
+        throw new Error(fallbackReason);
       }
-      const fallbackReason =
-        apiOk === "auth"
-          ? "API unauthorized"
-          : apiOk === "down"
-            ? "API unreachable"
-            : apiOk === "unknown"
-              ? "API unknown"
-              : "API unavailable";
-      const res = await fetch("/top-combos.json");
-      if (!res.ok) throw new Error(`Static combos unavailable (HTTP ${res.status})`);
-      return { payload: await res.json(), source: "static", fallbackReason };
+      const payload = await optimizerCombos(apiBase, { headers: authHeaders });
+      return { payload, source: "api", fallbackReason: null };
     };
     const syncTopCombos = async (opts?: { silent?: boolean }) => {
       if (isCancelled || inFlight) return;
@@ -12103,8 +12094,7 @@ export function App() {
                 const updatedAtMs = topCombosMeta.generatedAtMs;
                 const updatedLabel = updatedAtMs ? fmtTimeMs(updatedAtMs) : "—";
                 const ageLabel = updatedAtMs ? fmtDurationMs(Math.max(0, Date.now() - updatedAtMs)) : null;
-                const sourceLabel = topCombosMeta.source === "api" ? "Source: API" : "Source: static file";
-                const reason = topCombosMeta.source === "api" ? null : topCombosMeta.fallbackReason;
+                const sourceLabel = "Source: API";
                 const payloadSources = topCombosMeta.payloadSources;
                 const payloadSource = topCombosMeta.payloadSource;
                 const payloadLabel =
@@ -12130,7 +12120,6 @@ export function App() {
                   <div style={{ marginBottom: 8 }}>
                     <div className="hint">
                       {sourceLabel}
-                      {reason ? ` (${reason})` : ""}
                       {payloadLabel}
                     </div>
                     <div className="hint">

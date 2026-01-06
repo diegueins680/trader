@@ -76,6 +76,75 @@ print("running" if running else "stopped")
   return 1
 }
 
+status_symbols_running() {
+  local resp="$1"
+  local symbols_csv="$2"
+  if printf '%s' "$resp" | "$python_bin" -c 'import json,sys
+def norm(val):
+    return val.strip().upper()
+
+raw = sys.argv[1] if len(sys.argv) > 1 else ""
+desired = []
+for part in raw.split(","):
+    sym = norm(part)
+    if sym and sym not in desired:
+        desired.append(sym)
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(2)
+
+def is_running(obj):
+    if not isinstance(obj, dict):
+        return False
+    return bool(obj.get("running")) or bool(obj.get("starting"))
+
+def symbol_from(obj):
+    if not isinstance(obj, dict):
+        return None
+    sym = obj.get("symbol")
+    if isinstance(sym, str):
+        sym = norm(sym)
+        if sym:
+            return sym
+    snap = obj.get("snapshot")
+    if isinstance(snap, dict):
+        sym = snap.get("symbol")
+        if isinstance(sym, str):
+            sym = norm(sym)
+            if sym:
+                return sym
+    return None
+
+statuses = {}
+def add_status(obj):
+    sym = symbol_from(obj)
+    if not sym:
+        return
+    statuses[sym] = statuses.get(sym, False) or is_running(obj)
+
+if isinstance(data, dict) and isinstance(data.get("bots"), list):
+    for bot in data["bots"]:
+        add_status(bot)
+else:
+    add_status(data)
+
+if not desired:
+    sys.exit(1)
+
+missing = [sym for sym in desired if not statuses.get(sym)]
+sys.exit(1 if missing else 0)
+' "$symbols_csv"; then
+    return 0
+  fi
+  local rc=$?
+  if [[ $rc -eq 2 ]]; then
+    return 2
+  fi
+  return 1
+}
+
 normalize_trade_flag() {
   if [[ -z "${TRADER_BOT_TRADE:-}" ]]; then
     return 1
@@ -91,6 +160,24 @@ normalize_trade_flag() {
       return 1
       ;;
   esac
+}
+
+normalize_symbols_csv() {
+  local symbols_csv="$1"
+  local -a symbols=()
+  IFS=',' read -r -a raw_symbols <<<"$symbols_csv"
+  for raw in "${raw_symbols[@]}"; do
+    local sym="${raw//[[:space:]]/}"
+    if [[ -n "$sym" ]]; then
+      symbols+=("$sym")
+    fi
+  done
+  if [[ ${#symbols[@]} -eq 0 ]]; then
+    return 1
+  fi
+  local joined
+  joined=$(IFS=,; echo "${symbols[*]}")
+  printf '%s' "$joined"
 }
 
 build_symbol_body() {
@@ -143,6 +230,110 @@ build_symbols_body() {
   fi
 }
 
+read_start_payload_optional() {
+  if [[ -n "${TRADER_BOT_START_BODY:-}" ]]; then
+    printf '%s' "$TRADER_BOT_START_BODY"
+    return 0
+  fi
+
+  if [[ -n "${TRADER_BOT_START_FILE:-}" ]]; then
+    local start_file
+    start_file="$(resolve_path "$TRADER_BOT_START_FILE")"
+    if [[ -f "$start_file" ]]; then
+      cat "$start_file"
+      return 0
+    fi
+    return 1
+  fi
+
+  local default_start_file="${repo_root}/bot-start.json"
+  if [[ -f "$default_start_file" ]]; then
+    cat "$default_start_file"
+    return 0
+  fi
+
+  return 1
+}
+
+extract_symbols_from_body() {
+  local body="$1"
+  local symbols
+  if ! symbols=$(printf '%s' "$body" | "$python_bin" -c 'import json,sys
+def norm(val):
+    return val.strip().upper()
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+
+symbols = []
+if isinstance(data, dict):
+    raw = data.get("botSymbols")
+    if isinstance(raw, str):
+        for part in raw.split(","):
+            sym = norm(part)
+            if sym:
+                symbols.append(sym)
+    elif isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, str):
+                sym = norm(item)
+                if sym:
+                    symbols.append(sym)
+
+    sym = data.get("binanceSymbol")
+    if isinstance(sym, str):
+        sym = norm(sym)
+        if sym:
+            symbols.append(sym)
+
+deduped = []
+for sym in symbols:
+    if sym not in deduped:
+        deduped.append(sym)
+
+print(",".join(deduped))
+'); then
+    return 1
+  fi
+  printf '%s' "$symbols"
+}
+
+resolve_symbols_csv() {
+  local symbols=""
+  local payload=""
+  if [[ -n "${TRADER_BOT_SYMBOLS:-}" ]]; then
+    if symbols=$(normalize_symbols_csv "${TRADER_BOT_SYMBOLS}"); then
+      printf '%s' "$symbols"
+      return 0
+    else
+      echo "bot-watch: TRADER_BOT_SYMBOLS is set but empty after trimming; checking start payload" >&2
+    fi
+  elif [[ -n "${TRADER_BOT_SYMBOL:-}" ]]; then
+    if symbols=$(normalize_symbols_csv "${TRADER_BOT_SYMBOL}"); then
+      printf '%s' "$symbols"
+      return 0
+    else
+      echo "bot-watch: TRADER_BOT_SYMBOL is set but empty after trimming; checking start payload" >&2
+    fi
+  fi
+
+  if payload=$(read_start_payload_optional); then
+    if symbols=$(extract_symbols_from_body "$payload"); then
+      if [[ -n "$symbols" ]]; then
+        printf '%s' "$symbols"
+        return 0
+      fi
+    else
+      echo "bot-watch: start payload is not valid JSON; checking global status" >&2
+    fi
+    return 1
+  fi
+
+  return 1
+}
+
 resolve_start_body() {
   if [[ -n "${TRADER_BOT_START_BODY:-}" ]]; then
     printf '%s' "$TRADER_BOT_START_BODY"
@@ -180,28 +371,24 @@ resolve_start_body() {
 }
 
 needs_start=0
-symbols_csv="${TRADER_BOT_SYMBOLS:-${TRADER_BOT_SYMBOL:-}}"
+symbols_csv=""
+if symbols_csv=$(resolve_symbols_csv); then
+  :
+fi
+
+resp=$(fetch_status "${api_base}/bot/status") || exit 1
 if [[ -n "$symbols_csv" ]]; then
-  IFS=',' read -r -a symbols <<<"$symbols_csv"
-  for raw in "${symbols[@]}"; do
-    sym="${raw//[[:space:]]/}"
-    if [[ -z "$sym" ]]; then
-      continue
-    fi
-    resp=$(fetch_status "${api_base}/bot/status?symbol=${sym}") || exit 1
-    if status_state "$resp"; then
-      continue
-    fi
+  if status_symbols_running "$resp" "$symbols_csv"; then
+    :
+  else
     rc=$?
     if [[ $rc -eq 2 ]]; then
-      echo "bot-watch: invalid status response for ${sym}" >&2
+      echo "bot-watch: invalid status response" >&2
       exit 1
     fi
     needs_start=1
-    break
-  done
+  fi
 else
-  resp=$(fetch_status "${api_base}/bot/status") || exit 1
   if status_state "$resp"; then
     :
   else
