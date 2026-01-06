@@ -400,7 +400,7 @@ Always-on live bot (cron watchdog):
 - Use `deploy/ensure-bot-running.sh` to check `/bot/status` and call `/bot/start` if the bot is not running.
 - Provide a start payload with `TRADER_BOT_START_FILE` (JSON file) or `TRADER_BOT_START_BODY` (raw JSON string).
 - If `bot-start.json` exists in the repo root, the script uses it as the default start payload.
-- Optional: set `TRADER_BOT_SYMBOLS` or `TRADER_BOT_SYMBOL` to check specific symbols; otherwise it checks the global status.
+- Optional: set `TRADER_BOT_SYMBOLS` or `TRADER_BOT_SYMBOL` to check specific symbols (these override any start payload symbols); otherwise, if a start payload provides `botSymbols`/`binanceSymbol`, that symbol set is used, else it checks the global status.
 - If no start payload is provided, the script builds a minimal one from `TRADER_BOT_SYMBOLS` or `TRADER_BOT_SYMBOL` (and optional `TRADER_BOT_TRADE`).
 - The script reads `.env` by default (override with `TRADER_ENV_FILE`).
 - Relative paths for `TRADER_ENV_FILE` and `TRADER_BOT_START_FILE` are resolved from the repo root.
@@ -709,11 +709,11 @@ If live bot start/status returns 502/503/504, verify the `/api/*` proxy target a
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
 - Web UI: `trader-config.js` is read at startup, so ensure it is served at `/trader-config.js` for static hosts.
-- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it when a CloudFront distribution is used and the API URL is known). If the fallback host blocks CORS, the UI disables it for the session.
+- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it when a CloudFront distribution is used and the API URL is known). If the fallback host blocks CORS, the UI disables it for the session and remembers the block for ~12h to avoid repeated CORS errors; successful fallbacks are preferred until the cached decision expires or the fallback fails.
 - Quick deploy uploads `trader-config.js` with no-cache headers so updated API tokens take effect without browser hard refreshes.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
-The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize each buy/sell operation on the selected bot chart (supports long/short on futures). It includes live/offline timeline charts with start/end controls when ops persistence is enabled: the selected bot shows the full timeline in a compact-height chart so controls stay visible, and each running bot card shows an even shorter mini timeline. The chart reflects the available ops history and warns when the selected range extends beyond it.
+The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize each buy/sell operation on the selected bot chart (supports long/short on futures). The selected bot stays sticky even when auto-start refreshes the top-combo bot list. It includes live/offline timeline charts with start/end controls when ops persistence is enabled: the selected bot shows the full timeline in a compact-height chart so controls stay visible, and each running bot card shows an even shorter mini timeline. The chart reflects the available ops history and warns when the selected range extends beyond it.
 When trading is armed, the UI blocks live bot start until Binance keys are provided or verified via “Check keys” (otherwise switch to paper mode).
 When starting multi-symbol live bots, the UI uses the first bot symbol as the request symbol so `/bot/start` validation succeeds even if the main Symbol field is empty.
 Optimizer combos are clamped to the API compute limits reported by `/health` when available.
@@ -730,5 +730,5 @@ Assumptions and limitations
 - The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests/live bot); it includes basic sizing/filters but is not a full portfolio/risk system or detailed transaction-cost model.
 - Daily-loss resets prefer bar open timestamps when available; if timestamps are missing or misaligned, backtests fall back to interval-based day boundaries.
 - If open timestamps are provided (CSV or API), their length must match the closes series; mismatches return an error to avoid misaligned day boundaries.
-- Live order placement attempts to fetch/apply symbol filters (minQty/step size/minNotional), but is not exhaustive and may still be rejected by the exchange.
+- Live order placement applies exchange filters (minQty/step size/minNotional) by flooring entry sizes to the minimums when possible and treating dust-sized positions as flat; orders can still be rejected if filters change or balances are insufficient.
 - This code is for experimentation and education only; it is **not** production-ready nor financial advice.

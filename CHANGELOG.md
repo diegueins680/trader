@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: shrink the docked optimizer combos panel when collapsed.
 - Web UI: further shrink the docked configuration panel when collapsed and hide the subtitle.
 - Web UI: keep live bot panels from flickering by reusing the last status and bot list until fresh status arrives (including while bots are starting).
+- Web UI: remember API fallback preferences and CORS-blocked fallback hosts to reduce repeated `/api` 502/CORS errors.
 - Web UI: make code/log panels more opaque so background content does not bleed through.
 - Web UI: keep Live bot, per-bot, and optimizer combo panels scrollable so docked panels stay visible while viewing long content.
 - Web UI: fix docked optimizer combos panel scrolling so the combos list stays reachable.
@@ -70,6 +71,7 @@ All notable changes to this project will be documented in this file.
 - Trading: when confidence sizing is enabled, scale live orders and backtests by LSTM confidence (thresholds now configurable).
 - Trading: `--lstm-confidence-soft 0` disables the half-size step so LSTM sizing becomes binary at the hard threshold.
 - Trading: futures order placement checks available balance (and leverage) before submitting.
+- Trading: floor entry order sizes to exchange minimums (minQty/step/minNotional) when possible and treat dust-sized balances as flat to avoid zero-quantity orders.
 - Trading: add `--method router` with `--router-lookback`/`--router-min-score` for adaptive Kalman/LSTM/blend selection.
 - Trading: router signals apply Kalman confidence/risk gates only on Kalman-selected bars.
 - Backtests: router threshold sweeps use routed predictions when `method=router` is selected.
@@ -112,11 +114,13 @@ All notable changes to this project will be documented in this file.
 - Live bot/API: futures position checks now respect hedge-mode sides; bot start/adoption and futures trade requests reject simultaneous long+short positions for the same symbol.
 - Ops: add a cron watchdog script to keep the live bot running (`deploy/ensure-bot-running.sh`).
 - Ops: fix the cron watchdog JSON parsing in zsh so `/bot/status` checks succeed.
+- Ops: cron watchdog treats `starting` bots as healthy; status checks prefer `TRADER_BOT_SYMBOLS`/`TRADER_BOT_SYMBOL` and fall back to start payload symbols.
 - Ops: include `binanceSymbol` in multi-symbol watchdog start payloads to satisfy API data-source validation.
 - API: add `/binance/trades` for full Binance account trade history (spot/margin require symbol; futures supports all).
 - API: add `/binance/positions` for open Binance futures positions plus chart-ready klines.
 - API: `/signal` endpoints now validate request parameters the same way as CLI invocations.
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
+- Web UI: keep the live bot symbol selection stable so auto-start updates don't override your chosen view.
 - Web UI: add an open positions panel with charts for every Binance futures position.
 - Web UI: orphaned operations panel now matches by market + hedge side and labels orphan reasons (market mismatch, stopped, trading disabled, side mismatch).
 - Web UI: orphaned operations treat starting bots as adopted while they initialize.

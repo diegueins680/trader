@@ -4712,10 +4712,11 @@ export function App() {
       const requestedSymbols =
         startSymbolsNormalized.length > 0 ? startSymbolsNormalized : primarySymbol ? [primarySymbol] : [];
       const missingSymbols = requestedSymbols.filter((sym) => !botActiveSymbolSet.has(sym));
+      const shouldSelectPrimary = primarySymbol && (!opts?.auto || botSelectedSymbol == null);
 
       if (primarySymbol && missingSymbols.length === 0) {
         setBot((s) => ({ ...s, error: null }));
-        setBotSelectedSymbol(primarySymbol);
+        if (shouldSelectPrimary) setBotSelectedSymbol(primarySymbol);
         if (!silent) {
           const msg =
             requestedSymbols.length > 1
@@ -4804,7 +4805,7 @@ export function App() {
         const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
         if (symbolsOverride.length > 0) {
-          setBotSelectedSymbol(primarySymbol || null);
+          if (shouldSelectPrimary) setBotSelectedSymbol(primarySymbol || null);
         }
         if (adoptOverride && !form.botAdoptExistingPosition) {
           setForm((f) => ({ ...f, botAdoptExistingPosition: true }));
@@ -4829,7 +4830,7 @@ export function App() {
         if (isAbortError(e)) return;
         if (isAlreadyRunningError(e)) {
           setBot((s) => ({ ...s, loading: false, error: null }));
-          if (primarySymbol) setBotSelectedSymbol(primarySymbol);
+          if (shouldSelectPrimary) setBotSelectedSymbol(primarySymbol);
           if (!silent) showToast(`Live bot already running${primarySymbol ? ` for ${primarySymbol}` : ""}.`);
           return;
         }
@@ -4857,6 +4858,7 @@ export function App() {
       applyRateLimit,
       authHeaders,
       botActiveSymbolSet,
+      botSelectedSymbol,
       botSymbolsInput,
       form.binanceSymbol,
       form.botMaxPoints,
