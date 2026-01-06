@@ -5493,7 +5493,7 @@
     },
     {
       "closeThreshold": 3.22241971383386e-3,
-      "createdAtMs": null,
+      "createdAtMs": 1767677327778,
       "finalEquity": 1.001141954744812,
       "metrics": {
         "agreementRate": 1,
@@ -5764,7 +5764,7 @@
     },
     {
       "closeThreshold": 9.877234368530275e-4,
-      "createdAtMs": null,
+      "createdAtMs": 1767677327778,
       "finalEquity": 1.0006044247736077,
       "metrics": {
         "agreementRate": 1,
@@ -6035,7 +6035,7 @@
     },
     {
       "closeThreshold": 9.877234368530275e-4,
-      "createdAtMs": null,
+      "createdAtMs": 1767677327778,
       "finalEquity": 1.0006044172077813,
       "metrics": {
         "agreementRate": 1,
@@ -6306,7 +6306,7 @@
     },
     {
       "closeThreshold": 9.942146128561814e-4,
-      "createdAtMs": null,
+      "createdAtMs": 1767677327778,
       "finalEquity": 1.0005737237509267,
       "metrics": {
         "agreementRate": 1,
@@ -7118,6 +7118,6 @@
       "source": "csv"
     }
   ],
-  "generatedAtMs": 1767677327778,
+  "generatedAtMs": 1767677890834,
   "source": "merge_top_combos.py"
 }
