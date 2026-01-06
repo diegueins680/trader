@@ -3,6 +3,7 @@ module Trader.Predictors.Features
   , mkFeatureSpec
   , featuresAt
   , forwardReturnAt
+  , buildDatasetWithIndex
   , buildDataset
   ) where
 
@@ -19,8 +20,8 @@ mkFeatureSpec lookbackBars
   | lookbackBars <= 1 = error "lookbackBars must be >= 2"
   | otherwise =
       let lb = lookbackBars
-          shortB = max 2 (min 12 (lb - 1))
-          midB = max 2 (min 48 (lb - 1))
+          shortB = max 1 (min 12 (lb - 1))
+          midB = max 1 (min 48 (lb - 1))
        in FeatureSpec { fsLookbackBars = lb, fsShortBars = shortB, fsMidBars = midB }
 
 -- | Forward return r_t = p_{t+1}/p_t - 1.
@@ -38,13 +39,15 @@ forwardReturnAt prices t =
 featuresAt :: FeatureSpec -> V.Vector Double -> Int -> Maybe [Double]
 featuresAt fs prices t = do
   let lb = fsLookbackBars fs
-      shortB = fsShortBars fs
-      midB = fsMidBars fs
+      maxLag = max 1 (lb - 1)
+      shortB = min (fsShortBars fs) maxLag
+      midB = min (fsMidBars fs) maxLag
+      ret3Bars = min 3 maxLag
   if t < lb - 1 || t >= V.length prices
     then Nothing
     else do
       ret1 <- retOver prices t 1
-      ret3 <- retOver prices t 3
+      ret3 <- retOver prices t ret3Bars
       retShort <- retOver prices t shortB
       retMid <- retOver prices t midB
       retLb <- retOver prices t (lb - 1)
@@ -64,13 +67,17 @@ featuresAt fs prices t = do
         , sigM
         ]
 
--- | Build a supervised dataset (features at t, target forward return at t).
+-- | Build a supervised dataset (features at t, target forward return at t) with bar indices.
 -- Uses t in [lookbackBars-1 .. n-2].
-buildDataset :: FeatureSpec -> V.Vector Double -> [( [Double], Double )]
-buildDataset fs prices =
+buildDatasetWithIndex :: FeatureSpec -> V.Vector Double -> [(Int, [Double], Double)]
+buildDatasetWithIndex fs prices =
   let n = V.length prices
       startT = fsLookbackBars fs - 1
       endT = n - 2
+      maxLag = max 1 (fsLookbackBars fs - 1)
+      shortB = min (fsShortBars fs) maxLag
+      midB = min (fsMidBars fs) maxLag
+      ret3Bars = min 3 maxLag
       retLen = max 0 (n - 1)
       returns =
         V.generate retLen $ \i ->
@@ -117,12 +124,12 @@ buildDataset fs prices =
           then Nothing
           else do
             ret1 <- retOverFast t 1
-            ret3 <- retOverFast t 3
-            retShort <- retOverFast t (fsShortBars fs)
-            retMid <- retOverFast t (fsMidBars fs)
+            ret3 <- retOverFast t ret3Bars
+            retShort <- retOverFast t shortB
+            retMid <- retOverFast t midB
             retLb <- retOverFast t (fsLookbackBars fs - 1)
-            (muS, sigS) <- windowStats t (fsShortBars fs)
-            (muM, sigM) <- windowStats t (fsMidBars fs)
+            (muS, sigS) <- windowStats t shortB
+            (muM, sigM) <- windowStats t midB
             pure
               [ ret1
               , ret3
@@ -143,11 +150,17 @@ buildDataset fs prices =
     if startT > endT
       then []
       else
-        [ (f, y)
+        [ (t, f, y)
         | t <- [startT .. endT]
         , Just f <- [featuresAtFast t]
         , Just y <- [forwardReturnFast t]
         ]
+
+-- | Build a supervised dataset (features at t, target forward return at t).
+-- Uses t in [lookbackBars-1 .. n-2].
+buildDataset :: FeatureSpec -> V.Vector Double -> [( [Double], Double )]
+buildDataset fs prices =
+  [ (f, y) | (_, f, y) <- buildDatasetWithIndex fs prices ]
 
 retOver :: V.Vector Double -> Int -> Int -> Maybe Double
 retOver prices t bars =

@@ -186,9 +186,9 @@ The service will redeploy.
 
 ---
 
-## Optional: Enable S3 State Persistence (App Runner)
+## Required: Enable S3 State Persistence (App Runner)
 
-App Runner does **not** support EFS volumes. To persist bot snapshots and optimizer top-combos, store them in S3:
+App Runner does **not** support EFS volumes. To persist state across deploys, store bot snapshots and optimizer top-combos in S3:
 
 1. Create a private S3 bucket (e.g. `trader-api-state-...`).
 2. Create an App Runner instance role with S3 access (trust `tasks.apprunner.amazonaws.com`).
@@ -199,7 +199,7 @@ App Runner does **not** support EFS volumes. To persist bot snapshots and optimi
    TRADER_STATE_S3_REGION=ap-northeast-1
    ```
 
-If you use `deploy-aws-quick.sh`, pass `--state-s3-bucket ... --state-s3-prefix ... --instance-role-arn ...`.
+If you use `deploy-aws-quick.sh`, pass `--state-s3-bucket ... --state-s3-prefix ... --instance-role-arn ...` (the script now enforces S3 state for API deploys).
 
 ---
 

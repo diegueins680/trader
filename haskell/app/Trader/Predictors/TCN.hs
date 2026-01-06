@@ -27,13 +27,13 @@ tcnFeaturesAt dilations kernelSize prices t =
               let retLag lag =
                     let p0 = prices V.! (t - lag)
                         p1 = prices V.! (t - lag + 1)
-                     in if p0 == 0 then 0 else (p1 / p0 - 1)
-                  feats =
-                    [ retLag (1 + d * k)
+                     in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+                  lags =
+                    [ 1 + d * k
                     | d <- dilations
                     , k <- [0 .. kernelSize - 1]
                     ]
-               in Just feats
+               in traverse retLag lags
 
 predictTCN :: TCNModel -> V.Vector Double -> Int -> Maybe (Double, Maybe Double)
 predictTCN m prices t = do
@@ -44,7 +44,7 @@ predictTCN m prices t = do
 
 trainTCN :: Int -> V.Vector Double -> [(Int, Double)] -> TCNModel
 trainTCN lookbackBars prices trainTargets =
-  let kernelSize = 3
+  let kernelSize = min 3 lookbackBars
       maxD = max 1 ((lookbackBars - 1) `div` (kernelSize - 1))
       dilations = takeWhile (<= maxD) (iterate (* 2) 1)
       lambda = 1e-3

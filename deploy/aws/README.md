@@ -85,14 +85,14 @@ docker push "${ECR_URI}:latest"
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
   - `TRADER_BOT_SYMBOLS` / `TRADER_BOT_TRADE` (optional; used by the cron watchdog to build `/bot/start`)
-  - Optional: S3 state persistence (recommended for App Runner):
+  - Required: S3 state persistence (App Runner has no EFS support):
     - `TRADER_STATE_S3_BUCKET=<bucket>`
     - `TRADER_STATE_S3_PREFIX=trader`
     - `TRADER_STATE_S3_REGION=ap-northeast-1`
-  - Optional: shared state directory (useful on ECS/EKS or Docker with a mounted volume):
-    - `TRADER_STATE_DIR=/var/lib/trader/state`
-  - Optional: operation persistence (append-only JSONL) for `GET /ops`:
-    - `TRADER_OPS_DIR=/tmp/trader-ops` (ephemeral unless you mount durable storage)
+  - Required: shared state directory (ECS/EKS/Docker) to persist across deploys:
+    - `TRADER_STATE_DIR=/var/lib/trader/state` (mount durable storage)
+  - Optional: operation persistence (SQLite) for `GET /ops`:
+    - `TRADER_OPS_DIR=/var/lib/trader/ops` (defaults to `TRADER_STATE_DIR/ops` when set)
     - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`)
   - Optional safety limits (to avoid OOM / timeouts on small instances):
     - `TRADER_API_MAX_ASYNC_RUNNING` (default: `1`)

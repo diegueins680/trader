@@ -25,7 +25,7 @@ import Trader.Predictors.Types
   , Quantiles(..)
   , Interval(..)
   )
-import Trader.Predictors.Features (FeatureSpec, mkFeatureSpec, featuresAt, forwardReturnAt, buildDataset)
+import Trader.Predictors.Features (FeatureSpec, mkFeatureSpec, featuresAt, forwardReturnAt, buildDatasetWithIndex)
 import Trader.Predictors.GBDT (GBDTModel(..), trainGBDT, predictGBDT)
 import Trader.Predictors.TCN (TCNModel(..), trainTCN, predictTCN)
 import Trader.Predictors.Transformer (TransformerModel(..), trainTransformer, predictTransformer)
@@ -54,16 +54,26 @@ trainPredictors enabled lookbackBars trainPrices =
       useQuantile = predictorEnabled enabled SensorQuantile
       useConformal = predictorEnabled enabled SensorConformal
       needFeatures = useGbdt || useTransformer || useQuantile || useConformal
-      dataset = if needFeatures then buildDataset fs trainPrices else []
-      (trainSet, calib) =
+      datasetWithIndex = if needFeatures then buildDatasetWithIndex fs trainPrices else []
+      (trainSetIdx, calibIdx) =
         if needFeatures
-          then splitCalib dataset
+          then splitCalib datasetWithIndex
           else ([], [])
-      trainSet' = if null trainSet then dataset else trainSet
-      trainLen = length trainSet'
+      trainSetIdx' = if null trainSetIdx then datasetWithIndex else trainSetIdx
+      trainSet = [ (x, y) | (_, x, y) <- trainSetIdx' ]
+      calib = [ (x, y) | (_, x, y) <- calibIdx ]
+      lastTrainIndex =
+        case trainSetIdx' of
+          [] -> Nothing
+          xs ->
+            let (t, _, _) = last xs
+             in Just t
       trainPriceLen =
         if needFeatures
-          then min (V.length trainPrices) (lookbackBars + trainLen)
+          then
+            case lastTrainIndex of
+              Nothing -> V.length trainPrices
+              Just tLast -> min (V.length trainPrices) (tLast + 2)
           else V.length trainPrices
       trainPrices' = V.slice 0 trainPriceLen trainPrices
 
@@ -90,19 +100,19 @@ trainPredictors enabled lookbackBars trainPrices =
       gbdt =
         if not gbdtTrained
           then emptyGbdt
-          else if null trainSet'
+          else if null trainSet
             then emptyGbdt
-            else trainGBDT 60 0.1 trainSet'
+            else trainGBDT 60 0.1 trainSet
       quant =
         if useQuantile
           then
-            if null trainSet'
+            if null trainSet
               then emptyQuant
-              else trainQuantileModel 20 5e-2 1e-3 trainSet'
+              else trainQuantileModel 20 5e-2 1e-3 trainSet
           else emptyQuant
       transformer =
         if useTransformer
-          then trainTransformer 5.0 512 trainSet'
+          then trainTransformer 5.0 512 trainSet
           else emptyTransformer
       hmmObs =
         if useHmm
@@ -230,10 +240,10 @@ predictSensors pb prices hmmFilt t =
               else
                 case predictQuantiles (pbQuantile pb) x of
                   Nothing -> []
-                  Just (q10', q50', q90', mu, sig) ->
+                  Just (q10', q50', q90', _muRaw, sig) ->
                     [ ( SensorQuantile
                       , SensorOutput
-                          { soMu = mu
+                          { soMu = q50'
                           , soSigma = sig
                           , soRegimes = Nothing
                           , soQuantiles = Just (Quantiles q10' q50' q90')

@@ -37,6 +37,8 @@ import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
+import Database.SQLite.Simple (Connection, Only (..), execute, execute_, lastInsertRowId, open, query, query_)
+import Database.SQLite.Simple.FromRow (FromRow (..), field)
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
@@ -47,7 +49,7 @@ import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import Options.Applicative
-import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getCurrentDirectory, listDirectory, removeFile, renameFile)
+import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getCurrentDirectory, getFileSize, getModificationTime, listDirectory, removeFile, renameFile)
 import System.Environment (getExecutablePath, lookupEnv)
 import System.Exit (ExitCode(..), die, exitFailure)
 import System.FilePath ((</>), takeDirectory)
@@ -138,7 +140,7 @@ import Trader.Predictors.Types
   , predictorSetToList
   )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
-import Trader.Symbol (splitSymbol)
+import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
 import Trader.Method (Method(..), methodCode, parseMethod, selectPredictions)
 import Trader.Optimization
   ( TuneConfig(..)
@@ -351,16 +353,11 @@ sortCsvRowsByTime timeKey rows =
     Nothing -> rows
     Just rawTimes ->
       let times = map (trim . BS.unpack) rawTimes
-       in case traverse parseTimeInt64 times of
+       in case traverse parseTimeMs times of
             Just ts ->
               let pairs = zip ts rows
                in map snd (sortOn fst pairs)
-            Nothing ->
-              if all looksLikeIso8601Prefix times
-                then
-                  let pairs = zip times rows
-                   in map snd (sortOn fst pairs)
-                else rows
+            Nothing -> rows
 
 parseCsvTimes :: BS.ByteString -> [Csv.NamedRecord] -> Either String [Int64]
 parseCsvTimes timeKey rows =
@@ -1523,12 +1520,13 @@ webhookEventTradeOrder args sig order =
       summary = printf "trade.order %s (%s/%s) %s %s msg=%s" sym platform market action status msg
    in WebhookEvent "trade.order" summary
 
--- Persistent operation history (JSONL; safe to rebuild state from the log).
+-- Persistent operation history (SQLite; safe to rebuild state from the log).
 
 data PersistedOperation = PersistedOperation
   { poId :: !Int64
   , poAtMs :: !Int64
   , poKind :: !Text
+  , poComboUuid :: !(Maybe Text)
   , poParams :: !(Maybe Aeson.Value)
   , poArgs :: !(Maybe Aeson.Value)
   , poResult :: !(Maybe Aeson.Value)
@@ -1544,6 +1542,7 @@ instance FromJSON PersistedOperation where
 data OpsStore = OpsStore
   { osPath :: !FilePath
   , osLock :: !(MVar ())
+  , osConn :: !Connection
   , osNextId :: !(IORef Int64)
   , osOps :: !(IORef (Seq PersistedOperation))
   , osMaxInMemory :: !Int
@@ -1716,92 +1715,136 @@ trimSeq maxN s =
       let len = Seq.length s
        in if len <= maxN then s else Seq.drop (len - maxN) s
 
-opsFileName :: FilePath
-opsFileName = "ops.jsonl"
+opsDbFileName :: FilePath
+opsDbFileName = "ops.sqlite3"
 
 s3OpsKey :: S3State -> String
 s3OpsKey st =
-  s3KeyFor st ["ops", opsFileName]
+  s3KeyFor st ["ops", opsDbFileName]
 
-loadOpsFile :: FilePath -> Int -> IO (Seq PersistedOperation, Int64)
-loadOpsFile path maxInMemory = do
-  exists <- doesFileExist path
-  if not exists
-    then pure (Seq.empty, 0)
-    else
-      withFile path ReadMode $ \h -> do
-        let loop acc maxId = do
-              eof <- hIsEOF h
-              if eof
-                then pure (trimSeq maxInMemory acc, maxId)
-                else do
-                  line <- BS.hGetLine h
-                  if BS.all isSpace line
-                    then loop acc maxId
-                    else
-                      case Aeson.eitherDecodeStrict' line of
-                        Left _ -> loop acc maxId
-                        Right op ->
-                          let acc' = trimSeq maxInMemory (acc Seq.|> op)
-                              maxId' = max maxId (poId op)
-                           in loop acc' maxId'
-        loop Seq.empty 0
+data PersistedOperationRow = PersistedOperationRow
+  { porId :: !Int64
+  , porAtMs :: !Int64
+  , porKind :: !Text
+  , porComboUuid :: !(Maybe Text)
+  , porParams :: !(Maybe BS.ByteString)
+  , porArgs :: !(Maybe BS.ByteString)
+  , porResult :: !(Maybe BS.ByteString)
+  , porEquity :: !(Maybe Double)
+  } deriving (Eq, Show)
 
-parseOpsBytes :: Int -> BL.ByteString -> (Seq PersistedOperation, Int64)
-parseOpsBytes maxInMemory contents =
-  let step (acc, maxId) line =
-        if BS.all isSpace line
-          then (acc, maxId)
-          else
-            case Aeson.eitherDecodeStrict' line of
-              Left _ -> (acc, maxId)
-              Right op ->
-                let acc' = trimSeq maxInMemory (acc Seq.|> op)
-                    maxId' = max maxId (poId op)
-                 in (acc', maxId')
-   in foldl' step (Seq.empty, 0) (BS.split '\n' (BL.toStrict contents))
+instance FromRow PersistedOperationRow where
+  fromRow =
+    PersistedOperationRow
+      <$> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
 
-writeOpsFile :: FilePath -> BL.ByteString -> IO (Either String ())
-writeOpsFile path contents = do
+decodeJsonMaybe :: Maybe BS.ByteString -> Maybe Aeson.Value
+decodeJsonMaybe =
+  \mBytes -> mBytes >>= Aeson.decodeStrict'
+
+persistedOperationFromRow :: PersistedOperationRow -> PersistedOperation
+persistedOperationFromRow row =
+  PersistedOperation
+    { poId = porId row
+    , poAtMs = porAtMs row
+    , poKind = porKind row
+    , poComboUuid = porComboUuid row
+    , poParams = decodeJsonMaybe (porParams row)
+    , poArgs = decodeJsonMaybe (porArgs row)
+    , poResult = decodeJsonMaybe (porResult row)
+    , poEquity = porEquity row
+    }
+
+encodeJsonMaybe :: Maybe Aeson.Value -> Maybe BS.ByteString
+encodeJsonMaybe =
+  \mVal -> BL.toStrict . encode <$> mVal
+
+ensureOpsDb :: FilePath -> IO (Either String Connection)
+ensureOpsDb path = do
   let dir = takeDirectory path
   dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
   case dirResult of
     Left e -> pure (Left ("Failed to create ops directory: " ++ show e))
     Right _ -> do
-      tempResult <- try (openTempFile dir opsFileName) :: IO (Either SomeException (FilePath, Handle))
+      connResult <- try (open path) :: IO (Either SomeException Connection)
+      case connResult of
+        Left e -> pure (Left ("Failed to open ops database: " ++ show e))
+        Right conn -> do
+          _ <- execute_ conn "PRAGMA journal_mode=DELETE"
+          _ <- execute_ conn "PRAGMA synchronous=NORMAL"
+          _ <-
+            execute_
+              conn
+              ( "CREATE TABLE IF NOT EXISTS ops ("
+                  <> "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                  <> "at_ms INTEGER NOT NULL,"
+                  <> "kind TEXT NOT NULL,"
+                  <> "combo_uuid TEXT,"
+                  <> "params_json BLOB,"
+                  <> "args_json BLOB,"
+                  <> "result_json BLOB,"
+                  <> "equity REAL"
+                  <> ")"
+              )
+          _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_kind_idx ON ops(kind)"
+          _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_combo_uuid_idx ON ops(combo_uuid)"
+          pure (Right conn)
+
+loadOpsDb :: Connection -> Int -> IO (Seq PersistedOperation, Int64)
+loadOpsDb conn maxInMemory = do
+  let maxN = max 0 maxInMemory
+  rows <-
+    if maxN <= 0
+      then pure []
+      else query conn "SELECT id, at_ms, kind, combo_uuid, params_json, args_json, result_json, equity FROM ops ORDER BY id DESC LIMIT ?" (Only maxN)
+  maxRows <- query_ conn "SELECT COALESCE(MAX(id), 0) FROM ops" :: IO [Only Int64]
+  let maxId =
+        case maxRows of
+          (Only v : _) -> v
+          _ -> 0
+      ops = Seq.fromList (reverse (map persistedOperationFromRow rows))
+  pure (ops, maxId)
+
+writeOpsDbFile :: FilePath -> BL.ByteString -> IO (Either String ())
+writeOpsDbFile path contents = do
+  let dir = takeDirectory path
+  dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
+  case dirResult of
+    Left e -> pure (Left ("Failed to create ops directory: " ++ show e))
+    Right _ -> do
+      tempResult <- try (openTempFile dir opsDbFileName) :: IO (Either SomeException (FilePath, Handle))
       case tempResult of
-        Left e -> pure (Left ("Failed to create temp ops file: " ++ show e))
+        Left e -> pure (Left ("Failed to create temp ops db: " ++ show e))
         Right (tmpPath, handle) -> do
           _ <- try (BL.hPut handle contents) :: IO (Either SomeException ())
           hClose handle
           renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
           case renameResult of
-            Left e -> pure (Left ("Failed to write ops file: " ++ show e))
+            Left e -> pure (Left ("Failed to write ops db: " ++ show e))
             Right _ -> pure (Right ())
 
-loadOpsFileWithS3 :: FilePath -> Int -> Maybe S3State -> IO (Seq PersistedOperation, Int64, Bool)
-loadOpsFileWithS3 path maxInMemory mS3 = do
-  exists <- doesFileExist path
-  localResult <-
-    if exists
-      then loadOpsFile path maxInMemory
-      else pure (Seq.empty, 0)
+restoreOpsDbFromS3 :: FilePath -> Maybe S3State -> IO Bool
+restoreOpsDbFromS3 path mS3 =
   case mS3 of
-    Nothing -> pure (fst localResult, snd localResult, False)
+    Nothing -> pure False
     Just st -> do
-      s3Result <- s3GetObject st (s3OpsKey st)
-      case s3Result of
-        Right (Just contents) -> do
-          let (localOps, localMax) = localResult
-              (s3Ops, s3Max) = parseOpsBytes maxInMemory contents
-              preferS3 = s3Max > localMax
-              needsPersist = localMax > s3Max
-          if preferS3
-            then do
-              _ <- writeOpsFile path contents
-              pure (s3Ops, s3Max, False)
-            else pure (localOps, localMax, needsPersist)
-        _ -> pure (fst localResult, snd localResult, False)
+      exists <- doesFileExist path
+      if exists
+        then pure False
+        else do
+          s3Result <- s3GetObject st (s3OpsKey st)
+          case s3Result of
+            Right (Just contents) -> do
+              writeResult <- writeOpsDbFile path contents
+              pure (either (const False) (const True) writeResult)
+            _ -> pure False
 
 persistOpsMaybe :: OpsStore -> IO ()
 persistOpsMaybe store =
@@ -1818,7 +1861,7 @@ persistOpsMaybe store =
           let intervalMs = fromIntegral everySec * 1000
           if lastWrite <= lastPersist || now - lastPersist < intervalMs
             then pure ()
-            else do
+            else withMVar (osLock store) $ \_ -> do
               contentsOrErr <- (try (BL.readFile (osPath store)) :: IO (Either SomeException BL.ByteString))
               case contentsOrErr of
                 Left _ -> pure ()
@@ -1860,52 +1903,67 @@ newOpsStoreFromEnv = do
             case s3EveryEnv >>= readMaybe of
               Just n | n >= 0 -> n
               _ -> 60
-          path = dir </> opsFileName
+          path = dir </> opsDbFileName
       mS3 <- resolveS3State
-      lock <- newMVar ()
-      (ops0, maxId0, needsPersist) <- loadOpsFileWithS3 path maxInMemory mS3
-      lastPersist <- newIORef 0
-      now <- getTimestampMs
-      lastWrite <- newIORef (if needsPersist then now else 0)
-      nextId <- newIORef maxId0
-      opsRef <- newIORef ops0
-      let store = OpsStore path lock nextId opsRef maxInMemory mS3 s3EverySec lastPersist lastWrite
-      case (mS3, s3EverySec > 0) of
-        (Just _, True) -> do
-          when needsPersist (persistOpsMaybe store)
-          _ <- forkIO (opsS3PersistLoop store)
-          pure (Just store)
-        _ -> pure (Just store)
+      restored <- restoreOpsDbFromS3 path mS3
+      connResult <- ensureOpsDb path
+      case connResult of
+        Left err -> do
+          hPutStrLn stderr ("WARN: ops persistence disabled (" ++ err ++ ")")
+          pure Nothing
+        Right conn -> do
+          lock <- newMVar ()
+          (ops0, maxId0) <- loadOpsDb conn maxInMemory
+          let needsPersist = isJust mS3 && not restored
+          lastPersist <- newIORef 0
+          now <- getTimestampMs
+          lastWrite <- newIORef (if needsPersist then now else 0)
+          nextId <- newIORef maxId0
+          opsRef <- newIORef ops0
+          let store = OpsStore path lock conn nextId opsRef maxInMemory mS3 s3EverySec lastPersist lastWrite
+          case (mS3, s3EverySec > 0) of
+            (Just _, True) -> do
+              when needsPersist (persistOpsMaybe store)
+              _ <- forkIO (opsS3PersistLoop store)
+              pure (Just store)
+            _ -> pure (Just store)
 
-opsAppend :: OpsStore -> Text -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Double -> IO PersistedOperation
-opsAppend store kind mParams mArgs mResult mEquity =
-  do
-    op <- withMVar (osLock store) $ \_ -> do
-      now <- getTimestampMs
-      opId <- atomicModifyIORef' (osNextId store) (\n -> let n' = n + 1 in (n', n'))
-      let op =
-            PersistedOperation
-              { poId = opId
-              , poAtMs = now
-              , poKind = kind
-              , poParams = mParams
-              , poArgs = mArgs
-              , poResult = mResult
-              , poEquity = mEquity
-              }
-      BL.appendFile (osPath store) (encode op <> BL.fromStrict (BS.pack "\n"))
-      modifyIORef' (osOps store) (\s -> trimSeq (osMaxInMemory store) (s Seq.|> op))
-      writeIORef (osS3LastWriteMs store) now
-      pure op
-    persistOpsMaybe store
+opsAppend :: OpsStore -> Text -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Double -> Maybe Text -> IO PersistedOperation
+opsAppend store kind mParams mArgs mResult mEquity mComboUuid = do
+  op <- withMVar (osLock store) $ \_ -> do
+    now <- getTimestampMs
+    let paramsBytes = encodeJsonMaybe mParams
+        argsBytes = encodeJsonMaybe mArgs
+        resultBytes = encodeJsonMaybe mResult
+    execute
+      (osConn store)
+      "INSERT INTO ops (at_ms, kind, combo_uuid, params_json, args_json, result_json, equity) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      (now, kind, mComboUuid, paramsBytes, argsBytes, resultBytes, mEquity)
+    opId <- lastInsertRowId (osConn store)
+    let op =
+          PersistedOperation
+            { poId = opId
+            , poAtMs = now
+            , poKind = kind
+            , poComboUuid = mComboUuid
+            , poParams = mParams
+            , poArgs = mArgs
+            , poResult = mResult
+            , poEquity = mEquity
+            }
+    writeIORef (osNextId store) opId
+    modifyIORef' (osOps store) (\s -> trimSeq (osMaxInMemory store) (s Seq.|> op))
+    writeIORef (osS3LastWriteMs store) now
     pure op
+  persistOpsMaybe store
+  pure op
 
-opsAppendMaybe :: Maybe OpsStore -> Text -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Double -> IO ()
-opsAppendMaybe mStore kind mParams mArgs mResult mEquity =
+opsAppendMaybe :: Maybe OpsStore -> Text -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Double -> Maybe Text -> IO ()
+opsAppendMaybe mStore kind mParams mArgs mResult mEquity mComboUuid =
   case mStore of
     Nothing -> pure ()
     Just store -> do
-      _ <- try (opsAppend store kind mParams mArgs mResult mEquity) :: IO (Either SomeException PersistedOperation)
+      _ <- try (opsAppend store kind mParams mArgs mResult mEquity mComboUuid) :: IO (Either SomeException PersistedOperation)
       pure ()
 
 opsList :: OpsStore -> Maybe Int64 -> Int -> Maybe Text -> IO [PersistedOperation]
@@ -1945,7 +2003,7 @@ binanceOpsLogger store entry = do
           , "latencyMs" .= blLatencyMs entry
           , "error" .= blError entry
           ]
-  opsAppendMaybe (Just store) "binance.request" (Just params) Nothing (Just result) Nothing
+  opsAppendMaybe (Just store) "binance.request" (Just params) Nothing (Just result) Nothing Nothing
 
 attachBinanceLogger :: Maybe OpsStore -> BinanceEnv -> BinanceEnv
 attachBinanceLogger mOps env =
@@ -1982,7 +2040,7 @@ botStatusLogMaybe mOps running st =
           , "updatedAtMs" .= botUpdatedAtMs st
           , "polledAtMs" .= botPolledAtMs st
           ]
-   in opsAppendMaybe mOps "bot.status" Nothing (Just (argsPublicJson args)) (Just result) eq
+   in opsAppendMaybe mOps "bot.status" Nothing (Just (argsPublicJson args)) (Just result) eq (botComboUuid st)
 
 -- Live bot (stateful; continuous loop)
 
@@ -2039,6 +2097,7 @@ data BotOptimizerUpdate = BotOptimizerUpdate
   , bouLookback :: !Int
   , bouLstmCtx :: !(Maybe LstmCtx)
   , bouKalmanCtx :: !(Maybe KalmanCtx)
+  , bouComboUuid :: !(Maybe Text)
   , bouFinalEquity :: !(Maybe Double)
   , bouObjective :: !(Maybe String)
   , bouScore :: !(Maybe Double)
@@ -2055,6 +2114,7 @@ data TopCombo = TopCombo
   , tcScore :: !(Maybe Double)
   , tcOpenThreshold :: !(Maybe Double)
   , tcCloseThreshold :: !(Maybe Double)
+  , tcUuid :: !(Maybe Text)
   , tcParams :: !Aeson.Object
   , tcMetrics :: !(Maybe Aeson.Object)
   }
@@ -2073,8 +2133,34 @@ instance FromJSON TopCombo where
       <*> o Aeson..:? "score"
       <*> o Aeson..:? "openThreshold"
       <*> o Aeson..:? "closeThreshold"
+      <*> o Aeson..:? "uuid"
       <*> pure params
       <*> pure metrics
+
+formatUuidFromHex :: String -> Text
+formatUuidFromHex hex =
+  let h = take 32 hex
+      seg1 = take 8 h
+      seg2 = take 4 (drop 8 h)
+      seg3 = take 4 (drop 12 h)
+      seg4 = take 4 (drop 16 h)
+      seg5 = take 12 (drop 20 h)
+   in T.pack (intercalate "-" [seg1, seg2, seg3, seg4, seg5])
+
+comboIdentityValueFromTopCombo :: TopCombo -> Aeson.Value
+comboIdentityValueFromTopCombo combo =
+  object
+    [ "params" .= tcParams combo
+    , "openThreshold" .= tcOpenThreshold combo
+    , "closeThreshold" .= tcCloseThreshold combo
+    , "objective" .= tcObjectiveLabel combo
+    ]
+
+topComboUuid :: TopCombo -> Text
+topComboUuid combo =
+  case tcUuid combo of
+    Just u | not (T.null (T.strip u)) -> u
+    _ -> formatUuidFromHex (hashBytesHex (encodePretty (comboIdentityValueFromTopCombo combo)))
 
 data BotOpenTrade = BotOpenTrade
   { botOpenEntryIndex :: !Int
@@ -2089,6 +2175,7 @@ data BotState = BotState
   { botArgs :: !Args
   , botSettings :: !BotSettings
   , botSymbol :: !String
+  , botComboUuid :: !(Maybe Text)
   , botEnv :: !BinanceEnv
   , botLookback :: !Int
   , botPrices :: !(V.Vector Double)
@@ -2918,43 +3005,43 @@ applyAdoptRequirementArgs args req
       args { argPositioning = LongShort }
   | otherwise = args
 
-selectCompatibleTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe Args
+selectCompatibleTopComboArgs :: ApiComputeLimits -> String -> Args -> AdoptRequirement -> TopCombosExport -> Maybe (Args, Maybe Text)
 selectCompatibleTopComboArgs limits sym args req export =
   let combos = filter (topComboMatchesSymbol sym Nothing) (tceCombos export)
       sortedCombos = sortOn topComboTradePriorityKey combos
       pick [] = Nothing
       pick (combo : rest) =
-        case applyTopComboForStart args combo of
+        case applyTopComboForStartWithUuid args combo of
           Left _ -> pick rest
-          Right args' ->
+          Right (args', mUuid) ->
             if argsCompatibleWithAdoption args' req
               then
                 case validateApiComputeLimits limits args' of
                   Left _ -> pick rest
-                  Right args'' -> Just args''
+                  Right args'' -> Just (args'', mUuid)
               else pick rest
    in pick sortedCombos
 
-applyLatestTopCombo :: FilePath -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO Args
+applyLatestTopCombo :: FilePath -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO (Args, Maybe Text)
 applyLatestTopCombo optimizerTmp limits sym args req = do
   topJsonPath <- resolveOptimizerCombosPath optimizerTmp
   combosOrErr <- readTopCombosExport topJsonPath
   let baseArgs = applyAdoptRequirementArgs args req
   case combosOrErr of
-    Left _ -> pure baseArgs
+    Left _ -> pure (baseArgs, Nothing)
     Right export ->
       if arActive req
         then
           case selectCompatibleTopComboArgs limits sym baseArgs req export of
-            Nothing -> pure baseArgs
-            Just args' -> pure args'
+            Nothing -> pure (baseArgs, Nothing)
+            Just (args', mUuid) -> pure (args', mUuid)
         else
           case bestTopComboForSymbol sym Nothing export of
-            Nothing -> pure baseArgs
+            Nothing -> pure (baseArgs, Nothing)
             Just combo ->
-              case applyTopComboForStart baseArgs combo of
-                Left _ -> pure baseArgs
-                Right args' -> pure args'
+              case applyTopComboForStartWithUuid baseArgs combo of
+                Left _ -> pure (baseArgs, Nothing)
+                Right (args', mUuid) -> pure (args', mUuid)
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =
@@ -3067,10 +3154,11 @@ botStartSymbol ::
   AdoptRequirement ->
   BotController ->
   Args ->
+  Maybe Text ->
   ApiParams ->
   String ->
   IO (Either String BotStartOutcome)
-botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args p symRaw =
+botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args mComboUuid p symRaw =
   case botSettingsFromApi args p of
     Left e -> pure (Left e)
     Right settings ->
@@ -3088,6 +3176,7 @@ botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimiz
         ctrl
         args
         settings
+        mComboUuid
         symRaw
 
 botStartSymbolWithSettings ::
@@ -3104,9 +3193,10 @@ botStartSymbolWithSettings ::
   BotController ->
   Args ->
   BotSettings ->
+  Maybe Text ->
   String ->
   IO (Either String BotStartOutcome)
-botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args settings symRaw =
+botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args settings mComboUuid symRaw =
   if not (platformSupportsLiveBot (argPlatform args))
     then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
     else
@@ -3135,7 +3225,7 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                       Left e | not (arActive adoptReq) -> pure (mrt, Left e)
                       Left _ -> do
                         stopSig <- newEmptyMVar
-                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl argsSym settings sym stopSig)
+                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl argsSym settings mComboUuid sym stopSig)
                         let rt =
                               BotStartRuntime
                                 { bsrThreadId = tid
@@ -3150,7 +3240,7 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                         pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
                       Right () -> do
                         stopSig <- newEmptyMVar
-                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl argsSym settings sym stopSig)
+                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl argsSym settings mComboUuid sym stopSig)
                         let rt =
                               BotStartRuntime
                                 { bsrThreadId = tid
@@ -3177,26 +3267,27 @@ botStartWorker ::
   BotController ->
   Args ->
   BotSettings ->
+  Maybe Text ->
   String ->
   MVar () ->
   IO ()
-botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args settings sym stopSig = do
+botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args settings mComboUuid sym stopSig = do
   tid <- myThreadId
   let doStart baseArgs = do
-        argsFinal <-
+        (argsFinal, comboUuidFinal) <-
           if arActive adoptReq
             then applyLatestTopCombo optimizerTmp limits sym baseArgs adoptReq
-            else pure baseArgs
+            else pure (baseArgs, mComboUuid)
         preflight <- preflightBotStart mOps argsFinal settings sym
         case preflight of
           Left e -> throwIO (userError e)
-          Right () -> initBotState mOps argsFinal settings sym
+          Right () -> initBotState mOps argsFinal settings comboUuidFinal sym
   r <- try (doStart args) :: IO (Either SomeException BotState)
   case r of
     Left ex -> do
       now <- getTimestampMs
       journalWriteMaybe mJournal (object ["type" .= ("bot.start_failed" :: String), "atMs" .= now, "error" .= show ex])
-      opsAppendMaybe mOps "bot.start_failed" Nothing (Just (argsPublicJson args)) (Just (object ["error" .= show ex])) Nothing
+      opsAppendMaybe mOps "bot.start_failed" Nothing (Just (argsPublicJson args)) (Just (object ["error" .= show ex])) Nothing mComboUuid
       webhookNotifyMaybe mWebhook (webhookEventBotStartFailed args sym ex)
       modifyMVar_ (bcRuntime ctrl) $ \mrt ->
         case HM.lookup sym mrt of
@@ -3214,6 +3305,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits t
         (Just (argsPublicJson (botArgs st0)))
         (Just (object ["symbol" .= botSymbol st0, "market" .= marketCode (argBinanceMarket (botArgs st0)), "interval" .= argInterval (botArgs st0)]))
         (Just eq0)
+        (botComboUuid st0)
       webhookNotifyMaybe mWebhook (webhookEventBotStarted (botArgs st0) (botSymbol st0))
       stVar <- newMVar st0
       persistBotStatusMaybe mBotStateDir st0
@@ -3341,18 +3433,18 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                 case adoptReqOrErr of
                   Left err -> recordError sym err
                   Right adoptReq -> do
-                    argsCombo <-
+                    (argsCombo, mComboUuid) <-
                       if arActive adoptReq
-                        then pure argsSym
+                        then pure (argsSym, Nothing)
                         else
                           case mCombo of
                             Nothing -> applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
                             Just combo ->
-                              case applyTopComboForStart argsSym combo of
+                              case applyTopComboForStartWithUuid argsSym combo of
                                 Left err -> do
                                   recordError sym ("Top combo parse failed: " ++ err)
                                   applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
-                                Right args' -> pure args'
+                                Right (args', uuid) -> pure (args', uuid)
                     case validateApiComputeLimits limits argsCombo of
                       Left err -> recordError sym err
                       Right argsOk -> do
@@ -3371,6 +3463,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                             botCtrl
                             argsOk
                             settings
+                            mComboUuid
                             sym
                         case r of
                           Left err -> recordError sym err
@@ -3460,8 +3553,8 @@ botGetStateFor ctrl symRaw = do
     Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
     _ -> pure Nothing
 
-initBotState :: Maybe OpsStore -> Args -> BotSettings -> String -> IO BotState
-initBotState mOps args settings sym = do
+initBotState :: Maybe OpsStore -> Args -> BotSettings -> Maybe Text -> String -> IO BotState
+initBotState mOps args settings mComboUuid sym = do
   let lookback = argLookback args
   now <- getTimestampMs
   env <- makeBinanceEnv mOps args
@@ -3768,6 +3861,7 @@ initBotState mOps args settings sym = do
           { botArgs = argsWithKeys
           , botSettings = settings
           , botSymbol = sym
+          , botComboUuid = mComboUuid
           , botEnv = env
           , botLookback = lookback
           , botPrices = pricesV2
@@ -4057,6 +4151,7 @@ botApplyOptimizerUpdate st upd = do
               , botLookback = lookback'
               , botLstmCtx = mLstmCtx'
               , botKalmanCtx = mKalmanCtx'
+              , botComboUuid = bouComboUuid upd <|> botComboUuid st
               , botLatestSignal = latest
               , botUpdatedAtMs = now
               , botError = Nothing
@@ -4430,6 +4525,7 @@ buildOptimizerUpdate st combo = do
                         , bouLookback = lookback
                         , bouLstmCtx = mLstm
                         , bouKalmanCtx = mKal
+                        , bouComboUuid = Just (topComboUuid combo)
                         , bouFinalEquity = tcFinalEquity combo
                         , bouObjective = tcObjectiveLabel combo
                         , bouScore = tcScore combo
@@ -4457,7 +4553,7 @@ botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
 
   let sleepSec s = threadDelay (max 1 s * 1000000)
 
-      recordError kind msg sym interval = do
+      recordError kind msg sym interval mComboUuid = do
         prev <- readIORef lastErrRef
         let cur = Just (kind, msg)
         if prev == cur
@@ -4483,6 +4579,7 @@ botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
               Nothing
               (Just (object ["error" .= msg, "symbol" .= sym, "interval" .= interval, "path" .= topJsonPath]))
               Nothing
+              mComboUuid
 
       clearError = writeIORef lastErrRef Nothing
 
@@ -4496,15 +4593,15 @@ botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
                 interval = argInterval (botArgs st)
             combosOrErr <- readTopCombosExport topJsonPath
             case combosOrErr of
-              Left e -> recordError "bot.combo.sync_failed" e sym interval
+              Left e -> recordError "bot.combo.sync_failed" e sym interval (botComboUuid st)
               Right export ->
                 case bestTopComboForSymbol sym (Just interval) export of
-                  Nothing -> recordError "bot.combo.sync_failed" "No top combo for symbol+interval." sym interval
+                  Nothing -> recordError "bot.combo.sync_failed" "No top combo for symbol+interval." sym interval (botComboUuid st)
                   Just bestCombo -> do
                     clearError
                     updOrErr <- buildOptimizerUpdate st bestCombo
                     case updOrErr of
-                      Left e -> recordError "bot.combo.apply_failed" e sym interval
+                      Left e -> recordError "bot.combo.apply_failed" e sym interval (botComboUuid st)
                       Right upd -> do
                         let argsChanged = bouArgs upd /= botArgs st || bouLookback upd /= botLookback st
                             ctxChanged = isJust (bouLstmCtx upd) || isJust (bouKalmanCtx upd)
@@ -4530,6 +4627,7 @@ botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
                                   )
                               )
                               (bouFinalEquity upd)
+                              (bouComboUuid upd <|> botComboUuid st)
                           else pure ()
             sleepSec pollSec
             loop
@@ -4564,6 +4662,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
             (Just (argsPublicJson baseArgs))
             (Just (object ["error" .= msg]))
             Nothing
+            Nothing
         else do
           projectRoot <- getCurrentDirectory
           topJsonPath <- resolveOptimizerCombosPath optimizerTmp
@@ -4590,6 +4689,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                 Nothing
                 Nothing
                 (Just (object ["script" .= missingNames, "error" .= missingErrs]))
+                Nothing
                 Nothing
             else do
               envOrErr <- try (makeBinanceEnv mOps baseArgs) :: IO (Either SomeException BinanceEnv)
@@ -4795,6 +4895,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                                   (Just (object ["symbol" .= sym, "interval" .= interval]))
                                                   Nothing
                                                   Nothing
+                                                  Nothing
                                             _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
                                             pure ()
                                         sleepSec everySec
@@ -4844,7 +4945,7 @@ backtestTopCombosOnce topNRaw ctx = do
       recordEvent kind details = do
         now <- getTimestampMs
         journalWriteMaybe mJournal (object ("type" .= kind : "atMs" .= now : details))
-        opsAppendMaybe mOps (T.pack kind) Nothing Nothing (Just (object details)) Nothing
+        opsAppendMaybe mOps (T.pack kind) Nothing Nothing (Just (object details)) Nothing Nothing
 
       recordError :: String -> String -> Maybe String -> Maybe String -> IO ()
       recordError kind err sym interval = do
@@ -5688,6 +5789,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
               )
           )
           (Just eqAfterFee)
+          (botComboUuid st)
         webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew o)
 
         pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
@@ -5727,6 +5829,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
             )
         )
         (Just eqFinal)
+        (botComboUuid st)
       webhookNotifyMaybe mWebhook (webhookEventBotHalt args (botSymbol st) r drawdown dailyLoss orderErrors1)
     _ -> pure ()
 
@@ -5843,6 +5946,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
         )
     )
     (Just eqFinal)
+    (botComboUuid stOut)
   triggerTopCombosBacktestOnCandle topCombosCtx
   pure stOut
 
@@ -6033,7 +6137,7 @@ runRestApi baseArgs mWebhook = do
       putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
   now <- getTimestampMs
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
-  opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing
+  opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing
   bot <- newBotController
   _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot)
   _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
@@ -6359,6 +6463,34 @@ cacheKeyForArgs prefix toVal args =
       hex = hashBytesHex payload
    in prefix <> ":" <> T.pack hex
 
+cacheKeyForArgsIO :: Text -> (Args -> Aeson.Value) -> Args -> IO Text
+cacheKeyForArgsIO prefix toVal args =
+  case argData args of
+    Nothing -> pure (cacheKeyForArgs prefix toVal args)
+    Just path -> do
+      meta <- csvCacheMeta path
+      let payload = encode (object ["args" .= toVal args, "csvMeta" .= meta])
+          hex = hashBytesHex payload
+      pure (prefix <> ":" <> T.pack hex)
+
+csvCacheMeta :: FilePath -> IO Aeson.Value
+csvCacheMeta path = do
+  exists <- doesFileExist path
+  if not exists
+    then pure (object ["path" .= path, "missing" .= True])
+    else do
+      metaOrErr <-
+        ( try $ do
+            size <- getFileSize path
+            mtime <- getModificationTime path
+            let mtimeMs = floor (utcTimeToPOSIXSeconds mtime * 1000) :: Int64
+            pure (object ["path" .= path, "sizeBytes" .= size, "mtimeMs" .= mtimeMs])
+        )
+          :: IO (Either IOException Aeson.Value)
+      case metaOrErr of
+        Right meta -> pure meta
+        Left _ -> pure (object ["path" .= path, "statError" .= True])
+
 evictLRU :: Int -> HM.HashMap Text (CacheEntry a) -> HM.HashMap Text (CacheEntry a)
 evictLRU maxN hm =
   let n = HM.size hm
@@ -6463,12 +6595,12 @@ apiCacheClear cache = do
   writeIORef (acBacktestHits cache) 0
   writeIORef (acBacktestMisses cache) 0
 
-computeLatestSignalFromArgsCached :: ApiCache -> Maybe OpsStore -> Args -> IO LatestSignal
-computeLatestSignalFromArgsCached cache mOps args = do
+computeLatestSignalFromArgsCached :: ApiCache -> ApiComputeLimits -> Maybe OpsStore -> Args -> IO LatestSignal
+computeLatestSignalFromArgsCached cache limits mOps args = do
   if not (cacheEnabled cache)
-    then computeLatestSignalFromArgs mOps args
+    then computeLatestSignalFromArgsWithLimits limits mOps args
     else do
-      let key = cacheKeyForArgs "signal" argsCacheJsonSignal args
+      key <- cacheKeyForArgsIO "signal" argsCacheJsonSignal args
       mHit <- cacheLookup cache (acSignals cache) key
       case mHit of
         Just v -> do
@@ -6476,16 +6608,16 @@ computeLatestSignalFromArgsCached cache mOps args = do
           pure v
         Nothing -> do
           incCounter (acSignalMisses cache)
-          v <- computeLatestSignalFromArgs mOps args
+          v <- computeLatestSignalFromArgsWithLimits limits mOps args
           cacheInsert cache (acSignals cache) key v
           pure v
 
-computeBacktestFromArgsCached :: ApiCache -> Maybe OpsStore -> Args -> IO Aeson.Value
-computeBacktestFromArgsCached cache mOps args = do
+computeBacktestFromArgsCached :: ApiCache -> ApiComputeLimits -> Maybe OpsStore -> Args -> IO Aeson.Value
+computeBacktestFromArgsCached cache limits mOps args = do
   if not (cacheEnabled cache)
-    then computeBacktestFromArgs mOps args
+    then computeBacktestFromArgsWithLimits limits mOps args
     else do
-      let key = cacheKeyForArgs "backtest" argsCacheJsonBacktest args
+      key <- cacheKeyForArgsIO "backtest" argsCacheJsonBacktest args
       mHit <- cacheLookup cache (acBacktests cache) key
       case mHit of
         Just v -> do
@@ -6493,7 +6625,7 @@ computeBacktestFromArgsCached cache mOps args = do
           pure v
         Nothing -> do
           incCounter (acBacktestMisses cache)
-          v <- computeBacktestFromArgs mOps args
+          v <- computeBacktestFromArgsWithLimits limits mOps args
           cacheInsert cache (acBacktests cache) key v
           pure v
 
@@ -6915,6 +7047,24 @@ validateApiComputeLimits limits args =
         else Right ()
 
       Right args
+
+validateApiComputeLimitsAfterLoad :: ApiComputeLimits -> Args -> PriceSeries -> Either String ()
+validateApiComputeLimitsAfterLoad limits args series =
+  case argMethod args of
+    MethodKalmanOnly -> Right ()
+    _ ->
+      let maxBars = aclMaxBarsLstm limits
+          bars = length (psClose series)
+       in if bars > maxBars
+            then
+              Left
+                ( "Request too expensive for this API instance: bars too high (got "
+                    ++ show bars
+                    ++ ", max bars="
+                    ++ show maxBars
+                    ++ " for LSTM methods). Reduce --bars, trim the CSV, or use method=10 (Kalman-only)."
+                )
+            else Right ()
 
 apiApp ::
   BuildInfo ->
@@ -8139,8 +8289,8 @@ readTopCombosValue path = do
   localResult <- readTopCombosValueLocal path
   case localResult of
     Right val -> do
-      let (filteredVal, dropped) = sanitizeTopCombosValue val
-      when (dropped > 0) $ do
+      let (filteredVal, changed) = sanitizeTopCombosValue val
+      when (changed > 0) $ do
         _ <- writeTopCombosValue path filteredVal
         persistTopCombosMaybe path
       pure (Right filteredVal)
@@ -8158,9 +8308,9 @@ readTopCombosValue path = do
               case Aeson.eitherDecode' contents of
                 Left err -> pure (Left ("Failed to parse top combos JSON from S3: " ++ err))
                 Right val -> do
-                  let (filteredVal, dropped) = sanitizeTopCombosValue val
+                  let (filteredVal, changed) = sanitizeTopCombosValue val
                   _ <- writeTopCombosValue path filteredVal
-                  when (dropped > 0) (persistTopCombosMaybe path)
+                  when (changed > 0) (persistTopCombosMaybe path)
                   pure (Right filteredVal)
 
 writeTopCombosValue :: FilePath -> Aeson.Value -> IO (Either String ())
@@ -8223,6 +8373,50 @@ comboEquityAboveOne val =
     Just eq -> eq > 1 && not (isInfinite eq)
     Nothing -> False
 
+valueStringMaybe :: Aeson.Value -> Maybe String
+valueStringMaybe = AT.parseMaybe parseJSON
+
+sanitizeComboSymbolValue :: Aeson.Value -> (Aeson.Value, Bool)
+sanitizeComboSymbolValue val =
+  case val of
+    Aeson.Object comboObj ->
+      case KM.lookup (AK.fromString "params") comboObj of
+        Just (Aeson.Object params) ->
+          let platform =
+                (KM.lookup (AK.fromString "platform") params >>= valueStringMaybe)
+                  <|> (KM.lookup (AK.fromString "source") comboObj >>= valueStringMaybe)
+              symbolRaw =
+                (KM.lookup (AK.fromString "binanceSymbol") params >>= valueStringMaybe)
+                  <|> (KM.lookup (AK.fromString "symbol") params >>= valueStringMaybe)
+              hadBinance = KM.member (AK.fromString "binanceSymbol") params
+              hadSymbol = KM.member (AK.fromString "symbol") params
+              hasSymbolField = hadBinance || hadSymbol
+              sanitized = symbolRaw >>= sanitizeSymbolForPlatform platform
+              params' =
+                case sanitized of
+                  Just sym ->
+                    let params1 =
+                          if hadBinance
+                            then KM.insert (AK.fromString "binanceSymbol") (Aeson.String (T.pack sym)) params
+                            else params
+                        params2 =
+                          if hadSymbol
+                            then KM.insert (AK.fromString "symbol") (Aeson.String (T.pack sym)) params1
+                            else params1
+                     in params2
+                  Nothing ->
+                    if hasSymbolField
+                      then KM.delete (AK.fromString "symbol") (KM.delete (AK.fromString "binanceSymbol") params)
+                      else params
+              changed = params' /= params
+              comboObj' =
+                if changed
+                  then KM.insert (AK.fromString "params") (Aeson.Object params') comboObj
+                  else comboObj
+           in (Aeson.Object comboObj', changed)
+        _ -> (val, False)
+    _ -> (val, False)
+
 sanitizeTopCombosValue :: Aeson.Value -> (Aeson.Value, Int)
 sanitizeTopCombosValue val =
   case val of
@@ -8230,11 +8424,16 @@ sanitizeTopCombosValue val =
       case KM.lookup (AK.fromString "combos") o of
         Just (Aeson.Array combos) ->
           let combosList = V.toList combos
-              kept = filter comboEquityAboveOne combosList
-              dropped = length combosList - length kept
-              combosOut = Aeson.Array (V.fromList kept)
+              (kept, changed) = foldl' apply ([], 0) combosList
+              apply (acc, count) comboVal =
+                if not (comboEquityAboveOne comboVal)
+                  then (acc, count + 1)
+                  else
+                    let (comboVal', updated) = sanitizeComboSymbolValue comboVal
+                     in (comboVal' : acc, count + if updated then 1 else 0)
+              combosOut = Aeson.Array (V.fromList (reverse kept))
               o' = KM.insert (AK.fromString "combos") combosOut o
-           in (Aeson.Object o', dropped)
+           in (Aeson.Object o', changed)
         _ -> (val, 0)
     _ -> (val, 0)
 
@@ -8477,6 +8676,11 @@ applyTopComboForStart base combo = do
           Just n -> args1 { argBars = Just n }
   pure args2
 
+applyTopComboForStartWithUuid :: Args -> TopCombo -> Either String (Args, Maybe Text)
+applyTopComboForStartWithUuid base combo = do
+  args0 <- applyTopComboForStart base combo
+  pure (args0, Just (topComboUuid combo))
+
 handleOptimizerRun ::
   ApiRequestLimits ->
   FilePath ->
@@ -8626,7 +8830,7 @@ handleOps mOps req respond =
             status200
             ( object
                 [ "enabled" .= False
-                , "hint" .= ("Set TRADER_OPS_DIR or TRADER_STATE_DIR to enable ops persistence, and TRADER_STATE_S3_BUCKET to persist across deploys." :: String)
+                , "hint" .= ("Set TRADER_OPS_DIR or TRADER_STATE_DIR to enable ops persistence (SQLite), and TRADER_STATE_S3_BUCKET to persist across deploys." :: String)
                 , "ops" .= ([] :: [PersistedOperation])
                 ]
             )
@@ -8672,8 +8876,8 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
                   r <-
                     try
                       ( if noCache
-                          then computeLatestSignalFromArgs mOps argsOk
-                          else computeLatestSignalFromArgsCached apiCache mOps argsOk
+                          then computeLatestSignalFromArgsWithLimits limits mOps argsOk
+                          else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
                       )
                       :: IO (Either SomeException LatestSignal)
                   case r of
@@ -8687,6 +8891,7 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
                         (Just (toJSON (sanitizeApiParams params)))
                         (Just (argsPublicJson argsOk))
                         (Just (toJSON sig))
+                        Nothing
                         Nothing
                       respond (jsonValue status200 sig)
 
@@ -8719,9 +8924,9 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
                     startJob store $ do
                       sig <-
                         if noCache
-                          then computeLatestSignalFromArgs mOps argsOk
-                          else computeLatestSignalFromArgsCached apiCache mOps argsOk
-                      opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing
+                          then computeLatestSignalFromArgsWithLimits limits mOps argsOk
+                          else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
+                      opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing Nothing
                       pure sig
                   case r of
                     Left e -> respond (jsonError status429 e)
@@ -8749,7 +8954,7 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
               case validateApiComputeLimits limits args of
                 Left e -> respond (jsonError status400 e)
                 Right argsOk -> do
-                  r <- try (computeTradeFromArgs mOps argsOk) :: IO (Either SomeException ApiTradeResponse)
+                  r <- try (computeTradeFromArgsWithLimits limits mOps argsOk) :: IO (Either SomeException ApiTradeResponse)
                   case r of
                     Left ex ->
                       let (st, msg) = exceptionToHttp ex
@@ -8774,6 +8979,7 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                         (Just (toJSON (sanitizeApiParams params)))
                         (Just (argsPublicJson argsOk))
                         (Just (toJSON out))
+                        Nothing
                         Nothing
                       webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsOk (atrSignal out) (atrOrder out))
                       respond (jsonValue status200 out)
@@ -8804,7 +9010,7 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                       argsJson = Just (argsPublicJson argsOk)
                   r <-
                     startJob store $ do
-                      out <- computeTradeFromArgs mOps argsOk
+                      out <- computeTradeFromArgsWithLimits limits mOps argsOk
                       metricsRecordOrder metrics (atrOrder out)
                       now <- getTimestampMs
                       journalWriteMaybe
@@ -8818,7 +9024,7 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                             , "order" .= atrOrder out
                             ]
                         )
-                      opsAppendMaybe mOps "trade.order" paramsJson argsJson (Just (toJSON out)) Nothing
+                      opsAppendMaybe mOps "trade.order" paramsJson argsJson (Just (toJSON out)) Nothing Nothing
                       webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsOk (atrSignal out) (atrOrder out))
                       pure out
                   case r of
@@ -8855,8 +9061,8 @@ handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respond 
               let noCache = requestWantsNoCache req
                   computeAction =
                     if noCache
-                      then computeBacktestFromArgs mOps argsOk
-                      else computeBacktestFromArgsCached apiCache mOps argsOk
+                      then computeBacktestFromArgsWithLimits limits mOps argsOk
+                      else computeBacktestFromArgsCached apiCache limits mOps argsOk
               r <- runBacktestWithGateWait backtestGate computeAction
               case r of
                 Left failure ->
@@ -8870,6 +9076,7 @@ handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respond 
                     (Just (argsPublicJson argsOk))
                     (Just out)
                     (extractBacktestFinalEquity out)
+                    Nothing
                   respond (jsonValue status200 out)
 
 handleBacktestAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> BacktestGate -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -8899,13 +9106,13 @@ handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs r
                 startJob store $ do
                   let computeAction =
                         if noCache
-                          then computeBacktestFromArgs mOps argsOk
-                          else computeBacktestFromArgsCached apiCache mOps argsOk
+                          then computeBacktestFromArgsWithLimits limits mOps argsOk
+                          else computeBacktestFromArgsCached apiCache limits mOps argsOk
                   gateResult <- runBacktestWithGateWait backtestGate computeAction
                   case gateResult of
                     Left failure -> throwIO (userError (backtestFailureMessage backtestGate failure))
                     Right out -> do
-                      opsAppendMaybe mOps "backtest" paramsJson argsJson (Just out) (extractBacktestFinalEquity out)
+                      opsAppendMaybe mOps "backtest" paramsJson argsJson (Just out) (extractBacktestFinalEquity out) Nothing
                       pure out
               case r of
                 Left e -> respond (jsonError status429 e)
@@ -9325,14 +9532,14 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                 case adoptReqOrErr of
                   Left err -> pure (sym, Left err)
                   Right adoptReq -> do
-                    argsCombo <-
+                    (argsCombo, mComboUuid) <-
                       if arActive adoptReq
-                        then pure argsSym
+                        then pure (argsSym, Nothing)
                         else applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
                     case validateApiComputeLimits limits argsCombo of
                       Left err -> pure (sym, Left err)
                       Right argsOk -> do
-                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq botCtrl argsOk params sym
+                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq botCtrl argsOk mComboUuid params sym
                         pure (sym, r)
 
               let errors =
@@ -9382,6 +9589,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                           )
                       )
                       Nothing
+                      Nothing
                   _ -> pure ()
 
               case (symbols, errors, statuses) of
@@ -9428,7 +9636,7 @@ handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
   now <- getTimestampMs
   let stoppedSymbols = map botSymbol stopped
   journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now, "symbols" .= stoppedSymbols])
-  opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing
+  opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing Nothing
   forM_ stopped (botStatusLogMaybe mOps False)
   webhookNotifyMaybe mWebhook (webhookEventBotStop stoppedSymbols)
 
@@ -9728,6 +9936,18 @@ dirLabel d =
 computeLatestSignalFromArgs :: Maybe OpsStore -> Args -> IO LatestSignal
 computeLatestSignalFromArgs mOps args = do
   (series, mBinanceEnv) <- loadPrices mOps args
+  computeLatestSignalFromSeries args series mBinanceEnv
+
+computeLatestSignalFromArgsWithLimits :: ApiComputeLimits -> Maybe OpsStore -> Args -> IO LatestSignal
+computeLatestSignalFromArgsWithLimits limits mOps args = do
+  (series, mBinanceEnv) <- loadPrices mOps args
+  case validateApiComputeLimitsAfterLoad limits args series of
+    Left msg -> error msg
+    Right () -> pure ()
+  computeLatestSignalFromSeries args series mBinanceEnv
+
+computeLatestSignalFromSeries :: Args -> PriceSeries -> Maybe BinanceEnv -> IO LatestSignal
+computeLatestSignalFromSeries args series mBinanceEnv = do
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
@@ -9736,6 +9956,18 @@ computeLatestSignalFromArgs mOps args = do
 computeTradeFromArgs :: Maybe OpsStore -> Args -> IO ApiTradeResponse
 computeTradeFromArgs mOps args = do
   (series, mBinanceEnv) <- loadPrices mOps args
+  computeTradeFromSeries args series mBinanceEnv
+
+computeTradeFromArgsWithLimits :: ApiComputeLimits -> Maybe OpsStore -> Args -> IO ApiTradeResponse
+computeTradeFromArgsWithLimits limits mOps args = do
+  (series, mBinanceEnv) <- loadPrices mOps args
+  case validateApiComputeLimitsAfterLoad limits args series of
+    Left msg -> error msg
+    Right () -> pure ()
+  computeTradeFromSeries args series mBinanceEnv
+
+computeTradeFromSeries :: Args -> PriceSeries -> Maybe BinanceEnv -> IO ApiTradeResponse
+computeTradeFromSeries args series mBinanceEnv = do
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args
@@ -10976,6 +11208,18 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
 computeBacktestFromArgs :: Maybe OpsStore -> Args -> IO Aeson.Value
 computeBacktestFromArgs mOps args = do
   (series, mBinanceEnv) <- loadPrices mOps args
+  computeBacktestFromSeries args series mBinanceEnv
+
+computeBacktestFromArgsWithLimits :: ApiComputeLimits -> Maybe OpsStore -> Args -> IO Aeson.Value
+computeBacktestFromArgsWithLimits limits mOps args = do
+  (series, mBinanceEnv) <- loadPrices mOps args
+  case validateApiComputeLimitsAfterLoad limits args series of
+    Left msg -> error msg
+    Right () -> pure ()
+  computeBacktestFromSeries args series mBinanceEnv
+
+computeBacktestFromSeries :: Args -> PriceSeries -> Maybe BinanceEnv -> IO Aeson.Value
+computeBacktestFromSeries args series mBinanceEnv = do
   let prices = psClose series
   ensureMinPriceRows args 2 prices
   let lookback = argLookback args

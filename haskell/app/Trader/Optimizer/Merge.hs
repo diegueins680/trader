@@ -8,15 +8,20 @@ module Trader.Optimizer.Merge
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
+import Crypto.Hash (Digest, hash)
+import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (Value (..), object, toJSON, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
+import Data.ByteArray (convert)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isSpace, toLower, toUpper)
-import Data.List (foldl', isPrefixOf, isSuffixOf, sort, sortBy)
+import Data.Char (isSpace, toLower)
+import Data.List (foldl', intercalate, isPrefixOf, isSuffixOf, sort, sortBy)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Ord (comparing)
@@ -38,6 +43,7 @@ import System.IO (hPutStrLn, stderr)
 
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
+import Trader.Symbol (sanitizeSymbolForPlatform)
 
 data MergeArgs = MergeArgs
   { maTopJson :: !FilePath
@@ -433,9 +439,11 @@ comboToValue rank combo =
         case comboMetrics combo of
           Just m -> Object m
           Nothing -> Null
+      uuidVal = comboUuid combo
       base =
         object
-          [ "rank" .= rank
+          [ "uuid" .= uuidVal
+          , "rank" .= rank
           , "createdAtMs" .= comboCreatedAtMs combo
           , "finalEquity" .= comboFinalEquity combo
           , "objective" .= comboObjective combo
@@ -449,6 +457,35 @@ comboToValue rank combo =
    in case comboOperations combo of
         Just ops -> addField "operations" (Array (V.fromList ops)) base
         Nothing -> base
+
+comboIdentityValue :: Combo -> Value
+comboIdentityValue combo =
+  object
+    [ "params" .= Object (comboParams combo)
+    , "openThreshold" .= comboOpenThreshold combo
+    , "closeThreshold" .= comboCloseThreshold combo
+    , "objective" .= comboObjective combo
+    ]
+
+comboUuid :: Combo -> String
+comboUuid combo =
+  formatUuidFromHex (hashBytesHex (encodePretty (comboIdentityValue combo)))
+
+formatUuidFromHex :: String -> String
+formatUuidFromHex hex =
+  let h = take 32 hex
+      seg1 = take 8 h
+      seg2 = take 4 (drop 8 h)
+      seg3 = take 4 (drop 12 h)
+      seg4 = take 4 (drop 16 h)
+      seg5 = take 12 (drop 20 h)
+   in intercalate "-" [seg1, seg2, seg3, seg4, seg5]
+
+hashBytesHex :: BL.ByteString -> String
+hashBytesHex bs =
+  let digest :: Digest SHA256
+      digest = hash (BL.toStrict bs)
+   in BS8.unpack (B16.encode (convert digest))
 
 archiveTopJson :: Maybe FilePath -> FilePath -> IO ()
 archiveTopJson historyDir outPath =
@@ -519,14 +556,13 @@ normalizeCombo value =
               confirmConformal = fromMaybe False (KM.lookup (Key.fromString "confirmConformal") paramsRaw >>= coerceBoolValue)
               confirmQuantiles = fromMaybe False (KM.lookup (Key.fromString "confirmQuantiles") paramsRaw >>= coerceBoolValue)
               confidenceSizing = fromMaybe False (KM.lookup (Key.fromString "confidenceSizing") paramsRaw >>= coerceBoolValue)
-              symbol =
-                normalizeSymbolValue
-                  ( fromMaybe
-                      Null
-                      ( KM.lookup (Key.fromString "binanceSymbol") paramsRaw
-                          <|> KM.lookup (Key.fromString "symbol") paramsRaw
-                      )
+              symbolRaw =
+                fromMaybe
+                  Null
+                  ( KM.lookup (Key.fromString "binanceSymbol") paramsRaw
+                      <|> KM.lookup (Key.fromString "symbol") paramsRaw
                   )
+              symbol = normalizeSymbolValue platform symbolRaw
               normalizedParams =
                 KM.union
                   ( KM.fromList
@@ -656,10 +692,9 @@ normalizeObjectiveValue value =
   let s = map toLower (trim (valueToString value))
    in if null s then Nothing else Just s
 
-normalizeSymbolValue :: Value -> Maybe String
-normalizeSymbolValue value =
-  let s = map toUpper (trim (valueToString value))
-   in if null s then Nothing else Just s
+normalizeSymbolValue :: Maybe String -> Value -> Maybe String
+normalizeSymbolValue platform value =
+  sanitizeSymbolForPlatform platform (valueToString value)
 
 valueToStringMaybe :: Maybe Value -> String
 valueToStringMaybe value =

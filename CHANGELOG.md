@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Ops: store persisted operations in SQLite (`ops.sqlite3`) and log `comboUuid` for live-bot executions.
+- Optimizer: include stable combo UUIDs in top-combos outputs.
+- Optimizer: add genetic crossover using parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
+- API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
+- API: include CSV file size/mtime in cache keys so updated CSVs invalidate cached signal/backtest results.
+- CSV: sort rows by parsed timestamps only; unparseable timestamps preserve file order.
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Web UI: default Live orders + Trading armed toggles to on.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
@@ -34,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: remember API fallback preferences and CORS-blocked fallback hosts to reduce repeated `/api` 502/CORS errors.
 - Web UI: make code/log panels more opaque so background content does not bleed through.
 - Optimizer: drop `top-combos.json` entries with `finalEquity <= 1` on read/write (including numeric strings), persisting the filtered list to S3 when configured.
+- Optimizer: sanitize combo symbols to valid exchange formats when writing/merging top-combos, and clean stored combo files on read/write.
 - Web UI: keep Live bot, per-bot, and optimizer combo panels scrollable so docked panels stay visible while viewing long content.
 - Web UI: fix docked optimizer combos panel scrolling so the combos list stays reachable.
 - Web UI: fix docked Live bot panel scrolling so long content stays reachable.
@@ -49,6 +56,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: fix optimizer form sync startup crash and ensure `trader-config.js` is loaded before the app bundle.
 - Web UI: optimizer combos now load only from the API (no static fallback).
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
+- Deploy: require S3 state for App Runner API deploys and document durable state storage for Docker/VM deployments.
 - Deploy: quick AWS deploy can reuse or create S3 buckets, App Runner S3 instance roles, and CloudFront distributions with `--ensure-resources`/`--cloudfront`.
 - Deploy: quick AWS UI deploy defaults to the direct API base even with CloudFront; use `TRADER_UI_API_MODE=proxy`/`--ui-api-proxy` to force `/api`.
 - Deploy: quick AWS UI config auto-fills `apiFallbackUrl` only for `/api` mode (it points at the API URL when known).
@@ -58,7 +66,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: top-combos now stamp `params.binanceSymbol` for CSV runs (auto-derived from `--symbol-label` or filename) and backfill missing `metrics.annualizedReturn`.
 - Optimizer: add seeding/exploitation controls, new quality filters (annualized return/calmar/turnover), and funding/rebalance sampling parameters.
 - Optimizer: Calmar objective falls back to annualized return when max drawdown is zero.
-- Ops: restore the newest `ops.jsonl` from S3 on boot and sync on a timer when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
+- Ops: restore the newest `ops.sqlite3` from S3 on boot and sync on a timer when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
 - Optimizer: rank top combos by annualized equity (`annualizedReturn`) so the #1 combo is the highest annualized equity.
@@ -95,7 +103,10 @@ All notable changes to this project will be documented in this file.
 - Backtests: `--max-daily-loss` errors when day keys cannot be derived from timestamps or interval seconds.
 - Metrics: round trips now exclude end-of-series `EOD` exits (affects `--min-round-trips` and tie-breakers).
 - Predictors: fall back to the GBDT base prediction when feature dimensions mismatch.
-- Predictors: skip transformer/quantile outputs on feature dimension mismatches instead of crashing, and keep the quantile sensor mean as the raw median while reported quantiles remain clamped.
+- Predictors: skip transformer/quantile outputs on feature dimension mismatches instead of crashing, and use the clamped median for the quantile sensor mean.
+- Predictors: clamp feature windows to the available lookback so short lookbacks still produce datasets.
+- Predictors: TCN skips zero-price lags and scales kernel size for small lookback windows to avoid overreaching lag requirements.
+- Predictors: derive HMM/TCN training cutoffs from the last usable feature index to avoid truncating valid history when feature rows drop.
 - Predictors: quantile SGD uses a zero-gradient on exact ties to avoid bias.
 - CLI/API: `predictors` rejects mixes of `all` and `none`.
 - CLI/API: validate `--min-position-size <= --max-position-size`.

@@ -44,6 +44,8 @@ ENV TRADER_LSTM_WEIGHTS_DIR=/var/lib/trader/lstm
 RUN mkdir -p /var/lib/trader/async /var/lib/trader/lstm /var/lib/trader/state /opt/trader/haskell/.tmp/optimizer \
   && chown -R 65532:65532 /var/lib/trader /opt/trader/haskell/.tmp
 
+VOLUME ["/var/lib/trader"]
+
 EXPOSE 8080
 
 USER 65532:65532

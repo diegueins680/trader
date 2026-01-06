@@ -15,8 +15,8 @@ API_TOKEN=$(openssl rand -hex 32)
 
 # Save this token somewhere safe (you'll need it for the web UI deploy config: `trader-config.js`).
 
-# Run the automated deployment script
-bash deploy-aws-quick.sh ap-northeast-1 "$API_TOKEN"
+# Run the automated deployment script (auto-creates S3 state bucket)
+bash deploy-aws-quick.sh --ensure-resources --region ap-northeast-1 --api-token "$API_TOKEN"
 
 # Optional: auto-provision S3 state + CloudFront (reuses existing resources if present)
 # bash deploy-aws-quick.sh --ensure-resources --cloudfront --region ap-northeast-1 --api-token "$API_TOKEN"
@@ -25,7 +25,7 @@ bash deploy-aws-quick.sh ap-northeast-1 "$API_TOKEN"
 # Optional: override the state directory (default: /var/lib/trader/state)
 # bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" --state-dir "/var/lib/trader/state"
 #
-# Optional: enable S3 state persistence (recommended for App Runner)
+# Required: enable S3 state persistence for App Runner (script enforces this)
 # bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" \
 #   --state-s3-bucket "trader-api-state-..." --state-s3-prefix "trader" --instance-role-arn "arn:aws:iam::123:role/TraderAppRunnerS3Role"
 ```
@@ -44,14 +44,15 @@ With `--ensure-resources`, it also creates or reuses the state S3 bucket and App
 
 ---
 
-## Persist state with S3 (recommended for App Runner)
+## Persist state with S3 (required for App Runner)
 
 Checklist (App Runner + S3):
 1. Create an S3 bucket for state (private).
 2. Create an IAM role for App Runner with `s3:GetObject`/`s3:PutObject` on the bucket/prefix.
 3. Pass `--state-s3-bucket` (plus optional `--state-s3-prefix`, `--state-s3-region`) and `--instance-role-arn` to the deploy script.
 4. Or use `--ensure-resources` to create/reuse the bucket + instance role automatically.
-5. App Runner does **not** support EFS volumes; S3 is the supported persistence option.
+5. The quick deploy script will fail without S3 state configured.
+6. App Runner does **not** support EFS volumes; S3 is the supported persistence option.
 
 ---
 

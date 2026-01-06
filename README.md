@@ -18,7 +18,7 @@ Features
 - Conformal interval wrapper (calibrated on a holdout split, sigma derived from alpha; omitted when calibration is empty)
 - Predictor training validates fixed feature dimensions to avoid silent mismatches.
 - Predictor outputs omit transformer/GBDT/quantile/conformal when the feature dataset is empty or features do not match the trained dimensions.
-- Quantile outputs clamp the reported median inside the q10/q90 bounds and omit sigma when the interval is invalid; the sensor mean uses the raw median.
+- Quantile outputs clamp the reported median inside the q10/q90 bounds and omit sigma when the interval is invalid; the sensor mean uses the clamped median.
 - Predictor training uses a train/calibration split so held-out calibration data is excluded from model training.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
@@ -151,6 +151,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--price-column close` CSV column name for price
   - `--high-column high` CSV column name for high (requires `--low-column`; enables intrabar stop-loss/take-profit/trailing-stop realism)
   - `--low-column low` CSV column name for low (requires `--high-column`)
+  - If a time column is detected, CSV rows are sorted by parsed timestamps; unparseable timestamps keep file order.
   - `--symbol SYMBOL` (alias `--binance-symbol`) exchange symbol to fetch klines
   - `--platform binance` exchange platform for `--symbol` (`binance|coinbase|kraken|poloniex`)
     - Coinbase products use `BASE-QUOTE` (for example `BTC-USD`).
@@ -425,7 +426,7 @@ Optimizer script tips:
 - `optimize-equity` defaults to `--objective annualized-equity` (annualized return).
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
-- CSV runs stamp `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename) so combos stay labeled.
+- CSV runs stamp `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename), then sanitize to a valid exchange symbol so combos stay labeled.
 - `--platform`/`--platforms` sample exchange platforms when using `--binance-symbol`/`--symbol` (default: binance; supports coinbase/kraken/poloniex).
 - `--bars-auto-prob` and `--bars-distribution` tune how often bars=auto/all is sampled and how explicit bars are drawn.
 - `--seed-trials`, `--seed-ratio`, `--survivor-fraction`, `--perturb-scale-*`, and `--early-stop-no-improve` tune search seeding, exploitation, and early stopping.
@@ -448,10 +449,11 @@ Optimizer script tips:
 - `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
 - Auto optimizer biases `--p-long-short` to match existing open positions/orders (short requires long-short; spot/margin suppresses long-short).
 - `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `seedTrials`, `seedRatio`, `survivorFraction`, `perturbScaleDouble`, `perturbScaleInt`, `earlyStopNoImprove`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minAnnualizedReturn`, `minCalmar`, `maxTurnover`, `minSignalToNoiseMin`, `pThresholdFactor`, `thresholdFactorAlphaMin`, `thresholdFactorMinMin`, `thresholdFactorWeightMax`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `triLayerExitOnSlow`, `fundingRateMin`, `fundingRateMax`, `rebalanceBarsMin`, `rebalanceBarsMax`, `rebalanceThresholdMin`, `rebalanceThresholdMax`, `pFundingBySide`, `pFundingOnOpen`, `pRebalanceGlobal`, `pRebalanceResetOnSignal`, `kalmanBandLookbackMin`, `kalmanBandStdMultMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmExitFlipStrong`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
+- Genetic crossover blends parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 
-State directory (recommended for persistence across deployments):
+State directory (required for persistence across deployments):
 - Set `TRADER_STATE_DIR` to a shared writable directory to persist:
-  - ops history (`ops.jsonl`)
+  - ops history (`ops.sqlite3`)
   - JSONL journal events
   - live-bot status snapshots (`bot-state-<symbol>.json`)
   - optimizer top-combos (`top-combos.json`)
@@ -459,10 +461,11 @@ State directory (recommended for persistence across deployments):
   - LSTM weights (for incremental training)
 - Per-feature `TRADER_*_DIR` variables override the state directory; set any of them to an empty string to disable that feature.
 - Docker image default: `TRADER_STATE_DIR=/var/lib/trader/state` (mount `/var/lib/trader` to durable storage to keep state across redeploys).
-- For App Runner (no EFS support), use S3 persistence via `TRADER_STATE_S3_BUCKET` and keep `TRADER_STATE_DIR` for local-only state if desired.
-- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values, defaults `TRADER_BOT_TRADE=true` unless overridden, and forwards `TRADER_BOT_SYMBOLS`/`TRADER_BOT_TRADE` plus `BINANCE_API_KEY`/`BINANCE_API_SECRET` when set.
+- For Docker/VMs, mount the state directory (or set `TRADER_STATE_DIR` to a durable volume) so state survives redeploys.
+- For App Runner (no EFS support), use S3 persistence via `TRADER_STATE_S3_BUCKET` to keep state across deploys; `TRADER_STATE_DIR` remains local-only.
+- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state` and enforces S3 state for API deploys; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values, defaults `TRADER_BOT_TRADE=true` unless overridden, and forwards `TRADER_BOT_SYMBOLS`/`TRADER_BOT_TRADE` plus `BINANCE_API_KEY`/`BINANCE_API_SECRET` when set.
 
-S3 state (recommended for App Runner):
+S3 state (required for App Runner persistence):
 - Set `TRADER_STATE_S3_BUCKET` (optional `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`) to persist bot snapshots, optimizer top-combos, and ops logs in S3.
 - Requires AWS credentials or an App Runner instance role with S3 access.
 - Bot snapshots include orders/trades, so the UI can show history after restarts; journal/async/LSTM weights still use `TRADER_STATE_DIR`.
@@ -478,10 +481,10 @@ Optional webhooks (Discord-compatible):
 - Event types: `bot.started`, `bot.start_failed`, `bot.stop`, `bot.order`, `bot.halt`, `trade.order`.
 
 Optional ops persistence (powers `GET /ops` and the “operations” history):
-- Set `TRADER_OPS_DIR` to a writable directory (writes `ops.jsonl`)
+- Set `TRADER_OPS_DIR` to a writable directory (writes `ops.sqlite3`)
 - If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/ops`.
 - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`) max operations kept in memory per process
-- When S3 persistence is enabled via `TRADER_STATE_S3_BUCKET`, ops are restored from `ops/ops.jsonl` and synced back on a timer.
+- When S3 persistence is enabled via `TRADER_STATE_S3_BUCKET`, ops are restored from `ops/ops.sqlite3` and synced back on a timer.
 - `TRADER_OPS_S3_EVERY_SEC` (default: `60`) cadence for syncing ops to S3 (`0` disables S3 sync but still restores from S3).
 - `GET /ops` query params:
   - `limit` (default: `200`, max: `5000`)
@@ -490,6 +493,7 @@ Optional ops persistence (powers `GET /ops` and the “operations” history):
 - Ops log kinds include:
   - `binance.request` for every Binance API request (method/path/latency/status; signature/listenKey values are redacted).
 - `bot.status` snapshots on start and every minute with running/live/halts/errors (used by the live/offline timeline chart in the UI).
+- Ops rows include `comboUuid` when a live bot executes a top-combo configuration.
 
 Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 - Set `TRADER_BOT_STATE_DIR` to a writable directory (writes `bot-state-<symbol>.json`; set empty to disable)
@@ -503,7 +507,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
 - When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained, and history snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
-- `top-combos.json` drops combos with `finalEquity <= 1` on read/write (including numeric strings) and persists the filtered file to S3 when configured.
+- `top-combos.json` drops combos with `finalEquity <= 1` on read/write (including numeric strings), sanitizes combo symbols, and persists the filtered file to S3 when configured.
 
 Optional daily top-combo backtests (refreshes metrics for the best performers):
 - `TRADER_TOP_COMBOS_BACKTEST_ENABLED` (default: `true`) enable daily refreshes of the top combos (plus per-candle attempts while a live bot is running).
@@ -520,11 +524,13 @@ Optional in-memory caching (recommended for the Web UI’s repeated calls):
 - `TRADER_API_CACHE_TTL_MS` (default: `30000`) cache TTL in milliseconds (`0` disables)
 - `TRADER_API_CACHE_MAX_ENTRIES` (default: `64`) max cached entries (`0` disables)
   - To bypass cache for a single request, send `Cache-Control: no-cache` or add `?nocache=1`.
+  - CSV cache keys include file size/mtime so updated CSVs invalidate cached results.
 
 Optional API compute limits (useful on small instances):
 - `TRADER_API_MAX_BARS_LSTM` (default: `1000`) max LSTM bars accepted by the API
 - `TRADER_API_MAX_EPOCHS` (default: `100`) max LSTM epochs accepted by the API
 - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`; set to `50` to allow larger LSTM hidden sizes)
+  - CSV requests with `--bars auto`/`0` are checked against the max bars using the loaded row count.
 
 Optional LSTM weight persistence (recommended for faster repeated backtests):
 - `TRADER_LSTM_WEIGHTS_DIR` (default: `TRADER_STATE_DIR/lstm` if set, else `.tmp/lstm`) directory to persist LSTM weights between runs (set to an empty string to disable)

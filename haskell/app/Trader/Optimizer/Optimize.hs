@@ -10,6 +10,8 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (foldM, forM_, when)
+import Crypto.Hash (Digest, hash)
+import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (Value (..), object, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
@@ -19,7 +21,10 @@ import Data.List (foldl', intercalate, sort, sortBy)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Ord (comparing)
 import qualified Data.Map.Strict as M
+import Data.ByteArray (convert)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -75,6 +80,7 @@ import Trader.Optimizer.Random
   , seedRng
   )
 import Trader.Platform (Platform (..), platformIntervals)
+import Trader.Symbol (sanitizeSymbolForPlatform)
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
@@ -1434,8 +1440,9 @@ trialToRecord tr symbolLabel =
         , "confidenceSizing" .= tpConfidenceSizing (trParams tr)
         , "minPositionSize" .= tpMinPositionSize (trParams tr)
         ]
+      symbol = symbolLabel >>= sanitizeSymbolForPlatform (tpPlatform (trParams tr))
       paramsPairs' =
-        case normalizeSymbol symbolLabel of
+        case symbol of
           Just sym -> paramsPairs ++ ["binanceSymbol" .= sym]
           Nothing -> paramsPairs
       baseFields =
@@ -2562,11 +2569,17 @@ runOptimizer args0 = do
                                           (oaMaxDdMin args, oaMaxDdMax args)
                                           (oaMaxDlMin args, oaMaxDlMax args)
                                           (oaMaxOeMin args, oaMaxOeMax args)
-                                      runTrialWith idx rng mBase best recordsRev = do
+                                      runTrialWith idx rng mBase mParents best recordsRev = do
                                         let (params, _) =
                                               case mBase of
                                                 Nothing -> sampleParamsWithRng rng
-                                                Just base -> perturbTrialParams perturbScaleDouble perturbScaleInt base rng
+                                                Just base ->
+                                                  case mParents of
+                                                    Just parents | length parents >= 2 ->
+                                                      let ((p1, p2), rng1) = pickParentPair parents rng
+                                                          (child, rng2) = crossoverTrialParams p1 p2 rng1
+                                                       in perturbTrialParams perturbScaleDouble perturbScaleInt child rng2
+                                                    _ -> perturbTrialParams perturbScaleDouble perturbScaleInt base rng
                                         tr0 <-
                                           runTrial
                                             traderBinPath
@@ -2674,7 +2687,7 @@ runOptimizer args0 = do
                                   (bestSeed, seedRecordsRev, seedResultsRev) <-
                                     foldM
                                       ( \(b, recs, res) (idx, rng) -> do
-                                          (b', recs', tr) <- runTrialWith idx rng Nothing b recs
+                                          (b', recs', tr) <- runTrialWith idx rng Nothing Nothing b recs
                                           pure (b', recs', tr : res)
                                       )
                                       (Nothing, [], [])
@@ -2691,6 +2704,17 @@ runOptimizer args0 = do
                                           , otsAppliedSuccessiveHalving = length survivorsRaw < length seedResults
                                           }
                                       survivorParams = map trParams survivorsRaw
+                                      gaParents =
+                                        [ trParams tr
+                                        | tr <- survivorsRaw
+                                        , trEligible tr
+                                        , metricInt (trMetrics tr) "tradeCount" 0 > 5
+                                        , metricFloat (trMetrics tr) "annualizedReturn" 0 > 1
+                                        ]
+                                      gaParentPool =
+                                        if length gaParents >= 2
+                                          then Just gaParents
+                                          else Nothing
                                       bestScore b = fromMaybe (-1e18) (trScore =<< b)
                                       runTrialsWithEarlyStop best recs survivorsIx stagnant trialsList =
                                         case trialsList of
@@ -2703,7 +2727,7 @@ runOptimizer args0 = do
                                                       let ix = survivorsIx `mod` length survivorParams
                                                        in Just (survivorParams !! ix)
                                                 prevScore = bestScore best
-                                            (best', recs', _tr) <- runTrialWith idx rng baseParam best recs
+                                            (best', recs', _tr) <- runTrialWith idx rng baseParam gaParentPool best recs
                                             let survivorsIx' = survivorsIx + 1
                                                 bestScore' = bestScore best'
                                                 stagnant' = if bestScore' > prevScore then 0 else stagnant + 1
@@ -3229,6 +3253,222 @@ perturbMaybeInt v maxDelta rng =
       let (x', rng1) = perturbInt x maxDelta rng
        in (Just x', rng1)
 
+pickValue :: a -> a -> Rng -> (a, Rng)
+pickValue a b rng =
+  let (r, rng1) = nextDouble rng
+   in (if r < 0.5 then a else b, rng1)
+
+pickParentPair :: [TrialParams] -> Rng -> ((TrialParams, TrialParams), Rng)
+pickParentPair parents rng0 =
+  let n = length parents
+      (i, rng1) = nextIntRange 0 (n - 1) rng0
+      (j, rng2) = nextIntRange 0 (n - 1) rng1
+      j' = if j == i then (j + 1) `mod` n else j
+   in ((parents !! i, parents !! j'), rng2)
+
+crossoverTrialParams :: TrialParams -> TrialParams -> Rng -> (TrialParams, Rng)
+crossoverTrialParams a b rng0 =
+  let (tpPlatform', rng1) = pickValue (tpPlatform a) (tpPlatform b) rng0
+      (tpInterval', rng2) = pickValue (tpInterval a) (tpInterval b) rng1
+      (tpBars', rng3) = pickValue (tpBars a) (tpBars b) rng2
+      (tpMethod', rng4) = pickValue (tpMethod a) (tpMethod b) rng3
+      (tpBlendWeight', rng5) = pickValue (tpBlendWeight a) (tpBlendWeight b) rng4
+      (tpPositioning', rng6) = pickValue (tpPositioning a) (tpPositioning b) rng5
+      (tpNormalization', rng7) = pickValue (tpNormalization a) (tpNormalization b) rng6
+      (tpBaseOpenThreshold', rng8) = pickValue (tpBaseOpenThreshold a) (tpBaseOpenThreshold b) rng7
+      (tpBaseCloseThreshold', rng9) = pickValue (tpBaseCloseThreshold a) (tpBaseCloseThreshold b) rng8
+      (tpMinHoldBars', rng10) = pickValue (tpMinHoldBars a) (tpMinHoldBars b) rng9
+      (tpCooldownBars', rng11) = pickValue (tpCooldownBars a) (tpCooldownBars b) rng10
+      (tpMaxHoldBars', rng12) = pickValue (tpMaxHoldBars a) (tpMaxHoldBars b) rng11
+      (tpMinEdge', rng13) = pickValue (tpMinEdge a) (tpMinEdge b) rng12
+      (tpMinSignalToNoise', rng14) = pickValue (tpMinSignalToNoise a) (tpMinSignalToNoise b) rng13
+      (tpThresholdFactorEnabled', rng15) = pickValue (tpThresholdFactorEnabled a) (tpThresholdFactorEnabled b) rng14
+      (tpThresholdFactorAlpha', rng16) = pickValue (tpThresholdFactorAlpha a) (tpThresholdFactorAlpha b) rng15
+      (tpThresholdFactorMin', rng17) = pickValue (tpThresholdFactorMin a) (tpThresholdFactorMin b) rng16
+      (tpThresholdFactorMax', rng18) = pickValue (tpThresholdFactorMax a) (tpThresholdFactorMax b) rng17
+      (tpThresholdFactorFloor', rng19) = pickValue (tpThresholdFactorFloor a) (tpThresholdFactorFloor b) rng18
+      (tpThresholdFactorEdgeKalWeight', rng20) = pickValue (tpThresholdFactorEdgeKalWeight a) (tpThresholdFactorEdgeKalWeight b) rng19
+      (tpThresholdFactorEdgeLstmWeight', rng21) = pickValue (tpThresholdFactorEdgeLstmWeight a) (tpThresholdFactorEdgeLstmWeight b) rng20
+      (tpThresholdFactorKalmanZWeight', rng22) = pickValue (tpThresholdFactorKalmanZWeight a) (tpThresholdFactorKalmanZWeight b) rng21
+      (tpThresholdFactorHighVolWeight', rng23) = pickValue (tpThresholdFactorHighVolWeight a) (tpThresholdFactorHighVolWeight b) rng22
+      (tpThresholdFactorConformalWeight', rng24) = pickValue (tpThresholdFactorConformalWeight a) (tpThresholdFactorConformalWeight b) rng23
+      (tpThresholdFactorQuantileWeight', rng25) = pickValue (tpThresholdFactorQuantileWeight a) (tpThresholdFactorQuantileWeight b) rng24
+      (tpThresholdFactorLstmConfWeight', rng26) = pickValue (tpThresholdFactorLstmConfWeight a) (tpThresholdFactorLstmConfWeight b) rng25
+      (tpThresholdFactorLstmHealthWeight', rng27) = pickValue (tpThresholdFactorLstmHealthWeight a) (tpThresholdFactorLstmHealthWeight b) rng26
+      (tpEdgeBuffer', rng28) = pickValue (tpEdgeBuffer a) (tpEdgeBuffer b) rng27
+      (tpCostAwareEdge', rng29) = pickValue (tpCostAwareEdge a) (tpCostAwareEdge b) rng28
+      (tpTrendLookback', rng30) = pickValue (tpTrendLookback a) (tpTrendLookback b) rng29
+      (tpMaxPositionSize', rng31) = pickValue (tpMaxPositionSize a) (tpMaxPositionSize b) rng30
+      (tpVolTarget', rng32) = pickValue (tpVolTarget a) (tpVolTarget b) rng31
+      (tpVolLookback', rng33) = pickValue (tpVolLookback a) (tpVolLookback b) rng32
+      (tpVolEwmaAlpha', rng34) = pickValue (tpVolEwmaAlpha a) (tpVolEwmaAlpha b) rng33
+      (tpVolFloor', rng35) = pickValue (tpVolFloor a) (tpVolFloor b) rng34
+      (tpVolScaleMax', rng36) = pickValue (tpVolScaleMax a) (tpVolScaleMax b) rng35
+      (tpMaxVolatility', rng37) = pickValue (tpMaxVolatility a) (tpMaxVolatility b) rng36
+      (tpPeriodsPerYear', rng38) = pickValue (tpPeriodsPerYear a) (tpPeriodsPerYear b) rng37
+      (tpKalmanMarketTopN', rng39) = pickValue (tpKalmanMarketTopN a) (tpKalmanMarketTopN b) rng38
+      (tpFee', rng40) = pickValue (tpFee a) (tpFee b) rng39
+      (tpFundingRate', rng41) = pickValue (tpFundingRate a) (tpFundingRate b) rng40
+      (tpFundingBySide', rng42) = pickValue (tpFundingBySide a) (tpFundingBySide b) rng41
+      (tpFundingOnOpen', rng43) = pickValue (tpFundingOnOpen a) (tpFundingOnOpen b) rng42
+      (tpRebalanceBars', rng44) = pickValue (tpRebalanceBars a) (tpRebalanceBars b) rng43
+      (tpRebalanceThreshold', rng45) = pickValue (tpRebalanceThreshold a) (tpRebalanceThreshold b) rng44
+      (tpRebalanceGlobal', rng46) = pickValue (tpRebalanceGlobal a) (tpRebalanceGlobal b) rng45
+      (tpRebalanceResetOnSignal', rng47) = pickValue (tpRebalanceResetOnSignal a) (tpRebalanceResetOnSignal b) rng46
+      (tpEpochs', rng48) = pickValue (tpEpochs a) (tpEpochs b) rng47
+      (tpHiddenSize', rng49) = pickValue (tpHiddenSize a) (tpHiddenSize b) rng48
+      (tpLearningRate', rng50) = pickValue (tpLearningRate a) (tpLearningRate b) rng49
+      (tpValRatio', rng51) = pickValue (tpValRatio a) (tpValRatio b) rng50
+      (tpPatience', rng52) = pickValue (tpPatience a) (tpPatience b) rng51
+      (tpWalkForwardFolds', rng53) = pickValue (tpWalkForwardFolds a) (tpWalkForwardFolds b) rng52
+      (tpTuneStressVolMult', rng54) = pickValue (tpTuneStressVolMult a) (tpTuneStressVolMult b) rng53
+      (tpTuneStressShock', rng55) = pickValue (tpTuneStressShock a) (tpTuneStressShock b) rng54
+      (tpTuneStressWeight', rng56) = pickValue (tpTuneStressWeight a) (tpTuneStressWeight b) rng55
+      (tpGradClip', rng57) = pickValue (tpGradClip a) (tpGradClip b) rng56
+      (tpSlippage', rng58) = pickValue (tpSlippage a) (tpSlippage b) rng57
+      (tpSpread', rng59) = pickValue (tpSpread a) (tpSpread b) rng58
+      (tpIntrabarFill', rng60) = pickValue (tpIntrabarFill a) (tpIntrabarFill b) rng59
+      (tpTriLayer', rng61) = pickValue (tpTriLayer a) (tpTriLayer b) rng60
+      (tpTriLayerFastMult', rng62) = pickValue (tpTriLayerFastMult a) (tpTriLayerFastMult b) rng61
+      (tpTriLayerSlowMult', rng63) = pickValue (tpTriLayerSlowMult a) (tpTriLayerSlowMult b) rng62
+      (tpTriLayerCloudPadding', rng64) = pickValue (tpTriLayerCloudPadding a) (tpTriLayerCloudPadding b) rng63
+      (tpTriLayerCloudSlope', rng65) = pickValue (tpTriLayerCloudSlope a) (tpTriLayerCloudSlope b) rng64
+      (tpTriLayerCloudWidth', rng66) = pickValue (tpTriLayerCloudWidth a) (tpTriLayerCloudWidth b) rng65
+      (tpTriLayerTouchLookback', rng67) = pickValue (tpTriLayerTouchLookback a) (tpTriLayerTouchLookback b) rng66
+      (tpTriLayerPriceAction', rng68) = pickValue (tpTriLayerPriceAction a) (tpTriLayerPriceAction b) rng67
+      (tpTriLayerPriceActionBody', rng69) = pickValue (tpTriLayerPriceActionBody a) (tpTriLayerPriceActionBody b) rng68
+      (tpTriLayerExitOnSlow', rng70) = pickValue (tpTriLayerExitOnSlow a) (tpTriLayerExitOnSlow b) rng69
+      (tpKalmanBandLookback', rng71) = pickValue (tpKalmanBandLookback a) (tpKalmanBandLookback b) rng70
+      (tpKalmanBandStdMult', rng72) = pickValue (tpKalmanBandStdMult a) (tpKalmanBandStdMult b) rng71
+      (tpLstmExitFlipBars', rng73) = pickValue (tpLstmExitFlipBars a) (tpLstmExitFlipBars b) rng72
+      (tpLstmExitFlipGraceBars', rng74) = pickValue (tpLstmExitFlipGraceBars a) (tpLstmExitFlipGraceBars b) rng73
+      (tpLstmExitFlipStrong', rng75) = pickValue (tpLstmExitFlipStrong a) (tpLstmExitFlipStrong b) rng74
+      (tpLstmConfidenceSoft', rng76) = pickValue (tpLstmConfidenceSoft a) (tpLstmConfidenceSoft b) rng75
+      (tpLstmConfidenceHard', rng77) = pickValue (tpLstmConfidenceHard a) (tpLstmConfidenceHard b) rng76
+      (tpStopLoss', rng78) = pickValue (tpStopLoss a) (tpStopLoss b) rng77
+      (tpTakeProfit', rng79) = pickValue (tpTakeProfit a) (tpTakeProfit b) rng78
+      (tpTrailingStop', rng80) = pickValue (tpTrailingStop a) (tpTrailingStop b) rng79
+      (tpStopLossVolMult', rng81) = pickValue (tpStopLossVolMult a) (tpStopLossVolMult b) rng80
+      (tpTakeProfitVolMult', rng82) = pickValue (tpTakeProfitVolMult a) (tpTakeProfitVolMult b) rng81
+      (tpTrailingStopVolMult', rng83) = pickValue (tpTrailingStopVolMult a) (tpTrailingStopVolMult b) rng82
+      (tpMaxDrawdown', rng84) = pickValue (tpMaxDrawdown a) (tpMaxDrawdown b) rng83
+      (tpMaxDailyLoss', rng85) = pickValue (tpMaxDailyLoss a) (tpMaxDailyLoss b) rng84
+      (tpMaxOrderErrors', rng86) = pickValue (tpMaxOrderErrors a) (tpMaxOrderErrors b) rng85
+      (tpKalmanDt', rng87) = pickValue (tpKalmanDt a) (tpKalmanDt b) rng86
+      (tpKalmanProcessVar', rng88) = pickValue (tpKalmanProcessVar a) (tpKalmanProcessVar b) rng87
+      (tpKalmanMeasurementVar', rng89) = pickValue (tpKalmanMeasurementVar a) (tpKalmanMeasurementVar b) rng88
+      (tpKalmanZMin', rng90) = pickValue (tpKalmanZMin a) (tpKalmanZMin b) rng89
+      (tpKalmanZMax', rng91) = pickValue (tpKalmanZMax a) (tpKalmanZMax b) rng90
+      (tpMaxHighVolProb', rng92) = pickValue (tpMaxHighVolProb a) (tpMaxHighVolProb b) rng91
+      (tpMaxConformalWidth', rng93) = pickValue (tpMaxConformalWidth a) (tpMaxConformalWidth b) rng92
+      (tpMaxQuantileWidth', rng94) = pickValue (tpMaxQuantileWidth a) (tpMaxQuantileWidth b) rng93
+      (tpConfirmConformal', rng95) = pickValue (tpConfirmConformal a) (tpConfirmConformal b) rng94
+      (tpConfirmQuantiles', rng96) = pickValue (tpConfirmQuantiles a) (tpConfirmQuantiles b) rng95
+      (tpConfidenceSizing', rng97) = pickValue (tpConfidenceSizing a) (tpConfidenceSizing b) rng96
+      (tpMinPositionSize', rng98) = pickValue (tpMinPositionSize a) (tpMinPositionSize b) rng97
+   in ( TrialParams
+          { tpPlatform = tpPlatform'
+          , tpInterval = tpInterval'
+          , tpBars = tpBars'
+          , tpMethod = tpMethod'
+          , tpBlendWeight = tpBlendWeight'
+          , tpPositioning = tpPositioning'
+          , tpNormalization = tpNormalization'
+          , tpBaseOpenThreshold = tpBaseOpenThreshold'
+          , tpBaseCloseThreshold = tpBaseCloseThreshold'
+          , tpMinHoldBars = tpMinHoldBars'
+          , tpCooldownBars = tpCooldownBars'
+          , tpMaxHoldBars = tpMaxHoldBars'
+          , tpMinEdge = tpMinEdge'
+          , tpMinSignalToNoise = tpMinSignalToNoise'
+          , tpThresholdFactorEnabled = tpThresholdFactorEnabled'
+          , tpThresholdFactorAlpha = tpThresholdFactorAlpha'
+          , tpThresholdFactorMin = tpThresholdFactorMin'
+          , tpThresholdFactorMax = tpThresholdFactorMax'
+          , tpThresholdFactorFloor = tpThresholdFactorFloor'
+          , tpThresholdFactorEdgeKalWeight = tpThresholdFactorEdgeKalWeight'
+          , tpThresholdFactorEdgeLstmWeight = tpThresholdFactorEdgeLstmWeight'
+          , tpThresholdFactorKalmanZWeight = tpThresholdFactorKalmanZWeight'
+          , tpThresholdFactorHighVolWeight = tpThresholdFactorHighVolWeight'
+          , tpThresholdFactorConformalWeight = tpThresholdFactorConformalWeight'
+          , tpThresholdFactorQuantileWeight = tpThresholdFactorQuantileWeight'
+          , tpThresholdFactorLstmConfWeight = tpThresholdFactorLstmConfWeight'
+          , tpThresholdFactorLstmHealthWeight = tpThresholdFactorLstmHealthWeight'
+          , tpEdgeBuffer = tpEdgeBuffer'
+          , tpCostAwareEdge = tpCostAwareEdge'
+          , tpTrendLookback = tpTrendLookback'
+          , tpMaxPositionSize = tpMaxPositionSize'
+          , tpVolTarget = tpVolTarget'
+          , tpVolLookback = tpVolLookback'
+          , tpVolEwmaAlpha = tpVolEwmaAlpha'
+          , tpVolFloor = tpVolFloor'
+          , tpVolScaleMax = tpVolScaleMax'
+          , tpMaxVolatility = tpMaxVolatility'
+          , tpPeriodsPerYear = tpPeriodsPerYear'
+          , tpKalmanMarketTopN = tpKalmanMarketTopN'
+          , tpFee = tpFee'
+          , tpFundingRate = tpFundingRate'
+          , tpFundingBySide = tpFundingBySide'
+          , tpFundingOnOpen = tpFundingOnOpen'
+          , tpRebalanceBars = tpRebalanceBars'
+          , tpRebalanceThreshold = tpRebalanceThreshold'
+          , tpRebalanceGlobal = tpRebalanceGlobal'
+          , tpRebalanceResetOnSignal = tpRebalanceResetOnSignal'
+          , tpEpochs = tpEpochs'
+          , tpHiddenSize = tpHiddenSize'
+          , tpLearningRate = tpLearningRate'
+          , tpValRatio = tpValRatio'
+          , tpPatience = tpPatience'
+          , tpWalkForwardFolds = tpWalkForwardFolds'
+          , tpTuneStressVolMult = tpTuneStressVolMult'
+          , tpTuneStressShock = tpTuneStressShock'
+          , tpTuneStressWeight = tpTuneStressWeight'
+          , tpGradClip = tpGradClip'
+          , tpSlippage = tpSlippage'
+          , tpSpread = tpSpread'
+          , tpIntrabarFill = tpIntrabarFill'
+          , tpTriLayer = tpTriLayer'
+          , tpTriLayerFastMult = tpTriLayerFastMult'
+          , tpTriLayerSlowMult = tpTriLayerSlowMult'
+          , tpTriLayerCloudPadding = tpTriLayerCloudPadding'
+          , tpTriLayerCloudSlope = tpTriLayerCloudSlope'
+          , tpTriLayerCloudWidth = tpTriLayerCloudWidth'
+          , tpTriLayerTouchLookback = tpTriLayerTouchLookback'
+          , tpTriLayerPriceAction = tpTriLayerPriceAction'
+          , tpTriLayerPriceActionBody = tpTriLayerPriceActionBody'
+          , tpTriLayerExitOnSlow = tpTriLayerExitOnSlow'
+          , tpKalmanBandLookback = tpKalmanBandLookback'
+          , tpKalmanBandStdMult = tpKalmanBandStdMult'
+          , tpLstmExitFlipBars = tpLstmExitFlipBars'
+          , tpLstmExitFlipGraceBars = tpLstmExitFlipGraceBars'
+          , tpLstmExitFlipStrong = tpLstmExitFlipStrong'
+          , tpLstmConfidenceSoft = tpLstmConfidenceSoft'
+          , tpLstmConfidenceHard = tpLstmConfidenceHard'
+          , tpStopLoss = tpStopLoss'
+          , tpTakeProfit = tpTakeProfit'
+          , tpTrailingStop = tpTrailingStop'
+          , tpStopLossVolMult = tpStopLossVolMult'
+          , tpTakeProfitVolMult = tpTakeProfitVolMult'
+          , tpTrailingStopVolMult = tpTrailingStopVolMult'
+          , tpMaxDrawdown = tpMaxDrawdown'
+          , tpMaxDailyLoss = tpMaxDailyLoss'
+          , tpMaxOrderErrors = tpMaxOrderErrors'
+          , tpKalmanDt = tpKalmanDt'
+          , tpKalmanProcessVar = tpKalmanProcessVar'
+          , tpKalmanMeasurementVar = tpKalmanMeasurementVar'
+          , tpKalmanZMin = tpKalmanZMin'
+          , tpKalmanZMax = tpKalmanZMax'
+          , tpMaxHighVolProb = tpMaxHighVolProb'
+          , tpMaxConformalWidth = tpMaxConformalWidth'
+          , tpMaxQuantileWidth = tpMaxQuantileWidth'
+          , tpConfirmConformal = tpConfirmConformal'
+          , tpConfirmQuantiles = tpConfirmQuantiles'
+          , tpConfidenceSizing = tpConfidenceSizing'
+          , tpMinPositionSize = tpMinPositionSize'
+          }
+      , rng98
+      )
+
 perturbTrialParams :: Double -> Int -> TrialParams -> Rng -> (TrialParams, Rng)
 perturbTrialParams scaleDouble scaleInt p rng0 =
   let (bars', rng1) = perturbInt (tpBars p) scaleInt rng0
@@ -3402,7 +3642,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
         case metrics of
           Just m -> Object m
           Nothing -> Null
-      symbol = normalizeSymbol symbolLabel
+      symbol = symbolLabel >>= sanitizeSymbolForPlatform (tpPlatform params)
       source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
       paramsValue =
         object
@@ -3493,9 +3733,18 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
           , "minPositionSize" .= tpMinPositionSize params
           , "binanceSymbol" .= symbol
           ]
+      identity =
+        object
+          [ "params" .= paramsValue
+          , "openThreshold" .= trOpenThreshold tr
+          , "closeThreshold" .= trCloseThreshold tr
+          , "objective" .= trObjective tr
+          ]
+      comboUuid = comboUuidFromValue identity
       combo =
         object
-          [ "rank" .= rank
+          [ "uuid" .= comboUuid
+          , "rank" .= rank
           , "createdAtMs" .= createdAtMs
           , "finalEquity" .= trFinalEquity tr
           , "objective" .= trObjective tr
@@ -3515,3 +3764,23 @@ addField key value val =
   case val of
     Object obj -> Object (KM.insert (Key.fromString key) value obj)
     _ -> val
+
+comboUuidFromValue :: Value -> String
+comboUuidFromValue val =
+  formatUuidFromHex (hashBytesHex (encodePretty val))
+
+formatUuidFromHex :: String -> String
+formatUuidFromHex hex =
+  let h = take 32 hex
+      seg1 = take 8 h
+      seg2 = take 4 (drop 8 h)
+      seg3 = take 4 (drop 12 h)
+      seg4 = take 4 (drop 16 h)
+      seg5 = take 12 (drop 20 h)
+   in intercalate "-" [seg1, seg2, seg3, seg4, seg5]
+
+hashBytesHex :: BL.ByteString -> String
+hashBytesHex bs =
+  let digest :: Digest SHA256
+      digest = hash (BL.toStrict bs)
+   in BS8.unpack (B16.encode (convert digest))
