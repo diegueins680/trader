@@ -30,9 +30,9 @@
   --dock-gap: 16px;
   --dock-width: min(1200px, calc(100% - 32px));
   --dock-top-height: clamp(260px, 36vh, 480px);
-  --dock-top-height-collapsed: clamp(140px, 20vh, 190px);
+  --dock-top-height-collapsed: clamp(96px, 14vh, 140px);
   --dock-bottom-height: clamp(220px, 30vh, 420px);
-  --dock-bottom-height-collapsed: clamp(96px, 16vh, 150px);
+  --dock-bottom-height-collapsed: clamp(72px, 12vh, 120px);
   --card-maximized-body-offset: 140px;
   --dock-main-height: max(
     220px,
@@ -213,6 +213,21 @@ textarea {
   justify-content: space-between;
   gap: 16px;
   padding: 18px 20px;
+}
+
+.headerCard:not([open]) .headerSummary {
+  padding: 10px 14px;
+  gap: 10px;
+}
+
+.headerCard:not([open]) .logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+
+.headerCard:not([open]) .title h1 {
+  font-size: 16px;
 }
 
 .headerActions {
@@ -415,6 +430,23 @@ textarea {
   background: var(--surface-subtle);
 }
 
+.configPanel:not([open]) .configPanelHeader {
+  padding: 8px 12px;
+  gap: 8px;
+}
+
+.configPanel:not([open]) .configPanelSubtitle {
+  display: none;
+}
+
+.configPanel:not([open]) .configPanelControl,
+.configPanel:not([open]) .configPanelHandle,
+.configPanel:not([open]) .configPanelToggle {
+  padding: 3px 8px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
 .configPanelSummary {
   list-style: none;
   cursor: pointer;
@@ -572,9 +604,9 @@ textarea {
     --dock-gap: 12px;
     --dock-width: calc(100% - 24px);
     --dock-top-height: clamp(240px, 40vh, 440px);
-    --dock-top-height-collapsed: clamp(150px, 26vh, 210px);
+    --dock-top-height-collapsed: clamp(104px, 18vh, 160px);
     --dock-bottom-height: clamp(200px, 28vh, 360px);
-    --dock-bottom-height-collapsed: clamp(84px, 18vh, 140px);
+    --dock-bottom-height-collapsed: clamp(64px, 14vh, 120px);
     --card-maximized-body-offset: 156px;
     --dock-main-height: max(
       200px,
@@ -771,7 +803,22 @@ body.panelMaximized .cardMaximized {
 }
 
 .cardCollapsible:not([open]) .cardHeader {
-  padding-bottom: 18px;
+  padding: 10px 14px;
+}
+
+.cardCollapsible:not([open]) .cardHeaderText {
+  gap: 2px;
+}
+
+.cardCollapsible:not([open]) .cardSubtitle {
+  display: none;
+}
+
+.cardCollapsible:not([open]) .cardControl,
+.cardCollapsible:not([open]) .cardToggle {
+  padding: 4px 8px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
 }
 
 .cardControls {

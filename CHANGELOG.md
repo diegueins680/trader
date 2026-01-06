@@ -33,6 +33,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: keep live bot panels from flickering by reusing the last status and bot list until fresh status arrives (including while bots are starting).
 - Web UI: remember API fallback preferences and CORS-blocked fallback hosts to reduce repeated `/api` 502/CORS errors.
 - Web UI: make code/log panels more opaque so background content does not bleed through.
+- Optimizer: drop `top-combos.json` entries with `finalEquity <= 1` when writing (persisting the filtered list to S3 when configured).
 - Web UI: keep Live bot, per-bot, and optimizer combo panels scrollable so docked panels stay visible while viewing long content.
 - Web UI: fix docked optimizer combos panel scrolling so the combos list stays reachable.
 - Web UI: fix docked Live bot panel scrolling so long content stays reachable.
@@ -122,6 +123,7 @@ All notable changes to this project will be documented in this file.
 - API: `/signal` endpoints now validate request parameters the same way as CLI invocations.
 - Web UI: add Binance account trades panel powered by `/binance/trades`.
 - Web UI: keep the live bot symbol selection stable so auto-start updates don't override your chosen view.
+- Web UI: shrink collapsed/minimized cards so docked panels stay compact.
 - Web UI: add an open positions panel with charts for every Binance futures position.
 - Web UI: orphaned operations panel now matches by market + hedge side and labels orphan reasons (market mismatch, stopped, trading disabled, side mismatch).
 - Web UI: orphaned operations treat starting bots as adopted while they initialize.

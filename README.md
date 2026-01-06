@@ -503,6 +503,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
 - When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained, and history snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
+- `top-combos.json` drops combos with `finalEquity <= 1` on write (and persists the filtered file to S3 when configured).
 
 Optional daily top-combo backtests (refreshes metrics for the best performers):
 - `TRADER_TOP_COMBOS_BACKTEST_ENABLED` (default: `true`) enable daily refreshes of the top combos (plus per-candle attempts while a live bot is running).
@@ -713,7 +714,7 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` requi
 - Quick deploy uploads `trader-config.js` with no-cache headers so updated API tokens take effect without browser hard refreshes.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
-The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize each buy/sell operation on the selected bot chart (supports long/short on futures). The selected bot stays sticky even when auto-start refreshes the top-combo bot list. It includes live/offline timeline charts with start/end controls when ops persistence is enabled: the selected bot shows the full timeline in a compact-height chart so controls stay visible, and each running bot card shows an even shorter mini timeline. The chart reflects the available ops history and warns when the selected range extends beyond it.
+The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize each buy/sell operation on the selected bot chart (supports long/short on futures). The selected bot stays sticky even when auto-start refreshes the top-combo bot list. Collapsed/minimized cards shrink to a compact header to keep the dock tight. It includes live/offline timeline charts with start/end controls when ops persistence is enabled: the selected bot shows the full timeline in a compact-height chart so controls stay visible, and each running bot card shows an even shorter mini timeline. The chart reflects the available ops history and warns when the selected range extends beyond it.
 When trading is armed, the UI blocks live bot start until Binance keys are provided or verified via “Check keys” (otherwise switch to paper mode).
 When starting multi-symbol live bots, the UI uses the first bot symbol as the request symbol so `/bot/start` validation succeeds even if the main Symbol field is empty.
 Optimizer combos are clamped to the API compute limits reported by `/health` when available.
