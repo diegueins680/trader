@@ -4,6 +4,10 @@ RUN sed -i 's|deb.debian.org/debian|archive.debian.org/debian|g' /etc/apt/source
   && sed -i 's|security.debian.org/debian-security|archive.debian.org/debian-security|g' /etc/apt/sources.list \
   && sed -i '/buster-updates/d' /etc/apt/sources.list \
   && apt-get -o Acquire::Check-Valid-Until=false update \
+  && apt-get install -y --no-install-recommends ca-certificates gnupg wget \
+  && wget -qO - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg \
+  && echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt buster-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+  && apt-get -o Acquire::Check-Valid-Until=false update \
   && apt-get install -y --no-install-recommends libpq-dev pkg-config \
   && rm -rf /var/lib/apt/lists/*
 
