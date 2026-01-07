@@ -43,7 +43,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: remember API fallback preferences and CORS-blocked fallback hosts to reduce repeated `/api` 502/CORS errors.
 - Web UI: make code/log panels more opaque so background content does not bleed through.
 - Optimizer: drop `top-combos.json` entries with `finalEquity <= 1` on read/write (including numeric strings), persisting the filtered list to S3 when configured.
-- Optimizer: sanitize combo symbols to valid exchange formats when writing/merging top-combos, and clean stored combo files on read/write.
+- Optimizer: normalize combo symbols for Binance (strip separators like `BTC/USDT` → `BTCUSDT`) and clean stored combo files on read/write.
 - Web UI: keep Live bot, per-bot, and optimizer combo panels scrollable so docked panels stay visible while viewing long content.
 - Web UI: fix docked optimizer combos panel scrolling so the combos list stays reachable.
 - Web UI: fix docked Live bot panel scrolling so long content stays reachable.
@@ -167,6 +167,7 @@ All notable changes to this project will be documented in this file.
 - Backtests: validate open timestamp vectors against closes to avoid misaligned day boundaries.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.
+- Web UI: fall back to platform default symbols when saved symbols are missing/invalid, and highlight trade-test skip reasons.
 - Web UI: live bot controls support multi-symbol start/stop and per-bot selection.
 - Web UI: block live bot start when trading is armed but Binance keys are missing or unverified (use Check keys or switch to paper mode).
 - Web UI: ensure live bot starts include a primary symbol when using multi-symbol requests so `/bot/start` validation succeeds.

@@ -11702,7 +11702,7 @@ export function App() {
                 ) : null}
                 {keysSigned ? <span className="badge">Signed: {keysSigned.ok ? "OK" : "FAIL"}</span> : null}
                 {keysTradeTest ? (
-                  <span className="badge">
+                  <span className={keysTradeTest.skipped ? "badge badgeWarn" : "badge"}>
                     Trade:{" "}
                     {form.market === "margin"
                       ? "N/A"
@@ -11714,6 +11714,11 @@ export function App() {
                   </span>
                 ) : null}
               </div>
+              {keysTradeTest?.skipped ? (
+                <div className="issueItem" style={{ marginBottom: 10 }}>
+                  <span>{keysTradeTest.summary}</span>
+                </div>
+              ) : null}
               {!isBinancePlatform ? (
                 <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)", marginBottom: 10 }}>
                   {isCoinbasePlatform

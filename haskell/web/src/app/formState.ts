@@ -1,5 +1,5 @@
 import type { IntrabarFill, Market, Method, Normalization, Platform, Positioning } from "../lib/types";
-import { BINANCE_INTERVAL_SECONDS, PLATFORM_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
+import { BINANCE_INTERVAL_SECONDS, PLATFORM_DEFAULT_SYMBOL, PLATFORM_INTERVAL_SET, TUNE_OBJECTIVE_SET } from "./constants";
 import { clamp } from "./utils";
 
 export type FormState = {
@@ -219,6 +219,25 @@ export function platformIntervalSeconds(platform: Platform, interval: string): n
   return parseDurationSeconds(interval);
 }
 
+function symbolFormatPattern(platform: Platform): RegExp {
+  switch (platform) {
+    case "coinbase":
+      return /^[A-Z0-9]+-[A-Z0-9]+$/;
+    case "poloniex":
+      return /^[A-Z0-9]+_[A-Z0-9]+$/;
+    case "binance":
+    case "kraken":
+    default:
+      return /^[A-Z0-9]{3,30}$/;
+  }
+}
+
+function normalizeSymbol(raw: unknown, platform: Platform, fallback: string): string {
+  const s = typeof raw === "string" ? raw.trim().toUpperCase() : "";
+  if (!s) return fallback;
+  return symbolFormatPattern(platform).test(s) ? s : fallback;
+}
+
 export function parseDurationSeconds(raw: string): number | null {
   const s = raw.trim();
   const m = /^(\d+)([A-Za-z])$/.exec(s);
@@ -333,11 +352,14 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   );
   const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
   const platform = normalizePlatform(rawRec.platform ?? merged.platform, defaultForm.platform);
+  const symbolFallback = PLATFORM_DEFAULT_SYMBOL[platform] ?? defaultForm.binanceSymbol;
+  const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform, symbolFallback);
   const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
   return {
     ...mergedNoLegacy,
     botSymbols,
     platform,
+    binanceSymbol,
     interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, defaultForm.interval),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
     lookbackWindow: normalizeLookbackWindow(raw?.lookbackWindow ?? merged.lookbackWindow, defaultForm.lookbackWindow),
