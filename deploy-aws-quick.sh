@@ -86,9 +86,9 @@ Usage:
 Flags:
   --region <region>                 AWS region (e.g. ap-northeast-1)
   --api-token <token>               API token (TRADER_API_TOKEN)
-  --db-url <url>                    Database URL for ops/combo persistence (TRADER_DB_URL / DATABASE_URL)
+  --db-url <url>                    Database URL for ops persistence (TRADER_DB_URL / DATABASE_URL)
   --state-dir <path>                State dir (default: /var/lib/trader/state; mount durable storage)
-  --state-s3-bucket <bucket>        S3 bucket for App Runner state (required for API deploys)
+  --state-s3-bucket <bucket>        S3 bucket for App Runner state (required unless TRADER_DB_URL is set)
   --state-s3-prefix <prefix>        S3 key prefix for state (TRADER_STATE_S3_PREFIX)
   --state-s3-region <region>        S3 region override (TRADER_STATE_S3_REGION)
   --instance-role-arn <arn>         App Runner instance role ARN (for S3 access)
@@ -1591,18 +1591,17 @@ main() {
     fi
   fi
 
-  if [[ "$DEPLOY_API" == "true" && -z "${TRADER_STATE_S3_BUCKET:-}" ]] && is_true "$ENSURE_RESOURCES"; then
+  if [[ "$DEPLOY_API" == "true" && -z "${TRADER_STATE_S3_BUCKET:-}" && -z "${TRADER_DB_URL:-}" ]] && is_true "$ENSURE_RESOURCES"; then
     ensure_account_id
     TRADER_STATE_S3_BUCKET="trader-api-state-${AWS_ACCOUNT_ID}-${AWS_REGION}"
     echo -e "${YELLOW}✓ Using default state bucket: ${TRADER_STATE_S3_BUCKET}${NC}" >&2
   fi
-  if [[ "$DEPLOY_API" == "true" && -z "${TRADER_STATE_S3_BUCKET:-}" ]]; then
-    echo -e "${RED}✗ Missing TRADER_STATE_S3_BUCKET. State persistence is required for API deploys; pass --state-s3-bucket or enable --ensure-resources to create a default bucket.${NC}" >&2
+  if [[ "$DEPLOY_API" == "true" && -z "${TRADER_STATE_S3_BUCKET:-}" && -z "${TRADER_DB_URL:-}" ]]; then
+    echo -e "${RED}✗ Missing TRADER_STATE_S3_BUCKET or TRADER_DB_URL. Persistence is required for API deploys; pass --state-s3-bucket, --db-url, or enable --ensure-resources to create a default bucket.${NC}" >&2
     exit 2
   fi
-  if [[ "$DEPLOY_API" == "true" && -z "${TRADER_DB_URL:-}" ]]; then
-    echo -e "${RED}✗ Missing TRADER_DB_URL. Database persistence is required for ops/combo history; pass --db-url or set TRADER_DB_URL/DATABASE_URL.${NC}" >&2
-    exit 2
+  if [[ "$DEPLOY_API" == "true" && -n "${TRADER_DB_URL:-}" && -z "${TRADER_STATE_S3_BUCKET:-}" ]]; then
+    echo -e "${YELLOW}⚠ TRADER_DB_URL set without TRADER_STATE_S3_BUCKET; bot snapshots and top-combos will not persist across deploys.${NC}" >&2
   fi
 
   if [[ -n "${TRADER_STATE_S3_BUCKET:-}" && -z "${TRADER_STATE_S3_REGION:-}" ]]; then
