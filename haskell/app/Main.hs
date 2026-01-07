@@ -141,7 +141,7 @@ import Trader.Predictors.Types
   , predictorSetToList
   )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
-import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
+import Trader.Symbol (commonQuotes, sanitizeSymbolForPlatform, splitSymbol)
 import Trader.Method (Method(..), methodCode, parseMethod, selectPredictions)
 import Trader.Optimization
   ( TuneConfig(..)
@@ -3111,9 +3111,13 @@ applyLatestTopCombo optimizerTmp limits sym args req = do
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =
-  case topComboParamString "platform" combo of
-    Just p | normalizeKey p /= "binance" -> Nothing
-    _ -> topComboParamString "binanceSymbol" combo <|> topComboParamString "symbol" combo
+  let platformRaw =
+        topComboParamString "platform" combo
+          <|> topComboParamString "source" combo
+      symbolRaw = topComboParamString "binanceSymbol" combo <|> topComboParamString "symbol" combo
+   in case normalizeComboPlatform platformRaw of
+        Just key | not (isBinancePlatformKey key) -> Nothing
+        _ -> symbolRaw >>= sanitizeComboSymbol platformRaw
 
 dedupeTopComboTargets :: [(String, TopCombo)] -> [(String, TopCombo)]
 dedupeTopComboTargets targets =
@@ -5057,9 +5061,7 @@ backtestTopCombosOnce topNRaw ctx = do
                 recordError "optimizer.combos.backtest_failed" err Nothing Nothing
                 pure Nothing
               Aeson.Success combo -> do
-                let mSymbol =
-                      topComboParamString "binanceSymbol" combo
-                        <|> topComboParamString "symbol" combo
+                let mSymbol = topComboSymbol combo
                     mInterval = topComboParamString "interval" combo
                     mPlatformRaw = topComboParamString "platform" combo
                     platformOrErr =
@@ -8600,6 +8602,42 @@ comboEquityAboveOne val =
 valueStringMaybe :: Aeson.Value -> Maybe String
 valueStringMaybe = AT.parseMaybe parseJSON
 
+normalizeComboPlatform :: Maybe String -> Maybe String
+normalizeComboPlatform raw =
+  case raw of
+    Nothing -> Nothing
+    Just v ->
+      let key = normalizeKey v
+       in if null key then Nothing else Just key
+
+isBinancePlatformKey :: String -> Bool
+isBinancePlatformKey key = key == "binance" || "binance" `isPrefixOf` key
+
+isCoinbasePlatformKey :: String -> Bool
+isCoinbasePlatformKey key = key == "coinbase" || "coinbase" `isPrefixOf` key
+
+isPoloniexPlatformKey :: String -> Bool
+isPoloniexPlatformKey key = key == "poloniex" || "poloniex" `isPrefixOf` key
+
+sanitizeBinanceComboSymbol :: String -> Maybe String
+sanitizeBinanceComboSymbol raw =
+  let cleaned = map toUpper (filter isAlphaNum raw)
+      len = length cleaned
+   in if len < 3 || len > 30
+        then Nothing
+        else if cleaned `elem` commonQuotes
+          then Nothing
+          else Just cleaned
+
+sanitizeComboSymbol :: Maybe String -> String -> Maybe String
+sanitizeComboSymbol platform raw =
+  case normalizeComboPlatform platform of
+    Just key | isCoinbasePlatformKey key -> sanitizeSymbolForPlatform (Just "coinbase") raw
+    Just key | isPoloniexPlatformKey key -> sanitizeSymbolForPlatform (Just "poloniex") raw
+    Just key | isBinancePlatformKey key ->
+      sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform (Just "binance") raw
+    _ -> sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform platform raw
+
 sanitizeComboSymbolValue :: Aeson.Value -> (Aeson.Value, Bool)
 sanitizeComboSymbolValue val =
   case val of
@@ -8609,15 +8647,15 @@ sanitizeComboSymbolValue val =
           let platform =
                 (KM.lookup (AK.fromString "platform") params >>= valueStringMaybe)
                   <|> (KM.lookup (AK.fromString "source") comboObj >>= valueStringMaybe)
-              symbolRaw =
-                (KM.lookup (AK.fromString "binanceSymbol") params >>= valueStringMaybe)
-                  <|> (KM.lookup (AK.fromString "symbol") params >>= valueStringMaybe)
-              hadBinance = KM.member (AK.fromString "binanceSymbol") params
-              hadSymbol = KM.member (AK.fromString "symbol") params
-              hasSymbolField = hadBinance || hadSymbol
-              sanitized = symbolRaw >>= sanitizeSymbolForPlatform platform
-              params' =
-                case sanitized of
+            symbolRaw =
+              (KM.lookup (AK.fromString "binanceSymbol") params >>= valueStringMaybe)
+                <|> (KM.lookup (AK.fromString "symbol") params >>= valueStringMaybe)
+            hadBinance = KM.member (AK.fromString "binanceSymbol") params
+            hadSymbol = KM.member (AK.fromString "symbol") params
+            hasSymbolField = hadBinance || hadSymbol
+            sanitized = symbolRaw >>= sanitizeComboSymbol platform
+            params' =
+              case sanitized of
                   Just sym ->
                     let params1 =
                           if hadBinance
@@ -8848,7 +8886,7 @@ topComboTradePriorityKey combo =
 topComboMatchesSymbol :: String -> Maybe String -> TopCombo -> Bool
 topComboMatchesSymbol symRaw mInterval combo =
   let sym = normalizeSymbol symRaw
-      comboSym = topComboParamString "binanceSymbol" combo <|> topComboParamString "symbol" combo
+      comboSym = topComboSymbol combo
       symOk = maybe False (\s -> normalizeSymbol s == sym) comboSym
       intervalOk =
         case mInterval of
@@ -8857,11 +8895,7 @@ topComboMatchesSymbol symRaw mInterval combo =
             case topComboParamString "interval" combo of
               Nothing -> True
               Just v -> v == interval
-      platformOk =
-        case topComboParamString "platform" combo of
-          Nothing -> True
-          Just p -> normalizeKey p == "binance"
-   in symOk && intervalOk && platformOk
+   in symOk && intervalOk
 
 bestTopComboFromList :: [TopCombo] -> Maybe TopCombo
 bestTopComboFromList combos =
