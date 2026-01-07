@@ -6068,6 +6068,7 @@ runRestApi baseArgs mWebhook = do
   mCommit <- getBuildCommit
   let buildInfo = BuildInfo traderVersion mCommit
   apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
+  corsConfig <- resolveCorsConfig
   timeoutEnv <- lookupEnv "TRADER_API_TIMEOUT_SEC"
   maxAsyncRunningEnv <- lookupEnv "TRADER_API_MAX_ASYNC_RUNNING"
   maxBacktestRunningEnv <- lookupEnv "TRADER_API_MAX_BACKTEST_RUNNING"
@@ -6174,6 +6175,9 @@ runRestApi baseArgs mWebhook = do
         (arlMaxOptimizerOutputBytes reqLimits)
         (arlMaxBotStatusTail reqLimits)
     )
+  case ccAllowedOrigin corsConfig of
+    Nothing -> putStrLn "CORS: disabled (set TRADER_CORS_ORIGIN to allow a specific origin)"
+    Just origin -> putStrLn ("CORS: allowed origin " ++ BS.unpack origin)
   apiCache <- newApiCache cacheMaxEntries cacheTtlMs
   putStrLn
     ( printf
@@ -6244,7 +6248,7 @@ runRestApi baseArgs mWebhook = do
   hFlush stdout
   res <-
     ( try
-        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken bot metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
         IO (Either IOException ())
     )
   case res of
@@ -6260,13 +6264,41 @@ runRestApi baseArgs mWebhook = do
             )
         )
 
-corsHeaders :: ResponseHeaders
-corsHeaders =
-  [ ("Access-Control-Allow-Origin", "*")
-  , ("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-  , ("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key")
-  , ("Access-Control-Max-Age", "86400")
-  ]
+data CorsConfig = CorsConfig
+  { ccAllowedOrigin :: !(Maybe BS.ByteString)
+  }
+
+resolveCorsConfig :: IO CorsConfig
+resolveCorsConfig = do
+  mOriginEnv <- lookupEnv "TRADER_CORS_ORIGIN"
+  let mOriginText = normalizeMaybeText (T.pack <$> mOriginEnv)
+      mOriginClean = fmap (T.dropWhileEnd (== '/')) mOriginText
+      mOrigin = TE.encodeUtf8 <$> mOriginClean
+  pure (CorsConfig mOrigin)
+
+corsHeadersFor :: CorsConfig -> Wai.Request -> ResponseHeaders
+corsHeadersFor cors req =
+  let base =
+        [ ("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        , ("Access-Control-Allow-Headers", "Authorization,Content-Type,X-API-Key")
+        , ("Access-Control-Max-Age", "86400")
+        ]
+      mAllowed =
+        case ccAllowedOrigin cors of
+          Nothing -> Nothing
+          Just "*" -> Just "*"
+          Just allowed ->
+            case lookup "Origin" (Wai.requestHeaders req) of
+              Just origin | origin == allowed -> Just allowed
+              _ -> Nothing
+      extra =
+        case mAllowed of
+          Nothing -> []
+          Just origin ->
+            if origin == "*"
+              then [("Access-Control-Allow-Origin", origin)]
+              else [("Access-Control-Allow-Origin", origin), ("Vary", "Origin")]
+   in extra ++ base
 
 noCacheHeaders :: ResponseHeaders
 noCacheHeaders =
@@ -6276,8 +6308,8 @@ noCacheHeaders =
   , ("Vary", "Authorization, X-API-Key")
   ]
 
-withCors :: Wai.Response -> Wai.Response
-withCors = Wai.mapResponseHeaders (\hs -> corsHeaders ++ hs)
+withCors :: CorsConfig -> Wai.Request -> Wai.Response -> Wai.Response
+withCors cors req = Wai.mapResponseHeaders (\hs -> corsHeadersFor cors req ++ hs)
 
 data CacheEntry a = CacheEntry
   { ceCreatedAtMs :: !Int64
@@ -7165,6 +7197,7 @@ apiApp ::
   BuildInfo ->
   Args ->
   Maybe BS.ByteString ->
+  CorsConfig ->
   BotController ->
   Metrics ->
   Maybe Journal ->
@@ -7180,7 +7213,7 @@ apiApp ::
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot optimizerTmp req respond = do
   startMs <- getTimestampMs
   let rawPath = Wai.pathInfo req
       path =
@@ -7201,7 +7234,7 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotSt
         when shouldLog $
           putStrLn (printf "Request %s %s -> %d (%dms)" method pathLabel code durMs)
         respond resp
-      respondCors = respondLogged . withCors
+      respondCors = respondLogged . withCors corsConfig req
       label =
         case path of
           ["signal", "async", _, "cancel"] -> "signal/async/:jobId/cancel"
@@ -7222,7 +7255,7 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotSt
              in go path
 
   case Wai.requestMethod req of
-    "OPTIONS" -> respondLogged (Wai.responseLBS status204 corsHeaders "")
+    "OPTIONS" -> respondLogged (Wai.responseLBS status204 (corsHeadersFor corsConfig req) "")
     _ -> do
       metricsIncEndpoint metrics label
       if path /= ["health"] && not (authorized apiToken req)
@@ -10341,6 +10374,7 @@ computeBinanceKeysStatusFromArgs mOps args = do
       hasApiSecret = maybe False (not . null . trim) apiSecret
       market = argBinanceMarket args
       sym = argBinanceSymbol args
+      mSym = normalizeBinanceSymbolForKeys sym
       baseStatus =
         ApiBinanceKeysStatus
           { abkMarket = marketCode market
@@ -10356,14 +10390,14 @@ computeBinanceKeysStatusFromArgs mOps args = do
     then pure baseStatus
     else do
       env <- makeBinanceEnv mOps args
-      sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure sym
       signedProbe <-
         probeBinance "signed" $ do
           case market of
             MarketFutures -> do
-              _ <- fetchFuturesPositionAmt env sym'
+              _ <- fetchFuturesPositionRisks env
               pure ()
             _ -> do
+              sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure mSym
               let (baseAsset, _) = splitSymbol sym'
               _ <- fetchFreeBalance env baseAsset
               pure ()
@@ -10371,92 +10405,98 @@ computeBinanceKeysStatusFromArgs mOps args = do
       tradeProbe <-
         case market of
           MarketMargin -> pure Nothing
-          MarketSpot -> do
-            let qty =
-                  case argOrderQuantity args of
-                    Just q | q > 0 -> Just q
-                    _ -> Nothing
-                qqArg =
-                  case argOrderQuote args of
-                    Just q | q > 0 -> Just q
-                    _ -> Nothing
-            qq <-
-              case (qty, qqArg, argOrderQuoteFraction args) of
-                (Nothing, Nothing, Just f) | f > 0 -> do
-                  let (_baseAsset, quoteAsset) = splitSymbol sym'
-                  quoteBal <- fetchFreeBalance env quoteAsset
-                  let q0 = quoteBal * f
-                      q1 =
-                        let mCap =
-                              case argMaxOrderQuote args of
-                                Just q | q > 0 -> Just q
-                                _ -> Nothing
-                         in maybe q0 (\capQ -> min capQ q0) mCap
-                  pure (if q1 > 0 then Just q1 else Nothing)
-                _ -> pure qqArg
-            if qty == Nothing && qq == Nothing
-              then pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
-              else do
-                mFilters <- fetchFilters env sym'
-                case qty of
-                  Nothing ->
-                    case qq of
-                      Nothing -> pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
-                      Just qq0 ->
-                        case validateProbeQuote mFilters qq0 of
-                          Left e -> pure (Just (mkSkippedProbe "order/test" e))
-                          Right () ->
-                            Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym' Buy qty (Just qq0) Nothing (trim <$> argIdempotencyKey args) >> pure ())
-                  Just qRaw -> do
-                    mPrice <- fetchPriceIfNeeded env sym' mFilters
-                    case normalizeProbeQty mFilters mPrice qRaw of
-                      Left e -> pure (Just (mkSkippedProbe "order/test" e))
-                      Right q -> Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) qq Nothing (trim <$> argIdempotencyKey args) >> pure ())
-          MarketFutures -> do
-            let qtyFromArgs =
-                  case argOrderQuantity args of
-                    Just q | q > 0 -> Just q
-                    _ -> Nothing
-            case qtyFromArgs of
-              Just qRaw -> do
-                mFilters <- fetchFilters env sym'
-                mPrice <- fetchPriceIfNeeded env sym' mFilters
-                case normalizeProbeQty mFilters mPrice qRaw of
-                  Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
-                  Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
-              Nothing -> do
+          MarketSpot ->
+            case mSym of
+              Nothing -> pure (Just (mkSkippedProbe "order/test" missingSymbolMsg))
+              Just sym'' -> do
+                let qty =
+                      case argOrderQuantity args of
+                        Just q | q > 0 -> Just q
+                        _ -> Nothing
+                    qqArg =
+                      case argOrderQuote args of
+                        Just q | q > 0 -> Just q
+                        _ -> Nothing
                 qq <-
-                  case argOrderQuote args of
-                    Just qq | qq > 0 -> pure (Just qq)
-                    _ ->
-                      case argOrderQuoteFraction args of
-                        Just f | f > 0 -> do
-                          let (_baseAsset, quoteAsset) = splitSymbol sym'
-                          bal <- fetchFuturesAvailableBalance env quoteAsset
-                          let q0 = bal * f
-                              q1 =
-                                let mCap =
-                                      case argMaxOrderQuote args of
-                                        Just q | q > 0 -> Just q
-                                        _ -> Nothing
-                                 in maybe q0 (\capQ -> min capQ q0) mCap
-                          pure (if q1 > 0 then Just q1 else Nothing)
-                        _ -> pure Nothing
-                case qq of
-                  Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSizingMsg))
-                  Just qq0 -> do
-                    mFilters <- fetchFilters env sym'
-                    case validateProbeQuote mFilters qq0 of
+                  case (qty, qqArg, argOrderQuoteFraction args) of
+                    (Nothing, Nothing, Just f) | f > 0 -> do
+                      let (_baseAsset, quoteAsset) = splitSymbol sym''
+                      quoteBal <- fetchFreeBalance env quoteAsset
+                      let q0 = quoteBal * f
+                          q1 =
+                            let mCap =
+                                  case argMaxOrderQuote args of
+                                    Just q | q > 0 -> Just q
+                                    _ -> Nothing
+                             in maybe q0 (\capQ -> min capQ q0) mCap
+                      pure (if q1 > 0 then Just q1 else Nothing)
+                    _ -> pure qqArg
+                if qty == Nothing && qq == Nothing
+                  then pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
+                  else do
+                    mFilters <- fetchFilters env sym''
+                    case qty of
+                      Nothing ->
+                        case qq of
+                          Nothing -> pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
+                          Just qq0 ->
+                            case validateProbeQuote mFilters qq0 of
+                              Left e -> pure (Just (mkSkippedProbe "order/test" e))
+                              Right () ->
+                                Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym'' Buy qty (Just qq0) Nothing (trim <$> argIdempotencyKey args) >> pure ())
+                      Just qRaw -> do
+                        mPrice <- fetchPriceIfNeeded env sym'' mFilters
+                        case normalizeProbeQty mFilters mPrice qRaw of
+                          Left e -> pure (Just (mkSkippedProbe "order/test" e))
+                          Right q -> Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym'' Buy (Just q) qq Nothing (trim <$> argIdempotencyKey args) >> pure ())
+          MarketFutures ->
+            case mSym of
+              Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSymbolMsg))
+              Just sym'' -> do
+                let qtyFromArgs =
+                      case argOrderQuantity args of
+                        Just q | q > 0 -> Just q
+                        _ -> Nothing
+                case qtyFromArgs of
+                  Just qRaw -> do
+                    mFilters <- fetchFilters env sym''
+                    mPrice <- fetchPriceIfNeeded env sym'' mFilters
+                    case normalizeProbeQty mFilters mPrice qRaw of
                       Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
-                      Right () -> do
-                        mPrice <- fetchPriceMaybe env sym'
-                        case mPrice of
-                          Nothing -> pure (Just (mkSkippedProbe "futures/order/test" "Price unavailable for quote sizing."))
-                          Just price -> do
-                            let qRaw = qq0 / price
-                            case normalizeProbeQty mFilters (Just price) qRaw of
-                              Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
-                              Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
+                      Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
+                  Nothing -> do
+                    qq <-
+                      case argOrderQuote args of
+                        Just qq | qq > 0 -> pure (Just qq)
+                        _ ->
+                          case argOrderQuoteFraction args of
+                            Just f | f > 0 -> do
+                              let (_baseAsset, quoteAsset) = splitSymbol sym''
+                              bal <- fetchFuturesAvailableBalance env quoteAsset
+                              let q0 = bal * f
+                                  q1 =
+                                    let mCap =
+                                          case argMaxOrderQuote args of
+                                            Just q | q > 0 -> Just q
+                                            _ -> Nothing
+                                     in maybe q0 (\capQ -> min capQ q0) mCap
+                              pure (if q1 > 0 then Just q1 else Nothing)
+                            _ -> pure Nothing
+                    case qq of
+                      Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSizingMsg))
+                      Just qq0 -> do
+                        mFilters <- fetchFilters env sym''
+                        case validateProbeQuote mFilters qq0 of
+                          Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
+                          Right () -> do
+                            mPrice <- fetchPriceMaybe env sym''
+                            case mPrice of
+                              Nothing -> pure (Just (mkSkippedProbe "futures/order/test" "Price unavailable for quote sizing."))
+                              Just price -> do
+                                let qRaw = qq0 / price
+                                case normalizeProbeQty mFilters (Just price) qRaw of
+                                  Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
+                                  Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
 
       let isAuthFailureCode c = c == (-1022) || c == (-2014) || c == (-2015)
           normalizeTradeProbe p =
@@ -10473,6 +10513,14 @@ computeBinanceKeysStatusFromArgs mOps args = do
       if isJust (argOrderQuoteFraction args)
         then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
         else "Provide orderQuantity or orderQuote."
+    missingSymbolMsg = "Provide binanceSymbol for the trade test."
+
+    normalizeBinanceSymbolForKeys raw =
+      case fmap trim raw of
+        Nothing -> Nothing
+        Just s ->
+          let s' = map toUpper (filter isAlphaNum s)
+           in if length s' < 3 || length s' > 30 then Nothing else Just s'
 
     mkSkippedProbe step reason =
       ApiBinanceProbe False True step Nothing Nothing ("Trade test skipped: " ++ reason)

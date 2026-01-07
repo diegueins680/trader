@@ -357,6 +357,10 @@ Optional auth (recommended for any deployment):
 - Send either `Authorization: Bearer <token>` or `X-API-Key: <token>`
 - `/health` stays public, and reports `authRequired`/`authOk` when `TRADER_API_TOKEN` is set (useful for quickly checking auth wiring)
 
+Optional CORS:
+- Set `TRADER_CORS_ORIGIN` to a single allowed origin (for example, your CloudFront URL) to enable browser access from that origin.
+- When unset, no `Access-Control-Allow-Origin` header is returned; keep using same-origin `/api/*` in that case.
+
 Build info:
 - `GET /` and `GET /health` include `version` and optional `commit` (from env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA`).
 
@@ -386,6 +390,7 @@ Endpoints:
   - Combos can include sizing params (`orderQuote`, `orderQuantity`, `orderQuoteFraction`, `maxOrderQuote`); applying combos will honor them so orders have a usable size.
   - `top-combos.json` also includes `bestOptimizationTechniques`, a curated list of optimization best practices with short explanations for downstream consumers, plus `optimizationTechniquesApplied`/`ensemble` sections that summarize the Sobol seeding, successive halving, Bayesian-inspired exploitation, walk-forward validation, and ensemble construction applied during a run.
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (test order quantity is rounded to the symbol step size; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or minNotional)
+- `POST /binance/keys` (futures): `binanceSymbol` is optional for the signed probe; the trade test is skipped when `binanceSymbol` is missing.
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
 - `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting
 - `POST /coinbase/keys` → checks Coinbase key/secret/passphrase via a signed `/accounts` probe
@@ -719,7 +724,7 @@ If live bot start/status returns 502/503/504, verify the `/api/*` proxy target a
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
 - Web UI: `trader-config.js` is read at startup, so ensure it is served at `/trader-config.js` for static hosts.
-- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS and you want explicit failover (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it for `/api` mode when a CloudFront distribution is used and the API URL is known). If the fallback host blocks CORS, the UI disables it for the session and remembers the block for ~12h to avoid repeated CORS errors; successful fallbacks are preferred until the cached decision expires or the fallback fails.
+- Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `Authorization: Bearer <token>` and `X-API-Key: <token>`. Only set `apiFallbackUrl` when your API supports CORS (set `TRADER_CORS_ORIGIN` on the API service) and you want explicit failover (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it for `/api` mode when a CloudFront distribution is used and the API URL is known). If the fallback host blocks CORS, the UI disables it for the session and remembers the block for ~12h to avoid repeated CORS errors; successful fallbacks are preferred until the cached decision expires or the fallback fails.
 - Quick deploy uploads `trader-config.js` with no-cache headers so updated API tokens take effect without browser hard refreshes.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 

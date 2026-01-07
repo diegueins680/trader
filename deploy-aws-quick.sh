@@ -24,6 +24,7 @@ NC='\033[0m' # No Color
 # Configuration (inputs)
 AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 TRADER_API_TOKEN="${TRADER_API_TOKEN:-}"
+TRADER_CORS_ORIGIN="${TRADER_CORS_ORIGIN:-}"
 TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
 TRADER_API_MAX_HIDDEN_SIZE="${TRADER_API_MAX_HIDDEN_SIZE:-50}"
 TRADER_DB_URL="${TRADER_DB_URL:-${DATABASE_URL:-}}"
@@ -110,6 +111,7 @@ Flags:
 Environment variables (equivalents):
   AWS_REGION / AWS_DEFAULT_REGION
   TRADER_API_TOKEN
+  TRADER_CORS_ORIGIN
   TRADER_DB_URL / DATABASE_URL
   TRADER_STATE_DIR
   TRADER_STATE_S3_BUCKET
@@ -1111,6 +1113,9 @@ create_app_runner() {
   fi
   if [[ -n "${TRADER_DB_URL:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_DB_URL\":\"${TRADER_DB_URL}\""
+  fi
+  if [[ -n "${TRADER_CORS_ORIGIN:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_CORS_ORIGIN\":\"${TRADER_CORS_ORIGIN}\""
   fi
   if [[ -n "${TRADER_API_MAX_BARS_LSTM:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_BARS_LSTM\":\"${TRADER_API_MAX_BARS_LSTM}\""

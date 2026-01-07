@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: add genetic crossover using parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
 - API: include CSV file size/mtime in cache keys so updated CSVs invalidate cached signal/backtest results.
+- API: allowlist CORS via `TRADER_CORS_ORIGIN` (no `Access-Control-Allow-Origin` when unset).
+- API: `/binance/keys` signed futures probe no longer requires `binanceSymbol` (trade test skips when missing).
 - CSV: sort rows by parsed timestamps only; unparseable timestamps preserve file order.
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Web UI: default Live orders + Trading armed toggles to on.
@@ -61,6 +63,7 @@ All notable changes to this project will be documented in this file.
 - Deploy: forward `TRADER_DB_URL` to App Runner for PostgreSQL-backed ops persistence.
 - Deploy: allow App Runner API deploys to use `TRADER_DB_URL`/`DATABASE_URL` for ops persistence when S3 state is not configured.
 - Deploy: install `libpq-dev` in the Docker build to compile PostgreSQL ops persistence.
+- Deploy: pin `postgresql-simple` to the 0.6 series to keep Docker builds compatible with the bundled libpq client.
 - Deploy: quick AWS deploy can reuse or create S3 buckets, App Runner S3 instance roles, and CloudFront distributions with `--ensure-resources`/`--cloudfront`.
 - Deploy: quick AWS UI deploy defaults to the direct API base even with CloudFront; use `TRADER_UI_API_MODE=proxy`/`--ui-api-proxy` to force `/api`.
 - Deploy: quick AWS UI config auto-fills `apiFallbackUrl` only for `/api` mode (it points at the API URL when known).
