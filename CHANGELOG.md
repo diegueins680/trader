@@ -58,6 +58,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add info buttons with equity tips next to optimizer run fields and complex config parameters (method, thresholds, splits, LSTM, optimization).
 - Web UI: fix optimizer form sync startup crash and ensure `trader-config.js` is loaded before the app bundle.
 - Web UI: optimizer combos now load only from the API (no static fallback).
+- Deploy: let `deploy-aws-quick.sh` clear reused App Runner S3 state settings when `TRADER_STATE_S3_BUCKET` is explicitly empty.
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
 - Deploy: require S3 state for App Runner API deploys and document durable state storage for Docker/VM deployments.
 - Deploy: forward `TRADER_DB_URL` to App Runner for PostgreSQL-backed ops persistence.

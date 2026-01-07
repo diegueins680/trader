@@ -28,6 +28,7 @@ TRADER_CORS_ORIGIN="${TRADER_CORS_ORIGIN:-}"
 TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
 TRADER_API_MAX_HIDDEN_SIZE="${TRADER_API_MAX_HIDDEN_SIZE:-50}"
 TRADER_DB_URL="${TRADER_DB_URL:-${DATABASE_URL:-}}"
+TRADER_STATE_S3_BUCKET_SET="${TRADER_STATE_S3_BUCKET+true}"
 TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
 TRADER_STATE_S3_REGION="${TRADER_STATE_S3_REGION:-}"
@@ -191,6 +192,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --state-s3-bucket)
       TRADER_STATE_S3_BUCKET="${2:-}"
+      TRADER_STATE_S3_BUCKET_SET="true"
       shift 2
       ;;
     --state-s3-prefix)
@@ -1035,7 +1037,7 @@ create_app_runner() {
       fi
     fi
 
-    if [[ -z "${TRADER_STATE_S3_BUCKET:-}" ]]; then
+    if [[ -z "${TRADER_STATE_S3_BUCKET:-}" && -z "${TRADER_STATE_S3_BUCKET_SET:-}" ]]; then
       local existing_bucket=""
       existing_bucket="$(
         aws apprunner describe-service \
