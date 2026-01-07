@@ -2,7 +2,8 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
-- Ops: store persisted operations in SQLite (`ops.sqlite3`) and log `comboUuid` for live-bot executions.
+- Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
+- Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Optimizer: include stable combo UUIDs in top-combos outputs.
 - Optimizer: add genetic crossover using parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
@@ -57,6 +58,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: optimizer combos now load only from the API (no static fallback).
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
 - Deploy: require S3 state for App Runner API deploys and document durable state storage for Docker/VM deployments.
+- Deploy: forward `TRADER_DB_URL` to App Runner for PostgreSQL-backed ops/combo persistence.
 - Deploy: quick AWS deploy can reuse or create S3 buckets, App Runner S3 instance roles, and CloudFront distributions with `--ensure-resources`/`--cloudfront`.
 - Deploy: quick AWS UI deploy defaults to the direct API base even with CloudFront; use `TRADER_UI_API_MODE=proxy`/`--ui-api-proxy` to force `/api`.
 - Deploy: quick AWS UI config auto-fills `apiFallbackUrl` only for `/api` mode (it points at the API URL when known).
@@ -66,7 +68,6 @@ All notable changes to this project will be documented in this file.
 - Optimizer: top-combos now stamp `params.binanceSymbol` for CSV runs (auto-derived from `--symbol-label` or filename) and backfill missing `metrics.annualizedReturn`.
 - Optimizer: add seeding/exploitation controls, new quality filters (annualized return/calmar/turnover), and funding/rebalance sampling parameters.
 - Optimizer: Calmar objective falls back to annualized return when max drawdown is zero.
-- Ops: restore the newest `ops.sqlite3` from S3 on boot and sync on a timer when `TRADER_STATE_S3_BUCKET` is set, configurable via `TRADER_OPS_S3_EVERY_SEC`.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
 - Optimizer: rank top combos by annualized equity (`annualizedReturn`) so the #1 combo is the highest annualized equity.

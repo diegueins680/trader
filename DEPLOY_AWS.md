@@ -104,6 +104,7 @@ Create an AWS App Runner service to run your API.
 6. **Environment variables** (optional but recommended):
    ```
    TRADER_API_TOKEN=<your-random-token>
+   TRADER_DB_URL=<postgres-connection-url>
    TRADER_STATE_S3_BUCKET=<s3-bucket>
    TRADER_STATE_S3_PREFIX=trader
    TRADER_STATE_S3_REGION=ap-northeast-1
@@ -179,6 +180,7 @@ If you didn't set `TRADER_API_TOKEN` during creation, add it now:
 4. Add:
    ```
    TRADER_API_TOKEN=<your-random-token>
+   TRADER_DB_URL=<postgres-connection-url>
    ```
 5. Click **Save changes**
 
@@ -198,6 +200,17 @@ App Runner does **not** support EFS volumes. To persist state across deploys, st
    TRADER_STATE_S3_PREFIX=trader
    TRADER_STATE_S3_REGION=ap-northeast-1
    ```
+
+## Required: Configure PostgreSQL Persistence
+
+Persist operations, combos, strategies, and combo parameters in Postgres:
+
+1. Provision a managed Postgres database (RDS/Aurora/etc.).
+2. Set the connection URL on the App Runner service:
+   ```
+   TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require
+   ```
+3. Deploy/update the service so the new env var is picked up.
 
 If you use `deploy-aws-quick.sh`, pass `--state-s3-bucket ... --state-s3-prefix ... --instance-role-arn ...` (the script now enforces S3 state for API deploys).
 

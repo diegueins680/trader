@@ -364,7 +364,7 @@ Endpoints:
 - `GET /` → basic endpoint list
 - `GET /health`
 - `GET /metrics`
-- `GET /ops` → persisted operations feed (optional; enabled via `TRADER_OPS_DIR`)
+- `GET /ops` → persisted operations feed (enabled via `TRADER_DB_URL`)
 - `GET /cache` → in-memory cache stats (entries + hit/miss)
 - `POST /cache/clear` → clears the in-memory cache
 - `POST /signal` → returns the latest signal (no orders)
@@ -449,11 +449,25 @@ Optimizer script tips:
 - `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
 - Auto optimizer biases `--p-long-short` to match existing open positions/orders (short requires long-short; spot/margin suppresses long-short).
 - `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `seedTrials`, `seedRatio`, `survivorFraction`, `perturbScaleDouble`, `perturbScaleInt`, `earlyStopNoImprove`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minAnnualizedReturn`, `minCalmar`, `maxTurnover`, `minSignalToNoiseMin`, `pThresholdFactor`, `thresholdFactorAlphaMin`, `thresholdFactorMinMin`, `thresholdFactorWeightMax`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `triLayerExitOnSlow`, `fundingRateMin`, `fundingRateMax`, `rebalanceBarsMin`, `rebalanceBarsMax`, `rebalanceThresholdMin`, `rebalanceThresholdMax`, `pFundingBySide`, `pFundingOnOpen`, `pRebalanceGlobal`, `pRebalanceResetOnSignal`, `kalmanBandLookbackMin`, `kalmanBandStdMultMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmExitFlipStrong`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
-- Genetic crossover blends parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
+- Genetic crossover blends parent combos with `operationCount`/`tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 
-State directory (required for persistence across deployments):
+Database (required for ops + combo persistence):
+- Set `TRADER_DB_URL` (or `DATABASE_URL`) to a Postgres instance; use durable managed storage for deploys.
+- Stores every operation plus combo metrics, strategy metadata, and combo parameters.
+- Recommended: include `sslmode=require` in hosted Postgres connection strings.
+- `GET /ops` query params:
+  - `limit` (default: `200`, max: `5000`)
+  - `since` (only return ops with `id > since`)
+  - `kind` (exact match on operation kind)
+  - `symbol` (exact match)
+  - `comboUuid` (exact match)
+  - `orderId` (exchange order ID)
+  - `fromMs` / `toMs` (filter by `atMs` range)
+  - `bot` (`true` to restrict to `kind` prefix `bot.`)
+- Ops rows include `comboUuid` when a live bot executes a top-combo configuration, plus `symbol` and `orderId` when available.
+
+State directory (required for file-based state across deployments):
 - Set `TRADER_STATE_DIR` to a shared writable directory to persist:
-  - ops history (`ops.sqlite3`)
   - JSONL journal events
   - live-bot status snapshots (`bot-state-<symbol>.json`)
   - optimizer top-combos (`top-combos.json`)
@@ -463,10 +477,10 @@ State directory (required for persistence across deployments):
 - Docker image default: `TRADER_STATE_DIR=/var/lib/trader/state` (mount `/var/lib/trader` to durable storage to keep state across redeploys).
 - For Docker/VMs, mount the state directory (or set `TRADER_STATE_DIR` to a durable volume) so state survives redeploys.
 - For App Runner (no EFS support), use S3 persistence via `TRADER_STATE_S3_BUCKET` to keep state across deploys; `TRADER_STATE_DIR` remains local-only.
-- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state` and enforces S3 state for API deploys; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values, defaults `TRADER_BOT_TRADE=true` unless overridden, and forwards `TRADER_BOT_SYMBOLS`/`TRADER_BOT_TRADE` plus `BINANCE_API_KEY`/`BINANCE_API_SECRET` when set.
+- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`, requires S3 state for API deploys, and forwards `TRADER_DB_URL` for ops/combo persistence; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values, defaults `TRADER_BOT_TRADE=true` unless overridden, and forwards `TRADER_BOT_SYMBOLS`/`TRADER_BOT_TRADE` plus `BINANCE_API_KEY`/`BINANCE_API_SECRET` when set.
 
 S3 state (required for App Runner persistence):
-- Set `TRADER_STATE_S3_BUCKET` (optional `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`) to persist bot snapshots, optimizer top-combos, and ops logs in S3.
+- Set `TRADER_STATE_S3_BUCKET` (optional `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`) to persist bot snapshots and optimizer top-combos in S3.
 - Requires AWS credentials or an App Runner instance role with S3 access.
 - Bot snapshots include orders/trades, so the UI can show history after restarts; journal/async/LSTM weights still use `TRADER_STATE_DIR`.
 
@@ -480,20 +494,9 @@ Optional webhooks (Discord-compatible):
 - `TRADER_WEBHOOK_EVENTS` (comma-separated) filters which events are sent; when unset, all webhook events are sent.
 - Event types: `bot.started`, `bot.start_failed`, `bot.stop`, `bot.order`, `bot.halt`, `trade.order`.
 
-Optional ops persistence (powers `GET /ops` and the “operations” history):
-- Set `TRADER_OPS_DIR` to a writable directory (writes `ops.sqlite3`)
-- If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/ops`.
-- `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`) max operations kept in memory per process
-- When S3 persistence is enabled via `TRADER_STATE_S3_BUCKET`, ops are restored from `ops/ops.sqlite3` and synced back on a timer.
-- `TRADER_OPS_S3_EVERY_SEC` (default: `60`) cadence for syncing ops to S3 (`0` disables S3 sync but still restores from S3).
-- `GET /ops` query params:
-  - `limit` (default: `200`, max: `5000`)
-  - `since` (only return ops with `id > since`)
-  - `kind` (exact match on operation kind)
-- Ops log kinds include:
-  - `binance.request` for every Binance API request (method/path/latency/status; signature/listenKey values are redacted).
+Ops log kinds include:
+- `binance.request` for every Binance API request (method/path/latency/status; signature/listenKey values are redacted).
 - `bot.status` snapshots on start and every minute with running/live/halts/errors (used by the live/offline timeline chart in the UI).
-- Ops rows include `comboUuid` when a live bot executes a top-combo configuration.
 
 Optional live-bot status snapshots (keeps `/bot/status` data across restarts):
 - Set `TRADER_BOT_STATE_DIR` to a writable directory (writes `bot-state-<symbol>.json`; set empty to disable)

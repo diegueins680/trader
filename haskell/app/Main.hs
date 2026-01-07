@@ -9,7 +9,7 @@ import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Exception (IOException, SomeException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
-import Control.Monad (forM, forM_, when)
+import Control.Monad (forM, forM_, when, void)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
@@ -23,11 +23,11 @@ import Data.Foldable (toList)
 import Data.Int (Int64)
 import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
-import qualified Data.Sequence as Seq
-import Data.Sequence (Seq)
+import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.UUID as UUID
 import Data.Version (showVersion)
 import Data.Word (Word64)
 import qualified Data.ByteString.Base16 as B16
@@ -37,8 +37,9 @@ import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
-import Database.SQLite.Simple (Connection, Only (..), execute, execute_, lastInsertRowId, open, query, query_)
-import Database.SQLite.Simple.FromRow (FromRow (..), field)
+import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, execute_, query, query_, withTransaction)
+import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
+import Database.PostgreSQL.Simple.ToField (Action, toField)
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
@@ -1520,13 +1521,19 @@ webhookEventTradeOrder args sig order =
       summary = printf "trade.order %s (%s/%s) %s %s msg=%s" sym platform market action status msg
    in WebhookEvent "trade.order" summary
 
--- Persistent operation history (SQLite; safe to rebuild state from the log).
+orderIdFromOrderResult :: ApiOrderResult -> Maybe Text
+orderIdFromOrderResult order =
+  T.pack . show <$> aorOrderId order
+
+-- Persistent operation history (PostgreSQL; safe to rebuild state from the log).
 
 data PersistedOperation = PersistedOperation
   { poId :: !Int64
   , poAtMs :: !Int64
   , poKind :: !Text
+  , poSymbol :: !(Maybe Text)
   , poComboUuid :: !(Maybe Text)
+  , poOrderId :: !(Maybe Text)
   , poParams :: !(Maybe Aeson.Value)
   , poArgs :: !(Maybe Aeson.Value)
   , poResult :: !(Maybe Aeson.Value)
@@ -1540,16 +1547,9 @@ instance FromJSON PersistedOperation where
   parseJSON = Aeson.genericParseJSON (jsonOptions 2)
 
 data OpsStore = OpsStore
-  { osPath :: !FilePath
-  , osLock :: !(MVar ())
+  { osLock :: !(MVar ())
   , osConn :: !Connection
-  , osNextId :: !(IORef Int64)
-  , osOps :: !(IORef (Seq PersistedOperation))
-  , osMaxInMemory :: !Int
-  , osS3State :: !(Maybe S3State)
-  , osS3PersistEverySec :: !Int
-  , osS3LastPersistMs :: !(IORef Int64)
-  , osS3LastWriteMs :: !(IORef Int64)
+  , osLatestId :: !(IORef Int64)
   }
 
 sanitizeApiParams :: ApiParams -> ApiParams
@@ -1707,29 +1707,40 @@ argsPublicJson args =
       , "periodsPerYear" .= argPeriodsPerYear args
       ]
 
-trimSeq :: Int -> Seq a -> Seq a
-trimSeq maxN s =
-  if maxN <= 0
-    then Seq.empty
-    else
-      let len = Seq.length s
-       in if len <= maxN then s else Seq.drop (len - maxN) s
+normalizeMaybeText :: Maybe Text -> Maybe Text
+normalizeMaybeText mText =
+  case T.strip <$> mText of
+    Just t | T.null t -> Nothing
+    other -> other
 
-opsDbFileName :: FilePath
-opsDbFileName = "ops.sqlite3"
+uuidFromText :: Text -> Maybe UUID.UUID
+uuidFromText txt =
+  case normalizeMaybeText (Just txt) of
+    Nothing -> Nothing
+    Just t -> UUID.fromText t
 
-s3OpsKey :: S3State -> String
-s3OpsKey st =
-  s3KeyFor st ["ops", opsDbFileName]
+uuidToText :: UUID.UUID -> Text
+uuidToText = UUID.toText
+
+encodeJsonTextMaybe :: Maybe Aeson.Value -> Maybe Text
+encodeJsonTextMaybe = fmap (TE.decodeUtf8 . BL.toStrict . Aeson.encode)
+
+decodeJsonTextMaybe :: Maybe Text -> Maybe Aeson.Value
+decodeJsonTextMaybe mText =
+  case mText of
+    Nothing -> Nothing
+    Just txt -> Aeson.decode (BL.fromStrict (TE.encodeUtf8 txt))
 
 data PersistedOperationRow = PersistedOperationRow
   { porId :: !Int64
   , porAtMs :: !Int64
   , porKind :: !Text
-  , porComboUuid :: !(Maybe Text)
-  , porParams :: !(Maybe BS.ByteString)
-  , porArgs :: !(Maybe BS.ByteString)
-  , porResult :: !(Maybe BS.ByteString)
+  , porSymbol :: !(Maybe Text)
+  , porComboUuid :: !(Maybe UUID.UUID)
+  , porOrderId :: !(Maybe Text)
+  , porParams :: !(Maybe Text)
+  , porArgs :: !(Maybe Text)
+  , porResult :: !(Maybe Text)
   , porEquity :: !(Maybe Double)
   } deriving (Eq, Show)
 
@@ -1744,10 +1755,8 @@ instance FromRow PersistedOperationRow where
       <*> field
       <*> field
       <*> field
-
-decodeJsonMaybe :: Maybe BS.ByteString -> Maybe Aeson.Value
-decodeJsonMaybe =
-  \mBytes -> mBytes >>= Aeson.decodeStrict'
+      <*> field
+      <*> field
 
 persistedOperationFromRow :: PersistedOperationRow -> PersistedOperation
 persistedOperationFromRow row =
@@ -1755,236 +1764,282 @@ persistedOperationFromRow row =
     { poId = porId row
     , poAtMs = porAtMs row
     , poKind = porKind row
-    , poComboUuid = porComboUuid row
-    , poParams = decodeJsonMaybe (porParams row)
-    , poArgs = decodeJsonMaybe (porArgs row)
-    , poResult = decodeJsonMaybe (porResult row)
+    , poSymbol = porSymbol row
+    , poComboUuid = uuidToText <$> porComboUuid row
+    , poOrderId = porOrderId row
+    , poParams = decodeJsonTextMaybe (porParams row)
+    , poArgs = decodeJsonTextMaybe (porArgs row)
+    , poResult = decodeJsonTextMaybe (porResult row)
     , poEquity = porEquity row
     }
 
-encodeJsonMaybe :: Maybe Aeson.Value -> Maybe BS.ByteString
-encodeJsonMaybe =
-  \mVal -> BL.toStrict . encode <$> mVal
+resolveDbUrl :: IO (Either String BS.ByteString)
+resolveDbUrl = do
+  mPrimary <- lookupEnv "TRADER_DB_URL"
+  mFallback <- lookupEnv "DATABASE_URL"
+  let pick =
+        listToMaybe
+          [ url
+          | Just raw <- [mPrimary, mFallback]
+          , let url = trim raw
+          , not (null url)
+          ]
+  case pick of
+    Nothing -> pure (Left "TRADER_DB_URL or DATABASE_URL not set.")
+    Just url -> pure (Right (BS.pack url))
 
-ensureOpsDb :: FilePath -> IO (Either String Connection)
-ensureOpsDb path = do
-  let dir = takeDirectory path
-  dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
-  case dirResult of
-    Left e -> pure (Left ("Failed to create ops directory: " ++ show e))
-    Right _ -> do
-      connResult <- try (open path) :: IO (Either SomeException Connection)
-      case connResult of
-        Left e -> pure (Left ("Failed to open ops database: " ++ show e))
-        Right conn -> do
-          _ <- execute_ conn "PRAGMA journal_mode=DELETE"
-          _ <- execute_ conn "PRAGMA synchronous=NORMAL"
-          _ <-
-            execute_
-              conn
-              ( "CREATE TABLE IF NOT EXISTS ops ("
-                  <> "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                  <> "at_ms INTEGER NOT NULL,"
-                  <> "kind TEXT NOT NULL,"
-                  <> "combo_uuid TEXT,"
-                  <> "params_json BLOB,"
-                  <> "args_json BLOB,"
-                  <> "result_json BLOB,"
-                  <> "equity REAL"
-                  <> ")"
-              )
-          _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_kind_idx ON ops(kind)"
-          _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_combo_uuid_idx ON ops(combo_uuid)"
-          pure (Right conn)
+ensureOpsDbSchema :: Connection -> IO ()
+ensureOpsDbSchema conn = do
+  _ <-
+    execute_
+      conn
+      ( "CREATE TABLE IF NOT EXISTS strategies ("
+          <> "id SERIAL PRIMARY KEY,"
+          <> "code TEXT UNIQUE NOT NULL,"
+          <> "label TEXT NOT NULL"
+          <> ")"
+      )
+  _ <-
+    execute_
+      conn
+      ( "CREATE TABLE IF NOT EXISTS combos ("
+          <> "combo_uuid UUID PRIMARY KEY,"
+          <> "strategy_id INTEGER REFERENCES strategies(id),"
+          <> "symbol TEXT,"
+          <> "interval TEXT,"
+          <> "objective TEXT,"
+          <> "final_equity DOUBLE PRECISION,"
+          <> "annualized_return DOUBLE PRECISION,"
+          <> "score DOUBLE PRECISION,"
+          <> "open_threshold DOUBLE PRECISION,"
+          <> "close_threshold DOUBLE PRECISION,"
+          <> "params_json JSONB,"
+          <> "metrics_json JSONB,"
+          <> "operation_count INTEGER NOT NULL DEFAULT 0,"
+          <> "created_at_ms BIGINT,"
+          <> "updated_at_ms BIGINT"
+          <> ")"
+      )
+  _ <-
+    execute_
+      conn
+      ( "CREATE TABLE IF NOT EXISTS combo_parameters ("
+          <> "combo_uuid UUID NOT NULL REFERENCES combos(combo_uuid) ON DELETE CASCADE,"
+          <> "name TEXT NOT NULL,"
+          <> "value_json JSONB,"
+          <> "strategy_id INTEGER REFERENCES strategies(id),"
+          <> "PRIMARY KEY (combo_uuid, name)"
+          <> ")"
+      )
+  _ <-
+    execute_
+      conn
+      ( "CREATE TABLE IF NOT EXISTS ops ("
+          <> "id BIGSERIAL PRIMARY KEY,"
+          <> "at_ms BIGINT NOT NULL,"
+          <> "kind TEXT NOT NULL,"
+          <> "symbol TEXT,"
+          <> "combo_uuid UUID,"
+          <> "order_id TEXT,"
+          <> "params_json JSONB,"
+          <> "args_json JSONB,"
+          <> "result_json JSONB,"
+          <> "equity DOUBLE PRECISION"
+          <> ")"
+      )
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_kind_idx ON ops(kind)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_combo_uuid_idx ON ops(combo_uuid)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_idx ON ops(symbol)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_order_id_idx ON ops(order_id)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_at_ms_idx ON ops(at_ms)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_at_ms_idx ON ops(symbol, at_ms)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_symbol_idx ON combos(symbol)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_interval_idx ON combos(interval)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_strategy_idx ON combos(strategy_id)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_operation_count_idx ON combos(operation_count)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_annualized_return_idx ON combos(annualized_return)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combo_parameters_name_idx ON combo_parameters(name)"
+  pure ()
 
-loadOpsDb :: Connection -> Int -> IO (Seq PersistedOperation, Int64)
-loadOpsDb conn maxInMemory = do
-  let maxN = max 0 maxInMemory
-  rows <-
-    if maxN <= 0
-      then pure []
-      else query conn "SELECT id, at_ms, kind, combo_uuid, params_json, args_json, result_json, equity FROM ops ORDER BY id DESC LIMIT ?" (Only maxN)
-  maxRows <- query_ conn "SELECT COALESCE(MAX(id), 0) FROM ops" :: IO [Only Int64]
-  let maxId =
-        case maxRows of
-          (Only v : _) -> v
-          _ -> 0
-      ops = Seq.fromList (reverse (map persistedOperationFromRow rows))
-  pure (ops, maxId)
-
-writeOpsDbFile :: FilePath -> BL.ByteString -> IO (Either String ())
-writeOpsDbFile path contents = do
-  let dir = takeDirectory path
-  dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
-  case dirResult of
-    Left e -> pure (Left ("Failed to create ops directory: " ++ show e))
-    Right _ -> do
-      tempResult <- try (openTempFile dir opsDbFileName) :: IO (Either SomeException (FilePath, Handle))
-      case tempResult of
-        Left e -> pure (Left ("Failed to create temp ops db: " ++ show e))
-        Right (tmpPath, handle) -> do
-          _ <- try (BL.hPut handle contents) :: IO (Either SomeException ())
-          hClose handle
-          renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
-          case renameResult of
-            Left e -> pure (Left ("Failed to write ops db: " ++ show e))
-            Right _ -> pure (Right ())
-
-restoreOpsDbFromS3 :: FilePath -> Maybe S3State -> IO Bool
-restoreOpsDbFromS3 path mS3 =
-  case mS3 of
-    Nothing -> pure False
-    Just st -> do
-      exists <- doesFileExist path
-      if exists
-        then pure False
-        else do
-          s3Result <- s3GetObject st (s3OpsKey st)
-          case s3Result of
-            Right (Just contents) -> do
-              writeResult <- writeOpsDbFile path contents
-              pure (either (const False) (const True) writeResult)
-            _ -> pure False
-
-persistOpsMaybe :: OpsStore -> IO ()
-persistOpsMaybe store =
-  case osS3State store of
-    Nothing -> pure ()
-    Just st -> do
-      let everySec = osS3PersistEverySec store
-      if everySec <= 0
-        then pure ()
-        else do
-          lastWrite <- readIORef (osS3LastWriteMs store)
-          lastPersist <- readIORef (osS3LastPersistMs store)
-          now <- getTimestampMs
-          let intervalMs = fromIntegral everySec * 1000
-          if lastWrite <= lastPersist || now - lastPersist < intervalMs
-            then pure ()
-            else withMVar (osLock store) $ \_ -> do
-              contentsOrErr <- (try (BL.readFile (osPath store)) :: IO (Either SomeException BL.ByteString))
-              case contentsOrErr of
-                Left _ -> pure ()
-                Right contents -> do
-                  putResult <- s3PutObject st (s3OpsKey st) contents
-                  case putResult of
-                    Left _ -> pure ()
-                    Right _ -> writeIORef (osS3LastPersistMs store) now
-
-opsS3PersistLoop :: OpsStore -> IO ()
-opsS3PersistLoop store = do
-  let sleepSec s = threadDelay (max 1 s * 1000000)
-      loop = do
-        persistOpsMaybe store
-        sleepSec (osS3PersistEverySec store)
-        loop
-  loop
+seedStrategies :: Connection -> IO ()
+seedStrategies conn = do
+  let seeds =
+        [ ("kalman", "Kalman Filter")
+        , ("lstm", "LSTM")
+        , ("both", "Kalman+LSTM")
+        , ("blend", "Blend")
+        , ("router", "Router")
+        , ("unknown", "Unknown")
+        ]
+  forM_ seeds $ \(code, label) -> do
+    _ <- execute conn "INSERT INTO strategies (code, label) VALUES (?, ?) ON CONFLICT (code) DO NOTHING" (code :: Text, label :: Text)
+    pure ()
 
 newOpsStoreFromEnv :: IO (Maybe OpsStore)
 newOpsStoreFromEnv = do
-  mDir <- lookupEnv "TRADER_OPS_DIR"
-  mStateDir <- stateSubdirFromEnv "ops"
-  let resolvedDir =
-        case trim <$> mDir of
-          Just dir | null dir -> Nothing
-          Just dir -> Just dir
-          Nothing -> mStateDir
-  case resolvedDir of
-    Nothing -> pure Nothing
-    Just dir -> do
-      createDirectoryIfMissing True dir
-      maxEnv <- lookupEnv "TRADER_OPS_MAX_IN_MEMORY"
-      let maxInMemory =
-            case maxEnv >>= readMaybe of
-              Just n | n >= 0 -> n
-              _ -> 20000
-      s3EveryEnv <- lookupEnv "TRADER_OPS_S3_EVERY_SEC"
-      let s3EverySec =
-            case s3EveryEnv >>= readMaybe of
-              Just n | n >= 0 -> n
-              _ -> 60
-          path = dir </> opsDbFileName
-      mS3 <- resolveS3State
-      restored <- restoreOpsDbFromS3 path mS3
-      connResult <- ensureOpsDb path
+  dbUrlOrErr <- resolveDbUrl
+  case dbUrlOrErr of
+    Left err -> do
+      hPutStrLn stderr ("WARN: ops persistence disabled (" ++ err ++ ")")
+      pure Nothing
+    Right url -> do
+      connResult <- try (connectPostgreSQL url) :: IO (Either SomeException Connection)
       case connResult of
-        Left err -> do
-          hPutStrLn stderr ("WARN: ops persistence disabled (" ++ err ++ ")")
+        Left e -> do
+          hPutStrLn stderr ("WARN: ops persistence disabled (" ++ show e ++ ")")
           pure Nothing
         Right conn -> do
-          lock <- newMVar ()
-          (ops0, maxId0) <- loadOpsDb conn maxInMemory
-          let needsPersist = isJust mS3 && not restored
-          lastPersist <- newIORef 0
-          now <- getTimestampMs
-          lastWrite <- newIORef (if needsPersist then now else 0)
-          nextId <- newIORef maxId0
-          opsRef <- newIORef ops0
-          let store = OpsStore path lock conn nextId opsRef maxInMemory mS3 s3EverySec lastPersist lastWrite
-          case (mS3, s3EverySec > 0) of
-            (Just _, True) -> do
-              when needsPersist (persistOpsMaybe store)
-              _ <- forkIO (opsS3PersistLoop store)
-              pure (Just store)
-            _ -> pure (Just store)
+          schemaResult <- try (ensureOpsDbSchema conn >> seedStrategies conn) :: IO (Either SomeException ())
+          case schemaResult of
+            Left e -> do
+              hPutStrLn stderr ("WARN: ops persistence disabled (" ++ show e ++ ")")
+              pure Nothing
+            Right _ -> do
+              maxRows <- query_ conn "SELECT COALESCE(MAX(id), 0) FROM ops" :: IO [Only Int64]
+              let maxId =
+                    case maxRows of
+                      (Only v : _) -> v
+                      _ -> 0
+              lock <- newMVar ()
+              latestRef <- newIORef maxId
+              pure (Just (OpsStore lock conn latestRef))
 
-opsAppend :: OpsStore -> Text -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Double -> Maybe Text -> IO PersistedOperation
-opsAppend store kind mParams mArgs mResult mEquity mComboUuid = do
-  op <- withMVar (osLock store) $ \_ -> do
-    now <- getTimestampMs
-    let paramsBytes = encodeJsonMaybe mParams
-        argsBytes = encodeJsonMaybe mArgs
-        resultBytes = encodeJsonMaybe mResult
-    execute
-      (osConn store)
-      "INSERT INTO ops (at_ms, kind, combo_uuid, params_json, args_json, result_json, equity) VALUES (?, ?, ?, ?, ?, ?, ?)"
-      (now, kind, mComboUuid, paramsBytes, argsBytes, resultBytes, mEquity)
-    opId <- lastInsertRowId (osConn store)
-    let op =
-          PersistedOperation
-            { poId = opId
-            , poAtMs = now
-            , poKind = kind
-            , poComboUuid = mComboUuid
-            , poParams = mParams
-            , poArgs = mArgs
-            , poResult = mResult
-            , poEquity = mEquity
-            }
-    writeIORef (osNextId store) opId
-    modifyIORef' (osOps store) (\s -> trimSeq (osMaxInMemory store) (s Seq.|> op))
-    writeIORef (osS3LastWriteMs store) now
-    pure op
-  persistOpsMaybe store
+opsAppend ::
+  OpsStore ->
+  Text ->
+  Maybe Aeson.Value ->
+  Maybe Aeson.Value ->
+  Maybe Aeson.Value ->
+  Maybe Double ->
+  Maybe Text ->
+  Maybe Text ->
+  Maybe Text ->
+  IO PersistedOperation
+opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId = do
+  now <- getTimestampMs
+  let mSymbol' = normalizeMaybeText mSymbol
+      mOrderId' = normalizeMaybeText mOrderId
+      mComboUuid' = mComboUuid >>= uuidFromText
+      paramsJson = encodeJsonTextMaybe mParams
+      argsJson = encodeJsonTextMaybe mArgs
+      resultJson = encodeJsonTextMaybe mResult
+  opId <- withMVar (osLock store) $ \_ ->
+    withTransaction (osConn store) $ do
+      rows <-
+        query
+          (osConn store)
+          "INSERT INTO ops (at_ms, kind, symbol, combo_uuid, order_id, params_json, args_json, result_json, equity) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?) RETURNING id"
+          (now, kind, mSymbol', mComboUuid', mOrderId', paramsJson, argsJson, resultJson, mEquity)
+      let newId =
+            case rows of
+              (Only v : _) -> v
+              _ -> 0
+      case mComboUuid' of
+        Nothing -> pure ()
+        Just comboUuid ->
+          void $
+            execute
+              (osConn store)
+              ( "INSERT INTO combos (combo_uuid, operation_count, updated_at_ms) "
+                  <> "VALUES (?, 1, ?) "
+                  <> "ON CONFLICT (combo_uuid) DO UPDATE "
+                  <> "SET operation_count = combos.operation_count + 1, updated_at_ms = EXCLUDED.updated_at_ms"
+              )
+              (comboUuid, now)
+      pure newId
+  let op =
+        PersistedOperation
+          { poId = opId
+          , poAtMs = now
+          , poKind = kind
+          , poSymbol = mSymbol'
+          , poComboUuid = uuidToText <$> mComboUuid'
+          , poOrderId = mOrderId'
+          , poParams = mParams
+          , poArgs = mArgs
+          , poResult = mResult
+          , poEquity = mEquity
+          }
+  writeIORef (osLatestId store) opId
   pure op
 
-opsAppendMaybe :: Maybe OpsStore -> Text -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Aeson.Value -> Maybe Double -> Maybe Text -> IO ()
-opsAppendMaybe mStore kind mParams mArgs mResult mEquity mComboUuid =
+opsAppendMaybe ::
+  Maybe OpsStore ->
+  Text ->
+  Maybe Aeson.Value ->
+  Maybe Aeson.Value ->
+  Maybe Aeson.Value ->
+  Maybe Double ->
+  Maybe Text ->
+  Maybe Text ->
+  Maybe Text ->
+  IO ()
+opsAppendMaybe mStore kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
   case mStore of
     Nothing -> pure ()
     Just store -> do
-      _ <- try (opsAppend store kind mParams mArgs mResult mEquity mComboUuid) :: IO (Either SomeException PersistedOperation)
+      _ <- try (opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId) :: IO (Either SomeException PersistedOperation)
       pure ()
 
-opsList :: OpsStore -> Maybe Int64 -> Int -> Maybe Text -> IO [PersistedOperation]
-opsList store sinceId limit mKind = do
+data OpsCondition = OpsCondition
+  { ocSql :: !String
+  , ocParams :: ![Action]
+  }
+
+opsList ::
+  OpsStore ->
+  Maybe Int64 ->
+  Int ->
+  Maybe Text ->
+  Maybe Text ->
+  Maybe Text ->
+  Maybe Text ->
+  Maybe Int64 ->
+  Maybe Int64 ->
+  Maybe Bool ->
+  IO [PersistedOperation]
+opsList store sinceId limit mKind mSymbol mComboUuid mOrderId mFromMs mToMs mBotOnly = do
   let limitSafe = max 0 (min 5000 limit)
-  opsSeq <- readIORef (osOps store)
-  let allOps = toList opsSeq
-      filtered =
-        [ op
-        | op <- allOps
-        , maybe True (\sid -> poId op > sid) sinceId
-        , maybe True (\k -> poKind op == k) mKind
-        ]
-      out =
-        case sinceId of
-          Just _ -> take limitSafe filtered
-          Nothing ->
-            let n = length filtered
-                dropN = max 0 (n - limitSafe)
-             in drop dropN filtered
-  pure out
+      mKind' = normalizeMaybeText mKind
+      mSymbol' = normalizeMaybeText mSymbol
+      mOrderId' = normalizeMaybeText mOrderId
+      mComboUuid' = mComboUuid >>= uuidFromText
+      baseConditions =
+        catMaybes
+          [ fmap (\sid -> OpsCondition "id > ?" [toField sid]) sinceId
+          , fmap (\k -> OpsCondition "kind = ?" [toField k]) mKind'
+          , fmap (\sym -> OpsCondition "symbol = ?" [toField sym]) mSymbol'
+          , fmap (\uuid -> OpsCondition "combo_uuid = ?" [toField uuid]) mComboUuid'
+          , fmap (\oid -> OpsCondition "order_id = ?" [toField oid]) mOrderId'
+          , fmap (\fromMs -> OpsCondition "at_ms >= ?" [toField fromMs]) mFromMs
+          , fmap (\toMs -> OpsCondition "at_ms <= ?" [toField toMs]) mToMs
+          ]
+      botCondition =
+        case mBotOnly of
+          Just True -> [OpsCondition "kind LIKE 'bot.%'" []]
+          _ -> []
+      conditions = botCondition ++ baseConditions
+      whereSql =
+        if null conditions
+          then ""
+          else " WHERE " ++ intercalate " AND " (map ocSql conditions)
+      orderSql =
+        if isJust sinceId
+          then " ORDER BY id ASC"
+          else " ORDER BY id DESC"
+      sql =
+        "SELECT id, at_ms, kind, symbol, combo_uuid, order_id, params_json::text, args_json::text, result_json::text, equity "
+          <> "FROM ops"
+          <> whereSql
+          <> orderSql
+          <> " LIMIT ?"
+      params = concatMap ocParams conditions ++ [toField limitSafe]
+  case (mComboUuid, mComboUuid') of
+    (Just _, Nothing) -> pure []
+    _ -> do
+      rows <- withMVar (osLock store) $ \_ -> query (osConn store) (fromString sql) params
+      let ops = map persistedOperationFromRow rows
+      pure (if isJust sinceId then ops else reverse ops)
 
 binanceOpsLogger :: OpsStore -> BinanceLog -> IO ()
 binanceOpsLogger store entry = do
@@ -2003,7 +2058,9 @@ binanceOpsLogger store entry = do
           , "latencyMs" .= blLatencyMs entry
           , "error" .= blError entry
           ]
-  opsAppendMaybe (Just store) "binance.request" (Just params) Nothing (Just result) Nothing Nothing
+      mSymbol = lookup "symbol" (blParams entry)
+      mOrderId = lookup "orderId" (blParams entry)
+  opsAppendMaybe (Just store) "binance.request" (Just params) Nothing (Just result) Nothing Nothing mSymbol mOrderId
 
 attachBinanceLogger :: Maybe OpsStore -> BinanceEnv -> BinanceEnv
 attachBinanceLogger mOps env =
@@ -2040,7 +2097,16 @@ botStatusLogMaybe mOps running st =
           , "updatedAtMs" .= botUpdatedAtMs st
           , "polledAtMs" .= botPolledAtMs st
           ]
-   in opsAppendMaybe mOps "bot.status" Nothing (Just (argsPublicJson args)) (Just result) eq (botComboUuid st)
+   in opsAppendMaybe
+        mOps
+        "bot.status"
+        Nothing
+        (Just (argsPublicJson args))
+        (Just result)
+        eq
+        (botComboUuid st)
+        (Just (T.pack (botSymbol st)))
+        Nothing
 
 -- Live bot (stateful; continuous loop)
 
@@ -3287,7 +3353,16 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits t
     Left ex -> do
       now <- getTimestampMs
       journalWriteMaybe mJournal (object ["type" .= ("bot.start_failed" :: String), "atMs" .= now, "error" .= show ex])
-      opsAppendMaybe mOps "bot.start_failed" Nothing (Just (argsPublicJson args)) (Just (object ["error" .= show ex])) Nothing mComboUuid
+      opsAppendMaybe
+        mOps
+        "bot.start_failed"
+        Nothing
+        (Just (argsPublicJson args))
+        (Just (object ["error" .= show ex]))
+        Nothing
+        mComboUuid
+        (Just (T.pack sym))
+        Nothing
       webhookNotifyMaybe mWebhook (webhookEventBotStartFailed args sym ex)
       modifyMVar_ (bcRuntime ctrl) $ \mrt ->
         case HM.lookup sym mrt of
@@ -3306,6 +3381,8 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits t
         (Just (object ["symbol" .= botSymbol st0, "market" .= marketCode (argBinanceMarket (botArgs st0)), "interval" .= argInterval (botArgs st0)]))
         (Just eq0)
         (botComboUuid st0)
+        (Just (T.pack (botSymbol st0)))
+        Nothing
       webhookNotifyMaybe mWebhook (webhookEventBotStarted (botArgs st0) (botSymbol st0))
       stVar <- newMVar st0
       persistBotStatusMaybe mBotStateDir st0
@@ -4580,6 +4657,8 @@ botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
               (Just (object ["error" .= msg, "symbol" .= sym, "interval" .= interval, "path" .= topJsonPath]))
               Nothing
               mComboUuid
+              (Just (T.pack sym))
+              Nothing
 
       clearError = writeIORef lastErrRef Nothing
 
@@ -4628,6 +4707,8 @@ botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
                               )
                               (bouFinalEquity upd)
                               (bouComboUuid upd <|> botComboUuid st)
+                              (Just (T.pack sym))
+                              Nothing
                           else pure ()
             sleepSec pollSec
             loop
@@ -4663,6 +4744,8 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
             (Just (object ["error" .= msg]))
             Nothing
             Nothing
+            Nothing
+            Nothing
         else do
           projectRoot <- getCurrentDirectory
           topJsonPath <- resolveOptimizerCombosPath optimizerTmp
@@ -4689,6 +4772,8 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                 Nothing
                 Nothing
                 (Just (object ["script" .= missingNames, "error" .= missingErrs]))
+                Nothing
+                Nothing
                 Nothing
                 Nothing
             else do
@@ -4887,6 +4972,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                                       ]
                                                   )
                                               Right _ -> do
+                                                persistTopCombosDbMaybe mOps topJsonPath
                                                 now <- getTimestampMs
                                                 opsAppendMaybe
                                                   mOps
@@ -4895,6 +4981,8 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                                   (Just (object ["symbol" .= sym, "interval" .= interval]))
                                                   Nothing
                                                   Nothing
+                                                  Nothing
+                                                  (Just (T.pack sym))
                                                   Nothing
                                             _ <- try (removeFile recordsPath) :: IO (Either SomeException ())
                                             pure ()
@@ -4945,7 +5033,7 @@ backtestTopCombosOnce topNRaw ctx = do
       recordEvent kind details = do
         now <- getTimestampMs
         journalWriteMaybe mJournal (object ("type" .= kind : "atMs" .= now : details))
-        opsAppendMaybe mOps (T.pack kind) Nothing Nothing (Just (object details)) Nothing Nothing
+        opsAppendMaybe mOps (T.pack kind) Nothing Nothing (Just (object details)) Nothing Nothing Nothing Nothing
 
       recordError :: String -> String -> Maybe String -> Maybe String -> IO ()
       recordError kind err sym interval = do
@@ -5086,6 +5174,7 @@ backtestTopCombosOnce topNRaw ctx = do
                             Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
                             Right _ -> do
                               persistTopCombosMaybe topJsonPath
+                              persistTopCombosDbMaybe mOps topJsonPath
                               recordEvent
                                 "optimizer.combos.backtest_updated"
                                 [ "updated" .= updatedCount
@@ -5790,6 +5879,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
           )
           (Just eqAfterFee)
           (botComboUuid st)
+          (Just (T.pack (botSymbol st)))
+          (orderIdFromOrderResult o)
         webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew o)
 
         pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
@@ -5830,6 +5921,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
         )
         (Just eqFinal)
         (botComboUuid st)
+        (Just (T.pack (botSymbol st)))
+        Nothing
       webhookNotifyMaybe mWebhook (webhookEventBotHalt args (botSymbol st) r drawdown dailyLoss orderErrors1)
     _ -> pure ()
 
@@ -5947,6 +6040,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
     )
     (Just eqFinal)
     (botComboUuid stOut)
+    (Just (T.pack (botSymbol stOut)))
+    Nothing
   triggerTopCombosBacktestOnCandle topCombosCtx
   pure stOut
 
@@ -6137,7 +6232,7 @@ runRestApi baseArgs mWebhook = do
       putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
   now <- getTimestampMs
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
-  opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing
+  opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
   bot <- newBotController
   _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot)
   _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
@@ -7324,7 +7419,7 @@ apiApp buildInfo baseArgs apiToken botCtrl metrics mJournal mWebhook mOps mBotSt
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["optimizer", "run"] ->
               case Wai.requestMethod req of
-                "POST" -> handleOptimizerRun reqLimits projectRoot optimizerTmp req respondCors
+                "POST" -> handleOptimizerRun reqLimits mOps projectRoot optimizerTmp req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["optimizer", "combos"] ->
               case Wai.requestMethod req of
@@ -8252,6 +8347,102 @@ persistTopCombosMaybe path = do
           persistTopCombosHistoryMaybe path st contents
           pure ()
 
+strategyCodeFromMethod :: Maybe String -> Text
+strategyCodeFromMethod mMethod =
+  let raw = normalizeKey <$> mMethod
+   in T.pack $ case raw of
+        Just "kalman" -> "kalman"
+        Just "10" -> "kalman"
+        Just "lstm" -> "lstm"
+        Just "01" -> "lstm"
+        Just "both" -> "both"
+        Just "11" -> "both"
+        Just "blend" -> "blend"
+        Just "router" -> "router"
+        _ -> "unknown"
+
+persistTopCombosDbMaybe :: Maybe OpsStore -> FilePath -> IO ()
+persistTopCombosDbMaybe mOps path =
+  case mOps of
+    Nothing -> pure ()
+    Just store -> do
+      combosOrErr <- readTopCombosExport path
+      case combosOrErr of
+        Left err -> hPutStrLn stderr ("WARN: failed to persist top combos to DB (" ++ err ++ ")")
+        Right export -> do
+          _ <- try (withMVar (osLock store) (\_ -> persistTopCombosToDb (osConn store) export)) :: IO (Either SomeException ())
+          pure ()
+
+persistTopCombosToDb :: Connection -> TopCombosExport -> IO ()
+persistTopCombosToDb conn export =
+  withTransaction conn $ do
+    strategyRows <- query_ conn "SELECT id, code FROM strategies" :: IO [(Int, Text)]
+    let strategyMap = HM.fromList [(code, sid) | (sid, code) <- strategyRows]
+    now <- getTimestampMs
+    forM_ (tceCombos export) $ \combo -> do
+      case uuidFromText (topComboUuid combo) of
+        Nothing -> pure ()
+        Just comboUuid -> do
+          let mStrategyId = HM.lookup (strategyCodeFromMethod (topComboParamString "method" combo)) strategyMap
+              mSymbol = T.pack <$> topComboSymbol combo
+              mInterval = T.pack <$> topComboParamString "interval" combo
+              mObjective = T.pack <$> tcObjectiveLabel combo
+              mAnnualized = topComboMetricDouble "annualizedReturn" combo
+              paramsJson = encodeJsonTextMaybe (Just (Aeson.Object (tcParams combo)))
+              metricsJson = encodeJsonTextMaybe (Aeson.Object <$> tcMetrics combo)
+          opRows <- query conn "SELECT COUNT(*) FROM ops WHERE combo_uuid = ?" (Only comboUuid) :: IO [Only Int64]
+          let opCount =
+                case opRows of
+                  (Only v : _) -> fromIntegral v
+                  _ -> 0 :: Int
+          void $
+            execute
+              conn
+              ( "INSERT INTO combos (combo_uuid, strategy_id, symbol, interval, objective, final_equity, annualized_return, score, open_threshold, close_threshold, params_json, metrics_json, operation_count, created_at_ms, updated_at_ms) "
+                  <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?) "
+                  <> "ON CONFLICT (combo_uuid) DO UPDATE "
+                  <> "SET strategy_id = EXCLUDED.strategy_id, "
+                  <> "symbol = EXCLUDED.symbol, "
+                  <> "interval = EXCLUDED.interval, "
+                  <> "objective = EXCLUDED.objective, "
+                  <> "final_equity = EXCLUDED.final_equity, "
+                  <> "annualized_return = EXCLUDED.annualized_return, "
+                  <> "score = EXCLUDED.score, "
+                  <> "open_threshold = EXCLUDED.open_threshold, "
+                  <> "close_threshold = EXCLUDED.close_threshold, "
+                  <> "params_json = EXCLUDED.params_json, "
+                  <> "metrics_json = EXCLUDED.metrics_json, "
+                  <> "operation_count = EXCLUDED.operation_count, "
+                  <> "updated_at_ms = EXCLUDED.updated_at_ms"
+              )
+              ( comboUuid
+              , mStrategyId
+              , mSymbol
+              , mInterval
+              , mObjective
+              , tcFinalEquity combo
+              , mAnnualized
+              , tcScore combo
+              , tcOpenThreshold combo
+              , tcCloseThreshold combo
+              , paramsJson
+              , metricsJson
+              , opCount
+              , now
+              , now
+              )
+          persistComboParameters conn comboUuid mStrategyId (tcParams combo)
+
+persistComboParameters :: Connection -> UUID.UUID -> Maybe Int -> Aeson.Object -> IO ()
+persistComboParameters conn comboUuid mStrategyId params = do
+  void $ execute conn "DELETE FROM combo_parameters WHERE combo_uuid = ?" (Only comboUuid)
+  forM_ (KM.toList params) $ \(k, v) ->
+    void $
+      execute
+        conn
+        "INSERT INTO combo_parameters (combo_uuid, name, value_json, strategy_id) VALUES (?, ?, ?::jsonb, ?)"
+        (comboUuid, AK.toText k, encodeJsonTextMaybe (Just v), mStrategyId)
+
 persistTopCombosHistoryMaybe :: FilePath -> S3State -> BL.ByteString -> IO ()
 persistTopCombosHistoryMaybe topJsonPath st contents = do
   historyDir <- resolveOptimizerCombosHistoryDir topJsonPath
@@ -8683,12 +8874,13 @@ applyTopComboForStartWithUuid base combo = do
 
 handleOptimizerRun ::
   ApiRequestLimits ->
+  Maybe OpsStore ->
   FilePath ->
   FilePath ->
   Wai.Request ->
   (Wai.Response -> IO Wai.ResponseReceived) ->
   IO Wai.ResponseReceived
-handleOptimizerRun reqLimits projectRoot optimizerTmp req respond = do
+handleOptimizerRun reqLimits mOps projectRoot optimizerTmp req respond = do
   payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid optimizer payload: "
   case payloadOrErr of
     Left resp -> respond resp
@@ -8726,7 +8918,9 @@ handleOptimizerRun reqLimits projectRoot optimizerTmp req respond = do
                         status500
                         (object ["error" .= msg, "stdout" .= truncateOut out, "stderr" .= truncateOut err])
                     )
-                Right _ -> respond (jsonValue status200 resp')
+                Right _ -> do
+                  persistTopCombosDbMaybe mOps topJsonPath
+                  respond (jsonValue status200 resp')
 
 handleOptimizerCombos ::
   FilePath ->
@@ -8830,7 +9024,7 @@ handleOps mOps req respond =
             status200
             ( object
                 [ "enabled" .= False
-                , "hint" .= ("Set TRADER_OPS_DIR or TRADER_STATE_DIR to enable ops persistence (SQLite), and TRADER_STATE_S3_BUCKET to persist across deploys." :: String)
+                , "hint" .= ("Set TRADER_DB_URL (or DATABASE_URL) to enable ops persistence (PostgreSQL)." :: String)
                 , "ops" .= ([] :: [PersistedOperation])
                 ]
             )
@@ -8843,12 +9037,30 @@ handleOps mOps req respond =
               _ -> Nothing
           readIntParam name =
             lookupParam name >>= (readMaybe . BS.unpack)
+          readBoolParam name =
+            case fmap (map toLower . BS.unpack) (lookupParam name) of
+              Just "1" -> Just True
+              Just "true" -> Just True
+              Just "yes" -> Just True
+              Just "y" -> Just True
+              Just "only" -> Just True
+              Just "0" -> Just False
+              Just "false" -> Just False
+              Just "no" -> Just False
+              Just "n" -> Just False
+              _ -> Nothing
           limit = maybe 200 id (readIntParam "limit")
           sinceId = readIntParam "since"
           kind = T.pack . BS.unpack <$> lookupParam "kind"
-      ops <- opsList store sinceId limit kind
-      latestId <- readIORef (osNextId store)
-      respond (jsonValue status200 (object ["enabled" .= True, "latestId" .= latestId, "maxInMemory" .= osMaxInMemory store, "ops" .= ops]))
+          symbol = T.pack . BS.unpack <$> lookupParam "symbol"
+          comboUuid = T.pack . BS.unpack <$> lookupParam "comboUuid"
+          orderId = T.pack . BS.unpack <$> lookupParam "orderId"
+          fromMs = readIntParam "fromMs"
+          toMs = readIntParam "toMs"
+          botOnly = readBoolParam "bot"
+      ops <- opsList store sinceId limit kind symbol comboUuid orderId fromMs toMs botOnly
+      latestId <- readIORef (osLatestId store)
+      respond (jsonValue status200 (object ["enabled" .= True, "latestId" .= latestId, "ops" .= ops]))
 
 handleSignal :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
@@ -8893,6 +9105,8 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
                         (Just (toJSON sig))
                         Nothing
                         Nothing
+                        (T.pack <$> argBinanceSymbol argsOk)
+                        Nothing
                       respond (jsonValue status200 sig)
 
 handleSignalAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore LatestSignal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -8926,7 +9140,7 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
                         if noCache
                           then computeLatestSignalFromArgsWithLimits limits mOps argsOk
                           else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
-                      opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing Nothing
+                      opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing Nothing (T.pack <$> argBinanceSymbol argsOk) Nothing
                       pure sig
                   case r of
                     Left e -> respond (jsonError status429 e)
@@ -8981,6 +9195,8 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                         (Just (toJSON out))
                         Nothing
                         Nothing
+                        (T.pack <$> argBinanceSymbol argsOk)
+                        (orderIdFromOrderResult (atrOrder out))
                       webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsOk (atrSignal out) (atrOrder out))
                       respond (jsonValue status200 out)
 
@@ -9024,7 +9240,16 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                             , "order" .= atrOrder out
                             ]
                         )
-                      opsAppendMaybe mOps "trade.order" paramsJson argsJson (Just (toJSON out)) Nothing Nothing
+                      opsAppendMaybe
+                        mOps
+                        "trade.order"
+                        paramsJson
+                        argsJson
+                        (Just (toJSON out))
+                        Nothing
+                        Nothing
+                        (T.pack <$> argBinanceSymbol argsOk)
+                        (orderIdFromOrderResult (atrOrder out))
                       webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsOk (atrSignal out) (atrOrder out))
                       pure out
                   case r of
@@ -9077,6 +9302,8 @@ handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respond 
                     (Just out)
                     (extractBacktestFinalEquity out)
                     Nothing
+                    (T.pack <$> argBinanceSymbol argsOk)
+                    Nothing
                   respond (jsonValue status200 out)
 
 handleBacktestAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> BacktestGate -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
@@ -9112,7 +9339,16 @@ handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs r
                   case gateResult of
                     Left failure -> throwIO (userError (backtestFailureMessage backtestGate failure))
                     Right out -> do
-                      opsAppendMaybe mOps "backtest" paramsJson argsJson (Just out) (extractBacktestFinalEquity out) Nothing
+                      opsAppendMaybe
+                        mOps
+                        "backtest"
+                        paramsJson
+                        argsJson
+                        (Just out)
+                        (extractBacktestFinalEquity out)
+                        Nothing
+                        (T.pack <$> argBinanceSymbol argsOk)
+                        Nothing
                       pure out
               case r of
                 Left e -> respond (jsonError status429 e)
@@ -9590,6 +9826,8 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                       )
                       Nothing
                       Nothing
+                      (Just (T.pack (bsrSymbol rt)))
+                      Nothing
                   _ -> pure ()
 
               case (symbols, errors, statuses) of
@@ -9635,8 +9873,12 @@ handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
   stopped <- botStop botCtrl mSymbol
   now <- getTimestampMs
   let stoppedSymbols = map botSymbol stopped
+      mStopSymbol =
+        case stoppedSymbols of
+          [sym] -> Just (T.pack sym)
+          _ -> Nothing
   journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now, "symbols" .= stoppedSymbols])
-  opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing Nothing
+  opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing Nothing mStopSymbol Nothing
   forM_ stopped (botStatusLogMaybe mOps False)
   webhookNotifyMaybe mWebhook (webhookEventBotStop stoppedSymbols)
 

@@ -2708,7 +2708,11 @@ runOptimizer args0 = do
                                         [ trParams tr
                                         | tr <- survivorsRaw
                                         , trEligible tr
-                                        , metricInt (trMetrics tr) "tradeCount" 0 > 5
+                                        , let opCount =
+                                                max
+                                                  (metricInt (trMetrics tr) "operationCount" 0)
+                                                  (metricInt (trMetrics tr) "tradeCount" 0)
+                                        , opCount > 5
                                         , metricFloat (trMetrics tr) "annualizedReturn" 0 > 1
                                         ]
                                       gaParentPool =

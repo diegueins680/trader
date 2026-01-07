@@ -15,11 +15,14 @@ API_TOKEN=$(openssl rand -hex 32)
 
 # Save this token somewhere safe (you'll need it for the web UI deploy config: `trader-config.js`).
 
+# Required: Postgres connection for ops/combo persistence
+TRADER_DB_URL="postgresql://user:pass@host:5432/trader?sslmode=require"
+
 # Run the automated deployment script (auto-creates S3 state bucket)
-bash deploy-aws-quick.sh --ensure-resources --region ap-northeast-1 --api-token "$API_TOKEN"
+bash deploy-aws-quick.sh --ensure-resources --region ap-northeast-1 --api-token "$API_TOKEN" --db-url "$TRADER_DB_URL"
 
 # Optional: auto-provision S3 state + CloudFront (reuses existing resources if present)
-# bash deploy-aws-quick.sh --ensure-resources --cloudfront --region ap-northeast-1 --api-token "$API_TOKEN"
+# bash deploy-aws-quick.sh --ensure-resources --cloudfront --region ap-northeast-1 --api-token "$API_TOKEN" --db-url "$TRADER_DB_URL"
 #   # defaults: trader-api-state-<account>-<region>, trader-ui-<account>-<region>
 #
 # Optional: override the state directory (default: /var/lib/trader/state)
@@ -27,6 +30,7 @@ bash deploy-aws-quick.sh --ensure-resources --region ap-northeast-1 --api-token 
 #
 # Required: enable S3 state persistence for App Runner (script enforces this)
 # bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" \
+#   --db-url "$TRADER_DB_URL" \
 #   --state-s3-bucket "trader-api-state-..." --state-s3-prefix "trader" --instance-role-arn "arn:aws:iam::123:role/TraderAppRunnerS3Role"
 ```
 
@@ -55,6 +59,12 @@ Checklist (App Runner + S3):
 6. App Runner does **not** support EFS volumes; S3 is the supported persistence option.
 
 ---
+
+## Persist ops/combos with Postgres (required)
+
+1. Provision a managed Postgres instance.
+2. Set `TRADER_DB_URL` (or pass `--db-url`) with `sslmode=require`.
+3. The quick deploy script will fail without a database URL configured.
 
 ## Option 2: Manual Steps (Step by Step)
 
@@ -101,6 +111,7 @@ docker push "${ECR_URI}:latest"
 5. Environment variables:
    ```
    TRADER_API_TOKEN=<your-api-token>
+   TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require
    TRADER_STATE_DIR=/var/lib/trader/state
    TRADER_STATE_S3_BUCKET=<s3-bucket>
    TRADER_STATE_S3_PREFIX=trader

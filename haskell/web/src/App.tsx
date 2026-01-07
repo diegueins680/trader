@@ -9986,7 +9986,7 @@ export function App() {
                       </div>
                     ) : null}
                     {!botStatusOps.enabled ? (
-                      <div className="hint">{botStatusOps.hint ?? "Enable TRADER_OPS_DIR to track bot status history."}</div>
+                      <div className="hint">{botStatusOps.hint ?? "Enable TRADER_DB_URL to track bot status history."}</div>
                     ) : botStatusRange.startMs !== null && botStatusRange.endMs !== null && !botStatusRange.error ? (
                       <ChartSuspense height={CHART_HEIGHT_TIMELINE} label="Loading timeline…">
                         <BotStateChart

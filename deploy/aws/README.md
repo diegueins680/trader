@@ -18,7 +18,7 @@ curl -s http://127.0.0.1:8080/health
 
 Async job persistence (recommended if you use the `*/async` endpoints behind a non-sticky load balancer):
 - Mount a shared volume and set `TRADER_STATE_DIR` (recommended) or `TRADER_API_ASYNC_DIR` to your shared mount.
-- If you only want async persistence, point `TRADER_API_ASYNC_DIR` at your shared mount; otherwise, use `TRADER_STATE_DIR` to persist ops/journal/bot state/optimizer combos/LSTM weights alongside async jobs.
+- If you only want async persistence, point `TRADER_API_ASYNC_DIR` at your shared mount; otherwise, use `TRADER_STATE_DIR` to persist journal/bot state/optimizer combos/LSTM weights alongside async jobs.
 
 Example (named Docker volume):
 
@@ -85,15 +85,14 @@ docker push "${ECR_URI}:latest"
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
   - `TRADER_BOT_SYMBOLS` / `TRADER_BOT_TRADE` (optional; used by the cron watchdog to build `/bot/start`)
+  - Required: PostgreSQL persistence for ops/combos:
+    - `TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require`
   - Required: S3 state persistence (App Runner has no EFS support):
     - `TRADER_STATE_S3_BUCKET=<bucket>`
     - `TRADER_STATE_S3_PREFIX=trader`
     - `TRADER_STATE_S3_REGION=ap-northeast-1`
   - Required: shared state directory (ECS/EKS/Docker) to persist across deploys:
     - `TRADER_STATE_DIR=/var/lib/trader/state` (mount durable storage)
-  - Optional: operation persistence (SQLite) for `GET /ops`:
-    - `TRADER_OPS_DIR=/var/lib/trader/ops` (defaults to `TRADER_STATE_DIR/ops` when set)
-    - `TRADER_OPS_MAX_IN_MEMORY` (default: `20000`)
   - Optional safety limits (to avoid OOM / timeouts on small instances):
     - `TRADER_API_MAX_ASYNC_RUNNING` (default: `1`)
     - `TRADER_API_MAX_BARS_LSTM` (default: `1000`)
@@ -101,7 +100,7 @@ docker push "${ECR_URI}:latest"
     - `TRADER_API_MAX_HIDDEN_SIZE` (default: `32`; set to `50` to allow larger LSTM hidden sizes)
   - Async-job persistence (recommended if you run multiple instances behind a non-sticky load balancer):
     - `TRADER_API_ASYNC_DIR` (shared mount; App Runner has no volume support). Docker image default: `/var/lib/trader/async`.
-    - Or set `TRADER_STATE_DIR` to a shared mount to persist async jobs plus ops/journal/bot state/optimizer combos/LSTM weights.
+    - Or set `TRADER_STATE_DIR` to a shared mount to persist async jobs plus journal/bot state/optimizer combos/LSTM weights.
       - For multi-instance deployments, ensure this path is a shared writable mount across all instances (otherwise polling can still return “Not found”).
 
 App Runner note: EFS volumes are not supported; use S3 (`TRADER_STATE_S3_BUCKET`) for persistence on App Runner.

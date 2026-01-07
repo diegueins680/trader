@@ -26,6 +26,7 @@ AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 TRADER_API_TOKEN="${TRADER_API_TOKEN:-}"
 TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
 TRADER_API_MAX_HIDDEN_SIZE="${TRADER_API_MAX_HIDDEN_SIZE:-50}"
+TRADER_DB_URL="${TRADER_DB_URL:-${DATABASE_URL:-}}"
 TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
 TRADER_STATE_S3_REGION="${TRADER_STATE_S3_REGION:-}"
@@ -85,6 +86,7 @@ Usage:
 Flags:
   --region <region>                 AWS region (e.g. ap-northeast-1)
   --api-token <token>               API token (TRADER_API_TOKEN)
+  --db-url <url>                    Database URL for ops/combo persistence (TRADER_DB_URL / DATABASE_URL)
   --state-dir <path>                State dir (default: /var/lib/trader/state; mount durable storage)
   --state-s3-bucket <bucket>        S3 bucket for App Runner state (required for API deploys)
   --state-s3-prefix <prefix>        S3 key prefix for state (TRADER_STATE_S3_PREFIX)
@@ -108,6 +110,7 @@ Flags:
 Environment variables (equivalents):
   AWS_REGION / AWS_DEFAULT_REGION
   TRADER_API_TOKEN
+  TRADER_DB_URL / DATABASE_URL
   TRADER_STATE_DIR
   TRADER_STATE_S3_BUCKET
   TRADER_STATE_S3_PREFIX
@@ -174,6 +177,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --api-token)
       TRADER_API_TOKEN="${2:-}"
+      shift 2
+      ;;
+    --db-url)
+      TRADER_DB_URL="${2:-}"
       shift 2
       ;;
     --state-dir)
@@ -956,6 +963,24 @@ create_app_runner() {
     fi
   fi
 
+  if [[ -z "${TRADER_DB_URL:-}" && -n "$existing_service_arn" ]]; then
+    local existing_db_url=""
+    existing_db_url="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_DB_URL' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_db_url" == "None" ]]; then
+      existing_db_url=""
+    fi
+    if [[ -n "$existing_db_url" ]]; then
+      TRADER_DB_URL="$existing_db_url"
+      echo -e "${YELLOW}✓ Reusing existing TRADER_DB_URL from service${NC}" >&2
+    fi
+  fi
+
   if [[ -n "$existing_service_arn" ]]; then
     if [[ -z "${APP_RUNNER_INSTANCE_ROLE_ARN:-}" ]]; then
       local existing_instance_role=""
@@ -1083,6 +1108,9 @@ create_app_runner() {
     if [[ -n "${TRADER_STATE_S3_REGION:-}" ]]; then
       runtime_env_json="${runtime_env_json},\"TRADER_STATE_S3_REGION\":\"${TRADER_STATE_S3_REGION}\""
     fi
+  fi
+  if [[ -n "${TRADER_DB_URL:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_DB_URL\":\"${TRADER_DB_URL}\""
   fi
   if [[ -n "${TRADER_API_MAX_BARS_LSTM:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_BARS_LSTM\":\"${TRADER_API_MAX_BARS_LSTM}\""
@@ -1572,6 +1600,10 @@ main() {
     echo -e "${RED}✗ Missing TRADER_STATE_S3_BUCKET. State persistence is required for API deploys; pass --state-s3-bucket or enable --ensure-resources to create a default bucket.${NC}" >&2
     exit 2
   fi
+  if [[ "$DEPLOY_API" == "true" && -z "${TRADER_DB_URL:-}" ]]; then
+    echo -e "${RED}✗ Missing TRADER_DB_URL. Database persistence is required for ops/combo history; pass --db-url or set TRADER_DB_URL/DATABASE_URL.${NC}" >&2
+    exit 2
+  fi
 
   if [[ -n "${TRADER_STATE_S3_BUCKET:-}" && -z "${TRADER_STATE_S3_REGION:-}" ]]; then
     TRADER_STATE_S3_REGION="$AWS_REGION"
@@ -1607,6 +1639,11 @@ main() {
   echo "  Region: $AWS_REGION"
   echo "  Ensure AWS Resources: ${ENSURE_RESOURCES}"
   echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
+  if [[ -n "${TRADER_DB_URL:-}" ]]; then
+    echo "  Ops DB URL: (set)"
+  else
+    echo "  Ops DB URL: (not set)"
+  fi
   if [[ -n "${TRADER_STATE_DIR:-}" ]]; then
     echo "  State Dir: ${TRADER_STATE_DIR}"
   else
