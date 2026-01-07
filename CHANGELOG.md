@@ -58,7 +58,9 @@ All notable changes to this project will be documented in this file.
 - Web UI: optimizer combos now load only from the API (no static fallback).
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.
 - Deploy: require S3 state for App Runner API deploys and document durable state storage for Docker/VM deployments.
-- Deploy: forward `TRADER_DB_URL` to App Runner for PostgreSQL-backed ops/combo persistence.
+- Deploy: forward `TRADER_DB_URL` to App Runner for PostgreSQL-backed ops persistence.
+- Deploy: allow App Runner API deploys to use `TRADER_DB_URL`/`DATABASE_URL` for ops persistence when S3 state is not configured.
+- Deploy: install `libpq-dev` in the Docker build to compile PostgreSQL ops persistence.
 - Deploy: quick AWS deploy can reuse or create S3 buckets, App Runner S3 instance roles, and CloudFront distributions with `--ensure-resources`/`--cloudfront`.
 - Deploy: quick AWS UI deploy defaults to the direct API base even with CloudFront; use `TRADER_UI_API_MODE=proxy`/`--ui-api-proxy` to force `/api`.
 - Deploy: quick AWS UI config auto-fills `apiFallbackUrl` only for `/api` mode (it points at the API URL when known).

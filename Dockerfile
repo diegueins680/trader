@@ -1,5 +1,9 @@
 FROM haskell:8.10.4 AS build
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends libpq-dev pkg-config \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt/trader
 
 # Copy only the Haskell project for better caching.
