@@ -206,14 +206,15 @@ import Trader.Platform
 import Trader.Coinbase
   ( CoinbaseCandle(..)
   , CoinbaseEnv(..)
+  , coinbaseBaseUrl
   , fetchCoinbaseAccounts
   , fetchCoinbaseAvailableBalance
   , fetchCoinbaseCandles
   , newCoinbaseEnv
   , placeCoinbaseMarketOrder
   )
-import Trader.Kraken (KrakenCandle(..), fetchKrakenCandles)
-import Trader.Poloniex (PoloniexCandle(..), fetchPoloniexCandles)
+import Trader.Kraken (KrakenCandle(..), fetchKrakenCandles, krakenBaseUrl)
+import Trader.Poloniex (PoloniexCandle(..), fetchPoloniexCandles, poloniexBaseUrl)
 
 -- CSV loading
 
@@ -8647,15 +8648,15 @@ sanitizeComboSymbolValue val =
           let platform =
                 (KM.lookup (AK.fromString "platform") params >>= valueStringMaybe)
                   <|> (KM.lookup (AK.fromString "source") comboObj >>= valueStringMaybe)
-            symbolRaw =
-              (KM.lookup (AK.fromString "binanceSymbol") params >>= valueStringMaybe)
-                <|> (KM.lookup (AK.fromString "symbol") params >>= valueStringMaybe)
-            hadBinance = KM.member (AK.fromString "binanceSymbol") params
-            hadSymbol = KM.member (AK.fromString "symbol") params
-            hasSymbolField = hadBinance || hadSymbol
-            sanitized = symbolRaw >>= sanitizeComboSymbol platform
-            params' =
-              case sanitized of
+              symbolRaw =
+                (KM.lookup (AK.fromString "binanceSymbol") params >>= valueStringMaybe)
+                  <|> (KM.lookup (AK.fromString "symbol") params >>= valueStringMaybe)
+              hadBinance = KM.member (AK.fromString "binanceSymbol") params
+              hadSymbol = KM.member (AK.fromString "symbol") params
+              hasSymbolField = hadBinance || hadSymbol
+              sanitized = symbolRaw >>= sanitizeComboSymbol platform
+              params' =
+                case sanitized of
                   Just sym ->
                     let params1 =
                           if hadBinance
@@ -8999,14 +9000,21 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
   let tmpPath = optimizerTmp </> optimizerCombosFileName
       fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
   topVal <- readTopCombosValue topJsonPath
+  let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
   tmpVal <-
     if tmpPath /= topJsonPath
-      then readTopCombosValueLocal tmpPath
+      then sanitizeVal <$> readTopCombosValueLocal tmpPath
       else pure (Left "missing")
   fallbackVal <-
     if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
-      then readTopCombosValueLocal fallbackPath
+      then sanitizeVal <$> readTopCombosValueLocal fallbackPath
       else pure (Left "missing")
+  let seedVal = listToMaybe [v | Right v <- [tmpVal, fallbackVal]]
+  case (topVal, seedVal) of
+    (Left _, Just seed) -> do
+      _ <- writeTopCombosValue topJsonPath seed
+      persistTopCombosMaybe topJsonPath
+    _ -> pure ()
   let allVals = [topVal, tmpVal, fallbackVal]
   now <- getTimestampMs
 
