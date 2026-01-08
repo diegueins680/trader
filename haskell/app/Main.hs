@@ -463,6 +463,7 @@ data LatestSignal = LatestSignal
   , lsPositionSize :: !(Maybe Double)
   , lsKalmanDir :: !(Maybe Int)
   , lsLstmNext :: !(Maybe Double)
+  , lsSizingNext :: !(Maybe Double)
   , lsLstmDir :: !(Maybe Int)
   , lsChosenDir :: !(Maybe Int)
   , lsCloseDir :: !(Maybe Int)
@@ -2865,6 +2866,7 @@ data BotOpenTrade = BotOpenTrade
   , botOpenEntryEquity :: !Double
   , botOpenHoldingPeriods :: !Int
   , botOpenEntryPrice :: !Double
+  , botOpenSize :: !Double
   , botOpenTrail :: !Double
   , botOpenSide :: !PositionSide
   } deriving (Eq, Show)
@@ -4463,6 +4465,7 @@ initBotState mOps args settings mComboUuid sym = do
             if startPos0 == 0
               then latest { lsChosenDir = Nothing }
               else latest { lsChosenDir = Just (negate startPos0) }
+      entrySize = entryScaleForSignal args (beMarket env) latest
 
   mOrder <-
     if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
@@ -4490,19 +4493,20 @@ initBotState mOps args settings mComboUuid sym = do
           else if appliedSwitch then desiredPosSignal else startPos0
       didTradeNow = wantSwitch && appliedSwitch && feeApplied
 
+      feeFrac = min 0.999999 (max 0 (argFee args) * entrySize)
       eq1 =
         if didTradeNow
-          then eq0 V.// [(n - 1, baseEq * (1 - argFee args))]
+          then eq0 V.// [(n - 1, baseEq * (1 - feeFrac))]
           else eq0
       pos1 = pos0 V.// [(n - 1, desiredPos)]
       openTrade =
         case desiredPos of
           1 ->
             let px = V.last pricesV
-             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px px SideLong)
+             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px entrySize px SideLong)
           (-1) ->
             let px = V.last pricesV
-             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px px SideShort)
+             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px entrySize px SideShort)
           _ -> Nothing
       ops =
         if wantSwitch && appliedSwitch
@@ -6025,6 +6029,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
   let prevPrice = pricesPrev V.! (nPrev - 1)
       prevEq = botEquityCurve st V.! (nPrev - 1)
       prevPos = botPositions st V.! (nPrev - 1)
+      prevSize =
+        case botOpenTrade st of
+          Just ot | prevPos /= 0 -> max 0 (botOpenSize ot)
+          _ -> if prevPos == 0 then 0 else 1
       markToMarket side basePx px =
         if basePx == 0
           then 1
@@ -6034,8 +6042,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
               SideShort -> 2 - px / basePx
       eqAfterReturn =
         case prevPos of
-          1 | prevPrice > 0 -> prevEq * markToMarket SideLong prevPrice priceNew
-          (-1) | prevPrice > 0 -> prevEq * markToMarket SideShort prevPrice priceNew
+          1 | prevPrice > 0 ->
+            prevEq * (1 + prevSize * (markToMarket SideLong prevPrice priceNew - 1))
+          (-1) | prevPrice > 0 ->
+            prevEq * (1 + prevSize * (markToMarket SideShort prevPrice priceNew - 1))
           _ -> prevEq
       openTrade1 =
         case botOpenTrade st of
@@ -6385,6 +6395,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
             if prevPos == 0
               then latest { lsChosenDir = Nothing }
               else latest { lsChosenDir = Just (negate prevPos) }
+      entrySize = entryScaleForSignal args (beMarket (botEnv st)) latest
 
   o <-
     if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
@@ -6426,9 +6437,14 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
               if not tradeEnabled
                 then True
                 else aorSent o
+            feeSize =
+              if desiredPosWanted == 0
+                then prevSize
+                else max prevSize entrySize
+            feeFrac = min 0.999999 (max 0 (argFee args) * feeSize)
             eqAfterFee =
               if appliedSwitch && feeApplied
-                then eqAfterReturn * (1 - argFee args)
+                then eqAfterReturn * (1 - feeFrac)
                 else eqAfterReturn
             posNew = if appliedSwitch then desiredPosWanted else prevPos
             switchedApplied1 = posNew /= prevPos
@@ -6442,6 +6458,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
                 , botOpenEntryEquity = eqEntry
                 , botOpenHoldingPeriods = 0
                 , botOpenEntryPrice = priceNew
+                , botOpenSize = entrySize
                 , botOpenTrail = priceNew
                 , botOpenSide = side
                 }
@@ -11334,7 +11351,7 @@ applyOrderInfo info r =
 
 lstmConfidenceScore :: LatestSignal -> Maybe Double
 lstmConfidenceScore sig = do
-  next <- lsLstmNext sig
+  next <- lsSizingNext sig
   let cur = lsCurrentPrice sig
       thr = max 1e-12 (lsOpenThreshold sig)
       bad x = isNaN x || isInfinite x
@@ -11369,6 +11386,18 @@ lstmConfidenceSizing args sig =
                       , Just (printf "No order: LSTM confidence %.1f%% (<%.1f%%)." (score * 100) (soft * 100))
                       )
 
+entryScaleForSignal :: Args -> BinanceMarket -> LatestSignal -> Double
+entryScaleForSignal args market sig =
+  let s0 = maybe 1 id (lsPositionSize sig)
+      s1 = max 0 s0
+      s2 = min s1 (max 0 (argMaxPositionSize args))
+      (lstmScale, _) = lstmConfidenceSizing args sig
+      s3 =
+        case market of
+          MarketFutures -> s2
+          _ -> min 1 s2
+   in max 0 (s3 * lstmScale)
+
 placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
 placeOrderForSignal args sym sig env =
   placeOrderForSignalEx args sym sig env Nothing True
@@ -11398,16 +11427,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
     currentPrice = lsCurrentPrice sig
 
     entryScale :: Double
-    entryScale =
-      let s0 = maybe 1 id (lsPositionSize sig)
-          s1 = max 0 s0
-          s2 = min s1 (max 0 (argMaxPositionSize args))
-          (lstmScale, _) = lstmConfidenceSizing args sig
-          s3 =
-            case beMarket env of
-              MarketFutures -> s2
-              _ -> min 1 s2
-       in max 0 (s3 * lstmScale)
+    entryScale = entryScaleForSignal args (beMarket env) sig
 
     clientOrderId :: Maybe String
     clientOrderId = trim <$> (mClientOrderIdOverride <|> argIdempotencyKey args)
@@ -12035,13 +12055,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
     currentPrice = lsCurrentPrice sig
 
     entryScale :: Double
-    entryScale =
-      let s0 = maybe 1 id (lsPositionSize sig)
-          s1 = max 0 s0
-          s2 = min s1 (max 0 (argMaxPositionSize args))
-          (lstmScale, _) = lstmConfidenceSizing args sig
-          s3 = min 1 s2
-       in max 0 (s3 * lstmScale)
+    entryScale = entryScaleForSignal args MarketSpot sig
 
     clientOrderId :: Maybe String
     clientOrderId = trim <$> argIdempotencyKey args
@@ -14271,6 +14285,13 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                       Just RouterLstm -> mLstmNext
                       Just RouterBlend -> blendNext
                       Nothing -> Just currentPrice
+                  sizingNext =
+                    case method of
+                      MethodBoth -> mLstmNext
+                      MethodKalmanOnly -> mKalNext
+                      MethodLstmOnly -> mLstmNext
+                      MethodBlend -> blendNext
+                      MethodRouter -> routerNext
                   routerDirRaw = routerNext >>= directionPrice openThr
                   routerCloseDirRaw = routerNext >>= directionPrice closeThr
                   edgeFromPred pred =
@@ -14519,6 +14540,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     , lsPositionSize = posSizeFinal
                     , lsKalmanDir = kalDir
                     , lsLstmNext = mLstmNext
+                    , lsSizingNext = sizingNext
                     , lsLstmDir = lstmDir
                     , lsChosenDir = chosenDir
                     , lsCloseDir = closeDir

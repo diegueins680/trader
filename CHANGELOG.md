@@ -88,6 +88,8 @@ All notable changes to this project will be documented in this file.
 - Observability: redact Binance query params in ops logs even when the query string starts with `?`.
 - Observability: ensure ops logging covers all Binance API calls (including listenKey/trades/positions/data fetches) and emit an immediate `bot.status` snapshot on bot start.
 - Trading: when confidence sizing is enabled, scale live orders and backtests by LSTM confidence (thresholds now configurable).
+- Trading: LSTM confidence sizing now uses the method-selected prediction stream (Kalman/LSTM/blend/router) for live orders to match backtests.
+- Live bot: equity/drawdown tracking now respects sized positions and scales fees by position size.
 - Trading: `--lstm-confidence-soft 0` disables the half-size step so LSTM sizing becomes binary at the hard threshold.
 - Trading: futures order placement checks available balance (and leverage) before submitting.
 - Trading: floor entry order sizes to exchange minimums (minQty/step/minNotional) when possible and treat dust-sized balances as flat to avoid zero-quantity orders.
@@ -165,6 +167,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: show combo obtained timestamps, display annualized equity, default combo ordering by annualized equity, and filter optimizer combos by minimum equity.
 - Backtests: add `--rebalance-global`, `--rebalance-reset-on-signal`, `--funding-by-side`, and `--funding-on-open` toggles for rebalance cadence and funding timing/sign controls (CLI warns on negative funding without side-signing).
 - Metrics: agreement rate now counts only bars where both models emit a direction (warm-up/no-signal bars excluded).
+- Metrics: annualization now derives from parsed interval seconds when available instead of defaulting to 365 for unknown intervals.
 - Backtests: validate open timestamp vectors against closes to avoid misaligned day boundaries.
 - Web UI: Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
 - Web UI: validate symbol formats per platform and require non-negative Binance trades From ID inputs.

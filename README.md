@@ -304,7 +304,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--lstm-confidence-hard 0.8` hard LSTM confidence threshold for sizing (`0` disables; requires confidence sizing)
   - `--min-position-size 0.15` minimum entry size after sizing/vol scaling (`0..1`; entries below this are skipped)
     - Must be <= `--max-position-size`.
-  - When confidence sizing is enabled, live orders also scale entry size by LSTM confidence (score = clamp01(|lstmNext/current - 1| / (2 * openThreshold))): use `--lstm-confidence-hard/soft` thresholds (defaults 80%/60%).
+  - When confidence sizing is enabled, live orders also scale entry size by the LSTM confidence score (clamp01(|next/current - 1| / (2 * openThreshold))) using the method-selected prediction stream (Kalman/LSTM/blend/router) to match backtests.
   - The UI defaults to `orderQuote=100` so new setups clear common minQty/step sizes; adjust sizing to your account.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
   - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio, backtest ratio, bars, or lookback to restore a valid split.
@@ -312,6 +312,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
+    - Live-bot drawdown/daily loss uses the sized position (confidence/vol scaling) rather than assuming full size.
     - Backtests use bar timestamps when available (exchange data or CSV time columns); otherwise they fall back to interval-based day keys.
     - Invalid CSV time values now error instead of silently disabling time-based day keys.
     - If neither timestamps nor interval seconds are available, `--max-daily-loss` errors instead of silently disabling.

@@ -72,7 +72,12 @@ inferPeriodsPerYear interval =
     "3d" -> 365 / 3
     "1w" -> 52
     "1M" -> 12
-    _ -> 365
+    _ ->
+      case parseIntervalSeconds interval of
+        Just sec | sec > 0 ->
+          let yearSec = 365 * 24 * 60 * 60 :: Int
+           in fromIntegral yearSec / fromIntegral sec
+        _ -> 365
 
 unitSeconds :: Char -> Maybe Int
 unitSeconds u =
