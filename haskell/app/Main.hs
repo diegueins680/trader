@@ -1551,6 +1551,8 @@ data OpsStore = OpsStore
   { osLock :: !(MVar ())
   , osConn :: !Connection
   , osLatestId :: !(IORef Int64)
+  , osPlatformCache :: !(IORef (HM.HashMap Text Int))
+  , osSymbolCache :: !(IORef (HM.HashMap (Text, Text, Text) Int64))
   }
 
 sanitizeApiParams :: ApiParams -> ApiParams
@@ -1714,6 +1716,119 @@ normalizeMaybeText mText =
     Just t | T.null t -> Nothing
     other -> other
 
+normalizePlatformText :: Text -> Text
+normalizePlatformText = T.pack . normalizeKey . T.unpack
+
+normalizeMarketText :: Text -> Text
+normalizeMarketText = T.pack . normalizeKey . T.unpack
+
+data PlatformSeed = PlatformSeed
+  { psCode :: !Text
+  , psLabel :: !Text
+  , psRestUrl :: !(Maybe Text)
+  , psWsUrl :: !(Maybe Text)
+  , psDocsUrl :: !(Maybe Text)
+  , psConnectionJson :: !(Maybe Aeson.Value)
+  } deriving (Eq, Show)
+
+binanceConnectionJson :: Aeson.Value
+binanceConnectionJson =
+  object
+    [ "auth" .= ("hmac" :: String)
+    , "rest" .= (binanceBaseUrl :: String)
+    , "restTestnet" .= (binanceTestnetBaseUrl :: String)
+    , "restFutures" .= (binanceFuturesBaseUrl :: String)
+    , "restFuturesTestnet" .= (binanceFuturesTestnetBaseUrl :: String)
+    , "wsSpot" .= ("wss://stream.binance.com:9443/ws" :: String)
+    , "wsSpotTestnet" .= ("wss://testnet.binance.vision/ws" :: String)
+    , "wsFutures" .= ("wss://fstream.binance.com/ws" :: String)
+    , "wsFuturesTestnet" .= ("wss://stream.binancefuture.com/ws" :: String)
+    ]
+
+coinbaseConnectionJson :: Aeson.Value
+coinbaseConnectionJson =
+  object
+    [ "auth" .= ("hmac" :: String)
+    , "rest" .= (coinbaseBaseUrl :: String)
+    , "ws" .= ("wss://ws-feed.exchange.coinbase.com" :: String)
+    ]
+
+krakenConnectionJson :: Aeson.Value
+krakenConnectionJson =
+  object
+    [ "auth" .= ("public" :: String)
+    , "rest" .= (krakenBaseUrl :: String)
+    , "ws" .= ("wss://ws.kraken.com" :: String)
+    ]
+
+poloniexConnectionJson :: Aeson.Value
+poloniexConnectionJson =
+  object
+    [ "auth" .= ("public" :: String)
+    , "rest" .= (poloniexBaseUrl :: String)
+    , "ws" .= ("wss://ws.poloniex.com/ws/public" :: String)
+    ]
+
+platformSeeds :: [PlatformSeed]
+platformSeeds =
+  [ PlatformSeed
+      { psCode = "binance"
+      , psLabel = "Binance"
+      , psRestUrl = Just (T.pack binanceBaseUrl)
+      , psWsUrl = Just "wss://stream.binance.com:9443/ws"
+      , psDocsUrl = Just "https://binance-docs.github.io/apidocs"
+      , psConnectionJson = Just binanceConnectionJson
+      }
+  , PlatformSeed
+      { psCode = "coinbase"
+      , psLabel = "Coinbase"
+      , psRestUrl = Just (T.pack coinbaseBaseUrl)
+      , psWsUrl = Just "wss://ws-feed.exchange.coinbase.com"
+      , psDocsUrl = Just "https://docs.cdp.coinbase.com/exchange/"
+      , psConnectionJson = Just coinbaseConnectionJson
+      }
+  , PlatformSeed
+      { psCode = "kraken"
+      , psLabel = "Kraken"
+      , psRestUrl = Just (T.pack krakenBaseUrl)
+      , psWsUrl = Just "wss://ws.kraken.com"
+      , psDocsUrl = Just "https://docs.kraken.com/rest/"
+      , psConnectionJson = Just krakenConnectionJson
+      }
+  , PlatformSeed
+      { psCode = "poloniex"
+      , psLabel = "Poloniex"
+      , psRestUrl = Just (T.pack poloniexBaseUrl)
+      , psWsUrl = Just "wss://ws.poloniex.com/ws/public"
+      , psDocsUrl = Just "https://docs.poloniex.com"
+      , psConnectionJson = Just poloniexConnectionJson
+      }
+  ]
+
+platformSeedMap :: HM.HashMap Text PlatformSeed
+platformSeedMap =
+  HM.fromList [(normalizePlatformText (psCode seed), seed) | seed <- platformSeeds]
+
+platformLabelFromCode :: Text -> Text
+platformLabelFromCode code =
+  case parsePlatform (T.unpack code) of
+    Right p -> T.pack (platformLabel p)
+    Left _ -> code
+
+platformSeedForCode :: Text -> PlatformSeed
+platformSeedForCode raw =
+  let code = normalizePlatformText raw
+   in fromMaybe
+        PlatformSeed
+          { psCode = code
+          , psLabel = platformLabelFromCode code
+          , psRestUrl = Nothing
+          , psWsUrl = Nothing
+          , psDocsUrl = Nothing
+          , psConnectionJson = Nothing
+          }
+        (HM.lookup code platformSeedMap)
+
 uuidFromText :: Text -> Maybe UUID.UUID
 uuidFromText txt =
   case normalizeMaybeText (Just txt) of
@@ -1774,6 +1889,154 @@ persistedOperationFromRow row =
     , poEquity = porEquity row
     }
 
+lookupJsonText :: Text -> Aeson.Value -> Maybe Text
+lookupJsonText key val =
+  case val of
+    Aeson.Object obj ->
+      case KM.lookup (AK.fromString (T.unpack key)) obj of
+        Nothing -> Nothing
+        Just v -> T.pack <$> valueStringMaybe v
+    _ -> Nothing
+
+lookupJsonTextKeys :: [Text] -> Aeson.Value -> Maybe Text
+lookupJsonTextKeys keys val =
+  firstJust [lookupJsonText key val | key <- keys]
+
+lookupJsonTextMaybe :: [Text] -> Maybe Aeson.Value -> Maybe Text
+lookupJsonTextMaybe keys mVal = mVal >>= lookupJsonTextKeys keys
+
+inferPlatformFromJson :: Maybe Aeson.Value -> Maybe Text
+inferPlatformFromJson = lookupJsonTextMaybe ["platform"]
+
+inferSymbolFromJson :: Maybe Aeson.Value -> Maybe Text
+inferSymbolFromJson = lookupJsonTextMaybe ["binanceSymbol", "symbol"]
+
+inferMarketFromJson :: Maybe Aeson.Value -> Maybe Text
+inferMarketFromJson = lookupJsonTextMaybe ["market"]
+
+inferPlatformFromKind :: Text -> Maybe Text
+inferPlatformFromKind kind =
+  let k = T.toLower kind
+   in if "binance." `T.isPrefixOf` k
+        then Just "binance"
+        else
+          if "coinbase." `T.isPrefixOf` k
+            then Just "coinbase"
+            else
+              if "kraken." `T.isPrefixOf` k
+                then Just "kraken"
+                else
+                  if "poloniex." `T.isPrefixOf` k
+                    then Just "poloniex"
+                    else Nothing
+
+sanitizeSymbolForPlatformText :: Maybe Text -> Text -> Maybe Text
+sanitizeSymbolForPlatformText mPlatform sym =
+  T.pack <$> sanitizeSymbolForPlatform (T.unpack <$> mPlatform) (T.unpack sym)
+
+splitDelimitedSymbol :: Char -> Text -> Maybe (Text, Text)
+splitDelimitedSymbol delim sym =
+  let delimText = T.singleton delim
+      (base, rest) = T.breakOn delimText sym
+      quote = T.drop (T.length delimText) rest
+   in if T.null base || T.null quote
+        then Nothing
+        else Just (base, quote)
+
+splitSymbolForPlatform :: Maybe Text -> Text -> (Maybe Text, Maybe Text)
+splitSymbolForPlatform mPlatform sym =
+  case normalizePlatformText <$> mPlatform of
+    Just "coinbase" ->
+      case splitDelimitedSymbol '-' sym of
+        Just (base, quote) -> (Just base, Just quote)
+        Nothing -> (Nothing, Nothing)
+    Just "poloniex" ->
+      case splitDelimitedSymbol '_' sym of
+        Just (base, quote) -> (Just base, Just quote)
+        Nothing -> (Nothing, Nothing)
+    _ ->
+      let (base, quote) = splitSymbol (T.unpack sym)
+       in (Just (T.pack base), Just (T.pack quote))
+
+symbolCacheKey :: Text -> Text -> Maybe Text -> (Text, Text, Text)
+symbolCacheKey platform symbol mMarket =
+  let market = fromMaybe "" mMarket
+   in (platform, symbol, market)
+
+resolvePlatformId :: OpsStore -> Connection -> Text -> IO (Maybe Int)
+resolvePlatformId store conn rawCode = do
+  let code = normalizePlatformText rawCode
+  cached <- readIORef (osPlatformCache store)
+  case HM.lookup code cached of
+    Just pid -> pure (Just pid)
+    Nothing -> do
+      let seed = platformSeedForCode code
+      now <- getTimestampMs
+      let connJson = encodeJsonTextMaybe (psConnectionJson seed)
+      rows <-
+        query
+          conn
+          ( "INSERT INTO platforms (code, label, rest_url, ws_url, api_docs_url, connection_json, created_at_ms, updated_at_ms) "
+              <> "VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?) "
+              <> "ON CONFLICT (code) DO UPDATE "
+              <> "SET label = EXCLUDED.label, "
+              <> "rest_url = COALESCE(EXCLUDED.rest_url, platforms.rest_url), "
+              <> "ws_url = COALESCE(EXCLUDED.ws_url, platforms.ws_url), "
+              <> "api_docs_url = COALESCE(EXCLUDED.api_docs_url, platforms.api_docs_url), "
+              <> "connection_json = COALESCE(EXCLUDED.connection_json, platforms.connection_json), "
+              <> "updated_at_ms = EXCLUDED.updated_at_ms "
+              <> "RETURNING id"
+          )
+          ( psCode seed
+          , psLabel seed
+          , psRestUrl seed
+          , psWsUrl seed
+          , psDocsUrl seed
+          , connJson
+          , now
+          , now
+          )
+      let pid =
+            case rows of
+              (Only v : _) -> v
+              _ -> 0
+      if pid > 0
+        then do
+          atomicModifyIORef' (osPlatformCache store) (\m -> (HM.insert code pid m, ()))
+          pure (Just pid)
+        else pure Nothing
+
+resolvePlatformSymbolId :: OpsStore -> Connection -> Text -> Int -> Text -> Maybe Text -> IO (Maybe Int64)
+resolvePlatformSymbolId store conn platformCode platformId symbol mMarket = do
+  let key = symbolCacheKey platformCode symbol mMarket
+  cached <- readIORef (osSymbolCache store)
+  case HM.lookup key cached of
+    Just sid -> pure (Just sid)
+    Nothing -> do
+      let (mBase, mQuote) = splitSymbolForPlatform (Just platformCode) symbol
+      now <- getTimestampMs
+      rows <-
+        query
+          conn
+          ( "INSERT INTO platform_symbols (platform_id, symbol, market, base_asset, quote_asset, status, metadata_json, created_at_ms, updated_at_ms) "
+              <> "VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?) "
+              <> "ON CONFLICT (platform_id, symbol, market) DO UPDATE "
+              <> "SET base_asset = COALESCE(EXCLUDED.base_asset, platform_symbols.base_asset), "
+              <> "quote_asset = COALESCE(EXCLUDED.quote_asset, platform_symbols.quote_asset), "
+              <> "updated_at_ms = EXCLUDED.updated_at_ms "
+              <> "RETURNING id"
+          )
+          (platformId, symbol, mMarket, mBase, mQuote, now, now)
+      let sid =
+            case rows of
+              (Only v : _) -> v
+              _ -> 0
+      if sid > 0
+        then do
+          atomicModifyIORef' (osSymbolCache store) (\m -> (HM.insert key sid m, ()))
+          pure (Just sid)
+        else pure Nothing
+
 resolveDbUrl :: IO (Either String BS.ByteString)
 resolveDbUrl = do
   mPrimary <- lookupEnv "TRADER_DB_URL"
@@ -1791,6 +2054,80 @@ resolveDbUrl = do
 
 ensureOpsDbSchema :: Connection -> IO ()
 ensureOpsDbSchema conn = do
+  _ <-
+    execute_
+      conn
+      ( "CREATE TABLE IF NOT EXISTS platforms ("
+          <> "id SERIAL PRIMARY KEY,"
+          <> "code TEXT UNIQUE NOT NULL,"
+          <> "label TEXT NOT NULL,"
+          <> "rest_url TEXT,"
+          <> "ws_url TEXT,"
+          <> "api_docs_url TEXT,"
+          <> "connection_json JSONB,"
+          <> "created_at_ms BIGINT,"
+          <> "updated_at_ms BIGINT"
+          <> ")"
+      )
+  _ <-
+    execute_
+      conn
+      ( "CREATE TABLE IF NOT EXISTS platform_symbols ("
+          <> "id BIGSERIAL PRIMARY KEY,"
+          <> "platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,"
+          <> "symbol TEXT NOT NULL,"
+          <> "market TEXT,"
+          <> "base_asset TEXT,"
+          <> "quote_asset TEXT,"
+          <> "status TEXT,"
+          <> "metadata_json JSONB,"
+          <> "created_at_ms BIGINT,"
+          <> "updated_at_ms BIGINT,"
+          <> "UNIQUE (platform_id, symbol, market)"
+          <> ")"
+      )
+  _ <-
+    execute_
+      conn
+      ( "CREATE TABLE IF NOT EXISTS bots ("
+          <> "id BIGSERIAL PRIMARY KEY,"
+          <> "platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,"
+          <> "symbol_id BIGINT REFERENCES platform_symbols(id) ON DELETE SET NULL,"
+          <> "symbol TEXT NOT NULL,"
+          <> "market TEXT,"
+          <> "interval TEXT,"
+          <> "live BOOLEAN,"
+          <> "trade_enabled BOOLEAN,"
+          <> "running BOOLEAN,"
+          <> "combo_uuid UUID,"
+          <> "args_json JSONB,"
+          <> "status_json JSONB,"
+          <> "started_at_ms BIGINT,"
+          <> "updated_at_ms BIGINT,"
+          <> "UNIQUE (platform_id, symbol, market, interval)"
+          <> ")"
+      )
+  _ <-
+    execute_
+      conn
+      ( "CREATE TABLE IF NOT EXISTS positions ("
+          <> "id BIGSERIAL PRIMARY KEY,"
+          <> "platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,"
+          <> "symbol_id BIGINT REFERENCES platform_symbols(id) ON DELETE SET NULL,"
+          <> "bot_id BIGINT REFERENCES bots(id) ON DELETE SET NULL,"
+          <> "symbol TEXT NOT NULL,"
+          <> "market TEXT,"
+          <> "side TEXT,"
+          <> "quantity DOUBLE PRECISION,"
+          <> "entry_price DOUBLE PRECISION,"
+          <> "mark_price DOUBLE PRECISION,"
+          <> "leverage DOUBLE PRECISION,"
+          <> "pnl_unrealized DOUBLE PRECISION,"
+          <> "position_json JSONB,"
+          <> "opened_at_ms BIGINT,"
+          <> "updated_at_ms BIGINT"
+          <> ")"
+      )
   _ <-
     execute_
       conn
@@ -1848,12 +2185,25 @@ ensureOpsDbSchema conn = do
           <> "equity DOUBLE PRECISION"
           <> ")"
       )
+  _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS platform_id INTEGER REFERENCES platforms(id)"
+  _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS symbol_id BIGINT REFERENCES platform_symbols(id)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_kind_idx ON ops(kind)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_combo_uuid_idx ON ops(combo_uuid)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_idx ON ops(symbol)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_platform_idx ON ops(platform_id)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_id_idx ON ops(symbol_id)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_order_id_idx ON ops(order_id)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_at_ms_idx ON ops(at_ms)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_at_ms_idx ON ops(symbol, at_ms)"
+  _ <- execute_ conn "CREATE UNIQUE INDEX IF NOT EXISTS platforms_code_idx ON platforms(code)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS platform_symbols_platform_idx ON platform_symbols(platform_id)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS platform_symbols_symbol_idx ON platform_symbols(symbol)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS platform_symbols_market_idx ON platform_symbols(market)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS bots_platform_symbol_idx ON bots(platform_id, symbol)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS bots_running_idx ON bots(running)"
+  _ <- execute_ conn "CREATE UNIQUE INDEX IF NOT EXISTS positions_bot_id_uniq ON positions(bot_id) WHERE bot_id IS NOT NULL"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS positions_platform_symbol_idx ON positions(platform_id, symbol)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS positions_market_idx ON positions(market)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_symbol_idx ON combos(symbol)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_interval_idx ON combos(interval)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_strategy_idx ON combos(strategy_id)"
@@ -1876,6 +2226,35 @@ seedStrategies conn = do
     _ <- execute conn "INSERT INTO strategies (code, label) VALUES (?, ?) ON CONFLICT (code) DO NOTHING" (code :: Text, label :: Text)
     pure ()
 
+seedPlatforms :: Connection -> IO ()
+seedPlatforms conn = do
+  now <- getTimestampMs
+  forM_ platformSeeds $ \seed -> do
+    let connJson = encodeJsonTextMaybe (psConnectionJson seed)
+    _ <-
+      execute
+        conn
+        ( "INSERT INTO platforms (code, label, rest_url, ws_url, api_docs_url, connection_json, created_at_ms, updated_at_ms) "
+            <> "VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?) "
+            <> "ON CONFLICT (code) DO UPDATE "
+            <> "SET label = EXCLUDED.label, "
+            <> "rest_url = COALESCE(EXCLUDED.rest_url, platforms.rest_url), "
+            <> "ws_url = COALESCE(EXCLUDED.ws_url, platforms.ws_url), "
+            <> "api_docs_url = COALESCE(EXCLUDED.api_docs_url, platforms.api_docs_url), "
+            <> "connection_json = COALESCE(EXCLUDED.connection_json, platforms.connection_json), "
+            <> "updated_at_ms = EXCLUDED.updated_at_ms"
+        )
+        ( psCode seed
+        , psLabel seed
+        , psRestUrl seed
+        , psWsUrl seed
+        , psDocsUrl seed
+        , connJson
+        , now
+        , now
+        )
+    pure ()
+
 newOpsStoreFromEnv :: IO (Maybe OpsStore)
 newOpsStoreFromEnv = do
   dbUrlOrErr <- resolveDbUrl
@@ -1890,7 +2269,7 @@ newOpsStoreFromEnv = do
           hPutStrLn stderr ("WARN: ops persistence disabled (" ++ show e ++ ")")
           pure Nothing
         Right conn -> do
-          schemaResult <- try (ensureOpsDbSchema conn >> seedStrategies conn) :: IO (Either SomeException ())
+          schemaResult <- try (ensureOpsDbSchema conn >> seedStrategies conn >> seedPlatforms conn) :: IO (Either SomeException ())
           case schemaResult of
             Left e -> do
               hPutStrLn stderr ("WARN: ops persistence disabled (" ++ show e ++ ")")
@@ -1903,7 +2282,9 @@ newOpsStoreFromEnv = do
                       _ -> 0
               lock <- newMVar ()
               latestRef <- newIORef maxId
-              pure (Just (OpsStore lock conn latestRef))
+              platformCache <- newIORef HM.empty
+              symbolCache <- newIORef HM.empty
+              pure (Just (OpsStore lock conn latestRef platformCache symbolCache))
 
 opsAppend ::
   OpsStore ->
@@ -1918,7 +2299,25 @@ opsAppend ::
   IO PersistedOperation
 opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId = do
   now <- getTimestampMs
-  let mSymbol' = normalizeMaybeText mSymbol
+  let mPlatformRaw =
+        firstJust
+          [ inferPlatformFromJson mArgs
+          , inferPlatformFromJson mParams
+          , inferPlatformFromJson mResult
+          , inferPlatformFromKind kind
+          ]
+      mPlatform = normalizeMaybeText (normalizePlatformText <$> mPlatformRaw)
+      mMarketRaw =
+        firstJust
+          [ inferMarketFromJson mArgs
+          , inferMarketFromJson mParams
+          , inferMarketFromJson mResult
+          ]
+      mMarket = normalizeMaybeText (normalizeMarketText <$> mMarketRaw)
+      mSymbolRaw = firstJust [mSymbol, inferSymbolFromJson mArgs, inferSymbolFromJson mParams, inferSymbolFromJson mResult]
+      mSymbolTrim = normalizeMaybeText mSymbolRaw
+      mSymbolSanitized = mSymbolTrim >>= sanitizeSymbolForPlatformText mPlatform
+      mSymbol' = mSymbolSanitized <|> mSymbolTrim
       mOrderId' = normalizeMaybeText mOrderId
       mComboUuid' = mComboUuid >>= uuidFromText
       paramsJson = encodeJsonTextMaybe mParams
@@ -1926,11 +2325,18 @@ opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
       resultJson = encodeJsonTextMaybe mResult
   opId <- withMVar (osLock store) $ \_ ->
     withTransaction (osConn store) $ do
+      let conn = osConn store
+      mPlatformId <- case mPlatform of
+        Nothing -> pure Nothing
+        Just platformCode -> resolvePlatformId store conn platformCode
+      mSymbolId <- case (mPlatform, mPlatformId, mSymbolSanitized) of
+        (Just platformCode, Just platformId, Just sym) -> resolvePlatformSymbolId store conn platformCode platformId sym mMarket
+        _ -> pure Nothing
       rows <-
         query
-          (osConn store)
-          "INSERT INTO ops (at_ms, kind, symbol, combo_uuid, order_id, params_json, args_json, result_json, equity) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?) RETURNING id"
-          (now, kind, mSymbol', mComboUuid', mOrderId', paramsJson, argsJson, resultJson, mEquity)
+          conn
+          "INSERT INTO ops (at_ms, kind, platform_id, symbol_id, symbol, combo_uuid, order_id, params_json, args_json, result_json, equity) VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?) RETURNING id"
+          (now, kind, mPlatformId, mSymbolId, mSymbol', mComboUuid', mOrderId', paramsJson, argsJson, resultJson, mEquity)
       let newId =
             case rows of
               (Only v : _) -> v
@@ -1940,7 +2346,7 @@ opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
         Just comboUuid ->
           void $
             execute
-              (osConn store)
+              conn
               ( "INSERT INTO combos (combo_uuid, operation_count, updated_at_ms) "
                   <> "VALUES (?, 1, ?) "
                   <> "ON CONFLICT (combo_uuid) DO UPDATE "
@@ -2077,7 +2483,7 @@ botStatusLogIntervalMs :: Int64
 botStatusLogIntervalMs = 60000
 
 botStatusLogMaybe :: Maybe OpsStore -> Bool -> BotState -> IO ()
-botStatusLogMaybe mOps running st =
+botStatusLogMaybe mOps running st = do
   let args = botArgs st
       settings = botSettings st
       eq =
@@ -2098,16 +2504,241 @@ botStatusLogMaybe mOps running st =
           , "updatedAtMs" .= botUpdatedAtMs st
           , "polledAtMs" .= botPolledAtMs st
           ]
-   in opsAppendMaybe
-        mOps
-        "bot.status"
-        Nothing
-        (Just (argsPublicJson args))
-        (Just result)
-        eq
-        (botComboUuid st)
-        (Just (T.pack (botSymbol st)))
-        Nothing
+  opsAppendMaybe
+    mOps
+    "bot.status"
+    Nothing
+    (Just (argsPublicJson args))
+    (Just result)
+    eq
+    (botComboUuid st)
+    (Just (T.pack (botSymbol st)))
+    Nothing
+  persistBotSnapshotMaybe mOps running st result
+
+persistBotSnapshotMaybe :: Maybe OpsStore -> Bool -> BotState -> Aeson.Value -> IO ()
+persistBotSnapshotMaybe mOps running st statusJson =
+  case mOps of
+    Nothing -> pure ()
+    Just store -> do
+      _ <- try (persistBotSnapshot store running st statusJson) :: IO (Either SomeException ())
+      pure ()
+
+persistBotSnapshot :: OpsStore -> Bool -> BotState -> Aeson.Value -> IO ()
+persistBotSnapshot store running st statusJson =
+  withMVar (osLock store) $ \_ -> do
+    let args = botArgs st
+        platformCodeText = normalizePlatformText (T.pack (platformCode (argPlatform args)))
+        symbolRaw = T.pack (botSymbol st)
+        mSymbolSanitized = sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw
+        symbolText = fromMaybe symbolRaw mSymbolSanitized
+        marketText = normalizeMarketText (T.pack (marketCode (argBinanceMarket args)))
+        intervalText = T.pack (argInterval args)
+        live = argBinanceLive args
+        tradeEnabled = bsTradeEnabled (botSettings st)
+        mComboUuid = botComboUuid st >>= uuidFromText
+        argsJson = encodeJsonTextMaybe (Just (argsPublicJson args))
+        statusJsonText = encodeJsonTextMaybe (Just statusJson)
+        startedAt = botStartedAtMs st
+        updatedAt = botUpdatedAtMs st
+        conn = osConn store
+    mPlatformId <- resolvePlatformId store conn platformCodeText
+    case mPlatformId of
+      Nothing -> pure ()
+      Just platformId -> do
+        mSymbolId <- case mSymbolSanitized of
+          Nothing -> pure Nothing
+          Just sym -> resolvePlatformSymbolId store conn platformCodeText platformId sym (Just marketText)
+        rows <-
+          query
+            conn
+            ( "INSERT INTO bots (platform_id, symbol_id, symbol, market, interval, live, trade_enabled, running, combo_uuid, args_json, status_json, started_at_ms, updated_at_ms) "
+                <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?) "
+                <> "ON CONFLICT (platform_id, symbol, market, interval) DO UPDATE "
+                <> "SET symbol_id = EXCLUDED.symbol_id, "
+                <> "live = EXCLUDED.live, "
+                <> "trade_enabled = EXCLUDED.trade_enabled, "
+                <> "running = EXCLUDED.running, "
+                <> "combo_uuid = COALESCE(EXCLUDED.combo_uuid, bots.combo_uuid), "
+                <> "args_json = EXCLUDED.args_json, "
+                <> "status_json = EXCLUDED.status_json, "
+                <> "updated_at_ms = EXCLUDED.updated_at_ms "
+                <> "RETURNING id"
+            )
+            ( platformId
+            , mSymbolId
+            , symbolText
+            , marketText
+            , intervalText
+            , live
+            , tradeEnabled
+            , running
+            , mComboUuid
+            , argsJson
+            , statusJsonText
+            , startedAt
+            , updatedAt
+            )
+        case rows of
+          (Only botId : _) -> persistBotPosition conn botId platformId mSymbolId symbolText marketText st
+          _ -> pure ()
+
+persistBotPosition :: Connection -> Int64 -> Int -> Maybe Int64 -> Text -> Text -> BotState -> IO ()
+persistBotPosition conn botId platformId mSymbolId symbolText marketText st = do
+  let pos =
+        if V.null (botPositions st)
+          then 0
+          else V.last (botPositions st)
+      mSide =
+        if pos > 0
+          then Just ("long" :: Text)
+          else
+            if pos < 0
+              then Just ("short" :: Text)
+              else Nothing
+      mOpenTrade = botOpenTrade st
+      mEntryPrice = botOpenEntryPrice <$> mOpenTrade
+      markPrice = lsCurrentPrice (botLatestSignal st)
+      openTime =
+        case mOpenTrade of
+          Nothing -> Nothing
+          Just trade ->
+            let idx = botOpenEntryIndex trade
+                times = botOpenTimes st
+             in if idx >= 0 && idx < V.length times
+                  then Just (times V.! idx)
+                  else Nothing
+      positionJson =
+        object
+          [ "position" .= pos
+          , "openTrade" .= fmap botOpenTradeJson mOpenTrade
+          , "currentPrice" .= markPrice
+          , "updatedAtMs" .= botUpdatedAtMs st
+          ]
+      positionJsonText = encodeJsonTextMaybe (Just positionJson)
+  case mSide of
+    Nothing -> do
+      _ <- execute conn "DELETE FROM positions WHERE bot_id = ?" (Only botId)
+      pure ()
+    Just side -> do
+      _ <-
+        execute
+          conn
+          ( "INSERT INTO positions (platform_id, symbol_id, bot_id, symbol, market, side, quantity, entry_price, mark_price, position_json, opened_at_ms, updated_at_ms) "
+              <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?) "
+              <> "ON CONFLICT (bot_id) DO UPDATE "
+              <> "SET symbol_id = EXCLUDED.symbol_id, "
+              <> "symbol = EXCLUDED.symbol, "
+              <> "market = EXCLUDED.market, "
+              <> "side = EXCLUDED.side, "
+              <> "quantity = EXCLUDED.quantity, "
+              <> "entry_price = EXCLUDED.entry_price, "
+              <> "mark_price = EXCLUDED.mark_price, "
+              <> "position_json = EXCLUDED.position_json, "
+              <> "opened_at_ms = EXCLUDED.opened_at_ms, "
+              <> "updated_at_ms = EXCLUDED.updated_at_ms"
+          )
+          ( platformId
+          , mSymbolId
+          , botId
+          , symbolText
+          , marketText
+          , side
+          , (fromIntegral pos :: Double)
+          , mEntryPrice
+          , markPrice
+          , positionJsonText
+          , openTime
+          , botUpdatedAtMs st
+          )
+      pure ()
+
+botOpenTradeJson :: BotOpenTrade -> Aeson.Value
+botOpenTradeJson trade =
+  object
+    [ "entryIndex" .= botOpenEntryIndex trade
+    , "entryEquity" .= botOpenEntryEquity trade
+    , "entryPrice" .= botOpenEntryPrice trade
+    , "trail" .= botOpenTrail trade
+    , "side" .= positionSideLabel (botOpenSide trade)
+    ]
+
+positionSideLabel :: PositionSide -> Text
+positionSideLabel side =
+  case side of
+    SideLong -> "long"
+    SideShort -> "short"
+
+persistBinancePositionsMaybe :: Maybe OpsStore -> BinanceMarket -> [FuturesPositionRisk] -> IO ()
+persistBinancePositionsMaybe mOps market positions =
+  case mOps of
+    Nothing -> pure ()
+    Just store -> do
+      _ <- try (persistBinancePositions store market positions) :: IO (Either SomeException ())
+      pure ()
+
+persistBinancePositions :: OpsStore -> BinanceMarket -> [FuturesPositionRisk] -> IO ()
+persistBinancePositions store market positions =
+  withMVar (osLock store) $ \_ -> do
+    let platformCodeText = "binance"
+        marketText = normalizeMarketText (T.pack (marketCode market))
+        conn = osConn store
+    now <- getTimestampMs
+    mPlatformId <- resolvePlatformId store conn platformCodeText
+    case mPlatformId of
+      Nothing -> pure ()
+      Just platformId -> do
+        _ <- execute conn "DELETE FROM positions WHERE bot_id IS NULL AND platform_id = ? AND market = ?" (platformId, marketText)
+        forM_ positions $ \pos -> do
+          let symbolRaw = T.pack (fprSymbol pos)
+              mSymbolSanitized = sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw
+              symbolText = fromMaybe symbolRaw mSymbolSanitized
+              sideText :: Text
+              sideText =
+                case fmap normalizeKey (fprPositionSide pos) of
+                  Just "short" -> "short"
+                  Just "long" -> "long"
+                  _ ->
+                    if fprPositionAmt pos < 0
+                      then "short"
+                      else "long"
+              positionJson =
+                object
+                  [ "symbol" .= fprSymbol pos
+                  , "positionAmt" .= fprPositionAmt pos
+                  , "entryPrice" .= fprEntryPrice pos
+                  , "markPrice" .= fprMarkPrice pos
+                  , "unrealizedPnl" .= fprUnrealizedProfit pos
+                  , "liquidationPrice" .= fprLiquidationPrice pos
+                  , "breakEvenPrice" .= fprBreakEvenPrice pos
+                  , "leverage" .= fprLeverage pos
+                  , "marginType" .= fprMarginType pos
+                  , "positionSide" .= fprPositionSide pos
+                  ]
+              positionJsonText = encodeJsonTextMaybe (Just positionJson)
+          mSymbolId <- case mSymbolSanitized of
+            Nothing -> pure Nothing
+            Just sym -> resolvePlatformSymbolId store conn platformCodeText platformId sym (Just marketText)
+          _ <-
+            execute
+              conn
+              ( "INSERT INTO positions (platform_id, symbol_id, bot_id, symbol, market, side, quantity, entry_price, mark_price, leverage, pnl_unrealized, position_json, opened_at_ms, updated_at_ms) "
+                  <> "VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, NULL, ?) "
+              )
+              ( platformId
+              , mSymbolId
+              , symbolText
+              , marketText
+              , sideText
+              , fprPositionAmt pos
+              , fprEntryPrice pos
+              , fprMarkPrice pos
+              , fprLeverage pos
+              , fprUnrealizedProfit pos
+              , positionJsonText
+              , now
+              )
+          pure ()
 
 -- Live bot (stateful; continuous loop)
 
@@ -9773,6 +10404,7 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
                               , abpMarginType = fprMarginType p
                               , abpPositionSide = fprPositionSide p
                               }
+                      persistBinancePositionsMaybe mOps market openPositions
                       chartsRaw <-
                         forM openPositions $ \pos -> do
                           let sym = fprSymbol pos

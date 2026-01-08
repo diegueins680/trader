@@ -3,6 +3,7 @@ module Trader.Coinbase
   ( CoinbaseCandle(..)
   , CoinbaseAccount(..)
   , CoinbaseEnv(..)
+  , coinbaseBaseUrl
   , newCoinbaseEnv
   , fetchCoinbaseAccounts
   , fetchCoinbaseAvailableBalance

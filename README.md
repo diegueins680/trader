@@ -461,6 +461,9 @@ Database (required for ops + combo persistence):
 - Set `TRADER_DB_URL` (or `DATABASE_URL`) to a Postgres instance; use durable managed storage for deploys.
 - Stores every operation plus combo metrics, strategy metadata, and combo parameters.
 - Recommended: include `sslmode=require` in hosted Postgres connection strings.
+- Platforms are stored in `platforms` with REST/WS URLs plus non-secret connection metadata (auth type, testnet/futures endpoints).
+- Per-platform symbols live in `platform_symbols` (by platform + market), and are upserted whenever bots run, ops log symbols, or positions are fetched.
+- Running bots persist to `bots` with platform/symbol/market/interval plus the latest args/status snapshot; `positions` captures live position snapshots and links back to bots when available.
 - `GET /ops` query params:
   - `limit` (default: `200`, max: `5000`)
   - `since` (only return ops with `id > since`)

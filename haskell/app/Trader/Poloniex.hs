@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Trader.Poloniex
   ( PoloniexCandle(..)
+  , poloniexBaseUrl
   , fetchPoloniexCandles
   ) where
 

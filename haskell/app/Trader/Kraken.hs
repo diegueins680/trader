@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Trader.Kraken
   ( KrakenCandle(..)
+  , krakenBaseUrl
   , fetchKrakenCandles
   ) where
 
