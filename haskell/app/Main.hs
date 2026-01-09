@@ -78,6 +78,8 @@ import Trader.Binance
   , Step(..)
   , Kline(..)
   , fetchTickerPrice
+  , fetchTicker24hPrice
+  , fetchFuturesMarkPrice
   , binanceBaseUrl
   , binanceTestnetBaseUrl
   , binanceFuturesBaseUrl
@@ -3751,7 +3753,7 @@ topComboSymbol combo =
       symbolRaw = topComboParamString "binanceSymbol" combo <|> topComboParamString "symbol" combo
    in case normalizeComboPlatform platformRaw of
         Just key | not (isBinancePlatformKey key) -> Nothing
-        _ -> symbolRaw >>= sanitizeComboSymbol platformRaw
+        _ -> symbolRaw >>= sanitizeComboSymbolForPlatform platformRaw
 
 dedupeTopComboTargets :: [(String, TopCombo)] -> [(String, TopCombo)]
 dedupeTopComboTargets targets =
@@ -9268,24 +9270,97 @@ isCoinbasePlatformKey key = key == "coinbase" || "coinbase" `isPrefixOf` key
 isPoloniexPlatformKey :: String -> Bool
 isPoloniexPlatformKey key = key == "poloniex" || "poloniex" `isPrefixOf` key
 
-sanitizeBinanceComboSymbol :: String -> Maybe String
-sanitizeBinanceComboSymbol raw =
-  let cleaned = map toUpper (filter isAlphaNum raw)
-      len = length cleaned
-   in if len < 3 || len > 30
-        then Nothing
-        else if cleaned `elem` commonQuotes
-          then Nothing
-          else Just cleaned
-
-sanitizeComboSymbol :: Maybe String -> String -> Maybe String
-sanitizeComboSymbol platform raw =
+sanitizeComboSymbolForPlatform :: Maybe String -> String -> Maybe String
+sanitizeComboSymbolForPlatform platform raw =
   case normalizeComboPlatform platform of
     Just key | isCoinbasePlatformKey key -> sanitizeSymbolForPlatform (Just "coinbase") raw
     Just key | isPoloniexPlatformKey key -> sanitizeSymbolForPlatform (Just "poloniex") raw
     Just key | isBinancePlatformKey key ->
       sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform (Just "binance") raw
     _ -> sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform platform raw
+
+sanitizeBinanceComboSymbol :: String -> Maybe String
+sanitizeBinanceComboSymbol raw =
+  let s = normalizeSymbol raw
+      tokens = splitAlphaNumTokens s
+      isValid sym =
+        let n = length sym
+         in n >= 3 && n <= 30 && sym `notElem` commonQuotes && all isAsciiAlphaNum sym
+      isSuffixToken token = any isDigit token
+      pickTokenCandidate =
+        case tokens of
+          [] -> Nothing
+          [a] -> if isValid a then Just a else Nothing
+          a : b : _rest ->
+            let joined = a ++ b
+             in if isValid a && endsWithQuote a
+                  then Just a
+                  else
+                    if b `elem` commonQuotes && isValid joined
+                      then Just joined
+                      else
+                        if isValid a && isSuffixToken b
+                          then Just a
+                          else Nothing
+      pickQuoteSuffix = trimBinanceComboSuffix s
+   in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
+
+splitAlphaNumTokens :: String -> [String]
+splitAlphaNumTokens =
+  filter (not . null) . foldr step [""]
+  where
+    step c acc@(w:ws)
+      | isAsciiAlphaNum c = (c:w) : ws
+      | otherwise = "" : acc
+    step _ [] = []
+
+endsWithQuote :: String -> Bool
+endsWithQuote token = any (`isSuffixOf` token) commonQuotes
+
+trimBinanceComboSuffix :: String -> Maybe String
+trimBinanceComboSuffix raw =
+  let compact = filter isAsciiAlphaNum (normalizeSymbol raw)
+      best = foldl' pickLongest Nothing (concatMap (trimQuoteCandidates compact) commonQuotes)
+   in best
+  where
+    pickLongest acc candidate =
+      case acc of
+        Nothing -> Just candidate
+        Just prev -> if length candidate > length prev then Just candidate else acc
+
+trimQuoteCandidates :: String -> String -> [String]
+trimQuoteCandidates compact quote =
+  let positions = findSubstrPositions quote compact
+      total = length compact
+      quoteLen = length quote
+   in [ candidate
+      | idx <- positions
+      , let end = idx + quoteLen
+      , end < total
+      , let suffix = drop end compact
+      , any isDigit suffix
+      , let candidate = take end compact
+      , isValidBinanceSymbol candidate
+      , notElem candidate commonQuotes
+      ]
+
+findSubstrPositions :: String -> String -> [Int]
+findSubstrPositions needle hay =
+  let go _ [] = []
+      go i xs@(_:rest) =
+        if needle `isPrefixOf` xs
+          then i : go (i + 1) rest
+          else go (i + 1) rest
+   in if null needle then [] else go 0 hay
+
+isValidBinanceSymbol :: String -> Bool
+isValidBinanceSymbol s =
+  let n = length s
+   in n >= 3 && n <= 30 && all isAsciiAlphaNum s
+
+isAsciiAlphaNum :: Char -> Bool
+isAsciiAlphaNum c =
+  ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
 
 sanitizeComboSymbolValue :: Aeson.Value -> (Aeson.Value, Bool)
 sanitizeComboSymbolValue val =
@@ -9302,7 +9377,7 @@ sanitizeComboSymbolValue val =
               hadBinance = KM.member (AK.fromString "binanceSymbol") params
               hadSymbol = KM.member (AK.fromString "symbol") params
               hasSymbolField = hadBinance || hadSymbol
-              sanitized = symbolRaw >>= sanitizeComboSymbol platform
+              sanitized = symbolRaw >>= sanitizeComboSymbolForPlatform platform
               params' =
                 case sanitized of
                   Just sym ->
@@ -11221,11 +11296,33 @@ computeBinanceKeysStatusFromArgs mOps args = do
       pure (either (const Nothing) Just r)
 
     fetchPriceMaybe env sym = do
-      r <- try (fetchTickerPrice env sym) :: IO (Either SomeException Double)
-      pure $
-        case r of
-          Right price | price > 0 -> Just price
-          _ -> Nothing
+      let attempt action = do
+            r <- try action :: IO (Either SomeException Double)
+            pure $
+              case r of
+                Right price | price > 0 -> Just price
+                _ -> Nothing
+          attemptKlineClose = do
+            r <- try (fetchKlines env sym "1m" 1) :: IO (Either SomeException [Kline])
+            pure $
+              case r of
+                Right (k : _) | kClose k > 0 -> Just (kClose k)
+                _ -> Nothing
+      primary <- attempt (fetchTickerPrice env sym)
+      case primary of
+        Just _ -> pure primary
+        Nothing -> do
+          markPrice <-
+            case beMarket env of
+              MarketFutures -> attempt (fetchFuturesMarkPrice env sym)
+              _ -> pure Nothing
+          case markPrice of
+            Just _ -> pure markPrice
+            Nothing -> do
+              last24h <- attempt (fetchTicker24hPrice env sym)
+              case last24h of
+                Just _ -> pure last24h
+                Nothing -> attemptKlineClose
 
     fetchPriceIfNeeded env sym mSf =
       case mSf >>= sfMinNotional of

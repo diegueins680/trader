@@ -80,7 +80,7 @@ import Trader.Optimizer.Random
   , seedRng
   )
 import Trader.Platform (Platform (..), platformIntervals)
-import Trader.Symbol (sanitizeSymbolForPlatform)
+import Trader.Symbol (sanitizeComboSymbolForPlatform)
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
@@ -1440,7 +1440,7 @@ trialToRecord tr symbolLabel =
         , "confidenceSizing" .= tpConfidenceSizing (trParams tr)
         , "minPositionSize" .= tpMinPositionSize (trParams tr)
         ]
-      symbol = symbolLabel >>= sanitizeSymbolForPlatform (tpPlatform (trParams tr))
+      symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
       paramsPairs' =
         case symbol of
           Just sym -> paramsPairs ++ ["binanceSymbol" .= sym]
@@ -3646,7 +3646,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
         case metrics of
           Just m -> Object m
           Nothing -> Null
-      symbol = symbolLabel >>= sanitizeSymbolForPlatform (tpPlatform params)
+      symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform params)
       source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
       paramsValue =
         object

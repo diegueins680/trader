@@ -2,11 +2,13 @@ module Trader.Symbol
   ( splitSymbol
   , commonQuotes
   , isValidSymbolForPlatform
+  , sanitizeComboSymbolForPlatform
   , sanitizeSymbolForPlatform
   ) where
 
-import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, isSuffixOf, maximumBy)
+import Control.Applicative ((<|>))
+import Data.Char (isDigit, isSpace, toLower)
+import Data.List (dropWhileEnd, foldl', isPrefixOf, isSuffixOf, maximumBy)
 import Data.Maybe (listToMaybe)
 import Data.Ord (comparing)
 
@@ -77,6 +79,13 @@ sanitizeSymbolForPlatform platform raw =
               then Just s
               else salvageBinanceSymbol s
 
+sanitizeComboSymbolForPlatform :: Maybe String -> String -> Maybe String
+sanitizeComboSymbolForPlatform platform raw =
+  case normalizePlatform platform of
+    Just "coinbase" -> sanitizeSymbolForPlatform (Just "coinbase") raw
+    Just "poloniex" -> sanitizeSymbolForPlatform (Just "poloniex") raw
+    _ -> sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform platform raw
+
 isValidBinanceSymbol :: String -> Bool
 isValidBinanceSymbol s =
   let n = length s
@@ -124,3 +133,63 @@ splitAlphaNumTokens =
 
 endsWithQuote :: String -> Bool
 endsWithQuote token = any (`isSuffixOf` token) commonQuotes
+
+sanitizeBinanceComboSymbol :: String -> Maybe String
+sanitizeBinanceComboSymbol raw =
+  let s = normalizeSymbolText raw
+      tokens = splitAlphaNumTokens s
+      isValid sym =
+        let n = length sym
+         in n >= 3 && n <= 30 && sym `notElem` commonQuotes && all isAsciiAlphaNum sym
+      isSuffixToken token = any isDigit token
+      pickTokenCandidate =
+        case tokens of
+          [] -> Nothing
+          [a] -> if isValid a then Just a else Nothing
+          a : b : _rest ->
+            let joined = a ++ b
+             in if isValid a && endsWithQuote a
+                  then Just a
+                  else if b `elem` commonQuotes && isValid joined
+                    then Just joined
+                    else if isValid a && isSuffixToken b
+                      then Just a
+                      else Nothing
+      pickQuoteSuffix = trimBinanceComboSuffix s
+   in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
+
+trimBinanceComboSuffix :: String -> Maybe String
+trimBinanceComboSuffix raw =
+  let compact = filter isAsciiAlphaNum (normalizeSymbolText raw)
+      best = foldl' pickLongest Nothing (concatMap (trimQuoteCandidates compact) commonQuotes)
+   in best
+  where
+    pickLongest acc candidate =
+      case acc of
+        Nothing -> Just candidate
+        Just prev -> if length candidate > length prev then Just candidate else acc
+
+trimQuoteCandidates :: String -> String -> [String]
+trimQuoteCandidates compact quote =
+  let positions = findSubstrPositions quote compact
+      total = length compact
+      quoteLen = length quote
+   in [ candidate
+      | idx <- positions
+      , let end = idx + quoteLen
+      , end < total
+      , let suffix = drop end compact
+      , any isDigit suffix
+      , let candidate = take end compact
+      , isValidBinanceSymbol candidate
+      , notElem candidate commonQuotes
+      ]
+
+findSubstrPositions :: String -> String -> [Int]
+findSubstrPositions needle hay =
+  let go _ [] = []
+      go i xs@(x:rest) =
+        if needle `isPrefixOf` xs
+          then i : go (i + 1) rest
+          else go (i + 1) rest
+   in if null needle then [] else go 0 hay

@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
+- Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
 - Optimizer: include stable combo UUIDs in top-combos outputs.
 - Database: add `platforms`, `platform_symbols`, `bots`, and `positions` tables so ops/positions link back to platform metadata and running bots.
 - Optimizer: add genetic crossover using parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
@@ -44,7 +45,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: remember API fallback preferences and CORS-blocked fallback hosts to reduce repeated `/api` 502/CORS errors.
 - Web UI: make code/log panels more opaque so background content does not bleed through.
 - Optimizer: drop `top-combos.json` entries with `finalEquity <= 1` on read/write (including numeric strings), persisting the filtered list to S3 when configured.
-- Optimizer: normalize combo symbols for Binance (strip separators like `BTC/USDT` → `BTCUSDT`) and clean stored combo files on read/write.
+- Optimizer: normalize combo symbols for Binance (strip separators like `BTC/USDT` -> `BTCUSDT`, trim dataset suffixes like `BNBUSDT-5M-2020-06_TRAIN50` -> `BNBUSDT`) and clean stored combo files on read/write.
 - Web UI: keep Live bot, per-bot, and optimizer combo panels scrollable so docked panels stay visible while viewing long content.
 - Web UI: fix docked optimizer combos panel scrolling so the combos list stays reachable.
 - Web UI: fix docked Live bot panel scrolling so long content stays reachable.
@@ -57,6 +58,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add a Run optimizer form to the Optimizer combos panel to launch `/optimizer/run`, apply constraints, and show the last output.
 - Web UI: optimizer run forms add an annualized-equity preset, validate backtest/tune ratios, and honor advanced JSON overrides for source/data/symbol plus `timeoutSec`.
 - Web UI: add info buttons with equity tips next to optimizer run fields and complex config parameters (method, thresholds, splits, LSTM, optimization).
+- Web UI: sanitize combo symbols on apply so invalid labels don’t stick in the trading pair field.
 - Web UI: fix optimizer form sync startup crash and ensure `trader-config.js` is loaded before the app bundle.
 - Web UI: optimizer combos now load only from the API (no static fallback).
 - Deploy: let `deploy-aws-quick.sh` clear reused App Runner S3 state settings when `TRADER_STATE_S3_BUCKET` is explicitly empty.
@@ -67,6 +69,7 @@ All notable changes to this project will be documented in this file.
 - Deploy: install `libpq-dev` in the Docker build to compile PostgreSQL ops persistence.
 - Deploy: pin `postgresql-simple` to the 0.6 series to keep Docker builds compatible with the bundled libpq client.
 - Deploy: quick AWS deploy can reuse or create S3 buckets, App Runner S3 instance roles, and CloudFront distributions with `--ensure-resources`/`--cloudfront`.
+- Deploy: quick AWS deploy reuses existing UI CloudFront distributions for the UI bucket across region/website endpoints to avoid duplicates.
 - Deploy: quick AWS UI deploy defaults to the direct API base even with CloudFront; use `TRADER_UI_API_MODE=proxy`/`--ui-api-proxy` to force `/api`.
 - Deploy: quick AWS UI config auto-fills `apiFallbackUrl` only for `/api` mode (it points at the API URL when known).
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.

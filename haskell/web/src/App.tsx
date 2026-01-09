@@ -589,6 +589,76 @@ function symbolFormatPattern(platform: Platform): RegExp {
   }
 }
 
+const COMMON_QUOTES = ["USDT", "USDC", "FDUSD", "TUSD", "BUSD", "BTC", "ETH", "BNB"];
+const BINANCE_SYMBOL_PATTERN = /^[A-Z0-9]{3,30}$/;
+
+function trimBinanceComboSuffix(value: string): string | null {
+  const compact = value.replace(/[^A-Z0-9]/g, "");
+  if (!compact) return null;
+  let best: string | null = null;
+  for (const quote of COMMON_QUOTES) {
+    let idx = compact.indexOf(quote);
+    while (idx >= 0) {
+      const end = idx + quote.length;
+      if (end < compact.length) {
+        const suffix = compact.slice(end);
+        if (/\d/.test(suffix)) {
+          const candidate = compact.slice(0, end);
+          if (BINANCE_SYMBOL_PATTERN.test(candidate) && !COMMON_QUOTES.includes(candidate)) {
+            if (!best || candidate.length > best.length) best = candidate;
+          }
+        }
+      }
+      idx = compact.indexOf(quote, idx + 1);
+    }
+  }
+  return best;
+}
+
+function normalizeComboSymbol(raw: string, platform: Platform | null): string {
+  const value = raw.trim().toUpperCase();
+  if (!value) return value;
+  const resolvedPlatform: Platform = platform ?? "binance";
+  const pattern = symbolFormatPattern(resolvedPlatform);
+  const isBinanceLike = resolvedPlatform === "binance" || resolvedPlatform === "kraken";
+
+  if (isBinanceLike) {
+    const trimmed = trimBinanceComboSuffix(value);
+    if (trimmed) return trimmed;
+  }
+
+  if (pattern.test(value)) return value;
+
+  if (resolvedPlatform === "coinbase") {
+    const parts = value.split("-");
+    if (parts.length >= 2) {
+      const candidate = `${parts[0]}-${parts[1]}`;
+      if (pattern.test(candidate)) return candidate;
+    }
+    return value;
+  }
+
+  if (resolvedPlatform === "poloniex") {
+    const parts = value.split("_");
+    if (parts.length >= 2) {
+      const candidate = `${parts[0]}_${parts[1]}`;
+      if (pattern.test(candidate)) return candidate;
+    }
+    return value;
+  }
+
+  if (isBinanceLike) {
+    const tokens = value.split(/[^A-Z0-9]+/).filter(Boolean);
+    if (tokens.length >= 2) {
+      const joined = `${tokens[0]}${tokens[1]}`;
+      if (tokens.length === 2 && pattern.test(joined)) return joined;
+      if (tokens.length >= 3 && /^[0-9]+[A-Z]$/.test(tokens[2] ?? "") && pattern.test(joined)) return joined;
+    }
+    if (tokens.length >= 1 && pattern.test(tokens[0] ?? "")) return tokens[0] ?? value;
+  }
+  return value;
+}
+
 function symbolFormatExample(platform: Platform): string {
   switch (platform) {
     case "coinbase":
@@ -1657,8 +1727,14 @@ function applyComboToForm(
   allowPositioning = true,
 ): FormState {
   const nextPlatform = combo.params.platform ?? prev.platform;
-  const comboSymbol = combo.params.binanceSymbol?.trim();
-  const symbol = comboSymbol && comboSymbol.length > 0 ? comboSymbol : prev.binanceSymbol;
+  const comboSymbolRaw = combo.params.binanceSymbol?.trim() ?? "";
+  const normalizedComboSymbol = comboSymbolRaw ? normalizeComboSymbol(comboSymbolRaw, nextPlatform) : "";
+  const comboSymbol =
+    normalizedComboSymbol && symbolFormatPattern(nextPlatform).test(normalizedComboSymbol) ? normalizedComboSymbol : "";
+  const prevSymbol = prev.binanceSymbol.trim().toUpperCase();
+  const prevSymbolValid = symbolFormatPattern(nextPlatform).test(prevSymbol);
+  const fallbackSymbol = PLATFORM_DEFAULT_SYMBOL[nextPlatform] ?? prev.binanceSymbol;
+  const symbol = comboSymbol || (prevSymbolValid ? prevSymbol : fallbackSymbol);
   const interval = combo.params.interval;
   const method = manualOverrides?.has("method") ? prev.method : combo.params.method;
   const comboPositioning = combo.params.positioning ?? prev.positioning;
@@ -5190,7 +5266,14 @@ export function App() {
               : typeof params.symbol === "string"
                 ? params.symbol
                 : "";
-          const binanceSymbol = rawSymbol.trim().toUpperCase();
+          const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
+          const source: OptimizationCombo["source"] =
+            rawSource === "binance" || rawSource === "coinbase" || rawSource === "kraken" || rawSource === "poloniex" || rawSource === "csv"
+              ? rawSource
+              : null;
+          const resolvedPlatform =
+            platform ?? (source && source !== "csv" ? (source as Platform) : null);
+          const binanceSymbol = normalizeComboSymbol(rawSymbol, resolvedPlatform);
           const baseOpenThreshold =
             typeof params.baseOpenThreshold === "number" && Number.isFinite(params.baseOpenThreshold)
               ? Math.max(0, params.baseOpenThreshold)
@@ -5397,13 +5480,6 @@ export function App() {
             })
             .filter((op): op is OptimizationComboOperation => op !== null);
           const operationsOut = operations.length > 0 ? operations : null;
-          const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
-          const source: OptimizationCombo["source"] =
-            rawSource === "binance" || rawSource === "coinbase" || rawSource === "kraken" || rawSource === "poloniex" || rawSource === "csv"
-              ? rawSource
-              : null;
-          const resolvedPlatform =
-            platform ?? (source && source !== "csv" ? (source as Platform) : null);
           return {
             id: rank ?? index + 1,
             rank,

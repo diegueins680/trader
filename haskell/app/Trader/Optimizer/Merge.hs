@@ -43,7 +43,7 @@ import System.IO (hPutStrLn, stderr)
 
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
-import Trader.Symbol (sanitizeSymbolForPlatform)
+import Trader.Symbol (sanitizeComboSymbolForPlatform)
 
 data MergeArgs = MergeArgs
   { maTopJson :: !FilePath
@@ -694,7 +694,7 @@ normalizeObjectiveValue value =
 
 normalizeSymbolValue :: Maybe String -> Value -> Maybe String
 normalizeSymbolValue platform value =
-  sanitizeSymbolForPlatform platform (valueToString value)
+  sanitizeComboSymbolForPlatform platform (valueToString value)
 
 valueToStringMaybe :: Maybe Value -> String
 valueToStringMaybe value =

@@ -13,6 +13,8 @@ module Trader.Binance
   , BinanceOpenOrder(..)
   , FuturesPositionRisk(..)
   , fetchTickerPrice
+  , fetchTicker24hPrice
+  , fetchFuturesMarkPrice
   , fetchTickers24h
   , fetchTopSymbolsByQuoteVolume
   , binanceBaseUrl
@@ -492,6 +494,52 @@ fetchTickerPrice env symbol = do
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode ticker price: " ++ e))
     Right (TickerPrice p) -> pure p
+
+data Ticker24hPrice = Ticker24hPrice { t24LastPrice :: Double }
+
+instance FromJSON Ticker24hPrice where
+  parseJSON = withObject "Ticker24hPrice" $ \o -> do
+    pTxt <- o .: "lastPrice"
+    p <- parseDoubleText pTxt
+    pure (Ticker24hPrice p)
+
+fetchTicker24hPrice :: BinanceEnv -> String -> IO Double
+fetchTicker24hPrice env symbol = do
+  let path =
+        case beMarket env of
+          MarketSpot -> "/api/v3/ticker/24hr"
+          MarketMargin -> "/api/v3/ticker/24hr"
+          MarketFutures -> "/fapi/v1/ticker/24hr"
+  req0 <- parseRequest (beBaseUrl env ++ path)
+  let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
+      req = req0 { method = "GET", queryString = qs }
+  resp <- binanceHttp env "ticker/24hr" req
+  ensure2xx "ticker/24hr" resp
+  case eitherDecode (responseBody resp) of
+    Left e -> throwIO (userError ("Failed to decode ticker/24hr: " ++ e))
+    Right (Ticker24hPrice p) -> pure p
+
+data FuturesMarkPrice = FuturesMarkPrice { fmpMarkPrice :: Double }
+
+instance FromJSON FuturesMarkPrice where
+  parseJSON = withObject "FuturesMarkPrice" $ \o -> do
+    pTxt <- o .: "markPrice"
+    p <- parseDoubleText pTxt
+    pure (FuturesMarkPrice p)
+
+fetchFuturesMarkPrice :: BinanceEnv -> String -> IO Double
+fetchFuturesMarkPrice env symbol = do
+  if beMarket env /= MarketFutures
+    then throwIO (userError "fetchFuturesMarkPrice requires MarketFutures")
+    else pure ()
+  req0 <- parseRequest (beBaseUrl env ++ "/fapi/v1/premiumIndex")
+  let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
+      req = req0 { method = "GET", queryString = qs }
+  resp <- binanceHttp env "premiumIndex" req
+  ensure2xx "premiumIndex" resp
+  case eitherDecode (responseBody resp) of
+    Left e -> throwIO (userError ("Failed to decode premiumIndex: " ++ e))
+    Right (FuturesMarkPrice p) -> pure p
 
 data Ticker24h = Ticker24h
   { t24Symbol :: !String

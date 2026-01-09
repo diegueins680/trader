@@ -387,6 +387,27 @@ ensure_s3_bucket() {
   exit 1
 }
 
+discover_s3_bucket_region() {
+  local bucket="$1"
+  local region=""
+  region="$(
+    aws s3api get-bucket-location \
+      --bucket "$bucket" \
+      --region "$AWS_REGION" \
+      --query 'LocationConstraint' \
+      --output text 2>/dev/null || true
+  )"
+  if [[ -z "$region" || "$region" == "None" || "$region" == "null" ]]; then
+    region="us-east-1"
+  elif [[ "$region" == "EU" ]]; then
+    region="eu-west-1"
+  fi
+  if [[ -z "$region" ]]; then
+    region="$AWS_REGION"
+  fi
+  echo "$region"
+}
+
 apply_bucket_private_defaults() {
   local bucket="$1"
   local region="${2:-$AWS_REGION}"
@@ -544,12 +565,23 @@ EOF
 
 discover_cloudfront_distribution_id_for_bucket() {
   local bucket="$1"
-  local domain_primary="${bucket}.s3.${AWS_REGION}.amazonaws.com"
+  local bucket_region=""
+  bucket_region="$(discover_s3_bucket_region "$bucket")"
+  local domain_primary="${bucket}.s3.${bucket_region}.amazonaws.com"
+  local domain_legacy="${bucket}.s3-${bucket_region}.amazonaws.com"
   local domain_alt="${bucket}.s3.amazonaws.com"
+  local domain_dualstack="${bucket}.s3.dualstack.${bucket_region}.amazonaws.com"
+  local domain_website_dash="${bucket}.s3-website-${bucket_region}.amazonaws.com"
+  local domain_website_dot="${bucket}.s3-website.${bucket_region}.amazonaws.com"
+  local path_domain_primary="s3.${bucket_region}.amazonaws.com"
+  local path_domain_legacy="s3-${bucket_region}.amazonaws.com"
+  local path_domain_alt="s3.amazonaws.com"
+  local path_domain_dualstack="s3.dualstack.${bucket_region}.amazonaws.com"
+  local path_origin="/${bucket}"
   local ids
   ids="$(
     aws cloudfront list-distributions \
-      --query "DistributionList.Items[?Origins.Items[?DomainName=='${domain_primary}' || DomainName=='${domain_alt}']].Id" \
+      --query "DistributionList.Items[?Origins.Items[?DomainName=='${domain_primary}' || DomainName=='${domain_legacy}' || DomainName=='${domain_alt}' || DomainName=='${domain_dualstack}' || DomainName=='${domain_website_dash}' || DomainName=='${domain_website_dot}' || (DomainName=='${path_domain_primary}' && OriginPath=='${path_origin}') || (DomainName=='${path_domain_legacy}' && OriginPath=='${path_origin}') || (DomainName=='${path_domain_alt}' && OriginPath=='${path_origin}') || (DomainName=='${path_domain_dualstack}' && OriginPath=='${path_origin}')]].Id" \
       --output text 2>/dev/null || true
   )"
   if [[ -z "$ids" || "$ids" == "None" ]]; then
@@ -588,7 +620,9 @@ ensure_cloudfront_distribution() {
     exit 1
   fi
 
-  local domain="${bucket}.s3.${AWS_REGION}.amazonaws.com"
+  local bucket_region=""
+  bucket_region="$(discover_s3_bucket_region "$bucket")"
+  local domain="${bucket}.s3.${bucket_region}.amazonaws.com"
   local cfg
   cfg="$(mktemp)"
   local ref="trader-ui-$(date +%s)"
