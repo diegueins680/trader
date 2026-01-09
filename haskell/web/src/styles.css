@@ -741,6 +741,7 @@ body.panelMaximized .cardMaximized {
   padding: 18px;
   overflow: auto;
   min-height: 0;
+  min-width: 0;
   scrollbar-gutter: stable;
 }
 
