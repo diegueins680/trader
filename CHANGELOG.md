@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - CSV: sort rows by parsed timestamps only; unparseable timestamps preserve file order.
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Web UI: default Live orders + Trading armed toggles to on.
+- Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.
 - Web UI: add an overview card that summarizes connection, market, execution mode, and the latest signal/backtest/trade results.
@@ -69,6 +70,7 @@ All notable changes to this project will be documented in this file.
 - Deploy: install `libpq-dev` in the Docker build to compile PostgreSQL ops persistence.
 - Deploy: pin `postgresql-simple` to the 0.6 series to keep Docker builds compatible with the bundled libpq client.
 - Deploy: quick AWS deploy can reuse or create S3 buckets, App Runner S3 instance roles, and CloudFront distributions with `--ensure-resources`/`--cloudfront`.
+- Deploy: quick AWS deploy detects the S3 bucket region when matching existing CloudFront distributions.
 - Deploy: quick AWS deploy reuses existing UI CloudFront distributions for the UI bucket across region/website endpoints to avoid duplicates.
 - Deploy: quick AWS UI deploy defaults to the direct API base even with CloudFront; use `TRADER_UI_API_MODE=proxy`/`--ui-api-proxy` to force `/api`.
 - Deploy: quick AWS UI config auto-fills `apiFallbackUrl` only for `/api` mode (it points at the API URL when known).

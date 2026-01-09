@@ -2280,6 +2280,17 @@ export function App() {
         ? activeKeysStatus.hasApiKey && activeKeysStatus.hasApiSecret && activeKeysStatus.hasApiPassphrase
         : activeKeysStatus.hasApiKey && activeKeysStatus.hasApiSecret
       : null;
+  const binancePrivateKeysReady = isBinancePlatform && (binanceKeyLocalReady || keysProvided === true);
+  const binancePrivateKeysMissing = isBinancePlatform && !binanceKeyLocalReady && keysProvided === false;
+  const binancePrivateKeysUnknown = isBinancePlatform && !binanceKeyLocalReady && keysProvided === null;
+  const binanceSignedKeysHint =
+    !isBinancePlatform
+      ? null
+      : binancePrivateKeysMissing
+        ? 'Binance API keys missing. Add keys or click "Check keys".'
+        : binancePrivateKeysUnknown
+          ? 'Add Binance API keys or click "Check keys" to verify server env keys.'
+          : null;
   const keysProvidedLabel = keysProvided === null ? "unknown" : keysProvided ? "provided" : "missing";
   const keysSigned = activeKeysStatus?.signed ?? null;
   const keysTradeTest =
@@ -5009,6 +5020,7 @@ export function App() {
     () =>
       firstReason(
         !isBinancePlatform ? "Binance account trades require platform=binance." : null,
+        binancePrivateKeysMissing ? 'Binance API keys missing. Add keys or click "Check keys".' : null,
         form.market !== "futures" && binanceTradesSymbols.length === 0 ? "Symbol is required for spot/margin trades." : null,
         binanceTradesSymbolsInvalid.length > 0
           ? `Symbols must match Binance format (e.g., ${symbolFormatExample("binance")}). Invalid: ${binanceTradesSymbolsInvalid.join(", ")}.`
@@ -5032,6 +5044,7 @@ export function App() {
       binanceTradesSymbols.length,
       binanceTradesSymbolsInvalid,
       form.market,
+      binancePrivateKeysMissing,
       isBinancePlatform,
     ],
   );
@@ -5050,9 +5063,10 @@ export function App() {
       firstReason(
         !isBinancePlatform ? "Binance positions require platform=binance." : null,
         form.market !== "futures" ? "Binance positions are supported for futures only." : null,
+        binancePrivateKeysMissing ? 'Binance API keys missing. Add keys or click "Check keys".' : null,
         binancePositionsBarsError,
       ),
-    [binancePositionsBarsError, form.market, isBinancePlatform],
+    [binancePositionsBarsError, binancePrivateKeysMissing, form.market, isBinancePlatform],
   );
 
   const fetchBinanceTrades = useCallback(async () => {
@@ -5145,6 +5159,7 @@ export function App() {
   useEffect(() => {
     if (apiOk !== "ok") return;
     if (binancePositionsInputError) return;
+    if (!binancePrivateKeysReady) return;
     const interval = form.interval.trim();
     if (!interval) return;
     const authKey = `${apiBase}:${apiToken.trim()}:${binanceApiKey.trim()}:${binanceApiSecret.trim()}`;
@@ -5159,6 +5174,7 @@ export function App() {
     apiToken,
     binanceApiKey,
     binanceApiSecret,
+    binancePrivateKeysReady,
     binancePositionsInputError,
     binancePositionsLimitSafe,
     fetchBinancePositions,
@@ -6237,6 +6253,19 @@ export function App() {
     );
   }, [apiBlockedReason, apiStatusIssue, botTradeKeysIssue, rateLimitReason, selectedComboForm]);
   const comboStartBlocked = bot.loading || botStarting || comboStartPending || Boolean(comboStartBlockedReason);
+  const topComboAutoStartBlockedReason = useMemo(
+    () =>
+      firstReason(
+        rateLimitReason,
+        apiBlockedReason ?? apiStatusIssue,
+        !isBinancePlatform ? "Live bot is supported on Binance only." : null,
+        form.positioning === "long-short" && form.market !== "futures"
+          ? "Live bot long/short requires the Futures market."
+          : null,
+        botTradeKeysIssue,
+      ),
+    [apiBlockedReason, apiStatusIssue, botTradeKeysIssue, form.market, form.positioning, isBinancePlatform, rateLimitReason],
+  );
 
   useEffect(() => {
     if (!botAutoStartReady) return;
@@ -6256,6 +6285,7 @@ export function App() {
     if (botAutoStartSuppressedRef.current) return;
     if (comboStartPending) return;
     if (bot.loading || botStarting) return;
+    if (topComboAutoStartBlockedReason) return;
     if (topComboBotTargets.length === 0) return;
 
     const missing = topComboBotTargets.filter((sym) => !botActiveSymbolSet.has(normalizeSymbolKey(sym)));
@@ -6273,6 +6303,7 @@ export function App() {
     botStarting,
     comboStartPending,
     startLiveBot,
+    topComboAutoStartBlockedReason,
     topComboBotTargets,
     topComboBotTargetsKey,
   ]);
@@ -11276,7 +11307,7 @@ export function App() {
                       {binancePositionsInputError}
                     </div>
                   ) : (
-                    <div className="hint">Requires Binance API keys with futures access.</div>
+                    <div className="hint">{binanceSignedKeysHint ?? "Requires Binance API keys with futures access."}</div>
                   )}
                 </div>
               </div>
