@@ -2,7 +2,7 @@
   "combos": [
     {
       "closeThreshold": 7.349288970254884e-2,
-      "createdAtMs": null,
+      "createdAtMs": 1767918636066,
       "finalEquity": 1.008791512623314,
       "metrics": {
         "agreementRate": 1,
@@ -208,7 +208,7 @@
     },
     {
       "closeThreshold": 7.33564316119707e-2,
-      "createdAtMs": null,
+      "createdAtMs": 1767918636066,
       "finalEquity": 1.0040952319341485,
       "metrics": {
         "agreementRate": 1,
@@ -414,7 +414,7 @@
     },
     {
       "closeThreshold": 7.349288970254884e-2,
-      "createdAtMs": null,
+      "createdAtMs": 1767918636066,
       "finalEquity": 1.0030338995766206,
       "metrics": {
         "agreementRate": 1,
@@ -620,7 +620,7 @@
     },
     {
       "closeThreshold": 7.3576863911961e-2,
-      "createdAtMs": null,
+      "createdAtMs": 1767918636066,
       "finalEquity": 1.0030314244782723,
       "metrics": {
         "agreementRate": 1,
@@ -826,7 +826,7 @@
     },
     {
       "closeThreshold": 7.349288970254884e-2,
-      "createdAtMs": null,
+      "createdAtMs": 1767918636066,
       "finalEquity": 1.0029023543816908,
       "metrics": {
         "agreementRate": 1,
@@ -1031,6 +1031,6 @@
       "uuid": "0b5aa294-5ee5-a003-fbb9-55560446198d"
     }
   ],
-  "generatedAtMs": 1767918636066,
+  "generatedAtMs": 1767967060541,
   "source": "merge_top_combos.py"
 }

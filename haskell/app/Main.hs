@@ -10832,6 +10832,9 @@ argsFromApi baseArgs p = do
             case apOpenThreshold p of
               Just _ -> openThr
               Nothing -> argCloseThreshold baseArgs
+      binanceSymbolRaw = pickMaybe (apBinanceSymbol p) (argBinanceSymbol baseArgs)
+      binanceSymbolSanitized = binanceSymbolRaw >>= sanitizeComboSymbolForPlatform (Just (platformCode platform))
+      binanceSymbol = binanceSymbolSanitized <|> binanceSymbolRaw
 
       args =
         baseArgs
@@ -10839,7 +10842,7 @@ argsFromApi baseArgs p = do
           , argPriceCol = pick (apPriceColumn p) (argPriceCol baseArgs)
           , argHighCol = pickMaybe (apHighColumn p) (argHighCol baseArgs)
           , argLowCol = pickMaybe (apLowColumn p) (argLowCol baseArgs)
-          , argBinanceSymbol = pickMaybe (apBinanceSymbol p) (argBinanceSymbol baseArgs)
+          , argBinanceSymbol = binanceSymbol
           , argPlatform = platform
           , argBinanceFutures = futuresFlag
           , argBinanceMargin = marginFlag
@@ -11160,7 +11163,8 @@ computeBinanceKeysStatusFromArgs mOps args = do
         probeBinance "signed" $ do
           case market of
             MarketFutures -> do
-              _ <- fetchFuturesPositionRisks env
+              let quoteAsset = maybe "USDT" (snd . splitSymbol) mSym
+              _ <- fetchFuturesAvailableBalance env quoteAsset
               pure ()
             _ -> do
               sym' <- maybe (throwIO (userError "binanceSymbol is required.")) pure mSym
@@ -11282,11 +11286,15 @@ computeBinanceKeysStatusFromArgs mOps args = do
     missingSymbolMsg = "Provide binanceSymbol for the trade test."
 
     normalizeBinanceSymbolForKeys raw =
-      case fmap trim raw of
-        Nothing -> Nothing
-        Just s ->
-          let s' = map toUpper (filter isAlphaNum s)
-           in if length s' < 3 || length s' > 30 then Nothing else Just s'
+      let sanitized = raw >>= sanitizeComboSymbolForPlatform (Just "binance")
+       in case sanitized of
+            Just _ -> sanitized
+            Nothing ->
+              case fmap trim raw of
+                Nothing -> Nothing
+                Just s ->
+                  let s' = map toUpper (filter isAlphaNum s)
+                   in if length s' < 3 || length s' > 30 then Nothing else Just s'
 
     mkSkippedProbe step reason =
       ApiBinanceProbe False True step Nothing Nothing ("Trade test skipped: " ++ reason)
