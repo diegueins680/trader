@@ -40,7 +40,7 @@ import System.Directory
   , getCurrentDirectory
   , getHomeDirectory
   )
-import System.Environment (getEnvironment)
+import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>), takeBaseName, takeDirectory)
 import System.IO
@@ -65,6 +65,7 @@ import System.Process
   )
 import System.Timeout (timeout)
 import Text.Printf (printf)
+import Text.Read (readMaybe)
 
 import Trader.BinanceIntervals (binanceIntervalsCsv)
 import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom)
@@ -2108,9 +2109,10 @@ runOptimizer args0 = do
           hPutStrLn stderr err
           pure 2
         Right intervalsRaw -> do
+          maxBarsCap <- resolveOptimizerMaxPoints
           csvInfo <-
             case oaData args of
-              Nothing -> pure (Nothing, 1000, Nothing)
+              Nothing -> pure (Nothing, maxBarsCap, Nothing)
               Just raw -> do
                 p0 <- expandUser raw
                 exists <- doesFileExist p0
@@ -2844,6 +2846,16 @@ resolveTraderBin args =
       if exists
         then pure (Just dir)
         else firstExistingCabalDir rest
+
+resolveOptimizerMaxPoints :: IO Int
+resolveOptimizerMaxPoints = do
+  env <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
+  let defaultMax = 1000
+      maxCap = 5000
+  pure $
+    case env >>= readMaybe of
+      Just n | n >= 2 -> min maxCap n
+      _ -> defaultMax
 
 readProcessOutput :: CreateProcess -> IO (ExitCode, String, String)
 readProcessOutput procSpec = do

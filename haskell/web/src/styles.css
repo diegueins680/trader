@@ -634,6 +634,15 @@ textarea {
   overflow: hidden;
 }
 
+.dockMain .card {
+  display: flex;
+  flex-direction: column;
+}
+
+.dockMain .card .cardBody {
+  flex: 1 1 auto;
+}
+
 .card.chartCard:not(.cardMaximized) {
   max-height: none;
   height: auto;

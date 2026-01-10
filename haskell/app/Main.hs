@@ -5453,10 +5453,12 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                         case timeoutEnv >>= readMaybe of
                           Just n | n >= 1 -> n
                           _ -> 45
+                      maxPointsCap :: Int
+                      maxPointsCap = 5000
                       maxPoints :: Int
                       maxPoints =
                         case maxPointsEnv >>= readMaybe of
-                          Just n | n >= 2 -> clampInt 2 1000 n
+                          Just n | n >= 2 -> clampInt 2 maxPointsCap n
                           _ -> 1000
                       lookbackWindow = pickDefaultString "7d" lookbackEnv
                       backtestRatio =

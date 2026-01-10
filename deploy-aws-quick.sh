@@ -43,6 +43,17 @@ TRADER_STATE_S3_REGION="${TRADER_STATE_S3_REGION:-}"
 TRADER_BOT_SYMBOLS="${TRADER_BOT_SYMBOLS:-}"
 TRADER_BOT_SYMBOL="${TRADER_BOT_SYMBOL:-}"
 TRADER_BOT_TRADE="${TRADER_BOT_TRADE:-true}"
+TRADER_OPTIMIZER_ENABLED="${TRADER_OPTIMIZER_ENABLED:-}"
+TRADER_OPTIMIZER_EVERY_SEC="${TRADER_OPTIMIZER_EVERY_SEC:-}"
+TRADER_OPTIMIZER_TRIALS="${TRADER_OPTIMIZER_TRIALS:-}"
+TRADER_OPTIMIZER_TIMEOUT_SEC="${TRADER_OPTIMIZER_TIMEOUT_SEC:-}"
+TRADER_OPTIMIZER_OBJECTIVE="${TRADER_OPTIMIZER_OBJECTIVE:-}"
+TRADER_OPTIMIZER_LOOKBACK_WINDOW="${TRADER_OPTIMIZER_LOOKBACK_WINDOW:-}"
+TRADER_OPTIMIZER_BACKTEST_RATIO="${TRADER_OPTIMIZER_BACKTEST_RATIO:-}"
+TRADER_OPTIMIZER_TUNE_RATIO="${TRADER_OPTIMIZER_TUNE_RATIO:-}"
+TRADER_OPTIMIZER_MAX_POINTS="${TRADER_OPTIMIZER_MAX_POINTS:-}"
+TRADER_OPTIMIZER_SYMBOLS="${TRADER_OPTIMIZER_SYMBOLS:-}"
+TRADER_OPTIMIZER_INTERVALS="${TRADER_OPTIMIZER_INTERVALS:-}"
 BINANCE_API_KEY="${BINANCE_API_KEY:-}"
 BINANCE_API_SECRET="${BINANCE_API_SECRET:-}"
 UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
@@ -133,6 +144,17 @@ Environment variables (equivalents):
   TRADER_BOT_SYMBOLS
   TRADER_BOT_SYMBOL
   TRADER_BOT_TRADE
+  TRADER_OPTIMIZER_ENABLED
+  TRADER_OPTIMIZER_EVERY_SEC
+  TRADER_OPTIMIZER_TRIALS
+  TRADER_OPTIMIZER_TIMEOUT_SEC
+  TRADER_OPTIMIZER_OBJECTIVE
+  TRADER_OPTIMIZER_LOOKBACK_WINDOW
+  TRADER_OPTIMIZER_BACKTEST_RATIO
+  TRADER_OPTIMIZER_TUNE_RATIO
+  TRADER_OPTIMIZER_MAX_POINTS
+  TRADER_OPTIMIZER_SYMBOLS
+  TRADER_OPTIMIZER_INTERVALS
   TRADER_AWS_ENSURE_RESOURCES
   BINANCE_API_KEY
   BINANCE_API_SECRET
@@ -1108,6 +1130,42 @@ create_app_runner() {
     fi
   fi
 
+  if [[ -z "${BINANCE_API_KEY:-}" && -n "$existing_service_arn" ]]; then
+    local existing_binance_key=""
+    existing_binance_key="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.BINANCE_API_KEY' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_binance_key" == "None" ]]; then
+      existing_binance_key=""
+    fi
+    if [[ -n "$existing_binance_key" ]]; then
+      BINANCE_API_KEY="$existing_binance_key"
+      echo -e "${YELLOW}✓ Reusing existing BINANCE_API_KEY from service${NC}" >&2
+    fi
+  fi
+
+  if [[ -z "${BINANCE_API_SECRET:-}" && -n "$existing_service_arn" ]]; then
+    local existing_binance_secret=""
+    existing_binance_secret="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.BINANCE_API_SECRET' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_binance_secret" == "None" ]]; then
+      existing_binance_secret=""
+    fi
+    if [[ -n "$existing_binance_secret" ]]; then
+      BINANCE_API_SECRET="$existing_binance_secret"
+      echo -e "${YELLOW}✓ Reusing existing BINANCE_API_SECRET from service${NC}" >&2
+    fi
+  fi
+
   if [[ -n "$existing_service_arn" ]]; then
     if [[ -z "${APP_RUNNER_INSTANCE_ROLE_ARN:-}" ]]; then
       local existing_instance_role=""
@@ -1256,6 +1314,39 @@ create_app_runner() {
   fi
   if [[ -n "${TRADER_BOT_TRADE:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_BOT_TRADE\":\"${TRADER_BOT_TRADE}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_ENABLED:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_ENABLED\":\"${TRADER_OPTIMIZER_ENABLED}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_EVERY_SEC:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_EVERY_SEC\":\"${TRADER_OPTIMIZER_EVERY_SEC}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_TRIALS:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_TRIALS\":\"${TRADER_OPTIMIZER_TRIALS}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_TIMEOUT_SEC:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_TIMEOUT_SEC\":\"${TRADER_OPTIMIZER_TIMEOUT_SEC}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_OBJECTIVE:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_OBJECTIVE\":\"${TRADER_OPTIMIZER_OBJECTIVE}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_LOOKBACK_WINDOW:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_LOOKBACK_WINDOW\":\"${TRADER_OPTIMIZER_LOOKBACK_WINDOW}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_BACKTEST_RATIO:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_BACKTEST_RATIO\":\"${TRADER_OPTIMIZER_BACKTEST_RATIO}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_TUNE_RATIO:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_TUNE_RATIO\":\"${TRADER_OPTIMIZER_TUNE_RATIO}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_MAX_POINTS:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_MAX_POINTS\":\"${TRADER_OPTIMIZER_MAX_POINTS}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_SYMBOLS:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_SYMBOLS\":\"${TRADER_OPTIMIZER_SYMBOLS}\""
+  fi
+  if [[ -n "${TRADER_OPTIMIZER_INTERVALS:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_INTERVALS\":\"${TRADER_OPTIMIZER_INTERVALS}\""
   fi
   if [[ -n "${BINANCE_API_KEY:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"BINANCE_API_KEY\":\"${BINANCE_API_KEY}\""

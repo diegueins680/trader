@@ -518,6 +518,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - Set `TRADER_OPTIMIZER_COMBOS_DIR` to a writable directory (writes `top-combos.json`)
 - When unset, defaults to `TRADER_STATE_DIR/optimizer` (if set) or `.tmp/optimizer` (local only).
 - `TRADER_OPTIMIZER_MAX_COMBOS` (default: `200`) caps the merged combo list size
+- `TRADER_OPTIMIZER_MAX_POINTS` (default: `1000`, max: `5000`) caps how many klines the optimizer fetches per run (applies to `/optimizer/run` and the auto optimizer; raise it to allow longer lookback windows on short intervals).
 - `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
 - When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained, and history snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
@@ -690,6 +691,7 @@ Multi-column form rows stack into a single column on narrow screens so inputs re
 The configuration panel is docked to the top of the viewport, scrolls independently, keeps a sticky action bar with readiness status, run buttons, and issue shortcuts that jump/flash the relevant inputs, and shrinks to a compact bar with its subtitle hidden when collapsed; scrolling stays responsive within the panel.
 The Optimizer combos panel is docked to the bottom of the viewport for quick access and shrinks to a compact bar when collapsed.
 Result panels scroll independently so longer outputs don't push other panels off-screen.
+Result cards in the main dock size their body region so longer tables scroll instead of trimming rows.
 Info popovers align to stay within the configuration panel.
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
 The backtest summary chart includes a Download log button to export the backtest operations.

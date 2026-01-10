@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
 - Optimizer: include stable combo UUIDs in top-combos outputs.
+- Optimizer: page Binance klines to support >1000 bars and honor `TRADER_OPTIMIZER_MAX_POINTS` (up to 5000) for `/optimizer/run` and auto optimizer runs.
 - Database: add `platforms`, `platform_symbols`, `bots`, and `positions` tables so ops/positions link back to platform metadata and running bots.
 - Optimizer: add genetic crossover using parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
@@ -27,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.
 - Web UI: keep collapsible panels mounted so config scroll stays stable and the UI stops blinking during refreshes.
 - Web UI: let each panel scroll independently for long outputs.
+- Web UI: fix dock main cards so long panel content scrolls instead of clipping.
 - Web UI: split the configuration pane into multiple scrollable sub-panels with drag-and-drop reordering.
 - Web UI: allow cards and panels to be maximized or minimized for focused review.
 - Web UI: let maximized panels ignore dock main height caps so full contents remain visible.

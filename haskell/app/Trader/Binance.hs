@@ -446,25 +446,51 @@ parseSymbolFilters objs =
 
 fetchKlines :: BinanceEnv -> String -> String -> Int -> IO [Kline]
 fetchKlines env symbol interval limit = do
-  let path =
+  let maxPerRequest = 1000
+      wanted = max 1 limit
+      path =
         case beMarket env of
           MarketSpot -> "/api/v3/klines"
           MarketMargin -> "/api/v3/klines"
           MarketFutures -> "/fapi/v1/klines"
-  req0 <- parseRequest (beBaseUrl env ++ path)
-  let qs =
-        renderSimpleQuery
-          True
-          [ ("symbol", BS.pack (map toUpperAscii symbol))
-          , ("interval", BS.pack interval)
-          , ("limit", BS.pack (show (max 1 (min 1000 limit))))
-          ]
-      req = req0 { method = "GET", queryString = qs }
-  resp <- binanceHttp env "klines" req
-  ensure2xx "klines" resp
-  case eitherDecode (responseBody resp) of
-    Left e -> throwIO (userError ("Failed to decode klines: " ++ e))
-    Right ks -> pure ks
+      symbolKey = BS.pack (map toUpperAscii symbol)
+      fetchBatch :: Maybe Int64 -> Int -> IO [Kline]
+      fetchBatch mEnd batchLimit = do
+        req0 <- parseRequest (beBaseUrl env ++ path)
+        let qsBase =
+              [ ("symbol", symbolKey)
+              , ("interval", BS.pack interval)
+              , ("limit", BS.pack (show (max 1 (min maxPerRequest batchLimit))))
+              ]
+            qs =
+              case mEnd of
+                Nothing -> qsBase
+                Just endTime -> qsBase ++ [("endTime", BS.pack (show endTime))]
+            req = req0 { method = "GET", queryString = renderSimpleQuery True qs }
+        resp <- binanceHttp env "klines" req
+        ensure2xx "klines" resp
+        case eitherDecode (responseBody resp) of
+          Left e -> throwIO (userError ("Failed to decode klines: " ++ e))
+          Right ks -> pure ks
+
+      go :: Int -> Maybe Int64 -> [Kline] -> IO [Kline]
+      go remaining mEnd acc = do
+        let batchLimit = min maxPerRequest remaining
+        ks <- fetchBatch mEnd batchLimit
+        if null ks
+          then pure acc
+          else do
+            let ksSorted = sortBy (comparing kOpenTime) ks
+                acc' = ksSorted ++ acc
+                remaining' = remaining - length ksSorted
+                nextEnd = kOpenTime (head ksSorted) - 1
+            if remaining' <= 0 || length ksSorted < batchLimit
+              then pure acc'
+              else go remaining' (Just nextEnd) acc'
+
+  if wanted <= maxPerRequest
+    then fetchBatch Nothing wanted
+    else go wanted Nothing []
 
 fetchCloses :: BinanceEnv -> String -> String -> Int -> IO [Double]
 fetchCloses env symbol interval limit = do
