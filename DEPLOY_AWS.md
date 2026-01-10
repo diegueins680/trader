@@ -329,6 +329,7 @@ For production, use CloudFront to serve the UI over HTTPS:
 After it's deployed (5-10 minutes):
 - Access your UI at: `https://dxxx.cloudfront.net`
 - Create a CNAME for your domain (e.g., `trader.example.com`)
+ - The quick deploy script can reuse an existing distribution by domain via `--cloudfront-domain`/`TRADER_UI_CLOUDFRONT_DOMAIN`.
 
 ---
 

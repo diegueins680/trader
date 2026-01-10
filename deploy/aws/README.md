@@ -157,6 +157,8 @@ The script:
 - Builds `haskell/web`
 - Writes `haskell/web/dist/trader-config.js` (apiBaseUrl + apiToken)
 - Syncs `dist/` to S3 and (optionally) invalidates CloudFront
+- Tip: use `--cloudfront-domain d123.cloudfront.net` (or `TRADER_UI_CLOUDFRONT_DOMAIN`) to reuse an existing distribution without manually supplying the S3 bucket.
+- The script loads `.env.deploy` (or `TRADER_DEPLOY_ENV_FILE`) for persistent deploy defaults.
 
 ### What’s the “API host”?
 

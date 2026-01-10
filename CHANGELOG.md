@@ -76,6 +76,7 @@ All notable changes to this project will be documented in this file.
 - Deploy: quick AWS deploy reuses existing UI CloudFront distributions for the UI bucket across region/website endpoints to avoid duplicates.
 - Deploy: quick AWS UI deploy defaults to the direct API base even with CloudFront; use `TRADER_UI_API_MODE=proxy`/`--ui-api-proxy` to force `/api`.
 - Deploy: quick AWS UI config auto-fills `apiFallbackUrl` only for `/api` mode (it points at the API URL when known).
+- Deploy: quick AWS deploy can resolve the UI CloudFront distribution + bucket from a domain via `TRADER_UI_CLOUDFRONT_DOMAIN`/`--cloudfront-domain`, and reads `.env.deploy` (or `TRADER_DEPLOY_ENV_FILE`) for defaults.
 - Optimizer: replace the Python optimizer scripts with Haskell executables (`optimize-equity`, `merge-top-combos`) and route `/optimizer/run` through them.
 - Optimizer: `/optimizer/run` JSON parsing accepts numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.

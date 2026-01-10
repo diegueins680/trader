@@ -21,6 +21,14 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+DEPLOY_ENV_FILE="${TRADER_DEPLOY_ENV_FILE:-.env.deploy}"
+if [[ -f "$DEPLOY_ENV_FILE" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  . "$DEPLOY_ENV_FILE"
+  set +a
+fi
+
 # Configuration (inputs)
 AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 TRADER_API_TOKEN="${TRADER_API_TOKEN:-}"
@@ -39,6 +47,7 @@ BINANCE_API_KEY="${BINANCE_API_KEY:-}"
 BINANCE_API_SECRET="${BINANCE_API_SECRET:-}"
 UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
 UI_DISTRIBUTION_ID="${TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID:-${CLOUDFRONT_DISTRIBUTION_ID:-}}"
+UI_CLOUDFRONT_DOMAIN="${TRADER_UI_CLOUDFRONT_DOMAIN:-}"
 UI_SKIP_BUILD="${TRADER_UI_SKIP_BUILD:-false}"
 UI_DIST_DIR="${TRADER_UI_DIST_DIR:-haskell/web/dist}"
 UI_API_MODE="${TRADER_UI_API_MODE:-direct}"
@@ -99,6 +108,7 @@ Flags:
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
   --cloudfront                      Auto-create/reuse CloudFront distribution for the UI bucket
+  --cloudfront-domain <domain>      Reuse a CloudFront distribution by domain (auto-detects UI bucket)
   --distribution-id <id>            CloudFront distribution ID (optional; defaults UI apiBaseUrl to the API URL unless --ui-api-proxy)
   --api-url <url>                   API origin URL for UI-only deploys (also configures CloudFront /api/* behavior)
   --ui-api-fallback <url>           Optional UI fallback API URL (CORS required)
@@ -128,6 +138,7 @@ Environment variables (equivalents):
   BINANCE_API_SECRET
   TRADER_UI_BUCKET / S3_BUCKET
   TRADER_UI_CLOUDFRONT_AUTO
+  TRADER_UI_CLOUDFRONT_DOMAIN
   TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID / CLOUDFRONT_DISTRIBUTION_ID
   TRADER_UI_CLOUDFRONT_OAC_NAME
   TRADER_UI_SKIP_BUILD
@@ -136,6 +147,7 @@ Environment variables (equivalents):
   TRADER_UI_API_FALLBACK_URL
   TRADER_UI_API_MODE (direct|proxy)
   TRADER_UI_SERVICE_ARN
+  TRADER_DEPLOY_ENV_FILE
   TRADER_APP_RUNNER_INSTANCE_ROLE_NAME
   TRADER_APP_RUNNER_STATE_POLICY_NAME
   APP_RUNNER_INSTANCE_ROLE_ARN / TRADER_APP_RUNNER_INSTANCE_ROLE_ARN
@@ -227,6 +239,10 @@ while [[ $# -gt 0 ]]; do
       UI_CLOUDFRONT_AUTO="true"
       shift
       ;;
+    --cloudfront-domain)
+      UI_CLOUDFRONT_DOMAIN="${2:-}"
+      shift 2
+      ;;
     --distribution-id)
       UI_DISTRIBUTION_ID="${2:-}"
       shift 2
@@ -279,7 +295,7 @@ fi
 
 DEPLOY_API="true"
 DEPLOY_UI="false"
-if [[ -n "${UI_BUCKET:-}" || "$UI_ONLY" == "true" ]] || is_true "$UI_CLOUDFRONT_AUTO"; then
+if [[ -n "${UI_BUCKET:-}" || -n "${UI_DISTRIBUTION_ID:-}" || -n "${UI_CLOUDFRONT_DOMAIN:-}" || "$UI_ONLY" == "true" ]] || is_true "$UI_CLOUDFRONT_AUTO"; then
   DEPLOY_UI="true"
 fi
 if [[ "$API_ONLY" == "true" ]]; then
@@ -561,6 +577,79 @@ EOF
   )"
   rm -f "$cfg"
   echo "$oac_id"
+}
+
+normalize_cloudfront_domain() {
+  local domain="${1:-}"
+  domain="${domain#https://}"
+  domain="${domain#http://}"
+  domain="${domain%%/*}"
+  echo "$domain"
+}
+
+discover_cloudfront_distribution_id_for_domain() {
+  local domain_raw="$1"
+  local domain
+  domain="$(normalize_cloudfront_domain "$domain_raw")"
+  if [[ -z "$domain" ]]; then
+    return 1
+  fi
+  local dist_id=""
+  dist_id="$(
+    aws cloudfront list-distributions \
+      --query "DistributionList.Items[?DomainName=='${domain}'].Id | [0]" \
+      --output text 2>/dev/null || true
+  )"
+  if [[ -z "$dist_id" || "$dist_id" == "None" ]]; then
+    return 1
+  fi
+  echo "$dist_id"
+}
+
+discover_cloudfront_ui_bucket() {
+  local dist_id="$1"
+  if [[ -z "$dist_id" ]]; then
+    return 1
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+  aws cloudfront get-distribution-config \
+    --id "$dist_id" \
+    --query 'DistributionConfig.Origins.Items' \
+    --output json 2>/dev/null \
+    | python3 -c 'import json, re, sys
+def bucket_from_origin(origin):
+    domain = (origin.get("DomainName") or "").lower()
+    origin_path = origin.get("OriginPath") or ""
+    candidate = ""
+    if origin_path.startswith("/"):
+        candidate = origin_path.lstrip("/").split("/")[0]
+    patterns = [
+        r"^(?P<bucket>[^.]+)\.s3[.-][^.]+\.amazonaws\.com$",
+        r"^(?P<bucket>[^.]+)\.s3\.amazonaws\.com$",
+        r"^(?P<bucket>[^.]+)\.s3-website[.-][^.]+\.amazonaws\.com$",
+        r"^(?P<bucket>[^.]+)\.s3-website\.amazonaws\.com$",
+    ]
+    for pat in patterns:
+        match = re.match(pat, domain)
+        if match:
+            return match.group("bucket")
+    if candidate and domain.startswith("s3"):
+        return candidate
+    return ""
+
+try:
+    origins = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+
+for origin in origins or []:
+    bucket = bucket_from_origin(origin)
+    if bucket:
+        print(bucket)
+        sys.exit(0)
+'
 }
 
 discover_cloudfront_distribution_id_for_bucket() {
@@ -1615,6 +1704,26 @@ main() {
   fi
 
   check_prerequisites "$need_docker" "$need_npm"
+
+  if [[ -z "${UI_DISTRIBUTION_ID:-}" && -n "${UI_CLOUDFRONT_DOMAIN:-}" ]]; then
+    UI_DISTRIBUTION_ID="$(discover_cloudfront_distribution_id_for_domain "$UI_CLOUDFRONT_DOMAIN" || true)"
+    if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
+      echo -e "${YELLOW}✓ Using CloudFront distribution ${UI_DISTRIBUTION_ID} for ${UI_CLOUDFRONT_DOMAIN}${NC}" >&2
+    elif [[ "$DEPLOY_UI" == "true" ]]; then
+      echo -e "${RED}✗ CloudFront distribution not found for domain ${UI_CLOUDFRONT_DOMAIN}${NC}" >&2
+      exit 2
+    fi
+  fi
+
+  if [[ -n "${UI_DISTRIBUTION_ID:-}" && -z "${UI_BUCKET:-}" ]]; then
+    UI_BUCKET="$(discover_cloudfront_ui_bucket "$UI_DISTRIBUTION_ID" || true)"
+    if [[ -n "${UI_BUCKET:-}" ]]; then
+      echo -e "${YELLOW}✓ Using UI bucket from CloudFront distribution: ${UI_BUCKET}${NC}" >&2
+    elif [[ "$DEPLOY_UI" == "true" && "$UI_ONLY" == "true" ]]; then
+      echo -e "${RED}✗ Unable to detect UI bucket from CloudFront distribution ${UI_DISTRIBUTION_ID}${NC}" >&2
+      exit 2
+    fi
+  fi
 
   local ui_cloudfront_enabled="false"
   if [[ -n "${UI_DISTRIBUTION_ID:-}" ]] || is_true "$UI_CLOUDFRONT_AUTO"; then

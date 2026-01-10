@@ -695,6 +695,7 @@ The backtest/tune ratio inputs show a split preview with the minimum bars requir
 The backtest summary chart includes a Download log button to export the backtest operations.
 Backtest charts allow deeper zoom (mouse wheel down to ~6 bars) for close inspection.
 When the UI is served via CloudFront, `deploy-aws-quick.sh` defaults `apiBaseUrl` to the direct API URL even when a distribution ID is provided. Use `--ui-api-proxy`/`TRADER_UI_API_MODE=proxy` to force `/api` when you have a `/api/*` behavior and want same-origin requests. When `/api` is used and the API URL is known, the script auto-fills `apiFallbackUrl` to the API URL; for direct API bases, set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly if you want a fallback. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
+To keep a stable CloudFront URL across deploys, set `TRADER_UI_CLOUDFRONT_DOMAIN` (or `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`) so the quick deploy reuses the distribution and its S3 bucket.
 The UI auto-applies top combos when available and shows when a combo auto-applied; it also auto-starts missing bots for the top 5 combo symbols (Binance only), and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
