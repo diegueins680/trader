@@ -5,11 +5,11 @@
 module Main where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
-import Control.Concurrent.Chan (Chan, newChan, readChan, writeChan)
+import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
-import Control.Exception (IOException, SomeException, finally, fromException, throwIO, try)
+import Control.Exception (IOException, SomeException, displayException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
-import Control.Monad (forM, forM_, when, void)
+import Control.Monad (forM, forM_, forever, unless, when, void)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (FromJSON(..), ToJSON(..), eitherDecode, encode, object, (.=))
@@ -21,7 +21,7 @@ import Data.ByteArray (convert)
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import Data.Foldable (toList)
 import Data.Int (Int64)
-import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn)
+import Data.List (foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.String (fromString)
 import Data.Text (Text)
@@ -32,6 +32,7 @@ import Data.Version (showVersion)
 import Data.Word (Word64)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
+import Data.ByteString.Builder (byteString)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HM
@@ -49,6 +50,8 @@ import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
+import qualified Network.WebSockets as WS
+import qualified Wuss
 import Options.Applicative
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getCurrentDirectory, getFileSize, getModificationTime, listDirectory, removeFile, renameFile)
 import System.Environment (getExecutablePath, lookupEnv)
@@ -6849,6 +6852,7 @@ runRestApi baseArgs mWebhook = do
   metrics <- newMetrics
   mJournal <- newJournalFromEnv
   mOps <- newOpsStoreFromEnv
+  listenKeyManager <- newListenKeyManager
   mBotStateDir <- resolveBotStateDir
   backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
   topCombosEnabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
@@ -6903,7 +6907,7 @@ runRestApi baseArgs mWebhook = do
   hFlush stdout
   res <-
     ( try
-        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
         IO (Either IOException ())
     )
   case res of
@@ -7858,6 +7862,7 @@ apiApp ::
   Maybe Journal ->
   Maybe Webhook ->
   Maybe OpsStore ->
+  ListenKeyManager ->
   Maybe FilePath ->
   ApiComputeLimits ->
   ApiRequestLimits ->
@@ -7868,7 +7873,7 @@ apiApp ::
   FilePath ->
   FilePath ->
   Wai.Application
-apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook mOps mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot optimizerTmp req respond = do
   startMs <- getTimestampMs
   let rawPath = Wai.pathInfo req
       path =
@@ -7951,6 +7956,7 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/positions" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/coinbase/keys" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
+                                       , object ["method" .= ("GET" :: String), "path" .= ("/binance/listenKey/stream" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/close" :: String)]
                                        , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
@@ -8083,15 +8089,19 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceListenKey reqLimits mOps baseArgs req respondCors
+                "POST" -> handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respondCors
+                _ -> respondCors (jsonError status405 "Method not allowed")
+            ["binance", "listenKey", "stream"] ->
+              case Wai.requestMethod req of
+                "GET" -> handleBinanceListenKeyStream listenKeyManager req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey", "keepAlive"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceListenKeyKeepAlive reqLimits mOps baseArgs req respondCors
+                "POST" -> handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["binance", "listenKey", "close"] ->
               case Wai.requestMethod req of
-                "POST" -> handleBinanceListenKeyClose reqLimits mOps baseArgs req respondCors
+                "POST" -> handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respondCors
                 _ -> respondCors (jsonError status405 "Method not allowed")
             ["bot", "start"] ->
               case Wai.requestMethod req of
@@ -10292,8 +10302,293 @@ binanceUserStreamWsUrl :: BinanceMarket -> Bool -> String -> String
 binanceUserStreamWsUrl market testnet listenKey =
   binanceUserStreamWsBase market testnet ++ "/" ++ listenKey
 
-handleBinanceListenKey :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKey reqLimits mOps baseArgs req respond = do
+data ListenKeyStreamEvent
+  = ListenKeyStreamStatus !BS.ByteString
+  | ListenKeyStreamKeepAlive !Int64
+  | ListenKeyStreamBinance !BS.ByteString
+  | ListenKeyStreamError !BS.ByteString
+  | ListenKeyStreamStop
+
+data ListenKeyStreamState = ListenKeyStreamState
+  { lksEnv :: !BinanceEnv
+  , lksMarket :: !BinanceMarket
+  , lksTestnet :: !Bool
+  , lksListenKey :: !String
+  , lksWsUrl :: !String
+  , lksKeepAliveMs :: !Int
+  , lksChan :: !(Chan ListenKeyStreamEvent)
+  , lksStopSignal :: !(MVar ())
+  , lksStatusRef :: !(IORef (Maybe BS.ByteString))
+  , lksKeepAliveAtRef :: !(IORef (Maybe Int64))
+  , lksLastEventRef :: !(IORef (Maybe BS.ByteString))
+  }
+
+data ListenKeyStream = ListenKeyStream
+  { lksState :: !ListenKeyStreamState
+  , lksWsThread :: !ThreadId
+  , lksKeepAliveThread :: !ThreadId
+  }
+
+newtype ListenKeyManager = ListenKeyManager { lkmState :: MVar (Maybe ListenKeyStream) }
+
+newListenKeyManager :: IO ListenKeyManager
+newListenKeyManager = ListenKeyManager <$> newMVar Nothing
+
+listenKeyStreamHeaders :: ResponseHeaders
+listenKeyStreamHeaders =
+  [ ("Content-Type", "text/event-stream")
+  , ("Cache-Control", "no-cache")
+  , ("Connection", "keep-alive")
+  , ("X-Accel-Buffering", "no")
+  , ("Vary", "Authorization, X-API-Key")
+  ]
+
+listenKeyKeepAliveIntervalMs :: Int -> Int
+listenKeyKeepAliveIntervalMs keepAliveMs =
+  max 60000 (floor (fromIntegral keepAliveMs * (0.9 :: Double)))
+
+maxListenKeyEventBytes :: Int
+maxListenKeyEventBytes = 20000
+
+mkSseEvent :: BS.ByteString -> BS.ByteString -> BS.ByteString
+mkSseEvent eventName payload =
+  let payloadLines =
+        if BS.null payload
+          then [""]
+          else BS.split '\n' payload
+      dataLines = map ("data: " <>) payloadLines
+   in BS.intercalate "\n" (("event: " <> eventName) : dataLines) <> "\n\n"
+
+listenKeyStatusPayload :: String -> Maybe String -> Int64 -> BS.ByteString
+listenKeyStatusPayload status message atMs =
+  BL.toStrict $
+    encode $
+      object
+        ( ["status" .= status, "atMs" .= atMs]
+            ++ maybe [] (\msg -> ["message" .= msg]) message
+        )
+
+listenKeyErrorPayload :: String -> Int64 -> BS.ByteString
+listenKeyErrorPayload message atMs =
+  BL.toStrict $
+    encode $
+      object
+        [ "message" .= message
+        , "atMs" .= atMs
+        ]
+
+listenKeyKeepAlivePayload :: Int64 -> BS.ByteString
+listenKeyKeepAlivePayload atMs =
+  BL.toStrict $
+    encode $
+      object
+        [ "atMs" .= atMs
+        ]
+
+listenKeyEventToSse :: ListenKeyStreamEvent -> Maybe BS.ByteString
+listenKeyEventToSse evt =
+  case evt of
+    ListenKeyStreamStatus payload -> Just (mkSseEvent "status" payload)
+    ListenKeyStreamKeepAlive atMs -> Just (mkSseEvent "keepalive" (listenKeyKeepAlivePayload atMs))
+    ListenKeyStreamBinance payload -> Just (mkSseEvent "binance" payload)
+    ListenKeyStreamError payload -> Just (mkSseEvent "error" payload)
+    ListenKeyStreamStop -> Nothing
+
+emitListenKeyStatus :: ListenKeyStreamState -> String -> Maybe String -> IO ()
+emitListenKeyStatus st status message = do
+  now <- getTimestampMs
+  let payload = listenKeyStatusPayload status message now
+  writeIORef (lksStatusRef st) (Just payload)
+  writeChan (lksChan st) (ListenKeyStreamStatus payload)
+
+emitListenKeyKeepAlive :: ListenKeyStreamState -> Int64 -> IO ()
+emitListenKeyKeepAlive st atMs = do
+  writeIORef (lksKeepAliveAtRef st) (Just atMs)
+  writeChan (lksChan st) (ListenKeyStreamKeepAlive atMs)
+
+emitListenKeyBinance :: ListenKeyStreamState -> BS.ByteString -> IO ()
+emitListenKeyBinance st payload = do
+  let trimmed =
+        if BS.length payload > maxListenKeyEventBytes
+          then BS.take maxListenKeyEventBytes payload
+          else payload
+  writeIORef (lksLastEventRef st) (Just trimmed)
+  writeChan (lksChan st) (ListenKeyStreamBinance trimmed)
+
+emitListenKeyError :: ListenKeyStreamState -> String -> IO ()
+emitListenKeyError st message = do
+  now <- getTimestampMs
+  let payload = listenKeyErrorPayload message now
+  writeChan (lksChan st) (ListenKeyStreamError payload)
+
+listenKeyStreamStopped :: ListenKeyStreamState -> IO Bool
+listenKeyStreamStopped st = isJust <$> tryReadMVar (lksStopSignal st)
+
+stopListenKeyStreamInternal :: ListenKeyStream -> IO ()
+stopListenKeyStreamInternal stream = do
+  let st = lksState stream
+  _ <- tryPutMVar (lksStopSignal st) ()
+  emitListenKeyStatus st "stopped" Nothing
+  writeChan (lksChan st) ListenKeyStreamStop
+  killThread (lksWsThread stream)
+  killThread (lksKeepAliveThread stream)
+  _ <- try (closeListenKey (lksEnv st) (lksListenKey st)) :: IO (Either SomeException ())
+  pure ()
+
+stopListenKeyStream :: ListenKeyManager -> IO ()
+stopListenKeyStream manager =
+  modifyMVar_ (lkmState manager) $ \mStream -> do
+    case mStream of
+      Nothing -> pure Nothing
+      Just stream -> do
+        stopListenKeyStreamInternal stream
+        pure Nothing
+
+stopListenKeyStreamMatching :: ListenKeyManager -> String -> IO Bool
+stopListenKeyStreamMatching manager listenKey =
+  modifyMVar (lkmState manager) $ \mStream ->
+    case mStream of
+      Just stream | lksListenKey (lksState stream) == listenKey -> do
+        stopListenKeyStreamInternal stream
+        pure (Nothing, True)
+      _ -> pure (mStream, False)
+
+startListenKeyStream :: ListenKeyManager -> BinanceEnv -> BinanceMarket -> Bool -> String -> Int -> IO ListenKeyStream
+startListenKeyStream manager env market testnet listenKey keepAliveMs =
+  modifyMVar (lkmState manager) $ \mStream -> do
+    case mStream of
+      Nothing -> pure ()
+      Just stream -> stopListenKeyStreamInternal stream
+    chan <- newChan
+    stopSignal <- newEmptyMVar
+    statusRef <- newIORef Nothing
+    keepAliveRef <- newIORef Nothing
+    lastEventRef <- newIORef Nothing
+    let wsUrl = binanceUserStreamWsUrl market testnet listenKey
+        state =
+          ListenKeyStreamState
+            { lksEnv = env
+            , lksMarket = market
+            , lksTestnet = testnet
+            , lksListenKey = listenKey
+            , lksWsUrl = wsUrl
+            , lksKeepAliveMs = keepAliveMs
+            , lksChan = chan
+            , lksStopSignal = stopSignal
+            , lksStatusRef = statusRef
+            , lksKeepAliveAtRef = keepAliveRef
+            , lksLastEventRef = lastEventRef
+            }
+    emitListenKeyStatus state "connecting" Nothing
+    wsThread <- forkIO (listenKeyWsWorker state)
+    keepAliveThread <- forkIO (listenKeyKeepAliveWorker state)
+    let stream =
+          ListenKeyStream
+            { lksState = state
+            , lksWsThread = wsThread
+            , lksKeepAliveThread = keepAliveThread
+            }
+    pure (Just stream, stream)
+
+parseListenKeyWsUrl :: String -> Either String (Bool, String, Int, String)
+parseListenKeyWsUrl raw = do
+  (secure, rest, defaultPort) <-
+    case stripPrefix "wss://" raw of
+      Just r -> Right (True, r, 443)
+      Nothing ->
+        case stripPrefix "ws://" raw of
+          Just r -> Right (False, r, 80)
+          Nothing -> Left ("Invalid WebSocket URL: " ++ raw)
+  let (hostPort, pathRaw) = break (== '/') rest
+  if null hostPort
+    then Left ("Invalid WebSocket URL: " ++ raw)
+    else do
+      (host, port) <-
+        case break (== ':') hostPort of
+          (h, ':' : p) ->
+            case readMaybe p of
+              Just n -> Right (h, n)
+              Nothing -> Left ("Invalid WebSocket port: " ++ p)
+          (h, _) -> Right (h, defaultPort)
+      let path = if null pathRaw then "/" else pathRaw
+      Right (secure, host, port, path)
+
+listenKeyWsWorker :: ListenKeyStreamState -> IO ()
+listenKeyWsWorker st =
+  case parseListenKeyWsUrl (lksWsUrl st) of
+    Left err -> do
+      emitListenKeyStatus st "disconnected" (Just err)
+      emitListenKeyError st err
+    Right (secure, host, port, path) -> do
+      let portNumber = fromIntegral port
+          runner =
+            if secure
+              then Wuss.runSecureClient host portNumber path
+              else WS.runClient host port path
+      result <-
+        try
+          ( runner $ \conn -> do
+              emitListenKeyStatus st "connected" Nothing
+              forever $ do
+                msg <- WS.receiveData conn
+                emitListenKeyBinance st msg
+          )
+          :: IO (Either SomeException ())
+      case result of
+        Left ex -> do
+          stopped <- listenKeyStreamStopped st
+          unless stopped $ do
+            emitListenKeyStatus st "disconnected" (Just "WebSocket closed")
+            emitListenKeyError st (displayException ex)
+        Right _ -> do
+          stopped <- listenKeyStreamStopped st
+          unless stopped $ emitListenKeyStatus st "disconnected" Nothing
+
+listenKeyKeepAliveWorker :: ListenKeyStreamState -> IO ()
+listenKeyKeepAliveWorker st = do
+  let intervalMs = listenKeyKeepAliveIntervalMs (lksKeepAliveMs st)
+      intervalUs = intervalMs * 1000
+      loop = do
+        stopped <- listenKeyStreamStopped st
+        unless stopped $ do
+          result <- try (keepAliveListenKey (lksEnv st) (lksListenKey st)) :: IO (Either SomeException ())
+          case result of
+            Left ex -> do
+              stopped' <- listenKeyStreamStopped st
+              unless stopped' $ emitListenKeyError st ("Keep-alive failed: " ++ displayException ex)
+            Right _ -> do
+              now <- getTimestampMs
+              emitListenKeyKeepAlive st now
+          threadDelay intervalUs
+          loop
+  loop
+
+handleBinanceListenKeyStream :: ListenKeyManager -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKeyStream manager _ respond = do
+  mStream <- readMVar (lkmState manager)
+  case mStream of
+    Nothing -> respond (jsonError status404 "Listen key stream not running.")
+    Just stream -> do
+      let st = lksState stream
+      respond $
+        Wai.responseStream status200 listenKeyStreamHeaders $ \write flush -> do
+          chan <- dupChan (lksChan st)
+          let send payload = write (byteString payload) >> flush
+          statusPayload <- readIORef (lksStatusRef st)
+          forM_ statusPayload (send . mkSseEvent "status")
+          keepAliveAt <- readIORef (lksKeepAliveAtRef st)
+          forM_ keepAliveAt (send . mkSseEvent "keepalive" . listenKeyKeepAlivePayload)
+          lastEvent <- readIORef (lksLastEventRef st)
+          forM_ lastEvent (send . mkSseEvent "binance")
+          let loop = do
+                evt <- readChan chan
+                case listenKeyEventToSse evt of
+                  Nothing -> pure ()
+                  Just payload -> send payload >> loop
+          loop
+
+handleBinanceListenKey :: ApiRequestLimits -> Maybe OpsStore -> ListenKeyManager -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance listenKey requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
@@ -10321,18 +10616,20 @@ handleBinanceListenKey reqLimits mOps baseArgs req respond = do
                       let (st, msg) = exceptionToHttp ex
                        in respond (jsonError st msg)
                     Right lk -> do
+                      let keepAliveMs = 25 * 60 * 1000
+                      _ <- startListenKeyStream listenKeyManager env market testnet lk keepAliveMs
                       let resp =
                             ApiListenKeyResponse
                               { alrListenKey = lk
                               , alrMarket = marketCode market
                               , alrTestnet = testnet
                               , alrWsUrl = binanceUserStreamWsUrl market testnet lk
-                              , alrKeepAliveMs = 25 * 60 * 1000
+                              , alrKeepAliveMs = keepAliveMs
                               }
                       respond (jsonValue status200 resp)
 
-handleBinanceListenKeyKeepAlive :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKeyKeepAlive reqLimits mOps baseArgs req respond = do
+handleBinanceListenKeyKeepAlive :: ApiRequestLimits -> Maybe OpsStore -> ListenKeyManager -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance listenKey keepAlive requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
@@ -10347,24 +10644,40 @@ handleBinanceListenKeyKeepAlive reqLimits mOps baseArgs req respond = do
               if market == MarketMargin && testnet
                 then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
                 else do
-                  apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
-                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                  let baseUrl =
-                        case market of
-                          MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                          _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
-                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                  r <- try (keepAliveListenKey env (alaListenKey params)) :: IO (Either SomeException ())
-                  case r of
-                    Left ex ->
-                      let (st, msg) = exceptionToHttp ex
-                       in respond (jsonError st msg)
-                    Right _ -> do
-                      now <- getTimestampMs
-                      respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+                  let listenKey = alaListenKey params
+                  mStream <- readMVar (lkmState listenKeyManager)
+                  case mStream of
+                    Just stream | lksListenKey (lksState stream) == listenKey -> do
+                      let st = lksState stream
+                      r <- try (keepAliveListenKey (lksEnv st) listenKey) :: IO (Either SomeException ())
+                      case r of
+                        Left ex -> do
+                          emitListenKeyError st (displayException ex)
+                          let (respSt, msg) = exceptionToHttp ex
+                           in respond (jsonError respSt msg)
+                        Right _ -> do
+                          now <- getTimestampMs
+                          emitListenKeyKeepAlive st now
+                          respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+                    _ -> do
+                      apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                      apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                      let baseUrl =
+                            case market of
+                              MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                              _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                      env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                      r <- try (keepAliveListenKey env listenKey) :: IO (Either SomeException ())
+                      case r of
+                        Left ex ->
+                          let (st, msg) = exceptionToHttp ex
+                           in respond (jsonError st msg)
+                        Right _ -> do
+                          now <- getTimestampMs
+                          respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
-handleBinanceListenKeyClose :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKeyClose reqLimits mOps baseArgs req respond = do
+handleBinanceListenKeyClose :: ApiRequestLimits -> Maybe OpsStore -> ListenKeyManager -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance
     then respond (jsonError status400 ("Binance listenKey close requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
     else do
@@ -10379,21 +10692,28 @@ handleBinanceListenKeyClose reqLimits mOps baseArgs req respond = do
               if market == MarketMargin && testnet
                 then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
                 else do
-                  apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
-                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                  let baseUrl =
-                        case market of
-                          MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                          _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
-                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                  r <- try (closeListenKey env (alaListenKey params)) :: IO (Either SomeException ())
-                  case r of
-                    Left ex ->
-                      let (st, msg) = exceptionToHttp ex
-                       in respond (jsonError st msg)
-                    Right _ -> do
+                  let listenKey = alaListenKey params
+                  stopped <- stopListenKeyStreamMatching listenKeyManager listenKey
+                  if stopped
+                    then do
                       now <- getTimestampMs
                       respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+                    else do
+                      apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                      apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                      let baseUrl =
+                            case market of
+                              MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                              _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                      env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                      r <- try (closeListenKey env listenKey) :: IO (Either SomeException ())
+                      case r of
+                        Left ex ->
+                          let (st, msg) = exceptionToHttp ex
+                           in respond (jsonError st msg)
+                        Right _ -> do
+                          now <- getTimestampMs
+                          respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
 handleBinanceTrades :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceTrades reqLimits mOps baseArgs req respond = do

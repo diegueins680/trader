@@ -397,7 +397,8 @@ Endpoints:
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
 - `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting
 - `POST /coinbase/keys` → checks Coinbase key/secret/passphrase via a signed `/accounts` probe
-- `POST /binance/listenKey` → creates a Binance user-data listenKey (returns WebSocket URL)
+- `POST /binance/listenKey` → creates a Binance user-data listenKey and starts the backend user-data stream (returns WebSocket URL for reference)
+- `GET /binance/listenKey/stream` → server-sent events relay of listenKey status, keep-alives, and Binance user-data payloads
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
 - `POST /binance/listenKey/close` → closes a listenKey
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail)

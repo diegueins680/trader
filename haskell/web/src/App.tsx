@@ -818,9 +818,58 @@ function positionSideInfo(positionAmt: number, positionSide?: string | null): { 
   return { dir, label, key };
 }
 
-function listenKeyKeepAliveIntervalMs(keepAliveMs: number): number {
-  // Refresh slightly ahead of expiry to avoid jitter.
-  return Math.max(60_000, Math.round(keepAliveMs * 0.9));
+type ListenKeyStreamStatus = "disconnected" | "connecting" | "connected" | "stopped";
+
+type ListenKeyStreamStatusPayload = { status?: string; message?: string; atMs?: number };
+type ListenKeyStreamKeepAlivePayload = { atMs?: number };
+type ListenKeyStreamErrorPayload = { message?: string; atMs?: number };
+
+function normalizeListenKeyStreamStatus(raw: string): ListenKeyStreamStatus {
+  switch (raw) {
+    case "connecting":
+    case "connected":
+    case "disconnected":
+    case "stopped":
+      return raw;
+    default:
+      return "disconnected";
+  }
+}
+
+function safeJsonParse<T = unknown>(raw: string): T | null {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+// Minimal SSE parser for fetch streams that handles chunk boundaries.
+function createSseParser(onEvent: (event: string, data: string) => void): (chunk: string) => void {
+  let buffer = "";
+  return (chunk: string) => {
+    buffer += chunk.replace(/\r/g, "");
+    while (true) {
+      const boundary = buffer.indexOf("\n\n");
+      if (boundary === -1) return;
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      if (!block.trim()) continue;
+      let eventName = "message";
+      const dataLines: string[] = [];
+      for (const line of block.split("\n")) {
+        if (!line || line.startsWith(":")) continue;
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim();
+          continue;
+        }
+        if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trimStart());
+        }
+      }
+      onEvent(eventName, dataLines.join("\n"));
+    }
+  };
 }
 
 function parseOptionalNumber(raw: string): number | undefined {
@@ -970,7 +1019,7 @@ type ListenKeyUiState = {
   loading: boolean;
   error: string | null;
   info: BinanceListenKeyResponse | null;
-  wsStatus: "disconnected" | "connecting" | "connected";
+  wsStatus: ListenKeyStreamStatus;
   wsError: string | null;
   lastEventAtMs: number | null;
   lastEvent: string | null;
@@ -2318,8 +2367,8 @@ export function App() {
     keepAliveAtMs: null,
     keepAliveError: null,
   });
-  const listenKeyWsRef = useRef<WebSocket | null>(null);
-  const listenKeyKeepAliveTimerRef = useRef<number | null>(null);
+  const listenKeyStreamAbortRef = useRef<AbortController | null>(null);
+  const listenKeyStreamSeqRef = useRef(0);
 
   const [orderFilterText, setOrderFilterText] = useState(() => orderPrefsInit?.filterText ?? "");
   const [orderSentOnly, setOrderSentOnly] = useState(() => orderPrefsInit?.sentOnly ?? false);
@@ -3245,10 +3294,8 @@ export function App() {
       abortRef.current?.abort();
       botAbortRef.current?.abort();
       keysAbortRef.current?.abort();
-      if (listenKeyKeepAliveTimerRef.current) window.clearInterval(listenKeyKeepAliveTimerRef.current);
-      const ws = listenKeyWsRef.current;
-      listenKeyWsRef.current = null;
-      ws?.close();
+      listenKeyStreamAbortRef.current?.abort();
+      listenKeyStreamAbortRef.current = null;
     };
   }, []);
 
@@ -4441,13 +4488,9 @@ export function App() {
 
   const stopListenKeyStream = useCallback(
     async (opts?: { close?: boolean; silent?: boolean }) => {
-      if (listenKeyKeepAliveTimerRef.current) {
-        window.clearInterval(listenKeyKeepAliveTimerRef.current);
-        listenKeyKeepAliveTimerRef.current = null;
-      }
-      const ws = listenKeyWsRef.current;
-      listenKeyWsRef.current = null;
-      ws?.close();
+      listenKeyStreamAbortRef.current?.abort();
+      listenKeyStreamAbortRef.current = null;
+      listenKeyStreamSeqRef.current += 1;
 
       const info = listenKeyUi.info;
       if (opts?.close && info) {
@@ -4503,6 +4546,93 @@ export function App() {
     [apiBase, authHeaders, showToast, withBinanceKeys],
   );
 
+  const openListenKeyStream = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const controller = new AbortController();
+      const streamId = ++listenKeyStreamSeqRef.current;
+      listenKeyStreamAbortRef.current?.abort();
+      listenKeyStreamAbortRef.current = controller;
+
+      try {
+        const requestHeaders = { ...(authHeaders ?? {}), Accept: "text/event-stream" };
+        const res = await fetch(`${apiBase}/binance/listenKey/stream`, {
+          method: "GET",
+          headers: requestHeaders,
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const msg = await res.text();
+          throw new Error(msg || `Listen key stream failed (${res.status}).`);
+        }
+        if (!res.body) {
+          throw new Error("Listen key stream unavailable.");
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        const parse = createSseParser((event, data) => {
+          if (listenKeyStreamSeqRef.current !== streamId) return;
+          if (event === "status") {
+            const payload = safeJsonParse<ListenKeyStreamStatusPayload>(data);
+            const statusRaw = typeof payload?.status === "string" ? payload.status : "disconnected";
+            const message = typeof payload?.message === "string" ? payload.message : null;
+            const nextStatus = normalizeListenKeyStreamStatus(statusRaw);
+            setListenKeyUi((s) => ({
+              ...s,
+              wsStatus: nextStatus,
+              wsError: nextStatus === "connected" ? null : message ?? s.wsError,
+            }));
+            return;
+          }
+          if (event === "keepalive") {
+            const payload = safeJsonParse<ListenKeyStreamKeepAlivePayload>(data);
+            if (typeof payload?.atMs === "number") {
+              setListenKeyUi((s) => ({ ...s, keepAliveAtMs: payload.atMs, keepAliveError: null }));
+            }
+            return;
+          }
+          if (event === "binance") {
+            let pretty = data;
+            try {
+              pretty = JSON.stringify(JSON.parse(data), null, 2);
+            } catch {
+              // ignore
+            }
+            if (pretty.length > 8000) pretty = `${pretty.slice(0, 7997)}...`;
+            setListenKeyUi((s) => ({ ...s, lastEventAtMs: Date.now(), lastEvent: pretty }));
+            return;
+          }
+          if (event === "error") {
+            const payload = safeJsonParse<ListenKeyStreamErrorPayload>(data);
+            const message = typeof payload?.message === "string" ? payload.message : data;
+            setListenKeyUi((s) => ({ ...s, wsError: message || s.wsError }));
+          }
+        });
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          parse(decoder.decode(value, { stream: true }));
+        }
+
+        if (listenKeyStreamSeqRef.current === streamId) {
+          setListenKeyUi((s) => ({ ...s, wsStatus: "disconnected" }));
+        }
+      } catch (e) {
+        if (isAbortError(e)) return;
+        if (listenKeyStreamSeqRef.current !== streamId) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setListenKeyUi((s) => ({ ...s, wsError: msg, wsStatus: "disconnected" }));
+        if (!opts?.silent) showToast("Listen key stream failed");
+      } finally {
+        if (listenKeyStreamAbortRef.current === controller) {
+          listenKeyStreamAbortRef.current = null;
+        }
+      }
+    },
+    [apiBase, authHeaders, showToast],
+  );
+
   const startListenKeyStream = useCallback(async () => {
     if (!isBinancePlatform) {
       const msg = "Listen key streams are supported on Binance only.";
@@ -4518,38 +4648,7 @@ export function App() {
       const out = await binanceListenKey(apiBase, withBinanceKeys(base), { headers: authHeaders, timeoutMs: 30_000 });
 
       setListenKeyUi((s) => ({ ...s, loading: false, error: null, info: out, wsStatus: "connecting" }));
-
-      const ws = new WebSocket(out.wsUrl);
-      listenKeyWsRef.current = ws;
-      ws.addEventListener("open", () => {
-        if (listenKeyWsRef.current !== ws) return;
-        setListenKeyUi((s) => ({ ...s, wsStatus: "connected", wsError: null }));
-      });
-      ws.addEventListener("close", () => {
-        if (listenKeyWsRef.current !== ws) return;
-        setListenKeyUi((s) => ({ ...s, wsStatus: "disconnected" }));
-      });
-      ws.addEventListener("error", () => {
-        if (listenKeyWsRef.current !== ws) return;
-        setListenKeyUi((s) => ({ ...s, wsError: "WebSocket error" }));
-      });
-      ws.addEventListener("message", (ev) => {
-        if (listenKeyWsRef.current !== ws) return;
-        const raw = typeof ev.data === "string" ? ev.data : String(ev.data);
-        let pretty = raw;
-        try {
-          pretty = JSON.stringify(JSON.parse(raw), null, 2);
-        } catch {
-          // ignore
-        }
-        if (pretty.length > 8000) pretty = `${pretty.slice(0, 7997)}...`;
-        setListenKeyUi((s) => ({ ...s, lastEventAtMs: Date.now(), lastEvent: pretty }));
-      });
-
-      void keepAliveListenKeyStream(out, { silent: true });
-      const intervalMs = listenKeyKeepAliveIntervalMs(out.keepAliveMs);
-      listenKeyKeepAliveTimerRef.current = window.setInterval(() => void keepAliveListenKeyStream(out, { silent: true }), intervalMs);
-
+      void openListenKeyStream();
       showToast("Listen key started");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -4563,7 +4662,7 @@ export function App() {
     form.binanceTestnet,
     form.market,
     isBinancePlatform,
-    keepAliveListenKeyStream,
+    openListenKeyStream,
     showToast,
     stopListenKeyStream,
     withBinanceKeys,
@@ -11935,14 +12034,14 @@ export function App() {
             maximized={isPanelMaximized("panel-user-data-stream")}
             onToggleMaximize={() => togglePanelMaximize("panel-user-data-stream")}
             title="User data stream (listenKey)"
-            subtitle="Keeps the Binance user-data listen key alive via the API, and connects the browser to Binance WebSocket."
+            subtitle="Backend keeps the Binance user-data listen key alive and relays Binance WebSocket events to the browser."
           >
               <div className="pillRow" style={{ marginBottom: 10 }}>
                 <span className="badge">
                   {marketLabel(form.market)}
                   {form.binanceTestnet ? " testnet" : ""}
                 </span>
-                <span className="badge">WS: {listenKeyUi.wsStatus}</span>
+                <span className="badge">Stream: {listenKeyUi.wsStatus}</span>
                 {listenKeyUi.keepAliveAtMs ? <span className="badge">Keep-alive: {fmtTimeMs(listenKeyUi.keepAliveAtMs)}</span> : null}
               </div>
 
@@ -11974,7 +12073,7 @@ export function App() {
                 <span className="hint">
                   {!isBinancePlatform
                     ? "Listen key streams are available on Binance only."
-                    : `Binance requires a keep-alive (PUT) at least every ~30 minutes; the UI schedules one every ~${Math.round((listenKeyUi.info?.keepAliveMs ?? 25 * 60_000) * 0.9 / 60_000)} minutes.`}
+                    : `Binance requires a keep-alive (PUT) at least every ~30 minutes; the backend schedules one every ~${Math.round((listenKeyUi.info?.keepAliveMs ?? 25 * 60_000) * 0.9 / 60_000)} minutes.`}
                 </span>
               </div>
 

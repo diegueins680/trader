@@ -14,10 +14,12 @@ All notable changes to this project will be documented in this file.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
 - API: include CSV file size/mtime in cache keys so updated CSVs invalidate cached signal/backtest results.
 - API: allowlist CORS via `TRADER_CORS_ORIGIN` (no `Access-Control-Allow-Origin` when unset).
+- API: manage Binance listenKey user-data streams server-side and expose `/binance/listenKey/stream` as an SSE relay.
 - API: `/binance/keys` signed futures probe no longer requires `binanceSymbol` (trade test skips when missing).
 - CSV: sort rows by parsed timestamps only; unparseable timestamps preserve file order.
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Web UI: default Live orders + Trading armed toggles to on.
+- Web UI: listenKey user-data stream now subscribes to the backend relay instead of opening a browser WebSocket.
 - Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.

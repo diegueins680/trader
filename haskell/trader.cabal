@@ -56,6 +56,8 @@ executable trader-hs
                      , http-client
                      , http-client-tls
                      , http-types
+                     , websockets
+                     , wuss
                      , containers
                      , wai
                      , warp
