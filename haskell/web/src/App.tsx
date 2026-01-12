@@ -4586,8 +4586,8 @@ export function App() {
           }
           if (event === "keepalive") {
             const payload = safeJsonParse<ListenKeyStreamKeepAlivePayload>(data);
-            if (typeof payload?.atMs === "number") {
-              setListenKeyUi((s) => ({ ...s, keepAliveAtMs: payload.atMs, keepAliveError: null }));
+            if (payload && typeof payload.atMs === "number") {
+              setListenKeyUi((s) => ({ ...s, keepAliveAtMs: payload.atMs ?? null, keepAliveError: null }));
             }
             return;
           }
