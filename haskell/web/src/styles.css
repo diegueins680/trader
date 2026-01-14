@@ -2079,6 +2079,8 @@ body.panelMaximized .cardMaximized {
   font-size: 12px;
   font-family: var(--mono);
   min-width: 760px;
+  width: max-content;
+  min-width: max(760px, 100%);
 }
 
 .table th,
