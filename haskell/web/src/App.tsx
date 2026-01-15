@@ -803,6 +803,8 @@ type BinancePnlAnalysis = {
   totalWin: number;
   totalLoss: number;
   totalPnl: number;
+  totalQty: number;
+  totalQuoteQty: number;
   profitFactor: number | null;
   payoffRatio: number | null;
   commissionTotals: CommissionTotal[];
@@ -1005,10 +1007,16 @@ function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnlAnalysi
   let sumWin = 0;
   let sumLoss = 0;
   let sumPnl = 0;
+  let sumQty = 0;
+  let sumQuoteQty = 0;
   let maxWin: number | null = null;
   let maxLoss: number | null = null;
 
   for (const row of rows) {
+    const qty = row.qty;
+    if (Number.isFinite(qty)) sumQty += qty;
+    const quoteQty = row.quoteQty;
+    if (Number.isFinite(quoteQty)) sumQuoteQty += quoteQty;
     const pnl = row.realizedPnl;
     sumPnl += pnl;
     if (pnl > TRADE_PNL_EPS) {
@@ -1055,6 +1063,8 @@ function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnlAnalysi
     totalWin: sumWin,
     totalLoss: sumLoss,
     totalPnl: sumPnl,
+    totalQty: sumQty,
+    totalQuoteQty: sumQuoteQty,
     profitFactor,
     payoffRatio,
     commissionTotals,
@@ -11399,6 +11409,8 @@ export function App() {
                         <div style={{ marginTop: 10 }}>
                           {(() => {
                             const stats = binanceTradesAnalysis;
+                            const response = binanceTradesUi.response;
+                            if (!response) return null;
                             const winRateLabel = stats.winRate != null && Number.isFinite(stats.winRate) ? fmtPct(stats.winRate, 1) : "—";
                             const avgWinLabel = stats.avgWin != null && Number.isFinite(stats.avgWin) ? fmtMoney(stats.avgWin, 4) : "—";
                             const avgLossLabel = stats.avgLoss != null && Number.isFinite(stats.avgLoss) ? fmtMoney(stats.avgLoss, 4) : "—";
@@ -11408,6 +11420,8 @@ export function App() {
                             const totalWinLabel = Number.isFinite(stats.totalWin) ? fmtMoney(stats.totalWin, 4) : "—";
                             const totalLossLabel = Number.isFinite(stats.totalLoss) ? fmtMoney(stats.totalLoss, 4) : "—";
                             const totalPnlLabel = Number.isFinite(stats.totalPnl) ? fmtMoney(stats.totalPnl, 4) : "—";
+                            const totalQtyLabel = Number.isFinite(stats.totalQty) ? fmtNum(stats.totalQty, 8) : "—";
+                            const totalQuoteLabel = Number.isFinite(stats.totalQuoteQty) ? fmtMoney(stats.totalQuoteQty, 2) : "—";
                             const profitFactorLabel =
                               stats.profitFactor == null
                                 ? "—"
@@ -11424,6 +11438,12 @@ export function App() {
                               stats.commissionTotals.length > 0
                                 ? stats.commissionTotals.map((c) => `${fmtNum(c.total, 6)} ${c.asset}`).join(" • ")
                                 : "—";
+                            const totalsScope =
+                              response.allSymbols || response.symbols.length > 1
+                                ? response.allSymbols
+                                  ? "Totals across all symbols."
+                                  : `Totals across ${response.symbols.length} symbols.`
+                                : null;
                             return (
                               <>
                                 <div className="summaryGrid">
@@ -11459,6 +11479,14 @@ export function App() {
                                       <span className={pnlBadgeClass(stats.totalWin)}>{totalWinLabel}</span>
                                       <span className={pnlBadgeClass(stats.totalLoss)}>{totalLossLabel}</span>
                                       <span className="summaryMeta">Profit factor {profitFactorLabel} • Fees {commissionLabel}</span>
+                                    </div>
+                                  </div>
+                                  <div className="summaryItem">
+                                    <div className="summaryLabel">Totals</div>
+                                    <div className="summaryValue">
+                                      <span className="badge">Qty {totalQtyLabel}</span>
+                                      <span className="badge">Quote {totalQuoteLabel}</span>
+                                      {totalsScope ? <span className="summaryMeta">{totalsScope}</span> : null}
                                     </div>
                                   </div>
                                 </div>
