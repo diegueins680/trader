@@ -54,6 +54,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: keep maximized docked panels above the dimmer instead of disappearing.
 - Web UI: remove dimming overlay when panels are maximized.
 - Web UI: let tables scroll horizontally within panels so trade lists (including Binance account trades) are fully visible without clipped columns.
+- Web UI: keep the Binance account trades panel scrollable when maximized so long histories stay reachable.
 - Web UI: let open positions chart headers and position badges wrap so all stats remain visible in narrower panels.
 - Deploy: mark `trader-config.js` as no-cache in the quick AWS deploy so updated API tokens take effect immediately.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.

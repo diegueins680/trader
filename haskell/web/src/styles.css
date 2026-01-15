@@ -818,6 +818,12 @@ body.panelMaximized .cardMaximized {
   overflow: auto;
 }
 
+.card[data-panel="panel-binance-trades"].cardMaximized .cardBody {
+  max-height: calc(100vh - var(--card-maximized-body-offset));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .cardCollapsible:not([open]) .cardHeader {
   padding: 10px 14px;
 }
