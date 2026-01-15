@@ -255,102 +255,15 @@ mergeCombos sources =
 
 signatureKey :: Combo -> BS.ByteString
 signatureKey combo =
-  let params = comboParams combo
-      p name = fromMaybe Null (KM.lookup (Key.fromString name) params)
-      values =
-        [ maybe Null (String . T.pack) (comboSource combo)
-        , p "platform"
-        , p "interval"
-        , p "bars"
-        , p "binanceSymbol"
-        , p "method"
-        , p "blendWeight"
-        , p "normalization"
-        , p "positioning"
-        , p "baseOpenThreshold"
-        , p "baseCloseThreshold"
-        , p "minHoldBars"
-        , p "cooldownBars"
-        , p "maxHoldBars"
-        , p "minEdge"
-        , p "thresholdFactorEnabled"
-        , p "thresholdFactorAlpha"
-        , p "thresholdFactorMin"
-        , p "thresholdFactorMax"
-        , p "thresholdFactorFloor"
-        , p "thresholdFactorEdgeKalWeight"
-        , p "thresholdFactorEdgeLstmWeight"
-        , p "thresholdFactorKalmanZWeight"
-        , p "thresholdFactorHighVolWeight"
-        , p "thresholdFactorConformalWeight"
-        , p "thresholdFactorQuantileWeight"
-        , p "thresholdFactorLstmConfWeight"
-        , p "thresholdFactorLstmHealthWeight"
-        , p "edgeBuffer"
-        , p "costAwareEdge"
-        , p "trendLookback"
-        , p "maxPositionSize"
-        , p "volTarget"
-        , p "volLookback"
-        , p "volEwmaAlpha"
-        , p "volFloor"
-        , p "volScaleMax"
-        , p "maxVolatility"
-        , p "periodsPerYear"
-        , p "walkForwardFolds"
-        , p "tuneStressVolMult"
-        , p "tuneStressShock"
-        , p "tuneStressWeight"
-        , p "fee"
-        , p "epochs"
-        , p "hiddenSize"
-        , p "learningRate"
-        , p "valRatio"
-        , p "patience"
-        , p "gradClip"
-        , p "slippage"
-        , p "spread"
-        , p "intrabarFill"
-        , p "triLayer"
-        , p "triLayerFastMult"
-        , p "triLayerSlowMult"
-        , p "triLayerCloudPadding"
-        , p "triLayerCloudSlope"
-        , p "triLayerCloudWidth"
-        , p "triLayerTouchLookback"
-        , p "triLayerPriceAction"
-        , p "triLayerPriceActionBody"
-        , p "triLayerExitOnSlow"
-        , p "kalmanBandLookback"
-        , p "kalmanBandStdMult"
-        , p "lstmExitFlipBars"
-        , p "lstmExitFlipGraceBars"
-        , p "lstmExitFlipStrong"
-        , p "lstmConfidenceSoft"
-        , p "lstmConfidenceHard"
-        , p "stopLoss"
-        , p "takeProfit"
-        , p "trailingStop"
-        , p "maxDrawdown"
-        , p "maxDailyLoss"
-        , p "maxOrderErrors"
-        , p "kalmanDt"
-        , p "kalmanProcessVar"
-        , p "kalmanMeasurementVar"
-        , p "kalmanZMin"
-        , p "kalmanZMax"
-        , p "kalmanMarketTopN"
-        , p "maxHighVolProb"
-        , p "maxConformalWidth"
-        , p "maxQuantileWidth"
-        , p "confirmConformal"
-        , p "confirmQuantiles"
-        , p "confidenceSizing"
-        , p "minPositionSize"
-        , maybe Null (Number . fromFloatDigits) (comboOpenThreshold combo)
-        , maybe Null (Number . fromFloatDigits) (comboCloseThreshold combo)
-        ]
-   in BL.toStrict (Aeson.encode values)
+  let identity =
+        object
+          [ "source" .= comboSource combo
+          , "params" .= Object (comboParams combo)
+          , "openThreshold" .= comboOpenThreshold combo
+          , "closeThreshold" .= comboCloseThreshold combo
+          , "objective" .= comboObjective combo
+          ]
+   in BL.toStrict (encodePretty identity)
 
 writeTopJson :: FilePath -> [Combo] -> Int -> IO ()
 writeTopJson path combos maxItems = do

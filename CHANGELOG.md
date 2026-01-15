@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
 - Optimizer: include stable combo UUIDs in top-combos outputs.
+- Optimizer: merge top-combos de-duplication now keys off full combo identity (params + thresholds + objective + source) so new variants persist.
 - Optimizer: page Binance klines to support >1000 bars and honor `TRADER_OPTIMIZER_MAX_POINTS` (up to 5000) for `/optimizer/run` and auto optimizer runs.
 - Database: add `platforms`, `platform_symbols`, `bots`, and `positions` tables so ops/positions link back to platform metadata and running bots.
 - Optimizer: add genetic crossover using parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
@@ -26,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add an overview card that summarizes connection, market, execution mode, and the latest signal/backtest/trade results.
 - Web UI: let overview summary metadata (URLs, errors) wrap so full content stays visible.
 - Web UI: add a decision-logic checklist to the Latest signal card showing the gates and sizing behind operate/hold outcomes.
+- Web UI: add a trade P&L analysis section to the Backtest summary (win/loss breakdown + top winners/losers).
 - Web UI: add live trading visual aids (price pulse, signal/position compass, risk buffer) to the Live bot panel.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.
 - Web UI: keep collapsible panels mounted so config scroll stays stable and the UI stops blinking during refreshes.

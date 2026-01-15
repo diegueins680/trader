@@ -727,6 +727,52 @@ function csvEscape(value: unknown): string {
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, "\"\"")}"` : text;
 }
 
+const TRADE_PNL_EPS = 1e-9;
+const TRADE_PNL_TOP_N = 5;
+
+type TradePnlRow = {
+  idx: number;
+  entryIndex: number;
+  exitIndex: number;
+  entryEquity: number;
+  exitEquity: number;
+  return: number;
+  holdingPeriods: number;
+  exitReason?: string | null;
+  phase: string;
+  pnl: number;
+  entryTime?: number | null;
+  exitTime?: number | null;
+};
+
+type TradePnlAnalysis = {
+  count: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  winRate: number | null;
+  avgWin: number | null;
+  avgLoss: number | null;
+  avgReturn: number | null;
+  maxWin: number | null;
+  maxLoss: number | null;
+  totalWin: number;
+  totalLoss: number;
+  profitFactor: number | null;
+  payoffRatio: number | null;
+  avgHoldWin: number | null;
+  avgHoldLoss: number | null;
+  topWins: TradePnlRow[];
+  topLosses: TradePnlRow[];
+};
+
+function pnlBadgeClass(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "badge";
+  if (value > TRADE_PNL_EPS) return "badge badgeStrong badgeLong";
+  if (value < -TRADE_PNL_EPS) return "badge badgeStrong badgeFlat";
+  return "badge badgeHold";
+}
+
 function backtestTradePhase(split: BacktestResponse["split"], entryIndex: number): string {
   if (entryIndex >= split.backtestStartIndex) return "backtest";
   if (split.tune > 0 && entryIndex >= split.tuneStartIndex) return "tune";
@@ -769,6 +815,104 @@ function buildBacktestOpsCsv(backtest: BacktestResponse): string {
       .join(",");
   });
   return [header, ...rows].join("\n");
+}
+
+function buildBacktestTradePnlAnalysis(backtest: BacktestResponse): TradePnlAnalysis | null {
+  const trades = backtest.trades ?? [];
+  if (trades.length === 0) return null;
+  const openTimes = Array.isArray(backtest.openTimes) ? backtest.openTimes : null;
+  const rows: TradePnlRow[] = trades
+    .map((trade, idx) => {
+      if (!Number.isFinite(trade.return)) return null;
+      const entryTimeRaw = openTimes?.[trade.entryIndex];
+      const exitTimeRaw = openTimes?.[trade.exitIndex];
+      const entryTime = typeof entryTimeRaw === "number" && Number.isFinite(entryTimeRaw) ? entryTimeRaw : null;
+      const exitTime = typeof exitTimeRaw === "number" && Number.isFinite(exitTimeRaw) ? exitTimeRaw : null;
+      return {
+        idx: idx + 1,
+        entryIndex: trade.entryIndex,
+        exitIndex: trade.exitIndex,
+        entryEquity: trade.entryEquity,
+        exitEquity: trade.exitEquity,
+        return: trade.return,
+        holdingPeriods: trade.holdingPeriods,
+        exitReason: trade.exitReason ?? null,
+        phase: backtestTradePhase(backtest.split, trade.entryIndex),
+        pnl: trade.exitEquity - trade.entryEquity,
+        entryTime,
+        exitTime,
+      };
+    })
+    .filter((row): row is TradePnlRow => Boolean(row));
+  if (rows.length === 0) return null;
+
+  let wins = 0;
+  let losses = 0;
+  let breakeven = 0;
+  let sumWin = 0;
+  let sumLoss = 0;
+  let sumReturn = 0;
+  let maxWin: number | null = null;
+  let maxLoss: number | null = null;
+  let holdWin = 0;
+  let holdLoss = 0;
+
+  for (const row of rows) {
+    const r = row.return;
+    sumReturn += r;
+    if (r > TRADE_PNL_EPS) {
+      wins += 1;
+      sumWin += r;
+      holdWin += row.holdingPeriods;
+      maxWin = maxWin === null ? r : Math.max(maxWin, r);
+    } else if (r < -TRADE_PNL_EPS) {
+      losses += 1;
+      sumLoss += r;
+      holdLoss += row.holdingPeriods;
+      maxLoss = maxLoss === null ? r : Math.min(maxLoss, r);
+    } else {
+      breakeven += 1;
+    }
+  }
+
+  const count = rows.length;
+  const avgWin = wins > 0 ? sumWin / wins : null;
+  const avgLoss = losses > 0 ? sumLoss / losses : null;
+  const avgReturn = count > 0 ? sumReturn / count : null;
+  const winRate = count > 0 ? wins / count : null;
+  const profitFactor = sumLoss < 0 ? sumWin / Math.abs(sumLoss) : sumWin > 0 ? Infinity : null;
+  const payoffRatio = avgWin !== null && avgLoss !== null && avgLoss !== 0 ? avgWin / Math.abs(avgLoss) : null;
+  const avgHoldWin = wins > 0 ? holdWin / wins : null;
+  const avgHoldLoss = losses > 0 ? holdLoss / losses : null;
+  const topWins = rows
+    .filter((row) => row.return > TRADE_PNL_EPS)
+    .sort((a, b) => b.return - a.return)
+    .slice(0, TRADE_PNL_TOP_N);
+  const topLosses = rows
+    .filter((row) => row.return < -TRADE_PNL_EPS)
+    .sort((a, b) => a.return - b.return)
+    .slice(0, TRADE_PNL_TOP_N);
+
+  return {
+    count,
+    wins,
+    losses,
+    breakeven,
+    winRate,
+    avgWin,
+    avgLoss,
+    avgReturn,
+    maxWin,
+    maxLoss,
+    totalWin: sumWin,
+    totalLoss: sumLoss,
+    profitFactor,
+    payoffRatio,
+    avgHoldWin,
+    avgHoldLoss,
+    topWins,
+    topLosses,
+  };
 }
 
 function downloadTextFile(filename: string, contents: string, contentType = "text/plain"): void {
@@ -6959,6 +7103,10 @@ export function App() {
         method: methodLabel(state.latestSignal.method),
       }
     : null;
+  const backtestTradeAnalysis = useMemo(
+    () => (state.backtest ? buildBacktestTradePnlAnalysis(state.backtest) : null),
+    [state.backtest],
+  );
   const backtestSummary = state.backtest
     ? {
         equity: fmtRatio(state.backtest.metrics.finalEquity, 4),
@@ -11839,7 +11987,191 @@ export function App() {
 	                        <div className="v">
 	                          {fmtPct(state.backtest.metrics.agreementRate, 1)}
 	                        </div>
-	                      </div>
+                      </div>
+                    </div>
+                  </details>
+
+                  <details className="details" style={{ marginTop: 12 }}>
+                    <summary>Trade P&amp;L analysis</summary>
+                    <div style={{ marginTop: 10 }}>
+                      {backtestTradeAnalysis ? (
+                        (() => {
+                          const stats = backtestTradeAnalysis;
+                          const winRateLabel = stats.winRate != null && Number.isFinite(stats.winRate) ? fmtPct(stats.winRate, 1) : "—";
+                          const avgWinLabel = stats.avgWin != null && Number.isFinite(stats.avgWin) ? fmtPct(stats.avgWin, 2) : "—";
+                          const avgLossLabel = stats.avgLoss != null && Number.isFinite(stats.avgLoss) ? fmtPct(stats.avgLoss, 2) : "—";
+                          const avgReturnLabel = stats.avgReturn != null && Number.isFinite(stats.avgReturn) ? fmtPct(stats.avgReturn, 3) : "—";
+                          const maxWinLabel = stats.maxWin != null && Number.isFinite(stats.maxWin) ? fmtPct(stats.maxWin, 2) : "—";
+                          const maxLossLabel = stats.maxLoss != null && Number.isFinite(stats.maxLoss) ? fmtPct(stats.maxLoss, 2) : "—";
+                          const totalWinLabel = Number.isFinite(stats.totalWin) ? fmtPct(stats.totalWin, 2) : "—";
+                          const totalLossLabel = Number.isFinite(stats.totalLoss) ? fmtPct(stats.totalLoss, 2) : "—";
+                          const profitFactorLabel =
+                            stats.profitFactor == null
+                              ? "—"
+                              : Number.isFinite(stats.profitFactor)
+                                ? fmtNum(stats.profitFactor, 3)
+                                : "∞";
+                          const payoffRatioLabel =
+                            stats.payoffRatio == null
+                              ? "—"
+                              : Number.isFinite(stats.payoffRatio)
+                                ? fmtNum(stats.payoffRatio, 3)
+                                : "∞";
+                          const avgHoldWinLabel =
+                            stats.avgHoldWin != null && Number.isFinite(stats.avgHoldWin) ? fmtNum(stats.avgHoldWin, 2) : "—";
+                          const avgHoldLossLabel =
+                            stats.avgHoldLoss != null && Number.isFinite(stats.avgHoldLoss) ? fmtNum(stats.avgHoldLoss, 2) : "—";
+                          const holdMeta =
+                            stats.avgHoldWin != null || stats.avgHoldLoss != null
+                              ? ` • hold ${avgHoldWinLabel} / ${avgHoldLossLabel} bars`
+                              : "";
+                          return (
+                            <>
+                              <div className="summaryGrid">
+                                <div className="summaryItem">
+                                  <div className="summaryLabel">Outcomes</div>
+                                  <div className="summaryValue">
+                                    <span className="badge badgeStrong badgeLong">{stats.wins} wins</span>
+                                    <span className="badge badgeStrong badgeFlat">{stats.losses} losses</span>
+                                    <span className="badge">{stats.breakeven} flat</span>
+                                    <span className="summaryMeta">Win rate {winRateLabel} • total {stats.count}</span>
+                                  </div>
+                                </div>
+                                <div className="summaryItem">
+                                  <div className="summaryLabel">Avg win / loss</div>
+                                  <div className="summaryValue">
+                                    <span className={pnlBadgeClass(stats.avgWin)}>{avgWinLabel}</span>
+                                    <span className={pnlBadgeClass(stats.avgLoss)}>{avgLossLabel}</span>
+                                    <span className="summaryMeta">Payoff ratio {payoffRatioLabel}{holdMeta}</span>
+                                  </div>
+                                </div>
+                                <div className="summaryItem">
+                                  <div className="summaryLabel">Best / worst trade</div>
+                                  <div className="summaryValue">
+                                    <span className={pnlBadgeClass(stats.maxWin)}>{maxWinLabel}</span>
+                                    <span className={pnlBadgeClass(stats.maxLoss)}>{maxLossLabel}</span>
+                                    <span className="summaryMeta">Avg return {avgReturnLabel}</span>
+                                  </div>
+                                </div>
+                                <div className="summaryItem">
+                                  <div className="summaryLabel">Trade return totals</div>
+                                  <div className="summaryValue">
+                                    <span className={pnlBadgeClass(stats.totalWin)}>{totalWinLabel}</span>
+                                    <span className={pnlBadgeClass(stats.totalLoss)}>{totalLossLabel}</span>
+                                    <span className="summaryMeta">Profit factor {profitFactorLabel}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="chartBlock" style={{ marginTop: 12 }}>
+                                <div className="hint">Top winners</div>
+                                {stats.topWins.length > 0 ? (
+                                  <div className="tableWrap" role="region" aria-label="Top winning trades">
+                                    <table className="table">
+                                      <thead>
+                                        <tr>
+                                          <th>#</th>
+                                          <th>Phase</th>
+                                          <th>Entry</th>
+                                          <th>Exit</th>
+                                          <th>Hold</th>
+                                          <th>Return</th>
+                                          <th>P&amp;L</th>
+                                          <th>Exit reason</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {stats.topWins.map((row) => {
+                                          const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
+                                          const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
+                                          const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
+                                          return (
+                                            <tr key={`bt-win-${row.idx}`}>
+                                              <td className="tdMono">{row.idx}</td>
+                                              <td>
+                                                <span className="badge">{row.phase}</span>
+                                              </td>
+                                              <td className="tdMono" title={entryTitle}>
+                                                {row.entryIndex}
+                                              </td>
+                                              <td className="tdMono" title={exitTitle}>
+                                                {row.exitIndex}
+                                              </td>
+                                              <td className="tdMono">{row.holdingPeriods}</td>
+                                              <td>
+                                                <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
+                                              </td>
+                                              <td>
+                                                <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
+                                              </td>
+                                              <td>{row.exitReason ?? "—"}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <div className="hint">No winning trades.</div>
+                                )}
+                              </div>
+                              <div className="chartBlock" style={{ marginTop: 12 }}>
+                                <div className="hint">Top losers</div>
+                                {stats.topLosses.length > 0 ? (
+                                  <div className="tableWrap" role="region" aria-label="Top losing trades">
+                                    <table className="table">
+                                      <thead>
+                                        <tr>
+                                          <th>#</th>
+                                          <th>Phase</th>
+                                          <th>Entry</th>
+                                          <th>Exit</th>
+                                          <th>Hold</th>
+                                          <th>Return</th>
+                                          <th>P&amp;L</th>
+                                          <th>Exit reason</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {stats.topLosses.map((row) => {
+                                          const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
+                                          const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
+                                          const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
+                                          return (
+                                            <tr key={`bt-loss-${row.idx}`}>
+                                              <td className="tdMono">{row.idx}</td>
+                                              <td>
+                                                <span className="badge">{row.phase}</span>
+                                              </td>
+                                              <td className="tdMono" title={entryTitle}>
+                                                {row.entryIndex}
+                                              </td>
+                                              <td className="tdMono" title={exitTitle}>
+                                                {row.exitIndex}
+                                              </td>
+                                              <td className="tdMono">{row.holdingPeriods}</td>
+                                              <td>
+                                                <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
+                                              </td>
+                                              <td>
+                                                <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
+                                              </td>
+                                              <td>{row.exitReason ?? "—"}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <div className="hint">No losing trades.</div>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()
+                      ) : (
+                        <div className="hint">No trades available for P&amp;L analysis yet.</div>
+                      )}
                     </div>
                   </details>
 

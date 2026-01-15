@@ -388,6 +388,7 @@ Endpoints:
 - `POST /optimizer/run` → runs the optimizer executable, merges the run into `top-combos.json`, and returns the last JSONL record
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
   - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), using score and final equity as tie-breakers.
+  - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist.
   - Top-combo merges backfill missing `metrics.annualizedReturn`, and new optimizer runs stamp `params.binanceSymbol` so combos stay labeled.
   - Combo symbols are normalized for Binance (e.g., `BTC/USDT` → `BTCUSDT`) and trim dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` → `BNBUSDT`) when read/merged.
   - Combos can include sizing params (`orderQuote`, `orderQuantity`, `orderQuoteFraction`, `maxOrderQuote`); applying combos will honor them so orders have a usable size.
@@ -679,6 +680,7 @@ The UI includes an “Orphaned operations” panel that highlights open futures 
 The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available.
 Charts surface range and change badges in the chart headers and group the main backtest view with compact side charts for prediction and telemetry analysis.
+The Backtest summary includes a trade P&L analysis with win/loss breakdown and top winners/losers.
 Charts scale to use most of the viewport height for easier inspection.
 Chart panels lift height caps so the full chart area is visible without panel scrollbars.
 Charts lazy-load to reduce the initial bundle size; placeholders appear while chart chunks load.
