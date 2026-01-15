@@ -1418,6 +1418,7 @@ body.panelMaximized .cardMaximized {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  min-width: 0;
 }
 
 .pill {
@@ -2259,12 +2260,15 @@ body.panelMaximized .cardMaximized {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  flex: 1 1 360px;
+  min-width: 0;
 }
 
 .btChartActions {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .btLegend {
