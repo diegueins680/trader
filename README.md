@@ -465,6 +465,7 @@ Optimizer script tips:
 
 Database (required for ops + combo persistence):
 - Set `TRADER_DB_URL` (or `DATABASE_URL`) to a Postgres instance; use durable managed storage for deploys.
+- Docker images must include `libpq` (`libpq5` on Debian); the provided `Dockerfile` installs it.
 - Stores every operation plus combo metrics, strategy metadata, and combo parameters.
 - Recommended: include `sslmode=require` in hosted Postgres connection strings.
 - Platforms are stored in `platforms` with REST/WS URLs plus non-secret connection metadata (auth type, testnet/futures endpoints).
@@ -701,6 +702,7 @@ The configuration panel is docked to the top of the viewport, scrolls independen
 The Optimizer combos panel is docked to the bottom of the viewport for quick access and shrinks to a compact bar when collapsed.
 Result panels scroll independently so longer outputs don't push other panels off-screen.
 Result cards in the main dock size their body region so longer tables scroll instead of trimming rows.
+Maximized panels expand to the viewport edges and keep their body scrollable so wide tables don't get clipped.
 Info popovers align to stay within the configuration panel.
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
 The backtest summary chart includes a Download log button to export the backtest operations.

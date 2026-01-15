@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
+- Deploy: include `libpq` in the runtime image so Postgres ops persistence starts cleanly.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
@@ -69,6 +70,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: fix docked Live bot panel scrolling so long content stays reachable.
 - Web UI: keep the optimizer combos controls fixed while the combos list scrolls in the docked panel.
 - Web UI: make maximized panels opaque so the focused panel stays sharp.
+- Web UI: maximize panels now span the viewport width and keep body scrolling to avoid clipped tables.
 - Web UI: dock configuration at the top, dock optimizer combos at the bottom, and split running bots into independent scrollable panels.
 - Web UI: force multi-column form rows to stack on narrow screens so inline grid layouts stay readable.
 - Web UI: align Data Log toolbar controls, match the log styling to the UI theme, and make the log viewport responsive.

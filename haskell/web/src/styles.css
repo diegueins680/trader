@@ -689,9 +689,10 @@ body.panelMaximized .cardMaximized {
   position: fixed;
   top: 24px;
   bottom: 24px;
-  left: 50%;
-  width: min(1200px, calc(100% - 48px));
-  transform: translateX(-50%);
+  left: 24px;
+  right: 24px;
+  width: auto;
+  transform: none;
   max-height: calc(100vh - 48px);
   height: calc(100vh - 48px);
   z-index: 60;
@@ -700,13 +701,13 @@ body.panelMaximized .cardMaximized {
   -webkit-backdrop-filter: none;
   display: flex;
   flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .cardMaximized .cardBody {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   max-height: none;
-  overflow: visible;
+  overflow: auto;
 }
 
 .cardHeader {
