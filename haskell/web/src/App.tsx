@@ -6659,18 +6659,46 @@ export function App() {
     );
   }, [apiBlockedReason, apiStatusIssue, botTradeKeysIssue, rateLimitReason, selectedComboForm]);
   const comboStartBlocked = bot.loading || botStarting || comboStartPending || Boolean(comboStartBlockedReason);
+  const topComboAutoStartIssues = useMemo(
+    () =>
+      buildRequestIssueDetails({
+        rateLimitReason,
+        apiStatusIssue,
+        apiBlockedReason,
+        apiTargetId: "section-api",
+        missingSymbol: false,
+        symbolError: null,
+        missingInterval,
+        intervalTargetId: "interval",
+        lookbackError: lookbackState.error,
+        lookbackTargetId: lookbackState.overrideOn ? "lookbackBars" : "lookbackWindow",
+        apiLimitsReason,
+        apiLimitsTargetId: barsExceedsApi ? "bars" : epochsExceedsApi ? "epochs" : hiddenSizeExceedsApi ? "hiddenSize" : undefined,
+      }),
+    [
+      apiBlockedReason,
+      apiLimitsReason,
+      apiStatusIssue,
+      barsExceedsApi,
+      epochsExceedsApi,
+      hiddenSizeExceedsApi,
+      lookbackState.error,
+      lookbackState.overrideOn,
+      missingInterval,
+      rateLimitReason,
+    ],
+  );
   const topComboAutoStartBlockedReason = useMemo(
     () =>
       firstReason(
-        rateLimitReason,
-        apiBlockedReason ?? apiStatusIssue,
+        topComboAutoStartIssues[0]?.disabledMessage ?? topComboAutoStartIssues[0]?.message,
         !isBinancePlatform ? "Live bot is supported on Binance only." : null,
         form.positioning === "long-short" && form.market !== "futures"
           ? "Live bot long/short requires the Futures market."
           : null,
         botTradeKeysIssue,
       ),
-    [apiBlockedReason, apiStatusIssue, botTradeKeysIssue, form.market, form.positioning, isBinancePlatform, rateLimitReason],
+    [botTradeKeysIssue, form.market, form.positioning, isBinancePlatform, topComboAutoStartIssues],
   );
 
   useEffect(() => {

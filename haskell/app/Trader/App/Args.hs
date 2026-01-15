@@ -362,7 +362,7 @@ opts = do
           <> help "Use the top-N symbols by 24h quote volume as an extra Kalman measurement (0 disables; Binance only)."
       )
   argOpenThreshold <- option auto (long "open-threshold" <> long "threshold" <> value 0.002 <> help "Entry/open direction threshold (fractional deadband)")
-  mCloseThreshold <- optional (option auto (long "close-threshold" <> help "Exit/close threshold (fractional deadband; defaults to open-threshold when omitted)"))
+  mCloseThreshold <- optional (option auto (long "close-threshold" <> help "Close-direction threshold (fractional deadband; defaults to open-threshold when omitted)"))
   argThresholdFactorEnabled <-
     defaultOffSwitch
       "threshold-factor"

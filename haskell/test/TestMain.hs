@@ -67,6 +67,7 @@ main = do
     , run "lstm training improves loss" testLstmImprovesLoss
     , run "lstm key uses platform" testLstmModelKeyPlatform
     , run "ensemble agreement gate" testAgreementGate
+    , run "close on open disagreement" testCloseOnOpenDisagree
     , run "min-hold blocks exit" testMinHoldBars
     , run "max-hold forces exit" testMaxHoldBars
     , run "cooldown blocks re-entry" testCooldownBars
@@ -375,6 +376,16 @@ testAgreementGate = do
       cfg = baseEnsembleConfig
       res = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
   assert "expected two position changes (enter + exit)" (brPositionChanges res == 2)
+
+testCloseOnOpenDisagree :: IO ()
+testCloseOnOpenDisagree = do
+  let prices = [100, 100, 100]
+      lookback = 1
+      kalPred = [103, 101]
+      lstmPred = [103, 101]
+      cfg = baseEnsembleConfig { ecOpenThreshold = 0.02, ecCloseThreshold = 0.005 }
+      bt = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
+  assert "exits when open signal no longer agrees" (brPositions bt == [1, 0])
 
 testMinHoldBars :: IO ()
 testMinHoldBars = do

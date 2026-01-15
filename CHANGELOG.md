@@ -22,9 +22,11 @@ All notable changes to this project will be documented in this file.
 - CSV: sort rows by parsed timestamps only; unparseable timestamps preserve file order.
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Trading: `--max-daily-loss` validation now errors when provided timestamps do not match the closes length.
+- Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
 - Web UI: default Live orders + Trading armed toggles to on.
 - Web UI: listenKey user-data stream now subscribes to the backend relay instead of opening a browser WebSocket.
 - Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
+- Web UI: skip top-combo auto-start when interval/lookback validation fails to avoid `/bot/start` errors.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.
 - Web UI: add an overview card that summarizes connection, market, execution mode, and the latest signal/backtest/trade results.
@@ -124,9 +126,11 @@ All notable changes to this project will be documented in this file.
 - Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
 - Trading: LSTM flip exits now apply only to LSTM-based methods (`11`/`01`).
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
+- Backtests: Kalman-band exits now evaluate against the current bar high/low to align with intrabar stop/TP checks.
 - Trading: allow Kalman-band exits without `--tri-layer` when the band flags are enabled.
 - Trading: apply `--min-position-size` only as a final size floor, not as a confidence gate.
 - Trading: align LSTM prediction indexing to bar positions and trim meta gating inputs consistently.
+- Backtests: LSTM confidence sizing now scales against the adjusted open threshold (including min-edge and threshold-factor adjustments when enabled).
 - Trading: skip confirmation/width gates when the corresponding predictor outputs are missing.
 - Trading: rebalancing now requires non-zero `--rebalance-bars` and `--rebalance-threshold`, and resets honor the latest same-side signal anchor.
 - Trading: add dynamic threshold-factor multipliers for open/close thresholds and min-edge/min-signal-to-noise, with CLI/optimizer tuning (forces tune objective to annualized equity when enabled).

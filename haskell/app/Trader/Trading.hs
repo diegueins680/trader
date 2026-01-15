@@ -1372,20 +1372,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                   edgeLstm = edgePred lp
                                   edgeRaw = min edgeKal edgeLstm
                                   kalOpenDirRaw = direction openThrAdj prev kp
-                                  kalCloseDirRaw = direction closeThrAdj prev kp
                                   metaNow = metaAt t
-                                  (kalOpenDir, kalSize, kalCloseDir) =
+                                  (kalOpenDir, kalSize) =
                                     case metaNow of
                                       Nothing ->
                                         ( kalOpenDirRaw
                                         , if kalOpenDirRaw == Nothing then 0 else 1
-                                        , kalCloseDirRaw
                                         )
                                       Just m ->
                                         let confScore = confidenceScoreKalman m
                                             (openDir, openSize) = gateKalmanDir (ecConfidenceSizing cfg) m openThrAdj confScore kalOpenDirRaw
-                                            (closeDir, _) = gateKalmanDir False m closeThrAdj confScore kalCloseDirRaw
-                                         in (openDir, openSize, closeDir)
+                                         in (openDir, openSize)
                                   lstmOpenDir = direction openThrAdj prev lp
                                   lstmCloseDir = direction closeThrAdj prev lp
                                   agreeValid =
@@ -1398,10 +1395,6 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                       _ -> False
                                   openAgreeDir =
                                     if agreeOk then kalOpenDir else Nothing
-                                  closeAgreeDir =
-                                    if kalCloseDir == lstmCloseDir
-                                      then kalCloseDir
-                                      else Nothing
 
                                   openSignal =
                                     case openAgreeDir of
@@ -1417,14 +1410,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                       Nothing ->
                                         case posSide of
                                           Nothing -> (Nothing, 0)
-                                          Just SideLong ->
-                                            if closeAgreeDir == Just SideLong
-                                              then (Just SideLong, posSize)
-                                              else (Nothing, 0)
-                                          Just SideShort ->
-                                            if closeAgreeDir == Just SideShort
-                                              then (Just SideShort, posSize)
-                                              else (Nothing, 0)
+                                          Just _ -> (Nothing, 0)
                                   lstmEntryScale = lstmConfidenceSizing prev lp
                                   lstmScore = lstmConfidenceScore prev lp
                                in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, edgeKal, edgeLstm, openSignal, lstmCloseDir, lstmEntryScale, lstmScore, metaNow)

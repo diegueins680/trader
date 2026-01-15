@@ -214,8 +214,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 
 - Strategy / costs
   - `--open-threshold 0.002` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
-  - `--close-threshold 0.002` exit/close threshold (fractional deadband; defaults to open-threshold when omitted)
-    - Live order placement uses `close-threshold` to decide exits when already in position, mirroring backtest logic.
+  - `--close-threshold 0.002` close-direction threshold (fractional deadband; defaults to open-threshold when omitted)
+    - Live order placement exits when the open-threshold signal no longer agrees with the current position (mirrors backtest logic; `--min-hold-bars` still applies).
   - `--min-edge F` minimum predicted return magnitude required to enter (`0` disables)
   - `--min-signal-to-noise F` require edge / per-bar sigma >= `F` (`0` disables; default: `0.8`)
     - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread (default on; disable with `--no-cost-aware-edge`)
@@ -309,8 +309,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Trade-test quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
   - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio, backtest ratio, bars, or lookback to restore a valid split.
-  - Close-direction gating ignores `--min-position-size` so exits are not blocked by size floors.
-  - Conformal/quantile confirmations apply the open threshold for entries and the close threshold for exits.
+  - Close-direction gating ignores `--min-position-size` so `closeDirection` is still reported even when size floors would block entries.
+  - Conformal/quantile confirmations apply the open threshold for entries and in-position agreement checks; `closeDirection` still uses `closeThreshold` for diagnostics.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
     - Live-bot drawdown/daily loss uses the sized position (confidence/vol scaling) rather than assuming full size.
@@ -606,8 +606,8 @@ Multi-symbol notes:
 Live safety (startup position):
 - When `botTrade=true`, `/bot/start` adopts any existing position or open exchange orders for the symbol (long or short, subject to positioning).
 - Live bots cache the Binance API key/secret in memory for the life of the bot so order operations do not depend on the UI sending keys (not persisted across restarts).
-- Adopted positions use the gated `closeDirection` (closeThreshold + confidence filters) to decide hold/exit on startup.
-- Live bot exit decisions during the run loop use the gated `closeDirection` logic as well.
+- Adopted positions are kept only if the open-threshold signal still agrees with the position.
+- Live bot exit decisions during the run loop close positions when the open-threshold signal no longer agrees (subject to `--min-hold-bars`).
 - When `botTrade=true`, `/bot/start` also auto-starts bots for orphan open futures positions (even if not listed in `botSymbols`).
 - `botAdoptExistingPosition` is now implied and ignored if provided.
 - If an existing position or open orders are detected, `/bot/start` adopts immediately using the current settings (auto-upgrades to `positioning=long-short` for shorts). It applies a compatible top combo when available but no longer blocks startup waiting for one.
@@ -707,7 +707,7 @@ The backtest summary chart includes a Download log button to export the backtest
 Backtest charts allow deeper zoom (mouse wheel down to ~6 bars) for close inspection.
 When the UI is served via CloudFront, `deploy-aws-quick.sh` defaults `apiBaseUrl` to the direct API URL even when a distribution ID is provided. Use `--ui-api-proxy`/`TRADER_UI_API_MODE=proxy` to force `/api` when you have a `/api/*` behavior and want same-origin requests. When `/api` is used and the API URL is known, the script auto-fills `apiFallbackUrl` to the API URL; for direct API bases, set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly if you want a fallback. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
 To keep a stable CloudFront URL across deploys, set `TRADER_UI_CLOUDFRONT_DOMAIN` (or `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`) so the quick deploy reuses the distribution and its S3 bucket.
-The UI auto-applies top combos when available and shows when a combo auto-applied; it also auto-starts missing bots for the top 5 combo symbols (Binance only), and manual override locks include an unlock button to let combos update those fields again.
+The UI auto-applies top combos when available and shows when a combo auto-applied; it also auto-starts missing bots for the top 5 combo symbols (Binance only) once interval/lookback validation passes, and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
 The Data Log panel supports auto-scroll to keep the newest responses in view; scrolling up pauses auto-scroll until you jump back to latest.
@@ -758,7 +758,7 @@ Troubleshooting: “No live operations yet”
 - Each new candle still triggers a trade attempt based on the desired position, even if it resolves to a no-op (already in position or neutral signal).
 - A signal is neutral when the predicted next price is within the `openThreshold` deadband: it must be `> currentPrice*(1+openThreshold)` for UP or `< currentPrice*(1-openThreshold)` for DOWN.
 - With `positioning=long-flat` (required by `/bot/start`), a DOWN signal while already flat does nothing; you’ll only see a SELL after you previously bought.
-- If you want it to trade more often, lower `openThreshold`/`closeThreshold` (or run “Optimize thresholds/operations”) and/or use a higher timeframe.
+- If you want it to trade more often, lower `openThreshold` (or run “Optimize thresholds/operations”) and/or use a higher timeframe.
 
 Assumptions and limitations
 ---------------------------

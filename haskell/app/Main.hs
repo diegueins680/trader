@@ -4411,32 +4411,25 @@ initBotState mOps args settings mComboUuid sym = do
           (Just (kalPred0, lstmPred0))
 
       -- Startup decision:
-      -- - Adopted positions use closeThreshold (hysteresis) via the gated closeDirection.
+      -- - Adopted positions are kept only if the open-threshold signal still agrees.
       -- - Otherwise, entry uses openThreshold via lsChosenDir.
-      closeDir = lsCloseDir latest0Raw
-
-      wantLongClose = closeDir == Just 1
-      wantShortClose = closeDir == Just (-1)
       allowShort = argPositioning args == LongShort
+      chosenDir = lsChosenDir latest0Raw
 
       desiredPosSignal =
         case startPos0 of
           1 ->
-            if wantLongClose
-              then 1
-              else
-                case (allowShort, lsChosenDir latest0Raw) of
-                  (True, Just (-1)) -> -1
-                  _ -> 0
+            case chosenDir of
+              Just 1 -> 1
+              Just (-1) | allowShort -> -1
+              _ -> 0
           (-1) ->
-            if wantShortClose
-              then -1
-              else
-                case (allowShort, lsChosenDir latest0Raw) of
-                  (True, Just 1) -> 1
-                  _ -> 0
+            case chosenDir of
+              Just (-1) -> -1
+              Just 1 | allowShort -> 1
+              _ -> 0
           _ ->
-            case lsChosenDir latest0Raw of
+            case chosenDir of
               Just 1 -> 1
               Just (-1) | allowShort -> -1
               _ -> 0
@@ -6171,37 +6164,30 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
       lstmPred1 = V.snoc (botLstmPredNext st) (maybe nan id (lsLstmNext latest0Raw))
 
       -- Stateful decision:
-      -- - Entry uses openThreshold (direction-agreement gated).
-      -- - Exit/hold uses closeThreshold (hysteresis), matching backtest logic.
-      closeDir = lsCloseDir latest0Raw
-      wantLongClose = closeDir == Just 1
-      wantShortClose = closeDir == Just (-1)
+      -- - Entry/hold require the open-threshold signal to keep agreeing.
       allowShort = argPositioning args == LongShort
+      chosenDir = lsChosenDir latest0Raw
 
       desiredPosSignal =
         case prevPos of
           1 ->
-            if wantLongClose
-              then 1
-              else
-                case (allowShort, lsChosenDir latest0Raw) of
-                  (True, Just (-1)) -> -1
-                  _ -> 0
+            case chosenDir of
+              Just 1 -> 1
+              Just (-1) | allowShort -> -1
+              _ -> 0
           (-1) ->
-            if wantShortClose
-              then -1
-              else
-                case (allowShort, lsChosenDir latest0Raw) of
-                  (True, Just 1) -> 1
-                  _ -> 0
+            case chosenDir of
+              Just (-1) -> -1
+              Just 1 | allowShort -> 1
+              _ -> 0
           _ ->
-            case lsChosenDir latest0Raw of
+            case chosenDir of
               Just 1 -> 1
               Just (-1) | allowShort -> -1
               _ -> 0
 
-      -- If we decide to exit based on closeThreshold (even if openThreshold signal is neutral),
-      -- force chosenDir to the exit side so a closing order can be placed when trading is enabled.
+      -- If we decide to exit (open signal neutral/opposite), force chosenDir to the exit side
+      -- so a closing order can be placed when trading is enabled.
       latest0 =
         case (prevPos, desiredPosSignal) of
           (1, 0) ->
