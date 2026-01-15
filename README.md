@@ -231,7 +231,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--router-lookback 30` lookback bars for router scoring (`>= 2`)
     - `--router-min-score 0.25` minimum router score (accuracy × coverage) to accept a model (`0..1`)
 - `--positioning long-flat` (default, alias `long-only`/`long`) or `--positioning long-short` (allows short positions; trading/live bot requires `--futures`)
-  - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal; router is excluded)
+  - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal; includes `router`)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
   - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.
@@ -315,6 +315,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
     - Live-bot drawdown/daily loss uses the sized position (confidence/vol scaling) rather than assuming full size.
     - Backtests use bar timestamps when available (exchange data or CSV time columns); otherwise they fall back to interval-based day keys.
+    - If timestamps are present but do not align to the closes series, `--max-daily-loss` errors to avoid misaligned day boundaries.
     - Invalid CSV time values now error instead of silently disabling time-based day keys.
     - If neither timestamps nor interval seconds are available, `--max-daily-loss` errors instead of silently disabling.
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
@@ -325,6 +326,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
     - The split must leave at least `lookback+1` training bars and 2 backtest bars, otherwise it errors.
   - `--periods-per-year N` (default: inferred from `--interval`)
+    - Used for annualized metrics and tune scoring (optimize/sweep).
 
 - Output
   - `--version` (or `-V`) print `trader-hs` version
@@ -675,6 +677,7 @@ The UI sends explicit zero/false values for default-on risk settings (e.g., min-
 Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), selecting the existing bot if it is already running; top-combo auto-apply pauses while a manual Apply is starting a bot, and Refresh combos resyncs.
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
+The Binance account trades panel includes a trade P&L breakdown (realizedPnl, win/loss totals, top winners/losers) when Binance returns realized P&L (futures only).
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes).
 The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
 The bot state timeline shows the hovered timestamp.
@@ -758,7 +761,7 @@ Troubleshooting: “No live operations yet”
 Assumptions and limitations
 ---------------------------
 - The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests/live bot); it includes basic sizing/filters but is not a full portfolio/risk system or detailed transaction-cost model.
-- Daily-loss resets prefer bar open timestamps when available; if timestamps are missing or misaligned, backtests fall back to interval-based day boundaries.
-- If open timestamps are provided (CSV or API), their length must match the closes series; mismatches return an error to avoid misaligned day boundaries.
+- Daily-loss resets prefer bar open timestamps when available; if timestamps are missing, backtests fall back to interval-based day boundaries.
+- When `--max-daily-loss` is enabled and open timestamps are provided (CSV or API), their length must match the closes series; mismatches return an error to avoid misaligned day boundaries.
 - Live order placement applies exchange filters (minQty/step size/minNotional) by flooring entry sizes to the minimums when possible and treating dust-sized positions as flat; orders can still be rejected if filters change or balances are insufficient.
 - This code is for experimentation and education only; it is **not** production-ready nor financial advice.

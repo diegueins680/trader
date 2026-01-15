@@ -404,10 +404,18 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
       kalNeed = if startT < stepCount then stepCount else 0
       openTimesV =
         case ecOpenTimes cfg of
-          Just ts
-            | V.length ts == n -> Just ts
-            | V.length ts > n -> Just (V.drop (V.length ts - n) ts)
-            | otherwise -> Nothing
+          Just ts | V.length ts == n -> Just ts
+          _ -> Nothing
+      openTimesMismatch =
+        case ecOpenTimes cfg of
+          Just ts | V.length ts /= n ->
+            Just
+              ( "open time vector length ("
+                  ++ show (V.length ts)
+                  ++ ") must match closes length ("
+                  ++ show n
+                  ++ ")"
+              )
           _ -> Nothing
       intervalSeconds =
         case ecIntervalSeconds cfg of
@@ -479,24 +487,27 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                 if dailyLossReq /= Nothing && not hasDailyKey
                   then Just "--max-daily-loss requires bar timestamps or interval seconds"
                   else
-                    case metaMaskMismatch of
-                      Just err -> Just err
-                      Nothing ->
-                        case metaMismatch of
+                    case (dailyLossReq, openTimesMismatch) of
+                      (Just _, Just err) -> Just err
+                      _ ->
+                        case metaMaskMismatch of
                           Just err -> Just err
                           Nothing ->
-                            if V.length kalPredNextV < kalNeed
-                              then
-                                Just
-                                  ( "kalPredNext too short: need at least "
-                                      ++ show kalNeed
-                                      ++ ", got "
-                                      ++ show (V.length kalPredNextV)
-                                  )
-                              else
-                                case lstmPredAtE of
-                                  Left err -> Just err
-                                  Right _ -> Nothing
+                            case metaMismatch of
+                              Just err -> Just err
+                              Nothing ->
+                                if V.length kalPredNextV < kalNeed
+                                  then
+                                    Just
+                                      ( "kalPredNext too short: need at least "
+                                          ++ show kalNeed
+                                          ++ ", got "
+                                          ++ show (V.length kalPredNextV)
+                                      )
+                                  else
+                                    case lstmPredAtE of
+                                      Left err -> Just err
+                                      Right _ -> Nothing
    in case validationError of
         Just err -> Left err
         Nothing ->

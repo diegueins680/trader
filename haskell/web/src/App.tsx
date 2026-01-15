@@ -10,6 +10,7 @@ import type {
   BinanceKeysStatus,
   BinanceListenKeyResponse,
   BinancePositionChart,
+  BinanceTrade,
   BotOrderEvent,
   BotStatus,
   BotStatusMulti,
@@ -738,11 +739,11 @@ type TradePnlRow = {
   exitEquity: number;
   return: number;
   holdingPeriods: number;
-  exitReason?: string | null;
+  exitReason: string | null;
   phase: string;
   pnl: number;
-  entryTime?: number | null;
-  exitTime?: number | null;
+  entryTime: number | null;
+  exitTime: number | null;
 };
 
 type TradePnlAnalysis = {
@@ -764,6 +765,49 @@ type TradePnlAnalysis = {
   avgHoldLoss: number | null;
   topWins: TradePnlRow[];
   topLosses: TradePnlRow[];
+};
+
+type CommissionTotal = {
+  asset: string;
+  total: number;
+  count: number;
+};
+
+type BinancePnlRow = {
+  idx: number;
+  tradeId: number;
+  orderId: number | null;
+  time: number;
+  symbol: string;
+  side: string;
+  price: number;
+  qty: number;
+  quoteQty: number;
+  positionSide: string | null;
+  realizedPnl: number;
+  commission: number | null;
+  commissionAsset: string | null;
+};
+
+type BinancePnlAnalysis = {
+  count: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  winRate: number | null;
+  avgWin: number | null;
+  avgLoss: number | null;
+  avgPnl: number | null;
+  maxWin: number | null;
+  maxLoss: number | null;
+  totalWin: number;
+  totalLoss: number;
+  totalPnl: number;
+  profitFactor: number | null;
+  payoffRatio: number | null;
+  commissionTotals: CommissionTotal[];
+  topWins: BinancePnlRow[];
+  topLosses: BinancePnlRow[];
 };
 
 function pnlBadgeClass(value: number | null | undefined): string {
@@ -910,6 +954,110 @@ function buildBacktestTradePnlAnalysis(backtest: BacktestResponse): TradePnlAnal
     payoffRatio,
     avgHoldWin,
     avgHoldLoss,
+    topWins,
+    topLosses,
+  };
+}
+
+function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnlAnalysis | null {
+  const rows: BinancePnlRow[] = [];
+  const commissionByAsset = new Map<string, CommissionTotal>();
+  for (let i = 0; i < trades.length; i += 1) {
+    const trade = trades[i];
+    if (!trade) continue;
+    const pnl = trade.realizedPnl;
+    if (typeof pnl !== "number" || !Number.isFinite(pnl)) continue;
+    const side = trade.side ?? (trade.isBuyer === true ? "BUY" : trade.isBuyer === false ? "SELL" : "—");
+    const commission = trade.commission;
+    const commissionAsset = trade.commissionAsset ?? null;
+    if (typeof commission === "number" && Number.isFinite(commission)) {
+      const assetKey = commissionAsset ?? "unknown";
+      const existing = commissionByAsset.get(assetKey);
+      if (existing) {
+        existing.total += commission;
+        existing.count += 1;
+      } else {
+        commissionByAsset.set(assetKey, { asset: assetKey, total: commission, count: 1 });
+      }
+    }
+    rows.push({
+      idx: i + 1,
+      tradeId: trade.tradeId,
+      orderId: trade.orderId ?? null,
+      time: trade.time,
+      symbol: trade.symbol,
+      side,
+      price: trade.price,
+      qty: trade.qty,
+      quoteQty: trade.quoteQty,
+      positionSide: trade.positionSide ?? null,
+      realizedPnl: pnl,
+      commission: commission ?? null,
+      commissionAsset,
+    });
+  }
+
+  if (rows.length === 0) return null;
+
+  let wins = 0;
+  let losses = 0;
+  let breakeven = 0;
+  let sumWin = 0;
+  let sumLoss = 0;
+  let sumPnl = 0;
+  let maxWin: number | null = null;
+  let maxLoss: number | null = null;
+
+  for (const row of rows) {
+    const pnl = row.realizedPnl;
+    sumPnl += pnl;
+    if (pnl > TRADE_PNL_EPS) {
+      wins += 1;
+      sumWin += pnl;
+      maxWin = maxWin === null ? pnl : Math.max(maxWin, pnl);
+    } else if (pnl < -TRADE_PNL_EPS) {
+      losses += 1;
+      sumLoss += pnl;
+      maxLoss = maxLoss === null ? pnl : Math.min(maxLoss, pnl);
+    } else {
+      breakeven += 1;
+    }
+  }
+
+  const count = rows.length;
+  const avgWin = wins > 0 ? sumWin / wins : null;
+  const avgLoss = losses > 0 ? sumLoss / losses : null;
+  const avgPnl = count > 0 ? sumPnl / count : null;
+  const winRate = count > 0 ? wins / count : null;
+  const profitFactor = sumLoss < 0 ? sumWin / Math.abs(sumLoss) : sumWin > 0 ? Infinity : null;
+  const payoffRatio = avgWin !== null && avgLoss !== null && avgLoss !== 0 ? avgWin / Math.abs(avgLoss) : null;
+  const topWins = rows
+    .filter((row) => row.realizedPnl > TRADE_PNL_EPS)
+    .sort((a, b) => b.realizedPnl - a.realizedPnl)
+    .slice(0, TRADE_PNL_TOP_N);
+  const topLosses = rows
+    .filter((row) => row.realizedPnl < -TRADE_PNL_EPS)
+    .sort((a, b) => a.realizedPnl - b.realizedPnl)
+    .slice(0, TRADE_PNL_TOP_N);
+  const commissionTotals = Array.from(commissionByAsset.values()).sort((a, b) => a.asset.localeCompare(b.asset));
+
+  return {
+    count,
+    wins,
+    losses,
+    breakeven,
+    winRate,
+    avgWin,
+    avgLoss,
+    avgPnl,
+    maxWin,
+    maxLoss,
+    totalWin: sumWin,
+    totalLoss: sumLoss,
+    totalPnl: sumPnl,
+    profitFactor,
+    payoffRatio,
+    commissionTotals,
     topWins,
     topLosses,
   };
@@ -4103,6 +4251,11 @@ export function App() {
     const trades = binanceTradesUi.response?.trades ?? [];
     if (trades.length === 0) return "";
     return JSON.stringify(trades, null, 2);
+  }, [binanceTradesUi.response]);
+
+  const binanceTradesAnalysis = useMemo(() => {
+    const trades = binanceTradesUi.response?.trades ?? [];
+    return buildBinanceTradePnlAnalysis(trades);
   }, [binanceTradesUi.response]);
 
   const botRisk = useMemo(() => {
@@ -11239,6 +11392,204 @@ export function App() {
                     </span>
                     <span className="badge">fetched {fmtTimeMs(binanceTradesUi.response.fetchedAtMs)}</span>
                   </div>
+                  {binanceTradesUi.response.trades.length > 0 ? (
+                    binanceTradesAnalysis ? (
+                      <details className="details" style={{ marginTop: 12 }}>
+                        <summary>Trade P&amp;L analysis</summary>
+                        <div style={{ marginTop: 10 }}>
+                          {(() => {
+                            const stats = binanceTradesAnalysis;
+                            const winRateLabel = stats.winRate != null && Number.isFinite(stats.winRate) ? fmtPct(stats.winRate, 1) : "—";
+                            const avgWinLabel = stats.avgWin != null && Number.isFinite(stats.avgWin) ? fmtMoney(stats.avgWin, 4) : "—";
+                            const avgLossLabel = stats.avgLoss != null && Number.isFinite(stats.avgLoss) ? fmtMoney(stats.avgLoss, 4) : "—";
+                            const avgPnlLabel = stats.avgPnl != null && Number.isFinite(stats.avgPnl) ? fmtMoney(stats.avgPnl, 4) : "—";
+                            const maxWinLabel = stats.maxWin != null && Number.isFinite(stats.maxWin) ? fmtMoney(stats.maxWin, 4) : "—";
+                            const maxLossLabel = stats.maxLoss != null && Number.isFinite(stats.maxLoss) ? fmtMoney(stats.maxLoss, 4) : "—";
+                            const totalWinLabel = Number.isFinite(stats.totalWin) ? fmtMoney(stats.totalWin, 4) : "—";
+                            const totalLossLabel = Number.isFinite(stats.totalLoss) ? fmtMoney(stats.totalLoss, 4) : "—";
+                            const totalPnlLabel = Number.isFinite(stats.totalPnl) ? fmtMoney(stats.totalPnl, 4) : "—";
+                            const profitFactorLabel =
+                              stats.profitFactor == null
+                                ? "—"
+                                : Number.isFinite(stats.profitFactor)
+                                  ? fmtNum(stats.profitFactor, 3)
+                                  : "∞";
+                            const payoffRatioLabel =
+                              stats.payoffRatio == null
+                                ? "—"
+                                : Number.isFinite(stats.payoffRatio)
+                                  ? fmtNum(stats.payoffRatio, 3)
+                                  : "∞";
+                            const commissionLabel =
+                              stats.commissionTotals.length > 0
+                                ? stats.commissionTotals.map((c) => `${fmtNum(c.total, 6)} ${c.asset}`).join(" • ")
+                                : "—";
+                            return (
+                              <>
+                                <div className="summaryGrid">
+                                  <div className="summaryItem">
+                                    <div className="summaryLabel">Outcomes</div>
+                                    <div className="summaryValue">
+                                      <span className="badge badgeStrong badgeLong">{stats.wins} wins</span>
+                                      <span className="badge badgeStrong badgeFlat">{stats.losses} losses</span>
+                                      <span className="badge">{stats.breakeven} flat</span>
+                                      <span className="summaryMeta">Win rate {winRateLabel} • trades {stats.count}</span>
+                                    </div>
+                                  </div>
+                                  <div className="summaryItem">
+                                    <div className="summaryLabel">Avg win / loss</div>
+                                    <div className="summaryValue">
+                                      <span className={pnlBadgeClass(stats.avgWin)}>{avgWinLabel}</span>
+                                      <span className={pnlBadgeClass(stats.avgLoss)}>{avgLossLabel}</span>
+                                      <span className="summaryMeta">Payoff ratio {payoffRatioLabel}</span>
+                                    </div>
+                                  </div>
+                                  <div className="summaryItem">
+                                    <div className="summaryLabel">Best / worst trade</div>
+                                    <div className="summaryValue">
+                                      <span className={pnlBadgeClass(stats.maxWin)}>{maxWinLabel}</span>
+                                      <span className={pnlBadgeClass(stats.maxLoss)}>{maxLossLabel}</span>
+                                      <span className="summaryMeta">Avg P&amp;L {avgPnlLabel}</span>
+                                    </div>
+                                  </div>
+                                  <div className="summaryItem">
+                                    <div className="summaryLabel">Total P&amp;L</div>
+                                    <div className="summaryValue">
+                                      <span className={pnlBadgeClass(stats.totalPnl)}>{totalPnlLabel}</span>
+                                      <span className={pnlBadgeClass(stats.totalWin)}>{totalWinLabel}</span>
+                                      <span className={pnlBadgeClass(stats.totalLoss)}>{totalLossLabel}</span>
+                                      <span className="summaryMeta">Profit factor {profitFactorLabel} • Fees {commissionLabel}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="chartBlock" style={{ marginTop: 12 }}>
+                                  <div className="hint">Top winners</div>
+                                  {stats.topWins.length > 0 ? (
+                                    <div className="tableWrap" role="region" aria-label="Top winning account trades">
+                                      <table className="table">
+                                        <thead>
+                                          <tr>
+                                            <th>Time</th>
+                                            <th>Symbol</th>
+                                            <th>Side</th>
+                                            <th>Price</th>
+                                            <th>Qty</th>
+                                            <th>Pos</th>
+                                            <th>PNL</th>
+                                            <th>Commission</th>
+                                            <th>Order</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {stats.topWins.map((row) => {
+                                            const sideClass =
+                                              row.side === "BUY"
+                                                ? "badge badgeStrong badgeLong"
+                                                : row.side === "SELL"
+                                                  ? "badge badgeStrong badgeFlat"
+                                                  : "badge";
+                                            const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
+                                            const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
+                                            const commissionTxt =
+                                              row.commission != null && Number.isFinite(row.commission)
+                                                ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
+                                                : "—";
+                                            return (
+                                              <tr key={`binance-win-${row.tradeId}`}>
+                                                <td className="tdMono">{fmtTimeMs(row.time)}</td>
+                                                <td className="tdMono">{row.symbol}</td>
+                                                <td>
+                                                  <span className={sideClass}>{row.side}</span>
+                                                </td>
+                                                <td className="tdMono">{fmtMoney(row.price, 4)}</td>
+                                                <td className="tdMono">{qtyTxt}</td>
+                                                <td className="tdMono">{row.positionSide ?? "—"}</td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
+                                                </td>
+                                                <td className="tdMono">{commissionTxt}</td>
+                                                <td className="tdMono">{row.orderId ?? "—"}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ) : (
+                                    <div className="hint">No winning trades in this sample.</div>
+                                  )}
+                                </div>
+                                <div className="chartBlock" style={{ marginTop: 12 }}>
+                                  <div className="hint">Top losers</div>
+                                  {stats.topLosses.length > 0 ? (
+                                    <div className="tableWrap" role="region" aria-label="Top losing account trades">
+                                      <table className="table">
+                                        <thead>
+                                          <tr>
+                                            <th>Time</th>
+                                            <th>Symbol</th>
+                                            <th>Side</th>
+                                            <th>Price</th>
+                                            <th>Qty</th>
+                                            <th>Pos</th>
+                                            <th>PNL</th>
+                                            <th>Commission</th>
+                                            <th>Order</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {stats.topLosses.map((row) => {
+                                            const sideClass =
+                                              row.side === "BUY"
+                                                ? "badge badgeStrong badgeLong"
+                                                : row.side === "SELL"
+                                                  ? "badge badgeStrong badgeFlat"
+                                                  : "badge";
+                                            const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
+                                            const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
+                                            const commissionTxt =
+                                              row.commission != null && Number.isFinite(row.commission)
+                                                ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
+                                                : "—";
+                                            return (
+                                              <tr key={`binance-loss-${row.tradeId}`}>
+                                                <td className="tdMono">{fmtTimeMs(row.time)}</td>
+                                                <td className="tdMono">{row.symbol}</td>
+                                                <td>
+                                                  <span className={sideClass}>{row.side}</span>
+                                                </td>
+                                                <td className="tdMono">{fmtMoney(row.price, 4)}</td>
+                                                <td className="tdMono">{qtyTxt}</td>
+                                                <td className="tdMono">{row.positionSide ?? "—"}</td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
+                                                </td>
+                                                <td className="tdMono">{commissionTxt}</td>
+                                                <td className="tdMono">{row.orderId ?? "—"}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ) : (
+                                    <div className="hint">No losing trades in this sample.</div>
+                                  )}
+                                </div>
+                                <div className="hint" style={{ marginTop: 8 }}>
+                                  P&amp;L uses Binance realizedPnl per fill. Spot/margin trades typically omit realizedPnl.
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </details>
+                    ) : (
+                      <div className="hint" style={{ marginTop: 10 }}>
+                        Realized P&amp;L is unavailable for these trades. Binance only returns realizedPnl for futures fills.
+                      </div>
+                    )
+                  ) : null}
                   {binanceTradesUi.response.trades.length === 0 ? (
                     <div className="hint">No trades returned.</div>
                   ) : (

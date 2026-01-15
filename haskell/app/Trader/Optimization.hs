@@ -216,13 +216,13 @@ bestFinalEquity br =
 
 optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Method, Double, Double, BacktestResult)
 optimizeOperations baseCfg prices kalPred lstmPred mMeta =
-  case optimizeOperationsWith (defaultTuneConfig 1) baseCfg prices kalPred lstmPred mMeta of
+  case optimizeOperationsWith (defaultTuneConfig (ecPeriodsPerYear baseCfg)) baseCfg prices kalPred lstmPred mMeta of
     Left e -> Left e
     Right (m, openThr, closeThr, bt, _stats) -> Right (m, openThr, closeThr, bt)
 
 optimizeOperationsWithHL :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Method, Double, Double, BacktestResult)
 optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred mMeta =
-  case optimizeOperationsWithHLWith (defaultTuneConfig 1) baseCfg closes highs lows kalPred lstmPred mMeta of
+  case optimizeOperationsWithHLWith (defaultTuneConfig (ecPeriodsPerYear baseCfg)) baseCfg closes highs lows kalPred lstmPred mMeta of
     Left e -> Left e
     Right (m, openThr, closeThr, bt, _stats) -> Right (m, openThr, closeThr, bt)
 
@@ -245,7 +245,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
           Left e -> Left e
           Right (openThr, closeThr, bt, stats) ->
             Right (tsMeanScore stats, tsStdScore stats, m, openThr, closeThr, bt, stats)
-      candidates = [MethodBoth, MethodBlend, MethodKalmanOnly, MethodLstmOnly]
+      candidates = [MethodBoth, MethodRouter, MethodBlend, MethodKalmanOnly, MethodLstmOnly]
       results = map eval candidates
       evaluated = [v | Right v <- results]
       errors = [e | Left e <- results]
@@ -279,13 +279,13 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
 
 sweepThreshold :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Double, Double, BacktestResult)
 sweepThreshold method baseCfg prices kalPred lstmPred mMeta =
-  case sweepThresholdWith (defaultTuneConfig 1) method baseCfg prices kalPred lstmPred mMeta of
+  case sweepThresholdWith (defaultTuneConfig (ecPeriodsPerYear baseCfg)) method baseCfg prices kalPred lstmPred mMeta of
     Left e -> Left e
     Right (openThr, closeThr, bt, _stats) -> Right (openThr, closeThr, bt)
 
 sweepThresholdWithHL :: Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Double, Double, BacktestResult)
 sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
-  case sweepThresholdWithHLWith (defaultTuneConfig 1) method baseCfg closes highs lows kalPred lstmPred mMeta of
+  case sweepThresholdWithHLWith (defaultTuneConfig (ecPeriodsPerYear baseCfg)) method baseCfg closes highs lows kalPred lstmPred mMeta of
     Left e -> Left e
     Right (openThr, closeThr, bt, _stats) -> Right (openThr, closeThr, bt)
 

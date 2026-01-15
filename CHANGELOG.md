@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: include stable combo UUIDs in top-combos outputs.
 - Optimizer: merge top-combos de-duplication now keys off full combo identity (params + thresholds + objective + source) so new variants persist.
 - Optimizer: page Binance klines to support >1000 bars and honor `TRADER_OPTIMIZER_MAX_POINTS` (up to 5000) for `/optimizer/run` and auto optimizer runs.
+- Optimizer: optimize-operations/sweep scoring now uses the configured periods-per-year for annualized metrics.
+- Optimizer: include `router` in optimize-operations candidate methods.
 - Database: add `platforms`, `platform_symbols`, `bots`, and `positions` tables so ops/positions link back to platform metadata and running bots.
 - Optimizer: add genetic crossover using parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
@@ -19,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - API: `/binance/keys` signed futures probe no longer requires `binanceSymbol` (trade test skips when missing).
 - CSV: sort rows by parsed timestamps only; unparseable timestamps preserve file order.
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
+- Trading: `--max-daily-loss` validation now errors when provided timestamps do not match the closes length.
 - Web UI: default Live orders + Trading armed toggles to on.
 - Web UI: listenKey user-data stream now subscribes to the backend relay instead of opening a browser WebSocket.
 - Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
@@ -28,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: let overview summary metadata (URLs, errors) wrap so full content stays visible.
 - Web UI: add a decision-logic checklist to the Latest signal card showing the gates and sizing behind operate/hold outcomes.
 - Web UI: add a trade P&L analysis section to the Backtest summary (win/loss breakdown + top winners/losers).
+- Web UI: add a trade P&L analysis section to the Binance account trades panel when realizedPnl is available (futures only).
 - Web UI: add live trading visual aids (price pulse, signal/position compass, risk buffer) to the Live bot panel.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.
 - Web UI: keep collapsible panels mounted so config scroll stays stable and the UI stops blinking during refreshes.
@@ -113,6 +117,8 @@ All notable changes to this project will be documented in this file.
 - Backtests: router threshold sweeps use routed predictions when `method=router` is selected.
 - Backtests: router scoring now uses the effective open threshold (including cost-aware min-edge floors).
 - Backtests: router agreement rate now reflects Kalman vs LSTM agreement instead of routed predictions.
+- Optimizer: `--optimize-operations` now evaluates `router` when selecting the best method/threshold combo.
+- Optimization: default `optimizeOperations`/`sweepThreshold` scoring now uses `ecPeriodsPerYear` for annualized objectives.
 - Trading: add tri-layer exits on slow Kalman crosses, optional Kalman-band exits, and a strong LSTM flip-exit toggle.
 - Trading: LSTM flip exits now apply only to LSTM-based methods (`11`/`01`).
 - Trading: require a slow-line cross for tri-layer exits, trigger Kalman-band exits on candle high/low hits, and disable band sampling when the lookback is < 2.
@@ -122,7 +128,7 @@ All notable changes to this project will be documented in this file.
 - Trading: skip confirmation/width gates when the corresponding predictor outputs are missing.
 - Trading: rebalancing now requires non-zero `--rebalance-bars` and `--rebalance-threshold`, and resets honor the latest same-side signal anchor.
 - Trading: add dynamic threshold-factor multipliers for open/close thresholds and min-edge/min-signal-to-noise, with CLI/optimizer tuning (forces tune objective to annualized equity when enabled).
-- Backtests: ignore mismatched timestamp vectors for daily-loss and fall back to interval-based day keys.
+- Backtests: `--max-daily-loss` now errors when open timestamp vectors do not match the closes series instead of falling back to interval-based day keys.
 - Backtests: daily-loss now honors timestamp vectors even when interval seconds are unavailable.
 - Backtests: invalid CSV time values now error instead of silently disabling time-based day keys.
 - Backtests: `--max-daily-loss` errors when day keys cannot be derived from timestamps or interval seconds.
