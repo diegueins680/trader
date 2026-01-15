@@ -41,7 +41,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: allow cards and panels to be maximized or minimized for focused review.
 - Web UI: let maximized panels ignore dock main height caps so full contents remain visible.
 - Web UI: ensure maximized panels stay opaque and escape dock clipping so full content remains visible.
-- Web UI: fix maximized panels clipping content by letting the body fill available height.
+- Web UI: fix maximized panels clipping content by making the panel scrollable.
 - Web UI: let chart panels grow to fit full chart contents without internal clipping.
 - Web UI: cap maximized panel bodies so long optimizer run forms can scroll and the run actions stay visible.
 - Web UI: fix configuration panel scrolling so the pane scrolls consistently.

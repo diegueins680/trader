@@ -700,11 +700,13 @@ body.panelMaximized .cardMaximized {
   -webkit-backdrop-filter: none;
   display: flex;
   flex-direction: column;
+  overflow: auto;
 }
 
 .cardMaximized .cardBody {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   max-height: none;
+  overflow: visible;
 }
 
 .cardHeader {
