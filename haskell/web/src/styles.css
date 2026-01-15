@@ -698,10 +698,13 @@ body.panelMaximized .cardMaximized {
   background: var(--card-solid);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  display: flex;
+  flex-direction: column;
 }
 
 .cardMaximized .cardBody {
-  max-height: calc(100vh - var(--card-maximized-body-offset));
+  flex: 1 1 auto;
+  max-height: none;
 }
 
 .cardHeader {
