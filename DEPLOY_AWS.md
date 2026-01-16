@@ -343,7 +343,7 @@ The UI can discover the API in two ways:
 
 **Option B: Direct API base**
 - Point the UI at the full API URL (App Runner/ALB/etc).
-- With CloudFront, pass `--ui-api-direct`/`TRADER_UI_API_MODE=direct` and allow CORS on the API host (`TRADER_CORS_ORIGIN`).
+- With CloudFront, pass `--ui-api-direct`/`TRADER_UI_API_MODE=direct` and allow CORS on the API host (`TRADER_CORS_ORIGIN`). The quick deploy script auto-fills this from the CloudFront domain when available.
 
 **Option C: Deploy-time config file**
 - Edit `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build) before uploading to S3:

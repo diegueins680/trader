@@ -279,6 +279,26 @@ resolve_ui_base_url() {
   echo "https://${domain}"
 }
 
+normalize_origin_url() {
+  local url="${1:-}"
+  if [[ "$url" =~ ^https?://[^/]+ ]]; then
+    echo "${BASH_REMATCH[0]}"
+    return 0
+  fi
+  return 1
+}
+
+resolve_ui_origin() {
+  local dist_id="${1:-}"
+  local domain_override="${2:-}"
+  local base=""
+  base="$(resolve_ui_base_url "$dist_id" "$domain_override" || true)"
+  if [[ -z "$base" ]]; then
+    return 1
+  fi
+  normalize_origin_url "$base"
+}
+
 smoke_check_ui() {
   local ui_url="${1:-}"
   local ui_api_url="${2:-}"
@@ -1971,6 +1991,17 @@ main() {
     echo -e "${YELLOW}✓ CloudFront detected; defaulting UI API mode to /api (set TRADER_UI_API_MODE=direct to use the API URL).${NC}" >&2
   fi
 
+  if [[ -z "${TRADER_CORS_ORIGIN:-}" && "$UI_API_MODE" == "direct" ]]; then
+    local ui_origin=""
+    ui_origin="$(resolve_ui_origin "$UI_DISTRIBUTION_ID" "${UI_CLOUDFRONT_DOMAIN:-}" || true)"
+    if [[ -n "$ui_origin" ]]; then
+      TRADER_CORS_ORIGIN="$ui_origin"
+      echo -e "${YELLOW}✓ Defaulting TRADER_CORS_ORIGIN to ${TRADER_CORS_ORIGIN} for direct UI API calls.${NC}" >&2
+    elif [[ "$DEPLOY_API" == "true" ]]; then
+      echo -e "${YELLOW}Warning: UI API mode is direct but UI origin is unknown; set TRADER_CORS_ORIGIN to your UI origin to avoid CORS errors.${NC}" >&2
+    fi
+  fi
+
   if [[ "$DEPLOY_UI" == "true" && "$ui_cloudfront_enabled" == "true" && -z "${UI_BUCKET:-}" ]]; then
     if is_true "$ENSURE_RESOURCES" || is_true "$UI_CLOUDFRONT_AUTO"; then
       ensure_account_id
@@ -2029,6 +2060,7 @@ main() {
   echo "  Region: $AWS_REGION"
   echo "  Ensure AWS Resources: ${ENSURE_RESOURCES}"
   echo "  API Token: $(mask_token "$TRADER_API_TOKEN")"
+  echo "  CORS Origin: ${TRADER_CORS_ORIGIN:-"(not set)"}"
   if [[ -n "${TRADER_DB_URL:-}" ]]; then
     echo "  Ops DB URL: (set)"
   else

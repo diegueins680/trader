@@ -194,7 +194,7 @@ If you prefer the UI calling `/api/*` on the same domain, configure a CloudFront
 - Cache: disable caching for `/api/*`
 
 Notes:
-- The UI config defaults `apiBaseUrl` to `/api` when a CloudFront distribution is set. Use `--ui-api-direct` (or `TRADER_UI_API_MODE=direct`) to keep the direct API URL (CORS required).
+- The UI config defaults `apiBaseUrl` to `/api` when a CloudFront distribution is set. Use `--ui-api-direct` (or `TRADER_UI_API_MODE=direct`) to keep the direct API URL (CORS required; the quick deploy script can auto-fill `TRADER_CORS_ORIGIN` from the CloudFront domain).
 - You can set the API base URL at deploy time via `haskell/web/public/trader-config.js` (`apiBaseUrl`). Set it to `/api` only when using the same-origin CloudFront `/api/*` behavior.
 - If you run multiple backend instances, either keep it single-instance or ensure `TRADER_API_ASYNC_DIR` points to a shared writable directory (CloudFront itself is not sticky, so async jobs can return “Not found” when polling hits a different instance).
 - If you *do* prefer same-origin `/api/*` routing, see “CloudFront `/api/*` proxy (optional)” above.

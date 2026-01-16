@@ -372,7 +372,7 @@ Optional auth (recommended for any deployment):
 
 Optional CORS:
 - Set `TRADER_CORS_ORIGIN` to a single allowed origin (for example, your CloudFront URL) to enable browser access from that origin.
-- When unset, no `Access-Control-Allow-Origin` header is returned; keep using same-origin `/api/*` in that case.
+- When unset, no `Access-Control-Allow-Origin` header is returned; keep using same-origin `/api/*` or let `deploy-aws-quick.sh` fill it for direct CloudFront UI deploys.
 
 Build info:
 - `GET /` and `GET /health` include `version` and optional `commit` (from env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA`).
@@ -720,7 +720,7 @@ Info popovers align to stay within the configuration panel.
 The backtest/tune ratio inputs show a split preview with the minimum bars required for the current lookback.
 The backtest summary chart includes a Download log button to export the backtest operations.
 Backtest charts allow deeper zoom (mouse wheel down to ~6 bars) for close inspection.
-When the UI is served via CloudFront, `deploy-aws-quick.sh` defaults `apiBaseUrl` to `/api` (same-origin) when a distribution ID/domain is configured. Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to call the API URL directly (CORS required; set `TRADER_CORS_ORIGIN`). When `/api` is used and the API URL is known, the script auto-fills `apiFallbackUrl` to the API URL; for direct API bases, set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly if you want a fallback. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
+When the UI is served via CloudFront, `deploy-aws-quick.sh` defaults `apiBaseUrl` to `/api` (same-origin) when a distribution ID/domain is configured. Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to call the API URL directly (CORS required; set `TRADER_CORS_ORIGIN`, or let the script auto-fill it from the CloudFront domain when available). When `/api` is used and the API URL is known, the script auto-fills `apiFallbackUrl` to the API URL; for direct API bases, set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly if you want a fallback. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided.
 To keep a stable CloudFront URL across deploys, set `TRADER_UI_CLOUDFRONT_DOMAIN` (or `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`) so the quick deploy reuses the distribution and its S3 bucket.
 The UI auto-applies top combos when available and shows when a combo auto-applied; it also auto-starts missing bots for the top 5 combo symbols (Binance only) once interval/lookback validation passes, and manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
