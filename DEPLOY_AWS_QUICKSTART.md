@@ -156,7 +156,7 @@ bash deploy-aws-quick.sh --ui-only \
 ```
 
 Notes:
-- When `--distribution-id` is set, the script defaults `apiBaseUrl` to the API URL (direct). Use `--ui-api-proxy`/`TRADER_UI_API_MODE=proxy` to force `/api` (CloudFront `/api/*` behavior required). When `/api` is used and the App Runner URL is known, the script fills `apiFallbackUrl` to the API URL; for direct bases, set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly if you want a fallback (CORS required).
+- When `--distribution-id` is set, the script defaults `apiBaseUrl` to `/api` (same-origin). Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to use the API URL directly (CORS required). When `/api` is used and the App Runner URL is known, the script fills `apiFallbackUrl` to the API URL; for direct bases, set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly if you want a fallback (CORS required).
 - Use `--cloudfront-domain d123.cloudfront.net` (or `TRADER_UI_CLOUDFRONT_DOMAIN`) to reuse an existing distribution and auto-detect the UI bucket.
 - Use `--cloudfront` (and optionally `--ensure-resources`) to auto-create or reuse a CloudFront distribution and set the UI bucket policy.
 - CloudFront is non-sticky. Keep App Runner min=1/max=1 unless you have shared async job storage (`TRADER_API_ASYNC_DIR` or `TRADER_STATE_DIR`).
@@ -173,7 +173,8 @@ TRADER_API_TARGET="${API_URL}" npm run build
 # Configure deploy-time API settings (edit this file before uploading to S3)
 cat > dist/trader-config.js <<EOF
 globalThis.__TRADER_CONFIG__ = {
-  // Use the API URL directly (default). Set "/api" only if CloudFront proxies /api/* to your API origin.
+  // Use the API URL directly for S3 website hosting (CORS required).
+  // Set "/api" only when CloudFront proxies /api/* to your API origin.
   apiBaseUrl: "${API_URL}",
   apiToken: "${TRADER_API_TOKEN}",
 };

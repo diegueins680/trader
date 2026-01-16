@@ -5316,6 +5316,13 @@ export function App() {
       const startSymbolsNormalized = startSymbols.map((sym) => normalizeSymbolKey(sym)).filter(Boolean);
       const requestedSymbols =
         startSymbolsNormalized.length > 0 ? startSymbolsNormalized : primarySymbol ? [primarySymbol] : [];
+      if (requestedSymbols.length === 0) {
+        if (!silent) {
+          setBot((s) => ({ ...s, error: "Symbol is required to start the live bot." }));
+          showToast("Bot start failed");
+        }
+        return;
+      }
       const missingSymbols = requestedSymbols.filter((sym) => !botActiveSymbolSet.has(sym));
       const shouldSelectPrimary = primarySymbol && (!opts?.auto || botSelectedSymbol == null);
 

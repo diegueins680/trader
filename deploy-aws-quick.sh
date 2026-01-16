@@ -7,7 +7,7 @@
 #
 # Optional: also deploy the web UI (S3 + optional CloudFront invalidation):
 #   bash deploy-aws-quick.sh --region ap-northeast-1 --api-token "$API_TOKEN" --ui-bucket "$S3_BUCKET" --distribution-id "$CF_ID"
-#   - When --distribution-id is set, the UI config apiBaseUrl defaults to the API URL; use --ui-api-proxy to force /api.
+#   - When --distribution-id is set, the UI config apiBaseUrl defaults to /api (same-origin) unless --ui-api-direct is used.
 #
 # Notes:
 #   - If region is omitted, uses AWS_REGION/AWS_DEFAULT_REGION/aws-cli config, then ap-northeast-1.
@@ -62,6 +62,10 @@ UI_CLOUDFRONT_DOMAIN="${TRADER_UI_CLOUDFRONT_DOMAIN:-}"
 UI_SKIP_BUILD="${TRADER_UI_SKIP_BUILD:-false}"
 UI_DIST_DIR="${TRADER_UI_DIST_DIR:-haskell/web/dist}"
 UI_API_MODE="${TRADER_UI_API_MODE:-direct}"
+UI_API_MODE_DEFAULT="true"
+if [[ -n "${TRADER_UI_API_MODE:-}" ]]; then
+  UI_API_MODE_DEFAULT="false"
+fi
 UI_ONLY="false"
 API_ONLY="false"
 UI_API_URL="${TRADER_UI_API_URL:-}"
@@ -120,10 +124,10 @@ Flags:
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
   --cloudfront                      Auto-create/reuse CloudFront distribution for the UI bucket
   --cloudfront-domain <domain>      Reuse a CloudFront distribution by domain (auto-detects UI bucket)
-  --distribution-id <id>            CloudFront distribution ID (optional; defaults UI apiBaseUrl to the API URL unless --ui-api-proxy)
+  --distribution-id <id>            CloudFront distribution ID (optional; defaults UI apiBaseUrl to /api unless --ui-api-direct)
   --api-url <url>                   API origin URL for UI-only deploys (also configures CloudFront /api/* behavior)
   --ui-api-fallback <url>           Optional UI fallback API URL (CORS required)
-  --ui-api-direct                   Use the full API URL in trader-config.js even with CloudFront (default)
+  --ui-api-direct                   Use the full API URL in trader-config.js even with CloudFront
   --ui-api-proxy                    Force apiBaseUrl to /api (requires CloudFront /api/* behavior)
   --service-arn <arn>               App Runner service ARN to auto-discover API URL/token (UI-only convenience)
   --skip-ui-build                   Skip `npm run build` (uses existing dist dir)
@@ -421,10 +425,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ui-api-direct)
       UI_API_MODE="direct"
+      UI_API_MODE_DEFAULT="false"
       shift
       ;;
     --ui-api-proxy)
       UI_API_MODE="proxy"
+      UI_API_MODE_DEFAULT="false"
       shift
       ;;
     --service-arn)
@@ -1953,6 +1959,10 @@ main() {
   local ui_cloudfront_enabled="false"
   if [[ -n "${UI_DISTRIBUTION_ID:-}" ]] || is_true "$UI_CLOUDFRONT_AUTO"; then
     ui_cloudfront_enabled="true"
+  fi
+  if [[ "$DEPLOY_UI" == "true" && "$UI_API_MODE_DEFAULT" == "true" && "$ui_cloudfront_enabled" == "true" ]]; then
+    UI_API_MODE="proxy"
+    echo -e "${YELLOW}✓ CloudFront detected; defaulting UI API mode to /api (set TRADER_UI_API_MODE=direct to use the API URL).${NC}" >&2
   fi
 
   if [[ "$DEPLOY_UI" == "true" && "$ui_cloudfront_enabled" == "true" && -z "${UI_BUCKET:-}" ]]; then

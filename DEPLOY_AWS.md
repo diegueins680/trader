@@ -337,17 +337,17 @@ After it's deployed (5-10 minutes):
 
 The UI can discover the API in two ways:
 
-**Option A: Direct API base (default)**
-- Point the UI at the full API URL (App Runner/ALB/etc); `deploy-aws-quick.sh` defaults to this even when a distribution ID is provided.
-- If you want same-origin calls, use the CloudFront `/api/*` proxy option below and set `--ui-api-proxy`/`TRADER_UI_API_MODE=proxy`.
-
-**Option B: CloudFront `/api/*` proxy**
+**Option A: CloudFront `/api/*` proxy (default with CloudFront)**
 - Configure CloudFront to forward `/api/*` to your API origin (App Runner/ALB/etc).
-- Set `apiBaseUrl` to `/api` (or pass `--ui-api-proxy`/`TRADER_UI_API_MODE=proxy` to the deploy script). When `/api` is used and the API URL is known, the script fills `apiFallbackUrl` to the API URL; override it via `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed (CORS required).
+- Set `apiBaseUrl` to `/api` (or let `deploy-aws-quick.sh` default to it when CloudFront is configured). When `/api` is used and the API URL is known, the script fills `apiFallbackUrl` to the API URL; override it via `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` if needed (CORS required).
+
+**Option B: Direct API base**
+- Point the UI at the full API URL (App Runner/ALB/etc).
+- With CloudFront, pass `--ui-api-direct`/`TRADER_UI_API_MODE=direct` and allow CORS on the API host (`TRADER_CORS_ORIGIN`).
 
 **Option C: Deploy-time config file**
 - Edit `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build) before uploading to S3:
-  - `apiBaseUrl`: `https://<your-api-host>` (default) or `/api` when CloudFront proxies `/api/*`
+  - `apiBaseUrl`: `/api` when CloudFront proxies `/api/*` (default for quick deploy) or `https://<your-api-host>` for direct (CORS required)
   - `apiToken`: the same value as backend `TRADER_API_TOKEN` (optional)
 
 CloudFront is non-sticky. If you run multiple backend instances, either keep it single-instance or ensure `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) points to a shared writable directory so async job polling works across instances.

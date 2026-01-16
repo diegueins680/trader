@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
 - Deploy: include `libpq` in the runtime image so Postgres ops persistence starts cleanly.
+- Deploy/UI: when CloudFront is configured, `deploy-aws-quick.sh` now defaults UI `apiBaseUrl` to `/api` unless `TRADER_UI_API_MODE` is set (use `direct` for full API URL/CORS).
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
@@ -30,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: listenKey user-data stream now subscribes to the backend relay instead of opening a browser WebSocket.
 - Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
 - Web UI: skip top-combo auto-start when interval/lookback validation fails to avoid `/bot/start` errors.
+- Web UI: skip live bot start requests when no symbols are selected and surface a local error instead of a 400.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.
 - Web UI: add an overview card that summarizes connection, market, execution mode, and the latest signal/backtest/trade results.
