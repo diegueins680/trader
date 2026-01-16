@@ -2654,6 +2654,16 @@ export function App() {
         : binancePrivateKeysUnknown
           ? 'Add Binance API keys or click "Check keys" to verify server env keys.'
           : null;
+  const binancePrivateKeysIssue = useMemo(() => {
+    if (!isBinancePlatform) return null;
+    if (binancePrivateKeysMissing) {
+      return 'Binance API keys missing. Add keys or click "Check keys".';
+    }
+    if (binancePrivateKeysUnknown) {
+      return 'Binance API keys required. Add keys or click "Check keys" to verify server env keys.';
+    }
+    return null;
+  }, [binancePrivateKeysMissing, binancePrivateKeysUnknown, isBinancePlatform]);
   const keysProvidedLabel = keysProvided === null ? "unknown" : keysProvided ? "provided" : "missing";
   const keysSigned = activeKeysStatus?.signed ?? null;
   const keysTradeTest =
@@ -5545,7 +5555,7 @@ export function App() {
     () =>
       firstReason(
         !isBinancePlatform ? "Binance account trades require platform=binance." : null,
-        binancePrivateKeysMissing ? 'Binance API keys missing. Add keys or click "Check keys".' : null,
+        binancePrivateKeysIssue,
         form.market !== "futures" && binanceTradesSymbols.length === 0 ? "Symbol is required for spot/margin trades." : null,
         binanceTradesSymbolsInvalid.length > 0
           ? `Symbols must match Binance format (e.g., ${symbolFormatExample("binance")}). Invalid: ${binanceTradesSymbolsInvalid.join(", ")}.`
@@ -5568,8 +5578,8 @@ export function App() {
       binanceTradesStartMs,
       binanceTradesSymbols.length,
       binanceTradesSymbolsInvalid,
+      binancePrivateKeysIssue,
       form.market,
-      binancePrivateKeysMissing,
       isBinancePlatform,
     ],
   );
@@ -5588,10 +5598,10 @@ export function App() {
       firstReason(
         !isBinancePlatform ? "Binance positions require platform=binance." : null,
         form.market !== "futures" ? "Binance positions are supported for futures only." : null,
-        binancePrivateKeysMissing ? 'Binance API keys missing. Add keys or click "Check keys".' : null,
+        binancePrivateKeysIssue,
         binancePositionsBarsError,
       ),
-    [binancePositionsBarsError, binancePrivateKeysMissing, form.market, isBinancePlatform],
+    [binancePositionsBarsError, binancePrivateKeysIssue, form.market, isBinancePlatform],
   );
 
   const fetchBinanceTrades = useCallback(async () => {

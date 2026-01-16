@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: listenKey user-data stream now subscribes to the backend relay instead of opening a browser WebSocket.
 - Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
 - Web UI: skip top-combo auto-start when interval/lookback validation fails to avoid `/bot/start` errors.
+- Web UI: block Binance positions/trades refresh until API keys are provided or verified via “Check keys”.
 - Web UI: skip live bot start requests when no symbols are selected and surface a local error instead of a 400.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.
