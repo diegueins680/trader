@@ -414,10 +414,10 @@ textarea {
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
-.configPanel[open] {
+.configPanel[open]:not(.configPanelMaximized) {
   min-height: var(--panel-height, 320px);
-  height: auto;
-  max-height: none;
+  height: var(--panel-height, 320px);
+  max-height: var(--panel-height, 320px);
 }
 
 .configPanelHeader {
