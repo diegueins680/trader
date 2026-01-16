@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
 - Deploy: include `libpq` in the runtime image so Postgres ops persistence starts cleanly.
 - Deploy/UI: when CloudFront is configured, `deploy-aws-quick.sh` now defaults UI `apiBaseUrl` to `/api` unless `TRADER_UI_API_MODE` is set (use `direct` for full API URL/CORS).
+- Deploy/UI: quick AWS deploy now uploads `index.html` with no-cache headers so clients pick up new bundles promptly.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.

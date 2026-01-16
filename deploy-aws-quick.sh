@@ -1684,6 +1684,12 @@ EOF
     --cache-control "no-cache, no-store, must-revalidate" \
     --content-type "application/javascript" \
     --region "$AWS_REGION" >/dev/null
+  if [[ -f "${UI_DIST_DIR}/index.html" ]]; then
+    aws s3 cp "${UI_DIST_DIR}/index.html" "s3://${UI_BUCKET}/index.html" \
+      --cache-control "no-cache, no-store, must-revalidate" \
+      --content-type "text/html" \
+      --region "$AWS_REGION" >/dev/null
+  fi
   echo -e "${GREEN}✓ UI uploaded${NC}" >&2
 
   if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
