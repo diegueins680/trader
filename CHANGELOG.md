@@ -37,6 +37,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: block Binance positions/trades refresh until API keys are provided or verified via “Check keys”.
 - Web UI: skip live bot start requests when no symbols are selected and surface a local error instead of a 400.
 - Web UI: keep configuration sub-panels at fixed heights so their contents scroll reliably.
+- Web UI: send API tokens via `X-API-Key` only to avoid proxy issues with `Authorization` headers.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.
 - Web UI: add an overview card that summarizes connection, market, execution mode, and the latest signal/backtest/trade results.

@@ -3314,7 +3314,7 @@ export function App() {
   const authHeaders = useMemo(() => {
     const token = apiToken.trim();
     if (!token) return undefined;
-    return { Authorization: `Bearer ${token}`, "X-API-Key": token };
+    return { "X-API-Key": token };
   }, [apiToken]);
 
   const apiBaseCandidate = useMemo(() => normalizeApiBaseUrlInput(deployApiBaseUrl), [deployApiBaseUrl]);
