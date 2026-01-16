@@ -123,7 +123,15 @@ import Trader.LstmPersistence (lstmModelKey)
 import Trader.Metrics (BacktestMetrics(..), computeMetrics)
 import Trader.MarketContext (MarketModel, buildMarketModel, marketMeasurementAt)
 import Trader.BinanceIntervals (binanceIntervals)
-import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom, parseIntervalSeconds)
+import Trader.Duration
+  ( inferPeriodsPerYear
+  , lookbackBarsFrom
+  , minuteOfDayFromMs
+  , parseIntervalSeconds
+  , parseTimeWindow
+  , timeWindowCode
+  , timeWindowContains
+  )
 import Trader.Normalization (NormState, NormType(..), fitNorm, forwardSeries, inverseNorm, inverseSeries, parseNormType)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Predictors
@@ -705,6 +713,14 @@ data ApiParams = ApiParams
   , apMaxHoldBars :: Maybe Int
   , apMaxDrawdown :: Maybe Double
   , apMaxDailyLoss :: Maybe Double
+  , apMaxWeeklyLoss :: Maybe Double
+  , apRiskPerTrade :: Maybe Double
+  , apMaxTradesPerDay :: Maybe Int
+  , apExpectancyLookback :: Maybe Int
+  , apMinExpectancy :: Maybe Double
+  , apNoTradeWindows :: Maybe [String]
+  , apMaxOpenPositions :: Maybe Int
+  , apMaxOpenPerBase :: Maybe Int
   , apMinEdge :: Maybe Double
   , apMinSignalToNoise :: Maybe Double
   , apThresholdFactorEnabled :: Maybe Bool
@@ -1657,6 +1673,14 @@ argsPublicJson args =
       , "maxHoldBars" .= argMaxHoldBars args
       , "maxDrawdown" .= argMaxDrawdown args
       , "maxDailyLoss" .= argMaxDailyLoss args
+      , "maxWeeklyLoss" .= argMaxWeeklyLoss args
+      , "riskPerTrade" .= argRiskPerTrade args
+      , "maxTradesPerDay" .= argMaxTradesPerDay args
+      , "expectancyLookback" .= argExpectancyLookback args
+      , "minExpectancy" .= argMinExpectancy args
+      , "noTradeWindows" .= map timeWindowCode (argNoTradeWindows args)
+      , "maxOpenPositions" .= argMaxOpenPositions args
+      , "maxOpenPerBase" .= argMaxOpenPerBase args
       , "minEdge" .= argMinEdge args
       , "minSignalToNoise" .= argMinSignalToNoise args
       , "thresholdFactorEnabled" .= argThresholdFactorEnabled args
@@ -2903,6 +2927,9 @@ data BotState = BotState
   , botPeakEquity :: !Double
   , botDayKey :: !Int64
   , botDayStartEquity :: !Double
+  , botWeekKey :: !Int64
+  , botWeekStartEquity :: !Double
+  , botDayTrades :: !Int
   , botConsecutiveOrderErrors :: !Int
   , botLstmCtx :: !(Maybe LstmCtx)
   , botKalmanCtx :: !(Maybe KalmanCtx)
@@ -3018,6 +3045,8 @@ botStatusJson st =
     , "halted" .= isJust (botHaltReason st)
     , "peakEquity" .= botPeakEquity st
     , "dayStartEquity" .= botDayStartEquity st
+    , "weekStartEquity" .= botWeekStartEquity st
+    , "dayTrades" .= botDayTrades st
     , "consecutiveOrderErrors" .= botConsecutiveOrderErrors st
     , "cooldownLeft" .= botCooldownLeft st
     , "prices" .= V.toList (botPrices st)
@@ -3088,6 +3117,35 @@ botStateTail tailN st =
 shiftOpenTradeIndex :: Int -> BotOpenTrade -> BotOpenTrade
 shiftOpenTradeIndex dropCount ot =
   ot { botOpenEntryIndex = max 0 (botOpenEntryIndex ot - dropCount) }
+
+positionChangeCount :: [Int] -> Int
+positionChangeCount positions =
+  case positions of
+    [] -> 0
+    (p0 : rest) ->
+      snd (foldl' (\(prev, acc) cur -> (cur, if cur == prev then acc else acc + 1)) (p0, 0) rest)
+
+botBacktestResultFromState :: BotState -> BacktestResult
+botBacktestResultFromState st =
+  let eq = V.toList (botEquityCurve st)
+      posAll = botPositions st
+      posForMetrics =
+        if V.length posAll > 1
+          then V.toList (V.init posAll)
+          else []
+      posChanges = positionChangeCount (V.toList posAll)
+   in BacktestResult
+        { brEquityCurve = eq
+        , brPositions = map fromIntegral posForMetrics
+        , brAgreementOk = []
+        , brAgreementValid = []
+        , brPositionChanges = posChanges
+        , brTrades = botTrades st
+        }
+
+botMetricsFromState :: BotState -> BacktestMetrics
+botMetricsFromState st =
+  computeMetrics (periodsPerYear (botArgs st)) (botBacktestResultFromState st)
 
 botStartingJson :: BotStartRuntime -> Aeson.Value
 botStartingJson rt =
@@ -4562,6 +4620,9 @@ initBotState mOps args settings mComboUuid sym = do
       dayMs = 86400000 :: Int64
       dayKey = V.last openV2 `div` dayMs
       dayStartEq = V.last eq2
+      weekMs = 7 * dayMs
+      weekKey = V.last openV2 `div` weekMs
+      weekStartEq = V.last eq2
       initOrderErrors =
         if tradeEnabled && wantSwitch && not appliedSwitch
           then 1
@@ -4599,6 +4660,9 @@ initBotState mOps args settings mComboUuid sym = do
           , botPeakEquity = peakEq
           , botDayKey = dayKey
           , botDayStartEquity = dayStartEq
+          , botWeekKey = weekKey
+          , botWeekStartEquity = weekStartEq
+          , botDayTrades = 0
           , botConsecutiveOrderErrors = initOrderErrors
           , botLstmCtx = mLstmCtx2
           , botKalmanCtx = mKalmanCtx
@@ -4670,6 +4734,12 @@ botOptimizeAfterOperation st = do
                   , ecMaxHoldBars = argMaxHoldBars args
                   , ecMaxDrawdown = argMaxDrawdown args
                   , ecMaxDailyLoss = argMaxDailyLoss args
+                  , ecMaxWeeklyLoss = argMaxWeeklyLoss args
+                  , ecRiskPerTrade = argRiskPerTrade args
+                  , ecMaxTradesPerDay = argMaxTradesPerDay args
+                  , ecExpectancyLookback = argExpectancyLookback args
+                  , ecMinExpectancy = argMinExpectancy args
+                  , ecNoTradeWindows = argNoTradeWindows args
                   , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
                   , ecOpenTimes = Just (V.drop start (botOpenTimes st))
                   , ecMetaMask = Nothing
@@ -5973,7 +6043,7 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
                     loop
                   else do
                     tProc0 <- getTimestampMs
-                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx s0 k) (pure stPolled) newKs
+                    st1 <- foldl' (\ioAcc k -> ioAcc >>= \s0 -> botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl s0 k) (pure stPolled) newKs
                     tProc1 <- getTimestampMs
                     let batchMs = max 0 (fromIntegral (tProc1 - tProc0) :: Int)
                         batchSize = length newKs
@@ -6002,17 +6072,41 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
 
   loop `finally` cleanup
 
-botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotState -> Kline -> IO BotState
-botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx st k = do
-  r <- try (botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k) :: IO (Either SomeException BotState)
+updateComboMetricsMaybe :: Maybe OpsStore -> BotState -> IO ()
+updateComboMetricsMaybe mOps st =
+  case (mOps, botComboUuid st >>= uuidFromText) of
+    (Just store, Just comboUuid) -> do
+      let metrics = botMetricsFromState st
+          metricsJson = encodeJsonTextMaybe (Just (metricsToJson metrics))
+          finalEq = bmFinalEquity metrics
+          annRet = bmAnnualizedReturn metrics
+      now <- getTimestampMs
+      _ <-
+        try
+          ( withMVar (osLock store) $ \_ ->
+              execute
+                (osConn store)
+                ( "UPDATE combos "
+                    <> "SET final_equity = ?, annualized_return = ?, metrics_json = ?::jsonb, updated_at_ms = ? "
+                    <> "WHERE combo_uuid = ?"
+                )
+                (finalEq, annRet, metricsJson, now, comboUuid)
+          ) ::
+          IO (Either SomeException Int64)
+      pure ()
+    _ -> pure ()
+
+botApplyKlineSafe :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotController -> BotState -> Kline -> IO BotState
+botApplyKlineSafe mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
+  r <- try (botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k) :: IO (Either SomeException BotState)
   case r of
     Right st' -> pure st'
     Left ex -> do
       now <- getTimestampMs
       pure st { botError = Just (show ex), botUpdatedAtMs = now, botLastOpenTime = kOpenTime k }
 
-botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotState -> Kline -> IO BotState
-botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
+botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> TopCombosBacktestCtx -> BotController -> BotState -> Kline -> IO BotState
+botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
   now <- getTimestampMs
   let args = botArgs st
       lookback = botLookback st
@@ -6072,10 +6166,16 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
                         }
       dayMs = 86400000 :: Int64
       dayKeyNew = openTimeNew `div` dayMs
-      (dayKey1, dayStartEq1) =
+      (dayKey1, dayStartEq1, dayTrades1) =
         if dayKeyNew /= botDayKey st
-          then (dayKeyNew, prevEq)
-          else (botDayKey st, botDayStartEquity st)
+          then (dayKeyNew, prevEq, 0)
+          else (botDayKey st, botDayStartEquity st, botDayTrades st)
+      weekMs = 7 * dayMs
+      weekKeyNew = openTimeNew `div` weekMs
+      (weekKey1, weekStartEq1) =
+        if weekKeyNew /= botWeekKey st
+          then (weekKeyNew, prevEq)
+          else (botWeekKey st, botWeekStartEquity st)
       peakEq0 = botPeakEquity st
       drawdown =
         if peakEq0 > 0
@@ -6085,13 +6185,30 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
         if dayStartEq1 > 0
           then max 0 (1 - eqAfterReturn / dayStartEq1)
           else 0
+      weeklyLoss =
+        if weekStartEq1 > 0
+          then max 0 (1 - eqAfterReturn / weekStartEq1)
+          else 0
+      expectancy =
+        case (argMinExpectancy args, argExpectancyLookback args) of
+          (Just _, n) | n > 0 ->
+            let recent = take n (reverse (botTrades st))
+             in if length recent < n
+                  then Nothing
+                  else
+                    let returns = map trReturn recent
+                        vals = filter (\x -> not (isNaN x || isInfinite x)) returns
+                     in if null vals then Nothing else Just (sum vals / fromIntegral (length vals))
+          _ -> Nothing
       riskHaltReason =
         if isJust (botHaltReason st)
           then Nothing
           else
             case () of
               _ | maybe False (\lim -> dailyLoss >= lim) (argMaxDailyLoss args) -> Just "MAX_DAILY_LOSS"
+                | maybe False (\lim -> weeklyLoss >= lim) (argMaxWeeklyLoss args) -> Just "MAX_WEEKLY_LOSS"
                 | maybe False (\lim -> drawdown >= lim) (argMaxDrawdown args) -> Just "MAX_DRAWDOWN"
+                | maybe False (\lim -> maybe False (< lim) expectancy) (argMinExpectancy args) -> Just "NEGATIVE_EXPECTANCY"
                 | otherwise -> Nothing
       haltReason1 = botHaltReason st <|> riskHaltReason
       haltedAt1 = botHaltedAtMs st <|> (if isJust riskHaltReason then Just now else Nothing)
@@ -6147,6 +6264,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
         mPath <- lstmWeightsPath args lookback
         savePersistedLstmModelMaybe mPath (length obsTrain) lstmModel1
         pure (Just (normState, obsAll', lstmModel1))
+
+  allStates <- botGetStates ctrl
 
   let latest0Raw =
         computeLatestSignal
@@ -6356,6 +6475,28 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
       cooldownBars = max 0 (argCooldownBars args)
       cooldownLeft0 = max 0 (botCooldownLeft st)
       cooldownBlocked = prevPos == 0 && cooldownLeft0 > 0
+      positionNow st' =
+        if V.null (botPositions st') then 0 else V.last (botPositions st')
+      baseAssetFor st' =
+        fst
+          ( splitSymbolForPlatform
+              (Just (T.pack (platformCode (argPlatform (botArgs st')))))
+              (T.pack (botSymbol st'))
+          )
+      baseAssetNow = baseAssetFor st
+      openPositionsTotal = length [s | s <- allStates, positionNow s /= 0]
+      openPositionsBase =
+        case baseAssetNow of
+          Nothing -> 0
+          Just base -> length [s | s <- allStates, positionNow s /= 0, baseAssetFor s == Just base]
+      exposureBlocked =
+        case argMaxOpenPositions args of
+          Just lim | lim > 0 -> openPositionsTotal >= lim
+          _ -> False
+      baseExposureBlocked =
+        case argMaxOpenPerBase args of
+          Just lim | lim > 0 -> openPositionsBase >= lim
+          _ -> False
 
       (latest1, desiredPosWanted1, mExitReason1) =
         if prevPos /= 0 && desiredPosWanted0b == 0 && mExitReason0b == Just "SIGNAL" && holdBars < minHoldBars
@@ -6374,10 +6515,45 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
              in (latest1 { lsChosenDir = closeDir, lsAction = "EXIT_MAX_HOLD" }, 0, Just "MAX_HOLD")
           else (latest1, desiredPosWanted1, mExitReason1)
 
+      noTradeActive =
+        case argNoTradeWindows args of
+          [] -> False
+          windows -> any (\w -> timeWindowContains w (minuteOfDayFromMs openTimeNew)) windows
+      tradeLimitReached =
+        case argMaxTradesPerDay args of
+          Just lim | lim > 0 -> dayTrades1 >= lim
+          _ -> False
+      entryAttempt = desiredPosWanted2 /= 0 && desiredPosWanted2 /= prevPos
+      entryAttemptFromFlat = prevPos == 0 && desiredPosWanted2 /= 0
+      entryBlockReason =
+        if entryAttemptFromFlat && exposureBlocked
+          then Just "MAX_OPEN_POSITIONS"
+          else if entryAttemptFromFlat && baseExposureBlocked
+            then Just "MAX_OPEN_PER_BASE"
+            else if entryAttempt && noTradeActive
+              then Just "NO_TRADE_WINDOW"
+              else if entryAttempt && tradeLimitReached
+                then Just "MAX_TRADES_PER_DAY"
+                else Nothing
+
+      (latest2b, desiredPosWanted2b, mExitReason2b) =
+        case entryBlockReason of
+          Just reason ->
+            let action =
+                  if prevPos == 0
+                    then "HOLD_" ++ reason
+                    else "EXIT_" ++ reason
+                exitReason =
+                  if prevPos /= 0 && entryAttempt
+                    then Just reason
+                    else Nothing
+             in (latest2 { lsAction = action }, 0, exitReason)
+          Nothing -> (latest2, desiredPosWanted2, mExitReason2)
+
       (latest, desiredPosWanted, mExitReason) =
-        if prevPos == 0 && desiredPosWanted2 /= 0 && cooldownBlocked
-          then (latest2 { lsAction = "HOLD_COOLDOWN" }, 0, Nothing)
-          else (latest2, desiredPosWanted2, mExitReason2)
+        if prevPos == 0 && desiredPosWanted2b /= 0 && cooldownBlocked
+          then (latest2b { lsAction = "HOLD_COOLDOWN" }, 0, Nothing)
+          else (latest2b, desiredPosWanted2b, mExitReason2b)
 
       wantSwitch = desiredPosWanted /= prevPos
       latestOrder =
@@ -6543,6 +6719,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
             , "equity" .= eqFinal
             , "drawdown" .= drawdown
             , "dailyLoss" .= dailyLoss
+            , "weeklyLoss" .= weeklyLoss
             , "consecutiveOrderErrors" .= orderErrors1
             ]
         )
@@ -6559,6 +6736,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
                 , "reason" .= r
                 , "drawdown" .= drawdown
                 , "dailyLoss" .= dailyLoss
+                , "weeklyLoss" .= weeklyLoss
                 , "consecutiveOrderErrors" .= orderErrors1
                 ]
             )
@@ -6570,7 +6748,12 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
       webhookNotifyMaybe mWebhook (webhookEventBotHalt args (botSymbol st) r drawdown dailyLoss orderErrors1)
     _ -> pure ()
 
-  let cooldownDec =
+  let entryApplied = switchedApplied && posFinal /= 0 && posFinal /= prevPos
+      dayTradesFinal =
+        if entryApplied
+          then dayTrades1 + 1
+          else dayTrades1
+      cooldownDec =
         if prevPos == 0
           then max 0 (cooldownLeft0 - 1)
           else 0
@@ -6656,6 +6839,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
           , botPeakEquity = max (botPeakEquity st) eqFinal
           , botDayKey = dayKey1
           , botDayStartEquity = dayStartEq1
+          , botWeekKey = weekKey1
+          , botWeekStartEquity = weekStartEq1
+          , botDayTrades = dayTradesFinal
           , botConsecutiveOrderErrors = orderErrors1
           , botLstmCtx = mLstmCtx2
           , botKalmanCtx = mKalmanCtx1
@@ -6686,6 +6872,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx st k = do
     (botComboUuid stOut)
     (Just (T.pack (botSymbol stOut)))
     Nothing
+  updateComboMetricsMaybe mOps stOut
   triggerTopCombosBacktestOnCandle topCombosCtx
   pure stOut
 
@@ -11092,6 +11279,14 @@ argsFromApi baseArgs p = do
       Nothing -> Right (argIntrabarFill baseArgs)
       Just raw -> parseIntrabarFill raw
 
+  noTradeWindows <-
+    case apNoTradeWindows p of
+      Nothing -> Right (argNoTradeWindows baseArgs)
+      Just raws ->
+        case traverse parseTimeWindow raws of
+          Left err -> Left ("Invalid noTradeWindows: " ++ err)
+          Right windows -> Right windows
+
   norm <-
     case apNormalization p of
       Nothing -> Right (argNormalization baseArgs)
@@ -11208,6 +11403,14 @@ argsFromApi baseArgs p = do
           , argMaxHoldBars = pickMaybe (apMaxHoldBars p) (argMaxHoldBars baseArgs)
           , argMaxDrawdown = pickMaybe (apMaxDrawdown p) (argMaxDrawdown baseArgs)
           , argMaxDailyLoss = pickMaybe (apMaxDailyLoss p) (argMaxDailyLoss baseArgs)
+          , argMaxWeeklyLoss = pickMaybe (apMaxWeeklyLoss p) (argMaxWeeklyLoss baseArgs)
+          , argRiskPerTrade = pickMaybe (apRiskPerTrade p) (argRiskPerTrade baseArgs)
+          , argMaxTradesPerDay = pickMaybe (apMaxTradesPerDay p) (argMaxTradesPerDay baseArgs)
+          , argExpectancyLookback = pick (apExpectancyLookback p) (argExpectancyLookback baseArgs)
+          , argMinExpectancy = pickMaybe (apMinExpectancy p) (argMinExpectancy baseArgs)
+          , argNoTradeWindows = noTradeWindows
+          , argMaxOpenPositions = pickMaybe (apMaxOpenPositions p) (argMaxOpenPositions baseArgs)
+          , argMaxOpenPerBase = pickMaybe (apMaxOpenPerBase p) (argMaxOpenPerBase baseArgs)
           , argMinEdge = pick (apMinEdge p) (argMinEdge baseArgs)
           , argMinSignalToNoise = pick (apMinSignalToNoise p) (argMinSignalToNoise baseArgs)
           , argThresholdFactorEnabled = pick (apThresholdFactorEnabled p) (argThresholdFactorEnabled baseArgs)
@@ -13449,6 +13652,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecMaxHoldBars = argMaxHoldBars args
           , ecMaxDrawdown = argMaxDrawdown args
           , ecMaxDailyLoss = argMaxDailyLoss args
+          , ecMaxWeeklyLoss = argMaxWeeklyLoss args
+          , ecRiskPerTrade = argRiskPerTrade args
+          , ecMaxTradesPerDay = argMaxTradesPerDay args
+          , ecExpectancyLookback = argExpectancyLookback args
+          , ecMinExpectancy = argMinExpectancy args
+          , ecNoTradeWindows = argNoTradeWindows args
           , ecIntervalSeconds = parseIntervalSeconds (argInterval args)
           , ecOpenTimes = Nothing
           , ecMetaMask = Nothing
@@ -14274,6 +14483,36 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                          in if bad perBar || perBar <= 0 then Nothing else Just perBar
                       _ -> Nothing
 
+                  clampFrac x = min 0.999999 (max 0 x)
+
+                  stopFromVol mult =
+                    if mult <= 0
+                      then Nothing
+                      else
+                        case volPerBar of
+                          Just v ->
+                            let f = mult * v
+                             in if bad f || f <= 0 then Nothing else Just (clampFrac f)
+                          _ -> Nothing
+
+                  stopLossFrac =
+                    case stopFromVol (argStopLossVolMult args) of
+                      Just v -> Just v
+                      Nothing ->
+                        case argStopLoss args of
+                          Just sl | sl > 0 -> Just (clampFrac sl)
+                          _ -> Nothing
+
+                  riskScale =
+                    case argRiskPerTrade args of
+                      Just risk | risk > 0 ->
+                        case stopLossFrac of
+                          Just sl | sl > 0 ->
+                            let s = risk / sl
+                             in if bad s || s <= 0 then 1 else s
+                          _ -> 1
+                      _ -> 1
+
                   volTargetReady =
                     case volTarget of
                       Nothing -> True
@@ -14852,7 +15091,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                           _ -> 0
 
                   sizeScaled = baseSize * volScale
-                  sizeCapped = min maxPositionSize (max 0 sizeScaled)
+                  sizeScaledRisk = sizeScaled * riskScale
+                  sizeCapped = min maxPositionSize (max 0 sizeScaledRisk)
                   sizeFinal0 =
                     if argConfidenceSizing args && sizeCapped < argMinPositionSize args
                       then 0

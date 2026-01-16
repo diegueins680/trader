@@ -819,6 +819,14 @@ function pnlBadgeClass(value: number | null | undefined): string {
   return "badge badgeHold";
 }
 
+function binanceTradeSideLabel(trade: BinanceTrade): "BUY" | "SELL" | "—" {
+  const raw = trade.side?.toUpperCase();
+  if (raw === "BUY" || raw === "SELL") return raw;
+  if (trade.isBuyer === true) return "BUY";
+  if (trade.isBuyer === false) return "SELL";
+  return "—";
+}
+
 function backtestTradePhase(split: BacktestResponse["split"], entryIndex: number): string {
   if (entryIndex >= split.backtestStartIndex) return "backtest";
   if (split.tune > 0 && entryIndex >= split.tuneStartIndex) return "tune";
@@ -969,7 +977,7 @@ function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnlAnalysi
     if (!trade) continue;
     const pnl = trade.realizedPnl;
     if (typeof pnl !== "number" || !Number.isFinite(pnl)) continue;
-    const side = trade.side ?? (trade.isBuyer === true ? "BUY" : trade.isBuyer === false ? "SELL" : "—");
+    const side = binanceTradeSideLabel(trade);
     const commission = trade.commission;
     const commissionAsset = trade.commissionAsset ?? null;
     if (typeof commission === "number" && Number.isFinite(commission)) {
@@ -2601,6 +2609,10 @@ export function App() {
   const [binanceTradesStartInput, setBinanceTradesStartInput] = useState("");
   const [binanceTradesEndInput, setBinanceTradesEndInput] = useState("");
   const [binanceTradesFromIdInput, setBinanceTradesFromIdInput] = useState("");
+  const [binanceTradesFilterSymbolsInput, setBinanceTradesFilterSymbolsInput] = useState("");
+  const [binanceTradesFilterSide, setBinanceTradesFilterSide] = useState<OrderSideFilter>("ALL");
+  const [binanceTradesFilterStartInput, setBinanceTradesFilterStartInput] = useState("");
+  const [binanceTradesFilterEndInput, setBinanceTradesFilterEndInput] = useState("");
 
   const [binancePositionsUi, setBinancePositionsUi] = useState<BinancePositionsUiState>({
     loading: false,
@@ -4244,29 +4256,129 @@ export function App() {
     return botRt.feed.map((e) => `${fmtTimeMs(e.atMs)} | ${e.message}`).join("\n");
   }, [botRt.feed]);
 
-  const binanceTradesCopyText = useMemo(() => {
+  const binanceTradesFilterSymbols = useMemo(
+    () => parseSymbolsInput(binanceTradesFilterSymbolsInput),
+    [binanceTradesFilterSymbolsInput],
+  );
+  const binanceTradesFilterStartMs = useMemo(() => parseTimeInputMs(binanceTradesFilterStartInput), [binanceTradesFilterStartInput]);
+  const binanceTradesFilterEndMs = useMemo(() => {
+    const trimmed = binanceTradesFilterEndInput.trim();
+    if (!trimmed) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const parsed = parseTimeInputMs(trimmed);
+      return parsed === null ? null : parsed + 24 * 60 * 60 * 1000 - 1;
+    }
+    return parseTimeInputMs(trimmed);
+  }, [binanceTradesFilterEndInput]);
+  const binanceTradesFilterError = useMemo(() => {
+    if (binanceTradesFilterStartInput.trim() && binanceTradesFilterStartMs === null) {
+      return "Filter start date must be a unix ms timestamp or ISO date.";
+    }
+    if (binanceTradesFilterEndInput.trim() && binanceTradesFilterEndMs === null) {
+      return "Filter end date must be a unix ms timestamp or ISO date.";
+    }
+    if (
+      binanceTradesFilterStartMs !== null &&
+      binanceTradesFilterEndMs !== null &&
+      binanceTradesFilterEndMs < binanceTradesFilterStartMs
+    ) {
+      return "Filter end date must be after the start date.";
+    }
+    return null;
+  }, [
+    binanceTradesFilterEndInput,
+    binanceTradesFilterEndMs,
+    binanceTradesFilterStartInput,
+    binanceTradesFilterStartMs,
+  ]);
+  const binanceTradesFiltered = useMemo(() => {
     const trades = binanceTradesUi.response?.trades ?? [];
-    if (trades.length === 0) return "No trades loaded.";
+    if (trades.length === 0) return trades;
+    let filtered = trades;
+    if (binanceTradesFilterSymbols.length > 0) {
+      const symbols = new Set(binanceTradesFilterSymbols);
+      filtered = filtered.filter((trade) => symbols.has(trade.symbol.toUpperCase()));
+    }
+    if (binanceTradesFilterSide !== "ALL") {
+      filtered = filtered.filter((trade) => binanceTradeSideLabel(trade) === binanceTradesFilterSide);
+    }
+    if (binanceTradesFilterStartMs !== null) {
+      filtered = filtered.filter((trade) => trade.time >= binanceTradesFilterStartMs);
+    }
+    if (binanceTradesFilterEndMs !== null) {
+      filtered = filtered.filter((trade) => trade.time <= binanceTradesFilterEndMs);
+    }
+    return filtered;
+  }, [
+    binanceTradesFilterEndMs,
+    binanceTradesFilterSide,
+    binanceTradesFilterStartMs,
+    binanceTradesFilterSymbols,
+    binanceTradesUi.response,
+  ]);
+  const binanceTradesFilteredTotals = useMemo(() => {
+    let totalPnl = 0;
+    let totalPnlCount = 0;
+    const commissionByAsset = new Map<string, CommissionTotal>();
+    for (const trade of binanceTradesFiltered) {
+      const pnl = trade.realizedPnl;
+      if (typeof pnl === "number" && Number.isFinite(pnl)) {
+        totalPnl += pnl;
+        totalPnlCount += 1;
+      }
+      const commission = trade.commission;
+      if (typeof commission === "number" && Number.isFinite(commission)) {
+        const assetKey = trade.commissionAsset?.trim() ? trade.commissionAsset.trim() : "unknown";
+        const existing = commissionByAsset.get(assetKey);
+        if (existing) {
+          existing.total += commission;
+          existing.count += 1;
+        } else {
+          commissionByAsset.set(assetKey, { asset: assetKey, total: commission, count: 1 });
+        }
+      }
+    }
+    const commissionTotals = Array.from(commissionByAsset.values()).sort((a, b) => a.asset.localeCompare(b.asset));
+    return { totalPnl, totalPnlCount, commissionTotals };
+  }, [binanceTradesFiltered]);
+  const binanceTradesFilterActive =
+    binanceTradesFilterSymbols.length > 0 ||
+    binanceTradesFilterSide !== "ALL" ||
+    Boolean(binanceTradesFilterStartInput.trim()) ||
+    Boolean(binanceTradesFilterEndInput.trim());
+  const binanceTradesTotalCount = binanceTradesUi.response?.trades.length ?? 0;
+  const binanceTradesFilteredCount = binanceTradesFiltered.length;
+  const binanceTradesFilteredPnlLabel =
+    binanceTradesFilteredTotals.totalPnlCount > 0 ? fmtMoney(binanceTradesFilteredTotals.totalPnl, 4) : "—";
+  const binanceTradesFilteredCommissionLabel =
+    binanceTradesFilteredTotals.commissionTotals.length > 0
+      ? binanceTradesFilteredTotals.commissionTotals.map((row) => `${fmtNum(row.total, 8)} ${row.asset}`).join(" • ")
+      : "—";
+
+  const binanceTradesCopyText = useMemo(() => {
+    const trades = binanceTradesFiltered;
+    if (trades.length === 0) {
+      return binanceTradesUi.response?.trades.length ? "No trades match filters." : "No trades loaded.";
+    }
     return trades
       .map((trade) => {
-        const side = trade.side ?? (trade.isBuyer === true ? "BUY" : trade.isBuyer === false ? "SELL" : "—");
+        const side = binanceTradeSideLabel(trade);
         const qty = typeof trade.qty === "number" && Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
         const quote = typeof trade.quoteQty === "number" && Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
         return `${fmtTimeMs(trade.time)} | ${trade.symbol} | ${side} | ${fmtMoney(trade.price, 4)} | ${qty} | ${quote}`;
       })
       .join("\n");
-  }, [binanceTradesUi.response]);
+  }, [binanceTradesFiltered, binanceTradesUi.response]);
 
   const binanceTradesJson = useMemo(() => {
-    const trades = binanceTradesUi.response?.trades ?? [];
+    const trades = binanceTradesFiltered;
     if (trades.length === 0) return "";
     return JSON.stringify(trades, null, 2);
-  }, [binanceTradesUi.response]);
+  }, [binanceTradesFiltered]);
 
   const binanceTradesAnalysis = useMemo(() => {
-    const trades = binanceTradesUi.response?.trades ?? [];
-    return buildBinanceTradePnlAnalysis(trades);
-  }, [binanceTradesUi.response]);
+    return buildBinanceTradePnlAnalysis(binanceTradesFiltered);
+  }, [binanceTradesFiltered]);
 
   const botRisk = useMemo(() => {
     const st = botDisplay;
@@ -11420,7 +11532,8 @@ export function App() {
                   <div className="pillRow" style={{ marginTop: 12, marginBottom: 10 }}>
                     <span className="badge">{marketLabel(binanceTradesUi.response.market)}</span>
                     <span className="badge">{binanceTradesUi.response.testnet ? "TESTNET" : "LIVE"}</span>
-                    <span className="badge">{binanceTradesUi.response.trades.length} trades</span>
+                    <span className="badge">{binanceTradesTotalCount} trades</span>
+                    {binanceTradesFilterActive ? <span className="badge">filtered {binanceTradesFilteredCount}</span> : null}
                     <span className="badge">
                       {binanceTradesUi.response.allSymbols
                         ? "all symbols"
@@ -11430,7 +11543,83 @@ export function App() {
                     </span>
                     <span className="badge">fetched {fmtTimeMs(binanceTradesUi.response.fetchedAtMs)}</span>
                   </div>
-                  {binanceTradesUi.response.trades.length > 0 ? (
+                  <div className="pillRow" style={{ marginBottom: 10 }}>
+                    <input
+                      className="input"
+                      style={{ flex: "1 1 220px" }}
+                      value={binanceTradesFilterSymbolsInput}
+                      onChange={(e) => setBinanceTradesFilterSymbolsInput(e.target.value)}
+                      placeholder="Filter symbols (BTCUSDT, ETHUSDT)"
+                      spellCheck={false}
+                      aria-label="Filter trade symbols"
+                    />
+                    <select
+                      className="select"
+                      style={{ width: 140 }}
+                      value={binanceTradesFilterSide}
+                      onChange={(e) => setBinanceTradesFilterSide(e.target.value as OrderSideFilter)}
+                      aria-label="Filter trade side"
+                    >
+                      <option value="ALL">All sides</option>
+                      <option value="BUY">BUY</option>
+                      <option value="SELL">SELL</option>
+                    </select>
+                    <input
+                      className="input"
+                      style={{ flex: "1 1 200px" }}
+                      value={binanceTradesFilterStartInput}
+                      onChange={(e) => setBinanceTradesFilterStartInput(e.target.value)}
+                      placeholder="Filter start date"
+                      aria-label="Filter start date"
+                    />
+                    <input
+                      className="input"
+                      style={{ flex: "1 1 200px" }}
+                      value={binanceTradesFilterEndInput}
+                      onChange={(e) => setBinanceTradesFilterEndInput(e.target.value)}
+                      placeholder="Filter end date"
+                      aria-label="Filter end date"
+                    />
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={!binanceTradesFilterActive && !binanceTradesFilterError}
+                      onClick={() => {
+                        setBinanceTradesFilterSymbolsInput("");
+                        setBinanceTradesFilterSide("ALL");
+                        setBinanceTradesFilterStartInput("");
+                        setBinanceTradesFilterEndInput("");
+                        showToast("Cleared trade filters");
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                  {binanceTradesFilterError ? (
+                    <div className="hint" style={{ marginTop: 6, color: "rgba(239, 68, 68, 0.9)" }}>
+                      {binanceTradesFilterError}
+                    </div>
+                  ) : (
+                    <div className="hint" style={{ marginTop: 6 }}>
+                      Filter dates accept unix ms timestamps or ISO dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
+                    </div>
+                  )}
+                  <div className="pillRow" style={{ marginTop: 8 }}>
+                    {binanceTradesFilterActive ? (
+                      <span className="badge">
+                        showing {binanceTradesFilteredCount} of {binanceTradesTotalCount}
+                      </span>
+                    ) : null}
+                    <span
+                      className={pnlBadgeClass(
+                        binanceTradesFilteredTotals.totalPnlCount > 0 ? binanceTradesFilteredTotals.totalPnl : null,
+                      )}
+                    >
+                      Total P&amp;L {binanceTradesFilteredPnlLabel}
+                    </span>
+                    <span className="badge">Total commission {binanceTradesFilteredCommissionLabel}</span>
+                  </div>
+                  {binanceTradesFilteredCount > 0 ? (
                     binanceTradesAnalysis ? (
                       <details className="details" style={{ marginTop: 12 }}>
                         <summary>Trade P&amp;L analysis</summary>
@@ -11466,8 +11655,9 @@ export function App() {
                               stats.commissionTotals.length > 0
                                 ? stats.commissionTotals.map((c) => `${fmtNum(c.total, 6)} ${c.asset}`).join(" • ")
                                 : "—";
-                            const totalsScope =
-                              response.allSymbols || response.symbols.length > 1
+                            const totalsScope = binanceTradesFilterActive
+                              ? "Totals across filtered trades."
+                              : response.allSymbols || response.symbols.length > 1
                                 ? response.allSymbols
                                   ? "Totals across all symbols."
                                   : `Totals across ${response.symbols.length} symbols.`
@@ -11646,8 +11836,10 @@ export function App() {
                       </div>
                     )
                   ) : null}
-                  {binanceTradesUi.response.trades.length === 0 ? (
-                    <div className="hint">No trades returned.</div>
+                  {binanceTradesFilteredCount === 0 ? (
+                    <div className="hint">
+                      {binanceTradesTotalCount > 0 ? "No trades match the filters." : "No trades returned."}
+                    </div>
                   ) : (
                     <div className="tableWrap" role="region" aria-label="Binance account trades">
                       <table className="table">
@@ -11666,8 +11858,8 @@ export function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {binanceTradesUi.response.trades.map((trade) => {
-                            const side = trade.side ?? (trade.isBuyer === true ? "BUY" : trade.isBuyer === false ? "SELL" : "—");
+                          {binanceTradesFiltered.map((trade) => {
+                            const side = binanceTradeSideLabel(trade);
                             const qtyTxt = Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
                             const quoteTxt = Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
                             const commissionTxt =

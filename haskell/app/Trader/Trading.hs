@@ -27,6 +27,7 @@ import Data.Int (Int64)
 import Data.List (foldl')
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import Trader.Duration (TimeWindow, minuteOfDayFromMs, timeWindowContains)
 import Trader.Kalman3 (KalmanRun(..), runConstantAcceleration1D)
 
 data Positioning
@@ -51,6 +52,12 @@ data EnsembleConfig = EnsembleConfig
   , ecMaxHoldBars :: !(Maybe Int)      -- bars; 0 disables (force exit after N bars)
   , ecMaxDrawdown :: !(Maybe Double)   -- fraction, e.g. 0.2 (20%); halts and exits to flat
   , ecMaxDailyLoss :: !(Maybe Double)  -- fraction, e.g. 0.05 (5%); halts and exits to flat
+  , ecMaxWeeklyLoss :: !(Maybe Double) -- fraction, e.g. 0.1 (10%); halts and exits to flat
+  , ecRiskPerTrade :: !(Maybe Double)  -- fraction, e.g. 0.01 (1%); sizes via stop-loss fraction
+  , ecMaxTradesPerDay :: !(Maybe Int)  -- number of entries per day; 0 disables
+  , ecExpectancyLookback :: !Int       -- trades; 0 disables expectancy gating
+  , ecMinExpectancy :: !(Maybe Double) -- avg trade return threshold
+  , ecNoTradeWindows :: ![TimeWindow]  -- UTC windows to block entries
   , ecIntervalSeconds :: !(Maybe Int)  -- required for daily-loss; inferred from CLI interval
   , ecOpenTimes :: !(Maybe (V.Vector Int64)) -- optional bar open times (ms since epoch) for daily-loss day keys
   , ecMetaMask :: !(Maybe (V.Vector Bool)) -- optional per-bar mask to apply Kalman meta gating
@@ -149,6 +156,7 @@ data ExitReason
   | ExitTakeProfit
   | ExitMaxDrawdown
   | ExitMaxDailyLoss
+  | ExitMaxWeeklyLoss
   | ExitLiquidation
   | ExitEod
   | ExitOther !String
@@ -163,6 +171,7 @@ exitReasonCode why =
     ExitTakeProfit -> "TAKE_PROFIT"
     ExitMaxDrawdown -> "MAX_DRAWDOWN"
     ExitMaxDailyLoss -> "MAX_DAILY_LOSS"
+    ExitMaxWeeklyLoss -> "MAX_WEEKLY_LOSS"
     ExitLiquidation -> "LIQUIDATION"
     ExitEod -> "EOD"
     ExitOther s -> s
@@ -176,6 +185,7 @@ exitReasonFromCode code =
     "TAKE_PROFIT" -> ExitTakeProfit
     "MAX_DRAWDOWN" -> ExitMaxDrawdown
     "MAX_DAILY_LOSS" -> ExitMaxDailyLoss
+    "MAX_WEEKLY_LOSS" -> ExitMaxWeeklyLoss
     "LIQUIDATION" -> ExitLiquidation
     "EOD" -> ExitEod
     other -> ExitOther other
@@ -216,6 +226,16 @@ data OpenTrade = OpenTrade
   , otSide :: !PositionSide
   , otBaseSize :: !Double
   , otLstmFlipCount :: !Int
+  } deriving (Eq, Show)
+
+data RiskState = RiskState
+  { rsPeakEquity :: !Double
+  , rsDayKey :: !Int
+  , rsDayStartEquity :: !Double
+  , rsWeekKey :: !Int
+  , rsWeekStartEquity :: !Double
+  , rsDayTrades :: !Int
+  , rsHaltReason :: !(Maybe ExitReason)
   } deriving (Eq, Show)
 
 data BacktestResult = BacktestResult
@@ -428,10 +448,25 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
             case intervalSeconds of
               Just _ -> True
               Nothing -> False
+      hasWeeklyKey = hasDailyKey
       dailyLossReq =
         case ecMaxDailyLoss cfg of
           Just v | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
           _ -> Nothing
+      weeklyLossReq =
+        case ecMaxWeeklyLoss cfg of
+          Just v | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
+          _ -> Nothing
+      maxTradesPerDayReq =
+        case ecMaxTradesPerDay cfg of
+          Just n | n > 0 -> Just n
+          _ -> Nothing
+      expectancyLookback = max 0 (ecExpectancyLookback cfg)
+      minExpectancy =
+        case ecMinExpectancy cfg of
+          Just v | not (isNaN v || isInfinite v) -> Just v
+          _ -> Nothing
+      noTradeWindows = ecNoTradeWindows cfg
       metaMaskV =
         case ecMetaMask cfg of
           Just mask
@@ -481,33 +516,37 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
           if V.length highsV /= n || V.length lowsV /= n
             then Just "high/low vectors must match closes length"
           else
-            if lookback >= n
-              then Just "lookback must be less than number of prices"
-              else
-                if dailyLossReq /= Nothing && not hasDailyKey
-                  then Just "--max-daily-loss requires bar timestamps or interval seconds"
+                if lookback >= n
+                  then Just "lookback must be less than number of prices"
                   else
-                    case (dailyLossReq, openTimesMismatch) of
-                      (Just _, Just err) -> Just err
-                      _ ->
-                        case metaMaskMismatch of
-                          Just err -> Just err
-                          Nothing ->
-                            case metaMismatch of
-                              Just err -> Just err
-                              Nothing ->
-                                if V.length kalPredNextV < kalNeed
-                                  then
-                                    Just
-                                      ( "kalPredNext too short: need at least "
-                                          ++ show kalNeed
-                                          ++ ", got "
-                                          ++ show (V.length kalPredNextV)
-                                      )
-                                  else
-                                    case lstmPredAtE of
-                                      Left err -> Just err
-                                      Right _ -> Nothing
+                    if (dailyLossReq /= Nothing || weeklyLossReq /= Nothing || maxTradesPerDayReq /= Nothing) && not hasDailyKey
+                      then Just "--max-daily-loss/--max-weekly-loss/--max-trades-per-day require bar timestamps or interval seconds"
+                      else
+                        if minExpectancy /= Nothing && expectancyLookback <= 0
+                          then Just "--min-expectancy requires --expectancy-lookback >= 1"
+                          else
+                            case openTimesMismatch of
+                              Just err
+                                | dailyLossReq /= Nothing || weeklyLossReq /= Nothing || maxTradesPerDayReq /= Nothing -> Just err
+                              _ ->
+                                case metaMaskMismatch of
+                                  Just err -> Just err
+                                  Nothing ->
+                                    case metaMismatch of
+                                      Just err -> Just err
+                                      Nothing ->
+                                        if V.length kalPredNextV < kalNeed
+                                          then
+                                            Just
+                                              ( "kalPredNext too short: need at least "
+                                                  ++ show kalNeed
+                                                  ++ ", got "
+                                                  ++ show (V.length kalPredNextV)
+                                              )
+                                          else
+                                            case lstmPredAtE of
+                                              Left err -> Just err
+                                              Right _ -> Nothing
    in case validationError of
         Just err -> Left err
         Nothing ->
@@ -557,6 +596,19 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                 case dailyLossReq of
                   Just v | hasDailyKey -> Just v
                   _ -> Nothing
+              maxWeeklyLossLim =
+                case weeklyLossReq of
+                  Just v | hasWeeklyKey -> Just v
+                  _ -> Nothing
+              maxTradesPerDayLim =
+                case maxTradesPerDayReq of
+                  Just n | hasDailyKey && n > 0 -> Just n
+                  _ -> Nothing
+              riskPerTrade =
+                case ecRiskPerTrade cfg of
+                  Just v | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
+                  _ -> Nothing
+              noTradeWindows' = noTradeWindows
               maxPositionSize = max 0 (ecMaxPositionSize cfg)
               minPositionSize = max 0 (ecMinPositionSize cfg)
               rebalanceBars = max 0 (ecRebalanceBars cfg)
@@ -675,6 +727,30 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                       Just sec ->
                         let tSec = fromIntegral i * fromIntegral sec :: Integer
                          in fromIntegral (tSec `div` 86400)
+              weekKeyAt :: Int -> Int
+              weekKeyAt i =
+                case openTimesV of
+                  Just tsV
+                    | i >= 0 && i < V.length tsV ->
+                        let weekMs = 7 * 86400000 :: Int64
+                         in fromIntegral ((tsV V.! i) `div` weekMs)
+                  _ ->
+                    case intervalSeconds of
+                      Nothing -> 0
+                      Just sec ->
+                        let tSec = fromIntegral i * fromIntegral sec :: Integer
+                         in fromIntegral (tSec `div` (86400 * 7))
+              minuteOfDayAt :: Int -> Int
+              minuteOfDayAt i =
+                case openTimesV of
+                  Just tsV
+                    | i >= 0 && i < V.length tsV -> minuteOfDayFromMs (tsV V.! i)
+                  _ ->
+                    case intervalSeconds of
+                      Nothing -> 0
+                      Just sec ->
+                        let minutes = (fromIntegral i * fromIntegral sec) `div` 60 :: Integer
+                         in fromIntegral (minutes `mod` 1440)
               direction thr prev pred =
                 let upEdge = prev * (1 + thr)
                     downEdge = prev * (1 - thr)
@@ -825,6 +901,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
               isBad :: Double -> Bool
               isBad x = isNaN x || isInfinite x
+
+              meanList :: [Double] -> Double
+              meanList xs =
+                let ys = filter (not . isBad) xs
+                 in if null ys then 0 else sum ys / fromIntegral (length ys)
 
               returnsV :: V.Vector Double
               returnsV =
@@ -1137,6 +1218,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                       Just ts | ts > 0 -> Just (clampFrac ts)
                       _ -> Nothing
 
+              riskScaleAt :: Int -> Double
+              riskScaleAt t =
+                case riskPerTrade of
+                  Nothing -> 1
+                  Just risk ->
+                    case stopLossFracAt t of
+                      Just sl | sl > 0 ->
+                        let s = risk / sl
+                         in if isBad s || s <= 0 then 1 else s
+                      _ -> 1
+
               scale01 :: Double -> Double -> Double -> Double
               scale01 lo hi x =
                 let lo' = min lo hi
@@ -1284,7 +1376,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                     , factorClosePrev
                     )
                   else
-                    let (peakEq0, dayKey0, dayStartEq0, haltReason0) = riskState0
+                    let RiskState
+                          { rsPeakEquity = peakEq0
+                          , rsDayKey = dayKey0
+                          , rsDayStartEquity = dayStartEq0
+                          , rsWeekKey = weekKey0
+                          , rsWeekStartEquity = weekStartEq0
+                          , rsDayTrades = dayTrades0
+                          , rsHaltReason = haltReason0
+                          } = riskState0
                         (dayKey1, dayStartEq1, dayChanged) =
                           if hasDailyKey
                             then
@@ -1293,6 +1393,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                   dayStart = if changed then equity else dayStartEq0
                                in (dk, dayStart, changed)
                             else (dayKey0, dayStartEq0, False)
+                        (weekKey1, weekStartEq1, weekChanged) =
+                          if hasWeeklyKey
+                            then
+                              let wk = weekKeyAt t
+                                  changed = wk /= weekKey0
+                                  weekStart = if changed then equity else weekStartEq0
+                               in (wk, weekStart, changed)
+                            else (weekKey0, weekStartEq0, False)
+                        dayTrades1 = if dayChanged then 0 else dayTrades0
                         peakEq1 = max peakEq0 equity
                         drawdown =
                           if peakEq1 > 0
@@ -1302,9 +1411,22 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                           if dayStartEq1 > 0
                             then max 0 (1 - equity / dayStartEq1)
                             else 0
+                        weeklyLoss =
+                          if weekStartEq1 > 0
+                            then max 0 (1 - equity / weekStartEq1)
+                            else 0
+                        expectancy =
+                          if expectancyLookback <= 0
+                            then Nothing
+                            else
+                              let recent = take expectancyLookback tradesAcc
+                               in if length recent < expectancyLookback
+                                    then Nothing
+                                    else Just (meanList (map trReturn recent))
                         haltReasonBase =
-                          case (haltReason0, dayChanged) of
-                            (Just ExitMaxDailyLoss, True) -> Nothing
+                          case (haltReason0, dayChanged, weekChanged) of
+                            (Just ExitMaxDailyLoss, True, _) -> Nothing
+                            (Just ExitMaxWeeklyLoss, _, True) -> Nothing
                             _ -> haltReason0
                         riskHaltReason =
                           case haltReasonBase of
@@ -1312,7 +1434,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             Nothing ->
                               case () of
                                 _ | maybe False (\lim -> dailyLoss >= lim) maxDailyLossLim -> Just ExitMaxDailyLoss
+                                  | maybe False (\lim -> weeklyLoss >= lim) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
                                   | maybe False (\lim -> drawdown >= lim) maxDrawdownLim -> Just ExitMaxDrawdown
+                                  | maybe False (\lim -> maybe False (< lim) expectancy) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
                                   | otherwise -> Nothing
                         haltReason1 =
                           case haltReasonBase of
@@ -1619,7 +1743,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                     _ -> max 0 desiredSizeRaw
 
                         entryScale = if desiredSide2 /= Nothing && desiredSide2 /= posSide then lstmEntryScale else 1
-                        sizeScale = if desiredSide2 == Nothing then 1 else volScaleAt t
+                        sizeScale = if desiredSide2 == Nothing then 1 else volScaleAt t * riskScaleAt t
                         sizeScaled = baseSizeTarget * entryScale * sizeScale
                         sizeCapped = min maxPositionSize (max 0 sizeScaled)
                         sizeFinal0 =
@@ -1644,8 +1768,30 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             then posSize
                             else desiredSize
 
+                        noTradeActive =
+                          case noTradeWindows' of
+                            [] -> False
+                            windows -> any (\w -> timeWindowContains w (minuteOfDayAt t)) windows
+
+                        tradeLimitReached =
+                          case maxTradesPerDayLim of
+                            Just lim -> dayTrades1 >= lim
+                            Nothing -> False
+
+                        entryAttempt =
+                          case desiredSideHoldAdjusted of
+                            Just side -> posSide /= Just side
+                            Nothing -> False
+
+                        entryBlockReason =
+                          if entryAttempt && noTradeActive
+                            then Just "NO_TRADE_WINDOW"
+                            else if entryAttempt && tradeLimitReached
+                              then Just "MAX_TRADES_PER_DAY"
+                              else Nothing
+
                         (desiredSideFinal0, desiredSizeFinal0) =
-                          if cooldownActive
+                          if cooldownActive || entryBlockReason /= Nothing
                             then (Nothing, 0)
                             else (desiredSideHoldAdjusted, desiredSizeHoldAdjusted)
 
@@ -1664,10 +1810,16 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             then (Nothing, 0)
                             else (desiredSideFinal1, desiredSizeFinal1)
 
+                        entryBlockExit =
+                          case (entryBlockReason, posSide, entryAttempt) of
+                            (Just reason, Just _, True) -> Just (ExitOther reason)
+                            _ -> Nothing
+
                         exitReasonOverride =
                           case () of
                             _ | halted -> haltReason1
                               | holdTooLong -> Just (ExitOther "MAX_HOLD")
+                              | entryBlockExit /= Nothing -> entryBlockExit
                               | lstmFlipExit -> Just (ExitOther "LSTM_FLIP")
                               | slowCrossExit -> Just (ExitOther "KALMAN_SLOW")
                               | kalmanBandExit -> Just (ExitOther "KALMAN_BAND")
@@ -1967,10 +2119,24 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                     if dayStartEq1 > 0
                                       then max 0 (1 - equityFinal2 / dayStartEq1)
                                       else 0
+                                  weeklyLossAfter =
+                                    if weekStartEq1 > 0
+                                      then max 0 (1 - equityFinal2 / weekStartEq1)
+                                      else 0
+                                  expectancyAfter =
+                                    if expectancyLookback <= 0
+                                      then Nothing
+                                      else
+                                        let recent = take expectancyLookback tradesFinal2
+                                         in if length recent < expectancyLookback
+                                              then Nothing
+                                              else Just (meanList (map trReturn recent))
                                   riskHaltReason2 =
                                     case () of
                                       _ | maybe False (\lim -> dailyLossAfter >= lim) maxDailyLossLim -> Just ExitMaxDailyLoss
+                                        | maybe False (\lim -> weeklyLossAfter >= lim) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
                                         | maybe False (\lim -> drawdownAfter >= lim) maxDrawdownLim -> Just ExitMaxDrawdown
+                                        | maybe False (\lim -> maybe False (< lim) expectancyAfter) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
                                         | otherwise -> Nothing
                                in case riskHaltReason2 of
                                     Nothing -> (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Nothing)
@@ -2000,6 +2166,25 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                           if posFinal3 == Nothing
                             then if exitedToFlat then cooldownAfterExit else cooldownNext0
                             else 0
+                        entryOccurred =
+                          case (posSide, posFinal3) of
+                            (Nothing, Just _) -> True
+                            (Just side0, Just side1) -> side0 /= side1
+                            _ -> False
+                        dayTradesNext =
+                          if entryOccurred
+                            then dayTrades1 + 1
+                            else dayTrades1
+                        riskStateNext =
+                          RiskState
+                            { rsPeakEquity = max peakEq1 equityFinal3
+                            , rsDayKey = dayKey1
+                            , rsDayStartEquity = dayStartEq1
+                            , rsWeekKey = weekKey1
+                            , rsWeekStartEquity = weekStartEq1
+                            , rsDayTrades = dayTradesNext
+                            , rsHaltReason = haltReason2
+                            }
                      in
                       ( posFinal3
                       , posSizeFinal3
@@ -2013,7 +2198,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                       , tradesFinal3
                       , dead2
                       , cooldownNext
-                      , (max peakEq1 equityFinal3, dayKey1, dayStartEq1, haltReason2)
+                      , riskStateNext
                       , factorOpenNext
                       , factorCloseNext
                       )
@@ -2033,7 +2218,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                   , []
                   , False
                   , 0 :: Int
-                  , (1.0, dayKeyAt 0, 1.0, Nothing)
+                  , RiskState
+                      { rsPeakEquity = 1.0
+                      , rsDayKey = dayKeyAt 0
+                      , rsDayStartEquity = 1.0
+                      , rsWeekKey = weekKeyAt 0
+                      , rsWeekStartEquity = 1.0
+                      , rsDayTrades = 0
+                      , rsHaltReason = Nothing
+                      }
                   , 1.0
                   , 1.0
                   )

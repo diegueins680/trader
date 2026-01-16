@@ -1,17 +1,58 @@
 module Trader.Duration
   ( parseDurationSeconds
   , parseIntervalSeconds
+  , TimeWindow(..)
+  , parseTimeWindow
+  , timeWindowCode
+  , timeWindowContains
+  , minuteOfDayFromMs
   , inferPeriodsPerYear
   , lookbackBarsFrom
   ) where
 
 import Data.Char (isDigit, toLower, isSpace)
+import Data.Int (Int64)
 
 trim :: String -> String
 trim = dropWhileEnd isSpace . dropWhile isSpace
 
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p = reverse . dropWhile p . reverse
+
+data TimeWindow = TimeWindow
+  { twStartMin :: !Int
+  , twEndMin :: !Int
+  } deriving (Eq, Show)
+
+parseTimeWindow :: String -> Either String TimeWindow
+parseTimeWindow raw =
+  let s = trim raw
+   in case break (== '-') s of
+        (startRaw, '-' : endRaw) -> do
+          start <- parseTimeOfDay startRaw
+          end <- parseTimeOfDay endRaw
+          if start == end
+            then Left "Time window start and end must differ."
+            else Right (TimeWindow start end)
+        _ -> Left "Expected HH:MM-HH:MM (e.g., 12:30-13:15)."
+
+timeWindowCode :: TimeWindow -> String
+timeWindowCode (TimeWindow start end) =
+  let (sh, sm) = start `divMod` 60
+      (eh, em) = end `divMod` 60
+   in pad2 sh ++ ":" ++ pad2 sm ++ "-" ++ pad2 eh ++ ":" ++ pad2 em
+
+timeWindowContains :: TimeWindow -> Int -> Bool
+timeWindowContains (TimeWindow start end) minuteRaw =
+  let minute = minuteRaw `mod` 1440
+   in if start < end
+        then minute >= start && minute < end
+        else minute >= start || minute < end
+
+minuteOfDayFromMs :: Int64 -> Int
+minuteOfDayFromMs ts =
+  let minutes = fromIntegral (ts `div` 60000) :: Int
+   in minutes `mod` 1440
 
 -- | Parse a human duration like \"24h\", \"15m\", \"1d\" into seconds.
 -- Supports units: s, m, h, d, w, M (month ~= 30d).
@@ -32,6 +73,31 @@ parseDurationSeconds raw =
 -- This is identical to 'parseDurationSeconds' but kept separate for clarity.
 parseIntervalSeconds :: String -> Maybe Int
 parseIntervalSeconds = parseDurationSeconds
+
+parseTimeOfDay :: String -> Either String Int
+parseTimeOfDay raw =
+  let s = trim raw
+   in case break (== ':') s of
+        (hStr, ':' : mStr) -> do
+          h <- readIntEither hStr
+          m <- readIntEither mStr
+          if h < 0 || h > 23
+            then Left "Hour must be between 0 and 23."
+            else if m < 0 || m > 59
+              then Left "Minute must be between 0 and 59."
+              else Right (h * 60 + m)
+        _ -> Left "Expected HH:MM."
+
+pad2 :: Int -> String
+pad2 n =
+  let s = show (abs n)
+   in if length s == 1 then '0' : s else s
+
+readIntEither :: String -> Either String Int
+readIntEither s =
+  case readInt s of
+    Just n -> Right n
+    Nothing -> Left "Expected an integer."
 
 lookbackBarsFrom :: String -> String -> Either String Int
 lookbackBarsFrom intervalStr lookbackWindowStr = do

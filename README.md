@@ -260,6 +260,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Live-bot bracket exits honor the vol-mult overrides when exchange-native protection orders are not in use.
   - `--min-hold-bars N` minimum holding periods before allowing a signal-based exit (`0` disables; default: `4`; bracket exits still apply)
   - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
+  - `--max-trades-per-day N` block new entries after `N` entries per UTC day (`0` disables)
+  - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows)
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables; LSTM methods only)
   - `--lstm-exit-flip-grace-bars N` ignore LSTM flip exits during the first `N` bars of a trade (LSTM methods only)
@@ -280,6 +282,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Kalman-band exits do not require `--tri-layer`; enable them with the band flags and a lookback >= 2.
   - When high/low data is available (CSV `--high-column`/`--low-column` or exchange candles), tri-layer cloud touches and price-action checks use those highs/lows for latest signals/live bots.
   - `--max-position-size 0.8` cap position size/leverage (`1` = full size)
+  - `--risk-per-trade F` size entries so the stop-loss distance risks about `F` of equity (requires `--stop-loss` or `--stop-loss-vol-mult`)
   - `--vol-target F` target annualized volatility for position sizing (`0` disables; default: `0.7`)
     - `--vol-lookback N` realized-vol lookback window (bars) when EWMA alpha is not set
     - `--vol-ewma-alpha F` use EWMA volatility estimate (overrides lookback)
@@ -312,15 +315,21 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Close-direction gating ignores `--min-position-size` so `closeDirection` is still reported even when size floors would block entries.
   - Conformal/quantile confirmations apply the open threshold for entries and in-position agreement checks; `closeDirection` still uses `closeThreshold` for diagnostics.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
-  - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; resets each day)
+  - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day)
+  - `--max-weekly-loss F` optional live-bot kill switch: halt if weekly loss exceeds `F` (UTC week)
+  - `--min-expectancy F` halt trading when the average return of the last `--expectancy-lookback` trades falls below `F`
+  - `--expectancy-lookback N` trade lookback for the expectancy gate (`0` disables; default: `20`)
     - Live-bot drawdown/daily loss uses the sized position (confidence/vol scaling) rather than assuming full size.
     - Backtests use bar timestamps when available (exchange data or CSV time columns); otherwise they fall back to interval-based day keys.
     - If timestamps are present but do not align to the closes series, `--max-daily-loss` errors to avoid misaligned day boundaries.
     - Invalid CSV time values now error instead of silently disabling time-based day keys.
     - If neither timestamps nor interval seconds are available, `--max-daily-loss` errors instead of silently disabling.
+    - Weekly loss and max-trades-per-day use the same timestamp/interval rules as daily loss.
+  - `--max-open-positions N` cap open positions across all running bots
+  - `--max-open-per-base N` cap open positions per base asset across all running bots
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
   - Risk halts are evaluated on post-bar equity and can close open positions at the bar close.
-  - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` as the exit reason.
+  - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS`/`MAX_WEEKLY_LOSS`/`NEGATIVE_EXPECTANCY` as the exit reason.
 
 - Metrics
   - `--backtest-ratio 0.2` holdout ratio (last portion of series; avoids lookahead)
@@ -467,6 +476,7 @@ Database (required for ops + combo persistence):
 - Set `TRADER_DB_URL` (or `DATABASE_URL`) to a Postgres instance; use durable managed storage for deploys.
 - Docker images must include `libpq` (`libpq5` on Debian); the provided `Dockerfile` installs it.
 - Stores every operation plus combo metrics, strategy metadata, and combo parameters.
+- Live bots update the matching combo row with the latest equity/annualized metrics on every candle.
 - Recommended: include `sslmode=require` in hosted Postgres connection strings.
 - Platforms are stored in `platforms` with REST/WS URLs plus non-secret connection metadata (auth type, testnet/futures endpoints).
 - Per-platform symbols live in `platform_symbols` (by platform + market), and are upserted whenever bots run, ops log symbols, or positions are fetched.
@@ -680,6 +690,7 @@ Combos can be previewed without applying; Apply (or Apply top combo) loads value
 If a refresh fails, the last known combos remain visible with a warning banner.
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
 The Binance account trades panel stays scrollable when maximized so long histories remain accessible.
+The Binance account trades panel supports symbol/side/date filters and shows total P&L plus commission for the filtered trades.
 The Binance account trades panel includes a trade P&L breakdown (realizedPnl, win/loss totals, top winners/losers) when Binance returns realized P&L (futures only).
 The Binance trade P&L breakdown also reports total filled quantity and quote volume for the analyzed fills.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes).

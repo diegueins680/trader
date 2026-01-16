@@ -23,7 +23,7 @@ import Text.Read (readMaybe)
 import Options.Applicative
 
 import Trader.Binance (BinanceMarket(..))
-import Trader.Duration (lookbackBarsFrom, parseIntervalSeconds)
+import Trader.Duration (TimeWindow, lookbackBarsFrom, parseIntervalSeconds, parseTimeWindow)
 import Trader.Method (Method(..), methodCode, parseMethod)
 import Trader.Normalization (NormType(..), parseNormType)
 import Trader.Optimization (TuneObjective(..), tuneObjectiveCode, parseTuneObjective)
@@ -112,6 +112,14 @@ data Args = Args
   , argMaxHoldBars :: Maybe Int
   , argMaxDrawdown :: Maybe Double
   , argMaxDailyLoss :: Maybe Double
+  , argMaxWeeklyLoss :: Maybe Double
+  , argRiskPerTrade :: Maybe Double
+  , argMaxTradesPerDay :: Maybe Int
+  , argExpectancyLookback :: Int
+  , argMinExpectancy :: Maybe Double
+  , argNoTradeWindows :: [TimeWindow]
+  , argMaxOpenPositions :: Maybe Int
+  , argMaxOpenPerBase :: Maybe Int
   , argMinEdge :: Double
   , argMinSignalToNoise :: Double
   , argThresholdFactorEnabled :: Bool
@@ -431,6 +439,22 @@ opts = do
       )
   argMaxDrawdown <- optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
   argMaxDailyLoss <- optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
+  argMaxWeeklyLoss <- optional (option auto (long "max-weekly-loss" <> help "Halt the live bot if weekly loss exceeds this fraction (0..1), based on UTC weeks"))
+  argRiskPerTrade <- optional (option auto (long "risk-per-trade" <> help "Fraction of equity to risk per trade (requires --stop-loss or --stop-loss-vol-mult)"))
+  argMaxTradesPerDay <- optional (option auto (long "max-trades-per-day" <> help "Block new entries after N entries per UTC day (0 disables)"))
+  argExpectancyLookback <- option auto (long "expectancy-lookback" <> value 20 <> help "Lookback trades for expectancy gating (0 disables; requires --min-expectancy)")
+  argMinExpectancy <- optional (option auto (long "min-expectancy" <> help "Halt trading when avg return of the last N trades falls below this"))
+  argNoTradeWindows <-
+    many
+      ( option
+          (eitherReader parseTimeWindow)
+          ( long "no-trade-window"
+              <> metavar "HH:MM-HH:MM"
+              <> help "UTC time window to block new entries (repeatable; wraps across midnight)."
+          )
+      )
+  argMaxOpenPositions <- optional (option auto (long "max-open-positions" <> help "Max open positions across all running bots (0 disables)"))
+  argMaxOpenPerBase <- optional (option auto (long "max-open-per-base" <> help "Max open positions per base asset across running bots (0 disables)"))
   argMinEdge <- option auto (long "min-edge" <> value 0.0004 <> help "Minimum predicted return magnitude required to enter (0 disables)")
   argMinSignalToNoise <- option auto (long "min-signal-to-noise" <> value 0.8 <> help "Minimum edge/vol (per-bar sigma) required to enter (0 disables)")
   argCostAwareEdge <-
@@ -723,6 +747,33 @@ validateArgs args0 = do
   case argMaxDailyLoss args of
     Nothing -> pure ()
     Just v -> ensure "--max-daily-loss must be > 0 and < 1" (v > 0 && v < 1)
+  case argMaxWeeklyLoss args of
+    Nothing -> pure ()
+    Just v -> ensure "--max-weekly-loss must be > 0 and < 1" (v > 0 && v < 1)
+  case argRiskPerTrade args of
+    Nothing -> pure ()
+    Just v -> ensure "--risk-per-trade must be > 0 and < 1" (v > 0 && v < 1)
+  case argRiskPerTrade args of
+    Nothing -> pure ()
+    Just _ ->
+      let stopLossOn = maybe False (> 0) (argStopLoss args)
+          stopLossVolOn = argStopLossVolMult args > 0
+       in ensure "--risk-per-trade requires --stop-loss or --stop-loss-vol-mult" (stopLossOn || stopLossVolOn)
+  case argMaxTradesPerDay args of
+    Nothing -> pure ()
+    Just n -> ensure "--max-trades-per-day must be >= 1" (n >= 1)
+  ensure "--expectancy-lookback must be >= 0" (argExpectancyLookback args >= 0)
+  case argMinExpectancy args of
+    Nothing -> pure ()
+    Just v ->
+      ensure "--min-expectancy must be finite" (not (isNaN v || isInfinite v))
+        >> ensure "--expectancy-lookback must be >= 1 when --min-expectancy is set" (argExpectancyLookback args >= 1)
+  case argMaxOpenPositions args of
+    Nothing -> pure ()
+    Just n -> ensure "--max-open-positions must be >= 1" (n >= 1)
+  case argMaxOpenPerBase args of
+    Nothing -> pure ()
+    Just n -> ensure "--max-open-per-base must be >= 1" (n >= 1)
   ensure "--min-edge must be >= 0" (argMinEdge args >= 0)
   ensure "--min-signal-to-noise must be >= 0" (argMinSignalToNoise args >= 0)
   ensure "--threshold-factor-alpha must be between 0 and 1" (argThresholdFactorAlpha args >= 0 && argThresholdFactorAlpha args <= 1)

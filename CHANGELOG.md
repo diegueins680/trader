@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
 - Deploy: include `libpq` in the runtime image so Postgres ops persistence starts cleanly.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
+- Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
@@ -24,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Trading: `--max-daily-loss` validation now errors when provided timestamps do not match the closes length.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
+- Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
 - Web UI: default Live orders + Trading armed toggles to on.
 - Web UI: listenKey user-data stream now subscribes to the backend relay instead of opening a browser WebSocket.
 - Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
@@ -55,6 +57,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: remove dimming overlay when panels are maximized.
 - Web UI: let tables scroll horizontally within panels so trade lists (including Binance account trades) are fully visible without clipped columns.
 - Web UI: keep the Binance account trades panel scrollable when maximized so long histories stay reachable.
+- Web UI: add symbol/side/date filters plus total P&L/commission summaries for Binance account trades.
 - Web UI: let open positions chart headers and position badges wrap so all stats remain visible in narrower panels.
 - Deploy: mark `trader-config.js` as no-cache in the quick AWS deploy so updated API tokens take effect immediately.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
