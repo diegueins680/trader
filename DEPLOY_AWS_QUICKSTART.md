@@ -156,7 +156,7 @@ bash deploy-aws-quick.sh --ui-only \
 ```
 
 Notes:
-- When `--distribution-id` is set, the script defaults `apiBaseUrl` to `/api` (same-origin). Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to use the API URL directly (CORS required; the script auto-fills `TRADER_CORS_ORIGIN` from the CloudFront domain when available). When `/api` is used and the App Runner URL is known, the script fills `apiFallbackUrl` to the API URL; for direct bases, set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly if you want a fallback (CORS required).
+- When `--distribution-id` is set, the script defaults `apiBaseUrl` to `/api` (same-origin). Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to use the API URL directly (CORS required; the script auto-fills `TRADER_CORS_ORIGIN` from the CloudFront domain when available, and defaults `apiFallbackUrl` to `/api` so same-origin fallback works if direct calls are blocked). When `/api` is used and the App Runner URL is known, the script fills `apiFallbackUrl` to the API URL; set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly to override.
 - Use `--cloudfront-domain d123.cloudfront.net` (or `TRADER_UI_CLOUDFRONT_DOMAIN`) to reuse an existing distribution and auto-detect the UI bucket.
 - Use `--cloudfront` (and optionally `--ensure-resources`) to auto-create or reuse a CloudFront distribution and set the UI bucket policy.
 - CloudFront is non-sticky. Keep App Runner min=1/max=1 unless you have shared async job storage (`TRADER_API_ASYNC_DIR` or `TRADER_STATE_DIR`).
