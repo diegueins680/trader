@@ -201,6 +201,42 @@ is_true() {
   esac
 }
 
+health_check_api() {
+  local api_url="${1:-}"
+  local health_url=""
+  local resp=""
+  local attempt=1
+  local max_attempts=5
+
+  if [[ -z "$api_url" ]]; then
+    return 0
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Warning: curl not found; skipping API health check${NC}"
+    return 0
+  fi
+
+  health_url="${api_url%/}/health"
+  while [[ $attempt -le $max_attempts ]]; do
+    if resp="$(curl -fsS --connect-timeout 5 --max-time 10 "$health_url" 2>/dev/null)"; then
+      if [[ "$resp" == *"\"status\":\"ok\""* ]]; then
+        echo -e "${GREEN}✓ API /health ok${NC}"
+      else
+        echo -e "${YELLOW}Warning: API /health returned unexpected payload${NC}"
+        echo "  ${resp}"
+      fi
+      return 0
+    fi
+    if [[ $attempt -lt $max_attempts ]]; then
+      sleep 3
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo -e "${YELLOW}Warning: API /health check failed after ${max_attempts} attempts (${health_url})${NC}"
+}
+
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -1999,6 +2035,9 @@ main() {
   fi
 
   if [[ "$DEPLOY_API" == "true" ]]; then
+    echo "Post-deploy health check:"
+    health_check_api "$api_url"
+    echo ""
     echo "Test the API:"
     echo "  curl -s ${api_url}/health | jq ."
     echo ""
