@@ -658,7 +658,7 @@ A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST 
 The UI layout uses a refreshed header, section grouping, and spacing for faster scanning on desktop and mobile.
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
-Configuration is split into multiple sub-panels (drag to reorder) with fixed heights and internal scroll, while the config pane scrolls; sections and result panels remain collapsible, cards/panels can be minimized or maximized for focus with the active panel kept opaque, crisp, and unclipped above a dimmed backdrop, the UI remembers open/closed state locally, offers expand/collapse-all controls in the configuration panel, and starts low-signal panels (Data Log, Request preview) collapsed by default.
+Configuration is split into multiple sub-panels (drag to reorder) with fixed heights and internal scroll, while the docked config pane itself stays scrollable; sections and result panels remain collapsible, cards/panels can be minimized or maximized for focus with the active panel kept opaque, crisp, and unclipped above a dimmed backdrop, the UI remembers open/closed state locally, offers expand/collapse-all controls in the configuration panel, and starts low-signal panels (Data Log, Request preview) collapsed by default.
 Maximized panels ignore main-area height caps so full card contents stay visible.
 Maximizing the configuration panel now escapes the docked layout so it fills the viewport cleanly.
 Maximized panels render above the docked layout so they stay visible instead of disappearing behind the dimmer.
