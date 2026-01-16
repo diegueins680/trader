@@ -237,6 +237,104 @@ health_check_api() {
   echo -e "${YELLOW}Warning: API /health check failed after ${max_attempts} attempts (${health_url})${NC}"
 }
 
+get_cloudfront_domain() {
+  local dist_id="${1:-}"
+  local domain=""
+
+  if [[ -z "$dist_id" ]]; then
+    return 1
+  fi
+
+  domain="$(
+    aws cloudfront get-distribution \
+      --id "$dist_id" \
+      --query 'Distribution.DomainName' \
+      --output text 2>/dev/null || true
+  )"
+  if [[ -z "$domain" || "$domain" == "None" ]]; then
+    return 1
+  fi
+  echo "$domain"
+}
+
+resolve_ui_base_url() {
+  local dist_id="${1:-}"
+  local domain_override="${2:-}"
+  local domain=""
+
+  if [[ -n "$domain_override" ]]; then
+    domain="$(normalize_cloudfront_domain "$domain_override")"
+  elif [[ -n "$dist_id" ]]; then
+    domain="$(get_cloudfront_domain "$dist_id" || true)"
+  fi
+
+  if [[ -z "$domain" ]]; then
+    return 1
+  fi
+
+  echo "https://${domain}"
+}
+
+smoke_check_ui() {
+  local ui_url="${1:-}"
+  local ui_api_url="${2:-}"
+  local api_url="${3:-}"
+  local base=""
+  local body=""
+  local config=""
+
+  if [[ -z "$ui_url" ]]; then
+    echo -e "${YELLOW}Warning: UI URL unavailable; skipping UI smoke checks${NC}"
+    return 0
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Warning: curl not found; skipping UI smoke checks${NC}"
+    return 0
+  fi
+
+  base="${ui_url%/}"
+
+  if body="$(curl -fsSL --connect-timeout 5 --max-time 10 "${base}/" 2>/dev/null)"; then
+    if [[ "$body" == *'id="root"'* || "$body" == *'trader-config.js'* ]]; then
+      echo -e "${GREEN}✓ UI index.html ok${NC}"
+    else
+      echo -e "${YELLOW}Warning: UI index.html returned unexpected content${NC}"
+    fi
+  else
+    echo -e "${YELLOW}Warning: UI index.html fetch failed (${base}/)${NC}"
+  fi
+
+  if config="$(curl -fsSL --connect-timeout 5 --max-time 10 "${base}/trader-config.js" 2>/dev/null)"; then
+    if [[ "$config" == *"__TRADER_CONFIG__"* && "$config" == *"apiBaseUrl"* ]]; then
+      echo -e "${GREEN}✓ UI trader-config.js ok${NC}"
+    else
+      echo -e "${YELLOW}Warning: UI trader-config.js missing expected keys${NC}"
+    fi
+    if [[ -n "$ui_api_url" && "$config" != *"apiBaseUrl: \"${ui_api_url}\""* ]]; then
+      echo -e "${YELLOW}Warning: UI trader-config.js apiBaseUrl does not match expected${NC}"
+    fi
+  else
+    echo -e "${YELLOW}Warning: UI trader-config.js fetch failed (${base}/trader-config.js)${NC}"
+  fi
+
+  if [[ "$ui_api_url" == "/api" ]]; then
+    local health_url="${base}/api/health"
+    local resp=""
+    if resp="$(curl -fsSL --connect-timeout 5 --max-time 10 "$health_url" 2>/dev/null)"; then
+      if [[ "$resp" == *"\"status\":\"ok\""* ]]; then
+        echo -e "${GREEN}✓ UI /api/health ok${NC}"
+      else
+        echo -e "${YELLOW}Warning: UI /api/health returned unexpected payload${NC}"
+      fi
+    else
+      echo -e "${YELLOW}Warning: UI /api/health fetch failed (${health_url})${NC}"
+    fi
+  elif [[ "$ui_api_url" == http* && "$ui_api_url" != "$api_url" ]]; then
+    health_check_api "$ui_api_url"
+  fi
+}
+
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -2040,6 +2138,13 @@ main() {
     echo ""
     echo "Test the API:"
     echo "  curl -s ${api_url}/health | jq ."
+    echo ""
+  fi
+  if [[ "$DEPLOY_UI" == "true" ]]; then
+    local ui_public_url=""
+    ui_public_url="$(resolve_ui_base_url "$UI_DISTRIBUTION_ID" "${UI_CLOUDFRONT_DOMAIN:-}")" || true
+    echo "Post-deploy UI smoke checks:"
+    smoke_check_ui "$ui_public_url" "$ui_api_url" "$api_url"
     echo ""
   fi
   if [[ "$DEPLOY_UI" == "true" ]]; then

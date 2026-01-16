@@ -60,6 +60,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add symbol/side/date filters plus total P&L/commission summaries for Binance account trades.
 - Web UI: let open positions chart headers and position badges wrap so all stats remain visible in narrower panels.
 - Deploy: mark `trader-config.js` as no-cache in the quick AWS deploy so updated API tokens take effect immediately.
+- Deploy: add UI smoke checks (index/config plus `/api/health` when proxying) to the quick AWS deploy.
 - Web UI: fix docked config/combos panels so they stay fixed to the viewport in Chromium browsers.
 - Web UI: make the header status card collapsible.
 - Web UI: shrink the docked optimizer combos panel when collapsed.
