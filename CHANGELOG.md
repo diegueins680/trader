@@ -38,6 +38,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: skip live bot start requests when no symbols are selected and surface a local error instead of a 400.
 - Web UI: keep configuration sub-panels at fixed heights so their contents scroll reliably.
 - Web UI: ensure the docked configuration pane remains scrollable.
+- Web UI: keep maximized config panels scrollable.
 - Web UI: send API tokens via `X-API-Key` only to avoid proxy issues with `Authorization` headers.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.

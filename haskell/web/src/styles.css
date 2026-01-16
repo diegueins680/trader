@@ -599,6 +599,15 @@ textarea {
   background: var(--card-solid);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.configPanel.configPanelMaximized .configPanelBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 @media (max-width: 980px) {
