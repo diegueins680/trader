@@ -216,7 +216,6 @@ function resolvePreferredFallback(primaryBase: string, fallbackBase: string | nu
     if (blockedFallbackBases.has(preferred)) return null;
     return preferred;
   }
-  if (isCrossOriginBase(primaryBase) && !isCrossOriginBase(fallbackBase)) return fallbackBase;
   return null;
 }
 

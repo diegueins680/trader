@@ -2267,9 +2267,13 @@ main() {
     if [[ -z "$ui_api_fallback" && "$ui_api_url" == "/api" && -n "$api_url" ]]; then
       ui_api_fallback="$api_url"
       echo -e "${YELLOW}✓ Using apiFallbackUrl from API URL${NC}" >&2
-    elif [[ -z "$ui_api_fallback" && "$UI_API_MODE" == "direct" && "$ui_cloudfront_enabled" == "true" ]]; then
+    elif [[ -z "$ui_api_fallback" && "$UI_API_MODE" == "direct" ]]; then
       ui_api_fallback="/api"
-      echo -e "${YELLOW}✓ Using apiFallbackUrl /api for direct UI with CloudFront${NC}" >&2
+      if [[ "$ui_cloudfront_enabled" == "true" ]]; then
+        echo -e "${YELLOW}✓ Using apiFallbackUrl /api for direct UI with CloudFront${NC}" >&2
+      else
+        echo -e "${YELLOW}✓ Using apiFallbackUrl /api for direct UI${NC}" >&2
+      fi
     fi
     deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
   fi

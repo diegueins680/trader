@@ -8,11 +8,12 @@ All notable changes to this project will be documented in this file.
 - Deploy/UI: quick AWS deploy now uploads `index.html` with no-cache headers so clients pick up new bundles promptly.
 - Deploy/UI: quick AWS deploy auto-fills `TRADER_CORS_ORIGIN` from the CloudFront domain when using direct UI API mode.
 - Deploy/UI: quick AWS deploy reuses existing `TRADER_CORS_ORIGIN` from App Runner updates so CORS settings persist.
-- Deploy/UI: quick AWS deploy defaults `apiFallbackUrl` to `/api` in direct CloudFront mode to avoid CORS blocks by falling back to same-origin.
+- Deploy/UI: quick AWS deploy defaults `apiFallbackUrl` to `/api` in direct mode to allow same-origin failover.
 - Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.
 - Deploy/API: quick AWS deploy now reuses `TRADER_BOT_AUTOSTART` from the service and supports setting it on deploy.
 - API: add `TRADER_BOT_AUTOSTART` to disable live-bot auto-start on boot.
-- Web UI: prefer same-origin `apiFallbackUrl` when `apiBaseUrl` is cross-origin to avoid initial CORS failures.
+- API: when `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, echo the request Origin for auth-bearing browser requests so direct UI calls work without explicit CORS config.
+- Web UI: try `apiBaseUrl` first and fail over to `apiFallbackUrl` after network/502/503/504 errors, remembering successful fallbacks for the session.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.

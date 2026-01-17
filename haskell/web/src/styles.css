@@ -706,6 +706,7 @@ body.panelMaximized .cardMaximized {
   transform: none;
   max-height: calc(100vh - 48px);
   height: calc(100vh - 48px);
+  min-height: 0;
   z-index: 60;
   background: var(--card-solid);
   backdrop-filter: none;
