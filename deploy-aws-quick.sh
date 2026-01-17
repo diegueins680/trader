@@ -1290,6 +1290,24 @@ create_app_runner() {
     fi
   fi
 
+  if [[ -z "${TRADER_CORS_ORIGIN:-}" && -n "$existing_service_arn" ]]; then
+    local existing_cors_origin=""
+    existing_cors_origin="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_CORS_ORIGIN' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_cors_origin" == "None" ]]; then
+      existing_cors_origin=""
+    fi
+    if [[ -n "$existing_cors_origin" ]]; then
+      TRADER_CORS_ORIGIN="$existing_cors_origin"
+      echo -e "${YELLOW}✓ Reusing existing TRADER_CORS_ORIGIN from service${NC}" >&2
+    fi
+  fi
+
   if [[ -z "${BINANCE_API_KEY:-}" && -n "$existing_service_arn" ]]; then
     local existing_binance_key=""
     existing_binance_key="$(

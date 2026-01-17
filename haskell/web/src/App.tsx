@@ -59,6 +59,9 @@ import { API_PORT, API_TARGET } from "./app/apiTarget";
 import {
   BACKTEST_TIMEOUT_MS,
   BOT_START_TIMEOUT_MS,
+  BOT_STATUS_OPS_FALLBACK_LIMIT,
+  BOT_STATUS_OPS_LIMIT,
+  BOT_STATUS_TAIL_FALLBACK_POINTS,
   BOT_STATUS_TAIL_POINTS,
   BOT_STATUS_TIMEOUT_MS,
   BOT_AUTOSTART_RETRY_MS,
@@ -151,6 +154,7 @@ type OpsUiState = {
   enabled: boolean;
   hint: string | null;
   ops: OpsOperation[];
+  limit: number;
   lastFetchedAtMs: number | null;
 };
 
@@ -402,9 +406,9 @@ const ConfigPanel = ({
   );
 };
 
-const BOT_STATUS_OPS_LIMIT = 5000;
 const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
+const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
@@ -2594,6 +2598,7 @@ export function App() {
     enabled: true,
     hint: null,
     ops: [],
+    limit: BOT_STATUS_OPS_LIMIT,
     lastFetchedAtMs: null,
   });
   const [botStatusStartInput, setBotStatusStartInput] = useState(() => formatDatetimeLocal(Date.now() - 6 * 60 * 60 * 1000));
@@ -2626,6 +2631,8 @@ export function App() {
   const emptyBotRt = useMemo(() => emptyBotRtState(), []);
   const botRtRef = useRef<Record<string, BotRtTracker>>({});
   const botStatusFetchedRef = useRef(false);
+  const botStatusTailRef = useRef(BOT_STATUS_TAIL_POINTS);
+  const botStatusOpsLimitRef = useRef(BOT_STATUS_OPS_LIMIT);
   const botAutoStartSuppressedRef = useRef(false);
   const botAutoStartRef = useRef<{ lastAttemptAtMs: number }>({ lastAttemptAtMs: 0 });
 
@@ -3643,6 +3650,11 @@ export function App() {
   }, [apiBase, authHeaders]);
 
   useEffect(() => {
+    botStatusTailRef.current = BOT_STATUS_TAIL_POINTS;
+    botStatusOpsLimitRef.current = BOT_STATUS_OPS_LIMIT;
+  }, [apiBase]);
+
+  useEffect(() => {
     // Prevent inconsistent state; margin requires live mode.
     if (!isBinancePlatform) return;
     if (form.market !== "margin") return;
@@ -4158,11 +4170,11 @@ export function App() {
           : "Selected range ends after available data.";
     const windowNote = `Data window: ${fmtTimeMs(botStatusOpsWindow.startMs)} to ${fmtTimeMs(botStatusOpsWindow.endMs)}.`;
     const limitNote =
-      botStatusOps.ops.length >= BOT_STATUS_OPS_LIMIT
-        ? `Showing latest ${BOT_STATUS_OPS_LIMIT} ops.`
+      botStatusOps.ops.length >= botStatusOps.limit
+        ? `Showing latest ${botStatusOps.limit} ops.`
         : `Showing ${botStatusOps.ops.length} ops.`;
     return `${rangeNote} ${windowNote} ${limitNote}`;
-  }, [botStatusOps.enabled, botStatusOps.ops.length, botStatusOpsWindow, botStatusRange]);
+  }, [botStatusOps.enabled, botStatusOps.limit, botStatusOps.ops.length, botStatusOpsWindow, botStatusRange]);
 
   useEffect(() => {
     if (botEntriesWithSymbol.length === 0) {
@@ -5108,11 +5120,31 @@ export function App() {
       if (!opts?.silent) setBot((s) => ({ ...s, loading: true, error: null }));
 
       try {
-        const out = await botStatus(
-          apiBase,
-          { signal: controller.signal, headers: authHeaders, timeoutMs: BOT_STATUS_TIMEOUT_MS },
-          BOT_STATUS_TAIL_POINTS,
-        );
+        const tailPoints = botStatusTailRef.current;
+        let out: BotStatus | BotStatusMulti;
+        try {
+          out = await botStatus(
+            apiBase,
+            { signal: controller.signal, headers: authHeaders, timeoutMs: BOT_STATUS_TIMEOUT_MS },
+            tailPoints,
+          );
+        } catch (e) {
+          if (
+            tailPoints > BOT_STATUS_TAIL_FALLBACK_POINTS &&
+            e instanceof HttpError &&
+            BOT_STATUS_RETRYABLE_HTTP.has(e.status)
+          ) {
+            const fallbackTail = Math.min(BOT_STATUS_TAIL_FALLBACK_POINTS, tailPoints);
+            out = await botStatus(
+              apiBase,
+              { signal: controller.signal, headers: authHeaders, timeoutMs: BOT_STATUS_TIMEOUT_MS },
+              fallbackTail,
+            );
+            botStatusTailRef.current = fallbackTail;
+          } else {
+            throw e;
+          }
+        }
         const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
         botStatusFetchedRef.current = true;
@@ -5500,17 +5532,45 @@ export function App() {
       if (apiOk !== "ok") return;
       if (!opts?.silent) setBotStatusOps((s) => ({ ...s, loading: true, error: null }));
       try {
-        const out = await ops(apiBase, { kind: "bot.status", limit: BOT_STATUS_OPS_LIMIT }, { headers: authHeaders, timeoutMs: 30_000 });
+        const limit = botStatusOpsLimitRef.current;
+        const out = await ops(apiBase, { kind: "bot.status", limit }, { headers: authHeaders, timeoutMs: 30_000 });
         setBotStatusOps({
           loading: false,
           error: null,
           enabled: out.enabled,
           hint: out.hint ?? null,
           ops: Array.isArray(out.ops) ? out.ops : [],
+          limit,
           lastFetchedAtMs: Date.now(),
         });
+        botStatusOpsLimitRef.current = limit;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        if (e instanceof HttpError && BOT_STATUS_RETRYABLE_HTTP.has(e.status) && botStatusOpsLimitRef.current > BOT_STATUS_OPS_FALLBACK_LIMIT) {
+          try {
+            const fallbackLimit = BOT_STATUS_OPS_FALLBACK_LIMIT;
+            const out = await ops(
+              apiBase,
+              { kind: "bot.status", limit: fallbackLimit },
+              { headers: authHeaders, timeoutMs: 30_000 },
+            );
+            setBotStatusOps({
+              loading: false,
+              error: null,
+              enabled: out.enabled,
+              hint: out.hint ?? null,
+              ops: Array.isArray(out.ops) ? out.ops : [],
+              limit: fallbackLimit,
+              lastFetchedAtMs: Date.now(),
+            });
+            botStatusOpsLimitRef.current = fallbackLimit;
+            return;
+          } catch (fallbackErr) {
+            const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+            setBotStatusOps((s) => ({ ...s, loading: false, error: fallbackMsg }));
+            return;
+          }
+        }
         setBotStatusOps((s) => ({ ...s, loading: false, error: msg }));
       }
     },

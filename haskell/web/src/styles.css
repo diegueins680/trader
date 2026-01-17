@@ -721,6 +721,11 @@ body.panelMaximized .cardMaximized {
   overflow: auto;
 }
 
+.cardMaximized.configCard .cardBody {
+  max-height: calc(100vh - var(--card-maximized-body-offset));
+  overscroll-behavior: contain;
+}
+
 .cardHeader {
   padding: 18px 18px 0;
 }

@@ -753,7 +753,7 @@ Timeouts:
 - Frontend: set `timeoutsMs` in `haskell/web/public/trader-config.js` to increase UI request timeouts (e.g. long backtests).
 - Frontend (dev proxy): set `TRADER_UI_PROXY_TIMEOUT_MS` to increase the Vite `/api` proxy timeout.
 
-Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors. Async signal/backtest starts retry transient 5xx/timeouts and can fail over to `apiFallbackUrl`; ensure the fallback points at the same backend to avoid mismatched job IDs.
+Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors. Async signal/backtest starts retry transient 5xx/timeouts and can fail over to `apiFallbackUrl`; ensure the fallback points at the same backend to avoid mismatched job IDs. Live bot status/ops polling auto-reduces history sizes on proxy 502/503/504 to keep the dashboard responsive.
 If live bot start/status returns 502/503/504, verify the `/api/*` proxy target and origin health when using `/api`, or check the direct API origin/CORS configuration when using a full API URL.
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
