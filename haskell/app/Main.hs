@@ -19,6 +19,7 @@ import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.Types as AT
 import Data.ByteArray (convert)
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
+import qualified Data.CaseInsensitive as CI
 import Data.Foldable (toList)
 import Data.Int (Int64)
 import Data.List (find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix)
@@ -46,7 +47,7 @@ import GHC.Exception (ErrorCall(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException, Manager, Request, RequestBody(..), Response, httpLbs, newManager, parseRequest, requestBody, requestHeaders, method, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types (ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, status504, statusCode)
+import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -7130,10 +7131,10 @@ resolveCorsConfig mToken = do
       allowAuth = null origins && not allowAny && isJust mToken
   pure (CorsConfig origins allowAny allowAuth)
 
-lookupHeaderNormalized :: String -> [(BS.ByteString, BS.ByteString)] -> Maybe BS.ByteString
+lookupHeaderNormalized :: String -> RequestHeaders -> Maybe BS.ByteString
 lookupHeaderNormalized wanted hs =
   let wantedNorm = normalizeKey wanted
-   in snd <$> find (\(h, _) -> normalizeKey (BS.unpack h) == wantedNorm) hs
+   in snd <$> find (\(h, _) -> normalizeKey (BS.unpack (CI.original h)) == wantedNorm) hs
 
 corsRequestHasAuthHeaders :: Wai.Request -> Bool
 corsRequestHasAuthHeaders req =
