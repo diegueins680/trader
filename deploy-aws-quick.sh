@@ -44,6 +44,7 @@ TRADER_STATE_S3_REGION="${TRADER_STATE_S3_REGION:-}"
 TRADER_BOT_SYMBOLS="${TRADER_BOT_SYMBOLS:-}"
 TRADER_BOT_SYMBOL="${TRADER_BOT_SYMBOL:-}"
 TRADER_BOT_TRADE="${TRADER_BOT_TRADE:-true}"
+TRADER_BOT_AUTOSTART="${TRADER_BOT_AUTOSTART:-}"
 TRADER_OPTIMIZER_ENABLED="${TRADER_OPTIMIZER_ENABLED:-}"
 TRADER_TOP_COMBOS_BACKTEST_ENABLED="${TRADER_TOP_COMBOS_BACKTEST_ENABLED:-}"
 TRADER_OPTIMIZER_EVERY_SEC="${TRADER_OPTIMIZER_EVERY_SEC:-}"
@@ -151,6 +152,7 @@ Environment variables (equivalents):
   TRADER_BOT_SYMBOLS
   TRADER_BOT_SYMBOL
   TRADER_BOT_TRADE
+  TRADER_BOT_AUTOSTART
   TRADER_OPTIMIZER_ENABLED
   TRADER_TOP_COMBOS_BACKTEST_ENABLED
   TRADER_OPTIMIZER_EVERY_SEC
@@ -1366,6 +1368,24 @@ create_app_runner() {
     fi
   fi
 
+  if [[ -z "${TRADER_BOT_AUTOSTART:-}" && -n "$existing_service_arn" ]]; then
+    local existing_autostart=""
+    existing_autostart="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_BOT_AUTOSTART' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_autostart" == "None" ]]; then
+      existing_autostart=""
+    fi
+    if [[ -n "$existing_autostart" ]]; then
+      TRADER_BOT_AUTOSTART="$existing_autostart"
+      echo -e "${YELLOW}✓ Reusing existing TRADER_BOT_AUTOSTART from service${NC}" >&2
+    fi
+  fi
+
   if [[ -z "${BINANCE_API_KEY:-}" && -n "$existing_service_arn" ]]; then
     local existing_binance_key=""
     existing_binance_key="$(
@@ -1553,6 +1573,9 @@ create_app_runner() {
   fi
   if [[ -n "${TRADER_BOT_TRADE:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_BOT_TRADE\":\"${TRADER_BOT_TRADE}\""
+  fi
+  if [[ -n "${TRADER_BOT_AUTOSTART:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_BOT_AUTOSTART\":\"${TRADER_BOT_AUTOSTART}\""
   fi
   if [[ -n "${TRADER_OPTIMIZER_ENABLED:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_ENABLED\":\"${TRADER_OPTIMIZER_ENABLED}\""
@@ -2166,6 +2189,9 @@ main() {
     echo "  API Max Epochs: ${TRADER_API_MAX_EPOCHS}"
   fi
   echo "  API Max Hidden Size: ${TRADER_API_MAX_HIDDEN_SIZE}"
+  if [[ -n "${TRADER_BOT_AUTOSTART:-}" ]]; then
+    echo "  Bot Autostart: ${TRADER_BOT_AUTOSTART}"
+  fi
   if [[ "$DEPLOY_UI" == "true" ]]; then
     echo "  UI Bucket: ${UI_BUCKET:-"(not set)"}"
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then

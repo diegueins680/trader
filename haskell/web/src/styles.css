@@ -718,6 +718,7 @@ body.panelMaximized .cardMaximized {
 .cardMaximized .cardBody {
   flex: 1 1 auto;
   max-height: none;
+  min-height: 0;
   overflow: auto;
 }
 

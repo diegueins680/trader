@@ -4121,165 +4121,170 @@ botAutoStartLoop ::
   BotController ->
   IO ()
 botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs botCtrl = do
-  symbolsOrErr <- resolveBotSymbolsAuto baseArgs
-  let baseSymbols =
-        case symbolsOrErr of
-          Left _ -> []
-          Right xs -> xs
+  autostartEnv <- lookupEnv "TRADER_BOT_AUTOSTART"
+  let autostartEnabled = readEnvBool autostartEnv True
+  if not autostartEnabled
+    then putStrLn "Live bot auto-start disabled (TRADER_BOT_AUTOSTART=false)."
+    else do
+      symbolsOrErr <- resolveBotSymbolsAuto baseArgs
+      let baseSymbols =
+            case symbolsOrErr of
+              Left _ -> []
+              Right xs -> xs
       minTopComboBots = 10
       maxTopComboBots = 10
-  case symbolsOrErr of
-    Left err -> putStrLn ("Live bot auto-start base symbols missing: " ++ err)
-    Right _ -> pure ()
-  if not (platformSupportsLiveBot (argPlatform baseArgs))
-    then
-      putStrLn
-        ( "Live bot auto-start disabled: platform="
-            ++ platformCode (argPlatform baseArgs)
-            ++ " does not support live bots."
-        )
-    else
-      case argData baseArgs of
-        Just _ -> putStrLn "Live bot auto-start disabled: CSV data source is not supported."
-        Nothing -> do
-          let argsBase = baseArgs { argTradeOnly = True }
-              settings = defaultBotSettings argsBase
-          pollSec <- comboPollSecondsFromEnv
-          topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-          errRef <- newIORef HM.empty
-          topErrRef <- newIORef Nothing
-          topTargetsRef <- newIORef []
-          topTargetsWarnRef <- newIORef Nothing
-          targetsRef <- newIORef []
-          let formatList xs =
-                if null xs
-                  then "none"
-                  else intercalate ", " xs
+      case symbolsOrErr of
+        Left err -> putStrLn ("Live bot auto-start base symbols missing: " ++ err)
+        Right _ -> pure ()
+      if not (platformSupportsLiveBot (argPlatform baseArgs))
+        then
           putStrLn
-            ( "Live bot auto-start enabled. Base symbols: "
-                ++ formatList baseSymbols
-                ++ ". Top combos path: "
-                ++ topJsonPath
+            ( "Live bot auto-start disabled: platform="
+                ++ platformCode (argPlatform baseArgs)
+                ++ " does not support live bots."
             )
+        else
+          case argData baseArgs of
+            Just _ -> putStrLn "Live bot auto-start disabled: CSV data source is not supported."
+            Nothing -> do
+              let argsBase = baseArgs { argTradeOnly = True }
+                  settings = defaultBotSettings argsBase
+              pollSec <- comboPollSecondsFromEnv
+              topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+              errRef <- newIORef HM.empty
+              topErrRef <- newIORef Nothing
+              topTargetsRef <- newIORef []
+              topTargetsWarnRef <- newIORef Nothing
+              targetsRef <- newIORef []
+              let formatList xs =
+                    if null xs
+                      then "none"
+                      else intercalate ", " xs
+              putStrLn
+                ( "Live bot auto-start enabled. Base symbols: "
+                    ++ formatList baseSymbols
+                    ++ ". Top combos path: "
+                    ++ topJsonPath
+                )
 
-          let sleepSec s = threadDelay (max 1 s * 1000000)
-              recordError sym msg = do
-                prev <- readIORef errRef
-                if HM.lookup sym prev == Just msg
-                  then pure ()
-                  else do
-                    writeIORef errRef (HM.insert sym msg prev)
-                    putStrLn ("Live bot auto-start failed for " ++ sym ++ ": " ++ msg)
-              clearError sym = modifyIORef' errRef (HM.delete sym)
-              loadTopTargets = do
-                combosOrErr <- readTopCombosExport topJsonPath
-                case combosOrErr of
-                  Left err -> do
-                    prev <- readIORef topErrRef
-                    if prev == Just err
-                      then readIORef topTargetsRef
+              let sleepSec s = threadDelay (max 1 s * 1000000)
+                  recordError sym msg = do
+                    prev <- readIORef errRef
+                    if HM.lookup sym prev == Just msg
+                      then pure ()
                       else do
-                        writeIORef topErrRef (Just err)
-                        putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
-                        readIORef topTargetsRef
-                  Right export -> do
-                    let targets = topCombosTopTargets maxTopComboBots export
-                        targetCount = length targets
-                    writeIORef topTargetsRef targets
-                    writeIORef topErrRef Nothing
-                    if targetCount < minTopComboBots
-                      then do
-                        prev <- readIORef topTargetsWarnRef
-                        when (prev /= Just targetCount) $ do
-                          writeIORef topTargetsWarnRef (Just targetCount)
-                          putStrLn
-                            ( "Live bot auto-start warning: only "
-                                ++ show targetCount
-                                ++ " unique top-combo symbol(s) available; unable to start all "
-                                ++ show minTopComboBots
-                                ++ " top-combo bots."
-                            )
-                      else writeIORef topTargetsWarnRef Nothing
-                    pure targets
-              startSymbol argsStart sym mCombo = do
-                let argsSym = argsStart { argBinanceSymbol = Just sym }
-                    adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
-                adoptReqOrErr <-
-                  if adoptable
-                    then resolveAdoptionRequirement mOps argsSym sym
-                    else pure (Right (AdoptRequirement False False))
-                case adoptReqOrErr of
-                  Left err -> recordError sym err
-                  Right adoptReq -> do
-                    (argsCombo, mComboUuid) <-
-                      if arActive adoptReq
-                        then pure (argsSym, Nothing)
-                        else
-                          case mCombo of
-                            Nothing -> applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
-                            Just combo ->
-                              case applyTopComboForStartWithUuid argsSym combo of
-                                Left err -> do
-                                  recordError sym ("Top combo parse failed: " ++ err)
-                                  applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
-                                Right (args', uuid) -> pure (args', uuid)
-                    case validateApiComputeLimits limits argsCombo of
+                        writeIORef errRef (HM.insert sym msg prev)
+                        putStrLn ("Live bot auto-start failed for " ++ sym ++ ": " ++ msg)
+                  clearError sym = modifyIORef' errRef (HM.delete sym)
+                  loadTopTargets = do
+                    combosOrErr <- readTopCombosExport topJsonPath
+                    case combosOrErr of
+                      Left err -> do
+                        prev <- readIORef topErrRef
+                        if prev == Just err
+                          then readIORef topTargetsRef
+                          else do
+                            writeIORef topErrRef (Just err)
+                            putStrLn ("Live bot auto-start top combos unavailable: " ++ err)
+                            readIORef topTargetsRef
+                      Right export -> do
+                        let targets = topCombosTopTargets maxTopComboBots export
+                            targetCount = length targets
+                        writeIORef topTargetsRef targets
+                        writeIORef topErrRef Nothing
+                        if targetCount < minTopComboBots
+                          then do
+                            prev <- readIORef topTargetsWarnRef
+                            when (prev /= Just targetCount) $ do
+                              writeIORef topTargetsWarnRef (Just targetCount)
+                              putStrLn
+                                ( "Live bot auto-start warning: only "
+                                    ++ show targetCount
+                                    ++ " unique top-combo symbol(s) available; unable to start all "
+                                    ++ show minTopComboBots
+                                    ++ " top-combo bots."
+                                )
+                          else writeIORef topTargetsWarnRef Nothing
+                        pure targets
+                  startSymbol argsStart sym mCombo = do
+                    let argsSym = argsStart { argBinanceSymbol = Just sym }
+                        adoptable = bsTradeEnabled settings && platformSupportsLiveBot (argPlatform argsSym)
+                    adoptReqOrErr <-
+                      if adoptable
+                        then resolveAdoptionRequirement mOps argsSym sym
+                        else pure (Right (AdoptRequirement False False))
+                    case adoptReqOrErr of
                       Left err -> recordError sym err
-                      Right argsOk -> do
-                        r <-
-                          botStartSymbolWithSettings
-                            True
-                            mOps
-                            metrics
-                            mJournal
-                            mWebhook
-                            mBotStateDir
-                            optimizerTmp
-                            limits
-                            topCombosCtx
-                            adoptReq
-                            botCtrl
-                            argsOk
-                            settings
-                            mComboUuid
-                            sym
-                        case r of
+                      Right adoptReq -> do
+                        (argsCombo, mComboUuid) <-
+                          if arActive adoptReq
+                            then pure (argsSym, Nothing)
+                            else
+                              case mCombo of
+                                Nothing -> applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
+                                Just combo ->
+                                  case applyTopComboForStartWithUuid argsSym combo of
+                                    Left err -> do
+                                      recordError sym ("Top combo parse failed: " ++ err)
+                                      applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
+                                    Right (args', uuid) -> pure (args', uuid)
+                        case validateApiComputeLimits limits argsCombo of
                           Left err -> recordError sym err
-                          Right _ -> clearError sym
-              loop = do
-                topTargets <- loadTopTargets
-                let topTargetMap =
-                      foldl'
-                        (\acc (sym, combo) -> HM.insertWith (\_ old -> old) sym combo acc)
-                        HM.empty
-                        topTargets
-                    topSymbols = map fst topTargets
-                    targetSymbolsBase = dedupeStable (baseSymbols ++ topSymbols)
-                mrt <- readMVar (bcRuntime botCtrl)
-                botStates <- mapM runtimeStateToState (HM.elems mrt)
-                let mCredsArgs =
-                      listToMaybe
-                        [ botArgs st
-                        | Just st <- botStates
-                        , hasBinanceKeys (botArgs st)
-                        ]
-                    argsWithKeys =
-                      case mCredsArgs of
-                        Nothing -> argsBase
-                        Just credsArgs -> argsWithBinanceKeysFromArgs credsArgs argsBase
-                    runningSymbols = HM.keys mrt
-                    orphanRequested = dedupeStable (targetSymbolsBase ++ runningSymbols)
-                orphanSymbols <- resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsWithKeys orphanRequested
-                let targetSymbols = dedupeStable (targetSymbolsBase ++ orphanSymbols)
-                prevTargets <- readIORef targetsRef
-                when (prevTargets /= targetSymbols) $ do
-                  writeIORef targetsRef targetSymbols
-                  putStrLn ("Live bot auto-start targets: " ++ formatList targetSymbols)
-                let missing = filter (not . (`HM.member` mrt)) targetSymbols
-                mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap)) missing
-                sleepSec pollSec
-                loop
-          loop
+                          Right argsOk -> do
+                            r <-
+                              botStartSymbolWithSettings
+                                True
+                                mOps
+                                metrics
+                                mJournal
+                                mWebhook
+                                mBotStateDir
+                                optimizerTmp
+                                limits
+                                topCombosCtx
+                                adoptReq
+                                botCtrl
+                                argsOk
+                                settings
+                                mComboUuid
+                                sym
+                            case r of
+                              Left err -> recordError sym err
+                              Right _ -> clearError sym
+                  loop = do
+                    topTargets <- loadTopTargets
+                    let topTargetMap =
+                          foldl'
+                            (\acc (sym, combo) -> HM.insertWith (\_ old -> old) sym combo acc)
+                            HM.empty
+                            topTargets
+                        topSymbols = map fst topTargets
+                        targetSymbolsBase = dedupeStable (baseSymbols ++ topSymbols)
+                    mrt <- readMVar (bcRuntime botCtrl)
+                    botStates <- mapM runtimeStateToState (HM.elems mrt)
+                    let mCredsArgs =
+                          listToMaybe
+                            [ botArgs st
+                            | Just st <- botStates
+                            , hasBinanceKeys (botArgs st)
+                            ]
+                        argsWithKeys =
+                          case mCredsArgs of
+                            Nothing -> argsBase
+                            Just credsArgs -> argsWithBinanceKeysFromArgs credsArgs argsBase
+                        runningSymbols = HM.keys mrt
+                        orphanRequested = dedupeStable (targetSymbolsBase ++ runningSymbols)
+                    orphanSymbols <- resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsWithKeys orphanRequested
+                    let targetSymbols = dedupeStable (targetSymbolsBase ++ orphanSymbols)
+                    prevTargets <- readIORef targetsRef
+                    when (prevTargets /= targetSymbols) $ do
+                      writeIORef targetsRef targetSymbols
+                      putStrLn ("Live bot auto-start targets: " ++ formatList targetSymbols)
+                    let missing = filter (not . (`HM.member` mrt)) targetSymbols
+                    mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap)) missing
+                    sleepSec pollSec
+                    loop
+              loop
 
 botStop :: BotController -> Maybe String -> IO [BotState]
 botStop ctrl mSymbol =

@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 - Deploy/UI: quick AWS deploy reuses existing `TRADER_CORS_ORIGIN` from App Runner updates so CORS settings persist.
 - Deploy/UI: quick AWS deploy defaults `apiFallbackUrl` to `/api` in direct CloudFront mode to avoid CORS blocks by falling back to same-origin.
 - Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.
+- Deploy/API: quick AWS deploy now reuses `TRADER_BOT_AUTOSTART` from the service and supports setting it on deploy.
+- API: add `TRADER_BOT_AUTOSTART` to disable live-bot auto-start on boot.
 - Web UI: prefer same-origin `apiFallbackUrl` when `apiBaseUrl` is cross-origin to avoid initial CORS failures.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
