@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
 - API: include CSV file size/mtime in cache keys so updated CSVs invalidate cached signal/backtest results.
 - API: allowlist CORS via `TRADER_CORS_ORIGIN` (no `Access-Control-Allow-Origin` when unset).
+- API: treat `TRADER_CORS_ORIGIN=*` as a wildcard and honor `X-API-Key` in preflight auth-header detection.
 - API: cap `/bot/status` tail defaults to 1000 points to prevent upstream 5xx responses.
 - API: treat the first `botSymbols` entry as `binanceSymbol` for `/bot/start` validation when `binanceSymbol` is missing.
 - API: manage Binance listenKey user-data streams server-side and expose `/binance/listenKey/stream` as an SSE relay.

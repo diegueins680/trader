@@ -372,6 +372,7 @@ Optional auth (recommended for any deployment):
 
 Optional CORS:
 - Set `TRADER_CORS_ORIGIN` to one or more allowed origins (comma-separated; use `*` to allow all) to enable browser access from those origins.
+- When `TRADER_CORS_ORIGIN=*`, the API always returns `Access-Control-Allow-Origin: *` (including preflight responses).
 - If `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, the API echoes the request Origin when auth headers are present (`Authorization`/`X-API-Key`) so direct UI calls can succeed without extra CORS config.
 - When `TRADER_CORS_ORIGIN` is unset and no auth headers are present, no `Access-Control-Allow-Origin` header is returned; keep using same-origin `/api/*` or let `deploy-aws-quick.sh` fill it for direct CloudFront UI deploys.
 

@@ -7122,10 +7122,11 @@ resolveCorsConfig mToken = do
       trimmed = map (T.strip . T.pack) rawOrigins
       normalized = filter (not . T.null) trimmed
       tokens = map (normalizeKey . T.unpack) normalized
-      allowAny = any (== "*") tokens
+      allowAny = any (== "*") normalized
       origins =
         [ TE.encodeUtf8 (T.dropWhileEnd (== '/') t)
         | (t, tok) <- zip normalized tokens
+        , t /= "*"
         , tok /= "*"
         ]
       allowAuth = null origins && not allowAny && isJust mToken
@@ -7144,7 +7145,9 @@ corsRequestHasAuthHeaders req =
         case lookupHeaderNormalized "Access-Control-Request-Headers" hs of
           Nothing -> []
           Just raw -> map normalizeKey (splitEnvList (BS.unpack raw))
-      requestedHasAuth = any (`elem` ["authorization", "x-api-key"]) requested
+      requestedHasAuth =
+        let authHeaderKeys = map normalizeKey ["authorization", "x-api-key"]
+         in any (`elem` authHeaderKeys) requested
    in case Wai.requestMethod req of
         "OPTIONS" -> requestedHasAuth
         _ -> hasHeader "Authorization" || hasHeader "X-API-Key"
