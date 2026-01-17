@@ -11766,8 +11766,8 @@ computeBinanceKeysStatusFromArgs mOps args = do
                           Just qq0 ->
                             case validateProbeQuote mFilters qq0 of
                               Left e -> pure (Just (mkSkippedProbe "order/test" e))
-                              Right () ->
-                                Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym'' Buy qty (Just qq0) Nothing (trim <$> argIdempotencyKey args) >> pure ())
+                              Right qq1 ->
+                                Just <$> probeBinance "order/test" (placeMarketOrder env OrderTest sym'' Buy qty (Just qq1) Nothing (trim <$> argIdempotencyKey args) >> pure ())
                       Just qRaw -> do
                         mPrice <- fetchPriceIfNeeded env sym'' mFilters
                         case normalizeProbeQty mFilters mPrice qRaw of
@@ -11812,12 +11812,12 @@ computeBinanceKeysStatusFromArgs mOps args = do
                         mFilters <- fetchFilters env sym''
                         case validateProbeQuote mFilters qq0 of
                           Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
-                          Right () -> do
+                          Right qq1 -> do
                             mPrice <- fetchPriceMaybe env sym''
                             case mPrice of
                               Nothing -> pure (Just (mkSkippedProbe "futures/order/test" "Price unavailable for quote sizing."))
                               Just price -> do
-                                let qRaw = qq0 / price
+                                let qRaw = qq1 / price
                                 case normalizeProbeQty mFilters (Just price) qRaw of
                                   Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
                                   Right q -> Just <$> probeBinance "futures/order/test" (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args) >> pure ())
@@ -11895,13 +11895,23 @@ computeBinanceKeysStatusFromArgs mOps args = do
     effectiveMinQty sf = sfMarketMinQty sf <|> sfLotMinQty sf
     effectiveMaxQty sf = sfMarketMaxQty sf <|> sfLotMaxQty sf
 
+    quantizeUp :: Step -> Double -> Double
+    quantizeUp st x
+      | x <= 0 = 0
+      | otherwise =
+          let scaleD = fromIntegral (stepScale st) :: Double
+              scaled = ceiling (x * scaleD - 1e-9) :: Integer
+              stepI = stepInt st
+              q = ((scaled + stepI - 1) `div` stepI) * stepI
+           in fromIntegral q / scaleD
+
     validateProbeQuote mSf qq =
       if qq <= 0
         then Left "Quote is 0."
         else
           case mSf >>= sfMinNotional of
-            Just mn | qq < mn -> Left ("Quote below minNotional (" ++ show mn ++ ").")
-            _ -> Right ()
+            Just mn | qq < mn -> Right mn
+            _ -> Right qq
 
     normalizeProbeQty mSf mPrice qtyRaw =
       case mSf of
@@ -11912,18 +11922,24 @@ computeBinanceKeysStatusFromArgs mOps args = do
         Just sf ->
           let qty0 = max 0 qtyRaw
               qty1 = maybe qty0 (\st -> quantizeDown st qty0) (effectiveStep sf)
-           in if qty1 <= 0
+              qty2 =
+                case (mPrice, sfMinNotional sf) of
+                  (Just price, Just mn) | price > 0 && qty1 * price < mn ->
+                    let minQ = mn / price
+                     in maybe minQ (\st -> quantizeUp st minQ) (effectiveStep sf)
+                  _ -> qty1
+           in if qty2 <= 0
                 then Left "Quantity rounds to 0."
                 else
                   case effectiveMinQty sf of
-                    Just minQ | qty1 < minQ -> Left ("Quantity below minQty (" ++ show minQ ++ ").")
+                    Just minQ | qty2 < minQ -> Left ("Quantity below minQty (" ++ show minQ ++ ").")
                     _ ->
                       case effectiveMaxQty sf of
-                        Just maxQ | qty1 > maxQ -> Left ("Quantity above maxQty (" ++ show maxQ ++ ").")
+                        Just maxQ | qty2 > maxQ -> Left ("Quantity above maxQty (" ++ show maxQ ++ ").")
                         _ ->
                           case (mPrice, sfMinNotional sf) of
-                            (Just price, Just mn) | price > 0 && qty1 * price < mn -> Left ("Notional below minNotional (" ++ show mn ++ ").")
-                            _ -> Right qty1
+                            (Just price, Just mn) | price > 0 && qty2 * price < mn -> Left ("Notional below minNotional (" ++ show mn ++ ").")
+                            _ -> Right qty2
 
 computeCoinbaseKeysStatusFromArgs :: Args -> IO ApiCoinbaseKeysStatus
 computeCoinbaseKeysStatusFromArgs args = do

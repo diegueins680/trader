@@ -430,6 +430,10 @@ parseSymbolFilters objs =
               acc
                 { sfMinNotional = parseDField o "minNotional" <|> parseDField o "notional" <|> sfMinNotional acc
                 }
+            "NOTIONAL" ->
+              acc
+                { sfMinNotional = parseDField o "minNotional" <|> parseDField o "notional" <|> sfMinNotional acc
+                }
             "PRICE_FILTER" ->
               acc
                 { sfTickSize = parseStepField o "tickSize" <|> sfTickSize acc

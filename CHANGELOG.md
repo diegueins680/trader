@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
 - Binance: `/binance/keys` trade tests auto-bump order sizing to the symbol minNotional instead of skipping.
+- Binance: parse `NOTIONAL` exchange filters so minNotional checks apply consistently.
 - Optimizer: include stable combo UUIDs in top-combos outputs.
 - Optimizer: merge top-combos de-duplication now keys off full combo identity (params + thresholds + objective + source) so new variants persist.
 - Optimizer: page Binance klines to support >1000 bars and honor `TRADER_OPTIMIZER_MAX_POINTS` (up to 5000) for `/optimizer/run` and auto optimizer runs.
