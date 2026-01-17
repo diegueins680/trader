@@ -11340,7 +11340,11 @@ argsFromApi baseArgs p = do
             case apOpenThreshold p of
               Just _ -> openThr
               Nothing -> argCloseThreshold baseArgs
-      binanceSymbolRaw = pickMaybe (apBinanceSymbol p) (argBinanceSymbol baseArgs)
+      botSymbolsFirst =
+        case apBotSymbols p of
+          Nothing -> Nothing
+          Just xs -> listToMaybe (filter (not . null) (map trim xs))
+      binanceSymbolRaw = pickMaybe (apBinanceSymbol p <|> botSymbolsFirst) (argBinanceSymbol baseArgs)
       binanceSymbolSanitized = binanceSymbolRaw >>= sanitizeComboSymbolForPlatform (Just (platformCode platform))
       binanceSymbol = binanceSymbolSanitized <|> binanceSymbolRaw
 
