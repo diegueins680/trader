@@ -34,6 +34,7 @@ AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
 TRADER_API_TOKEN="${TRADER_API_TOKEN:-}"
 TRADER_CORS_ORIGIN="${TRADER_CORS_ORIGIN:-}"
 TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
+TRADER_API_MAX_EPOCHS="${TRADER_API_MAX_EPOCHS:-}"
 TRADER_API_MAX_HIDDEN_SIZE="${TRADER_API_MAX_HIDDEN_SIZE:-50}"
 TRADER_DB_URL="${TRADER_DB_URL:-${DATABASE_URL:-}}"
 TRADER_STATE_S3_BUCKET_SET="${TRADER_STATE_S3_BUCKET+true}"
@@ -44,6 +45,7 @@ TRADER_BOT_SYMBOLS="${TRADER_BOT_SYMBOLS:-}"
 TRADER_BOT_SYMBOL="${TRADER_BOT_SYMBOL:-}"
 TRADER_BOT_TRADE="${TRADER_BOT_TRADE:-true}"
 TRADER_OPTIMIZER_ENABLED="${TRADER_OPTIMIZER_ENABLED:-}"
+TRADER_TOP_COMBOS_BACKTEST_ENABLED="${TRADER_TOP_COMBOS_BACKTEST_ENABLED:-}"
 TRADER_OPTIMIZER_EVERY_SEC="${TRADER_OPTIMIZER_EVERY_SEC:-}"
 TRADER_OPTIMIZER_TRIALS="${TRADER_OPTIMIZER_TRIALS:-}"
 TRADER_OPTIMIZER_TIMEOUT_SEC="${TRADER_OPTIMIZER_TIMEOUT_SEC:-}"
@@ -144,11 +146,13 @@ Environment variables (equivalents):
   TRADER_STATE_S3_PREFIX
   TRADER_STATE_S3_REGION
   TRADER_API_MAX_BARS_LSTM
+  TRADER_API_MAX_EPOCHS
   TRADER_API_MAX_HIDDEN_SIZE
   TRADER_BOT_SYMBOLS
   TRADER_BOT_SYMBOL
   TRADER_BOT_TRADE
   TRADER_OPTIMIZER_ENABLED
+  TRADER_TOP_COMBOS_BACKTEST_ENABLED
   TRADER_OPTIMIZER_EVERY_SEC
   TRADER_OPTIMIZER_TRIALS
   TRADER_OPTIMIZER_TIMEOUT_SEC
@@ -1308,6 +1312,60 @@ create_app_runner() {
     fi
   fi
 
+  if [[ -z "${TRADER_OPTIMIZER_ENABLED:-}" && -n "$existing_service_arn" ]]; then
+    local existing_optimizer_enabled=""
+    existing_optimizer_enabled="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_OPTIMIZER_ENABLED' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_optimizer_enabled" == "None" ]]; then
+      existing_optimizer_enabled=""
+    fi
+    if [[ -n "$existing_optimizer_enabled" ]]; then
+      TRADER_OPTIMIZER_ENABLED="$existing_optimizer_enabled"
+      echo -e "${YELLOW}✓ Reusing existing TRADER_OPTIMIZER_ENABLED from service${NC}" >&2
+    fi
+  fi
+
+  if [[ -z "${TRADER_TOP_COMBOS_BACKTEST_ENABLED:-}" && -n "$existing_service_arn" ]]; then
+    local existing_top_combos_enabled=""
+    existing_top_combos_enabled="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_TOP_COMBOS_BACKTEST_ENABLED' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_top_combos_enabled" == "None" ]]; then
+      existing_top_combos_enabled=""
+    fi
+    if [[ -n "$existing_top_combos_enabled" ]]; then
+      TRADER_TOP_COMBOS_BACKTEST_ENABLED="$existing_top_combos_enabled"
+      echo -e "${YELLOW}✓ Reusing existing TRADER_TOP_COMBOS_BACKTEST_ENABLED from service${NC}" >&2
+    fi
+  fi
+
+  if [[ -z "${TRADER_API_MAX_EPOCHS:-}" && -n "$existing_service_arn" ]]; then
+    local existing_max_epochs=""
+    existing_max_epochs="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_API_MAX_EPOCHS' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_max_epochs" == "None" ]]; then
+      existing_max_epochs=""
+    fi
+    if [[ -n "$existing_max_epochs" ]]; then
+      TRADER_API_MAX_EPOCHS="$existing_max_epochs"
+      echo -e "${YELLOW}✓ Reusing existing TRADER_API_MAX_EPOCHS from service${NC}" >&2
+    fi
+  fi
+
   if [[ -z "${BINANCE_API_KEY:-}" && -n "$existing_service_arn" ]]; then
     local existing_binance_key=""
     existing_binance_key="$(
@@ -1481,6 +1539,9 @@ create_app_runner() {
   if [[ -n "${TRADER_API_MAX_BARS_LSTM:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_BARS_LSTM\":\"${TRADER_API_MAX_BARS_LSTM}\""
   fi
+  if [[ -n "${TRADER_API_MAX_EPOCHS:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_EPOCHS\":\"${TRADER_API_MAX_EPOCHS}\""
+  fi
   if [[ -n "${TRADER_API_MAX_HIDDEN_SIZE:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_API_MAX_HIDDEN_SIZE\":\"${TRADER_API_MAX_HIDDEN_SIZE}\""
   fi
@@ -1495,6 +1556,9 @@ create_app_runner() {
   fi
   if [[ -n "${TRADER_OPTIMIZER_ENABLED:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_ENABLED\":\"${TRADER_OPTIMIZER_ENABLED}\""
+  fi
+  if [[ -n "${TRADER_TOP_COMBOS_BACKTEST_ENABLED:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_TOP_COMBOS_BACKTEST_ENABLED\":\"${TRADER_TOP_COMBOS_BACKTEST_ENABLED}\""
   fi
   if [[ -n "${TRADER_OPTIMIZER_EVERY_SEC:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_OPTIMIZER_EVERY_SEC\":\"${TRADER_OPTIMIZER_EVERY_SEC}\""
@@ -2098,6 +2162,9 @@ main() {
     echo "  App Runner Instance Role: ${APP_RUNNER_INSTANCE_ROLE_ARN}"
   fi
   echo "  API Max Bars (LSTM): ${TRADER_API_MAX_BARS_LSTM}"
+  if [[ -n "${TRADER_API_MAX_EPOCHS:-}" ]]; then
+    echo "  API Max Epochs: ${TRADER_API_MAX_EPOCHS}"
+  fi
   echo "  API Max Hidden Size: ${TRADER_API_MAX_HIDDEN_SIZE}"
   if [[ "$DEPLOY_UI" == "true" ]]; then
     echo "  UI Bucket: ${UI_BUCKET:-"(not set)"}"

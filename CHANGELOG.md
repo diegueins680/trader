@@ -9,12 +9,14 @@ All notable changes to this project will be documented in this file.
 - Deploy/UI: quick AWS deploy auto-fills `TRADER_CORS_ORIGIN` from the CloudFront domain when using direct UI API mode.
 - Deploy/UI: quick AWS deploy reuses existing `TRADER_CORS_ORIGIN` from App Runner updates so CORS settings persist.
 - Deploy/UI: quick AWS deploy defaults `apiFallbackUrl` to `/api` in direct CloudFront mode to avoid CORS blocks by falling back to same-origin.
+- Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.
 - Web UI: prefer same-origin `apiFallbackUrl` when `apiBaseUrl` is cross-origin to avoid initial CORS failures.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
+- Binance: `/binance/keys` trade tests auto-bump order sizing to the symbol minNotional instead of skipping.
 - Optimizer: include stable combo UUIDs in top-combos outputs.
 - Optimizer: merge top-combos de-duplication now keys off full combo identity (params + thresholds + objective + source) so new variants persist.
 - Optimizer: page Binance klines to support >1000 bars and honor `TRADER_OPTIMIZER_MAX_POINTS` (up to 5000) for `/optimizer/run` and auto optimizer runs.
