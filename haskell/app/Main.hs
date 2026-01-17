@@ -7958,7 +7958,7 @@ defaultApiMaxOptimizerOutputBytes :: Int
 defaultApiMaxOptimizerOutputBytes = 20000
 
 defaultApiMaxBotStatusTail :: Int
-defaultApiMaxBotStatusTail = 5000
+defaultApiMaxBotStatusTail = 1000
 
 validateApiComputeLimits :: ApiComputeLimits -> Args -> Either String Args
 validateApiComputeLimits limits args =
