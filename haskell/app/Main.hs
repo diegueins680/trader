@@ -7164,7 +7164,7 @@ corsHeadersFor cors req =
         | otherwise =
             case lookupHeaderNormalized "Origin" (Wai.requestHeaders req) of
               Just origin | origin `elem` ccAllowedOrigins cors -> Just origin
-              Just origin | ccAllowAuthOrigin cors && corsRequestHasAuthHeaders req -> Just origin
+              Just origin | ccAllowAuthOrigin cors -> Just origin
               _ -> Nothing
       extra =
         case mAllowed of

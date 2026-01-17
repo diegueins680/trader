@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 - Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.
 - Deploy/API: quick AWS deploy now reuses `TRADER_BOT_AUTOSTART` from the service and supports setting it on deploy.
 - API: add `TRADER_BOT_AUTOSTART` to disable live-bot auto-start on boot.
-- API: when `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, echo the request Origin for auth-bearing browser requests so direct UI calls work without explicit CORS config.
+- API: when `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, echo the request Origin so direct UI calls work without explicit CORS config.
 - Web UI: try `apiBaseUrl` first and fail over to `apiFallbackUrl` after network/502/503/504 errors, remembering successful fallbacks for the session.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
@@ -31,7 +31,7 @@ All notable changes to this project will be documented in this file.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
 - API: include CSV file size/mtime in cache keys so updated CSVs invalidate cached signal/backtest results.
 - API: allowlist CORS via `TRADER_CORS_ORIGIN` (no `Access-Control-Allow-Origin` when unset).
-- API: treat `TRADER_CORS_ORIGIN=*` as a wildcard and honor `X-API-Key` in preflight auth-header detection.
+- API: treat `TRADER_CORS_ORIGIN=*` as a wildcard and allow auth-protected endpoints to answer preflights without relying on `Access-Control-Request-Headers`.
 - API: cap `/bot/status` tail defaults to 1000 points to prevent upstream 5xx responses.
 - API: treat the first `botSymbols` entry as `binanceSymbol` for `/bot/start` validation when `binanceSymbol` is missing.
 - API: manage Binance listenKey user-data streams server-side and expose `/binance/listenKey/stream` as an SSE relay.
