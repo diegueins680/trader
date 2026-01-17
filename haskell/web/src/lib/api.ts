@@ -211,9 +211,13 @@ function resolveFallbackBase(primaryBase: string): string | null {
 function resolvePreferredFallback(primaryBase: string, fallbackBase: string | null): string | null {
   if (!fallbackBase) return null;
   const preferred = preferredFallbackBases.get(primaryBase) ?? null;
-  if (!preferred || preferred !== fallbackBase) return null;
-  if (blockedFallbackBases.has(preferred)) return null;
-  return preferred;
+  if (preferred) {
+    if (preferred !== fallbackBase) return null;
+    if (blockedFallbackBases.has(preferred)) return null;
+    return preferred;
+  }
+  if (isCrossOriginBase(primaryBase) && !isCrossOriginBase(fallbackBase)) return fallbackBase;
+  return null;
 }
 
 function mergeHeaders(base: HeadersInit | undefined, extra: Record<string, string> | undefined): HeadersInit | undefined {

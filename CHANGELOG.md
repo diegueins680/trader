@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Deploy/UI: quick AWS deploy auto-fills `TRADER_CORS_ORIGIN` from the CloudFront domain when using direct UI API mode.
 - Deploy/UI: quick AWS deploy reuses existing `TRADER_CORS_ORIGIN` from App Runner updates so CORS settings persist.
 - Deploy/UI: quick AWS deploy defaults `apiFallbackUrl` to `/api` in direct CloudFront mode to avoid CORS blocks by falling back to same-origin.
+- Web UI: prefer same-origin `apiFallbackUrl` when `apiBaseUrl` is cross-origin to avoid initial CORS failures.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
