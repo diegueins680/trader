@@ -49,6 +49,7 @@ executable trader-hs
                      , bytestring >=0.10
                      , base16-bytestring
                      , cassava >=0.5
+                     , case-insensitive
                      , cryptonite
                      , directory
                      , filepath
