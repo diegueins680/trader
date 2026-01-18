@@ -758,6 +758,7 @@ Timeouts:
 
 Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors. Async signal/backtest starts retry transient 5xx/timeouts and can fail over to `apiFallbackUrl`; ensure the fallback points at the same backend to avoid mismatched job IDs. Live bot status/ops polling auto-reduces history sizes on proxy 502/503/504 to keep the dashboard responsive, and `/bot/status` is capped at 1000 points by default to avoid upstream 5xx responses.
 If live bot start/status returns 502/503/504, verify the `/api/*` proxy target and origin health when using `/api`, or check the direct API origin/CORS configuration when using a full API URL.
+Unexpected handler failures now return a JSON 500 response (with CORS headers) so the browser sees the error payload; check API logs for details.
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
