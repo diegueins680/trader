@@ -475,6 +475,7 @@ data LatestSignal = LatestSignal
   , lsConformalInterval :: !(Maybe Interval)
   , lsConfidence :: !(Maybe Double)
   , lsPositionSize :: !(Maybe Double)
+  , lsExitSize :: !(Maybe Double)
   , lsKalmanDir :: !(Maybe Int)
   , lsLstmNext :: !(Maybe Double)
   , lsSizingNext :: !(Maybe Double)
@@ -709,6 +710,7 @@ data ApiParams = ApiParams
   , apStopLossVolMult :: Maybe Double
   , apTakeProfitVolMult :: Maybe Double
   , apTrailingStopVolMult :: Maybe Double
+  , apTakeProfitPartial :: Maybe Double
   , apMinHoldBars :: Maybe Int
   , apCooldownBars :: Maybe Int
   , apMaxHoldBars :: Maybe Int
@@ -719,11 +721,21 @@ data ApiParams = ApiParams
   , apMaxTradesPerDay :: Maybe Int
   , apExpectancyLookback :: Maybe Int
   , apMinExpectancy :: Maybe Double
+  , apPerfLookback :: Maybe Int
+  , apPerfMinWinRate :: Maybe Double
+  , apPerfMinProfitFactor :: Maybe Double
+  , apLossStreakMax :: Maybe Int
+  , apLossStreakCooldownBars :: Maybe Int
   , apNoTradeWindows :: Maybe [String]
   , apMaxOpenPositions :: Maybe Int
   , apMaxOpenPerBase :: Maybe Int
   , apMinEdge :: Maybe Double
   , apMinSignalToNoise :: Maybe Double
+  , apAdaptiveFilters :: Maybe Bool
+  , apAdaptiveEdgeBufferMax :: Maybe Double
+  , apAdaptiveMinSignalToNoiseMax :: Maybe Double
+  , apAdaptiveKalmanZMinMax :: Maybe Double
+  , apAdaptiveTrendLookbackMax :: Maybe Int
   , apThresholdFactorEnabled :: Maybe Bool
   , apThresholdFactorAlpha :: Maybe Double
   , apThresholdFactorMin :: Maybe Double
@@ -1083,6 +1095,7 @@ instance ToJSON LatestSignal where
       , "conformalInterval" .= conformalJson
       , "confidence" .= lsConfidence s
       , "positionSize" .= lsPositionSize s
+      , "exitSize" .= lsExitSize s
       , "kalmanDirection" .= (if isJust (lsKalmanNext s) then dirLabel (lsKalmanDir s) else Nothing)
       , "lstmNext" .= lsLstmNext s
       , "lstmDirection" .= (if isJust (lsLstmNext s) then dirLabel (lsLstmDir s) else Nothing)
@@ -1669,6 +1682,7 @@ argsPublicJson args =
       , "stopLossVolMult" .= argStopLossVolMult args
       , "takeProfitVolMult" .= argTakeProfitVolMult args
       , "trailingStopVolMult" .= argTrailingStopVolMult args
+      , "takeProfitPartial" .= argTakeProfitPartial args
       , "minHoldBars" .= argMinHoldBars args
       , "cooldownBars" .= argCooldownBars args
       , "maxHoldBars" .= argMaxHoldBars args
@@ -1679,11 +1693,21 @@ argsPublicJson args =
       , "maxTradesPerDay" .= argMaxTradesPerDay args
       , "expectancyLookback" .= argExpectancyLookback args
       , "minExpectancy" .= argMinExpectancy args
+      , "perfLookback" .= argPerfLookback args
+      , "perfMinWinRate" .= argPerfMinWinRate args
+      , "perfMinProfitFactor" .= argPerfMinProfitFactor args
+      , "lossStreakMax" .= argLossStreakMax args
+      , "lossStreakCooldownBars" .= argLossStreakCooldownBars args
       , "noTradeWindows" .= map timeWindowCode (argNoTradeWindows args)
       , "maxOpenPositions" .= argMaxOpenPositions args
       , "maxOpenPerBase" .= argMaxOpenPerBase args
       , "minEdge" .= argMinEdge args
       , "minSignalToNoise" .= argMinSignalToNoise args
+      , "adaptiveFilters" .= argAdaptiveFilters args
+      , "adaptiveEdgeBufferMax" .= argAdaptiveEdgeBufferMax args
+      , "adaptiveMinSignalToNoiseMax" .= argAdaptiveMinSignalToNoiseMax args
+      , "adaptiveKalmanZMinMax" .= argAdaptiveKalmanZMinMax args
+      , "adaptiveTrendLookbackMax" .= argAdaptiveTrendLookbackMax args
       , "thresholdFactorEnabled" .= argThresholdFactorEnabled args
       , "thresholdFactorAlpha" .= argThresholdFactorAlpha args
       , "thresholdFactorMin" .= argThresholdFactorMin args
@@ -2691,6 +2715,8 @@ botOpenTradeJson trade =
     , "entryEquity" .= botOpenEntryEquity trade
     , "entryPrice" .= botOpenEntryPrice trade
     , "trail" .= botOpenTrail trade
+    , "size" .= botOpenSize trade
+    , "partialTaken" .= botOpenPartialTaken trade
     , "side" .= positionSideLabel (botOpenSide trade)
     ]
 
@@ -2899,6 +2925,24 @@ data BotOpenTrade = BotOpenTrade
   , botOpenSize :: !Double
   , botOpenTrail :: !Double
   , botOpenSide :: !PositionSide
+  , botOpenPartialTaken :: !Bool
+  } deriving (Eq, Show)
+
+data BotPerfStats = BotPerfStats
+  { bpsLookback :: !Int
+  , bpsTrades :: !Int
+  , bpsWins :: !Int
+  , bpsLosses :: !Int
+  , bpsWinRate :: !Double
+  , bpsProfitFactor :: !(Maybe Double)
+  , bpsExpectancy :: !Double
+  } deriving (Eq, Show)
+
+data BotAdjustments = BotAdjustments
+  { baEdgeBufferAdd :: !Double
+  , baMinSignalToNoiseAdd :: !Double
+  , baKalmanZMinAdd :: !Double
+  , baTrendLookbackAdd :: !Int
   } deriving (Eq, Show)
 
 data BotState = BotState
@@ -2919,6 +2963,9 @@ data BotState = BotState
   , botOps :: ![BotOp]
   , botOrders :: ![BotOrderEvent]
   , botTrades :: ![Trade]
+  , botPerfStats :: !BotPerfStats
+  , botAdjustments :: !BotAdjustments
+  , botLossStreak :: !Int
   , botOpenTrade :: !(Maybe BotOpenTrade)
   , botCooldownLeft :: !Int
   , botLatestSignal :: !LatestSignal
@@ -2950,6 +2997,124 @@ data BotState = BotState
 
 newBotController :: IO BotController
 newBotController = BotController <$> newMVar HM.empty
+
+emptyBotAdjustments :: BotAdjustments
+emptyBotAdjustments = BotAdjustments 0 0 0 0
+
+emptyBotPerfStats :: Int -> BotPerfStats
+emptyBotPerfStats lookback =
+  BotPerfStats
+    { bpsLookback = max 0 lookback
+    , bpsTrades = 0
+    , bpsWins = 0
+    , bpsLosses = 0
+    , bpsWinRate = 0
+    , bpsProfitFactor = Nothing
+    , bpsExpectancy = 0
+    }
+
+computeBotPerfStats :: Int -> [Trade] -> BotPerfStats
+computeBotPerfStats lookback trades =
+  let lb = max 0 lookback
+      recent = if lb <= 0 then [] else take lb (reverse trades)
+      bad x = isNaN x || isInfinite x
+      returns = [trReturn t | t <- recent, not (bad (trReturn t))]
+      wins = length [r | r <- returns, r > 0]
+      losses = length [r | r <- returns, r < 0]
+      winRate =
+        if wins + losses == 0
+          then 0
+          else fromIntegral wins / fromIntegral (wins + losses)
+      grossWin = sum [r | r <- returns, r > 0]
+      grossLoss = abs (sum [r | r <- returns, r < 0])
+      profitFactor =
+        if grossLoss > 0
+          then Just (grossWin / grossLoss)
+          else if grossWin > 0
+            then Nothing
+            else Just 0
+      expectancy =
+        if null returns
+          then 0
+          else sum returns / fromIntegral (length returns)
+   in BotPerfStats
+        { bpsLookback = lb
+        , bpsTrades = length recent
+        , bpsWins = wins
+        , bpsLosses = losses
+        , bpsWinRate = winRate
+        , bpsProfitFactor = profitFactor
+        , bpsExpectancy = expectancy
+        }
+
+perfGateReason :: Args -> BotPerfStats -> Maybe String
+perfGateReason args stats =
+  let lookback = max 0 (argPerfLookback args)
+      ready = lookback > 0 && bpsTrades stats >= lookback
+      minWin = argPerfMinWinRate args
+      minPf = argPerfMinProfitFactor args
+      winOk =
+        case minWin of
+          Just v | v > 0 -> bpsWinRate stats >= v
+          _ -> True
+      pfOk =
+        case minPf of
+          Just v | v > 0 ->
+            case bpsProfitFactor stats of
+              Nothing -> True
+              Just pf -> pf >= v
+          _ -> True
+   in
+    if not ready
+      then Nothing
+      else
+        if not winOk
+          then Just "PERF_WIN_RATE"
+          else if not pfOk
+            then Just "PERF_PROFIT_FACTOR"
+            else Nothing
+
+clamp01 :: Double -> Double
+clamp01 x = max 0 (min 1 x)
+
+computeAdaptiveAdjustments :: Args -> BotPerfStats -> BotAdjustments
+computeAdaptiveAdjustments args stats =
+  let lookback = max 0 (argPerfLookback args)
+      ready = lookback > 0 && bpsTrades stats >= lookback
+      winScore =
+        case argPerfMinWinRate args of
+          Just v | v > 0 -> clamp01 ((v - bpsWinRate stats) / v)
+          _ -> 0
+      pfScore =
+        case argPerfMinProfitFactor args of
+          Just v | v > 0 ->
+            case bpsProfitFactor stats of
+              Just pf -> clamp01 ((v - pf) / v)
+              Nothing -> 0
+          _ -> 0
+      strictness =
+        if argAdaptiveFilters args && ready
+          then max winScore pfScore
+          else 0
+      edgeAdd = strictness * max 0 (argAdaptiveEdgeBufferMax args)
+      snrAdd = strictness * max 0 (argAdaptiveMinSignalToNoiseMax args)
+      zAdd = strictness * max 0 (argAdaptiveKalmanZMinMax args)
+      trendAdd = round (strictness * fromIntegral (max 0 (argAdaptiveTrendLookbackMax args)))
+   in BotAdjustments
+        { baEdgeBufferAdd = edgeAdd
+        , baMinSignalToNoiseAdd = snrAdd
+        , baKalmanZMinAdd = zAdd
+        , baTrendLookbackAdd = trendAdd
+        }
+
+applyBotAdjustments :: BotAdjustments -> Args -> Args
+applyBotAdjustments adj args =
+  args
+    { argEdgeBuffer = argEdgeBuffer args + baEdgeBufferAdd adj
+    , argMinSignalToNoise = argMinSignalToNoise args + baMinSignalToNoiseAdd adj
+    , argKalmanZMin = argKalmanZMin args + baKalmanZMinAdd adj
+    , argTrendLookback = argTrendLookback args + baTrendLookbackAdd adj
+    }
 
 clampInt :: Int -> Int -> Int -> Int
 clampInt lo hi n = max lo (min hi n)
@@ -3007,6 +3172,38 @@ botStatusJson st =
           then Nothing
           else Just x
 
+      argsBase = botArgs st
+      argsAdjusted = applyBotAdjustments (botAdjustments st) argsBase
+      perf = botPerfStats st
+      perfJson =
+        object
+          [ "lookback" .= bpsLookback perf
+          , "trades" .= bpsTrades perf
+          , "wins" .= bpsWins perf
+          , "losses" .= bpsLosses perf
+          , "winRate" .= bpsWinRate perf
+          , "profitFactor" .= bpsProfitFactor perf
+          , "expectancy" .= bpsExpectancy perf
+          , "lossStreak" .= botLossStreak st
+          , "gateReason" .= perfGateReason argsBase perf
+          ]
+      adj = botAdjustments st
+      adaptiveJson =
+        object
+          [ "enabled" .= argAdaptiveFilters argsBase
+          , "edgeBuffer" .= argEdgeBuffer argsAdjusted
+          , "minSignalToNoise" .= argMinSignalToNoise argsAdjusted
+          , "kalmanZMin" .= argKalmanZMin argsAdjusted
+          , "trendLookback" .= argTrendLookback argsAdjusted
+          , "adjustments"
+              .= object
+                [ "edgeBufferAdd" .= baEdgeBufferAdd adj
+                , "minSignalToNoiseAdd" .= baMinSignalToNoiseAdd adj
+                , "kalmanZMinAdd" .= baKalmanZMinAdd adj
+                , "trendLookbackAdd" .= baTrendLookbackAdd adj
+                ]
+          ]
+
       klineJson k =
         object
           [ "openTime" .= kOpenTime k
@@ -3059,6 +3256,8 @@ botStatusJson st =
     , "operations" .= botOps st
     , "orders" .= botOrders st
     , "trades" .= map tradeToJson (botTrades st)
+    , "performance" .= perfJson
+    , "adaptive" .= adaptiveJson
     , "latestSignal" .= botLatestSignal st
     ]
       ++ maybe [] (\o -> ["lastOrder" .= o]) (botLastOrder st)
@@ -4560,10 +4759,10 @@ initBotState mOps args settings mComboUuid sym = do
         case desiredPos of
           1 ->
             let px = V.last pricesV
-             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px entrySize px SideLong)
+             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px entrySize px SideLong False)
           (-1) ->
             let px = V.last pricesV
-             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px entrySize px SideShort)
+             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px entrySize px SideShort False)
           _ -> Nothing
       ops =
         if wantSwitch && appliedSwitch
@@ -4652,6 +4851,9 @@ initBotState mOps args settings mComboUuid sym = do
           , botOps = ops2
           , botOrders = orders2
           , botTrades = []
+          , botPerfStats = emptyBotPerfStats (argPerfLookback argsWithKeys)
+          , botAdjustments = emptyBotAdjustments
+          , botLossStreak = 0
           , botOpenTrade = openTrade2
           , botCooldownLeft = 0
           , botLatestSignal = latest
@@ -4852,9 +5054,10 @@ botOptimizeAfterOperation st = do
                   , argOpenThreshold = newOpenThr
                   , argCloseThreshold = newCloseThr
                   }
+              argsSignal = applyBotAdjustments (botAdjustments st) args'
               latest' =
                 computeLatestSignal
-                  args'
+                  argsSignal
                   lookback
                   pricesV
                   (Just (botHighs st))
@@ -4920,9 +5123,10 @@ botApplyOptimizerUpdate st upd = do
       if not hasLstmWindow
         then pure st { botError = Just "Optimizer update skipped: not enough data for lookback.", botUpdatedAtMs = now }
         else do
-          let latest =
+          let argsSignal = applyBotAdjustments (botAdjustments st) argsWithKeys
+              latest =
                 computeLatestSignal
-                  argsWithKeys
+                  argsSignal
                   lookback'
                   pricesV
                   (Just (botHighs st))
@@ -6110,6 +6314,7 @@ botApplyKline :: Maybe OpsStore -> Metrics -> Maybe Journal -> Maybe Webhook -> 
 botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
   now <- getTimestampMs
   let args = botArgs st
+      argsSignal = applyBotAdjustments (botAdjustments st) args
       lookback = botLookback st
       settings = botSettings st
 
@@ -6270,7 +6475,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
 
   let latest0Raw =
         computeLatestSignal
-          args
+          argsSignal
           lookback
           pricesV
           (Just highsV)
@@ -6432,8 +6637,23 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 else Nothing
           _ -> Nothing
 
+      partialTpFrac = clamp01 (argTakeProfitPartial args)
+      partialTpEligible =
+        partialTpFrac > 0
+          && partialTpFrac < 1
+          && prevPos /= 0
+          && desiredPosSignal == prevPos
+          && mBracketExit == Just "TAKE_PROFIT"
+          && not halted
+          && maybe False (not . botOpenPartialTaken) openTrade1
+
+      (mBracketExit1, mPartialExitReason) =
+        if partialTpEligible
+          then (Nothing, Just "TAKE_PROFIT_PARTIAL")
+          else (mBracketExit, Nothing)
+
       (latestPre, desiredPosPre, mExitReasonPre) =
-        case mBracketExit of
+        case mBracketExit1 of
           Just why ->
             let closeDir = if prevPos > 0 then Just (-1) else Just 1
                 sigExit = latest0 { lsChosenDir = closeDir, lsAction = "EXIT_" ++ why }
@@ -6524,18 +6744,21 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         case argMaxTradesPerDay args of
           Just lim | lim > 0 -> dayTrades1 >= lim
           _ -> False
+      perfGateReasonMaybe = perfGateReason args (botPerfStats st)
       entryAttempt = desiredPosWanted2 /= 0 && desiredPosWanted2 /= prevPos
       entryAttemptFromFlat = prevPos == 0 && desiredPosWanted2 /= 0
       entryBlockReason =
         if entryAttemptFromFlat && exposureBlocked
           then Just "MAX_OPEN_POSITIONS"
-          else if entryAttemptFromFlat && baseExposureBlocked
-            then Just "MAX_OPEN_PER_BASE"
-            else if entryAttempt && noTradeActive
-              then Just "NO_TRADE_WINDOW"
-              else if entryAttempt && tradeLimitReached
-                then Just "MAX_TRADES_PER_DAY"
-                else Nothing
+        else if entryAttemptFromFlat && baseExposureBlocked
+          then Just "MAX_OPEN_PER_BASE"
+        else if entryAttempt && noTradeActive
+          then Just "NO_TRADE_WINDOW"
+        else if entryAttempt && tradeLimitReached
+          then Just "MAX_TRADES_PER_DAY"
+        else if entryAttempt
+          then perfGateReasonMaybe
+        else Nothing
 
       (latest2b, desiredPosWanted2b, mExitReason2b) =
         case entryBlockReason of
@@ -6556,112 +6779,61 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
           then (latest2b { lsAction = "HOLD_COOLDOWN" }, 0, Nothing)
           else (latest2b, desiredPosWanted2b, mExitReason2b)
 
+      partialExitWanted =
+        case mPartialExitReason of
+          Just _ -> prevPos /= 0 && desiredPosWanted == prevPos
+          Nothing -> False
+      latestFinal =
+        if partialExitWanted
+          then latest { lsAction = fromMaybe (lsAction latest) mPartialExitReason, lsExitSize = Just partialTpFrac }
+          else latest
+
       wantSwitch = desiredPosWanted /= prevPos
       latestOrder =
         case desiredPosWanted of
-          1 -> latest { lsChosenDir = Just 1 }
-          -1 -> latest { lsChosenDir = Just (-1) }
+          1 -> latestFinal { lsChosenDir = Just 1 }
+          -1 -> latestFinal { lsChosenDir = Just (-1) }
           0 ->
             if prevPos == 0
-              then latest { lsChosenDir = Nothing }
-              else latest { lsChosenDir = Just (negate prevPos) }
-      entrySize = entryScaleForSignal args (beMarket (botEnv st)) latest
-
-  o <-
-    if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
-      then placeBotCloseIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
-      else placeIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
+              then latestFinal { lsChosenDir = Nothing }
+              else latestFinal { lsChosenDir = Just (negate prevPos) }
+      entrySize = entryScaleForSignal args (beMarket (botEnv st)) latestFinal
 
   (ops', orders', trades', openTrade', mOrder, posFinal, eqFinal, switchedApplied, orderErrors1, haltReason2, haltedAt2) <-
-    if not wantSwitch
-      then
-        pure
-          ( botOps st
-          , botOrders st
-          , botTrades st
-          , openTrade1
-          , Just o
-          , prevPos
-          , eqAfterReturn
-          , False
-          , botConsecutiveOrderErrors st
-          , haltReason1
-          , haltedAt1
-          )
-      else do
-        let opSide =
-              if desiredPosWanted > prevPos
-                then "BUY"
-                else "SELL"
-            orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now o
+    if partialExitWanted
+      then do
+        oPartial <- placeBotCloseIfEnabled args settings latestFinal (botEnv st) (botSymbol st)
+        let opSide = if prevPos > 0 then "SELL" else "BUY"
+            orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now oPartial
             ordersNew = botOrders st ++ [orderEv]
             tradeEnabled = bsTradeEnabled settings
-            alreadyMsg =
-              let msg = aorMessage o
-               in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
-            appliedSwitch =
+            appliedPartial =
               if not tradeEnabled
                 then True
-                else aorSent o || alreadyMsg
+                else aorSent oPartial
             feeApplied =
               if not tradeEnabled
                 then True
-                else aorSent o
-            feeSize =
-              if desiredPosWanted == 0
-                then prevSize
-                else max prevSize entrySize
-            feeFrac = min 0.999999 (max 0 (argFee args) * feeSize)
+                else aorSent oPartial
+            partialSize = max 0 (min prevSize (prevSize * partialTpFrac))
+            remainingSize = max 0 (prevSize - partialSize)
+            feeFrac = min 0.999999 (max 0 (argFee args) * partialSize)
             eqAfterFee =
-              if appliedSwitch && feeApplied
+              if appliedPartial && feeApplied
                 then eqAfterReturn * (1 - feeFrac)
                 else eqAfterReturn
-            posNew = if appliedSwitch then desiredPosWanted else prevPos
-            switchedApplied1 = posNew /= prevPos
-            opsNew =
-              if appliedSwitch
-                then botOps st ++ [BotOp nPrev opSide priceNew]
-                else botOps st
-            openTradeFor side eqEntry =
-              BotOpenTrade
-                { botOpenEntryIndex = nPrev
-                , botOpenEntryEquity = eqEntry
-                , botOpenHoldingPeriods = 0
-                , botOpenEntryPrice = priceNew
-                , botOpenSize = entrySize
-                , botOpenTrail = priceNew
-                , botOpenSide = side
-                }
-            closeTradeAt exitEq ot =
-              Trade
-                { trEntryIndex = botOpenEntryIndex ot
-                , trExitIndex = nPrev
-                , trEntryEquity = botOpenEntryEquity ot
-                , trExitEquity = exitEq
-                , trReturn = exitEq / botOpenEntryEquity ot - 1
-                , trHoldingPeriods = botOpenHoldingPeriods ot
-                , trExitReason = exitReasonFromCode <$> mExitReason
-                }
-            closeTrades =
-              case openTrade1 of
-                Nothing -> botTrades st
-                Just ot -> botTrades st ++ [closeTradeAt eqAfterFee ot]
-            (openTradeNew, tradesNew) =
-              if not appliedSwitch
-                then (openTrade1, botTrades st)
-                else
-                  case (prevPos, posNew) of
-                    (0, 1) -> (Just (openTradeFor SideLong eqAfterFee), botTrades st)
-                    (0, -1) -> (Just (openTradeFor SideShort eqAfterFee), botTrades st)
-                    (1, 0) -> (Nothing, closeTrades)
-                    (-1, 0) -> (Nothing, closeTrades)
-                    (1, -1) -> (Just (openTradeFor SideShort eqAfterFee), closeTrades)
-                    (-1, 1) -> (Just (openTradeFor SideLong eqAfterFee), closeTrades)
-                    _ -> (openTrade1, botTrades st)
+            openTradeNew =
+              if appliedPartial
+                then
+                  case openTrade1 of
+                    Just ot | remainingSize > 0 -> Just ot { botOpenSize = remainingSize, botOpenPartialTaken = True }
+                    Just _ -> Nothing
+                    _ -> openTrade1
+                else openTrade1
             errors0 = botConsecutiveOrderErrors st
             errors1 =
               if tradeEnabled
-                then if appliedSwitch then 0 else errors0 + 1
+                then if appliedPartial then 0 else errors0 + 1
                 else 0
             (haltReason3, haltedAt3) =
               case haltReason1 of
@@ -6671,7 +6843,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                     Just lim | errors1 >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
                     _ -> (Nothing, Nothing)
 
-        metricsRecordOrder metrics o
+        metricsRecordOrder metrics oPartial
         journalWriteMaybe
           mJournal
           ( object
@@ -6680,6 +6852,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
               , "symbol" .= botSymbol st
               , "market" .= marketCode (argBinanceMarket args)
               , "event" .= orderEv
+              , "partial" .= True
+              , "partialSize" .= partialSize
+              , "remainingSize" .= remainingSize
               ]
           )
         opsAppendMaybe
@@ -6693,18 +6868,171 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                   , "market" .= marketCode (argBinanceMarket args)
                   , "interval" .= argInterval args
                   , "event" .= orderEv
-                  , "signal" .= latest
-                  , "position" .= posNew
+                  , "signal" .= latestFinal
+                  , "position" .= prevPos
+                  , "partial" .= True
+                  , "partialSize" .= partialSize
+                  , "remainingSize" .= remainingSize
                   ]
               )
           )
           (Just eqAfterFee)
           (botComboUuid st)
           (Just (T.pack (botSymbol st)))
-          (orderIdFromOrderResult o)
-        webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew o)
+          (orderIdFromOrderResult oPartial)
+        webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew oPartial)
 
-        pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
+        pure
+          ( botOps st
+          , ordersNew
+          , botTrades st
+          , openTradeNew
+          , Just oPartial
+          , prevPos
+          , eqAfterFee
+          , False
+          , errors1
+          , haltReason3
+          , haltedAt3
+          )
+      else do
+        o <-
+          if argPositioning args == LongShort && desiredPosWanted == 0 && prevPos /= 0
+            then placeBotCloseIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
+            else placeIfEnabled args settings latestOrder (botEnv st) (botSymbol st)
+        if not wantSwitch
+          then
+            pure
+              ( botOps st
+              , botOrders st
+              , botTrades st
+              , openTrade1
+              , Just o
+              , prevPos
+              , eqAfterReturn
+              , False
+              , botConsecutiveOrderErrors st
+              , haltReason1
+              , haltedAt1
+              )
+          else do
+            let opSide =
+                  if desiredPosWanted > prevPos
+                    then "BUY"
+                    else "SELL"
+                orderEv = BotOrderEvent nPrev opSide priceNew openTimeNew now o
+                ordersNew = botOrders st ++ [orderEv]
+                tradeEnabled = bsTradeEnabled settings
+                alreadyMsg =
+                  let msg = aorMessage o
+                   in "already long" `isInfixOf` msg || "already short" `isInfixOf` msg || "already flat" `isInfixOf` msg
+                appliedSwitch =
+                  if not tradeEnabled
+                    then True
+                    else aorSent o || alreadyMsg
+                feeApplied =
+                  if not tradeEnabled
+                    then True
+                    else aorSent o
+                feeSize =
+                  if desiredPosWanted == 0
+                    then prevSize
+                    else max prevSize entrySize
+                feeFrac = min 0.999999 (max 0 (argFee args) * feeSize)
+                eqAfterFee =
+                  if appliedSwitch && feeApplied
+                    then eqAfterReturn * (1 - feeFrac)
+                    else eqAfterReturn
+                posNew = if appliedSwitch then desiredPosWanted else prevPos
+                switchedApplied1 = posNew /= prevPos
+                opsNew =
+                  if appliedSwitch
+                    then botOps st ++ [BotOp nPrev opSide priceNew]
+                    else botOps st
+                openTradeFor side eqEntry =
+                  BotOpenTrade
+                    { botOpenEntryIndex = nPrev
+                    , botOpenEntryEquity = eqEntry
+                    , botOpenHoldingPeriods = 0
+                    , botOpenEntryPrice = priceNew
+                    , botOpenSize = entrySize
+                    , botOpenTrail = priceNew
+                    , botOpenSide = side
+                    , botOpenPartialTaken = False
+                    }
+                closeTradeAt exitEq ot =
+                  Trade
+                    { trEntryIndex = botOpenEntryIndex ot
+                    , trExitIndex = nPrev
+                    , trEntryEquity = botOpenEntryEquity ot
+                    , trExitEquity = exitEq
+                    , trReturn = exitEq / botOpenEntryEquity ot - 1
+                    , trHoldingPeriods = botOpenHoldingPeriods ot
+                    , trExitReason = exitReasonFromCode <$> mExitReason
+                    }
+                closeTrades =
+                  case openTrade1 of
+                    Nothing -> botTrades st
+                    Just ot -> botTrades st ++ [closeTradeAt eqAfterFee ot]
+                (openTradeNew, tradesNew) =
+                  if not appliedSwitch
+                    then (openTrade1, botTrades st)
+                    else
+                      case (prevPos, posNew) of
+                        (0, 1) -> (Just (openTradeFor SideLong eqAfterFee), botTrades st)
+                        (0, -1) -> (Just (openTradeFor SideShort eqAfterFee), botTrades st)
+                        (1, 0) -> (Nothing, closeTrades)
+                        (-1, 0) -> (Nothing, closeTrades)
+                        (1, -1) -> (Just (openTradeFor SideShort eqAfterFee), closeTrades)
+                        (-1, 1) -> (Just (openTradeFor SideLong eqAfterFee), closeTrades)
+                        _ -> (openTrade1, botTrades st)
+                errors0 = botConsecutiveOrderErrors st
+                errors1 =
+                  if tradeEnabled
+                    then if appliedSwitch then 0 else errors0 + 1
+                    else 0
+                (haltReason3, haltedAt3) =
+                  case haltReason1 of
+                    Just _ -> (haltReason1, haltedAt1)
+                    Nothing ->
+                      case argMaxOrderErrors args of
+                        Just lim | errors1 >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
+                        _ -> (Nothing, Nothing)
+
+            metricsRecordOrder metrics o
+            journalWriteMaybe
+              mJournal
+              ( object
+                  [ "type" .= ("bot.order" :: String)
+                  , "atMs" .= now
+                  , "symbol" .= botSymbol st
+                  , "market" .= marketCode (argBinanceMarket args)
+                  , "event" .= orderEv
+                  ]
+              )
+            opsAppendMaybe
+              mOps
+              "bot.order"
+              Nothing
+              (Just (argsPublicJson args))
+              ( Just
+                  ( object
+                      [ "symbol" .= botSymbol st
+                      , "market" .= marketCode (argBinanceMarket args)
+                      , "interval" .= argInterval args
+                      , "event" .= orderEv
+                      , "signal" .= latestFinal
+                      , "position" .= posNew
+                      ]
+                  )
+              )
+              (Just eqAfterFee)
+              (botComboUuid st)
+              (Just (T.pack (botSymbol st)))
+              (orderIdFromOrderResult o)
+            webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew o)
+
+            pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
 
   case (botHaltReason st, haltReason2) of
     (Nothing, Just r) -> do
@@ -6754,14 +7082,40 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         if entryApplied
           then dayTrades1 + 1
           else dayTrades1
+      oldTradeCount = length (botTrades st)
+      newTradeCount = length trades'
+      mNewTrade =
+        if newTradeCount > oldTradeCount
+          then Just (last trades')
+          else Nothing
+      (perfStatsNext, adjustmentsNext, lossStreakNext, lossStreakTriggered) =
+        case mNewTrade of
+          Nothing -> (botPerfStats st, botAdjustments st, botLossStreak st, False)
+          Just tr ->
+            let perfStatsNew = computeBotPerfStats (argPerfLookback args) trades'
+                adjustmentsNew = computeAdaptiveAdjustments args perfStatsNew
+                r = trReturn tr
+                lossStreakNew =
+                  if isNaN r || isInfinite r || r <= 0
+                    then botLossStreak st + 1
+                    else 0
+                triggered =
+                  case argLossStreakMax args of
+                    v | v > 0 -> lossStreakNew >= v
+                    _ -> False
+             in (perfStatsNew, adjustmentsNew, lossStreakNew, triggered)
       cooldownDec =
         if prevPos == 0
           then max 0 (cooldownLeft0 - 1)
           else 0
-      cooldownLeftNext =
+      cooldownLeftBase =
         if posFinal == 0
           then if prevPos /= 0 then cooldownBars else cooldownDec
           else 0
+      cooldownLeftNext =
+        if lossStreakTriggered
+          then max cooldownLeftBase (argLossStreakCooldownBars args)
+          else cooldownLeftBase
       eqV1 = V.snoc (botEquityCurve st) eqFinal
       posV1 = V.snoc (botPositions st) posFinal
 
@@ -6831,6 +7185,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
           , botOps = ops2
           , botOrders = orders2
           , botTrades = trades2
+          , botPerfStats = perfStatsNext
+          , botAdjustments = adjustmentsNext
+          , botLossStreak = lossStreakNext
           , botOpenTrade = openTrade2
           , botCooldownLeft = cooldownLeftNext
           , botLatestSignal = latest
@@ -6853,6 +7210,95 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
           }
 
   stOut <- if switchedApplied then botOptimizeAfterOperation st1 else pure st1
+  case mNewTrade of
+    Nothing -> pure ()
+    Just tr -> do
+      let argsAdjusted = applyBotAdjustments adjustmentsNext args
+          pfLabel :: String
+          pfLabel =
+            case bpsProfitFactor perfStatsNext of
+              Nothing -> "inf"
+              Just pf -> printf "%.3f" pf
+          msg =
+            printf
+              "bot.adjust symbol=%s return=%.4f winRate=%.2f pf=%s edgeBuffer=%.6f minSNR=%.3f kalmanZMin=%.3f trendLookback=%d lossStreak=%d"
+              (botSymbol stOut)
+              (trReturn tr)
+              (bpsWinRate perfStatsNext)
+              pfLabel
+              (argEdgeBuffer argsAdjusted)
+              (argMinSignalToNoise argsAdjusted)
+              (argKalmanZMin argsAdjusted)
+              (argTrendLookback argsAdjusted)
+              lossStreakNext
+      putStrLn msg
+      journalWriteMaybe
+        mJournal
+        ( object
+            [ "type" .= ("bot.adjust" :: String)
+            , "atMs" .= now
+            , "symbol" .= botSymbol stOut
+            , "market" .= marketCode (argBinanceMarket args)
+            , "interval" .= argInterval args
+            , "trade" .= tradeToJson tr
+            , "performance"
+                .= object
+                  [ "lookback" .= bpsLookback perfStatsNext
+                  , "trades" .= bpsTrades perfStatsNext
+                  , "wins" .= bpsWins perfStatsNext
+                  , "losses" .= bpsLosses perfStatsNext
+                  , "winRate" .= bpsWinRate perfStatsNext
+                  , "profitFactor" .= bpsProfitFactor perfStatsNext
+                  , "expectancy" .= bpsExpectancy perfStatsNext
+                  , "lossStreak" .= lossStreakNext
+                  , "gateReason" .= perfGateReason args perfStatsNext
+                  ]
+            , "adjustments"
+                .= object
+                  [ "edgeBuffer" .= argEdgeBuffer argsAdjusted
+                  , "minSignalToNoise" .= argMinSignalToNoise argsAdjusted
+                  , "kalmanZMin" .= argKalmanZMin argsAdjusted
+                  , "trendLookback" .= argTrendLookback argsAdjusted
+                  , "edgeBufferAdd" .= baEdgeBufferAdd adjustmentsNext
+                  , "minSignalToNoiseAdd" .= baMinSignalToNoiseAdd adjustmentsNext
+                  , "kalmanZMinAdd" .= baKalmanZMinAdd adjustmentsNext
+                  , "trendLookbackAdd" .= baTrendLookbackAdd adjustmentsNext
+                  ]
+            ]
+        )
+      opsAppendMaybe
+        mOps
+        "bot.adjust"
+        Nothing
+        (Just (argsPublicJson args))
+        ( Just
+            ( object
+                [ "symbol" .= botSymbol stOut
+                , "market" .= marketCode (argBinanceMarket args)
+                , "interval" .= argInterval args
+                , "trade" .= tradeToJson tr
+                , "performance"
+                    .= object
+                      [ "winRate" .= bpsWinRate perfStatsNext
+                      , "profitFactor" .= bpsProfitFactor perfStatsNext
+                      , "expectancy" .= bpsExpectancy perfStatsNext
+                      , "lossStreak" .= lossStreakNext
+                      , "gateReason" .= perfGateReason args perfStatsNext
+                      ]
+                , "adjustments"
+                    .= object
+                      [ "edgeBuffer" .= argEdgeBuffer argsAdjusted
+                      , "minSignalToNoise" .= argMinSignalToNoise argsAdjusted
+                      , "kalmanZMin" .= argKalmanZMin argsAdjusted
+                      , "trendLookback" .= argTrendLookback argsAdjusted
+                      ]
+                ]
+            )
+        )
+        (Just eqFinal)
+        (botComboUuid stOut)
+        (Just (T.pack (botSymbol stOut)))
+        Nothing
   opsAppendMaybe
     mOps
     "bot.bar"
@@ -8520,9 +8966,6 @@ pickDefaultString def mb =
   case fmap trim mb of
     Just v | not (null v) -> v
     _ -> def
-
-clamp01 :: Double -> Double
-clamp01 x = max 0 (min 1 x)
 
 maybeIntArg :: String -> Maybe Int -> [String]
 maybeIntArg _ Nothing = []
@@ -11448,6 +11891,7 @@ argsFromApi baseArgs p = do
           , argStopLossVolMult = pick (apStopLossVolMult p) (argStopLossVolMult baseArgs)
           , argTakeProfitVolMult = pick (apTakeProfitVolMult p) (argTakeProfitVolMult baseArgs)
           , argTrailingStopVolMult = pick (apTrailingStopVolMult p) (argTrailingStopVolMult baseArgs)
+          , argTakeProfitPartial = pick (apTakeProfitPartial p) (argTakeProfitPartial baseArgs)
           , argMinHoldBars = pick (apMinHoldBars p) (argMinHoldBars baseArgs)
           , argCooldownBars = pick (apCooldownBars p) (argCooldownBars baseArgs)
           , argMaxHoldBars = pickMaybe (apMaxHoldBars p) (argMaxHoldBars baseArgs)
@@ -11458,11 +11902,21 @@ argsFromApi baseArgs p = do
           , argMaxTradesPerDay = pickMaybe (apMaxTradesPerDay p) (argMaxTradesPerDay baseArgs)
           , argExpectancyLookback = pick (apExpectancyLookback p) (argExpectancyLookback baseArgs)
           , argMinExpectancy = pickMaybe (apMinExpectancy p) (argMinExpectancy baseArgs)
+          , argPerfLookback = pick (apPerfLookback p) (argPerfLookback baseArgs)
+          , argPerfMinWinRate = pickMaybe (apPerfMinWinRate p) (argPerfMinWinRate baseArgs)
+          , argPerfMinProfitFactor = pickMaybe (apPerfMinProfitFactor p) (argPerfMinProfitFactor baseArgs)
+          , argLossStreakMax = pick (apLossStreakMax p) (argLossStreakMax baseArgs)
+          , argLossStreakCooldownBars = pick (apLossStreakCooldownBars p) (argLossStreakCooldownBars baseArgs)
           , argNoTradeWindows = noTradeWindows
           , argMaxOpenPositions = pickMaybe (apMaxOpenPositions p) (argMaxOpenPositions baseArgs)
           , argMaxOpenPerBase = pickMaybe (apMaxOpenPerBase p) (argMaxOpenPerBase baseArgs)
           , argMinEdge = pick (apMinEdge p) (argMinEdge baseArgs)
           , argMinSignalToNoise = pick (apMinSignalToNoise p) (argMinSignalToNoise baseArgs)
+          , argAdaptiveFilters = pick (apAdaptiveFilters p) (argAdaptiveFilters baseArgs)
+          , argAdaptiveEdgeBufferMax = pick (apAdaptiveEdgeBufferMax p) (argAdaptiveEdgeBufferMax baseArgs)
+          , argAdaptiveMinSignalToNoiseMax = pick (apAdaptiveMinSignalToNoiseMax p) (argAdaptiveMinSignalToNoiseMax baseArgs)
+          , argAdaptiveKalmanZMinMax = pick (apAdaptiveKalmanZMinMax p) (argAdaptiveKalmanZMinMax baseArgs)
+          , argAdaptiveTrendLookbackMax = pick (apAdaptiveTrendLookbackMax p) (argAdaptiveTrendLookbackMax baseArgs)
           , argThresholdFactorEnabled = pick (apThresholdFactorEnabled p) (argThresholdFactorEnabled baseArgs)
           , argThresholdFactorAlpha = pick (apThresholdFactorAlpha p) (argThresholdFactorAlpha baseArgs)
           , argThresholdFactorMin = pick (apThresholdFactorMin p) (argThresholdFactorMin baseArgs)
@@ -12111,6 +12565,12 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
     entryScale :: Double
     entryScale = entryScaleForSignal args (beMarket env) sig
 
+    exitScale :: Double
+    exitScale =
+      case lsExitSize sig of
+        Nothing -> 1
+        Just v -> clamp01 v
+
     clientOrderId :: Maybe String
     clientOrderId = trim <$> (mClientOrderIdOverride <|> argIdempotencyKey args)
 
@@ -12362,10 +12822,11 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
           if not alreadyLong
             then pure baseResult { aorMessage = "No order: already flat." }
             else do
-              let qRaw =
+              let qRaw0 =
                     case qtyArg of
                       Just q -> min q baseBal
                       Nothing -> baseBal
+                  qRaw = qRaw0 * exitScale
               case mSf of
                 Nothing ->
                   if qRaw <= 0
@@ -12694,10 +13155,10 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         else if posAmt > 0
                           then do
                             cancelProtectionOrders
-                            closeOrder "SELL" Sell (abs posAmt)
+                            closeOrder "SELL" Sell (abs posAmt * exitScale)
                           else do
                             cancelProtectionOrders
-                            closeOrder "BUY" Buy (abs posAmt)
+                            closeOrder "BUY" Buy (abs posAmt * exitScale)
                 _ -> pure baseResult { aorMessage = neutralMsg }
 
     modeLabel m =
@@ -15257,6 +15718,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                           MethodRouter -> routerConfidence
                           _ -> mConfidence
                     , lsPositionSize = posSizeFinal
+                    , lsExitSize = Nothing
                     , lsKalmanDir = kalDir
                     , lsLstmNext = mLstmNext
                     , lsSizingNext = sizingNext

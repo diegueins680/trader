@@ -107,6 +107,7 @@ data Args = Args
   , argStopLossVolMult :: Double
   , argTakeProfitVolMult :: Double
   , argTrailingStopVolMult :: Double
+  , argTakeProfitPartial :: Double
   , argMinHoldBars :: Int
   , argCooldownBars :: Int
   , argMaxHoldBars :: Maybe Int
@@ -117,11 +118,21 @@ data Args = Args
   , argMaxTradesPerDay :: Maybe Int
   , argExpectancyLookback :: Int
   , argMinExpectancy :: Maybe Double
+  , argPerfLookback :: Int
+  , argPerfMinWinRate :: Maybe Double
+  , argPerfMinProfitFactor :: Maybe Double
+  , argLossStreakMax :: Int
+  , argLossStreakCooldownBars :: Int
   , argNoTradeWindows :: [TimeWindow]
   , argMaxOpenPositions :: Maybe Int
   , argMaxOpenPerBase :: Maybe Int
   , argMinEdge :: Double
   , argMinSignalToNoise :: Double
+  , argAdaptiveFilters :: Bool
+  , argAdaptiveEdgeBufferMax :: Double
+  , argAdaptiveMinSignalToNoiseMax :: Double
+  , argAdaptiveKalmanZMinMax :: Double
+  , argAdaptiveTrendLookbackMax :: Int
   , argThresholdFactorEnabled :: Bool
   , argThresholdFactorAlpha :: Double
   , argThresholdFactorMin :: Double
@@ -425,6 +436,14 @@ opts = do
   argStopLossVolMult <- option auto (long "stop-loss-vol-mult" <> value 0 <> help "Stop loss in per-bar sigma multiples (0 disables; overrides --stop-loss when vol estimate available)")
   argTakeProfitVolMult <- option auto (long "take-profit-vol-mult" <> value 0 <> help "Take profit in per-bar sigma multiples (0 disables; overrides --take-profit when vol estimate available)")
   argTrailingStopVolMult <- option auto (long "trailing-stop-vol-mult" <> value 0 <> help "Trailing stop in per-bar sigma multiples (0 disables; overrides --trailing-stop when vol estimate available)")
+  argTakeProfitPartial <-
+    option
+      auto
+      ( long "take-profit-partial"
+          <> value 0
+          <> showDefault
+          <> help "Scale out this fraction at take-profit before keeping the remainder open (0 disables; 0<frac<1)"
+      )
   argMinHoldBars <- option auto (long "min-hold-bars" <> value 4 <> help "Minimum holding periods (bars) before allowing a signal-based exit (0 disables)")
   argCooldownBars <- option auto (long "cooldown-bars" <> value 2 <> help "When flat after an exit, wait this many bars before allowing a new entry (0 disables)")
   argMaxHoldBars <-
@@ -444,6 +463,11 @@ opts = do
   argMaxTradesPerDay <- optional (option auto (long "max-trades-per-day" <> help "Block new entries after N entries per UTC day (0 disables)"))
   argExpectancyLookback <- option auto (long "expectancy-lookback" <> value 20 <> help "Lookback trades for expectancy gating (0 disables; requires --min-expectancy)")
   argMinExpectancy <- optional (option auto (long "min-expectancy" <> help "Halt trading when avg return of the last N trades falls below this"))
+  argPerfLookback <- option auto (long "perf-lookback" <> value 0 <> showDefault <> help "Lookback trades for performance gates/adaptive filters (0 disables)")
+  argPerfMinWinRate <- optional (option auto (long "perf-min-win-rate" <> help "Minimum rolling win rate for entry gating/adaptive filters (0 disables)"))
+  argPerfMinProfitFactor <- optional (option auto (long "perf-min-profit-factor" <> help "Minimum rolling profit factor for entry gating/adaptive filters (0 disables)"))
+  argLossStreakMax <- option auto (long "loss-streak-max" <> value 0 <> showDefault <> help "Trigger a cooldown after this many consecutive losing trades (0 disables)")
+  argLossStreakCooldownBars <- option auto (long "loss-streak-cooldown-bars" <> value 0 <> showDefault <> help "Cooldown bars applied after hitting the loss streak threshold (0 disables)")
   argNoTradeWindows <-
     many
       ( option
@@ -457,6 +481,44 @@ opts = do
   argMaxOpenPerBase <- optional (option auto (long "max-open-per-base" <> help "Max open positions per base asset across running bots (0 disables)"))
   argMinEdge <- option auto (long "min-edge" <> value 0.0004 <> help "Minimum predicted return magnitude required to enter (0 disables)")
   argMinSignalToNoise <- option auto (long "min-signal-to-noise" <> value 0.8 <> help "Minimum edge/vol (per-bar sigma) required to enter (0 disables)")
+  argAdaptiveFilters <-
+    defaultOffSwitch
+      "adaptive-filters"
+      "no-adaptive-filters"
+      "Enable adaptive filter tightening based on rolling performance."
+      "Disable adaptive filter tightening."
+  argAdaptiveEdgeBufferMax <-
+    option
+      auto
+      ( long "adaptive-edge-buffer-max"
+          <> value 0
+          <> showDefault
+          <> help "Max additive edge-buffer when adaptive filters are fully tightened"
+      )
+  argAdaptiveMinSignalToNoiseMax <-
+    option
+      auto
+      ( long "adaptive-min-signal-to-noise-max"
+          <> value 0
+          <> showDefault
+          <> help "Max additive min-signal-to-noise when adaptive filters are fully tightened"
+      )
+  argAdaptiveKalmanZMinMax <-
+    option
+      auto
+      ( long "adaptive-kalman-z-min-max"
+          <> value 0
+          <> showDefault
+          <> help "Max additive Kalman z-min when adaptive filters are fully tightened"
+      )
+  argAdaptiveTrendLookbackMax <-
+    option
+      auto
+      ( long "adaptive-trend-lookback-max"
+          <> value 0
+          <> showDefault
+          <> help "Max additive trend lookback when adaptive filters are fully tightened"
+      )
   argCostAwareEdge <-
     defaultOnSwitch
       "cost-aware-edge"
@@ -736,6 +798,7 @@ validateArgs args0 = do
   ensure "--stop-loss-vol-mult must be >= 0" (argStopLossVolMult args >= 0)
   ensure "--take-profit-vol-mult must be >= 0" (argTakeProfitVolMult args >= 0)
   ensure "--trailing-stop-vol-mult must be >= 0" (argTrailingStopVolMult args >= 0)
+  ensure "--take-profit-partial must be between 0 and 1" (argTakeProfitPartial args >= 0 && argTakeProfitPartial args <= 1)
   ensure "--min-hold-bars must be >= 0" (argMinHoldBars args >= 0)
   ensure "--cooldown-bars must be >= 0" (argCooldownBars args >= 0)
   case argMaxHoldBars args of
@@ -768,6 +831,15 @@ validateArgs args0 = do
     Just v ->
       ensure "--min-expectancy must be finite" (not (isNaN v || isInfinite v))
         >> ensure "--expectancy-lookback must be >= 1 when --min-expectancy is set" (argExpectancyLookback args >= 1)
+  ensure "--perf-lookback must be >= 0" (argPerfLookback args >= 0)
+  case argPerfMinWinRate args of
+    Nothing -> pure ()
+    Just v -> ensure "--perf-min-win-rate must be between 0 and 1" (v >= 0 && v <= 1)
+  case argPerfMinProfitFactor args of
+    Nothing -> pure ()
+    Just v -> ensure "--perf-min-profit-factor must be >= 0" (v >= 0)
+  ensure "--loss-streak-max must be >= 0" (argLossStreakMax args >= 0)
+  ensure "--loss-streak-cooldown-bars must be >= 0" (argLossStreakCooldownBars args >= 0)
   case argMaxOpenPositions args of
     Nothing -> pure ()
     Just n -> ensure "--max-open-positions must be >= 1" (n >= 1)
@@ -776,6 +848,10 @@ validateArgs args0 = do
     Just n -> ensure "--max-open-per-base must be >= 1" (n >= 1)
   ensure "--min-edge must be >= 0" (argMinEdge args >= 0)
   ensure "--min-signal-to-noise must be >= 0" (argMinSignalToNoise args >= 0)
+  ensure "--adaptive-edge-buffer-max must be >= 0" (argAdaptiveEdgeBufferMax args >= 0)
+  ensure "--adaptive-min-signal-to-noise-max must be >= 0" (argAdaptiveMinSignalToNoiseMax args >= 0)
+  ensure "--adaptive-kalman-z-min-max must be >= 0" (argAdaptiveKalmanZMinMax args >= 0)
+  ensure "--adaptive-trend-lookback-max must be >= 0" (argAdaptiveTrendLookbackMax args >= 0)
   ensure "--threshold-factor-alpha must be between 0 and 1" (argThresholdFactorAlpha args >= 0 && argThresholdFactorAlpha args <= 1)
   ensure "--threshold-factor-min must be >= 0" (argThresholdFactorMin args >= 0)
   ensure "--threshold-factor-max must be >= --threshold-factor-min" (argThresholdFactorMax args >= argThresholdFactorMin args)

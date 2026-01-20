@@ -220,6 +220,16 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-signal-to-noise F` require edge / per-bar sigma >= `F` (`0` disables; default: `0.8`)
     - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread (default on; disable with `--no-cost-aware-edge`)
     - `--edge-buffer 0.0002` optional extra buffer added on top of cost-aware edge
+  - `--perf-lookback N` lookback trades for performance gates/adaptive filters (`0` disables)
+  - `--perf-min-win-rate F` minimum rolling win rate for entry gating (`0` disables)
+  - `--perf-min-profit-factor F` minimum rolling profit factor for entry gating (`0` disables)
+  - `--loss-streak-max N` trigger a cooldown after `N` consecutive losing trades (`0` disables)
+  - `--loss-streak-cooldown-bars N` cooldown bars applied after the loss streak threshold (`0` disables)
+  - `--adaptive-filters` tighten entry filters when rolling performance slips (default off; disable with `--no-adaptive-filters`)
+    - `--adaptive-edge-buffer-max F` max additive edge buffer at full tightening
+    - `--adaptive-min-signal-to-noise-max F` max additive min signal-to-noise at full tightening
+    - `--adaptive-kalman-z-min-max F` max additive Kalman z-min at full tightening
+    - `--adaptive-trend-lookback-max N` max additive trend lookback at full tightening
   - `--threshold-factor` enable dynamic threshold multipliers for open/close thresholds and min-edge/min-signal-to-noise (default off; disable with `--no-threshold-factor`)
     - `--threshold-factor-alpha 0.2` EMA update rate; `--threshold-factor-min/max 0.5/2.0` bounds; `--threshold-factor-floor 0` floor on adjusted thresholds
     - Weights: `--threshold-factor-edge-kal-weight`, `--threshold-factor-edge-lstm-weight`, `--threshold-factor-kalman-z-weight`, `--threshold-factor-high-vol-weight`, `--threshold-factor-conformal-weight`, `--threshold-factor-quantile-weight`, `--threshold-factor-lstm-conf-weight`, `--threshold-factor-lstm-health-weight`
@@ -253,6 +263,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - The CLI also prints an estimated **round-trip cost** (fee + slippage + spread) and warns when thresholds are below it.
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
   - `--take-profit F` optional synthetic take profit (`0 < F < 1`)
+  - `--take-profit-partial F` scale out this fraction at take-profit before keeping the remainder open (`0` disables; live bots only)
   - `--trailing-stop F` optional synthetic trailing stop (`0 < F < 1`)
   - `--stop-loss-vol-mult F` optional: stop loss as per-bar sigma multiple (`0` disables; overrides `--stop-loss` when vol estimate is available)
   - `--take-profit-vol-mult F` optional: take profit as per-bar sigma multiple (`0` disables; overrides `--take-profit` when vol estimate is available)
@@ -513,7 +524,7 @@ S3 state (required for App Runner persistence):
 - Bot snapshots include orders/trades, so the UI can show history after restarts; journal/async/LSTM weights still use `TRADER_STATE_DIR`.
 
 Optional journaling:
-- Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts, trade orders).
+- Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts/adjustments, trade orders).
 - If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/journal`.
 
 Optional webhooks (Discord-compatible):

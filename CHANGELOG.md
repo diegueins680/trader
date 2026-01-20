@@ -45,6 +45,9 @@ All notable changes to this project will be documented in this file.
 - Trading: `--max-daily-loss` validation now errors when provided timestamps do not match the closes length.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
+- Trading: add performance gates (`--perf-*`), loss-streak cooldowns, and adaptive filter tightening (`--adaptive-*`) for live bots.
+- Trading: allow partial take-profit scaling for live bots via `--take-profit-partial`.
+- Live bot: emit `bot.adjust` events after each completed trade with rolling performance and effective filter adjustments.
 - Web UI: default Live orders + Trading armed toggles to on.
 - Web UI: listenKey user-data stream now subscribes to the backend relay instead of opening a browser WebSocket.
 - Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
