@@ -286,6 +286,15 @@ textarea {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.dockLayoutConfigPage .dockTop {
+  position: static;
+  height: auto;
+  width: var(--dock-width);
+  transform: none;
+  margin: var(--dock-gap) auto 0;
+  grid-template-rows: auto auto;
+}
+
 .dockBottom {
   bottom: var(--dock-gap);
   height: var(--dock-bottom-height);
@@ -302,6 +311,10 @@ textarea {
   margin: 0;
 }
 
+.dockLayoutConfigPage .dockMain {
+  padding-top: var(--dock-gap);
+}
+
 .dockTop .headerCard {
   margin-bottom: 0;
 }
@@ -312,6 +325,16 @@ textarea {
   height: 100%;
   max-height: 100%;
   min-height: 0;
+}
+
+.dockLayoutConfigPage .dockTop .configCard:not(.cardMaximized) {
+  height: auto;
+  max-height: none;
+}
+
+.dockLayoutConfigPage .configCard {
+  max-height: none;
+  overflow: visible;
 }
 
 .dockTop .configCard:not(.cardMaximized):not([open]),
@@ -329,8 +352,16 @@ textarea {
   scroll-margin-top: calc(var(--dock-top-height) + var(--dock-gap) * 2);
 }
 
+.dockLayoutConfigPage .dockMain .card {
+  scroll-margin-top: var(--dock-gap);
+}
+
 .dockMain .card:not(.cardMaximized) {
   max-height: var(--dock-main-height);
+}
+
+.dockLayoutConfigPage .dockMain .card:not(.cardMaximized) {
+  max-height: none;
 }
 
 .brand {
@@ -394,6 +425,11 @@ textarea {
   padding-right: 12px;
 }
 
+.dockLayoutConfigPage .configCard .cardBody {
+  overflow: visible;
+  padding-right: 0;
+}
+
 .configPanels {
   display: flex;
   flex-direction: column;
@@ -407,8 +443,8 @@ textarea {
     linear-gradient(160deg, var(--card-sheen), rgba(255, 255, 255, 0)),
     var(--card);
   box-shadow: var(--shadow);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   height: auto;
   max-height: none;
@@ -420,6 +456,12 @@ textarea {
   min-height: var(--panel-height, 320px);
   height: var(--panel-height, 320px);
   max-height: var(--panel-height, 320px);
+}
+
+.dockLayoutConfigPage .configPanel[open]:not(.configPanelMaximized) {
+  min-height: 0;
+  height: auto;
+  max-height: none;
 }
 
 .configPanelHeader {
@@ -485,9 +527,15 @@ textarea {
 .configPanelBody {
   padding: 14px;
   overflow: auto;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dockLayoutConfigPage .configPanelBody {
+  overflow: visible;
 }
 
 .configPanelControls {
@@ -962,6 +1010,49 @@ body.panelMaximized .cardMaximized {
   color: var(--muted);
 }
 
+.menuBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+}
+
+.menuBarHeader {
+  flex: 1 1 100%;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.menuItem {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.menuItem:hover {
+  transform: translateY(-1px);
+  background: rgba(var(--accent-rgb), 0.16);
+}
+
+.menuItemActive {
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.24);
+  color: var(--text);
+  box-shadow: 0 10px 24px rgba(var(--accent-rgb), 0.16);
+}
+
 .sectionHeading {
   margin: 18px 0 10px;
   display: flex;
@@ -1382,6 +1473,7 @@ body.panelMaximized .cardMaximized {
 
 .btn:focus-visible,
 .btnSmall:focus-visible,
+.menuItem:focus-visible,
 .comboRow:focus-visible,
 .details > summary:focus-visible,
 .cardSummary:focus-visible,

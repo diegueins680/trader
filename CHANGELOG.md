@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 - API: add `TRADER_BOT_AUTOSTART` to disable live-bot auto-start on boot.
 - API: when `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, echo the request Origin so direct UI calls work without explicit CORS config.
 - Web UI: try `apiBaseUrl` first and fail over to `apiFallbackUrl` after network/502/503/504 errors, remembering successful fallbacks for the session.
+- Web UI: switch the configuration dock to a menu bar and show each section as its own page to reduce clutter.
+- Web UI: make the configuration panel a full-page scroll instead of a fixed-height docked panel.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
@@ -68,6 +70,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: let each panel scroll independently for long outputs.
 - Web UI: fix dock main cards so long panel content scrolls instead of clipping.
 - Web UI: split the configuration pane into multiple scrollable sub-panels with drag-and-drop reordering.
+- Web UI: switch configuration sub-panels to tabbed navigation to reduce clutter.
 - Web UI: allow cards and panels to be maximized or minimized for focused review.
 - Web UI: let maximized panels ignore dock main height caps so full contents remain visible.
 - Web UI: ensure maximized panels stay opaque and escape dock clipping so full content remains visible.
@@ -110,6 +113,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add info buttons with equity tips next to optimizer run fields and complex config parameters (method, thresholds, splits, LSTM, optimization).
 - Web UI: sanitize combo symbols on apply so invalid labels don’t stick in the trading pair field.
 - Web UI: fix optimizer form sync startup crash and ensure `trader-config.js` is loaded before the app bundle.
+- Web UI: avoid importing `/trader-config.js` in the Vite bundle so the dev server starts without public-asset import errors.
 - Web UI: optimizer combos now load only from the API (no static fallback).
 - Deploy: let `deploy-aws-quick.sh` clear reused App Runner S3 state settings when `TRADER_STATE_S3_BUCKET` is explicitly empty.
 - Deploy: quick AWS deploy now defaults `TRADER_BOT_TRADE=true` unless overridden.

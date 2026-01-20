@@ -85,6 +85,8 @@ import {
   SESSION_COINBASE_PASSPHRASE_KEY,
   SIGNAL_TIMEOUT_MS,
   STORAGE_CONFIG_PANEL_ORDER_KEY,
+  STORAGE_CONFIG_PAGE_KEY,
+  STORAGE_CONFIG_TAB_KEY,
   STORAGE_KEY,
   STORAGE_ORDER_LOG_PREFS_KEY,
   STORAGE_PANEL_PREFS_KEY,
@@ -173,6 +175,17 @@ type ConfigPanelId =
   | "config-strategy"
   | "config-optimization"
   | "config-execution";
+
+type ConfigPageId =
+  | "section-api"
+  | "section-market"
+  | "section-lookback"
+  | "section-thresholds"
+  | "section-risk"
+  | "section-optimizer-run"
+  | "section-optimization"
+  | "section-livebot"
+  | "section-trade";
 
 type ConfigPanelDragState = {
   draggingId: ConfigPanelId | null;
@@ -349,6 +362,7 @@ const ConfigPanel = ({
   const isDragging = dragState.draggingId === panelId;
   return (
     <details
+      id={`config-panel-${panelId}`}
       className={`configPanel${maximized ? " configPanelMaximized" : ""}${isDragOver ? " configPanelDrop" : ""}${
         isDragging ? " configPanelDragging" : ""
       }`}
@@ -358,6 +372,7 @@ const ConfigPanel = ({
       onDragOver={onDragOver(panelId)}
       onDrop={onDrop(panelId)}
       data-panel={panelId}
+      aria-labelledby={`config-tab-${panelId}`}
     >
       <summary className="configPanelHeader configPanelSummary">
         <div className="configPanelHeaderText">
@@ -433,7 +448,15 @@ const ChartSuspense = ({
   children: React.ReactNode;
 }) => <Suspense fallback={<ChartFallback height={height} label={label} />}>{children}</Suspense>;
 const PanelFallback = ({ label }: { label: string }) => <div className="hint">{label}</div>;
-const CONFIG_SECTION_IDS = [
+const CONFIG_PANEL_IDS: ConfigPanelId[] = [
+  "config-access",
+  "config-market",
+  "config-strategy",
+  "config-optimization",
+  "config-execution",
+];
+const CONFIG_PAGE_IDS: ConfigPageId[] = [
+  "section-api",
   "section-market",
   "section-lookback",
   "section-thresholds",
@@ -442,20 +465,68 @@ const CONFIG_SECTION_IDS = [
   "section-optimization",
   "section-livebot",
   "section-trade",
-] as const;
-const CONFIG_PANEL_IDS: ConfigPanelId[] = [
-  "config-access",
-  "config-market",
-  "config-strategy",
-  "config-optimization",
-  "config-execution",
 ];
+const CONFIG_PAGE_LABELS: Record<ConfigPageId, string> = {
+  "section-api": "API",
+  "section-market": "Market",
+  "section-lookback": "Lookback",
+  "section-thresholds": "Thresholds",
+  "section-risk": "Risk",
+  "section-optimizer-run": "Optimizer run",
+  "section-optimization": "Optimization",
+  "section-livebot": "Live bot",
+  "section-trade": "Trade",
+};
+const CONFIG_PAGE_PANEL_MAP: Record<ConfigPageId, ConfigPanelId> = {
+  "section-api": "config-access",
+  "section-market": "config-market",
+  "section-lookback": "config-market",
+  "section-thresholds": "config-strategy",
+  "section-risk": "config-strategy",
+  "section-optimizer-run": "config-optimization",
+  "section-optimization": "config-optimization",
+  "section-livebot": "config-execution",
+  "section-trade": "config-execution",
+};
+const CONFIG_PANEL_DEFAULT_PAGE: Record<ConfigPanelId, ConfigPageId> = {
+  "config-access": "section-api",
+  "config-market": "section-market",
+  "config-strategy": "section-thresholds",
+  "config-optimization": "section-optimizer-run",
+  "config-execution": "section-livebot",
+};
+const CONFIG_TARGET_PAGE_MAP: Record<string, ConfigPageId> = {
+  platformKeys: "section-api",
+  symbol: "section-market",
+  platform: "section-market",
+  market: "section-market",
+  interval: "section-market",
+  bars: "section-market",
+  lookbackWindow: "section-lookback",
+  lookbackBars: "section-lookback",
+  positioning: "section-thresholds",
+  backtestRatio: "section-thresholds",
+  tuneRatio: "section-thresholds",
+  epochs: "section-risk",
+  hiddenSize: "section-risk",
+  botSymbols: "section-livebot",
+  orderQuoteFraction: "section-trade",
+};
 const CONFIG_PANEL_HEIGHTS: Record<ConfigPanelId, string> = {
   "config-access": "clamp(260px, 32vh, 360px)",
   "config-market": "clamp(280px, 38vh, 420px)",
   "config-strategy": "clamp(320px, 50vh, 600px)",
   "config-optimization": "clamp(320px, 50vh, 600px)",
   "config-execution": "clamp(320px, 50vh, 600px)",
+};
+const normalizeConfigPage = (page: unknown): ConfigPageId => {
+  if (CONFIG_PAGE_IDS.includes(page as ConfigPageId)) {
+    return page as ConfigPageId;
+  }
+  if (CONFIG_PANEL_IDS.includes(page as ConfigPanelId)) {
+    return CONFIG_PANEL_DEFAULT_PAGE[page as ConfigPanelId];
+  }
+  return "section-api";
 };
 const normalizeConfigPanelOrder = (order: unknown): ConfigPanelId[] => {
   const seen = new Set<ConfigPanelId>();
@@ -475,6 +546,12 @@ const normalizeConfigPanelOrder = (order: unknown): ConfigPanelId[] => {
     if (!seen.has(id)) out.push(id);
   }
   return out;
+};
+const resolveConfigPageForTarget = (targetId: string): ConfigPageId | null => {
+  if (CONFIG_PAGE_IDS.includes(targetId as ConfigPageId)) {
+    return targetId as ConfigPageId;
+  }
+  return CONFIG_TARGET_PAGE_MAP[targetId] ?? null;
 };
 const EQUITY_TIPS = {
   preset: [
@@ -2565,6 +2642,9 @@ export function App() {
   const [configPanelOrder, setConfigPanelOrder] = useState<ConfigPanelId[]>(() =>
     normalizeConfigPanelOrder(configPanelOrderInit),
   );
+  const configPageInit =
+    readJson<ConfigPageId | ConfigPanelId>(STORAGE_CONFIG_PAGE_KEY) ?? readJson<ConfigPanelId>(STORAGE_CONFIG_TAB_KEY);
+  const [configPage, setConfigPage] = useState<ConfigPageId>(() => normalizeConfigPage(configPageInit));
   const [draggingConfigPanel, setDraggingConfigPanel] = useState<ConfigPanelId | null>(null);
   const [dragOverConfigPanel, setDragOverConfigPanel] = useState<ConfigPanelId | null>(null);
   const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
@@ -2976,23 +3056,12 @@ export function App() {
   useEffect(() => {
     writeJson(STORAGE_CONFIG_PANEL_ORDER_KEY, configPanelOrder);
   }, [configPanelOrder]);
+  useEffect(() => {
+    writeJson(STORAGE_CONFIG_PAGE_KEY, configPage);
+  }, [configPage]);
 
   const setPanelOpen = useCallback((panelId: string, open: boolean) => {
     setPanelPrefs((prev) => (prev[panelId] === open ? prev : { ...prev, [panelId]: open }));
-  }, []);
-
-  const setPanelsOpen = useCallback((panelIds: readonly string[], open: boolean) => {
-    setPanelPrefs((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const panelId of panelIds) {
-        if (next[panelId] !== open) {
-          next[panelId] = open;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
   }, []);
 
   const isPanelOpen = useCallback(
@@ -3001,6 +3070,16 @@ export function App() {
       return typeof stored === "boolean" ? stored : defaultOpen;
     },
     [panelPrefs],
+  );
+  const selectConfigPage = useCallback(
+    (pageId: ConfigPageId) => {
+      setConfigPage(pageId);
+      setPanelOpen("panel-config", true);
+      const panelId = CONFIG_PAGE_PANEL_MAP[pageId];
+      setPanelOpen(panelId, true);
+      setPanelOpen(pageId, true);
+    },
+    [setPanelOpen],
   );
 
   const handlePanelToggle = useCallback(
@@ -4511,50 +4590,64 @@ export function App() {
   }, [openPanelAncestors]);
   const scrollToSection = useCallback((id?: string) => {
     if (!id || typeof document === "undefined") return;
-    const el = document.getElementById(id);
-    if (!el) return;
-    const openedPanels = openPanelAncestors(el);
+    const targetPage = resolveConfigPageForTarget(id);
+    const shouldSwitchPage = Boolean(targetPage && targetPage !== configPage);
+    if (targetPage && targetPage !== configPage) {
+      selectConfigPage(targetPage);
+    }
 
     const runScroll = () => {
-      const prefersReducedMotion =
-        typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
-      el.scrollIntoView({ behavior, block: "start" });
+      const el = document.getElementById(id);
+      if (!el) return;
+      const openedPanels = openPanelAncestors(el);
 
-      const focusSelector =
-        "input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
-      const focusTarget = el.matches(focusSelector) ? el : el.querySelector<HTMLElement>(focusSelector);
-      if (focusTarget) {
-        focusTarget.focus({ preventScroll: true });
-      } else {
-        if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
-        el.focus({ preventScroll: true });
-      }
+      const doScroll = () => {
+        const prefersReducedMotion =
+          typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+        el.scrollIntoView({ behavior, block: "start" });
 
-      if (sectionFlashRef.current && sectionFlashRef.current !== el) {
-        sectionFlashRef.current.classList.remove("sectionFlash");
-      }
-      sectionFlashRef.current = el;
-      if (sectionFlashTimeoutRef.current) {
-        window.clearTimeout(sectionFlashTimeoutRef.current);
-        sectionFlashTimeoutRef.current = null;
-      }
-      if (!prefersReducedMotion) {
-        el.classList.remove("sectionFlash");
-        void el.offsetWidth;
-        el.classList.add("sectionFlash");
-        sectionFlashTimeoutRef.current = window.setTimeout(() => {
+        const focusSelector =
+          "input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
+        const focusTarget = el.matches(focusSelector) ? el : el.querySelector<HTMLElement>(focusSelector);
+        if (focusTarget) {
+          focusTarget.focus({ preventScroll: true });
+        } else {
+          if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+          el.focus({ preventScroll: true });
+        }
+
+        if (sectionFlashRef.current && sectionFlashRef.current !== el) {
+          sectionFlashRef.current.classList.remove("sectionFlash");
+        }
+        sectionFlashRef.current = el;
+        if (sectionFlashTimeoutRef.current) {
+          window.clearTimeout(sectionFlashTimeoutRef.current);
+          sectionFlashTimeoutRef.current = null;
+        }
+        if (!prefersReducedMotion) {
           el.classList.remove("sectionFlash");
-        }, 1200);
+          void el.offsetWidth;
+          el.classList.add("sectionFlash");
+          sectionFlashTimeoutRef.current = window.setTimeout(() => {
+            el.classList.remove("sectionFlash");
+          }, 1200);
+        }
+      };
+
+      if (openedPanels && typeof window !== "undefined") {
+        window.setTimeout(doScroll, 0);
+      } else {
+        doScroll();
       }
     };
 
-    if (openedPanels && typeof window !== "undefined") {
+    if (shouldSwitchPage && typeof window !== "undefined") {
       window.setTimeout(runScroll, 0);
     } else {
       runScroll();
     }
-  }, [openPanelAncestors]);
+  }, [configPage, openPanelAncestors, selectConfigPage]);
 
   useEffect(() => {
     return () => {
@@ -7427,18 +7520,10 @@ export function App() {
     form.volTarget,
     state.latestSignal,
   ]);
-  const jumpTargets = [
-    { id: "section-api", label: "API" },
-    { id: "section-market", label: "Market" },
-    { id: "section-lookback", label: "Lookback" },
-    { id: "section-thresholds", label: "Thresholds" },
-    { id: "section-risk", label: "Risk" },
-    { id: "section-optimizer-run", label: "Optimizer run" },
-    { id: "section-optimization", label: "Optimization" },
-    { id: "section-livebot", label: "Live bot" },
-    { id: "section-trade", label: "Trade" },
-    { id: "section-positions", label: "Positions" },
-  ];
+  const configPageList = useMemo(
+    () => CONFIG_PAGE_IDS.map((pageId) => ({ id: pageId, label: CONFIG_PAGE_LABELS[pageId] })),
+    [],
+  );
   const configPanelOrderIndex = useMemo(() => {
     const index = {} as Record<ConfigPanelId, number>;
     configPanelOrder.forEach((panelId, idx) => {
@@ -7446,6 +7531,7 @@ export function App() {
     });
     return index;
   }, [configPanelOrder]);
+  const activeConfigPanel = CONFIG_PAGE_PANEL_MAP[configPage];
   const configPanelStyle = useCallback(
     (panelId: ConfigPanelId): React.CSSProperties =>
       ({
@@ -7497,7 +7583,7 @@ export function App() {
   const tradeOrder = state.trade?.order ?? null;
   const combosOpen = isPanelOpen("panel-combos", true);
   const configOpen = isPanelOpen("panel-config", true);
-  const dockLayoutClass = `dockLayout${combosOpen ? "" : " dockLayoutCompactBottom"}${configOpen ? "" : " dockLayoutCompactTop"}`;
+  const dockLayoutClass = `dockLayout dockLayoutConfigPage${combosOpen ? "" : " dockLayoutCompactBottom"}${configOpen ? "" : " dockLayoutCompactTop"}`;
 
   return (
     <div className="container">
@@ -7574,6 +7660,20 @@ export function App() {
                   </span>
                 </div>
               </div>
+              <nav className="menuBar menuBarHeader" aria-label="Configuration pages">
+                <span className="jumpLabel">Menu</span>
+                {configPageList.map((page) => (
+                  <button
+                    key={page.id}
+                    className={`menuItem${configPage === page.id ? " menuItemActive" : ""}`}
+                    type="button"
+                    aria-current={configPage === page.id ? "page" : undefined}
+                    onClick={() => selectConfigPage(page.id)}
+                  >
+                    {page.label}
+                  </button>
+                ))}
+              </nav>
             </summary>
           </details>
           <CollapsibleCard
@@ -7647,28 +7747,6 @@ export function App() {
                   Cancel
                 </button>
               </div>
-              <div className="pillRow jumpRow">
-                <span className="jumpLabel">Jump to</span>
-                {jumpTargets.map((target) => (
-                  <button
-                    key={target.id}
-                    className="btnSmall"
-                    type="button"
-                    onClick={() => scrollToSection(target.id)}
-                  >
-                    {target.label}
-                  </button>
-                ))}
-              </div>
-              <div className="pillRow jumpRow">
-                <span className="jumpLabel">Panels</span>
-                <button className="btnSmall" type="button" onClick={() => setPanelsOpen(CONFIG_SECTION_IDS, true)}>
-                  Expand all
-                </button>
-                <button className="btnSmall" type="button" onClick={() => setPanelsOpen(CONFIG_SECTION_IDS, false)}>
-                  Collapse all
-                </button>
-              </div>
               {requestIssueDetails.length > 1 ? (
                 <details className="details">
                   <summary>Show all issues</summary>
@@ -7705,18 +7783,20 @@ export function App() {
               ) : null}
             </div>
             <div className="configPanels">
-              <ConfigPanel
-                panelId="config-access"
-                title="Access & Profiles"
-                subtitle="API health, keys, and saved setups."
-                order={configPanelOrderIndex["config-access"]}
-                open={isPanelOpen("config-access", true)}
-                onToggle={handlePanelToggle("config-access")}
-                maximized={isPanelMaximized("config-access")}
-                onToggleMaximize={() => togglePanelMaximize("config-access")}
-                style={configPanelStyle("config-access")}
-                {...configPanelHandlers}
-              >
+              {activeConfigPanel === "config-access" ? (
+                <ConfigPanel
+                  panelId="config-access"
+                  title="Access & Profiles"
+                  subtitle="API health, keys, and saved setups."
+                  order={configPanelOrderIndex["config-access"]}
+                  open={isPanelOpen("config-access", true)}
+                  onToggle={handlePanelToggle("config-access")}
+                  maximized={isPanelMaximized("config-access")}
+                  onToggleMaximize={() => togglePanelMaximize("config-access")}
+                  style={configPanelStyle("config-access")}
+                  draggable={false}
+                  {...configPanelHandlers}
+                >
             <div className="row" style={{ gridTemplateColumns: "1fr" }} id="section-api">
               <div className="field" id="platformKeys">
                 <div className="label">API</div>
@@ -8024,27 +8104,31 @@ export function App() {
                 ) : null}
               </div>
             </div>
-              </ConfigPanel>
-              
-              <ConfigPanel
-                panelId="config-market"
-                title="Market & Lookback"
-                subtitle="Platform, symbol, interval, and window sizing."
-                order={configPanelOrderIndex["config-market"]}
-                open={isPanelOpen("config-market", true)}
-                onToggle={handlePanelToggle("config-market")}
-                maximized={isPanelMaximized("config-market")}
-                onToggleMaximize={() => togglePanelMaximize("config-market")}
-                style={configPanelStyle("config-market")}
-                {...configPanelHandlers}
-              >
-          <CollapsibleSection
-            panelId="section-market"
-            open={isPanelOpen("section-market", true)}
-            onToggle={handlePanelToggle("section-market")}
-            title="Market"
-            meta="Pair, market type, interval, bars."
-          >
+                </ConfigPanel>
+              ) : null}
+
+              {activeConfigPanel === "config-market" ? (
+                <ConfigPanel
+                  panelId="config-market"
+                  title="Market & Lookback"
+                  subtitle="Platform, symbol, interval, and window sizing."
+                  order={configPanelOrderIndex["config-market"]}
+                  open={isPanelOpen("config-market", true)}
+                  onToggle={handlePanelToggle("config-market")}
+                  maximized={isPanelMaximized("config-market")}
+                  onToggleMaximize={() => togglePanelMaximize("config-market")}
+                  style={configPanelStyle("config-market")}
+                  draggable={false}
+                  {...configPanelHandlers}
+                >
+          {configPage === "section-market" ? (
+            <CollapsibleSection
+              panelId="section-market"
+              open={isPanelOpen("section-market", true)}
+              onToggle={handlePanelToggle("section-market")}
+              title="Market"
+              meta="Pair, market type, interval, bars."
+            >
           <div className="row rowSingle">
             <div className="field">
               <label className="label" htmlFor="platform">
@@ -8244,14 +8328,16 @@ export function App() {
           </div>
 
           </CollapsibleSection>
+          ) : null}
 
-          <CollapsibleSection
-            panelId="section-lookback"
-            open={isPanelOpen("section-lookback", true)}
-            onToggle={handlePanelToggle("section-lookback")}
-            title="Lookback"
-            meta="Window length and bar overrides."
-          >
+          {configPage === "section-lookback" ? (
+            <CollapsibleSection
+              panelId="section-lookback"
+              open={isPanelOpen("section-lookback", true)}
+              onToggle={handlePanelToggle("section-lookback")}
+              title="Lookback"
+              meta="Window length and bar overrides."
+            >
             <div className="row">
               <div className="field">
                 <label className="label" htmlFor="lookbackWindow">
@@ -8310,7 +8396,10 @@ export function App() {
           </div>
 
           </CollapsibleSection>
-              </ConfigPanel>
+          ) : null}
+                </ConfigPanel>
+              ) : null}
+              {activeConfigPanel === "config-strategy" ? (
               <ConfigPanel
                 panelId="config-strategy"
                 title="Strategy & Risk"
@@ -8321,15 +8410,17 @@ export function App() {
                 maximized={isPanelMaximized("config-strategy")}
                 onToggleMaximize={() => togglePanelMaximize("config-strategy")}
                 style={configPanelStyle("config-strategy")}
+                draggable={false}
                 {...configPanelHandlers}
               >
-          <CollapsibleSection
-            panelId="section-thresholds"
-            open={isPanelOpen("section-thresholds", true)}
-            onToggle={handlePanelToggle("section-thresholds")}
-            title="Thresholds"
-            meta="Method, positioning, entry/exit gates."
-          >
+          {configPage === "section-thresholds" ? (
+            <CollapsibleSection
+              panelId="section-thresholds"
+              open={isPanelOpen("section-thresholds", true)}
+              onToggle={handlePanelToggle("section-thresholds")}
+              title="Thresholds"
+              meta="Method, positioning, entry/exit gates."
+            >
             <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
               <div className="field">
                 <div className="labelRow">
@@ -8776,14 +8867,16 @@ export function App() {
             </div>
 
           </CollapsibleSection>
+          ) : null}
 
-          <CollapsibleSection
-            panelId="section-risk"
-            open={isPanelOpen("section-risk", true)}
-            onToggle={handlePanelToggle("section-risk")}
-            title="Risk"
-            meta="Stops, pacing, sizing, and kill-switches."
-          >
+          {configPage === "section-risk" ? (
+            <CollapsibleSection
+              panelId="section-risk"
+              open={isPanelOpen("section-risk", true)}
+              onToggle={handlePanelToggle("section-risk")}
+              title="Risk"
+              meta="Stops, pacing, sizing, and kill-switches."
+            >
             <div className="row" style={{ gridTemplateColumns: "1fr" }}>
               <div className="field">
               <div className="label">Bracket exits (fractions)</div>
@@ -9346,7 +9439,10 @@ export function App() {
             </div>
 
           </CollapsibleSection>
-              </ConfigPanel>
+          ) : null}
+                </ConfigPanel>
+              ) : null}
+              {activeConfigPanel === "config-optimization" ? (
               <ConfigPanel
                 panelId="config-optimization"
                 title="Optimization & Runs"
@@ -9357,15 +9453,17 @@ export function App() {
                 maximized={isPanelMaximized("config-optimization")}
                 onToggleMaximize={() => togglePanelMaximize("config-optimization")}
                 style={configPanelStyle("config-optimization")}
+                draggable={false}
                 {...configPanelHandlers}
               >
-          <CollapsibleSection
-            panelId="section-optimizer-run"
-            open={isPanelOpen("section-optimizer-run", true)}
-            onToggle={handlePanelToggle("section-optimizer-run")}
-            title="Optimizer run"
-            meta="Kick off /optimizer/run with the current config or a CSV source."
-          >
+          {configPage === "section-optimizer-run" ? (
+            <CollapsibleSection
+              panelId="section-optimizer-run"
+              open={isPanelOpen("section-optimizer-run", true)}
+              onToggle={handlePanelToggle("section-optimizer-run")}
+              title="Optimizer run"
+              meta="Kick off /optimizer/run with the current config or a CSV source."
+            >
             <div className="row">
               <div className="field">
                 <div className="label">Request</div>
@@ -9665,14 +9763,16 @@ export function App() {
               </div>
             </div>
           </CollapsibleSection>
+          ) : null}
 
-          <CollapsibleSection
-            panelId="section-optimization"
-            open={isPanelOpen("section-optimization", true)}
-            onToggle={handlePanelToggle("section-optimization")}
-            title="Optimization"
-            meta="Tuning sweeps, presets, and constraints."
-          >
+          {configPage === "section-optimization" ? (
+            <CollapsibleSection
+              panelId="section-optimization"
+              open={isPanelOpen("section-optimization", true)}
+              onToggle={handlePanelToggle("section-optimization")}
+              title="Optimization"
+              meta="Tuning sweeps, presets, and constraints."
+            >
             <div className="row">
               <div className="field">
               <div className="labelRow">
@@ -9934,7 +10034,10 @@ export function App() {
             </div>
 
           </CollapsibleSection>
-              </ConfigPanel>
+          ) : null}
+                </ConfigPanel>
+              ) : null}
+              {activeConfigPanel === "config-execution" ? (
               <ConfigPanel
                 panelId="config-execution"
                 title="Live Bot & Trade"
@@ -9945,15 +10048,17 @@ export function App() {
                 maximized={isPanelMaximized("config-execution")}
                 onToggleMaximize={() => togglePanelMaximize("config-execution")}
                 style={configPanelStyle("config-execution")}
+                draggable={false}
                 {...configPanelHandlers}
               >
-          <CollapsibleSection
-            panelId="section-livebot"
-            open={isPanelOpen("section-livebot", true)}
-            onToggle={handlePanelToggle("section-livebot")}
-            title="Live bot"
-            meta="Start, stop, and tune the continuous loop."
-          >
+          {configPage === "section-livebot" ? (
+            <CollapsibleSection
+              panelId="section-livebot"
+              open={isPanelOpen("section-livebot", true)}
+              onToggle={handlePanelToggle("section-livebot")}
+              title="Live bot"
+              meta="Start, stop, and tune the continuous loop."
+            >
               <div className="row" style={{ gridTemplateColumns: "1fr" }}>
                 <div className="field">
                   <div className="label">Live bot</div>
@@ -10129,14 +10234,16 @@ export function App() {
                 </div>
               </div>
           </CollapsibleSection>
+          ) : null}
 
-          <CollapsibleSection
-            panelId="section-trade"
-            open={isPanelOpen("section-trade", true)}
-            onToggle={handlePanelToggle("section-trade")}
-            title="Trade"
-            meta="Arm trading, size orders, and run /trade."
-          >
+          {configPage === "section-trade" ? (
+            <CollapsibleSection
+              panelId="section-trade"
+              open={isPanelOpen("section-trade", true)}
+              onToggle={handlePanelToggle("section-trade")}
+              title="Trade"
+              meta="Arm trading, size orders, and run /trade."
+            >
               <div className="row">
                 <div className="field">
                   <div className="label">Trade controls</div>
@@ -10409,7 +10516,9 @@ export function App() {
               ) : null}
 
           </CollapsibleSection>
-              </ConfigPanel>
+          ) : null}
+                </ConfigPanel>
+              ) : null}
             </div>
 
           <p className="footerNote">

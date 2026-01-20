@@ -661,7 +661,7 @@ A TypeScript web UI lives in `haskell/web` (Vite + React). It talks to the REST 
 The UI layout uses a refreshed header, section grouping, and spacing for faster scanning on desktop and mobile.
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
-Configuration is split into multiple sub-panels (drag to reorder) with fixed heights and internal scroll, while the docked config pane itself stays scrollable (maximized sub-panels scroll reliably); sections and result panels remain collapsible, cards/panels can be minimized or maximized for focus with the active panel kept opaque, crisp, and unclipped above a dimmed backdrop, the UI remembers open/closed state locally, offers expand/collapse-all controls in the configuration panel, and starts low-signal panels (Data Log, Request preview) collapsed by default.
+Configuration uses a menu bar to switch between single-section pages (API, Market, Lookback, Thresholds, Risk, Optimizer run, Optimization, Live bot, Trade) and expands into a full-page scroll rather than fixed-height panels; sections and result panels remain collapsible, cards/panels can be minimized or maximized for focus with the active panel kept opaque, crisp, and unclipped above a dimmed backdrop, the UI remembers open/closed state locally, and starts low-signal panels (Data Log, Request preview) collapsed by default.
 Maximized panels ignore main-area height caps so full card contents stay visible.
 Maximizing the configuration panel now escapes the docked layout so it fills the viewport cleanly.
 Maximized panels render above the docked layout so they stay visible instead of disappearing behind the dimmer.
@@ -762,7 +762,7 @@ Unexpected handler failures now return a JSON 500 response (with CORS headers) s
 
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
-- Web UI: `trader-config.js` is read at startup, so ensure it is served at `/trader-config.js` for static hosts.
+- Web UI: `trader-config.js` is read at startup via a `<script>` tag in `index.html`, so keep it in `public/` and serve it at `/trader-config.js` for static hosts.
 - Web UI: set `apiToken` in `haskell/web/public/trader-config.js` (or `haskell/web/dist/trader-config.js` after build). The UI sends it as `X-API-Key: <token>`. Set `apiFallbackUrl` when you want explicit failover; same-origin `/api` works without CORS, while cross-origin fallbacks require `TRADER_CORS_ORIGIN` on the API service (quick deploy: `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL`, or the script auto-fills it for `/api` mode when a CloudFront distribution is used and the API URL is known). If the fallback host blocks CORS, the UI disables it for the session and remembers the block for ~12h to avoid repeated CORS errors; successful fallbacks are remembered until the cached decision expires or the fallback fails.
 - Quick deploy uploads `trader-config.js` with no-cache headers so updated API tokens take effect without browser hard refreshes.
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
