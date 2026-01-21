@@ -1937,3 +1937,89 @@ export function comboAnnualizedEquity(combo: OptimizationCombo): number | null {
 }
 
 export function formApplySignature(form: FormState): string {
+  let bars = Math.trunc(form.bars);
+  if (!Number.isFinite(bars) || bars < 0) bars = 0;
+  if (bars > 0 && bars < MIN_LOOKBACK_BARS) {
+    bars = MIN_LOOKBACK_BARS;
+  }
+  const lookbackBarsRaw = Math.trunc(form.lookbackBars);
+  const lookbackOverride = lookbackBarsRaw >= MIN_LOOKBACK_BARS;
+  const lookbackBars = lookbackOverride ? lookbackBarsRaw : 0;
+  const lookbackWindow = lookbackOverride ? "" : form.lookbackWindow.trim();
+  const epochs = Math.max(0, Math.trunc(form.epochs));
+  const hiddenSize = Math.max(1, Math.trunc(form.hiddenSize));
+  const symbol = form.binanceSymbol.trim().toUpperCase();
+
+  return [
+    sigText(symbol),
+    sigText(form.platform),
+    sigText(form.interval.trim()),
+    String(bars),
+    lookbackOverride ? String(lookbackBars) : "",
+    sigText(lookbackWindow),
+    sigText(form.method),
+    sigText(form.positioning),
+    sigText(form.normalization),
+    sigNumber(form.fee),
+    String(epochs),
+    String(hiddenSize),
+    sigNumber(form.learningRate),
+    sigNumber(form.valRatio),
+    sigNumber(form.patience),
+    sigNumber(form.gradClip),
+    sigNumber(form.slippage),
+    sigNumber(form.spread),
+    sigText(form.intrabarFill),
+    sigNumber(form.stopLoss),
+    sigNumber(form.takeProfit),
+    sigNumber(form.trailingStop),
+    sigNumber(form.stopLossVolMult),
+    sigNumber(form.takeProfitVolMult),
+    sigNumber(form.trailingStopVolMult),
+    sigNumber(form.minHoldBars),
+    sigNumber(form.maxHoldBars),
+    sigNumber(form.cooldownBars),
+    sigNumber(form.maxDrawdown),
+    sigNumber(form.maxDailyLoss),
+    sigNumber(form.maxOrderErrors),
+    sigNumber(form.orderQuantity),
+    sigNumber(form.orderQuote),
+    sigNumber(form.orderQuoteFraction),
+    sigNumber(form.maxOrderQuote),
+    sigNumber(form.minEdge),
+    sigNumber(form.minSignalToNoise),
+    sigBool(form.costAwareEdge),
+    sigNumber(form.edgeBuffer),
+    sigNumber(form.trendLookback),
+    sigNumber(form.maxPositionSize),
+    sigNumber(form.volTarget),
+    sigNumber(form.volLookback),
+    sigNumber(form.volEwmaAlpha),
+    sigNumber(form.volFloor),
+    sigNumber(form.volScaleMax),
+    sigNumber(form.maxVolatility),
+    sigNumber(form.rebalanceBars),
+    sigNumber(form.rebalanceThreshold),
+    sigBool(form.rebalanceGlobal),
+    sigBool(form.rebalanceResetOnSignal),
+    sigNumber(form.fundingRate),
+    sigBool(form.fundingBySide),
+    sigBool(form.fundingOnOpen),
+    sigNumber(form.blendWeight),
+    sigNumber(form.kalmanZMin),
+    sigNumber(form.kalmanZMax),
+    sigNumber(form.maxHighVolProb),
+    sigNumber(form.maxConformalWidth),
+    sigNumber(form.maxQuantileWidth),
+    sigBool(form.confirmConformal),
+    sigBool(form.confirmQuantiles),
+    sigBool(form.confidenceSizing),
+    sigNumber(form.minPositionSize),
+    sigNumber(form.tuneStressVolMult),
+    sigNumber(form.tuneStressShock),
+    sigNumber(form.tuneStressWeight),
+    sigNumber(form.walkForwardFolds),
+    sigNumber(form.openThreshold),
+    sigNumber(form.closeThreshold),
+  ].join("|");
+}
