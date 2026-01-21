@@ -212,7 +212,9 @@ bestFinalEquity :: BacktestResult -> Double
 bestFinalEquity br =
   case brEquityCurve br of
     [] -> 1.0
-    xs -> last xs
+    xs ->
+      let v = last xs
+       in if isNaN v || isInfinite v || v < 0 then 0 else v
 
 optimizeOperations :: EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Method, Double, Double, BacktestResult)
 optimizeOperations baseCfg prices kalPred lstmPred mMeta =

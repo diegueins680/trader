@@ -69,6 +69,7 @@ import {
   DATA_LOG_AUTO_SCROLL_SLOP_PX,
   DATA_LOG_COLLAPSED_MAX_LINES,
   PLATFORM_DEFAULT_SYMBOL,
+  PLATFORM_DEFAULT_BARS,
   PLATFORM_INTERVALS,
   PLATFORM_INTERVAL_SET,
   PLATFORM_LABELS,
@@ -2094,11 +2095,11 @@ function tuneRatioBounds(bars: number, backtestRatio: number, lookbackBars: numb
 }
 
 function maxBarsForPlatform(platform: Platform, method: Method, apiLimits: ComputeLimits | null): number {
-  let maxBars = platform === "binance" ? 1000 : Number.POSITIVE_INFINITY;
-  if (method !== "10" && apiLimits) {
-    const maxBarsRaw = Math.trunc(apiLimits.maxBarsLstm);
+  let maxBars = method === "10" ? (platform === "binance" ? 1000 : Number.POSITIVE_INFINITY) : 1000;
+  if (method !== "10") {
+    const maxBarsRaw = apiLimits ? Math.trunc(apiLimits.maxBarsLstm) : NaN;
     if (Number.isFinite(maxBarsRaw) && maxBarsRaw > 0) {
-      maxBars = Math.min(maxBars, maxBarsRaw);
+      maxBars = maxBarsRaw;
     }
   }
   return maxBars;
@@ -2133,7 +2134,7 @@ function ratioForTrainEnd(bars: number, trainEnd: number): number {
   return clamp(raw, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO);
 }
 
-function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits | null): {
+function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits | null, platform: Platform): {
   bars: number;
   epochs: number;
   hiddenSize: number;
@@ -2141,17 +2142,18 @@ function clampComboForLimits(combo: OptimizationCombo, apiLimits: ComputeLimits 
   const lstmEnabled = combo.params.method !== "10";
   let bars = Math.trunc(combo.params.bars);
   if (!Number.isFinite(bars) || bars < 0) bars = 0;
-  if (bars > 0) bars = clamp(bars, MIN_LOOKBACK_BARS, 1000);
+  if (bars > 0) {
+    bars = Math.max(MIN_LOOKBACK_BARS, bars);
+    const barsCap = maxBarsForPlatform(platform, combo.params.method, apiLimits);
+    if (Number.isFinite(barsCap)) {
+      bars = Math.min(bars, barsCap);
+    }
+  }
 
   let epochs = clamp(Math.trunc(combo.params.epochs), 0, 5000);
   let hiddenSize = clamp(Math.trunc(combo.params.hiddenSize), 1, 512);
 
   if (lstmEnabled && apiLimits) {
-    const maxBarsRaw = Math.trunc(apiLimits.maxBarsLstm);
-    if (Number.isFinite(maxBarsRaw) && maxBarsRaw > 0) {
-      const maxBars = clamp(maxBarsRaw, MIN_LOOKBACK_BARS, 1000);
-      if (bars > 0) bars = Math.min(bars, maxBars);
-    }
     epochs = Math.min(epochs, apiLimits.maxEpochs);
     hiddenSize = Math.min(hiddenSize, apiLimits.maxHiddenSize);
   }
@@ -2192,7 +2194,7 @@ function applyComboToForm(
           ...combo,
           params: { ...combo.params, method },
         };
-  const { bars, epochs, hiddenSize } = clampComboForLimits(comboForLimits, apiLimits);
+  const { bars, epochs, hiddenSize } = clampComboForLimits(comboForLimits, apiLimits, nextPlatform);
   const openThrRaw = coerceNumber(combo.openThreshold, prev.openThreshold);
   const closeThrRaw =
     combo.closeThreshold == null ? openThrRaw : coerceNumber(combo.closeThreshold, prev.closeThreshold);
@@ -3830,7 +3832,15 @@ export function App() {
     const interval = form.interval.trim();
     const intervalOk = PLATFORM_INTERVAL_SET[platform].has(interval);
     const barsRaw = Math.trunc(form.bars);
-    const bars = barsRaw <= 0 ? 0 : platform === "binance" ? clamp(barsRaw, 2, 1000) : Math.max(2, barsRaw);
+    const barsCap = maxBarsForPlatform(platform, form.method, apiComputeLimits);
+    const bars =
+      barsRaw <= 0
+        ? 0
+        : (() => {
+            const normalized = Math.max(MIN_LOOKBACK_BARS, barsRaw);
+            if (Number.isFinite(barsCap)) return Math.min(normalized, barsCap);
+            return normalized;
+          })();
     const slippage = clamp(form.slippage, 0, 0.999999);
     const spread = clamp(form.spread, 0, 0.999999);
     const minHoldBars = clamp(Math.trunc(form.minHoldBars), 0, 1_000_000);
@@ -3940,7 +3950,7 @@ export function App() {
     if (form.maxQuantileWidth > 0) base.maxQuantileWidth = Math.max(0, form.maxQuantileWidth);
 
     return base;
-  }, [form]);
+  }, [apiComputeLimits, form]);
 
   useEffect(() => {
     if (form.method !== "router") return;
@@ -4679,12 +4689,8 @@ export function App() {
     const tuneRatio = typeof params.tuneRatio === "number" && Number.isFinite(params.tuneRatio) ? clamp(params.tuneRatio, 0, 0.99) : 0;
     const tuningEnabled = Boolean(params.optimizeOperations || params.sweepThreshold);
 
-    const lstmEnabled = params.method !== "10";
-    let maxBars = platformValue === "binance" ? 1000 : Number.POSITIVE_INFINITY;
-    const apiBarsLimit = apiComputeLimits?.maxBarsLstm;
-    if (lstmEnabled && typeof apiBarsLimit === "number" && Number.isFinite(apiBarsLimit) && apiBarsLimit > 0) {
-      maxBars = Math.min(maxBars, Math.trunc(apiBarsLimit));
-    }
+    const method = params.method ?? form.method;
+    const maxBars = maxBarsForPlatform(platformValue, method, apiComputeLimits);
     const barsCap = Number.isFinite(maxBars) ? Math.trunc(maxBars) : bars;
 
     const current = splitStats(bars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
@@ -6439,7 +6445,15 @@ export function App() {
   const missingInterval = !intervalValue || !PLATFORM_INTERVAL_SET[platform].has(intervalValue);
   const lookbackState = useMemo(() => {
     const barsRaw = Math.trunc(form.bars);
-    const bars = barsRaw <= 0 ? 0 : platform === "binance" ? clamp(barsRaw, 2, 1000) : Math.max(2, barsRaw);
+    const barsCap = maxBarsForPlatform(platform, form.method, apiComputeLimits);
+    const bars =
+      barsRaw <= 0
+        ? 0
+        : (() => {
+            const normalized = Math.max(MIN_LOOKBACK_BARS, barsRaw);
+            if (Number.isFinite(barsCap)) return Math.min(normalized, barsCap);
+            return normalized;
+          })();
     const interval = form.interval.trim();
     const intervalSec = platformIntervalSeconds(platform, interval);
 
@@ -6477,7 +6491,7 @@ export function App() {
         : "Effective lookback: —";
 
     return { bars, intervalSec, windowBars, overrideOn, effectiveBars, minBarsRequired, error, summary };
-  }, [form.bars, form.interval, form.lookbackBars, form.lookbackWindow, platform]);
+  }, [apiComputeLimits, form.bars, form.interval, form.lookbackBars, form.lookbackWindow, form.method, platform]);
   const splitPreview = useMemo(() => {
     const bars = lookbackState.bars;
     const lookbackBars = lookbackState.effectiveBars;
@@ -6761,7 +6775,17 @@ export function App() {
 
   const apiLstmEnabled = form.method !== "10";
   const barsRawForLimits = Math.trunc(form.bars);
-  const barsEffectiveForLimits = barsRawForLimits <= 0 ? 500 : barsRawForLimits;
+  const barsDefaultForLimits = PLATFORM_DEFAULT_BARS[platform] ?? 500;
+  const barsEffectiveForLimits = barsRawForLimits <= 0 ? barsDefaultForLimits : barsRawForLimits;
+  const barsMaxForInput = maxBarsForPlatform(platform, form.method, apiComputeLimits);
+  const barsMaxLabel = Number.isFinite(barsMaxForInput) ? Math.trunc(barsMaxForInput) : null;
+  const barsRangeLabel = barsMaxLabel ? `${MIN_LOOKBACK_BARS}–${barsMaxLabel}` : `>=${MIN_LOOKBACK_BARS}`;
+  const barsAutoHint = isBinancePlatform
+    ? `0=auto (Binance uses ${barsDefaultForLimits}; CSV uses all).`
+    : `0=auto (exchange default ${barsDefaultForLimits}; CSV uses all).`;
+  const barsRangeHint = barsMaxLabel
+    ? `${platformLabel} allows ${barsRangeLabel}${apiLstmEnabled ? " for LSTM methods" : ""}. Larger values take longer.`
+    : `${platformLabel} requires at least ${MIN_LOOKBACK_BARS} bars. Larger values take longer.`;
   const barsExceedsApi = Boolean(
     apiComputeLimits && apiLstmEnabled && barsEffectiveForLimits > apiComputeLimits.maxBarsLstm,
   );
@@ -6858,9 +6882,9 @@ export function App() {
     if (!targetId) return;
     if (apiComputeLimits && apiLstmEnabled) {
       if (targetId === "bars" && barsExceedsApi) {
-        const maxBarsRaw = Math.trunc(apiComputeLimits.maxBarsLstm);
+        const maxBarsRaw = maxBarsForPlatform(platform, form.method, apiComputeLimits);
         if (Number.isFinite(maxBarsRaw) && maxBarsRaw > 0) {
-          const maxBars = clamp(maxBarsRaw, MIN_LOOKBACK_BARS, 1000);
+          const maxBars = Math.max(MIN_LOOKBACK_BARS, Math.trunc(maxBarsRaw));
           setForm((prev) => {
             const currentBars = Math.trunc(prev.bars);
             const nextBars = currentBars > 0 ? Math.min(currentBars, maxBars) : maxBars;
@@ -6894,7 +6918,9 @@ export function App() {
     apiLstmEnabled,
     barsExceedsApi,
     epochsExceedsApi,
+    form.method,
     hiddenSizeExceedsApi,
+    platform,
     primaryIssue?.targetId,
     scrollToSection,
     showToast,
@@ -8305,23 +8331,21 @@ export function App() {
             </div>
             <div className="field">
               <label className="label" htmlFor="bars">
-                Bars (0=auto, {isBinancePlatform ? "2–1000" : ">=2"})
+                Bars (0=auto, {barsRangeLabel})
               </label>
               <input
                 id="bars"
                 className={barsExceedsApi ? "input inputError" : "input"}
                 type="number"
                 min={0}
-                max={isBinancePlatform ? 1000 : undefined}
+                max={barsMaxLabel ?? undefined}
                 value={form.bars}
                 onChange={(e) => setForm((f) => ({ ...f, bars: numFromInput(e.target.value, f.bars) }))}
               />
               <div className="hint" style={barsExceedsApi ? { color: "rgba(239, 68, 68, 0.85)" } : undefined}>
                 {barsExceedsApi
                   ? `API limit: max ${apiComputeLimits?.maxBarsLstm ?? "?"} bars for LSTM methods. Reduce bars or use method=10 (Kalman-only).`
-                  : isBinancePlatform
-                    ? "0=auto (Binance uses 500; CSV uses all). For Binance, 2–1000 is allowed. Larger values take longer."
-                    : `0=auto (exchange default 500; CSV uses all). ${platformLabel} requires at least 2 bars. Larger values take longer.`
+                  : `${barsAutoHint} ${barsRangeHint}`
                 }
               </div>
             </div>

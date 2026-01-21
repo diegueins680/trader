@@ -274,7 +274,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-hold-bars N` minimum holding periods before allowing a signal-based exit (`0` disables; default: `4`; bracket exits still apply)
   - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
   - `--max-trades-per-day N` block new entries after `N` entries per UTC day (`0` disables)
-  - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows)
+  - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows; requires bar timestamps or a recognized `--interval`)
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables; LSTM methods only)
   - `--lstm-exit-flip-grace-bars N` ignore LSTM flip exits during the first `N` bars of a trade (LSTM methods only)
@@ -429,6 +429,7 @@ Endpoints:
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
 - `POST /binance/listenKey/close` → closes a listenKey
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail). When `botSymbols` is provided without `binanceSymbol`, the first symbol is used as the data source for validation.
+- `POST /bot/start` skips top-combo candidates that exceed API compute limits and falls back to the base args.
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
 - `GET /bot/status` → returns live bot status (`?symbol=BTCUSDT` for one; multi-bot returns `multi=true` + `bots[]`; `starting=true` includes `startingReason`; `tail=N` caps history, max 5000, and open trade entries are clamped to the tail).
 - On API boot, the live bot auto-starts for `TRADER_BOT_SYMBOLS` (or `--binance-symbol`), keeps bots running for the current top 10 combos in `top-combos.json` (Binance only), prioritized by annualized equity (`metrics.annualizedReturn`) with trade count as a tie-breaker, and scans for orphan open futures positions to auto-adopt them when a compatible top combo exists. Trading is enabled by default (requires Binance API keys) and missing bots restart on the next poll interval. Set `TRADER_BOT_AUTOSTART=false` to disable auto-start on boot.
@@ -697,7 +698,7 @@ The Live bot panel keeps the last bot status and bot list visible while bots are
 Live bot and per-bot panels expand to show full chart contents without internal clipping, while the optimizer combos panel keeps controls fixed and the combos list scrollable in docked mode, then scrolls as a full panel when maximized so the run buttons stay reachable even with expanded sections.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
-Optimizer combos are clamped to API compute limits reported by `/health`.
+Optimizer combos are clamped to API LSTM compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
 The UI reads combos from the API, shows their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
 Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, and can be filtered by minimum final equity.
@@ -785,7 +786,7 @@ The UI also includes a “Live bot” panel to start/stop the continuous loop, s
 When trading is armed, the UI blocks live bot start until Binance keys are provided or verified via “Check keys” (otherwise switch to paper mode).
 Binance account panels (positions/trades) require keys; the UI blocks refresh until keys are provided or verified via “Check keys”.
 When starting multi-symbol live bots, the UI uses the first bot symbol as the request symbol so `/bot/start` validation succeeds even if the main Symbol field is empty.
-Optimizer combos are clamped to the API compute limits reported by `/health` when available.
+Optimizer combos are clamped to the API LSTM compute limits reported by `/health` when available.
 
 Troubleshooting: “No live operations yet”
 - The live bot only records an operation when it switches position (BUY/SELL). If the latest signal is `HOLD`/neutral, the operations list stays empty.

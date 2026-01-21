@@ -187,6 +187,13 @@ export const PLATFORM_DEFAULT_SYMBOL: Record<Platform, string> = {
   poloniex: "BTC_USDT",
 };
 
+export const PLATFORM_DEFAULT_BARS: Record<Platform, number> = {
+  binance: 500,
+  coinbase: 300,
+  kraken: 500,
+  poloniex: 500,
+};
+
 export const TUNE_OBJECTIVES = [
   "annualized-equity",
   "final-equity",

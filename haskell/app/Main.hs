@@ -4006,18 +4006,9 @@ applyLatestTopCombo optimizerTmp limits sym args req = do
   case combosOrErr of
     Left _ -> pure (baseArgs, Nothing)
     Right export ->
-      if arActive req
-        then
-          case selectCompatibleTopComboArgs limits sym baseArgs req export of
-            Nothing -> pure (baseArgs, Nothing)
-            Just (args', mUuid) -> pure (args', mUuid)
-        else
-          case bestTopComboForSymbol sym Nothing export of
-            Nothing -> pure (baseArgs, Nothing)
-            Just combo ->
-              case applyTopComboForStartWithUuid baseArgs combo of
-                Left _ -> pure (baseArgs, Nothing)
-                Right (args', mUuid) -> pure (args', mUuid)
+      case selectCompatibleTopComboArgs limits sym baseArgs req export of
+        Nothing -> pure (baseArgs, Nothing)
+        Just (args', mUuid) -> pure (args', mUuid)
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =

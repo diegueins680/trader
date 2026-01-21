@@ -469,6 +469,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
           Just v | not (isNaN v || isInfinite v) -> Just v
           _ -> Nothing
       noTradeWindows = ecNoTradeWindows cfg
+      noTradeReq = not (null noTradeWindows)
       metaMaskV =
         case ecMetaMask cfg of
           Just mask
@@ -521,15 +522,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                 if lookback >= n
                   then Just "lookback must be less than number of prices"
                   else
-                    if (dailyLossReq /= Nothing || weeklyLossReq /= Nothing || maxTradesPerDayReq /= Nothing) && not hasDailyKey
-                      then Just "--max-daily-loss/--max-weekly-loss/--max-trades-per-day require bar timestamps or interval seconds"
+                    if (dailyLossReq /= Nothing || weeklyLossReq /= Nothing || maxTradesPerDayReq /= Nothing || noTradeReq) && not hasDailyKey
+                      then Just "--max-daily-loss/--max-weekly-loss/--max-trades-per-day/--no-trade-window require bar timestamps or interval seconds"
                       else
                         if minExpectancy /= Nothing && expectancyLookback <= 0
                           then Just "--min-expectancy requires --expectancy-lookback >= 1"
                           else
                             case openTimesMismatch of
                               Just err
-                                | dailyLossReq /= Nothing || weeklyLossReq /= Nothing || maxTradesPerDayReq /= Nothing -> Just err
+                                | dailyLossReq /= Nothing || weeklyLossReq /= Nothing || maxTradesPerDayReq /= Nothing || noTradeReq -> Just err
                               _ ->
                                 case metaMaskMismatch of
                                   Just err -> Just err

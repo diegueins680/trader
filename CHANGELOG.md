@@ -38,11 +38,13 @@ All notable changes to this project will be documented in this file.
 - API: return JSON 500 responses with CORS headers when request handlers throw unexpected exceptions.
 - API: cap `/bot/status` tail defaults to 1000 points to prevent upstream 5xx responses.
 - API: treat the first `botSymbols` entry as `binanceSymbol` for `/bot/start` validation when `binanceSymbol` is missing.
+- API: skip top-combo candidates that exceed compute limits when starting live bots, falling back to the base args.
 - API: manage Binance listenKey user-data streams server-side and expose `/binance/listenKey/stream` as an SSE relay.
 - API: `/binance/keys` signed futures probe no longer requires `binanceSymbol` (trade test skips when missing).
 - CSV: sort rows by parsed timestamps only; unparseable timestamps preserve file order.
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Trading: `--max-daily-loss` validation now errors when provided timestamps do not match the closes length.
+- Trading: `--no-trade-window` now requires bar timestamps or a recognized interval for UTC window gating.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
 - Trading: add performance gates (`--perf-*`), loss-streak cooldowns, and adaptive filter tightening (`--adaptive-*`) for live bots.
@@ -58,6 +60,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: ensure the docked configuration pane remains scrollable.
 - Web UI: keep maximized config panels scrollable.
 - Web UI: cap maximized configuration panes so the body scroll remains usable.
+- Web UI: align bars inputs with API LSTM limits and platform defaults instead of hard-capping Binance at 1000.
 - Web UI: send API tokens via `X-API-Key` only to avoid proxy issues with `Authorization` headers.
 - Web UI: refresh the header, section grouping, and spacing for faster scanning.
 - Web UI: refine the visual styling with a light-first palette, updated typography, and calmer surfaces.

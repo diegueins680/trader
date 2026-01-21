@@ -43,26 +43,28 @@ predictTCN m prices t = do
   pure (y, tmSigma m)
 
 trainTCN :: Int -> V.Vector Double -> [(Int, Double)] -> TCNModel
-trainTCN lookbackBars prices trainTargets =
-  let kernelSize = min 3 lookbackBars
-      maxD = max 1 ((lookbackBars - 1) `div` (kernelSize - 1))
-      dilations = takeWhile (<= maxD) (iterate (* 2) 1)
-      lambda = 1e-3
-      xsYs =
-        [ (x ++ [1.0], y)
-        | (t, y) <- trainTargets
-        , Just x <- [tcnFeaturesAt dilations kernelSize prices t]
-        ]
-   in if null xsYs
-        then TCNModel { tmDilations = dilations, tmKernelSize = kernelSize, tmWeights = replicate (kernelSize * length dilations + 1) 0, tmSigma = Nothing }
-        else
-          let xs = map fst xsYs
-              ys = map snd xsYs
-              w = ridgeFit lambda xs ys
-              preds = map (dot w) xs
-              residuals = zipWith (-) ys preds
-              sigma = sqrt (mean (map (\e -> e * e) residuals) + 1e-12)
-           in TCNModel { tmDilations = dilations, tmKernelSize = kernelSize, tmWeights = w, tmSigma = Just sigma }
+trainTCN lookbackBars prices trainTargets
+  | lookbackBars <= 1 = error "lookbackBars must be >= 2"
+  | otherwise =
+      let kernelSize = min 3 lookbackBars
+          maxD = max 1 ((lookbackBars - 1) `div` (kernelSize - 1))
+          dilations = takeWhile (<= maxD) (iterate (* 2) 1)
+          lambda = 1e-3
+          xsYs =
+            [ (x ++ [1.0], y)
+            | (t, y) <- trainTargets
+            , Just x <- [tcnFeaturesAt dilations kernelSize prices t]
+            ]
+       in if null xsYs
+            then TCNModel { tmDilations = dilations, tmKernelSize = kernelSize, tmWeights = replicate (kernelSize * length dilations + 1) 0, tmSigma = Nothing }
+            else
+              let xs = map fst xsYs
+                  ys = map snd xsYs
+                  w = ridgeFit lambda xs ys
+                  preds = map (dot w) xs
+                  residuals = zipWith (-) ys preds
+                  sigma = sqrt (mean (map (\e -> e * e) residuals) + 1e-12)
+               in TCNModel { tmDilations = dilations, tmKernelSize = kernelSize, tmWeights = w, tmSigma = Just sigma }
 
 ridgeFit :: Double -> [[Double]] -> [Double] -> [Double]
 ridgeFit lambda xs ys =
