@@ -17,8 +17,8 @@ import type {
   Platform,
 } from "../lib/types";
 import type { OptimizationCombo, OptimizationComboOperation } from "../components/TopCombosChart";
+import { defaultForm, parseDurationSeconds, platformIntervalSeconds } from "./formState";
 import type { FormState } from "./formState";
-import { platformIntervalSeconds } from "./formState";
 import type { health } from "../lib/api";
 import { PLATFORM_DEFAULT_SYMBOL } from "./constants";
 import { clamp, normalizeSymbolKey, numFromInput } from "./utils";
