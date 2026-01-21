@@ -565,6 +565,8 @@ data OptimizerArgs = OptimizerArgs
   , oaMinEdgeMax :: !Double
   , oaMinSignalToNoiseMin :: !Double
   , oaMinSignalToNoiseMax :: !Double
+  , oaSnrSizeWeightMin :: !Double
+  , oaSnrSizeWeightMax :: !Double
   , oaPThresholdFactor :: !Double
   , oaThresholdFactorAlphaMin :: !Double
   , oaThresholdFactorAlphaMax :: !Double
@@ -691,6 +693,8 @@ data OptimizerArgs = OptimizerArgs
   , oaMethodWeightBlend :: !Double
   , oaBlendWeightMin :: !Double
   , oaBlendWeightMax :: !Double
+  , oaRouterScorePnlWeightMin :: !Double
+  , oaRouterScorePnlWeightMax :: !Double
   , oaNormalizations :: !String
   , oaHiddenSizeMin :: !Int
   , oaHiddenSizeMax :: !Int
@@ -756,6 +760,7 @@ data TrialParams = TrialParams
   , tpBars :: !Int
   , tpMethod :: !String
   , tpBlendWeight :: !Double
+  , tpRouterScorePnlWeight :: !Double
   , tpPositioning :: !String
   , tpNormalization :: !String
   , tpBaseOpenThreshold :: !Double
@@ -765,6 +770,7 @@ data TrialParams = TrialParams
   , tpMaxHoldBars :: !(Maybe Int)
   , tpMinEdge :: !Double
   , tpMinSignalToNoise :: !Double
+  , tpSnrSizeWeight :: !Double
   , tpThresholdFactorEnabled :: !Bool
   , tpThresholdFactorAlpha :: !Double
   , tpThresholdFactorMin :: !Double
@@ -902,6 +908,8 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , tpMethod params
              , "--blend-weight"
              , printf "%.6f" (clamp (tpBlendWeight params) 0 1)
+             , "--router-score-pnl-weight"
+             , printf "%.6f" (clamp (tpRouterScorePnlWeight params) 0 1)
              , "--normalization"
              , tpNormalization params
              , "--open-threshold"
@@ -923,6 +931,8 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , printf "%.12g" (max 0 (tpMinEdge params))
              , "--min-signal-to-noise"
              , printf "%.12g" (max 0 (tpMinSignalToNoise params))
+             , "--snr-size-weight"
+             , printf "%.6f" (clamp (tpSnrSizeWeight params) 0 1)
              , "--edge-buffer"
              , printf "%.12g" (max 0 (tpEdgeBuffer params))
              ]
@@ -1347,6 +1357,7 @@ trialToRecord tr symbolLabel =
         , "bars" .= tpBars (trParams tr)
         , "method" .= tpMethod (trParams tr)
         , "blendWeight" .= tpBlendWeight (trParams tr)
+        , "routerScorePnlWeight" .= tpRouterScorePnlWeight (trParams tr)
         , "positioning" .= tpPositioning (trParams tr)
         , "normalization" .= tpNormalization (trParams tr)
         , "baseOpenThreshold" .= tpBaseOpenThreshold (trParams tr)
@@ -1356,6 +1367,7 @@ trialToRecord tr symbolLabel =
         , "maxHoldBars" .= tpMaxHoldBars (trParams tr)
         , "minEdge" .= tpMinEdge (trParams tr)
         , "minSignalToNoise" .= tpMinSignalToNoise (trParams tr)
+        , "snrSizeWeight" .= tpSnrSizeWeight (trParams tr)
         , "thresholdFactorEnabled" .= tpThresholdFactorEnabled (trParams tr)
         , "thresholdFactorAlpha" .= tpThresholdFactorAlpha (trParams tr)
         , "thresholdFactorMin" .= tpThresholdFactorMin (trParams tr)
@@ -1487,6 +1499,7 @@ sampleParams
   maxHoldBarsRange
   minEdgeRange
   minSignalToNoiseRange
+  snrSizeWeightRange
   pThresholdFactor
   thresholdFactorAlphaRange
   thresholdFactorMinRange
@@ -1580,6 +1593,7 @@ sampleParams
   (methodW11, methodW10, methodW01, methodWBlend)
   normalizationChoices
   blendWeightRange
+  routerScorePnlWeightRange
   pDisableStop
   pDisableTp
   pDisableTrail
@@ -1614,7 +1628,11 @@ sampleParams
           let (bwLo, bwHi) = ordered blendWeightRange
               (val, rng') = nextUniform bwLo bwHi rng4
            in (clamp val 0 1, rng')
-        (normalizationChoice, rng6) = nextChoice normalizationChoices rng5
+        (routerScorePnlWeight, rng5a) =
+          let (rwLo, rwHi) = ordered routerScorePnlWeightRange
+              (val, rng') = nextUniform rwLo rwHi rng5
+           in (clamp val 0 1, rng')
+        (normalizationChoice, rng6) = nextChoice normalizationChoices rng5a
         normalization = fromMaybe "none" normalizationChoice
         (baseOpenThreshold, rng7) =
           nextLogUniform (max 1e-12 openThresholdMin) (max 1e-12 openThresholdMax) rng6
@@ -1632,7 +1650,11 @@ sampleParams
         (minSignalToNoise, rng13) =
           let (lo, hi) = ordered minSignalToNoiseRange
            in nextUniform lo hi rng12
-        (edgeBuffer, rng14) = nextUniform (fst edgeBufferRange) (snd edgeBufferRange) rng13
+        (snrSizeWeight, rng13a) =
+          let (lo, hi) = ordered snrSizeWeightRange
+              (val, rng') = nextUniform lo hi rng13
+           in (clamp val 0 1, rng')
+        (edgeBuffer, rng14) = nextUniform (fst edgeBufferRange) (snd edgeBufferRange) rng13a
         (costAwareEdge, edgeBuffer', rng15) =
           if pCostAwareEdge < 0
             then (edgeBuffer > 0, edgeBuffer, rng14)
@@ -1965,6 +1987,7 @@ sampleParams
             , tpBars = bars
             , tpMethod = method
             , tpBlendWeight = blendWeight
+            , tpRouterScorePnlWeight = routerScorePnlWeight
             , tpPositioning = positioning
             , tpNormalization = normalization
             , tpBaseOpenThreshold = baseOpenThreshold
@@ -1974,6 +1997,7 @@ sampleParams
             , tpMaxHoldBars = maxHoldBars
             , tpMinEdge = minEdge
             , tpMinSignalToNoise = minSignalToNoise
+            , tpSnrSizeWeight = snrSizeWeight
             , tpThresholdFactorEnabled = thresholdFactorEnabled
             , tpThresholdFactorAlpha = thresholdFactorAlpha0
             , tpThresholdFactorMin = thresholdFactorMin
@@ -2249,6 +2273,9 @@ runOptimizer args0 = do
                               minEdgeMax = max minEdgeMin (oaMinEdgeMax args)
                               minSnMin = max 0 (oaMinSignalToNoiseMin args)
                               minSnMax = max minSnMin (oaMinSignalToNoiseMax args)
+                              snrSizeWeightMin = clamp (oaSnrSizeWeightMin args) 0 1
+                              snrSizeWeightMax = clamp (oaSnrSizeWeightMax args) 0 1
+                              snrSizeWeightRange = (snrSizeWeightMin, snrSizeWeightMax)
                               pThresholdFactor = clamp (oaPThresholdFactor args) 0 1
                               thresholdFactorAlphaMin = clamp (oaThresholdFactorAlphaMin args) 0 1
                               thresholdFactorAlphaMax = clamp (oaThresholdFactorAlphaMax args) 0 1
@@ -2369,6 +2396,10 @@ runOptimizer args0 = do
                                 let lo = clamp (oaBlendWeightMin args) 0 1
                                     hi = clamp (oaBlendWeightMax args) 0 1
                                  in (lo, hi)
+                              routerScorePnlWeightRange =
+                                let lo = clamp (oaRouterScorePnlWeightMin args) 0 1
+                                    hi = clamp (oaRouterScorePnlWeightMax args) 0 1
+                                 in (lo, hi)
                               normalizationChoices =
                                 [trim s | s <- splitCsv (oaNormalizations args), not (null (trim s))]
                           if null normalizationChoices
@@ -2463,6 +2494,7 @@ runOptimizer args0 = do
                                           (maxHoldMin, maxHoldMax)
                                           (minEdgeMin, minEdgeMax)
                                           (minSnMin, minSnMax)
+                                          snrSizeWeightRange
                                           pThresholdFactor
                                           thresholdFactorAlphaRange
                                           thresholdFactorMinRange
@@ -2556,6 +2588,7 @@ runOptimizer args0 = do
                                           methodWeights
                                           normalizationChoices
                                           blendWeightRange
+                                          routerScorePnlWeightRange
                                           (clamp (oaPDisableStop args) 0 1)
                                           (clamp (oaPDisableTp args) 0 1)
                                           (clamp (oaPDisableTrail args) 0 1)
@@ -3058,11 +3091,13 @@ printBest tr = do
   putStrLn ("  thresholds:  open=" ++ showMaybe (trOpenThreshold tr) ++ " close=" ++ showMaybe (trCloseThreshold tr) ++ " (from sweep)")
   putStrLn ("  base thresholds: open=" ++ show (tpBaseOpenThreshold p) ++ " close=" ++ show (tpBaseCloseThreshold p))
   putStrLn ("  blendWeight:  " ++ show (tpBlendWeight p))
+  putStrLn ("  routerScorePnlWeight: " ++ show (tpRouterScorePnlWeight p))
   putStrLn ("  minHoldBars:  " ++ show (tpMinHoldBars p))
   putStrLn ("  cooldownBars: " ++ show (tpCooldownBars p))
   putStrLn ("  maxHoldBars:  " ++ showMaybe (tpMaxHoldBars p))
   putStrLn ("  minEdge:      " ++ show (tpMinEdge p))
   putStrLn ("  minSignalToNoise: " ++ show (tpMinSignalToNoise p))
+  putStrLn ("  snrSizeWeight: " ++ show (tpSnrSizeWeight p))
   putStrLn ("  thresholdFactorEnabled: " ++ show (tpThresholdFactorEnabled p))
   putStrLn ("  thresholdFactorAlpha: " ++ show (tpThresholdFactorAlpha p))
   putStrLn ("  thresholdFactorBounds: " ++ show (tpThresholdFactorMin p) ++ ".." ++ show (tpThresholdFactorMax p))
@@ -3289,7 +3324,8 @@ crossoverTrialParams a b rng0 =
       (tpBars', rng3) = pickValue (tpBars a) (tpBars b) rng2
       (tpMethod', rng4) = pickValue (tpMethod a) (tpMethod b) rng3
       (tpBlendWeight', rng5) = pickValue (tpBlendWeight a) (tpBlendWeight b) rng4
-      (tpPositioning', rng6) = pickValue (tpPositioning a) (tpPositioning b) rng5
+      (tpRouterScorePnlWeight', rng5a) = pickValue (tpRouterScorePnlWeight a) (tpRouterScorePnlWeight b) rng5
+      (tpPositioning', rng6) = pickValue (tpPositioning a) (tpPositioning b) rng5a
       (tpNormalization', rng7) = pickValue (tpNormalization a) (tpNormalization b) rng6
       (tpBaseOpenThreshold', rng8) = pickValue (tpBaseOpenThreshold a) (tpBaseOpenThreshold b) rng7
       (tpBaseCloseThreshold', rng9) = pickValue (tpBaseCloseThreshold a) (tpBaseCloseThreshold b) rng8
@@ -3298,7 +3334,8 @@ crossoverTrialParams a b rng0 =
       (tpMaxHoldBars', rng12) = pickValue (tpMaxHoldBars a) (tpMaxHoldBars b) rng11
       (tpMinEdge', rng13) = pickValue (tpMinEdge a) (tpMinEdge b) rng12
       (tpMinSignalToNoise', rng14) = pickValue (tpMinSignalToNoise a) (tpMinSignalToNoise b) rng13
-      (tpThresholdFactorEnabled', rng15) = pickValue (tpThresholdFactorEnabled a) (tpThresholdFactorEnabled b) rng14
+      (tpSnrSizeWeight', rng14a) = pickValue (tpSnrSizeWeight a) (tpSnrSizeWeight b) rng14
+      (tpThresholdFactorEnabled', rng15) = pickValue (tpThresholdFactorEnabled a) (tpThresholdFactorEnabled b) rng14a
       (tpThresholdFactorAlpha', rng16) = pickValue (tpThresholdFactorAlpha a) (tpThresholdFactorAlpha b) rng15
       (tpThresholdFactorMin', rng17) = pickValue (tpThresholdFactorMin a) (tpThresholdFactorMin b) rng16
       (tpThresholdFactorMax', rng18) = pickValue (tpThresholdFactorMax a) (tpThresholdFactorMax b) rng17
@@ -3388,6 +3425,7 @@ crossoverTrialParams a b rng0 =
           , tpBars = tpBars'
           , tpMethod = tpMethod'
           , tpBlendWeight = tpBlendWeight'
+          , tpRouterScorePnlWeight = tpRouterScorePnlWeight'
           , tpPositioning = tpPositioning'
           , tpNormalization = tpNormalization'
           , tpBaseOpenThreshold = tpBaseOpenThreshold'
@@ -3397,6 +3435,7 @@ crossoverTrialParams a b rng0 =
           , tpMaxHoldBars = tpMaxHoldBars'
           , tpMinEdge = tpMinEdge'
           , tpMinSignalToNoise = tpMinSignalToNoise'
+          , tpSnrSizeWeight = tpSnrSizeWeight'
           , tpThresholdFactorEnabled = tpThresholdFactorEnabled'
           , tpThresholdFactorAlpha = tpThresholdFactorAlpha'
           , tpThresholdFactorMin = tpThresholdFactorMin'
@@ -3489,11 +3528,13 @@ perturbTrialParams :: Double -> Int -> TrialParams -> Rng -> (TrialParams, Rng)
 perturbTrialParams scaleDouble scaleInt p rng0 =
   let (bars', rng1) = perturbInt (tpBars p) scaleInt rng0
       (blendWeight', rng2) = perturbDouble (tpBlendWeight p) scaleDouble rng1
-      (openThreshold', rng3) = perturbDouble (tpBaseOpenThreshold p) scaleDouble rng2
+      (routerScorePnlWeight', rng2a) = perturbDouble (tpRouterScorePnlWeight p) scaleDouble rng2
+      (openThreshold', rng3) = perturbDouble (tpBaseOpenThreshold p) scaleDouble rng2a
       (closeThreshold', rng4) = perturbDouble (tpBaseCloseThreshold p) scaleDouble rng3
       (minEdge', rng5) = perturbDouble (tpMinEdge p) scaleDouble rng4
       (minSn', rng6) = perturbDouble (tpMinSignalToNoise p) scaleDouble rng5
-      (edgeBuffer', rng7) = perturbDouble (tpEdgeBuffer p) scaleDouble rng6
+      (snrSizeWeight', rng6a) = perturbDouble (tpSnrSizeWeight p) scaleDouble rng6
+      (edgeBuffer', rng7) = perturbDouble (tpEdgeBuffer p) scaleDouble rng6a
       (trendLookback', rng8) = perturbInt (tpTrendLookback p) scaleInt rng7
       (maxPositionSize', rng9) = perturbDouble (tpMaxPositionSize p) scaleDouble rng8
       (volTarget', rng10) = perturbMaybeDouble (tpVolTarget p) scaleDouble rng9
@@ -3534,10 +3575,12 @@ perturbTrialParams scaleDouble scaleInt p rng0 =
    in ( p
           { tpBars = bars'
           , tpBlendWeight = clamp blendWeight' 0 1
+          , tpRouterScorePnlWeight = clamp routerScorePnlWeight' 0 1
           , tpBaseOpenThreshold = openThreshold'
           , tpBaseCloseThreshold = closeThreshold'
           , tpMinEdge = minEdge'
           , tpMinSignalToNoise = minSn'
+          , tpSnrSizeWeight = clamp snrSizeWeight' 0 1
           , tpThresholdFactorAlpha = thresholdFactorAlpha'
           , tpThresholdFactorMin = thresholdFactorMin'
           , tpThresholdFactorMax = thresholdFactorMax'
@@ -3667,6 +3710,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
           , "bars" .= tpBars params
           , "method" .= tpMethod params
           , "blendWeight" .= tpBlendWeight params
+          , "routerScorePnlWeight" .= tpRouterScorePnlWeight params
           , "positioning" .= tpPositioning params
           , "normalization" .= tpNormalization params
           , "baseOpenThreshold" .= tpBaseOpenThreshold params
@@ -3676,6 +3720,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
           , "maxHoldBars" .= tpMaxHoldBars params
           , "minEdge" .= tpMinEdge params
           , "minSignalToNoise" .= tpMinSignalToNoise params
+          , "snrSizeWeight" .= tpSnrSizeWeight params
           , "edgeBuffer" .= tpEdgeBuffer params
           , "costAwareEdge" .= tpCostAwareEdge params
           , "trendLookback" .= tpTrendLookback params

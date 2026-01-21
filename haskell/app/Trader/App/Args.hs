@@ -128,6 +128,7 @@ data Args = Args
   , argMaxOpenPerBase :: Maybe Int
   , argMinEdge :: Double
   , argMinSignalToNoise :: Double
+  , argSnrSizeWeight :: Double
   , argAdaptiveFilters :: Bool
   , argAdaptiveEdgeBufferMax :: Double
   , argAdaptiveMinSignalToNoiseMax :: Double
@@ -166,6 +167,7 @@ data Args = Args
   , argBlendWeight :: Double
   , argRouterLookback :: Int
   , argRouterMinScore :: Double
+  , argRouterScorePnlWeight :: Double
   , argTriLayer :: Bool
   , argTriLayerFastMult :: Double
   , argTriLayerSlowMult :: Double
@@ -481,6 +483,13 @@ opts = do
   argMaxOpenPerBase <- optional (option auto (long "max-open-per-base" <> help "Max open positions per base asset across running bots (0 disables)"))
   argMinEdge <- option auto (long "min-edge" <> value 0.0004 <> help "Minimum predicted return magnitude required to enter (0 disables)")
   argMinSignalToNoise <- option auto (long "min-signal-to-noise" <> value 0.8 <> help "Minimum edge/vol (per-bar sigma) required to enter (0 disables)")
+  argSnrSizeWeight <-
+    option
+      auto
+      ( long "snr-size-weight"
+          <> value 1.0
+          <> help "Weight to scale position size by signal-to-noise (0=hard gate only, 1=fully scaled)"
+      )
   argAdaptiveFilters <-
     defaultOffSwitch
       "adaptive-filters"
@@ -561,7 +570,14 @@ opts = do
   argFundingOnOpen <- switch (long "funding-on-open" <> help "Charge funding for bars opened with a position (even if exited intrabar)")
   argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend (0..1)")
   argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router scoring (>= 2)")
-  argRouterMinScore <- option auto (long "router-min-score" <> value 0.25 <> help "Minimum router score (accuracy * coverage) to accept a model (0..1)")
+  argRouterMinScore <- option auto (long "router-min-score" <> value 0.25 <> help "Minimum router score (blend of accuracy*coverage and return) to accept a model (0..1)")
+  argRouterScorePnlWeight <-
+    option
+      auto
+      ( long "router-score-pnl-weight"
+          <> value 0.5
+          <> help "Weight for return-aware router scoring (0=accuracy*coverage only, 1=return only)"
+      )
   argTriLayer <- switch (long "tri-layer" <> help "Enable tri-layer entry gating (Kalman cloud + price action trigger)")
   argTriLayerFastMult <- option auto (long "tri-layer-fast-mult" <> value 0.5 <> help "Measurement variance multiplier for the fast Kalman cloud line (requires --tri-layer)")
   argTriLayerSlowMult <- option auto (long "tri-layer-slow-mult" <> value 2.0 <> help "Measurement variance multiplier for the slow Kalman cloud line (requires --tri-layer)")
@@ -610,7 +626,7 @@ opts = do
       "no-confidence-sizing"
       "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled (default on)."
       "Disable confidence sizing for entries."
-  argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (0 disables the half-size step; requires --confidence-sizing)")
+  argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (linear ramp to --lstm-confidence-hard; requires --confidence-sizing)")
   argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
   argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "Minimum entry size after sizing/vol scaling; skip if below this (0..1)")
   argTuneStressVolMult <- option auto (long "tune-stress-vol-mult" <> value 1.0 <> help "Stress volatility multiplier for tune scoring (1 disables)")
@@ -778,6 +794,7 @@ validateArgs args0 = do
   ensure "--close-threshold must be >= 0" (argCloseThreshold args >= 0)
   ensure "--router-lookback must be >= 2" (argRouterLookback args >= 2)
   ensure "--router-min-score must be between 0 and 1" (argRouterMinScore args >= 0 && argRouterMinScore args <= 1)
+  ensure "--router-score-pnl-weight must be between 0 and 1" (argRouterScorePnlWeight args >= 0 && argRouterScorePnlWeight args <= 1)
   ensure "--method router cannot be used with --optimize-operations/--sweep-threshold" $
     not
       ( argMethod args == MethodRouter
@@ -848,6 +865,7 @@ validateArgs args0 = do
     Just n -> ensure "--max-open-per-base must be >= 1" (n >= 1)
   ensure "--min-edge must be >= 0" (argMinEdge args >= 0)
   ensure "--min-signal-to-noise must be >= 0" (argMinSignalToNoise args >= 0)
+  ensure "--snr-size-weight must be between 0 and 1" (argSnrSizeWeight args >= 0 && argSnrSizeWeight args <= 1)
   ensure "--adaptive-edge-buffer-max must be >= 0" (argAdaptiveEdgeBufferMax args >= 0)
   ensure "--adaptive-min-signal-to-noise-max must be >= 0" (argAdaptiveMinSignalToNoiseMax args >= 0)
   ensure "--adaptive-kalman-z-min-max must be >= 0" (argAdaptiveKalmanZMinMax args >= 0)

@@ -66,6 +66,7 @@ data EnsembleConfig = EnsembleConfig
   , ecMaxPositionSize :: !Double       -- 0..N, caps position sizing (1=full)
   , ecMinEdge :: !Double               -- min predicted return magnitude required for entry
   , ecMinSignalToNoise :: !Double      -- min edge / per-bar sigma required for entry
+  , ecSnrSizeWeight :: !Double         -- weight for soft SNR sizing (0=hard gate only, 1=fully scaled)
   -- Dynamic threshold factor (multiplicative)
   , ecThresholdFactorEnabled :: !Bool
   , ecThresholdFactorAlpha :: !Double
@@ -99,6 +100,7 @@ data EnsembleConfig = EnsembleConfig
   , ecBlendWeight :: !Double           -- Kalman weight for blend method
   , ecRouterLookback :: !Int           -- bars; router scoring window
   , ecRouterMinScore :: !Double        -- 0..1; router min score for accepting a model
+  , ecRouterScorePnlWeight :: !Double  -- 0..1; router score blend weight for PnL-aware scoring
   -- Tri-layer gating (Kalman cloud + price action trigger)
   , ecKalmanDt :: !Double
   , ecKalmanProcessVar :: !Double
@@ -555,6 +557,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               openThrRaw = max 0 (ecOpenThreshold cfg)
               minEdge = max 0 (ecMinEdge cfg)
               minSignalToNoise = max 0 (ecMinSignalToNoise cfg)
+              snrSizeWeight = clamp01 (ecSnrSizeWeight cfg)
               factorEnabled = ecThresholdFactorEnabled cfg
               factorAlpha = clamp01 (ecThresholdFactorAlpha cfg)
               factorMinRaw = ecThresholdFactorMin cfg
@@ -1161,21 +1164,24 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                 if not (ecConfidenceSizing cfg)
                   then 1
                   else
-                    let hard = clamp01 (ecLstmConfidenceHard cfg)
-                        softRaw = clamp01 (ecLstmConfidenceSoft cfg)
-                        soft =
-                          if softRaw <= 0
-                            then hard
-                            else min softRaw hard
+                    let hard0 = clamp01 (ecLstmConfidenceHard cfg)
+                        soft0 = clamp01 (ecLstmConfidenceSoft cfg)
+                        hard = hard0
+                        soft = min soft0 hard
+                        denom = max 1e-12 (hard - soft)
                      in if hard <= 0
                           then 1
                           else
                             case lstmConfidenceScore prev next of
                               Nothing -> 1
-                              Just score
-                                | score >= hard -> 1
-                                | score >= soft -> 0.5
-                                | otherwise -> 0
+                              Just score ->
+                                let scaleRaw =
+                                      if score <= soft
+                                        then 0
+                                        else if score >= hard
+                                          then 1
+                                          else (score - soft) / denom
+                                 in clamp01 scaleRaw
 
               clampFrac :: Double -> Double
               clampFrac x = min 0.999999 (max 0 x)
@@ -1661,9 +1667,25 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                         volOk = if needsEntry then volOkAt t else True
 
+                        snrScale =
+                          if minSignalToNoiseAdj <= 0
+                            then 1
+                            else
+                              case volPerBarAt t of
+                                Just vol | vol > 0 -> clamp01 ((max 0 edgeRaw) / vol / minSignalToNoiseAdj)
+                                _ -> 0
+
+                        snrScaleWeighted =
+                          if snrSizeWeight <= 0
+                            then 1
+                            else (1 - snrSizeWeight) + snrSizeWeight * snrScale
+
                         snrOk =
                           if needsEntry
-                            then signalToNoiseOkAt t minSignalToNoiseAdj (max 0 edgeRaw)
+                            then
+                              if snrSizeWeight <= 0
+                                then signalToNoiseOkAt t minSignalToNoiseAdj (max 0 edgeRaw)
+                                else snrScale > 0
                             else True
 
                         volTargetReady =
@@ -1743,7 +1765,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                     _ -> max 0 desiredSizeRaw
 
                         entryScale = if desiredSide2 /= Nothing && desiredSide2 /= posSide then lstmEntryScale else 1
-                        sizeScale = if desiredSide2 == Nothing then 1 else volScaleAt t * riskScaleAt t
+                        sizeScale =
+                          if desiredSide2 == Nothing
+                            then 1
+                            else volScaleAt t * riskScaleAt t * snrScaleWeighted
                         sizeScaled = baseSizeTarget * entryScale * sizeScale
                         sizeCapped = min maxPositionSize (max 0 sizeScaled)
                         sizeFinal0 =

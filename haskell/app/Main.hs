@@ -458,7 +458,12 @@ type LstmCtx = (NormState, [Double], LSTMModel)
 
 type KalmanCtx = (PredictorBundle, Kalman1, HMMFilter, SensorVar)
 
-type PredHistory = (V.Vector Double, V.Vector Double)
+data PredHistory = PredHistory
+  { phKalman :: !(V.Vector Double)
+  , phLstm :: !(V.Vector Double)
+  , phMeta :: !(Maybe (V.Vector StepMeta))
+  , phLstmHealth :: !(Maybe Double)
+  } deriving (Eq, Show)
 
 data LatestSignal = LatestSignal
   { lsMethod :: !Method
@@ -731,6 +736,7 @@ data ApiParams = ApiParams
   , apMaxOpenPerBase :: Maybe Int
   , apMinEdge :: Maybe Double
   , apMinSignalToNoise :: Maybe Double
+  , apSnrSizeWeight :: Maybe Double
   , apAdaptiveFilters :: Maybe Bool
   , apAdaptiveEdgeBufferMax :: Maybe Double
   , apAdaptiveMinSignalToNoiseMax :: Maybe Double
@@ -769,6 +775,7 @@ data ApiParams = ApiParams
   , apBlendWeight :: Maybe Double
   , apRouterLookback :: Maybe Int
   , apRouterMinScore :: Maybe Double
+  , apRouterScorePnlWeight :: Maybe Double
   , apTriLayer :: Maybe Bool
   , apTriLayerFastMult :: Maybe Double
   , apTriLayerSlowMult :: Maybe Double
@@ -916,6 +923,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrMinEdgeMax :: !(Maybe Double)
   , arrMinSignalToNoiseMin :: !(Maybe Double)
   , arrMinSignalToNoiseMax :: !(Maybe Double)
+  , arrSnrSizeWeightMin :: !(Maybe Double)
+  , arrSnrSizeWeightMax :: !(Maybe Double)
   , arrPThresholdFactor :: !(Maybe Double)
   , arrThresholdFactorAlphaMin :: !(Maybe Double)
   , arrThresholdFactorAlphaMax :: !(Maybe Double)
@@ -1023,6 +1032,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrMethodWeightBlend :: !(Maybe Double)
   , arrBlendWeightMin :: !(Maybe Double)
   , arrBlendWeightMax :: !(Maybe Double)
+  , arrRouterScorePnlWeightMin :: !(Maybe Double)
+  , arrRouterScorePnlWeightMax :: !(Maybe Double)
   , arrDisableLstmPersistence :: !(Maybe Bool)
   , arrNoSweepThreshold :: !(Maybe Bool)
   } deriving (Eq, Show, Generic)
@@ -1703,6 +1714,7 @@ argsPublicJson args =
       , "maxOpenPerBase" .= argMaxOpenPerBase args
       , "minEdge" .= argMinEdge args
       , "minSignalToNoise" .= argMinSignalToNoise args
+      , "snrSizeWeight" .= argSnrSizeWeight args
       , "adaptiveFilters" .= argAdaptiveFilters args
       , "adaptiveEdgeBufferMax" .= argAdaptiveEdgeBufferMax args
       , "adaptiveMinSignalToNoiseMax" .= argAdaptiveMinSignalToNoiseMax args
@@ -1741,6 +1753,7 @@ argsPublicJson args =
       , "blendWeight" .= argBlendWeight args
       , "routerLookback" .= argRouterLookback args
       , "routerMinScore" .= argRouterMinScore args
+      , "routerScorePnlWeight" .= argRouterScorePnlWeight args
       , "triLayer" .= argTriLayer args
       , "triLayerFastMult" .= argTriLayerFastMult args
       , "triLayerSlowMult" .= argTriLayerSlowMult args
@@ -4666,7 +4679,14 @@ initBotState mOps args settings mComboUuid sym = do
           mLstmCtx
           mKalmanCtx
           Nothing
-          (Just (kalPred0, lstmPred0))
+          ( Just
+              PredHistory
+                { phKalman = kalPred0
+                , phLstm = lstmPred0
+                , phMeta = Nothing
+                , phLstmHealth = Nothing
+                }
+          )
 
       -- Startup decision:
       -- - Adopted positions are kept only if the open-threshold signal still agrees.
@@ -4951,6 +4971,7 @@ botOptimizeAfterOperation st = do
                   , ecMaxPositionSize = argMaxPositionSize args
                   , ecMinEdge = minEdge
                   , ecMinSignalToNoise = argMinSignalToNoise args
+                  , ecSnrSizeWeight = argSnrSizeWeight args
                   , ecThresholdFactorEnabled = argThresholdFactorEnabled args
                   , ecThresholdFactorAlpha = argThresholdFactorAlpha args
                   , ecThresholdFactorMin = argThresholdFactorMin args
@@ -4983,6 +5004,7 @@ botOptimizeAfterOperation st = do
                   , ecBlendWeight = argBlendWeight args
                   , ecRouterLookback = argRouterLookback args
                   , ecRouterMinScore = argRouterMinScore args
+                  , ecRouterScorePnlWeight = argRouterScorePnlWeight args
                   , ecKalmanDt = argKalmanDt args
                   , ecKalmanProcessVar = argKalmanProcessVar args
                   , ecKalmanMeasurementVar = argKalmanMeasurementVar args
@@ -5065,7 +5087,14 @@ botOptimizeAfterOperation st = do
                   (botLstmCtx st)
                   (botKalmanCtx st)
                   Nothing
-                  (Just (botKalmanPredNext st, botLstmPredNext st))
+                  ( Just
+                      PredHistory
+                        { phKalman = botKalmanPredNext st
+                        , phLstm = botLstmPredNext st
+                        , phMeta = Nothing
+                        , phLstmHealth = Nothing
+                        }
+                  )
           pure st { botArgs = args', botLatestSignal = latest' }
 
 argLookbackEither :: Args -> Either String Int
@@ -6483,7 +6512,14 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
           mLstmCtx1
           mKalmanCtx1
           Nothing
-          (Just (botKalmanPredNext st, botLstmPredNext st))
+          ( Just
+              PredHistory
+                { phKalman = botKalmanPredNext st
+                , phLstm = botLstmPredNext st
+                , phMeta = Nothing
+                , phLstmHealth = Nothing
+                }
+          )
       nan = 0 / 0 :: Double
       kalPred1 = V.snoc (botKalmanPredNext st) (maybe nan id (lsKalmanNext latest0Raw))
       lstmPred1 = V.snoc (botLstmPredNext st) (maybe nan id (lsLstmNext latest0Raw))
@@ -7735,6 +7771,7 @@ argsCacheJsonSignal args =
       , "maxHoldBars" .= argMaxHoldBars args
       , "minEdge" .= argMinEdge args
       , "minSignalToNoise" .= argMinSignalToNoise args
+      , "snrSizeWeight" .= argSnrSizeWeight args
       , "thresholdFactorEnabled" .= argThresholdFactorEnabled args
       , "thresholdFactorAlpha" .= argThresholdFactorAlpha args
       , "thresholdFactorMin" .= argThresholdFactorMin args
@@ -7761,6 +7798,7 @@ argsCacheJsonSignal args =
       , "blendWeight" .= argBlendWeight args
       , "routerLookback" .= argRouterLookback args
       , "routerMinScore" .= argRouterMinScore args
+      , "routerScorePnlWeight" .= argRouterScorePnlWeight args
       , "triLayer" .= argTriLayer args
       , "triLayerFastMult" .= argTriLayerFastMult args
       , "triLayerSlowMult" .= argTriLayerSlowMult args
@@ -9197,6 +9235,9 @@ prepareOptimizerArgs outputPath req = do
           minSignalToNoiseArgs =
             maybeDoubleArg "--min-signal-to-noise-min" (fmap (max 0) (arrMinSignalToNoiseMin req))
               ++ maybeDoubleArg "--min-signal-to-noise-max" (fmap (max 0) (arrMinSignalToNoiseMax req))
+          snrSizeWeightArgs =
+            maybeDoubleArg "--snr-size-weight-min" (fmap clamp01 (arrSnrSizeWeightMin req))
+              ++ maybeDoubleArg "--snr-size-weight-max" (fmap clamp01 (arrSnrSizeWeightMax req))
           thresholdFactorArgs =
             maybeDoubleArg "--p-threshold-factor" (fmap clamp01 (arrPThresholdFactor req))
               ++ maybeDoubleArg "--threshold-factor-alpha-min" (fmap clamp01 (arrThresholdFactorAlphaMin req))
@@ -9348,6 +9389,9 @@ prepareOptimizerArgs outputPath req = do
           blendWeightArgs =
             maybeDoubleArg "--blend-weight-min" (fmap clamp01 (arrBlendWeightMin req))
               ++ maybeDoubleArg "--blend-weight-max" (fmap clamp01 (arrBlendWeightMax req))
+          routerScorePnlWeightArgs =
+            maybeDoubleArg "--router-score-pnl-weight-min" (fmap clamp01 (arrRouterScorePnlWeightMin req))
+              ++ maybeDoubleArg "--router-score-pnl-weight-max" (fmap clamp01 (arrRouterScorePnlWeightMax req))
           normalizationsVal = pickDefaultString defaultOptimizerNormalizations (arrNormalizations req)
           boolArg flag val = if val then [flag] else []
           disableLstm = fromMaybe False (arrDisableLstmPersistence req)
@@ -9419,6 +9463,7 @@ prepareOptimizerArgs outputPath req = do
               ++ maxHoldBarsArgs
               ++ minEdgeArgs
               ++ minSignalToNoiseArgs
+              ++ snrSizeWeightArgs
               ++ thresholdFactorArgs
               ++ edgeBufferArgs
               ++ pCostAwareEdgeArgs
@@ -9452,6 +9497,7 @@ prepareOptimizerArgs outputPath req = do
               ++ confidenceSizingArgs
               ++ methodWeightBlendArgs
               ++ blendWeightArgs
+              ++ routerScorePnlWeightArgs
               ++ kalmanMarketTopNArgs
               ++ ["--output", outputPath]
       pure $
@@ -11912,6 +11958,7 @@ argsFromApi baseArgs p = do
           , argMaxOpenPerBase = pickMaybe (apMaxOpenPerBase p) (argMaxOpenPerBase baseArgs)
           , argMinEdge = pick (apMinEdge p) (argMinEdge baseArgs)
           , argMinSignalToNoise = pick (apMinSignalToNoise p) (argMinSignalToNoise baseArgs)
+          , argSnrSizeWeight = pick (apSnrSizeWeight p) (argSnrSizeWeight baseArgs)
           , argAdaptiveFilters = pick (apAdaptiveFilters p) (argAdaptiveFilters baseArgs)
           , argAdaptiveEdgeBufferMax = pick (apAdaptiveEdgeBufferMax p) (argAdaptiveEdgeBufferMax baseArgs)
           , argAdaptiveMinSignalToNoiseMax = pick (apAdaptiveMinSignalToNoiseMax p) (argAdaptiveMinSignalToNoiseMax baseArgs)
@@ -11950,6 +11997,7 @@ argsFromApi baseArgs p = do
           , argBlendWeight = pick (apBlendWeight p) (argBlendWeight baseArgs)
           , argRouterLookback = pick (apRouterLookback p) (argRouterLookback baseArgs)
           , argRouterMinScore = pick (apRouterMinScore p) (argRouterMinScore baseArgs)
+          , argRouterScorePnlWeight = pick (apRouterScorePnlWeight p) (argRouterScorePnlWeight baseArgs)
           , argTriLayer = pick (apTriLayer p) (argTriLayer baseArgs)
           , argTriLayerFastMult = pick (apTriLayerFastMult p) (argTriLayerFastMult baseArgs)
           , argTriLayerSlowMult = pick (apTriLayerSlowMult p) (argTriLayerSlowMult baseArgs)
@@ -12485,11 +12533,17 @@ applyOrderInfo info r =
     , aorCummulativeQuoteQty = boiCummulativeQuoteQty info <|> aorCummulativeQuoteQty r
     }
 
-lstmConfidenceScore :: LatestSignal -> Maybe Double
-lstmConfidenceScore sig = do
+lstmConfidenceScore :: Args -> LatestSignal -> Maybe Double
+lstmConfidenceScore args sig = do
   next <- lsSizingNext sig
   let cur = lsCurrentPrice sig
-      thr = max 1e-12 (lsOpenThreshold sig)
+      perSideCost = estimatedPerSideCost (argFee args) (argSlippage args) (argSpread args)
+      minEdgeBase = max 0 (argMinEdge args)
+      minEdge =
+        if argCostAwareEdge args
+          then max minEdgeBase (breakEvenThresholdFromPerSideCost perSideCost + max 0 (argEdgeBuffer args))
+          else minEdgeBase
+      thr = max 1e-12 (max (max 0 (argOpenThreshold args)) minEdge)
       bad x = isNaN x || isInfinite x
   if cur <= 0 || bad cur || bad next
     then Nothing
@@ -12509,18 +12563,375 @@ lstmConfidenceSizing args sig =
           soft0 = clamp01 (argLstmConfidenceSoft args)
           hard = hard0
           soft = min soft0 hard
+          denom = max 1e-12 (hard - soft)
        in if hard <= 0
             then (1, Nothing)
             else
-              case lstmConfidenceScore sig of
+              case lstmConfidenceScore args sig of
                 Nothing -> (1, Nothing)
-                Just score
-                  | score >= hard -> (1, Nothing)
-                  | score >= soft -> (0.5, Nothing)
-                  | otherwise ->
-                      ( 0
-                      , Just (printf "No order: LSTM confidence %.1f%% (<%.1f%%)." (score * 100) (soft * 100))
-                      )
+                Just score ->
+                  let scaleRaw =
+                        if score <= soft
+                          then 0
+                          else if score >= hard
+                            then 1
+                            else (score - soft) / denom
+                      scale = clamp01 scaleRaw
+                   in
+                    if scale <= 0
+                      then
+                        ( 0
+                        , Just (printf "No order: LSTM confidence %.1f%% (<%.1f%%)." (score * 100) (soft * 100))
+                        )
+                      else (scale, Nothing)
+
+scale01 :: Double -> Double -> Double -> Double
+scale01 lo hi x =
+  let lo' = min lo hi
+      hi' = max lo hi
+   in if hi' <= lo' + 1e-12
+        then if x >= hi' then 1 else 0
+        else clamp01 ((x - lo') / (hi' - lo'))
+
+clampRange :: Double -> Double -> Double -> Double
+clampRange lo hi x =
+  let lo' = min lo hi
+      hi' = max lo hi
+   in max lo' (min hi' x)
+
+intervalWidth :: Interval -> Double
+intervalWidth i = iHi i - iLo i
+
+quantileWidth :: Quantiles -> Double
+quantileWidth q = q90 q - q10 q
+
+confirmConformal :: Args -> Double -> Maybe Interval -> Int -> Bool
+confirmConformal args thr mI dir =
+  if not (argConfirmConformal args) || not (predictorEnabled (argPredictors args) SensorConformal)
+    then True
+    else
+      case (mI, dir) of
+        (Just i, 1) -> iLo i > thr
+        (Just i, (-1)) -> iHi i < negate thr
+        _ -> False
+
+confirmQuantiles :: Args -> Double -> Maybe Quantiles -> Int -> Bool
+confirmQuantiles args thr mQ dir =
+  if not (argConfirmQuantiles args) || not (predictorEnabled (argPredictors args) SensorQuantile)
+    then True
+    else
+      case (mQ, dir) of
+        (Just q, 1) -> q10 q > thr
+        (Just q, (-1)) -> q90 q < negate thr
+        _ -> False
+
+gateKalmanDir
+  :: Args
+  -> Bool
+  -> Double
+  -> Double
+  -> Maybe RegimeProbs
+  -> Maybe Interval
+  -> Maybe Quantiles
+  -> Double
+  -> Maybe Int
+  -> (Maybe Int, Maybe String)
+gateKalmanDir args useSizing thr kalZ mReg mI mQ confScore dirRaw =
+  case dirRaw of
+    Nothing -> (Nothing, Nothing)
+    Just dir ->
+      let zMin = max 0 (argKalmanZMin args)
+          hvOk =
+            if not (predictorEnabled (argPredictors args) SensorHMM)
+              then True
+              else
+                case (argMaxHighVolProb args, mReg) of
+                  (Just maxHv, Just r) -> rpHighVol r <= maxHv
+                  (Just _, Nothing) -> False
+                  _ -> True
+          confWidthOk =
+            if not (predictorEnabled (argPredictors args) SensorConformal)
+              then True
+              else
+                case (argMaxConformalWidth args, mI) of
+                  (Just maxW, Just i) -> intervalWidth i <= maxW
+                  (Just _, Nothing) -> False
+                  _ -> True
+          qWidthOk =
+            if not (predictorEnabled (argPredictors args) SensorQuantile)
+              then True
+              else
+                case (argMaxQuantileWidth args, mQ) of
+                  (Just maxW, Just q) -> quantileWidth q <= maxW
+                  (Just _, Nothing) -> False
+                  _ -> True
+       in if kalZ < zMin
+            then (Nothing, Just "KALMAN_Z")
+            else if not hvOk
+              then (Nothing, Just "HMM_HIGH_VOL")
+              else if not confWidthOk
+                then (Nothing, Just "CONFORMAL_WIDTH")
+                else if not qWidthOk
+                  then (Nothing, Just "QUANTILE_WIDTH")
+                  else if not (confirmConformal args thr mI dir)
+                    then (Nothing, Just "CONFORMAL_CONFIRM")
+                    else if not (confirmQuantiles args thr mQ dir)
+                      then (Nothing, Just "QUANTILE_CONFIRM")
+                      else if useSizing && confScore < argMinPositionSize args
+                        then (Nothing, Just "MIN_SIZE")
+                        else (Just dir, Nothing)
+
+confidenceScoreKalman :: Args -> Double -> Maybe RegimeProbs -> Maybe Interval -> Maybe Quantiles -> Double
+confidenceScoreKalman args kalZ mReg mI mQ =
+  let zMin = max 0 (argKalmanZMin args)
+      zMax = max zMin (argKalmanZMax args)
+      zScore = scale01 zMin zMax kalZ
+      hvScore =
+        case (argMaxHighVolProb args, mReg) of
+          (Just maxHv, Just r) -> clamp01 ((maxHv - rpHighVol r) / max 1e-12 maxHv)
+          _ -> 1
+      confScore =
+        case (argMaxConformalWidth args, mI) of
+          (Just maxW, Just i) -> clamp01 ((maxW - intervalWidth i) / max 1e-12 maxW)
+          _ -> 1
+      qScore =
+        case (argMaxQuantileWidth args, mQ) of
+          (Just maxW, Just q) -> clamp01 ((maxW - quantileWidth q) / max 1e-12 maxW)
+          _ -> 1
+   in zScore * hvScore * confScore * qScore
+
+computeThresholdFactorsFromHistory
+  :: Args
+  -> Method
+  -> Double
+  -> Double
+  -> Double
+  -> Double
+  -> Int
+  -> Double
+  -> V.Vector Double
+  -> PredHistory
+  -> (Double, Double)
+computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge minSignalToNoise lookback roundTripCost pricesV hist =
+  if not (argThresholdFactorEnabled args)
+    then (1, 1)
+    else
+      let factorAlpha = clamp01 (argThresholdFactorAlpha args)
+          factorMinRaw = argThresholdFactorMin args
+          factorMaxRaw = argThresholdFactorMax args
+          factorMin = max 1e-6 (min factorMinRaw factorMaxRaw)
+          factorMax = max factorMin (max factorMinRaw factorMaxRaw)
+          factorFloor = max 0 (argThresholdFactorFloor args)
+          factorWEdgeKal = argThresholdFactorEdgeKalWeight args
+          factorWEdgeLstm = argThresholdFactorEdgeLstmWeight args
+          factorWKalmanZ = argThresholdFactorKalmanZWeight args
+          factorWHighVol = argThresholdFactorHighVolWeight args
+          factorWConformal = argThresholdFactorConformalWeight args
+          factorWQuantile = argThresholdFactorQuantileWeight args
+          factorWLstmConf = argThresholdFactorLstmConfWeight args
+          factorWLstmHealth = argThresholdFactorLstmHealthWeight args
+          lstmHealthScore =
+            case phLstmHealth hist of
+              Just v | not (isNaN v || isInfinite v) -> clamp01 v
+              _ -> 0.5
+          kalPred0 = phKalman hist
+          lstmPred0 = phLstm hist
+          blendWeight = clamp01 (argBlendWeight args)
+          blendPred0 = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPred0 lstmPred0
+          routerPred =
+            if method == MethodRouter
+              then
+                let (predV, _models) =
+                      routerPredictionsWithModelsV
+                        openThrBase
+                        roundTripCost
+                        (argRouterScorePnlWeight args)
+                        (argRouterLookback args)
+                        (argRouterMinScore args)
+                        pricesV
+                        kalPred0
+                        lstmPred0
+                        blendPred0
+                 in predV
+              else blendPred0
+          (kalPred1, lstmPred1) =
+            case method of
+              MethodBlend -> (blendPred0, blendPred0)
+              MethodKalmanOnly -> (kalPred0, kalPred0)
+              MethodLstmOnly -> (lstmPred0, lstmPred0)
+              MethodRouter -> (routerPred, routerPred)
+              MethodBoth -> (kalPred0, lstmPred0)
+          stepCount = minimum [V.length pricesV - 1, V.length kalPred1, V.length lstmPred1]
+          alignVec len v =
+            if V.length v == len
+              then v
+              else if V.length v > len
+                then V.drop (V.length v - len) v
+                else v
+          pricesUsed =
+            if V.length pricesV == stepCount + 1
+              then pricesV
+              else if V.length pricesV > stepCount + 1
+                then V.drop (V.length pricesV - (stepCount + 1)) pricesV
+                else pricesV
+          kalPred = alignVec stepCount kalPred1
+          lstmPred = alignVec stepCount lstmPred1
+          metaUsed =
+            case phMeta hist of
+              Just metaV
+                | V.length metaV >= stepCount ->
+                    Just (V.drop (V.length metaV - stepCount) metaV)
+              _ -> Nothing
+          startT = max 0 (lookback - 1)
+          bad x = isNaN x || isInfinite x
+          clampFrac x = min 0.999999 (max 0 x)
+          signedScore s = 2 * clamp01 s - 1
+          scoreOrNeutral mv =
+            case mv of
+              Just v | not (bad v) -> clamp01 v
+              _ -> 0.5
+          edgeScore thr edge =
+            let denom = max 1e-12 (abs thr)
+                raw = edge / (2 * denom)
+             in if bad raw then 0.5 else clamp01 raw
+          lstmConfidenceScoreFromPred prev next =
+            if prev <= 0 || bad prev || bad next
+              then Nothing
+              else
+                let edge = abs (next / prev - 1)
+                    thr = max 1e-12 openThrBase
+                    raw = edge / (2 * thr)
+                 in if bad edge || bad raw
+                      then Nothing
+                      else Just (clamp01 raw)
+          metaAt t =
+            case metaUsed of
+              Just v | t >= 0 && t < V.length v -> Just (v V.! t)
+              _ -> Nothing
+          metaReg m = RegimeProbs 0 0 <$> smHighVolProb m
+          metaQuantiles m =
+            case (smQuantile10 m, smQuantile90 m) of
+              (Just lo, Just hi) -> Just (Quantiles lo ((lo + hi) / 2) hi)
+              _ -> Nothing
+          metaInterval m =
+            case (smConformalLo m, smConformalHi m) of
+              (Just lo, Just hi) -> Just (Interval lo hi)
+              _ -> Nothing
+          kalZFromMeta m =
+            let v = max 0 (smKalmanVar m)
+                s = sqrt v
+             in if s <= 0 then 0 else abs (smKalmanMean m) / s
+          direction thr prev next =
+            if prev <= 0 || bad prev || bad next
+              then Nothing
+              else
+                let up = prev * (1 + thr)
+                    down = prev * (1 - thr)
+                 in if next > up
+                      then Just (1 :: Int)
+                      else if next < down then Just (-1) else Nothing
+          updateFactor prev target =
+            if factorAlpha <= 0
+              then prev
+              else
+                let next = (1 - factorAlpha) * prev + factorAlpha * target
+                 in if bad next then prev else clampRange factorMin factorMax next
+          step (fOpenPrev, fClosePrev, posSide) t =
+            let fOpenBase = clampRange factorMin factorMax fOpenPrev
+                fCloseBase = clampRange factorMin factorMax fClosePrev
+                minEdgeAdj = max factorFloor (minEdge * fOpenBase)
+                openThrAdj = max minEdgeAdj (max factorFloor (openThrBase * fOpenBase))
+                closeThrAdj = max factorFloor (closeThrBase * fCloseBase)
+                prev = pricesUsed V.! t
+                kalNext = kalPred V.! t
+                lstmNext = lstmPred V.! t
+                edgePred p =
+                  if prev <= 0 || bad prev || bad p
+                    then 0
+                    else
+                      let edge = abs (p / prev - 1)
+                       in if bad edge then 0 else edge
+                edgeKal = edgePred kalNext
+                edgeLstm = edgePred lstmNext
+                (mReg, mQ, mI, kalZ) =
+                  case metaAt t of
+                    Nothing -> (Nothing, Nothing, Nothing, 0)
+                    Just m -> (metaReg m, metaQuantiles m, metaInterval m, kalZFromMeta m)
+                confScore = confidenceScoreKalman args kalZ mReg mI mQ
+                kalDirRaw = direction openThrAdj prev kalNext
+                lstmDir = direction openThrAdj prev lstmNext
+                (kalDir, _) = gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mReg mI mQ confScore kalDirRaw
+                agreeOk =
+                  case (kalDir, lstmDir) of
+                    (Just a, Just b) -> a == b
+                    _ -> False
+                posSide' =
+                  case (kalDir, lstmDir) of
+                    (Just a, Just b) | a == b -> a
+                    _ -> 0
+                pendingUpdate = posSide /= 0 || agreeOk
+                zScoreMaybe =
+                  if metaAt t == Nothing
+                    then Nothing
+                    else
+                      let zMin = max 0 (argKalmanZMin args)
+                          zMax = max zMin (argKalmanZMax args)
+                       in Just (scale01 zMin zMax kalZ)
+                hvScoreMaybe =
+                  case mReg of
+                    Nothing -> Nothing
+                    Just r ->
+                      let score =
+                            case argMaxHighVolProb args of
+                              Just maxHv | maxHv > 0 -> clamp01 ((maxHv - rpHighVol r) / max 1e-12 maxHv)
+                              _ -> clamp01 (1 - rpHighVol r)
+                       in Just score
+                confScoreMaybe =
+                  case mI of
+                    Nothing -> Nothing
+                    Just i ->
+                      case argMaxConformalWidth args of
+                        Just maxW | maxW > 0 -> Just (clamp01 ((maxW - intervalWidth i) / max 1e-12 maxW))
+                        _ -> Nothing
+                qScoreMaybe =
+                  case mQ of
+                    Nothing -> Nothing
+                    Just q ->
+                      case argMaxQuantileWidth args of
+                        Just maxW | maxW > 0 -> Just (clamp01 ((maxW - quantileWidth q) / max 1e-12 maxW))
+                        _ -> Nothing
+                lstmScore = scoreOrNeutral (lstmConfidenceScoreFromPred prev lstmNext)
+                healthScore = lstmHealthScore
+                factorTarget thr =
+                  let edgeKalScore = edgeScore thr edgeKal
+                      edgeLstmScore = edgeScore thr edgeLstm
+                      raw =
+                        1
+                          + factorWEdgeKal * signedScore edgeKalScore
+                          + factorWEdgeLstm * signedScore edgeLstmScore
+                          + factorWKalmanZ * signedScore (scoreOrNeutral zScoreMaybe)
+                          + factorWHighVol * signedScore (scoreOrNeutral hvScoreMaybe)
+                          + factorWConformal * signedScore (scoreOrNeutral confScoreMaybe)
+                          + factorWQuantile * signedScore (scoreOrNeutral qScoreMaybe)
+                          + factorWLstmConf * signedScore lstmScore
+                          + factorWLstmHealth * signedScore healthScore
+                   in if bad raw then 1 else clampFrac raw
+                fOpenNext =
+                  if pendingUpdate
+                    then updateFactor fOpenBase (factorTarget openThrBase)
+                    else fOpenBase
+                fCloseNext =
+                  if pendingUpdate
+                    then updateFactor fCloseBase (factorTarget closeThrBase)
+                    else fCloseBase
+             in (fOpenNext, fCloseNext, posSide')
+       in
+        if stepCount <= 0 || startT > stepCount - 1
+          then (1, 1)
+          else
+            let (fOpenFinal, fCloseFinal, _posFinal) =
+                  foldl' step (1, 1, 0) [startT .. stepCount - 1]
+             in (fOpenFinal, fCloseFinal)
 
 entryScaleForSignal :: Args -> BinanceMarket -> LatestSignal -> Double
 entryScaleForSignal args market sig =
@@ -13720,6 +14131,8 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
       method = argMethod args
       pricesV = V.fromList prices
       n = V.length pricesV
+      stepCount = max 0 (n - 1)
+      needsHistory = argThresholdFactorEnabled args || method == MethodRouter
   if n <= lookback
     then
       error
@@ -13735,9 +14148,9 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
             pure (either (const Nothing) id r)
       _ -> pure Nothing
 
-  (mLstmCtx, mLstmPredHistory) <-
+  (mLstmCtx, mLstmPredHistory, mLstmHealth) <-
     case method of
-      MethodKalmanOnly -> pure (Nothing, Nothing)
+      MethodKalmanOnly -> pure (Nothing, Nothing, Nothing)
       _ -> do
         let normState = fitNorm (argNormalization args) prices
             obsAll = forwardSeries normState prices
@@ -13752,12 +14165,11 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                 , lcGradClip = argGradClip args
                 , lcSeed = argSeed args
                 }
-        (lstmModel, _) <- trainLstmWithPersistence args lookback lstmCfg obsAll
+        (lstmModel, lstmHistory) <- trainLstmWithPersistence args lookback lstmCfg obsAll
         let lstmPredHistory =
-              if method == MethodRouter
+              if needsHistory
                 then
-                  let stepCount = max 0 (n - 1)
-                      obsV = V.fromList obsAll
+                  let obsV = V.fromList obsAll
                    in Just $
                         V.generate stepCount $ \i ->
                           if i < lookback - 1
@@ -13767,12 +14179,13 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                                   predObs = predictNext lstmModel window
                                in inverseNorm normState predObs
                 else Nothing
-        pure (Just (normState, obsAll, lstmModel), lstmPredHistory)
+            lstmHealth = lstmHealthScore lstmHistory
+        pure (Just (normState, obsAll, lstmModel), lstmPredHistory, lstmHealth)
 
-  (mKalmanCtx, mKalPredHistory) <-
+  (mKalmanCtx, mKalPredHistory, mMetaHistory) <-
     case method of
-      MethodLstmOnly -> pure (Nothing, Nothing)
-      MethodRouter -> do
+      MethodLstmOnly -> pure (Nothing, Nothing, Nothing)
+      _ | needsHistory -> do
         let predictors = trainPredictors (argPredictors args) lookback pricesV
             hmm0 = initHMMFilter predictors []
             kal0 =
@@ -13781,14 +14194,14 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                 (max 1e-12 (argKalmanMeasurementVar args))
                 (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
             sv0 = emptySensorVar
-            stepCount = max 0 (n - 1)
-            (kalPrev, hmmPrev, svPrev, kalPredRev, _metaRev) =
+            (kalPrev, hmmPrev, svPrev, kalPredRev, metaRev) =
               foldl'
                 (backtestStepKalmanOnly args pricesV predictors 0 mMarketModel)
                 (kal0, hmm0, sv0, [], [])
                 [0 .. stepCount - 1]
             kalPredV = V.fromList (reverse kalPredRev)
-        pure (Just (predictors, kalPrev, hmmPrev, svPrev), Just kalPredV)
+            metaV = V.fromList (reverse metaRev)
+        pure (Just (predictors, kalPrev, hmmPrev, svPrev), Just kalPredV, Just metaV)
       _ -> do
         let predictors = trainPredictors (argPredictors args) lookback pricesV
             hmm0 = initHMMFilter predictors []
@@ -13815,12 +14228,38 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                in (kal', hmm', sv')
 
             (kalPrev, hmmPrev, svPrev) = foldl' step (kal0, hmm0, sv0) [0 .. n - 2]
-        pure (Just (predictors, kalPrev, hmmPrev, svPrev), Nothing)
+        pure (Just (predictors, kalPrev, hmmPrev, svPrev), Nothing, Nothing)
 
   let mPredHistory =
-        case (method, mKalPredHistory, mLstmPredHistory) of
-          (MethodRouter, Just kalHist, Just lstmHist) -> Just (kalHist, lstmHist)
-          _ -> Nothing
+        if not needsHistory
+          then Nothing
+          else
+            case (mKalPredHistory, mLstmPredHistory) of
+              (Just kalHist, Just lstmHist) ->
+                Just
+                  PredHistory
+                    { phKalman = kalHist
+                    , phLstm = lstmHist
+                    , phMeta = mMetaHistory
+                    , phLstmHealth = mLstmHealth
+                    }
+              (Just kalHist, Nothing) ->
+                Just
+                  PredHistory
+                    { phKalman = kalHist
+                    , phLstm = kalHist
+                    , phMeta = mMetaHistory
+                    , phLstmHealth = mLstmHealth
+                    }
+              (Nothing, Just lstmHist) ->
+                Just
+                  PredHistory
+                    { phKalman = lstmHist
+                    , phLstm = lstmHist
+                    , phMeta = Nothing
+                    , phLstmHealth = mLstmHealth
+                    }
+              _ -> Nothing
 
   pure (computeLatestSignal args lookback pricesV highsV lowsV mLstmCtx mKalmanCtx mMarketModel mPredHistory)
 
@@ -14193,6 +14632,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecMaxPositionSize = argMaxPositionSize args
           , ecMinEdge = minEdge
           , ecMinSignalToNoise = argMinSignalToNoise args
+          , ecSnrSizeWeight = argSnrSizeWeight args
           , ecThresholdFactorEnabled = argThresholdFactorEnabled args
           , ecThresholdFactorAlpha = argThresholdFactorAlpha args
           , ecThresholdFactorMin = argThresholdFactorMin args
@@ -14225,6 +14665,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecBlendWeight = argBlendWeight args
           , ecRouterLookback = argRouterLookback args
           , ecRouterMinScore = argRouterMinScore args
+          , ecRouterScorePnlWeight = argRouterScorePnlWeight args
           , ecKalmanDt = argKalmanDt args
           , ecKalmanProcessVar = argKalmanProcessVar args
           , ecKalmanMeasurementVar = argKalmanMeasurementVar args
@@ -14322,6 +14763,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
               Just
                 ( routerPredictionsWithModelsV
                     routerOpenThr
+                    roundTripCost
+                    (argRouterScorePnlWeight args)
                     (argRouterLookback args)
                     (argRouterMinScore args)
                     pricesV
@@ -14477,11 +14920,25 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       argsForSignal =
         if argOptimizeOperations args
           then args { argMethod = methodUsed, argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr }
-          else if argSweepThreshold args
-            then args { argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr }
-            else args
+        else if argSweepThreshold args
+          then args { argOpenThreshold = bestOpenThr, argCloseThreshold = bestCloseThr }
+          else args
 
-      latestSignal = computeLatestSignal argsForSignal lookback pricesV (Just highsV) (Just lowsV) mLstmCtx mKalmanCtx mMarketModel Nothing
+      mPredHistorySignal =
+        if argThresholdFactorEnabled argsForSignal || methodUsed == MethodRouter
+          then
+            let kalPredV = V.fromList kalPredAll
+                lstmPredV = V.fromList lstmPredAll
+                metaV = V.fromList <$> mMetaAll
+             in Just
+                  PredHistory
+                    { phKalman = kalPredV
+                    , phLstm = lstmPredV
+                    , phMeta = metaV
+                    , phLstmHealth = lstmHealth
+                    }
+          else Nothing
+      latestSignal = computeLatestSignal argsForSignal lookback pricesV (Just highsV) (Just lowsV) mLstmCtx mKalmanCtx mMarketModel mPredHistorySignal
       finiteMaybe x =
         if isNaN x || isInfinite x
           then Nothing
@@ -14726,8 +15183,8 @@ data RouterStats = RouterStats
   , rsSignals :: !Int
   } deriving (Eq, Show)
 
-routerStatsWindow :: Double -> V.Vector Double -> V.Vector Double -> Int -> Int -> RouterStats
-routerStatsWindow openThr pricesV predsV start0 end0 =
+routerStatsWindow :: Double -> Double -> Double -> V.Vector Double -> V.Vector Double -> Int -> Int -> RouterStats
+routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV start0 end0 =
   let stepCount = min (V.length predsV) (V.length pricesV - 1)
       start = max 0 start0
       end = min end0 (stepCount - 1)
@@ -14741,25 +15198,28 @@ routerStatsWindow openThr pricesV predsV start0 end0 =
              in if next > up
                   then Just (1 :: Int)
                   else if next < down then Just (-1) else Nothing
-      step (correct, wrong, signals) i =
+      step (correct, wrong, signals, netAcc) i =
         let prev = pricesV V.! i
             next = pricesV V.! (i + 1)
             pred = predsV V.! i
             predDir = direction prev pred
             actualDir = direction prev next
+            ret = if prev <= 0 || bad prev || bad next then 0 else next / prev - 1
          in case predDir of
-              Nothing -> (correct, wrong, signals)
+              Nothing -> (correct, wrong, signals, netAcc)
               Just dir ->
                 let signals' = signals + 1
+                    net = fromIntegral dir * ret - roundTripCost
+                    netAcc' = netAcc + if bad net then 0 else net
                  in if actualDir == Just dir
-                      then (correct + 1, wrong, signals')
-                      else (correct, wrong + 1, signals')
+                      then (correct + 1, wrong, signals', netAcc')
+                      else (correct, wrong + 1, signals', netAcc')
    in
     if stepCount <= 0 || end < start
       then RouterStats { rsScore = 0, rsAccuracy = 0, rsCoverage = 0, rsSignals = 0 }
       else
         let windowLen = end - start + 1
-            (correct, _wrong, signals) = foldl' step (0, 0, 0) [start .. end]
+            (correct, _wrong, signals, netAcc) = foldl' step (0, 0, 0, 0) [start .. end]
             accuracy =
               if signals <= 0
                 then 0
@@ -14768,11 +15228,21 @@ routerStatsWindow openThr pricesV predsV start0 end0 =
               if windowLen <= 0
                 then 0
                 else fromIntegral signals / fromIntegral windowLen
-            score = accuracy * coverage
+            avgNet =
+              if signals <= 0
+                then 0
+                else netAcc / fromIntegral signals
+            denom = max 1e-12 (openThr + roundTripCost)
+            pnlScore = clamp01 (0.5 + avgNet / denom)
+            pnlWeight' = clamp01 pnlWeight
+            scoreAcc = accuracy * coverage
+            score = (1 - pnlWeight') * scoreAcc + pnlWeight' * pnlScore
          in RouterStats { rsScore = score, rsAccuracy = accuracy, rsCoverage = coverage, rsSignals = signals }
 
 routerSelectModelAt
   :: Double
+  -> Double
+  -> Double
   -> Int
   -> Double
   -> V.Vector Double
@@ -14781,7 +15251,7 @@ routerSelectModelAt
   -> V.Vector Double
   -> Int
   -> (Maybe RouterModel, Double, Maybe String)
-routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV t =
+routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV t =
   let stepCount =
         minimum
           [ V.length pricesV - 1
@@ -14807,9 +15277,9 @@ routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blend
       then (Nothing, 0, Just "ROUTER_WARMUP")
       else
         let windowStart = max 0 (windowEnd - lookback + 1)
-            statsKal = routerStatsWindow openThr pricesV kalPredV windowStart windowEnd
-            statsLstm = routerStatsWindow openThr pricesV lstmPredV windowStart windowEnd
-            statsBlend = routerStatsWindow openThr pricesV blendPredV windowStart windowEnd
+            statsKal = routerStatsWindow openThr roundTripCost pnlWeight pricesV kalPredV windowStart windowEnd
+            statsLstm = routerStatsWindow openThr roundTripCost pnlWeight pricesV lstmPredV windowStart windowEnd
+            statsBlend = routerStatsWindow openThr roundTripCost pnlWeight pricesV blendPredV windowStart windowEnd
             (bestModel, bestStats) =
               foldl' pick (RouterKalman, statsKal) [(RouterLstm, statsLstm), (RouterBlend, statsBlend)]
             bestScore = rsScore bestStats
@@ -14819,6 +15289,8 @@ routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blend
 
 routerPredictionsWithModelsV
   :: Double
+  -> Double
+  -> Double
   -> Int
   -> Double
   -> V.Vector Double
@@ -14826,7 +15298,7 @@ routerPredictionsWithModelsV
   -> V.Vector Double
   -> V.Vector Double
   -> (V.Vector Double, V.Vector (Maybe RouterModel))
-routerPredictionsWithModelsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV =
+routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV =
   let stepCount =
         minimum
           [ V.length pricesV - 1
@@ -14835,7 +15307,7 @@ routerPredictionsWithModelsV openThr lookback minScore pricesV kalPredV lstmPred
           , V.length blendPredV
           ]
       pickPred t =
-        case routerSelectModelAt openThr lookback minScore pricesV kalPredV lstmPredV blendPredV t of
+        case routerSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV t of
           (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
           (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
           (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
@@ -14845,6 +15317,8 @@ routerPredictionsWithModelsV openThr lookback minScore pricesV kalPredV lstmPred
 
 routerPredictionsV
   :: Double
+  -> Double
+  -> Double
   -> Int
   -> Double
   -> V.Vector Double
@@ -14852,8 +15326,8 @@ routerPredictionsV
   -> V.Vector Double
   -> V.Vector Double
   -> V.Vector Double
-routerPredictionsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV =
-  fst (routerPredictionsWithModelsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV)
+routerPredictionsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV =
+  fst (routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV)
 
 computeLatestSignal
   :: Args
@@ -14898,14 +15372,60 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
               let t = n - 1
                   currentPrice = pricesV V.! t
                   perSideCost = estimatedPerSideCost (argFee args) (argSlippage args) (argSpread args)
+                  roundTripCost = estimatedRoundTripCost (argFee args) (argSlippage args) (argSpread args)
                   minEdgeBase = max 0 (argMinEdge args)
                   minEdge =
                     if argCostAwareEdge args
                       then max minEdgeBase (breakEvenThresholdFromPerSideCost perSideCost + max 0 (argEdgeBuffer args))
                       else minEdgeBase
-                  minSignalToNoise = max 0 (argMinSignalToNoise args)
-                  openThr = max (max 0 (argOpenThreshold args)) minEdge
-                  closeThr = max 0 (argCloseThreshold args)
+                  minSignalToNoiseBase = max 0 (argMinSignalToNoise args)
+                  openThrBase = max (max 0 (argOpenThreshold args)) minEdge
+                  closeThrBase = max 0 (argCloseThreshold args)
+                  factorEnabled = argThresholdFactorEnabled args
+                  factorMinRaw = argThresholdFactorMin args
+                  factorMaxRaw = argThresholdFactorMax args
+                  factorMin = max 1e-6 (min factorMinRaw factorMaxRaw)
+                  factorMax = max factorMin (max factorMinRaw factorMaxRaw)
+                  factorFloor = max 0 (argThresholdFactorFloor args)
+                  (factorOpenPrev, factorClosePrev) =
+                    case mPredHistory of
+                      Just hist ->
+                        computeThresholdFactorsFromHistory
+                          args
+                          method
+                          openThrBase
+                          closeThrBase
+                          minEdge
+                          minSignalToNoiseBase
+                          lookback
+                          roundTripCost
+                          pricesV
+                          hist
+                      Nothing -> (1, 1)
+                  factorOpenBase =
+                    if factorEnabled
+                      then clampRange factorMin factorMax factorOpenPrev
+                      else 1
+                  factorCloseBase =
+                    if factorEnabled
+                      then clampRange factorMin factorMax factorClosePrev
+                      else 1
+                  minEdgeAdj =
+                    if factorEnabled
+                      then max factorFloor (minEdge * factorOpenBase)
+                      else minEdge
+                  openThrAdj =
+                    if factorEnabled
+                      then max minEdgeAdj (max factorFloor (openThrBase * factorOpenBase))
+                      else openThrBase
+                  closeThrAdj =
+                    if factorEnabled
+                      then max factorFloor (closeThrBase * factorCloseBase)
+                      else closeThrBase
+                  minSignalToNoise =
+                    if factorEnabled
+                      then max factorFloor (minSignalToNoiseBase * factorOpenBase)
+                      else minSignalToNoiseBase
                   directionPrice thr pred =
                     let upEdge = currentPrice * (1 + thr)
                         downEdge = currentPrice * (1 - thr)
@@ -15066,7 +15586,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                   triLayerEnabled = argTriLayer args
                   requirePriceAction = argTriLayerRequirePriceAction args
                   priceActionBodyMin = max 0 (argTriLayerPriceActionBody args)
-                  bodyMinFracBase = max 1e-6 (0.25 * openThr)
+                  bodyMinFracBase = max 1e-6 (0.25 * openThrBase)
                   bodyMinFrac =
                     if priceActionBodyMin > 0
                       then priceActionBodyMin
@@ -15241,109 +15761,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                               (-1) -> bearish
                               _ -> True
 
-                  clamp01 :: Double -> Double
-                  clamp01 x = max 0 (min 1 x)
-
                   blendWeight = clamp01 (argBlendWeight args)
-
-                  scale01 :: Double -> Double -> Double -> Double
-                  scale01 lo hi x =
-                    let lo' = min lo hi
-                        hi' = max lo hi
-                     in if hi' <= lo' + 1e-12
-                          then if x >= hi' then 1 else 0
-                          else clamp01 ((x - lo') / (hi' - lo'))
-
-                  intervalWidth :: Interval -> Double
-                  intervalWidth i = iHi i - iLo i
-
-                  quantileWidth :: Quantiles -> Double
-                  quantileWidth q = q90 q - q10 q
-
-                  confirmConformal :: Double -> Maybe Interval -> Int -> Bool
-                  confirmConformal thr mI dir =
-                    if not (argConfirmConformal args) || not (predictorEnabled (argPredictors args) SensorConformal)
-                      then True
-                      else
-                        case (mI, dir) of
-                          (Just i, 1) -> iLo i > thr
-                          (Just i, (-1)) -> iHi i < negate thr
-                          _ -> False
-
-                  confirmQuantiles :: Double -> Maybe Quantiles -> Int -> Bool
-                  confirmQuantiles thr mQ dir =
-                    if not (argConfirmQuantiles args) || not (predictorEnabled (argPredictors args) SensorQuantile)
-                      then True
-                      else
-                        case (mQ, dir) of
-                          (Just q, 1) -> q10 q > thr
-                          (Just q, (-1)) -> q90 q < negate thr
-                          _ -> False
-
-                  gateKalmanDir :: Bool -> Double -> Double -> Maybe RegimeProbs -> Maybe Interval -> Maybe Quantiles -> Double -> Maybe Int -> (Maybe Int, Maybe String)
-                  gateKalmanDir useSizing thr kalZ mReg mI mQ confScore dirRaw =
-                    case dirRaw of
-                      Nothing -> (Nothing, Nothing)
-                      Just dir ->
-                        let zMin = max 0 (argKalmanZMin args)
-                            hvOk =
-                              if not (predictorEnabled (argPredictors args) SensorHMM)
-                                then True
-                                else
-                                  case (argMaxHighVolProb args, mReg) of
-                                    (Just maxHv, Just r) -> rpHighVol r <= maxHv
-                                    (Just _, Nothing) -> False
-                                    _ -> True
-                            confWidthOk =
-                              if not (predictorEnabled (argPredictors args) SensorConformal)
-                                then True
-                                else
-                                  case (argMaxConformalWidth args, mI) of
-                                    (Just maxW, Just i) -> intervalWidth i <= maxW
-                                    (Just _, Nothing) -> False
-                                    _ -> True
-                            qWidthOk =
-                              if not (predictorEnabled (argPredictors args) SensorQuantile)
-                                then True
-                                else
-                                  case (argMaxQuantileWidth args, mQ) of
-                                    (Just maxW, Just q) -> quantileWidth q <= maxW
-                                    (Just _, Nothing) -> False
-                                    _ -> True
-                         in if kalZ < zMin
-                              then (Nothing, Just "KALMAN_Z")
-                              else if not hvOk
-                                then (Nothing, Just "HMM_HIGH_VOL")
-                                else if not confWidthOk
-                                  then (Nothing, Just "CONFORMAL_WIDTH")
-                                  else if not qWidthOk
-                                    then (Nothing, Just "QUANTILE_WIDTH")
-                                    else if not (confirmConformal thr mI dir)
-                                      then (Nothing, Just "CONFORMAL_CONFIRM")
-                                      else if not (confirmQuantiles thr mQ dir)
-                                        then (Nothing, Just "QUANTILE_CONFIRM")
-                                        else if useSizing && confScore < argMinPositionSize args
-                                          then (Nothing, Just "MIN_SIZE")
-                                          else (Just dir, Nothing)
-
-                  confidenceScoreKalman :: Double -> Maybe RegimeProbs -> Maybe Interval -> Maybe Quantiles -> Double
-                  confidenceScoreKalman kalZ mReg mI mQ =
-                    let zMin = max 0 (argKalmanZMin args)
-                        zMax = max zMin (argKalmanZMax args)
-                        zScore = scale01 zMin zMax kalZ
-                        hvScore =
-                          case (argMaxHighVolProb args, mReg) of
-                            (Just maxHv, Just r) -> clamp01 ((maxHv - rpHighVol r) / max 1e-12 maxHv)
-                            _ -> 1
-                        confScore =
-                          case (argMaxConformalWidth args, mI) of
-                            (Just maxW, Just i) -> clamp01 ((maxW - intervalWidth i) / max 1e-12 maxW)
-                            _ -> 1
-                        qScore =
-                          case (argMaxQuantileWidth args, mQ) of
-                            (Just maxW, Just q) -> clamp01 ((maxW - quantileWidth q) / max 1e-12 maxW)
-                            _ -> 1
-                     in zScore * hvScore * confScore * qScore
 
                   (mKalNext, mKalReturn, mKalStd, mKalZ, mRegimes, mQuantiles, mConformal, kalDirRaw, kalDir, kalCloseDir, mConfidence, mPosSize, mGateReason) =
                     case mKalmanCtx of
@@ -15360,9 +15778,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                             kalStd = sqrt kalVar
                             kalZ = if kalStd <= 0 then 0 else abs kalReturn / kalStd
                             kalNext = currentPrice * (1 + kalReturn)
-                            dirRaw = directionPrice openThr kalNext
-                            closeDirRaw = directionPrice closeThr kalNext
-                            confScore = confidenceScoreKalman kalZ mReg mI mQ
+                            dirRaw = directionPrice openThrAdj kalNext
+                            closeDirRaw = directionPrice closeThrAdj kalNext
+                            confScore = confidenceScoreKalman args kalZ mReg mI mQ
                             sizeRaw =
                               if argConfidenceSizing args
                                 then confScore
@@ -15370,8 +15788,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                   case dirRaw of
                                     Nothing -> 0
                                     Just _ -> 1
-                            (dirUsed, mWhy) = gateKalmanDir (argConfidenceSizing args) openThr kalZ mReg mI mQ confScore dirRaw
-                            (closeDirUsed, _) = gateKalmanDir False closeThr kalZ mReg mI mQ confScore closeDirRaw
+                            (dirUsed, mWhy) = gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mReg mI mQ confScore dirRaw
+                            (closeDirUsed, _) = gateKalmanDir args False closeThrAdj kalZ mReg mI mQ confScore closeDirRaw
                             sizeUsed =
                               case dirUsed of
                                 Nothing -> 0
@@ -15405,7 +15823,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 let window = take lookback (drop start obsAll)
                                     lstmNextObs = predictNext lstmModel window
                                     lstmNext = inverseNorm normState lstmNextObs
-                                 in (Just lstmNext, directionPrice openThr lstmNext)
+                                 in (Just lstmNext, directionPrice openThrAdj lstmNext)
 
                   blendNext =
                     case (mKalNext, mLstmNext) of
@@ -15419,7 +15837,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                         let stepCount = max 0 (n - 1)
                             historyPreds =
                               case mPredHistory of
-                                Just (kalHist, lstmHist)
+                                Just PredHistory { phKalman = kalHist, phLstm = lstmHist }
                                   | V.length kalHist >= stepCount && V.length lstmHist >= stepCount ->
                                       let kalPredV = V.take stepCount kalHist
                                           lstmPredV = V.take stepCount lstmHist
@@ -15455,7 +15873,17 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                       blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
                                    in (kalPredV, lstmPredV, blendPredV)
                             (mChoice, _score, mReason) =
-                              routerSelectModelAt openThr routerLookback routerMinScore pricesV kalPredV lstmPredV blendPredV t
+                              routerSelectModelAt
+                                openThrBase
+                                roundTripCost
+                                (argRouterScorePnlWeight args)
+                                routerLookback
+                                routerMinScore
+                                pricesV
+                                kalPredV
+                                lstmPredV
+                                blendPredV
+                                t
                          in (mChoice, mReason)
                       _ -> (Nothing, Nothing)
                   routerNext =
@@ -15471,8 +15899,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                       MethodLstmOnly -> mLstmNext
                       MethodBlend -> blendNext
                       MethodRouter -> routerNext
-                  routerDirRaw = routerNext >>= directionPrice openThr
-                  routerCloseDirRaw = routerNext >>= directionPrice closeThr
+                  routerDirRaw = routerNext >>= directionPrice openThrAdj
+                  routerCloseDirRaw = routerNext >>= directionPrice closeThrAdj
                   edgeFromPred pred =
                     if bad pred || bad currentPrice || currentPrice == 0
                       then Nothing
@@ -15493,16 +15921,35 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                       MethodLstmOnly -> edgeLstm
                       MethodBlend -> edgeBlend
                       MethodRouter -> edgeRouter
-                  signalToNoiseOk =
+                  snrRatio =
+                    case (edgeForMethod, volPerBar) of
+                      (Just edge, Just vol) | vol > 0 -> Just (edge / vol)
+                      _ -> Nothing
+                  snrScale =
                     if minSignalToNoise <= 0
-                      then True
+                      then 1
                       else
-                        case (edgeForMethod, volPerBar) of
-                          (Just edge, Just vol) | vol > 0 -> edge / vol >= minSignalToNoise
-                          _ -> False
-                  blendDir = blendNext >>= directionPrice openThr
-                  lstmCloseDir = mLstmNext >>= directionPrice closeThr
-                  blendCloseDir = blendNext >>= directionPrice closeThr
+                        case snrRatio of
+                          Just r -> clamp01 (r / minSignalToNoise)
+                          _ -> 0
+                  snrWeight = clamp01 (argSnrSizeWeight args)
+                  snrScaleWeighted =
+                    if snrWeight <= 0
+                      then 1
+                      else (1 - snrWeight) + snrWeight * snrScale
+                  signalToNoiseOk =
+                    if snrWeight <= 0
+                      then
+                        if minSignalToNoise <= 0
+                          then True
+                          else
+                            case snrRatio of
+                              Just r -> r >= minSignalToNoise
+                              _ -> False
+                      else snrScale > 0
+                  blendDir = blendNext >>= directionPrice openThrAdj
+                  lstmCloseDir = mLstmNext >>= directionPrice closeThrAdj
+                  blendCloseDir = blendNext >>= directionPrice closeThrAdj
                   (blendDirGated, blendCloseDirGated, blendPosSize, blendGateReason) =
                     case (method, mKalZ, mConfidence) of
                       (MethodBlend, Just kalZ, Just confScore) ->
@@ -15511,9 +15958,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 then confScore
                                 else if blendDir == Nothing then 0 else 1
                             (dirUsed, mWhy) =
-                              gateKalmanDir (argConfidenceSizing args) openThr kalZ mRegimes mConformal mQuantiles confScore blendDir
+                              gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore blendDir
                             (closeDirUsed, _) =
-                              gateKalmanDir False closeThr kalZ mRegimes mConformal mQuantiles confScore blendCloseDir
+                              gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore blendCloseDir
                             sizeUsed =
                               case dirUsed of
                                 Nothing -> 0
@@ -15532,9 +15979,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     then confScore
                                     else if routerDirRaw == Nothing then 0 else 1
                                 (dirUsed, mWhy) =
-                                  gateKalmanDir (argConfidenceSizing args) openThr kalZ mRegimes mConformal mQuantiles confScore routerDirRaw
+                                  gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore routerDirRaw
                                 (closeDirUsed, _) =
-                                  gateKalmanDir False closeThr kalZ mRegimes mConformal mQuantiles confScore routerCloseDirRaw
+                                  gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore routerCloseDirRaw
                                 sizeUsed =
                                   case dirUsed of
                                     Nothing -> 0
@@ -15617,7 +16064,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                           (Just _, Just sz) -> sz
                           _ -> 0
 
-                  sizeScaled = baseSize * volScale
+                  sizeScaled = baseSize * volScale * snrScaleWeighted
                   sizeScaledRisk = sizeScaled * riskScale
                   sizeCapped = min maxPositionSize (max 0 sizeScaledRisk)
                   sizeFinal0 =
@@ -15702,8 +16149,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                in LatestSignal
                     { lsMethod = method
                     , lsCurrentPrice = currentPrice
-                    , lsOpenThreshold = openThr
-                    , lsCloseThreshold = closeThr
+                    , lsOpenThreshold = openThrAdj
+                    , lsCloseThreshold = closeThrAdj
                     , lsKalmanNext = mKalNext
                     , lsKalmanReturn = mKalReturn
                     , lsKalmanStd = mKalStd

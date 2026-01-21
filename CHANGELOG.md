@@ -136,6 +136,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: JSON outputs use stable key ordering for deterministic diffs.
 - Optimizer: top-combos now stamp `params.binanceSymbol` for CSV runs (auto-derived from `--symbol-label` or filename) and backfill missing `metrics.annualizedReturn`.
 - Optimizer: add seeding/exploitation controls, new quality filters (annualized return/calmar/turnover), and funding/rebalance sampling parameters.
+- Optimizer: add `--snr-size-weight-min/max` and `--router-score-pnl-weight-min/max` tuning ranges.
 - Optimizer: Calmar objective falls back to annualized return when max drawdown is zero.
 - Optimizer: always refresh at least the top 5 combos with latest backtests, even when equity drops.
 - Optimizer: each new live-bot candle attempts top-5 combo backtests to refresh operations.
@@ -152,10 +153,11 @@ All notable changes to this project will be documented in this file.
 - Trading: when confidence sizing is enabled, scale live orders and backtests by LSTM confidence (thresholds now configurable).
 - Trading: LSTM confidence sizing now uses the method-selected prediction stream (Kalman/LSTM/blend/router) for live orders to match backtests.
 - Live bot: equity/drawdown tracking now respects sized positions and scales fees by position size.
-- Trading: `--lstm-confidence-soft 0` disables the half-size step so LSTM sizing becomes binary at the hard threshold.
+- Trading: LSTM confidence sizing now scales linearly between `--lstm-confidence-soft` and `--lstm-confidence-hard` (set them equal for a step).
+- Trading: add `--snr-size-weight` to scale position size by signal-to-noise.
 - Trading: futures order placement checks available balance (and leverage) before submitting.
 - Trading: floor entry order sizes to exchange minimums (minQty/step/minNotional) when possible and treat dust-sized balances as flat to avoid zero-quantity orders.
-- Trading: add `--method router` with `--router-lookback`/`--router-min-score` for adaptive Kalman/LSTM/blend selection.
+- Trading: add `--method router` with `--router-lookback`/`--router-min-score`/`--router-score-pnl-weight` for adaptive Kalman/LSTM/blend selection with return-aware scoring.
 - Trading: router signals apply Kalman confidence/risk gates only on Kalman-selected bars.
 - Backtests: router threshold sweeps use routed predictions when `method=router` is selected.
 - Backtests: router scoring now uses the effective open threshold (including cost-aware min-edge floors).

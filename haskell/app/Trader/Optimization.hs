@@ -309,6 +309,14 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
       ineligibleScore = -1e18 :: Double
       routerLookback = max 2 (ecRouterLookback baseCfg)
       routerMinScore = clamp01 (ecRouterMinScore baseCfg)
+      routerScorePnlWeight = clamp01 (ecRouterScorePnlWeight baseCfg)
+      perSideCost =
+        let fee = max 0 (ecFee baseCfg)
+            slip = max 0 (ecSlippage baseCfg)
+            spr = max 0 (ecSpread baseCfg)
+            c = fee + slip + spr / 2
+         in min 0.999999 (max 0 c)
+      roundTripCost = min 0.999999 (2 * perSideCost)
 
       downsample :: Int -> [Double] -> [Double]
       downsample k xs
@@ -479,7 +487,16 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodRouter ->
                   let routerOpenThr = max openThr minEdge
                       (routerPredV, routerModelsV) =
-                        routerPredictionsWithModelsV routerOpenThr routerLookback routerMinScore pricesV kalV lstmV blendV
+                        routerPredictionsWithModelsV
+                          routerOpenThr
+                          roundTripCost
+                          routerScorePnlWeight
+                          routerLookback
+                          routerMinScore
+                          pricesV
+                          kalV
+                          lstmV
+                          blendV
                       routerMaskV = V.map (== Just RouterKalman) routerModelsV
                    in (routerPredV, routerPredV, Just routerMaskV)
                 _ -> (kalUsedV0, lstmUsedV0, Nothing)
@@ -615,8 +632,8 @@ data RouterStats = RouterStats
   , rsSignals :: !Int
   } deriving (Eq, Show)
 
-routerStatsWindow :: Double -> V.Vector Double -> V.Vector Double -> Int -> Int -> RouterStats
-routerStatsWindow openThr pricesV predsV start0 end0 =
+routerStatsWindow :: Double -> Double -> Double -> V.Vector Double -> V.Vector Double -> Int -> Int -> RouterStats
+routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV start0 end0 =
   let stepCount = min (V.length predsV) (V.length pricesV - 1)
       start = max 0 start0
       end = min end0 (stepCount - 1)
@@ -630,25 +647,28 @@ routerStatsWindow openThr pricesV predsV start0 end0 =
              in if next > up
                   then Just (1 :: Int)
                   else if next < down then Just (-1) else Nothing
-      step (correct, wrong, signals) i =
+      step (correct, wrong, signals, netAcc) i =
         let prev = pricesV V.! i
             next = pricesV V.! (i + 1)
             pred = predsV V.! i
             predDir = direction prev pred
             actualDir = direction prev next
+            ret = if prev <= 0 || bad prev || bad next then 0 else next / prev - 1
          in case predDir of
-              Nothing -> (correct, wrong, signals)
+              Nothing -> (correct, wrong, signals, netAcc)
               Just dir ->
                 let signals' = signals + 1
+                    net = fromIntegral dir * ret - roundTripCost
+                    netAcc' = netAcc + if bad net then 0 else net
                  in if actualDir == Just dir
-                      then (correct + 1, wrong, signals')
-                      else (correct, wrong + 1, signals')
+                      then (correct + 1, wrong, signals', netAcc')
+                      else (correct, wrong + 1, signals', netAcc')
    in
     if stepCount <= 0 || end < start
       then RouterStats { rsScore = 0, rsAccuracy = 0, rsCoverage = 0, rsSignals = 0 }
       else
         let windowLen = end - start + 1
-            (correct, _wrong, signals) = foldl' step (0, 0, 0) [start .. end]
+            (correct, _wrong, signals, netAcc) = foldl' step (0, 0, 0, 0) [start .. end]
             accuracy =
               if signals <= 0
                 then 0
@@ -657,11 +677,21 @@ routerStatsWindow openThr pricesV predsV start0 end0 =
               if windowLen <= 0
                 then 0
                 else fromIntegral signals / fromIntegral windowLen
-            score = accuracy * coverage
+            avgNet =
+              if signals <= 0
+                then 0
+                else netAcc / fromIntegral signals
+            denom = max 1e-12 (openThr + roundTripCost)
+            pnlScore = clamp01 (0.5 + avgNet / denom)
+            pnlWeight' = clamp01 pnlWeight
+            scoreAcc = accuracy * coverage
+            score = (1 - pnlWeight') * scoreAcc + pnlWeight' * pnlScore
          in RouterStats { rsScore = score, rsAccuracy = accuracy, rsCoverage = coverage, rsSignals = signals }
 
 routerSelectModelAt
   :: Double
+  -> Double
+  -> Double
   -> Int
   -> Double
   -> V.Vector Double
@@ -670,7 +700,7 @@ routerSelectModelAt
   -> V.Vector Double
   -> Int
   -> (Maybe RouterModel, Double, Maybe String)
-routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV t =
+routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV t =
   let stepCount =
         minimum
           [ V.length pricesV - 1
@@ -696,9 +726,9 @@ routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blend
       then (Nothing, 0, Just "ROUTER_WARMUP")
       else
         let windowStart = max 0 (windowEnd - lookback + 1)
-            statsKal = routerStatsWindow openThr pricesV kalPredV windowStart windowEnd
-            statsLstm = routerStatsWindow openThr pricesV lstmPredV windowStart windowEnd
-            statsBlend = routerStatsWindow openThr pricesV blendPredV windowStart windowEnd
+            statsKal = routerStatsWindow openThr roundTripCost pnlWeight pricesV kalPredV windowStart windowEnd
+            statsLstm = routerStatsWindow openThr roundTripCost pnlWeight pricesV lstmPredV windowStart windowEnd
+            statsBlend = routerStatsWindow openThr roundTripCost pnlWeight pricesV blendPredV windowStart windowEnd
             (bestModel, bestStats) =
               foldl' pick (RouterKalman, statsKal) [(RouterLstm, statsLstm), (RouterBlend, statsBlend)]
             bestScore = rsScore bestStats
@@ -708,6 +738,8 @@ routerSelectModelAt openThr lookback0 minScore0 pricesV kalPredV lstmPredV blend
 
 routerPredictionsWithModelsV
   :: Double
+  -> Double
+  -> Double
   -> Int
   -> Double
   -> V.Vector Double
@@ -715,7 +747,7 @@ routerPredictionsWithModelsV
   -> V.Vector Double
   -> V.Vector Double
   -> (V.Vector Double, V.Vector (Maybe RouterModel))
-routerPredictionsWithModelsV openThr lookback minScore pricesV kalPredV lstmPredV blendPredV =
+routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV =
   let stepCount =
         minimum
           [ V.length pricesV - 1
@@ -724,7 +756,7 @@ routerPredictionsWithModelsV openThr lookback minScore pricesV kalPredV lstmPred
           , V.length blendPredV
           ]
       pickPred t =
-        case routerSelectModelAt openThr lookback minScore pricesV kalPredV lstmPredV blendPredV t of
+        case routerSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV t of
           (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
           (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
           (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)

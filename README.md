@@ -220,6 +220,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-signal-to-noise F` require edge / per-bar sigma >= `F` (`0` disables; default: `0.8`)
     - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread (default on; disable with `--no-cost-aware-edge`)
     - `--edge-buffer 0.0002` optional extra buffer added on top of cost-aware edge
+  - `--snr-size-weight 1.0` scale position size by signal-to-noise (0 = hard gate only, 1 = full scaling)
   - `--perf-lookback N` lookback trades for performance gates/adaptive filters (`0` disables)
   - `--perf-min-win-rate F` minimum rolling win rate for entry gating (`0` disables)
   - `--perf-min-profit-factor F` minimum rolling profit factor for entry gating (`0` disables)
@@ -236,10 +237,11 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average), `router` (adaptive model selection)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
-    - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy; Kalman confidence/risk gates apply only when Kalman is selected. Router scoring uses the effective open threshold (open-threshold plus any cost-aware min-edge floor).
+    - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy and return; Kalman confidence/risk gates apply only when Kalman is selected. Router scoring blends accuracy x coverage with a return-aware score (see `--router-score-pnl-weight`) and uses the effective open threshold (open-threshold plus any cost-aware min-edge floor).
     - `--blend-weight 0.5` Kalman weight for `blend` (`0..1`, default: `0.5`)
     - `--router-lookback 30` lookback bars for router scoring (`>= 2`)
-    - `--router-min-score 0.25` minimum router score (accuracy × coverage) to accept a model (`0..1`)
+    - `--router-min-score 0.25` minimum router score (blend of accuracy x coverage and return) to accept a model (`0..1`)
+    - `--router-score-pnl-weight 0.5` weight for return-aware router scoring (`0` = accuracy x coverage only, `1` = return only)
 - `--positioning long-flat` (default, alias `long-only`/`long`) or `--positioning long-short` (allows short positions; trading/live bot requires `--futures`)
   - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal; includes `router`)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
@@ -314,7 +316,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--confirm-conformal` require conformal interval to agree with the chosen direction (default on; disable with `--no-confirm-conformal`)
   - `--confirm-quantiles` require quantiles to agree with the chosen direction (default on; disable with `--no-confirm-quantiles`)
   - `--confidence-sizing` scale entries by confidence (default on; disable with `--no-confidence-sizing`)
-  - `--lstm-confidence-soft 0.6` soft LSTM confidence threshold for sizing (`0` disables the half-size step; requires confidence sizing)
+  - `--lstm-confidence-soft 0.6` soft LSTM confidence threshold for sizing (linear ramp to `--lstm-confidence-hard`; set equal to hard for binary sizing; requires confidence sizing)
   - `--lstm-confidence-hard 0.8` hard LSTM confidence threshold for sizing (`0` disables; requires confidence sizing)
   - `--min-position-size 0.15` minimum entry size after sizing/vol scaling (`0..1`; entries below this are skipped)
     - Must be <= `--max-position-size`.
@@ -472,17 +474,18 @@ Optimizer script tips:
 - `--p-intrabar-take-profit-first` mixes intrabar fill ordering when high/low data is available.
 - `--p-tri-layer` plus `--tri-layer-fast-mult-min/max`, `--tri-layer-slow-mult-min/max`, `--tri-layer-cloud-padding-min/max`, `--tri-layer-cloud-slope-min/max`, `--tri-layer-cloud-width-min/max`, `--tri-layer-touch-lookback-min/max`, `--tri-layer-price-action-body-min/max`, `--tri-layer-exit-on-slow`, `--kalman-band-lookback-min/max`, `--kalman-band-std-mult-min/max`, `--p-tri-layer-price-action`, `--lstm-exit-flip-bars-min/max`, `--lstm-exit-flip-grace-bars-min/max`, and `--lstm-exit-flip-strong` sample tri-layer gating and LSTM flip exits (set `--p-tri-layer 1` to force tri-layer gating).
 - `--stop-min/max`, `--tp-min/max`, `--trail-min/max`, and `--p-disable-stop/tp/trail` sample bracket exits; `--stop-vol-mult-min/max`, `--tp-vol-mult-min/max`, `--trail-vol-mult-min/max`, and `--p-disable-*-vol-mult` sample volatility-based brackets.
-- `--max-position-size-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, `--vol-floor-*`, `--vol-scale-max-*`, `--max-volatility-*`, and `--periods-per-year-*` tune sizing (use `--p-disable-vol-target`/`--p-disable-max-volatility` to mix disabled samples).
+- `--max-position-size-min/max`, `--snr-size-weight-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, `--vol-floor-*`, `--vol-scale-max-*`, `--max-volatility-*`, and `--periods-per-year-*` tune sizing (use `--p-disable-vol-target`/`--p-disable-max-volatility` to mix disabled samples).
 - `--p-disable-vol-ewma-alpha` mixes EWMA vs rolling vol when using `--vol-ewma-alpha-*`.
 - `--funding-rate-min/max`, `--p-funding-by-side`, `--p-funding-on-open`, `--rebalance-bars-min/max`, `--rebalance-threshold-min/max`, `--p-rebalance-global`, and `--p-rebalance-reset-on-signal` sample funding and rebalance behavior.
 - `--blend-weight-min/max` plus `--method-weight-blend` sample the blend method mix.
+- `--router-score-pnl-weight-min/max` tunes the return weight in router scoring (0=accuracy/coverage, 1=return).
 - `--kalman-market-top-n-min/max` tunes the Kalman market-context sample size (Binance only).
 - `--kalman-z-min-min/max`, `--kalman-z-max-min/max`, `--max-high-vol-prob-min/max`, `--max-conformal-width-min/max`, `--max-quantile-width-min/max`, `--p-confirm-conformal`, `--p-confirm-quantiles`, `--p-confidence-sizing`, `--lstm-confidence-soft-min/max`, `--lstm-confidence-hard-min/max`, and `--min-position-size-min/max` tune confidence gating/sizing (use `--p-disable-max-*` to mix disabled samples).
 - `--lr-min/max`, `--patience-max`, `--grad-clip-min/max`, and `--p-disable-grad-clip` tune LSTM training hyperparameters.
 - `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective (`--tune-stress-*-min/max` lets it sample ranges).
 - `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
 - Auto optimizer biases `--p-long-short` to match existing open positions/orders (short requires long-short; spot/margin suppresses long-short).
-- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `seedTrials`, `seedRatio`, `survivorFraction`, `perturbScaleDouble`, `perturbScaleInt`, `earlyStopNoImprove`, `minHoldBarsMin`, `blendWeightMin`, `minWinRate`, `minAnnualizedReturn`, `minCalmar`, `maxTurnover`, `minSignalToNoiseMin`, `pThresholdFactor`, `thresholdFactorAlphaMin`, `thresholdFactorMinMin`, `thresholdFactorWeightMax`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `triLayerExitOnSlow`, `fundingRateMin`, `fundingRateMax`, `rebalanceBarsMin`, `rebalanceBarsMax`, `rebalanceThresholdMin`, `rebalanceThresholdMax`, `pFundingBySide`, `pFundingOnOpen`, `pRebalanceGlobal`, `pRebalanceResetOnSignal`, `kalmanBandLookbackMin`, `kalmanBandStdMultMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmExitFlipStrong`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
+- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `seedTrials`, `seedRatio`, `survivorFraction`, `perturbScaleDouble`, `perturbScaleInt`, `earlyStopNoImprove`, `minHoldBarsMin`, `blendWeightMin`, `routerScorePnlWeightMin`, `routerScorePnlWeightMax`, `minWinRate`, `minAnnualizedReturn`, `minCalmar`, `maxTurnover`, `minSignalToNoiseMin`, `snrSizeWeightMin`, `snrSizeWeightMax`, `pThresholdFactor`, `thresholdFactorAlphaMin`, `thresholdFactorMinMin`, `thresholdFactorWeightMax`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `triLayerExitOnSlow`, `fundingRateMin`, `fundingRateMax`, `rebalanceBarsMin`, `rebalanceBarsMax`, `rebalanceThresholdMin`, `rebalanceThresholdMax`, `pFundingBySide`, `pFundingOnOpen`, `pRebalanceGlobal`, `pRebalanceResetOnSignal`, `kalmanBandLookbackMin`, `kalmanBandStdMultMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmExitFlipStrong`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Genetic crossover blends parent combos with `operationCount`/`tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 
 Database (required for ops + combo persistence):
@@ -654,7 +657,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
-- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), `"blend"` (weighted average; see `--blend-weight`), or `"router"` (adaptive selection; Kalman confidence/risk gates apply only on Kalman-selected bars; see `--router-lookback` / `--router-min-score`).
+- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), `"blend"` (weighted average; see `--blend-weight`), or `"router"` (adaptive selection; Kalman confidence/risk gates apply only on Kalman-selected bars; see `--router-lookback` / `--router-min-score` / `--router-score-pnl-weight`).
 - `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
 - Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption or futures trade requests.
 
