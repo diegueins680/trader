@@ -19,6 +19,7 @@ import type {
 import type { OptimizationCombo, OptimizationComboOperation } from "../components/TopCombosChart";
 import type { FormState } from "./formState";
 import type { health } from "../lib/api";
+import { PLATFORM_DEFAULT_SYMBOL } from "./constants";
 import { clamp, normalizeSymbolKey, numFromInput } from "./utils";
 
 export type RequestKind = "signal" | "backtest" | "trade";
