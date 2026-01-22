@@ -72,6 +72,7 @@ import {
   BOT_TELEMETRY_POINTS,
   DATA_LOG_AUTO_SCROLL_SLOP_PX,
   DATA_LOG_COLLAPSED_MAX_LINES,
+  DATA_LOG_MAX_ENTRIES,
   PLATFORM_DEFAULT_SYMBOL,
   PLATFORM_DEFAULT_BARS,
   PLATFORM_INTERVALS,
@@ -92,6 +93,8 @@ import {
   STORAGE_CONFIG_PANEL_ORDER_KEY,
   STORAGE_CONFIG_PAGE_KEY,
   STORAGE_CONFIG_TAB_KEY,
+  STORAGE_DATA_LOG_KEY,
+  STORAGE_DATA_LOG_PREFS_KEY,
   STORAGE_KEY,
   STORAGE_ORDER_LOG_PREFS_KEY,
   STORAGE_PANEL_PREFS_KEY,
@@ -414,6 +417,42 @@ const resolveConfigPageForTarget = (targetId: string): ConfigPageId | null => {
   }
   return CONFIG_TARGET_PAGE_MAP[targetId] ?? null;
 };
+
+type DataLogEntry = { timestamp: number; label: string; data: unknown };
+type DataLogPrefs = {
+  expanded: boolean;
+  indexArrays: boolean;
+  autoScroll: boolean;
+  logBackground: boolean;
+  logErrors: boolean;
+  persist: boolean;
+};
+
+const DEFAULT_DATA_LOG_PREFS: DataLogPrefs = {
+  expanded: false,
+  indexArrays: true,
+  autoScroll: true,
+  logBackground: true,
+  logErrors: true,
+  persist: true,
+};
+
+const normalizeDataLog = (raw: unknown): DataLogEntry[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: DataLogEntry[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const timestamp = typeof record.timestamp === "number" && Number.isFinite(record.timestamp) ? record.timestamp : null;
+    const label = typeof record.label === "string" ? record.label : null;
+    if (timestamp === null || !label) continue;
+    const data = "data" in record ? record.data : null;
+    out.push({ timestamp, label, data });
+  }
+  if (out.length <= DATA_LOG_MAX_ENTRIES) return out;
+  return out.slice(out.length - DATA_LOG_MAX_ENTRIES);
+};
+
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [healthInfo, setHealthInfo] = useState<Awaited<ReturnType<typeof health>> | null>(null);
@@ -532,6 +571,9 @@ export function App() {
   const [pendingMarket, setPendingMarket] = useState<Market | null>(null);
 
   const orderPrefsInit = readJson<OrderLogPrefs>(STORAGE_ORDER_LOG_PREFS_KEY);
+  const dataLogPrefsInit = readJson<DataLogPrefs>(STORAGE_DATA_LOG_PREFS_KEY);
+  const dataLogPersistInit = dataLogPrefsInit?.persist ?? DEFAULT_DATA_LOG_PREFS.persist;
+  const dataLogInit = dataLogPersistInit ? normalizeDataLog(readJson<unknown>(STORAGE_DATA_LOG_KEY)) : [];
   const panelPrefsInit = readJson<PanelPrefs>(STORAGE_PANEL_PREFS_KEY);
   const [panelPrefs, setPanelPrefs] = useState<PanelPrefs>(() => panelPrefsInit ?? {});
   const configPanelOrderInit = readJson<ConfigPanelId[]>(STORAGE_CONFIG_PANEL_ORDER_KEY);
@@ -687,11 +729,24 @@ export function App() {
   const [orderShowClientOrderId, setOrderShowClientOrderId] = useState(() => orderPrefsInit?.showClientOrderId ?? false);
   const [selectedOrderKey, setSelectedOrderKey] = useState<string | null>(null);
 
-  const [dataLog, setDataLog] = useState<Array<{ timestamp: number; label: string; data: unknown }>>([]);
-  const [dataLogExpanded, setDataLogExpanded] = useState(false);
-  const [dataLogIndexArrays, setDataLogIndexArrays] = useState(true);
+  const [dataLog, setDataLog] = useState<DataLogEntry[]>(() => dataLogInit);
+  const [dataLogExpanded, setDataLogExpanded] = useState(
+    () => dataLogPrefsInit?.expanded ?? DEFAULT_DATA_LOG_PREFS.expanded,
+  );
+  const [dataLogIndexArrays, setDataLogIndexArrays] = useState(
+    () => dataLogPrefsInit?.indexArrays ?? DEFAULT_DATA_LOG_PREFS.indexArrays,
+  );
   const [dataLogFilterText, setDataLogFilterText] = useState("");
-  const [dataLogAutoScroll, setDataLogAutoScroll] = useState(true);
+  const [dataLogAutoScroll, setDataLogAutoScroll] = useState(
+    () => dataLogPrefsInit?.autoScroll ?? DEFAULT_DATA_LOG_PREFS.autoScroll,
+  );
+  const [dataLogLogBackground, setDataLogLogBackground] = useState(
+    () => dataLogPrefsInit?.logBackground ?? DEFAULT_DATA_LOG_PREFS.logBackground,
+  );
+  const [dataLogLogErrors, setDataLogLogErrors] = useState(
+    () => dataLogPrefsInit?.logErrors ?? DEFAULT_DATA_LOG_PREFS.logErrors,
+  );
+  const [dataLogPersist, setDataLogPersist] = useState(() => dataLogPersistInit);
   const [optimizerRunDirty, setOptimizerRunDirty] = useState(false);
   const [optimizerRunForm, setOptimizerRunForm] = useState<OptimizerRunForm>(() => buildDefaultOptimizerRunForm(form.binanceSymbol, platform));
   const [optimizerRunUi, setOptimizerRunUi] = useState<OptimizerRunUiState>({
@@ -921,6 +976,25 @@ export function App() {
     orderShowStatus,
     orderSideFilter,
   ]);
+
+  useEffect(() => {
+    writeJson(STORAGE_DATA_LOG_PREFS_KEY, {
+      expanded: dataLogExpanded,
+      indexArrays: dataLogIndexArrays,
+      autoScroll: dataLogAutoScroll,
+      logBackground: dataLogLogBackground,
+      logErrors: dataLogLogErrors,
+      persist: dataLogPersist,
+    } satisfies DataLogPrefs);
+  }, [dataLogAutoScroll, dataLogExpanded, dataLogIndexArrays, dataLogLogBackground, dataLogLogErrors, dataLogPersist]);
+
+  useEffect(() => {
+    if (!dataLogPersist) {
+      removeLocalKey(STORAGE_DATA_LOG_KEY);
+      return;
+    }
+    writeJson(STORAGE_DATA_LOG_KEY, dataLog);
+  }, [dataLog, dataLogPersist]);
 
   useEffect(() => {
     writeJson(STORAGE_PANEL_PREFS_KEY, panelPrefs);
@@ -1361,6 +1435,31 @@ export function App() {
     if (!apiBaseAbsolute) return "";
     return `${apiBaseAbsolute.replace(/\/+$/, "")}/health`;
   }, [apiBaseAbsolute]);
+
+  const appendDataLog = useCallback(
+    (label: string, data: unknown, opts?: { background?: boolean; error?: boolean }) => {
+      if (opts?.background && !dataLogLogBackground) return;
+      if (opts?.error && !dataLogLogErrors) return;
+      setDataLog((logs) => [...logs, { timestamp: Date.now(), label, data }].slice(-DATA_LOG_MAX_ENTRIES));
+    },
+    [dataLogLogBackground, dataLogLogErrors],
+  );
+
+  const buildDataLogError = useCallback((err: unknown, message: string) => {
+    const data: Record<string, unknown> = { message };
+    if (err instanceof HttpError) {
+      data.status = err.status;
+      if (err.payload !== undefined) data.payload = err.payload;
+      return data;
+    }
+    if (err instanceof Error) {
+      data.name = err.name;
+      return data;
+    }
+    if (err !== undefined) data.payload = err;
+    return data;
+  }, []);
+
   const runOptimizer = useCallback(async () => {
     if (optimizerRunValidationError) {
       setOptimizerRunUi((prev) => ({ ...prev, error: optimizerRunValidationError }));
@@ -1397,7 +1496,7 @@ export function App() {
       });
       if (requestId !== optimizerRunRequestSeqRef.current) return;
       setOptimizerRunUi({ loading: false, error: null, response: out, lastRunAtMs: Date.now() });
-      setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Optimizer Run", data: out }].slice(-100));
+      appendDataLog("Optimizer Run", out);
       setApiOk("ok");
       showToast("Optimizer run complete");
       refreshTopCombos();
@@ -1437,6 +1536,7 @@ export function App() {
       });
 
       setOptimizerRunUi((prev) => ({ ...prev, loading: false, error: msg }));
+      appendDataLog("Optimizer Run Error", buildDataLogError(e, msg), { error: true });
       if (showErrorToast) showToast("Optimizer run failed");
     } finally {
       if (requestId === optimizerRunRequestSeqRef.current) {
@@ -1446,7 +1546,9 @@ export function App() {
   }, [
     apiBase,
     applyRateLimit,
+    appendDataLog,
     authHeaders,
+    buildDataLogError,
     optimizerRunExtras.value,
     optimizerRunForm,
     optimizerRunValidationError,
@@ -1613,16 +1715,19 @@ export function App() {
         setHealthInfo(out);
         if (out.authRequired && out.authOk !== true) setApiOk("auth");
         else setApiOk("ok");
+        appendDataLog("Health Response (auto)", out, { background: true });
       })
-      .catch(() => {
+      .catch((e) => {
         if (!mounted) return;
         setHealthInfo(null);
         setApiOk("down");
+        const msg = e instanceof Error ? e.message : "API unreachable";
+        appendDataLog("Health Error (auto)", buildDataLogError(e, msg), { background: true, error: true });
       });
     return () => {
       mounted = false;
     };
-  }, [apiBase, authHeaders]);
+  }, [apiBase, appendDataLog, authHeaders, buildDataLogError]);
 
   useEffect(() => {
     botStatusTailRef.current = BOT_STATUS_TAIL_POINTS;
@@ -1652,14 +1757,17 @@ export function App() {
     let h: Awaited<ReturnType<typeof health>>;
     try {
       h = await health(apiBase, { timeoutMs: 10_000, headers: authHeaders });
-    } catch {
+    } catch (e) {
       setHealthInfo(null);
       setApiOk("down");
       showToast("API unreachable");
+      const msg = e instanceof Error ? e.message : "API unreachable";
+      appendDataLog("Health Error", buildDataLogError(e, msg), { error: true });
       return;
     }
 
     setHealthInfo(h);
+    appendDataLog("Health Response", h);
     if (h.authRequired && h.authOk !== true) {
       setApiOk("auth");
       showToast(apiToken.trim() ? "API auth failed" : "API auth required");
@@ -1680,47 +1788,76 @@ export function App() {
       setApiOk("down");
       showToast(isTimeoutError(e) ? "API request timed out" : "API unreachable");
     }
-  }, [apiBase, apiToken, authHeaders, showToast]);
+  }, [apiBase, apiToken, appendDataLog, authHeaders, buildDataLogError, showToast]);
 
   const refreshCacheStats = useCallback(async () => {
     setCacheUi((s) => ({ ...s, loading: true, error: null }));
     try {
       const v = await cacheStats(apiBase, { timeoutMs: 10_000, headers: authHeaders });
       setCacheUi({ loading: false, error: null, stats: v });
+      appendDataLog("Cache Stats Response", v);
     } catch (e) {
       if (isAbortError(e)) return;
+      let msg = "Failed to load cache stats";
       if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
-        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check apiToken / TRADER_API_TOKEN)." }));
+        msg = "Unauthorized (check apiToken / TRADER_API_TOKEN).";
+        setCacheUi((s) => ({ ...s, loading: false, error: msg }));
+        appendDataLog("Cache Stats Error", buildDataLogError(e, msg), { error: true });
         return;
       }
+      if (isTimeoutError(e)) msg = "Request timed out";
       setCacheUi((s) => ({
         ...s,
         loading: false,
-        error: isTimeoutError(e) ? "Request timed out" : "Failed to load cache stats",
+        error: msg,
       }));
+      appendDataLog("Cache Stats Error", buildDataLogError(e, msg), { error: true });
     }
-  }, [apiBase, authHeaders]);
+  }, [apiBase, appendDataLog, authHeaders, buildDataLogError]);
 
   const clearCacheUi = useCallback(async () => {
     setCacheUi((s) => ({ ...s, loading: true, error: null }));
     try {
-      await cacheClear(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      const cleared = await cacheClear(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      appendDataLog("Cache Clear Response", cleared);
       showToast("Cache cleared");
-      const v = await cacheStats(apiBase, { timeoutMs: 10_000, headers: authHeaders });
-      setCacheUi({ loading: false, error: null, stats: v });
+      try {
+        const v = await cacheStats(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+        setCacheUi({ loading: false, error: null, stats: v });
+        appendDataLog("Cache Stats Response", v);
+      } catch (e) {
+        if (isAbortError(e)) return;
+        let msg = "Failed to load cache stats";
+        if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+          msg = "Unauthorized (check apiToken / TRADER_API_TOKEN).";
+        } else if (isTimeoutError(e)) {
+          msg = "Request timed out";
+        }
+        setCacheUi((s) => ({
+          ...s,
+          loading: false,
+          error: msg,
+        }));
+        appendDataLog("Cache Stats Error", buildDataLogError(e, msg), { error: true });
+      }
     } catch (e) {
       if (isAbortError(e)) return;
+      let msg = "Failed to clear cache";
       if (e instanceof HttpError && (e.status === 401 || e.status === 403)) {
-        setCacheUi((s) => ({ ...s, loading: false, error: "Unauthorized (check apiToken / TRADER_API_TOKEN)." }));
+        msg = "Unauthorized (check apiToken / TRADER_API_TOKEN).";
+        setCacheUi((s) => ({ ...s, loading: false, error: msg }));
+        appendDataLog("Cache Clear Error", buildDataLogError(e, msg), { error: true });
         return;
       }
+      if (isTimeoutError(e)) msg = "Request timed out";
       setCacheUi((s) => ({
         ...s,
         loading: false,
-        error: isTimeoutError(e) ? "Request timed out" : "Failed to clear cache",
+        error: msg,
       }));
+      appendDataLog("Cache Clear Error", buildDataLogError(e, msg), { error: true });
     }
-  }, [apiBase, authHeaders, showToast]);
+  }, [apiBase, appendDataLog, authHeaders, buildDataLogError, showToast]);
 
   const commonParams: ApiParams = useMemo(() => {
     const interval = form.interval.trim();
@@ -2652,6 +2789,9 @@ export function App() {
   const run = useCallback(
     async (kind: RequestKind, overrideParams?: ApiParams, opts?: RunOptions) => {
       const now = Date.now();
+      const logBackground = Boolean(opts?.silent);
+      const logSuffix = logBackground ? " (auto)" : "";
+      const logLabelBase = kind === "signal" ? "Signal" : kind === "backtest" ? "Backtest" : "Trade";
       const activeLimit = rateLimitRef.current;
       if (activeLimit && now < activeLimit.untilMs) {
         if (!opts?.silent) {
@@ -2717,9 +2857,10 @@ export function App() {
               setForm((f) => ({ ...f, ...next }));
             }
           }
-          if (opts?.silent) setState((s) => ({ ...s, latestSignal: out }));
-          else {
-            setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Signal Response", data: out }].slice(-100));
+          appendDataLog(`${logLabelBase} Response${logSuffix}`, out, { background: logBackground });
+          if (opts?.silent) {
+            setState((s) => ({ ...s, latestSignal: out }));
+          } else {
             setState((s) => ({ ...s, latestSignal: out, trade: null, loading: false, error: null }));
           }
           setApiOk("ok");
@@ -2748,7 +2889,7 @@ export function App() {
             }
           }
           setState((s) => ({ ...s, backtest: out, latestSignal: out.latestSignal, trade: null, loading: false, error: null }));
-          setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Backtest Response", data: out }].slice(-100));
+          appendDataLog(`${logLabelBase} Response${logSuffix}`, out, { background: logBackground });
           setApiOk("ok");
           if (!opts?.silent) showToast("Backtest complete");
         } else {
@@ -2777,7 +2918,7 @@ export function App() {
             }
           }
           setState((s) => ({ ...s, trade: out, latestSignal: out.signal, loading: false, error: null }));
-          setDataLog((logs) => [...logs, { timestamp: Date.now(), label: "Trade Response", data: out }].slice(-100));
+          appendDataLog(`${logLabelBase} Response${logSuffix}`, out, { background: logBackground });
           setApiOk("ok");
           if (!opts?.silent) showToast(out.order.sent ? "Order sent" : "No order");
         }
@@ -2817,6 +2958,11 @@ export function App() {
           return looksDown ? "down" : prev;
         });
 
+        appendDataLog(`${logLabelBase} Error${logSuffix}`, buildDataLogError(e, msg), {
+          background: logBackground,
+          error: true,
+        });
+
         if (opts?.silent) {
           if (e instanceof HttpError && e.status === 400) {
             setForm((f) => (f.autoRefresh ? { ...f, autoRefresh: false } : f));
@@ -2839,7 +2985,9 @@ export function App() {
     [
       apiBase,
       applyRateLimit,
+      appendDataLog,
       authHeaders,
+      buildDataLogError,
       clearRateLimit,
       commonParams,
       form.bypassCache,
@@ -2885,6 +3033,7 @@ export function App() {
           : await coinbaseKeysStatus(apiBase, p, { signal: controller.signal, headers: authHeaders, timeoutMs: 30_000 });
         if (requestId !== keysRequestSeqRef.current) return;
         setKeys({ loading: false, error: null, status: out, platform, checkedAtMs: Date.now() });
+        appendDataLog(`Key Status${opts?.silent ? " (auto)" : ""}`, out, { background: Boolean(opts?.silent) });
         setApiOk("ok");
         if (!opts?.silent) showToast("Key status updated");
       } catch (e) {
@@ -2906,6 +3055,11 @@ export function App() {
           return looksDown ? "down" : prev;
         });
 
+        appendDataLog(`Key Status Error${opts?.silent ? " (auto)" : ""}`, buildDataLogError(e, msg), {
+          background: Boolean(opts?.silent),
+          error: true,
+        });
+
         if (opts?.silent) {
           setKeys((s) => ({ ...s, loading: false, platform }));
           return;
@@ -2917,7 +3071,7 @@ export function App() {
         if (requestId === keysRequestSeqRef.current) keysAbortRef.current = null;
       }
     },
-    [apiBase, authHeaders, isBinancePlatform, isCoinbasePlatform, keysParams, platform, showToast],
+    [apiBase, appendDataLog, authHeaders, buildDataLogError, isBinancePlatform, isCoinbasePlatform, keysParams, platform, showToast],
   );
 
   const stopListenKeyStream = useCallback(
@@ -3453,6 +3607,7 @@ export function App() {
         if (startSymbols.length > 0) payload.botSymbols = startSymbols;
         const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
         setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+        appendDataLog(`Bot Start Response${silent ? " (auto)" : ""}`, out, { background: silent });
         if (symbolsOverride.length > 0) {
           if (shouldSelectPrimary) setBotSelectedSymbol(primarySymbol || null);
         }
@@ -3493,22 +3648,32 @@ export function App() {
             if (isAbortError(e2)) return;
             const formatted2 = formatStartError(e2);
             setBot((s) => ({ ...s, loading: false, error: formatted2.msg }));
+            appendDataLog(`Bot Start Error${silent ? " (auto)" : ""}`, buildDataLogError(e2, formatted2.msg), {
+              background: silent,
+              error: true,
+            });
             if (formatted2.showErrorToast) showToast("Bot start failed");
             return;
           }
         }
         const formatted = formatStartError(e);
         setBot((s) => ({ ...s, loading: false, error: formatted.msg }));
+        appendDataLog(`Bot Start Error${silent ? " (auto)" : ""}`, buildDataLogError(e, formatted.msg), {
+          background: silent,
+          error: true,
+        });
         if (formatted.showErrorToast) showToast("Bot start failed");
       }
     },
     [
       apiBase,
       applyRateLimit,
+      appendDataLog,
       authHeaders,
       botActiveSymbolSet,
       botSelectedSymbol,
       botSymbolsInput,
+      buildDataLogError,
       form.binanceSymbol,
       form.botMaxPoints,
       form.botAdoptExistingPosition,
@@ -3526,23 +3691,26 @@ export function App() {
     async (opts?: RunOptions) => {
       if (apiOk !== "ok") return;
       if (!opts?.silent) setBotStatusOps((s) => ({ ...s, loading: true, error: null }));
-      try {
-        const limit = botStatusOpsLimitRef.current;
-        const out = await ops(apiBase, { kind: "bot.status", limit }, { headers: authHeaders, timeoutMs: 30_000 });
-        setBotStatusOps({
-          loading: false,
-          error: null,
-          enabled: out.enabled,
-          hint: out.hint ?? null,
-          ops: Array.isArray(out.ops) ? out.ops : [],
-          limit,
-          lastFetchedAtMs: Date.now(),
-        });
-        botStatusOpsLimitRef.current = limit;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (e instanceof HttpError && BOT_STATUS_RETRYABLE_HTTP.has(e.status) && botStatusOpsLimitRef.current > BOT_STATUS_OPS_FALLBACK_LIMIT) {
-          try {
+    try {
+      const limit = botStatusOpsLimitRef.current;
+      const out = await ops(apiBase, { kind: "bot.status", limit }, { headers: authHeaders, timeoutMs: 30_000 });
+      setBotStatusOps({
+        loading: false,
+        error: null,
+        enabled: out.enabled,
+        hint: out.hint ?? null,
+        ops: Array.isArray(out.ops) ? out.ops : [],
+        limit,
+        lastFetchedAtMs: Date.now(),
+      });
+      appendDataLog(`Ops Response (bot.status)${opts?.silent ? " (auto)" : ""}`, out, {
+        background: Boolean(opts?.silent),
+      });
+      botStatusOpsLimitRef.current = limit;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (e instanceof HttpError && BOT_STATUS_RETRYABLE_HTTP.has(e.status) && botStatusOpsLimitRef.current > BOT_STATUS_OPS_FALLBACK_LIMIT) {
+        try {
             const fallbackLimit = BOT_STATUS_OPS_FALLBACK_LIMIT;
             const out = await ops(
               apiBase,
@@ -3558,18 +3726,29 @@ export function App() {
               limit: fallbackLimit,
               lastFetchedAtMs: Date.now(),
             });
+            appendDataLog(`Ops Response (bot.status fallback)${opts?.silent ? " (auto)" : ""}`, out, {
+              background: Boolean(opts?.silent),
+            });
             botStatusOpsLimitRef.current = fallbackLimit;
             return;
           } catch (fallbackErr) {
             const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
             setBotStatusOps((s) => ({ ...s, loading: false, error: fallbackMsg }));
+            appendDataLog(`Ops Error (bot.status fallback)${opts?.silent ? " (auto)" : ""}`, buildDataLogError(fallbackErr, fallbackMsg), {
+              background: Boolean(opts?.silent),
+              error: true,
+            });
             return;
           }
         }
         setBotStatusOps((s) => ({ ...s, loading: false, error: msg }));
+        appendDataLog(`Ops Error (bot.status)${opts?.silent ? " (auto)" : ""}`, buildDataLogError(e, msg), {
+          background: Boolean(opts?.silent),
+          error: true,
+        });
       }
     },
-    [apiBase, apiOk, authHeaders],
+    [apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
   );
 
   useEffect(() => {
@@ -3584,12 +3763,14 @@ export function App() {
     try {
       const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 }, symbol);
       setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+      appendDataLog("Bot Stop Response", out);
       botAutoStartSuppressedRef.current = true;
       showToast(symbol ? `Bot stopped (${symbol})` : "Bot stopped");
     } catch (e) {
       if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : String(e);
       setBot((s) => ({ ...s, loading: false, error: msg }));
+      appendDataLog("Bot Stop Error", buildDataLogError(e, msg), { error: true });
       showToast("Bot stop failed");
     }
   }, [apiBase, authHeaders, showToast]);
@@ -8514,7 +8695,7 @@ export function App() {
           maximized={isPanelMaximized("panel-data-log")}
           onToggleMaximize={() => togglePanelMaximize("panel-data-log")}
           title="Data Log"
-          subtitle="All incoming API responses (last 100 entries)"
+          subtitle={`Recent API responses (last ${DATA_LOG_MAX_ENTRIES} entries)`}
           style={{ marginTop: "18px" }}
         >
 	          <div className="actions dataLogActions">
@@ -8555,12 +8736,28 @@ export function App() {
                 Expand
               </label>
               <label className="pill" style={{ userSelect: "none" }}>
+                <input type="checkbox" checked={dataLogLogErrors} onChange={(e) => setDataLogLogErrors(e.target.checked)} />
+                Log errors
+              </label>
+              <label className="pill" style={{ userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={dataLogLogBackground}
+                  onChange={(e) => setDataLogLogBackground(e.target.checked)}
+                />
+                Log auto-refresh
+              </label>
+              <label className="pill" style={{ userSelect: "none" }}>
                 <input type="checkbox" checked={dataLogIndexArrays} onChange={(e) => setDataLogIndexArrays(e.target.checked)} />
                 Index arrays
               </label>
               <label className="pill" style={{ userSelect: "none" }}>
                 <input type="checkbox" checked={dataLogAutoScroll} onChange={(e) => setDataLogAutoScroll(e.target.checked)} />
                 Auto-scroll
+              </label>
+              <label className="pill" style={{ userSelect: "none" }}>
+                <input type="checkbox" checked={dataLogPersist} onChange={(e) => setDataLogPersist(e.target.checked)} />
+                Remember
               </label>
               <button className="btnSmall" type="button" onClick={scrollDataLogToBottom} disabled={dataLog.length === 0}>
                 Jump to latest
@@ -8575,7 +8772,7 @@ export function App() {
             {dataLogShown.length === 0 ? (
               <div className="dataLogEmpty">
                 {dataLog.length === 0
-                  ? "No data logged yet. Run a signal, backtest, or trade to see incoming data."
+                  ? "No data logged yet. Run a signal, backtest, trade, or bot action to see incoming data."
                   : "No entries match the current filter."}
               </div>
             ) : (

@@ -14,6 +14,8 @@ export const STORAGE_PANEL_PREFS_KEY = "trader.ui.panelPrefs.v1";
 export const STORAGE_CONFIG_PANEL_ORDER_KEY = "trader.ui.configPanelOrder.v1";
 export const STORAGE_CONFIG_PAGE_KEY = "trader.ui.configPage.v1";
 export const STORAGE_CONFIG_TAB_KEY = "trader.ui.configTab.v1";
+export const STORAGE_DATA_LOG_KEY = "trader.ui.dataLog.v1";
+export const STORAGE_DATA_LOG_PREFS_KEY = "trader.ui.dataLogPrefs.v1";
 
 const DEFAULT_SIGNAL_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_BACKTEST_TIMEOUT_MS = 20 * 60_000;
@@ -206,5 +208,6 @@ export const TUNE_OBJECTIVES = [
 export const TUNE_OBJECTIVE_SET = new Set<string>(TUNE_OBJECTIVES);
 
 export const DATA_LOG_COLLAPSED_MAX_LINES = 50;
+export const DATA_LOG_MAX_ENTRIES = 100;
 export const DATA_LOG_AUTO_SCROLL_SLOP_PX = 24;
 export const DATA_LOG_BAR_SERIES_KEYS = new Set(["prices", "positions", "equityCurve", "agreementOk", "kalmanPredNext", "lstmPredNext"]);

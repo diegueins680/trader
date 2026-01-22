@@ -745,6 +745,7 @@ The UI auto-applies top combos when available and shows when a combo auto-applie
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
 The Data Log panel supports auto-scroll to keep the newest responses in view; scrolling up pauses auto-scroll until you jump back to latest.
+The Data Log can record auto-refresh/background responses (including health/cache/ops polls) and error payloads, and can remember the last 100 entries across reloads.
 Filter the Data Log by label; Copy shown respects the current filter, and Jump to latest scrolls back down.
 
 Run it:

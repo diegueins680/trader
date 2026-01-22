@@ -116,6 +116,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: force multi-column form rows to stack on narrow screens so inline grid layouts stay readable.
 - Web UI: align Data Log toolbar controls, match the log styling to the UI theme, and make the log viewport responsive.
 - Web UI: pause Data Log auto-scroll when you scroll away from the latest entries and resume when you jump back to latest.
+- Web UI: Data Log now records auto-refresh/error responses (including health/cache/ops polling; toggleable) and can persist the last 100 entries across reloads.
 - Web UI: add a Run optimizer form to the Optimizer combos panel to launch `/optimizer/run`, apply constraints, and show the last output.
 - Web UI: optimizer run forms add an annualized-equity preset, validate backtest/tune ratios, and honor advanced JSON overrides for source/data/symbol plus `timeoutSec`.
 - Web UI: add info buttons with equity tips next to optimizer run fields and complex config parameters (method, thresholds, splits, LSTM, optimization).
