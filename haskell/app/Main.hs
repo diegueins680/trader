@@ -8817,9 +8817,20 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
       Just asyncEx -> throwIO asyncEx
       Nothing -> do
         let msg = displayException ex
-        unless ("Client closed connection prematurely" `isInfixOf` msg) $
-          putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
-        respondCors (jsonError status500 "Internal server error")
+            msgLower = map toLower msg
+            disconnectIndicators =
+              [ "client closed connection prematurely"
+              , "connection closed by peer"
+              , "connection reset by peer"
+              , "broken pipe"
+              , "resource vanished"
+              ]
+            isDisconnect = any (`isInfixOf` msgLower) disconnectIndicators
+        if isDisconnect
+          then pure Wai.ResponseReceived
+          else do
+            putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
+            respondCors (jsonError status500 "Internal server error")
 
 authorized :: Maybe BS.ByteString -> Wai.Request -> Bool
 authorized mToken req =
