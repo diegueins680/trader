@@ -50,7 +50,6 @@ import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
 import qualified Network.Wai as Wai
-import qualified Network.Wai.Internal as WaiInternal
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.WebSockets as WS
 import qualified Wuss
@@ -8818,11 +8817,9 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
       Just asyncEx -> throwIO asyncEx
       Nothing -> do
         let msg = displayException ex
-        if "Client closed connection prematurely" `isInfixOf` msg
-          then pure WaiInternal.ResponseReceived
-          else do
-            putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
-            respondCors (jsonError status500 "Internal server error")
+        unless ("Client closed connection prematurely" `isInfixOf` msg) $
+          putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
+        respondCors (jsonError status500 "Internal server error")
 
 authorized :: Maybe BS.ByteString -> Wai.Request -> Bool
 authorized mToken req =
