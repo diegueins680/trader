@@ -175,7 +175,7 @@ export type ConfigDockProps = {
   missingSymbol: boolean;
   symbolFormatError: string | null;
   symbolSelectValue: string;
-  platformSymbols: string[];
+  platformSymbols: readonly string[];
   symbolIsCustom: boolean;
   platformLabel: string;
   platform: Platform;
@@ -184,7 +184,7 @@ export type ConfigDockProps = {
   pendingMarket: Market | null;
   setConfirmLive: React.Dispatch<React.SetStateAction<boolean>>;
   missingInterval: boolean;
-  platformIntervals: string[];
+  platformIntervals: readonly string[];
   barsRangeLabel: string;
   barsExceedsApi: boolean;
   barsMaxLabel: number | null;

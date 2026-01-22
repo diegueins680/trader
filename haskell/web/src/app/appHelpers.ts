@@ -1,7 +1,10 @@
 import type {
+  ApiBinancePositionsResponse,
+  ApiBinanceTradesResponse,
   ApiTradeResponse,
   BacktestResponse,
   BinanceKeysStatus,
+  BinanceListenKeyResponse,
   BinanceTrade,
   BotStatus,
   BotStatusMulti,
@@ -13,13 +16,14 @@ import type {
   Normalization,
   OpsOperation,
   OptimizerRunRequest,
+  OptimizerRunResponse,
   OptimizerSource,
   Platform,
 } from "../lib/types";
 import type { OptimizationCombo, OptimizationComboOperation } from "../components/TopCombosChart";
 import { defaultForm, parseDurationSeconds, platformIntervalSeconds } from "./formState";
 import type { FormState } from "./formState";
-import type { health } from "../lib/api";
+import type { cacheStats, health } from "../lib/api";
 import { PLATFORM_DEFAULT_SYMBOL } from "./constants";
 import { clamp, normalizeSymbolKey, numFromInput } from "./utils";
 
