@@ -31,6 +31,7 @@ export const BACKTEST_TIMEOUT_MS = resolveTimeoutMs("backtestMs", DEFAULT_BACKTE
 export const TRADE_TIMEOUT_MS = resolveTimeoutMs("tradeMs", DEFAULT_TRADE_TIMEOUT_MS);
 export const BOT_START_TIMEOUT_MS = resolveTimeoutMs("botStartMs", DEFAULT_BOT_START_TIMEOUT_MS);
 export const BOT_STATUS_TIMEOUT_MS = resolveTimeoutMs("botStatusMs", DEFAULT_BOT_STATUS_TIMEOUT_MS);
+export const BOT_STATUS_POLL_MS = 5_000;
 export const BOT_STATUS_TAIL_POINTS = 1000;
 export const BOT_STATUS_TAIL_FALLBACK_POINTS = 500;
 export const BOT_STATUS_OPS_LIMIT = 5000;

@@ -8816,8 +8816,12 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
     case fromException ex :: Maybe AsyncException of
       Just asyncEx -> throwIO asyncEx
       Nothing -> do
-        putStrLn (printf "Request %s %s failed: %s" method pathLabel (displayException ex))
-        respondCors (jsonError status500 "Internal server error")
+        let msg = displayException ex
+        if "Client closed connection prematurely" `isInfixOf` msg
+          then pure Wai.ResponseReceived
+          else do
+            putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
+            respondCors (jsonError status500 "Internal server error")
 
 authorized :: Maybe BS.ByteString -> Wai.Request -> Bool
 authorized mToken req =

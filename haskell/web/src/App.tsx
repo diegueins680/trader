@@ -64,6 +64,7 @@ import {
   BOT_START_TIMEOUT_MS,
   BOT_STATUS_OPS_FALLBACK_LIMIT,
   BOT_STATUS_OPS_LIMIT,
+  BOT_STATUS_POLL_MS,
   BOT_STATUS_TAIL_FALLBACK_POINTS,
   BOT_STATUS_TAIL_POINTS,
   BOT_STATUS_TIMEOUT_MS,
@@ -3103,13 +3104,15 @@ export function App() {
 
   const refreshBot = useCallback(
     async (opts?: RunOptions) => {
+      const silent = Boolean(opts?.silent);
+      if (silent && botAbortRef.current) return;
       const requestId = ++botRequestSeqRef.current;
       const startedAtMs = Date.now();
-      botAbortRef.current?.abort();
+      if (!silent) botAbortRef.current?.abort();
       const controller = new AbortController();
       botAbortRef.current = controller;
 
-      if (!opts?.silent) setBot((s) => ({ ...s, loading: true, error: null }));
+      if (!silent) setBot((s) => ({ ...s, loading: true, error: null }));
 
       try {
         const tailPoints = botStatusTailRef.current;
@@ -3783,7 +3786,7 @@ export function App() {
     const t = window.setInterval(() => {
       if (bot.loading) return;
       void refreshBot({ silent: true });
-    }, 2000);
+    }, BOT_STATUS_POLL_MS);
     return () => window.clearInterval(t);
   }, [apiOk, bot.loading, bot.status, refreshBot]);
 
