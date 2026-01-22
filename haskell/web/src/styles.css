@@ -846,9 +846,19 @@ body.panelMaximized .cardMaximized {
   overflow: hidden;
 }
 
+.combosCard:not(.cardMaximized) .cardBody > .row {
+  min-height: 0;
+  height: 100%;
+}
+
+.combosCard:not(.cardMaximized) .cardBody > .row > .field {
+  min-height: 0;
+  height: 100%;
+}
+
 .combosList {
   flex: 1;
-  min-height: 160px;
+  min-height: 0;
   overflow: auto;
   display: grid;
   gap: 12px;

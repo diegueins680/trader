@@ -695,7 +695,7 @@ Missing/invalid saved symbols fall back to platform defaults, and trade-test ski
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.
-Live bot and per-bot panels expand to show full chart contents without internal clipping, while the optimizer combos panel keeps controls fixed and the combos list scrollable in docked mode, then scrolls as a full panel when maximized so the run buttons stay reachable even with expanded sections.
+Live bot and per-bot panels expand to show full chart contents without internal clipping, while the optimizer combos panel keeps controls fixed and the combos list scrollable in docked mode (no clipping), then scrolls as a full panel when maximized so the run buttons stay reachable even with expanded sections.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API LSTM compute limits reported by `/health`.
