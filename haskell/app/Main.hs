@@ -11060,6 +11060,12 @@ listenKeyKeepAliveIntervalMs :: Int -> Int
 listenKeyKeepAliveIntervalMs keepAliveMs =
   max 60000 (floor (fromIntegral keepAliveMs * (0.9 :: Double)))
 
+listenKeyWsPingIntervalSec :: Int
+listenKeyWsPingIntervalSec = 180
+
+listenKeyWsReconnectDelayMs :: Int
+listenKeyWsReconnectDelayMs = 5000
+
 maxListenKeyEventBytes :: Int
 maxListenKeyEventBytes = 20000
 
@@ -11238,24 +11244,32 @@ listenKeyWsWorker st =
             if secure
               then Wuss.runSecureClient host portNumber path
               else WS.runClient host port path
-      result <-
-        try
-          ( runner $ \conn -> do
+          connectOnce =
+            runner $ \conn -> do
               emitListenKeyStatus st "connected" Nothing
-              forever $ do
-                msg <- WS.receiveData conn
-                emitListenKeyBinance st msg
-          )
-          :: IO (Either SomeException ())
-      case result of
-        Left ex -> do
-          stopped <- listenKeyStreamStopped st
-          unless stopped $ do
-            emitListenKeyStatus st "disconnected" (Just "WebSocket closed")
-            emitListenKeyError st (displayException ex)
-        Right _ -> do
-          stopped <- listenKeyStreamStopped st
-          unless stopped $ emitListenKeyStatus st "disconnected" Nothing
+              WS.withPingThread conn listenKeyWsPingIntervalSec (pure ()) $
+                forever $ do
+                  msg <- WS.receiveData conn
+                  emitListenKeyBinance st msg
+          handleDisconnect mErr = do
+            stopped <- listenKeyStreamStopped st
+            unless stopped $ do
+              case mErr of
+                Just ex -> do
+                  emitListenKeyStatus st "disconnected" (Just "WebSocket closed")
+                  emitListenKeyError st (displayException ex)
+                Nothing -> emitListenKeyStatus st "disconnected" Nothing
+              threadDelay (listenKeyWsReconnectDelayMs * 1000)
+              stopped' <- listenKeyStreamStopped st
+              unless stopped' $ do
+                emitListenKeyStatus st "connecting" Nothing
+                loop
+          loop = do
+            result <- try connectOnce :: IO (Either SomeException ())
+            case result of
+              Left ex -> handleDisconnect (Just ex)
+              Right _ -> handleDisconnect Nothing
+      loop
 
 listenKeyKeepAliveWorker :: ListenKeyStreamState -> IO ()
 listenKeyKeepAliveWorker st = do
@@ -11286,19 +11300,33 @@ handleBinanceListenKeyStream manager _ respond = do
       respond $
         Wai.responseStream status200 listenKeyStreamHeaders $ \write flush -> do
           chan <- dupChan (lksChan st)
-          let send payload = write (byteString payload) >> flush
+          let handleSendError :: IOException -> IO Bool
+              handleSendError _ = pure False
+              send payload =
+                (write (byteString payload) >> flush >> pure True)
+                  `catch` handleSendError
+              sendMaybeEvent eventName payload =
+                case payload of
+                  Nothing -> pure True
+                  Just raw -> send (mkSseEvent eventName raw)
           statusPayload <- readIORef (lksStatusRef st)
-          forM_ statusPayload (send . mkSseEvent "status")
-          keepAliveAt <- readIORef (lksKeepAliveAtRef st)
-          forM_ keepAliveAt (send . mkSseEvent "keepalive" . listenKeyKeepAlivePayload)
-          lastEvent <- readIORef (lksLastEventRef st)
-          forM_ lastEvent (send . mkSseEvent "binance")
-          let loop = do
-                evt <- readChan chan
-                case listenKeyEventToSse evt of
-                  Nothing -> pure ()
-                  Just payload -> send payload >> loop
-          loop
+          okStatus <- sendMaybeEvent "status" statusPayload
+          when okStatus $ do
+            keepAliveAt <- readIORef (lksKeepAliveAtRef st)
+            let keepAlivePayload = fmap listenKeyKeepAlivePayload keepAliveAt
+            okKeepAlive <- sendMaybeEvent "keepalive" keepAlivePayload
+            when okKeepAlive $ do
+              lastEvent <- readIORef (lksLastEventRef st)
+              okLast <- sendMaybeEvent "binance" lastEvent
+              when okLast $ do
+                let loop = do
+                      evt <- readChan chan
+                      case listenKeyEventToSse evt of
+                        Nothing -> pure ()
+                        Just payload -> do
+                          ok <- send payload
+                          when ok loop
+                loop
 
 handleBinanceListenKey :: ApiRequestLimits -> Maybe OpsStore -> ListenKeyManager -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do

@@ -425,7 +425,7 @@ Endpoints:
 - `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting
 - `POST /coinbase/keys` → checks Coinbase key/secret/passphrase via a signed `/accounts` probe
 - `POST /binance/listenKey` → creates a Binance user-data listenKey and starts the backend user-data stream (returns WebSocket URL for reference)
-- `GET /binance/listenKey/stream` → server-sent events relay of listenKey status, keep-alives, and Binance user-data payloads
+- `GET /binance/listenKey/stream` → server-sent events relay of listenKey status, keep-alives, and Binance user-data payloads (auto-reconnects the Binance WebSocket on disconnects)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
 - `POST /binance/listenKey/close` → closes a listenKey
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail). When `botSymbols` is provided without `binanceSymbol`, the first symbol is used as the data source for validation.
@@ -702,7 +702,7 @@ Optimizer combos are clamped to API LSTM compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
 The UI reads combos from the API, shows their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
 Live-bot status polling skips overlapping `/bot/status` requests and runs at a modest cadence to avoid client aborts while keeping the dashboard responsive.
-Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, and can be filtered by minimum final equity.
+Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, display full combo parameters inline, and can be filtered by symbol/market/interval/method plus minimum final equity.
 Optimizer run forms (including the Optimizer combos panel) launch `/optimizer/run` with constraints, accept advanced JSON overrides for `source`/`binanceSymbol`/`data` and `timeoutSec`, validate backtest/tune ratios, include an annualized-equity preset button, and surface equity-focused info popovers; complex parameters (method/thresholds/splits/LSTM/optimization) include info buttons.
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.

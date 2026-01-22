@@ -453,6 +453,22 @@ const normalizeDataLog = (raw: unknown): DataLogEntry[] => {
   return out.slice(out.length - DATA_LOG_MAX_ENTRIES);
 };
 
+type ComboMarketValue = Platform | "csv" | "unknown";
+type ComboMarketFilter = ComboMarketValue | "all";
+
+const comboMarketValue = (combo: OptimizationCombo): ComboMarketValue => {
+  const platform = combo.params.platform ?? (combo.source && combo.source !== "csv" ? combo.source : null);
+  if (platform) return platform;
+  if (combo.source === "csv") return "csv";
+  return "unknown";
+};
+
+const comboMarketLabel = (value: ComboMarketValue): string => {
+  if (value === "csv") return "CSV";
+  if (value === "unknown") return "Unknown";
+  return PLATFORM_LABELS[value] ?? value;
+};
+
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [healthInfo, setHealthInfo] = useState<Awaited<ReturnType<typeof health>> | null>(null);
@@ -758,12 +774,18 @@ export function App() {
   const [topCombosAll, setTopCombosAll] = useState<OptimizationCombo[]>([]);
   const [comboOrder, setComboOrder] = useState<ComboOrder>("annualized-equity");
   const [comboMinEquityInput, setComboMinEquityInput] = useState("");
+  const [comboSymbolFilterInput, setComboSymbolFilterInput] = useState("");
+  const [comboMarketFilter, setComboMarketFilter] = useState<ComboMarketFilter>("all");
+  const [comboIntervalFilter, setComboIntervalFilter] = useState<string>("all");
+  const [comboMethodFilter, setComboMethodFilter] = useState<Method | "all">("all");
   const comboMinEquity = useMemo(() => {
     const trimmed = comboMinEquityInput.trim();
     if (!trimmed) return null;
     const parsed = numFromInput(trimmed, Number.NaN);
     return Number.isFinite(parsed) ? parsed : null;
   }, [comboMinEquityInput]);
+  const comboSymbolFilters = useMemo(() => parseSymbolsInput(comboSymbolFilterInput), [comboSymbolFilterInput]);
+  const comboSymbolFilterSet = useMemo(() => new Set(comboSymbolFilters), [comboSymbolFilters]);
   const optimizerRunExtras = useMemo(() => parseOptimizerExtras(optimizerRunForm.extraJson), [optimizerRunForm.extraJson]);
   const optimizerRunValidationError = useMemo(() => {
     if (optimizerRunExtras.error) return optimizerRunExtras.error;
@@ -822,10 +844,50 @@ export function App() {
       return String(optimizerRunUi.response.lastRecord ?? "");
     }
   }, [optimizerRunUi.response]);
+  const comboFilterOptions = useMemo(() => {
+    const symbols = new Set<string>();
+    const markets = new Set<ComboMarketValue>();
+    const intervals = new Set<string>();
+    const methods = new Set<Method>();
+    for (const combo of topCombosAll) {
+      const symbol = normalizeSymbolKey(combo.params.binanceSymbol ?? "");
+      if (symbol) symbols.add(symbol);
+      markets.add(comboMarketValue(combo));
+      const interval = combo.params.interval?.trim();
+      if (interval) intervals.add(interval);
+      methods.add(combo.params.method);
+    }
+    const intervalList = Array.from(intervals).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const symbolList = Array.from(symbols).sort((a, b) => a.localeCompare(b));
+    const methodOrder: Method[] = ["11", "10", "01", "blend", "router"];
+    const methodList = methodOrder.filter((method) => methods.has(method));
+    const marketOrder: ComboMarketValue[] = [...PLATFORMS, "csv", "unknown"];
+    const marketList = marketOrder.filter((market) => markets.has(market));
+    return { symbols: symbolList, markets: marketList, intervals: intervalList, methods: methodList };
+  }, [topCombosAll]);
   const topCombosFiltered = useMemo(() => {
-    if (comboMinEquity == null) return topCombosAll;
-    return topCombosAll.filter((combo) => combo.finalEquity > comboMinEquity);
-  }, [comboMinEquity, topCombosAll]);
+    return topCombosAll.filter((combo) => {
+      if (comboMinEquity != null && !(combo.finalEquity > comboMinEquity)) return false;
+      if (comboSymbolFilterSet.size > 0) {
+        const symbol = normalizeSymbolKey(combo.params.binanceSymbol ?? "");
+        if (!symbol || !comboSymbolFilterSet.has(symbol)) return false;
+      }
+      if (comboMarketFilter !== "all") {
+        const market = comboMarketValue(combo);
+        if (market !== comboMarketFilter) return false;
+      }
+      if (comboIntervalFilter !== "all" && combo.params.interval !== comboIntervalFilter) return false;
+      if (comboMethodFilter !== "all" && combo.params.method !== comboMethodFilter) return false;
+      return true;
+    });
+  }, [
+    comboIntervalFilter,
+    comboMarketFilter,
+    comboMethodFilter,
+    comboMinEquity,
+    comboSymbolFilterSet,
+    topCombosAll,
+  ]);
   const topCombosOrdered = useMemo(() => {
     if (comboOrder === "rank") return topCombosFiltered;
     const sorted = [...topCombosFiltered];
@@ -886,6 +948,12 @@ export function App() {
     if (count && count > 0) return Math.max(TOP_COMBOS_DISPLAY_MIN, count);
     return Math.max(TOP_COMBOS_DISPLAY_MIN, TOP_COMBOS_DISPLAY_DEFAULT);
   }, [topCombosFiltered.length]);
+  const comboHasFilters =
+    comboMinEquity != null ||
+    comboSymbolFilters.length > 0 ||
+    comboMarketFilter !== "all" ||
+    comboIntervalFilter !== "all" ||
+    comboMethodFilter !== "all";
   const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
@@ -4279,6 +4347,7 @@ export function App() {
             source,
             operations: operationsOut,
             params: {
+              ...params,
               platform: resolvedPlatform,
               interval,
               bars,
@@ -8826,16 +8895,31 @@ export function App() {
                 const displayCount = topCombos.length;
                 const filteredCount = topCombosFiltered.length;
                 const totalCount = topCombosMeta.comboCount ?? topCombosAll.length;
-                const filterLabel =
-                  comboMinEquity != null ? ` (min final equity > ${fmtRatio(comboMinEquity, 4)})` : "";
+                const activeFilters: string[] = [];
+                if (comboMinEquity != null) {
+                  activeFilters.push(`min final equity > ${fmtRatio(comboMinEquity, 4)}`);
+                }
+                if (comboSymbolFilters.length > 0) {
+                  activeFilters.push(`symbol ${comboSymbolFilters.join(", ")}`);
+                }
+                if (comboMarketFilter !== "all") {
+                  activeFilters.push(`market ${comboMarketLabel(comboMarketFilter)}`);
+                }
+                if (comboIntervalFilter !== "all") {
+                  activeFilters.push(`interval ${comboIntervalFilter}`);
+                }
+                if (comboMethodFilter !== "all") {
+                  activeFilters.push(`method ${methodLabel(comboMethodFilter)}`);
+                }
+                const filterLabel = activeFilters.length > 0 ? ` (filters: ${activeFilters.join(", ")})` : "";
                 const countLabel =
-                  comboMinEquity != null
+                  activeFilters.length > 0
                     ? `Showing ${displayCount} of ${filteredCount} combos${filterLabel}`
                     : totalCount > displayCount
                       ? `Showing ${displayCount} of ${totalCount} combos`
                       : `Showing ${displayCount} combo${displayCount === 1 ? "" : "s"}`;
                 const totalLabel =
-                  comboMinEquity != null && totalCount > filteredCount ? ` • ${totalCount} total` : "";
+                  activeFilters.length > 0 && totalCount > filteredCount ? ` • ${totalCount} total` : "";
                 return (
                   <div style={{ marginBottom: 8 }}>
                     <div className="hint">
@@ -8921,9 +9005,103 @@ export function App() {
                   style={{ width: 140 }}
                 />
               </div>
-              {comboMinEquity != null && topCombosFiltered.length === 0 ? (
+              <div
+                className="row"
+                style={{ marginBottom: 8, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}
+              >
+                <div className="field">
+                  <label className="label" htmlFor="comboSymbolFilter">
+                    Symbol filter
+                  </label>
+                  <input
+                    id="comboSymbolFilter"
+                    className="input"
+                    value={comboSymbolFilterInput}
+                    onChange={(e) => setComboSymbolFilterInput(e.target.value)}
+                    placeholder="BTCUSDT, ETHUSDT"
+                    spellCheck={false}
+                    list="comboSymbolFilterList"
+                  />
+                  <datalist id="comboSymbolFilterList">
+                    {comboFilterOptions.symbols.map((symbol) => (
+                      <option key={symbol} value={symbol} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="comboMarketFilter">
+                    Market
+                  </label>
+                  <select
+                    id="comboMarketFilter"
+                    className="select"
+                    value={comboMarketFilter}
+                    onChange={(e) => setComboMarketFilter(e.target.value as ComboMarketFilter)}
+                  >
+                    <option value="all">All markets</option>
+                    {comboFilterOptions.markets.map((market) => (
+                      <option key={market} value={market}>
+                        {comboMarketLabel(market)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="comboIntervalFilter">
+                    Interval
+                  </label>
+                  <select
+                    id="comboIntervalFilter"
+                    className="select"
+                    value={comboIntervalFilter}
+                    onChange={(e) => setComboIntervalFilter(e.target.value)}
+                  >
+                    <option value="all">All intervals</option>
+                    {comboFilterOptions.intervals.map((interval) => (
+                      <option key={interval} value={interval}>
+                        {interval}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="comboMethodFilter">
+                    Method
+                  </label>
+                  <select
+                    id="comboMethodFilter"
+                    className="select"
+                    value={comboMethodFilter}
+                    onChange={(e) => setComboMethodFilter(e.target.value as Method | "all")}
+                  >
+                    <option value="all">All methods</option>
+                    {comboFilterOptions.methods.map((method) => (
+                      <option key={method} value={method}>
+                        {methodLabel(method)} ({method})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="actions" style={{ marginBottom: 8 }}>
+                <button
+                  className="btnSmall"
+                  type="button"
+                  onClick={() => {
+                    setComboMinEquityInput("");
+                    setComboSymbolFilterInput("");
+                    setComboMarketFilter("all");
+                    setComboIntervalFilter("all");
+                    setComboMethodFilter("all");
+                  }}
+                  disabled={!comboHasFilters}
+                >
+                  Clear filters
+                </button>
+              </div>
+              {comboHasFilters && topCombosFiltered.length === 0 ? (
                 <div className="hint" style={{ marginBottom: 8 }}>
-                  No combos match the final equity filter.
+                  No combos match the current filters.
                 </div>
               ) : null}
               <div className="actions" style={{ marginBottom: 8 }}>

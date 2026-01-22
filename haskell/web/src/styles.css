@@ -2112,6 +2112,45 @@ body.panelMaximized .cardMaximized {
   flex-wrap: wrap;
 }
 
+.comboParams {
+  border-top: 1px solid var(--stroke);
+  padding-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.comboParamsTitle {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+}
+
+.comboParamsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 12px;
+}
+
+.comboParam {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.comboParamKey {
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.comboParamValue {
+  color: var(--text);
+  font-family: var(--mono);
+  text-align: right;
+  word-break: break-word;
+}
+
 .comboOpsTooltip {
   position: absolute;
   left: 0;

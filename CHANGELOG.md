@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: retry `/bot/status` with a smaller tail on timeout errors to keep the dashboard responsive.
 - Web UI: switch the configuration dock to a menu bar and show each section as its own page to reduce clutter.
 - Web UI: make the configuration panel a full-page scroll instead of a fixed-height docked panel.
+- Web UI: show full optimizer combo parameters inline and add symbol/market/interval/method filters in the combos panel.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
@@ -24,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
 - Binance: `/binance/keys` trade tests auto-bump order sizing to the symbol minNotional instead of skipping.
 - Binance: parse `NOTIONAL` exchange filters so minNotional checks apply consistently.
+- Binance: listenKey user-data stream now sends WebSocket pings and auto-reconnects after disconnects.
 - Optimizer: include stable combo UUIDs in top-combos outputs.
 - Optimizer: merge top-combos de-duplication now keys off full combo identity (params + thresholds + objective + source) so new variants persist.
 - Optimizer: page Binance klines to support >1000 bars and honor `TRADER_OPTIMIZER_MAX_POINTS` (up to 5000) for `/optimizer/run` and auto optimizer runs.

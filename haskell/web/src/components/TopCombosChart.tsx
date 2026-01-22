@@ -75,6 +75,7 @@ export type OptimizationComboParams = {
   tuneStressVolMult?: number | null;
   tuneStressShock?: number | null;
   tuneStressWeight?: number | null;
+  [key: string]: unknown;
 };
 
 export type OptimizationComboOperation = {
@@ -150,6 +151,24 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
     typeof v === "number" && Number.isFinite(v) ? fmtPct(v, digits) : "—";
   const fmtOptInt = (v: number | null | undefined): string =>
     typeof v === "number" && Number.isFinite(v) ? Math.trunc(v).toString() : "—";
+  const fmtParamValue = (value: unknown): string => {
+    if (value == null) return "—";
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return "—";
+      if (Number.isInteger(value)) return value.toString();
+      const fixed = value.toFixed(6);
+      return fixed.replace(/\.?0+$/, "");
+    }
+    if (typeof value === "boolean") return value ? "true" : "false";
+    if (typeof value === "string") return value.trim() ? value : "—";
+    try {
+      const json = JSON.stringify(value);
+      if (json.length > 120) return `${json.slice(0, 117)}...`;
+      return json;
+    } catch {
+      return String(value);
+    }
+  };
 
   return (
     <div className="topCombosChart">
@@ -196,6 +215,16 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
         const createdLabel = combo.createdAtMs != null ? fmtTimeMs(combo.createdAtMs) : "—";
         const operations = combo.operations ?? [];
         const hasOps = operations.length > 0;
+        const paramEntries = (() => {
+          const rawParams = (combo.params ?? {}) as Record<string, unknown>;
+          const entries = Object.entries(rawParams).filter(([, value]) => value !== undefined);
+          entries.sort(([a], [b]) => a.localeCompare(b));
+          return [
+            ["openThreshold", combo.openThreshold],
+            ["closeThreshold", combo.closeThreshold],
+            ...entries.filter(([key]) => key !== "openThreshold" && key !== "closeThreshold"),
+          ] as Array<[string, unknown]>;
+        })();
         return (
           <div
             key={combo.id}
@@ -273,6 +302,17 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
               {hasOps ? <span className="badge">Ops {operations.length}</span> : null}
               <span className="badge">Open {openLabel}</span>
               <span className="badge">Close {closeLabel}</span>
+            </div>
+            <div className="comboParams">
+              <div className="comboParamsTitle">Parameters</div>
+              <div className="comboParamsGrid">
+                {paramEntries.map(([key, value]) => (
+                  <div key={`${combo.id}-param-${key}`} className="comboParam">
+                    <span className="comboParamKey">{key}</span>
+                    <span className="comboParamValue">{fmtParamValue(value)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
             {hasOps ? (
               <div className="comboOpsTooltip" aria-hidden="true">
