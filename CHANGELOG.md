@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - API: add `TRADER_BOT_AUTOSTART` to disable live-bot auto-start on boot.
 - API: when `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, echo the request Origin so direct UI calls work without explicit CORS config.
 - Web UI: try `apiBaseUrl` first and fail over to `apiFallbackUrl` after network/502/503/504 errors, remembering successful fallbacks for the session.
+- Web UI: retry `/bot/status` with a smaller tail on timeout errors to keep the dashboard responsive.
 - Web UI: switch the configuration dock to a menu bar and show each section as its own page to reduce clutter.
 - Web UI: make the configuration panel a full-page scroll instead of a fixed-height docked panel.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.

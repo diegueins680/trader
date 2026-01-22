@@ -3278,11 +3278,10 @@ export function App() {
             tailPoints,
           );
         } catch (e) {
-          if (
+          const shouldFallback =
             tailPoints > BOT_STATUS_TAIL_FALLBACK_POINTS &&
-            e instanceof HttpError &&
-            BOT_STATUS_RETRYABLE_HTTP.has(e.status)
-          ) {
+            (isTimeoutError(e) || (e instanceof HttpError && BOT_STATUS_RETRYABLE_HTTP.has(e.status)));
+          if (shouldFallback) {
             const fallbackTail = Math.min(BOT_STATUS_TAIL_FALLBACK_POINTS, tailPoints);
             out = await botStatus(
               apiBase,
