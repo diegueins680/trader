@@ -847,13 +847,13 @@ body.panelMaximized .cardMaximized {
 }
 
 .combosCard .cardBody > .row {
+  flex: 1 1 auto;
   min-height: 0;
-  height: 100%;
 }
 
 .combosCard .cardBody > .row > .field {
+  flex: 1 1 auto;
   min-height: 0;
-  height: 100%;
 }
 
 .combosList {
