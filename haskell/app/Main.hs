@@ -8813,6 +8813,10 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                       _ -> respondCors (jsonError status405 "Method not allowed")
                   _ -> respondCors (jsonError status404 "Not found")
 
+  let handleIoException :: IOException -> IO WaiInternal.ResponseReceived
+      handleIoException _ = pure WaiInternal.ResponseReceived
+      respondQuiet resp = respond resp `catch` handleIoException
+      respondCorsQuiet = respondQuiet . withCors corsConfig req
   handleRequest `catch` \ex ->
     case fromException ex :: Maybe AsyncException of
       Just asyncEx -> throwIO asyncEx
@@ -8828,10 +8832,10 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
               ]
             isDisconnect = any (`isInfixOf` msgLower) disconnectIndicators
         if isDisconnect
-          then pure WaiInternal.ResponseReceived
+          then respondQuiet (Wai.responseLBS status204 [] "")
           else do
             putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
-            respondCors (jsonError status500 "Internal server error")
+            respondCorsQuiet (jsonError status500 "Internal server error")
 
 authorized :: Maybe BS.ByteString -> Wai.Request -> Bool
 authorized mToken req =
