@@ -39,7 +39,7 @@ import qualified Data.Csv as Csv
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as V
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
-import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, execute_, query, query_, withTransaction)
+import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, executeMany, execute_, query, query_, withTransaction)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Database.PostgreSQL.Simple.ToField (Action, toField)
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
@@ -506,6 +506,7 @@ data BacktestSummary = BacktestSummary
   , bsTuneStressWeight :: !Double
   , bsMinRoundTrips :: !Int
   , bsWalkForwardFolds :: !Int
+  , bsWalkForwardEmbargoBars :: !Int
   , bsTuneStats :: !(Maybe TuneStats)
   , bsTuneMetrics :: !(Maybe BacktestMetrics)
   , bsBacktestSize :: !Int
@@ -533,6 +534,7 @@ data BacktestSummary = BacktestSummary
   , bsMaxVolatility :: !(Maybe Double)
   , bsRebalanceBars :: !Int
   , bsRebalanceThreshold :: !Double
+  , bsRebalanceCostMult :: !Double
   , bsFundingRate :: !Double
   , bsRebalanceGlobal :: !Bool
   , bsFundingBySide :: !Bool
@@ -637,26 +639,28 @@ main = do
     case validateArgs args of
       Left e -> die (e ++ "\n\nRun with --help for usage.")
       Right ok -> pure ok
+  if argOpsBackfillCommits args'
+    then runOpsBackfillCommits
+    else do
+      mWebhook <- newWebhookFromEnv
+      r <- try $ do
+        if argServe args'
+          then runRestApi args' mWebhook
+          else do
+            (series, mBinanceEnv) <- loadPrices Nothing args'
+            let prices = psClose series
+            ensureMinPriceRows args' 2 prices
 
-  mWebhook <- newWebhookFromEnv
-  r <- try $ do
-    if argServe args'
-      then runRestApi args' mWebhook
-      else do
-        (series, mBinanceEnv) <- loadPrices Nothing args'
-        let prices = psClose series
-        ensureMinPriceRows args' 2 prices
-
-        let lookback = argLookback args'
-        if argTradeOnly args'
-          then runTradeOnly mWebhook args' lookback series mBinanceEnv
-          else runBacktestPipeline mWebhook args' lookback series mBinanceEnv
-  case (r :: Either SomeException ()) of
-    Left ex -> do
-      let (_, msg) = exceptionToHttp ex
-      hPutStrLn stderr msg
-      exitFailure
-    Right () -> pure ()
+            let lookback = argLookback args'
+            if argTradeOnly args'
+              then runTradeOnly mWebhook args' lookback series mBinanceEnv
+              else runBacktestPipeline mWebhook args' lookback series mBinanceEnv
+      case (r :: Either SomeException ()) of
+        Left ex -> do
+          let (_, msg) = exceptionToHttp ex
+          hPutStrLn stderr msg
+          exitFailure
+        Right () -> pure ()
 
 -- REST API (stateless; computes per request)
 
@@ -691,6 +695,7 @@ data ApiParams = ApiParams
   , apTunePenaltyTurnover :: Maybe Double
   , apMinRoundTrips :: Maybe Int
   , apWalkForwardFolds :: Maybe Int
+  , apWalkForwardEmbargoBars :: Maybe Int
   , apPatience :: Maybe Int
   , apGradClip :: Maybe Double
   , apSeed :: Maybe Int
@@ -768,6 +773,7 @@ data ApiParams = ApiParams
   , apMaxVolatility :: Maybe Double
   , apRebalanceBars :: Maybe Int
   , apRebalanceThreshold :: Maybe Double
+  , apRebalanceCostMult :: Maybe Double
   , apRebalanceGlobal :: Maybe Bool
   , apFundingRate :: Maybe Double
   , apFundingBySide :: Maybe Bool
@@ -1601,6 +1607,7 @@ data OpsStore = OpsStore
   , osLatestId :: !(IORef Int64)
   , osPlatformCache :: !(IORef (HM.HashMap Text Int))
   , osSymbolCache :: !(IORef (HM.HashMap (Text, Text, Text) Int64))
+  , osCommitId :: !(Maybe Int64)
   }
 
 sanitizeApiParams :: ApiParams -> ApiParams
@@ -1746,6 +1753,7 @@ argsPublicJson args =
       , "maxVolatility" .= argMaxVolatility args
       , "rebalanceBars" .= argRebalanceBars args
       , "rebalanceThreshold" .= argRebalanceThreshold args
+      , "rebalanceCostMult" .= argRebalanceCostMult args
       , "rebalanceGlobal" .= argRebalanceGlobal args
       , "fundingRate" .= argFundingRate args
       , "fundingBySide" .= argFundingBySide args
@@ -2106,6 +2114,73 @@ resolvePlatformSymbolId store conn platformCode platformId symbol mMarket = do
           pure (Just sid)
         else pure Nothing
 
+data GitCommitLog = GitCommitLog
+  { gclHash :: !Text
+  , gclCommittedAtMs :: !Int64
+  } deriving (Eq, Show)
+
+resolveGitRepoRoot :: IO (Either String FilePath)
+resolveGitRepoRoot = do
+  (code, out, err) <- readCreateProcessWithExitCode (proc "git" ["rev-parse", "--show-toplevel"]) ""
+  case code of
+    ExitSuccess ->
+      case trim out of
+        "" -> pure (Left "git rev-parse returned an empty repo root.")
+        root -> pure (Right root)
+    ExitFailure _ ->
+      pure (Left ("Failed to resolve git repo root: " ++ trim (if null err then out else err)))
+
+parseGitCommitLogLine :: String -> Either String GitCommitLog
+parseGitCommitLogLine raw =
+  case break (== '|') (trim raw) of
+    (hashRaw, '|' : tsRaw) -> do
+      let hash = trim hashRaw
+          tsTrimmed = trim tsRaw
+      if null hash
+        then Left ("Invalid git log line (empty hash): " ++ raw)
+        else case readMaybe tsTrimmed :: Maybe Integer of
+          Nothing -> Left ("Invalid git commit timestamp: " ++ tsTrimmed)
+          Just ts ->
+            let tsMs = fromIntegral ts * 1000
+             in Right (GitCommitLog (T.pack hash) tsMs)
+    _ -> Left ("Invalid git log line: " ++ raw)
+
+parseGitCommitLog :: String -> Either String [GitCommitLog]
+parseGitCommitLog raw = do
+  let rows = filter (not . null) (map trim (lines raw))
+  forM rows parseGitCommitLogLine
+
+readGitCommitLog :: IO (Either String [GitCommitLog])
+readGitCommitLog = do
+  rootResult <- resolveGitRepoRoot
+  case rootResult of
+    Left err -> pure (Left err)
+    Right root -> do
+      let cmd = proc "git" ["-C", root, "log", "--all", "--format=%H|%ct"]
+      (code, out, err) <- readCreateProcessWithExitCode cmd ""
+      case code of
+        ExitSuccess -> pure (parseGitCommitLog out)
+        ExitFailure _ ->
+          pure (Left ("Failed to read git commit history: " ++ trim (if null err then out else err)))
+
+resolveGitCommitId :: Connection -> Text -> Maybe Text -> Maybe Int64 -> IO (Maybe Int64)
+resolveGitCommitId conn commitHash mVersion mCommittedAtMs = do
+  now <- getTimestampMs
+  rows <-
+    query
+      conn
+      ( "INSERT INTO git_commits (commit_hash, version, committed_at_ms, created_at_ms) "
+          <> "VALUES (?, ?, ?, ?) "
+          <> "ON CONFLICT (commit_hash) DO UPDATE "
+          <> "SET version = COALESCE(EXCLUDED.version, git_commits.version), "
+          <> "committed_at_ms = COALESCE(EXCLUDED.committed_at_ms, git_commits.committed_at_ms) "
+          <> "RETURNING id"
+      )
+      (commitHash, mVersion, mCommittedAtMs, now)
+  case rows of
+    (Only v : _) -> pure (Just v)
+    _ -> pure Nothing
+
 resolveDbUrl :: IO (Either String BS.ByteString)
 resolveDbUrl = do
   mPrimary <- lookupEnv "TRADER_DB_URL"
@@ -2136,6 +2211,17 @@ ensureOpsDbSchema conn = do
           <> "connection_json JSONB,"
           <> "created_at_ms BIGINT,"
           <> "updated_at_ms BIGINT"
+          <> ")"
+      )
+  _ <-
+    execute_
+      conn
+      ( "CREATE TABLE IF NOT EXISTS git_commits ("
+          <> "id BIGSERIAL PRIMARY KEY,"
+          <> "commit_hash TEXT UNIQUE NOT NULL,"
+          <> "version TEXT,"
+          <> "committed_at_ms BIGINT,"
+          <> "created_at_ms BIGINT"
           <> ")"
       )
   _ <-
@@ -2251,16 +2337,21 @@ ensureOpsDbSchema conn = do
           <> "params_json JSONB,"
           <> "args_json JSONB,"
           <> "result_json JSONB,"
-          <> "equity DOUBLE PRECISION"
+          <> "equity DOUBLE PRECISION,"
+          <> "git_commit_id BIGINT REFERENCES git_commits(id)"
           <> ")"
       )
   _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS platform_id INTEGER REFERENCES platforms(id)"
   _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS symbol_id BIGINT REFERENCES platform_symbols(id)"
+  _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS git_commit_id BIGINT REFERENCES git_commits(id)"
+  _ <- execute_ conn "ALTER TABLE git_commits ADD COLUMN IF NOT EXISTS committed_at_ms BIGINT"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_kind_idx ON ops(kind)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_combo_uuid_idx ON ops(combo_uuid)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_idx ON ops(symbol)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_platform_idx ON ops(platform_id)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_id_idx ON ops(symbol_id)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_git_commit_id_idx ON ops(git_commit_id)"
+  _ <- execute_ conn "CREATE INDEX IF NOT EXISTS git_commits_committed_at_ms_idx ON git_commits(committed_at_ms)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_order_id_idx ON ops(order_id)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_at_ms_idx ON ops(at_ms)"
   _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_at_ms_idx ON ops(symbol, at_ms)"
@@ -2344,6 +2435,19 @@ newOpsStoreFromEnv = do
               hPutStrLn stderr ("WARN: ops persistence disabled (" ++ show e ++ ")")
               pure Nothing
             Right _ -> do
+              mCommitRaw <- getBuildCommit
+              let mCommitText = normalizeMaybeText (T.pack <$> mCommitRaw)
+                  mVersionText = normalizeMaybeText (Just (T.pack traderVersion))
+              mCommitId <-
+                case mCommitText of
+                  Nothing -> pure Nothing
+                  Just commitHash -> do
+                    commitResult <- try (resolveGitCommitId conn commitHash mVersionText Nothing) :: IO (Either SomeException (Maybe Int64))
+                    case commitResult of
+                      Left e -> do
+                        hPutStrLn stderr ("WARN: unable to persist git commit metadata (" ++ show e ++ ")")
+                        pure Nothing
+                      Right v -> pure v
               maxRows <- query_ conn "SELECT COALESCE(MAX(id), 0) FROM ops" :: IO [Only Int64]
               let maxId =
                     case maxRows of
@@ -2353,7 +2457,65 @@ newOpsStoreFromEnv = do
               latestRef <- newIORef maxId
               platformCache <- newIORef HM.empty
               symbolCache <- newIORef HM.empty
-              pure (Just (OpsStore lock conn latestRef platformCache symbolCache))
+              pure (Just (OpsStore lock conn latestRef platformCache symbolCache mCommitId))
+
+backfillGitCommitsAndOps :: Connection -> IO (Either String (Int, Int64, Int64))
+backfillGitCommitsAndOps conn = do
+  logResult <- readGitCommitLog
+  case logResult of
+    Left err -> pure (Left err)
+    Right commits -> do
+      now <- getTimestampMs
+      let rows = [(gclHash c, gclCommittedAtMs c, now) | c <- commits]
+          upsertSql =
+            "INSERT INTO git_commits (commit_hash, committed_at_ms, created_at_ms) "
+              <> "VALUES (?, ?, ?) "
+              <> "ON CONFLICT (commit_hash) DO UPDATE "
+              <> "SET committed_at_ms = COALESCE(EXCLUDED.committed_at_ms, git_commits.committed_at_ms), "
+              <> "version = COALESCE(git_commits.version, EXCLUDED.version)"
+          updateOpsSql =
+            "WITH ordered_commits AS ("
+              <> "SELECT id, committed_at_ms, "
+              <> "LEAD(committed_at_ms) OVER (ORDER BY committed_at_ms, id) AS next_at "
+              <> "FROM git_commits WHERE committed_at_ms IS NOT NULL"
+              <> "), bounds AS ("
+              <> "SELECT id, committed_at_ms, COALESCE(next_at, 9223372036854775807) AS next_at "
+              <> "FROM ordered_commits"
+              <> ") "
+              <> "UPDATE ops "
+              <> "SET git_commit_id = bounds.id "
+              <> "FROM bounds "
+              <> "WHERE ops.git_commit_id IS NULL "
+              <> "AND ops.at_ms >= bounds.committed_at_ms "
+              <> "AND ops.at_ms < bounds.next_at"
+      upserted <-
+        if null rows
+          then pure 0
+          else executeMany conn upsertSql rows
+      updated <- execute_ conn updateOpsSql
+      pure (Right (length commits, upserted, updated))
+
+runOpsBackfillCommits :: IO ()
+runOpsBackfillCommits = do
+  dbUrlOrErr <- resolveDbUrl
+  case dbUrlOrErr of
+    Left err -> die ("Ops backfill requires TRADER_DB_URL or DATABASE_URL (" ++ err ++ ")")
+    Right url -> do
+      connResult <- try (connectPostgreSQL url) :: IO (Either SomeException Connection)
+      case connResult of
+        Left e -> die ("Ops backfill failed to connect to Postgres (" ++ show e ++ ")")
+        Right conn -> do
+          schemaResult <- try (ensureOpsDbSchema conn) :: IO (Either SomeException ())
+          case schemaResult of
+            Left e -> die ("Ops backfill failed to ensure schema (" ++ show e ++ ")")
+            Right _ -> do
+              backfillResult <- backfillGitCommitsAndOps conn
+              case backfillResult of
+                Left err -> die ("Ops backfill failed (" ++ err ++ ")")
+                Right (totalCommits, commitsUpserted, opsUpdated) -> do
+                  putStrLn ("Git commits discovered: " ++ show totalCommits)
+                  putStrLn ("Git commits upserted: " ++ show commitsUpserted)
+                  putStrLn ("Ops rows updated: " ++ show opsUpdated)
 
 opsAppend ::
   OpsStore ->
@@ -2392,6 +2554,7 @@ opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
       paramsJson = encodeJsonTextMaybe mParams
       argsJson = encodeJsonTextMaybe mArgs
       resultJson = encodeJsonTextMaybe mResult
+      mCommitId = osCommitId store
   opId <- withMVar (osLock store) $ \_ ->
     withTransaction (osConn store) $ do
       let conn = osConn store
@@ -2404,8 +2567,8 @@ opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
       rows <-
         query
           conn
-          "INSERT INTO ops (at_ms, kind, platform_id, symbol_id, symbol, combo_uuid, order_id, params_json, args_json, result_json, equity) VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?) RETURNING id"
-          (now, kind, mPlatformId, mSymbolId, mSymbol', mComboUuid', mOrderId', paramsJson, argsJson, resultJson, mEquity)
+          "INSERT INTO ops (at_ms, kind, platform_id, symbol_id, symbol, combo_uuid, order_id, params_json, args_json, result_json, equity, git_commit_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?) RETURNING id"
+          (now, kind, mPlatformId, mSymbolId, mSymbol', mComboUuid', mOrderId', paramsJson, argsJson, resultJson, mEquity, mCommitId)
       let newId =
             case rows of
               (Only v : _) -> v
@@ -4926,6 +5089,12 @@ botOptimizeAfterOperation st = do
               baseCloseThr = argCloseThreshold args
               fee = argFee args
               perSideCost = estimatedPerSideCost fee (argSlippage args) (argSpread args)
+              rebalanceThresholdBase = max 0 (argRebalanceThreshold args)
+              rebalanceCostMult = max 0 (argRebalanceCostMult args)
+              rebalanceThreshold =
+                if rebalanceCostMult <= 0
+                  then rebalanceThresholdBase
+                  else max rebalanceThresholdBase (rebalanceCostMult * perSideCost)
               minEdgeBase = max 0 (argMinEdge args)
               minEdge =
                 if argCostAwareEdge args
@@ -4987,7 +5156,7 @@ botOptimizeAfterOperation st = do
                   , ecVolScaleMax = argVolScaleMax args
                   , ecMaxVolatility = argMaxVolatility args
                   , ecRebalanceBars = argRebalanceBars args
-                  , ecRebalanceThreshold = argRebalanceThreshold args
+                  , ecRebalanceThreshold = rebalanceThreshold
                   , ecRebalanceGlobal = argRebalanceGlobal args
                   , ecRebalanceResetOnSignal = argRebalanceResetOnSignal args
                   , ecFundingRate = argFundingRate args
@@ -5041,6 +5210,7 @@ botOptimizeAfterOperation st = do
                   , tcPenaltyTurnover = argTunePenaltyTurnover args
                   , tcPeriodsPerYear = ppy
                   , tcWalkForwardFolds = argWalkForwardFolds args
+                  , tcWalkForwardEmbargoBars = argWalkForwardEmbargoBars args
                   , tcMinRoundTrips = argMinRoundTrips args
                   , tcStressVolMultiplier = argTuneStressVolMult args
                   , tcStressShock = argTuneStressShock args
@@ -5386,6 +5556,7 @@ parseTopComboToArgs base combo = do
 
       rebalanceBars = max 0 (pickI "rebalanceBars" (argRebalanceBars base))
       rebalanceThreshold = max 0 (pickD "rebalanceThreshold" (argRebalanceThreshold base))
+      rebalanceCostMult = max 0 (pickD "rebalanceCostMult" (argRebalanceCostMult base))
       rebalanceGlobal = pickBool "rebalanceGlobal" (argRebalanceGlobal base)
       rebalanceResetOnSignal = pickBool "rebalanceResetOnSignal" (argRebalanceResetOnSignal base)
       fundingRate = pickD "fundingRate" (argFundingRate base)
@@ -5403,6 +5574,7 @@ parseTopComboToArgs base combo = do
       kalmanMarketTopN = max 0 (pickI "kalmanMarketTopN" (argKalmanMarketTopN base))
 
       walkForwardFolds = max 1 (pickI "walkForwardFolds" (argWalkForwardFolds base))
+      walkForwardEmbargoBars = max 0 (pickI "walkForwardEmbargoBars" (argWalkForwardEmbargoBars base))
       tuneStressVolMult = max 1e-12 (pickD "tuneStressVolMult" (argTuneStressVolMult base))
       tuneStressShock = pickD "tuneStressShock" (argTuneStressShock base)
       tuneStressWeight = max 0 (pickD "tuneStressWeight" (argTuneStressWeight base))
@@ -5450,6 +5622,7 @@ parseTopComboToArgs base combo = do
           , argMaxVolatility = maxVolatility
           , argRebalanceBars = rebalanceBars
           , argRebalanceThreshold = rebalanceThreshold
+          , argRebalanceCostMult = rebalanceCostMult
           , argRebalanceGlobal = rebalanceGlobal
           , argRebalanceResetOnSignal = rebalanceResetOnSignal
           , argFundingRate = fundingRate
@@ -5474,6 +5647,7 @@ parseTopComboToArgs base combo = do
           , argMinPositionSize = minPositionSize
           , argPeriodsPerYear = periodsPerYear
           , argWalkForwardFolds = walkForwardFolds
+          , argWalkForwardEmbargoBars = walkForwardEmbargoBars
           , argTuneStressVolMult = tuneStressVolMult
           , argTuneStressShock = tuneStressShock
           , argTuneStressWeight = tuneStressWeight
@@ -7858,6 +8032,7 @@ argsCacheJsonBacktest args =
       , "tuneStressWeight" .= argTuneStressWeight args
       , "minRoundTrips" .= argMinRoundTrips args
       , "walkForwardFolds" .= argWalkForwardFolds args
+      , "walkForwardEmbargoBars" .= argWalkForwardEmbargoBars args
       , "optimizeOperations" .= argOptimizeOperations args
       , "sweepThreshold" .= argSweepThreshold args
       , "fee" .= argFee args
@@ -7902,6 +8077,7 @@ argsCacheJsonBacktest args =
       , "maxVolatility" .= argMaxVolatility args
       , "rebalanceBars" .= argRebalanceBars args
       , "rebalanceThreshold" .= argRebalanceThreshold args
+      , "rebalanceCostMult" .= argRebalanceCostMult args
       , "rebalanceGlobal" .= argRebalanceGlobal args
       , "fundingRate" .= argFundingRate args
       , "fundingBySide" .= argFundingBySide args
@@ -11947,6 +12123,7 @@ argsFromApi baseArgs p = do
           , argTunePenaltyTurnover = pick (apTunePenaltyTurnover p) (argTunePenaltyTurnover baseArgs)
           , argMinRoundTrips = pick (apMinRoundTrips p) (argMinRoundTrips baseArgs)
           , argWalkForwardFolds = pick (apWalkForwardFolds p) (argWalkForwardFolds baseArgs)
+          , argWalkForwardEmbargoBars = pick (apWalkForwardEmbargoBars p) (argWalkForwardEmbargoBars baseArgs)
           , argPatience = pick (apPatience p) (argPatience baseArgs)
           , argGradClip =
               case apGradClip p of
@@ -12026,6 +12203,7 @@ argsFromApi baseArgs p = do
           , argMaxVolatility = pickMaybe (apMaxVolatility p) (argMaxVolatility baseArgs)
           , argRebalanceBars = pick (apRebalanceBars p) (argRebalanceBars baseArgs)
           , argRebalanceThreshold = pick (apRebalanceThreshold p) (argRebalanceThreshold baseArgs)
+          , argRebalanceCostMult = pick (apRebalanceCostMult p) (argRebalanceCostMult baseArgs)
           , argRebalanceGlobal = pick (apRebalanceGlobal p) (argRebalanceGlobal baseArgs)
           , argRebalanceResetOnSignal = pick (apRebalanceResetOnSignal p) (argRebalanceResetOnSignal baseArgs)
           , argFundingRate = pick (apFundingRate p) (argFundingRate baseArgs)
@@ -13823,6 +14001,7 @@ backtestSummaryJson summary =
           , "stressWeight" .= bsTuneStressWeight summary
           , "minRoundTrips" .= bsMinRoundTrips summary
           , "walkForwardFolds" .= bsWalkForwardFolds summary
+          , "walkForwardEmbargoBars" .= bsWalkForwardEmbargoBars summary
           , "tuneStats" .= tuneStatsJson
           , "tuneMetrics" .= tuneMetricsJson
           ]
@@ -13897,6 +14076,7 @@ backtestSummaryJson summary =
     , "maxVolatility" .= bsMaxVolatility summary
     , "rebalanceBars" .= bsRebalanceBars summary
     , "rebalanceThreshold" .= bsRebalanceThreshold summary
+    , "rebalanceCostMult" .= bsRebalanceCostMult summary
     , "rebalanceGlobal" .= bsRebalanceGlobal summary
     , "fundingRate" .= bsFundingRate summary
     , "fundingBySide" .= bsFundingBySide summary
@@ -14622,6 +14802,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       spreadUsed = max 0 (argSpread args)
       perSideCost = estimatedPerSideCost feeUsed slippageUsed spreadUsed
       roundTripCost = estimatedRoundTripCost feeUsed slippageUsed spreadUsed
+      rebalanceThresholdBase = max 0 (argRebalanceThreshold args)
+      rebalanceCostMult = max 0 (argRebalanceCostMult args)
+      rebalanceThresholdUsed =
+        if rebalanceCostMult <= 0
+          then rebalanceThresholdBase
+          else max rebalanceThresholdBase (rebalanceCostMult * perSideCost)
       minEdgeBase = max 0 (argMinEdge args)
       minEdge =
         if argCostAwareEdge args
@@ -14693,7 +14879,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , ecVolScaleMax = argVolScaleMax args
           , ecMaxVolatility = argMaxVolatility args
           , ecRebalanceBars = argRebalanceBars args
-          , ecRebalanceThreshold = argRebalanceThreshold args
+          , ecRebalanceThreshold = rebalanceThresholdUsed
           , ecRebalanceGlobal = argRebalanceGlobal args
           , ecRebalanceResetOnSignal = argRebalanceResetOnSignal args
           , ecFundingRate = argFundingRate args
@@ -14757,6 +14943,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
           , tcPenaltyTurnover = argTunePenaltyTurnover args
           , tcPeriodsPerYear = ppy
           , tcWalkForwardFolds = argWalkForwardFolds args
+          , tcWalkForwardEmbargoBars = argWalkForwardEmbargoBars args
           , tcMinRoundTrips = argMinRoundTrips args
           , tcStressVolMultiplier = argTuneStressVolMult args
           , tcStressShock = argTuneStressShock args
@@ -14876,6 +15063,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       walkForward =
         let wfReq = max 1 (argWalkForwardFolds args)
             stepsAll = max 0 (length backtestPrices - 1)
+            embargoBars = max 0 (argWalkForwardEmbargoBars args)
 
             foldRangesSteps :: Int -> Int -> [(Int, Int)]
             foldRangesSteps steps0 k0 =
@@ -14891,6 +15079,15 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                             end = start + len - 1
                          in if len <= 0 then [] else (start, end) : go (i + 1) (end + 1)
                in go 0 0
+            applyEmbargo e (t0, t1) =
+              let t0' = t0 + e
+                  t1' = t1 - e
+               in if t1' < t0' then Nothing else Just (t0', t1')
+            foldRangesAll = foldRangesSteps stepsAll wfReq
+            foldRangesEval =
+              if length foldRangesAll <= 1 || embargoBars <= 0
+                then foldRangesAll
+                else mapMaybe (applyEmbargo embargoBars) foldRangesAll
 
             bad x = isNaN x || isInfinite x
             meanD xs =
@@ -14926,11 +15123,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
 
             folds =
               [ mkFold r
-              | r@(t0, t1) <- foldRangesSteps stepsAll wfReq
+              | r@(t0, t1) <- foldRangesEval
               , t1 >= t0
               ]
          in
-          if wfReq <= 1 || stepsAll <= 1
+          if wfReq <= 1 || stepsAll <= 1 || null folds
             then Nothing
             else
               let ms = map wffMetrics folds
@@ -15010,6 +15207,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsTuneStressWeight = argTuneStressWeight args
       , bsMinRoundTrips = argMinRoundTrips args
       , bsWalkForwardFolds = argWalkForwardFolds args
+      , bsWalkForwardEmbargoBars = argWalkForwardEmbargoBars args
       , bsTuneStats = mTuneStats
       , bsTuneMetrics = mTuneMetrics
       , bsBacktestSize = length backtestPrices
@@ -15036,7 +15234,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
       , bsVolScaleMax = argVolScaleMax args
       , bsMaxVolatility = argMaxVolatility args
       , bsRebalanceBars = argRebalanceBars args
-      , bsRebalanceThreshold = argRebalanceThreshold args
+      , bsRebalanceThreshold = rebalanceThresholdUsed
+      , bsRebalanceCostMult = rebalanceCostMult
       , bsRebalanceGlobal = argRebalanceGlobal args
       , bsFundingRate = argFundingRate args
       , bsFundingBySide = argFundingBySide args

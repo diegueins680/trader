@@ -35,6 +35,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: optimize-operations/sweep scoring now uses the configured periods-per-year for annualized metrics.
 - Optimizer: include `router` in optimize-operations candidate methods.
 - Database: add `platforms`, `platform_symbols`, `bots`, and `positions` tables so ops/positions link back to platform metadata and running bots.
+- Database: add `git_commits` plus `ops.git_commit_id` to track the code version for each operation.
+- Ops: add `--ops-backfill-commits` to populate git commits from repo history and backfill `ops.git_commit_id`.
 - Optimizer: add genetic crossover using parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
 - API: include CSV file size/mtime in cache keys so updated CSVs invalidate cached signal/backtest results.
@@ -60,6 +62,7 @@ All notable changes to this project will be documented in this file.
 - Live bot: emit `bot.adjust` events after each completed trade with rolling performance and effective filter adjustments.
 - Web UI: default Live orders + Trading armed toggles to on.
 - Web UI: listenKey user-data stream now subscribes to the backend relay instead of opening a browser WebSocket.
+- Web UI: auto-check API keys on load and auto-start the Binance listenKey stream when keys are available.
 - Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
 - Web UI: skip top-combo auto-start when interval/lookback validation fails to avoid `/bot/start` errors.
 - Web UI: block Binance positions/trades refresh until API keys are provided or verified via “Check keys”.

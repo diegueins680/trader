@@ -493,6 +493,8 @@ Database (required for ops + combo persistence):
 - Set `TRADER_DB_URL` (or `DATABASE_URL`) to a Postgres instance; use durable managed storage for deploys.
 - Docker images must include `libpq` (`libpq5` on Debian); the provided `Dockerfile` installs it.
 - Stores every operation plus combo metrics, strategy metadata, and combo parameters.
+- When `TRADER_GIT_COMMIT` (or related env vars) is set, ops link to `git_commits` via `git_commit_id` for code-state analysis.
+- Backfill git history and link existing ops with `cabal run trader-hs -- --ops-backfill-commits` (matches ops by commit timestamp; requires repo history + `TRADER_DB_URL`).
 - Live bots update the matching combo row with the latest equity/annualized metrics on every candle.
 - Recommended: include `sslmode=require` in hosted Postgres connection strings.
 - Platforms are stored in `platforms` with REST/WS URLs plus non-secret connection metadata (auth type, testnet/futures endpoints).
@@ -690,6 +692,7 @@ Open positions chart headers and position badges wrap within the panel so all st
 The overview card summarizes connection, execution mode, and the latest signal/backtest/trade results for quick scanning.
 Overview summary metadata (like API URLs or error strings) wraps so full content stays visible.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
+On startup the UI auto-checks API keys for Binance/Coinbase (when selected) and auto-starts the Binance listenKey user-data stream once keys are available.
 Symbol inputs are validated per platform (Binance `BTCUSDT`, Coinbase `BTC-USD`, Poloniex `BTC_USDT`).
 Missing/invalid saved symbols fall back to platform defaults, and trade-test skips surface as a warning callout with the skip reason.
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.

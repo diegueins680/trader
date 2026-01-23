@@ -718,6 +718,8 @@ export function App() {
     }
     return 'Trading armed requires Binance API keys. Add keys or click "Check keys" to verify server env keys, or disable Arm trading for paper mode.';
   }, [binanceKeyLocalReady, form.tradeArmed, isBinancePlatform, keysProvided]);
+  const autoKeysCheckRef = useRef(false);
+  const autoListenKeyStartRef = useRef(false);
 
   const [cacheUi, setCacheUi] = useState<CacheUiState>({ loading: false, error: null, stats: null });
 
@@ -3289,39 +3291,75 @@ export function App() {
     [apiBase, authHeaders, showToast],
   );
 
-  const startListenKeyStream = useCallback(async () => {
-    if (!isBinancePlatform) {
-      const msg = "Listen key streams are supported on Binance only.";
-      setListenKeyUi((s) => ({ ...s, error: msg, wsStatus: "disconnected" }));
-      showToast(msg);
+  const startListenKeyStream = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = Boolean(opts?.silent);
+      if (!isBinancePlatform) {
+        const msg = "Listen key streams are supported on Binance only.";
+        setListenKeyUi((s) => ({ ...s, error: msg, wsStatus: "disconnected" }));
+        if (!silent) showToast(msg);
+        return;
+      }
+      if (apiOk !== "ok") return;
+      await stopListenKeyStream({ close: false, silent: true });
+      setListenKeyUi((s) => ({ ...s, loading: true, error: null, wsError: null, keepAliveError: null, wsStatus: "connecting" }));
+      try {
+        const base: ApiParams = { market: form.market, binanceTestnet: form.binanceTestnet };
+        const out = await binanceListenKey(apiBase, withBinanceKeys(base), { headers: authHeaders, timeoutMs: 30_000 });
+
+        setListenKeyUi((s) => ({ ...s, loading: false, error: null, info: out, wsStatus: "connecting" }));
+        void openListenKeyStream({ silent });
+        if (!silent) showToast("Listen key started");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setListenKeyUi((s) => ({ ...s, loading: false, error: msg, wsStatus: "disconnected" }));
+        if (!silent) showToast("Listen key start failed");
+      }
+    },
+    [
+      apiBase,
+      apiOk,
+      authHeaders,
+      form.binanceTestnet,
+      form.market,
+      isBinancePlatform,
+      openListenKeyStream,
+      showToast,
+      stopListenKeyStream,
+      withBinanceKeys,
+    ],
+  );
+
+  useEffect(() => {
+    if (autoKeysCheckRef.current) return;
+    if (apiOk !== "ok") return;
+    if (!keysSupported) return;
+    if (!form.binanceSymbol.trim()) return;
+    autoKeysCheckRef.current = true;
+    void refreshKeys({ silent: true });
+  }, [apiOk, form.binanceSymbol, keysSupported, refreshKeys]);
+
+  useEffect(() => {
+    if (autoListenKeyStartRef.current) return;
+    if (listenKeyUi.info || listenKeyUi.wsStatus !== "disconnected") {
+      autoListenKeyStartRef.current = true;
       return;
     }
     if (apiOk !== "ok") return;
-    await stopListenKeyStream({ close: false, silent: true });
-    setListenKeyUi((s) => ({ ...s, loading: true, error: null, wsError: null, keepAliveError: null, wsStatus: "connecting" }));
-    try {
-      const base: ApiParams = { market: form.market, binanceTestnet: form.binanceTestnet };
-      const out = await binanceListenKey(apiBase, withBinanceKeys(base), { headers: authHeaders, timeoutMs: 30_000 });
-
-      setListenKeyUi((s) => ({ ...s, loading: false, error: null, info: out, wsStatus: "connecting" }));
-      void openListenKeyStream();
-      showToast("Listen key started");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setListenKeyUi((s) => ({ ...s, loading: false, error: msg, wsStatus: "disconnected" }));
-      showToast("Listen key start failed");
-    }
+    if (!isBinancePlatform) return;
+    if (listenKeyUi.loading) return;
+    if (!binanceKeyLocalReady && keysProvided !== true) return;
+    autoListenKeyStartRef.current = true;
+    void startListenKeyStream({ silent: true });
   }, [
-    apiBase,
     apiOk,
-    authHeaders,
-    form.binanceTestnet,
-    form.market,
+    binanceKeyLocalReady,
     isBinancePlatform,
-    openListenKeyStream,
-    showToast,
-    stopListenKeyStream,
-    withBinanceKeys,
+    keysProvided,
+    listenKeyUi.info,
+    listenKeyUi.loading,
+    listenKeyUi.wsStatus,
+    startListenKeyStream,
   ]);
 
   const refreshBot = useCallback(

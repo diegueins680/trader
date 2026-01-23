@@ -82,6 +82,7 @@ data Args = Args
   , argTunePenaltyTurnover :: Double
   , argMinRoundTrips :: Int
   , argWalkForwardFolds :: Int
+  , argWalkForwardEmbargoBars :: Int
   , argPatience :: Int
   , argGradClip :: Maybe Double
   , argSeed :: Int
@@ -159,6 +160,7 @@ data Args = Args
   , argMaxVolatility :: Maybe Double
   , argRebalanceBars :: Int
   , argRebalanceThreshold :: Double
+  , argRebalanceCostMult :: Double
   , argRebalanceGlobal :: Bool
   , argRebalanceResetOnSignal :: Bool
   , argFundingRate :: Double
@@ -187,6 +189,7 @@ data Args = Args
   , argPeriodsPerYear :: Maybe Double
   , argJson :: Bool
   , argServe :: Bool
+  , argOpsBackfillCommits :: Bool
   , argPort :: Int
   -- Confidence gating/sizing (Kalman sensors + HMM/intervals)
   , argKalmanZMin :: Double
@@ -361,6 +364,13 @@ opts = do
           <> help "When optimizing/sweeping, require at least N round trips in the tune split (0 disables; helps avoid 'no-trade' winners)"
       )
   argWalkForwardFolds <- option auto (long "walk-forward-folds" <> value 7 <> help "Compute fold stats on tune/backtest windows (1 disables)")
+  argWalkForwardEmbargoBars <-
+    option
+      auto
+      ( long "walk-forward-embargo-bars"
+          <> value 0
+          <> help "Bars to drop from each walk-forward fold edge to reduce leakage (0 disables)."
+      )
   argPatience <- option auto (long "patience" <> value 10 <> help "Early stopping patience (0 disables)")
   argGradClip <- optional (option auto (long "grad-clip" <> help "Gradient clipping max L2 norm"))
   argSeed <- option auto (long "seed" <> value 42 <> help "Random seed for LSTM init")
@@ -563,6 +573,7 @@ opts = do
       )
   argRebalanceBars <- option auto (long "rebalance-bars" <> value 24 <> showDefault <> help "Rebalance position size every N bars when size targets change (0 disables; default anchors to entry age)")
   argRebalanceThreshold <- option auto (long "rebalance-threshold" <> value 0.05 <> showDefault <> help "Minimum abs size delta required to rebalance (0 disables)")
+  argRebalanceCostMult <- option auto (long "rebalance-cost-mult" <> value 0.0 <> showDefault <> help "Extra rebalance threshold as a multiple of per-side cost (0 disables)")
   argRebalanceGlobal <- switch (long "rebalance-global" <> help "Anchor rebalance cadence to global bars instead of entry age")
   argRebalanceResetOnSignal <- switch (long "rebalance-reset-on-signal" <> help "Reset rebalance cadence when a same-side open signal updates size")
   argFundingRate <- option auto (long "funding-rate" <> long "financing-rate" <> value 0.1 <> showDefault <> help "Annualized funding/borrow rate applied per bar in backtests (fraction; negative allowed; side-agnostic unless --funding-by-side)")
@@ -602,6 +613,7 @@ opts = do
   argPeriodsPerYear <- optional (option auto (long "periods-per-year" <> help "For annualized metrics (e.g., 365 for 1d, 8760 for 1h)"))
   argJson <- switch (long "json" <> help "Output JSON to stdout (CLI mode only)")
   argServe <- switch (long "serve" <> help "Run REST API server on localhost instead of running the CLI workflow")
+  argOpsBackfillCommits <- switch (long "ops-backfill-commits" <> help "Backfill git_commits from repo history and link ops by commit time (requires TRADER_DB_URL)")
   argPort <- option auto (long "port" <> value 8080 <> help "REST API port (when --serve)")
   argKalmanZMin <- option auto (long "kalman-z-min" <> value 0.5 <> help "Min |Kalman mean|/std (z-score) required to treat Kalman as directional (0 disables)")
   argKalmanZMax <- option auto (long "kalman-z-max" <> value 3 <> help "Z-score mapped to position size=1 when --confidence-sizing is enabled")
@@ -686,8 +698,11 @@ validateArgs args0 = do
     Just "" -> Left "--binance-symbol cannot be empty"
     _ -> pure ()
   ensure "Provide only one of --data or --binance-symbol" (not (present (argData args) && present (argBinanceSymbol args)))
-  ensure "Provide a data source: --data or --binance-symbol (unless using --serve)" (argServe args || present (argData args) || present (argBinanceSymbol args))
-  ensure "--json cannot be used with --serve" (not (argJson args && argServe args))
+  ensure
+    "Provide a data source: --data or --binance-symbol (unless using --serve or --ops-backfill-commits)"
+    (argServe args || argOpsBackfillCommits args || present (argData args) || present (argBinanceSymbol args))
+  ensure "--json cannot be used with --serve or --ops-backfill-commits" (not (argJson args && (argServe args || argOpsBackfillCommits args)))
+  ensure "--ops-backfill-commits cannot be used with --serve" (not (argOpsBackfillCommits args && argServe args))
   ensure "Choose only one of --futures or --margin" (not (argBinanceFutures args && argBinanceMargin args))
   ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)
   let isBinance = argPlatform args == PlatformBinance
@@ -782,6 +797,7 @@ validateArgs args0 = do
   ensure "--tune-penalty-max-drawdown must be >= 0" (argTunePenaltyMaxDrawdown args >= 0)
   ensure "--tune-penalty-turnover must be >= 0" (argTunePenaltyTurnover args >= 0)
   ensure "--walk-forward-folds must be >= 1" (argWalkForwardFolds args >= 1)
+  ensure "--walk-forward-embargo-bars must be >= 0" (argWalkForwardEmbargoBars args >= 0)
   ensure "--patience must be >= 0" (argPatience args >= 0)
   case argGradClip args of
     Nothing -> pure ()
@@ -896,6 +912,7 @@ validateArgs args0 = do
     Just v -> ensure "--max-volatility must be >= 0" (v >= 0)
   ensure "--rebalance-bars must be >= 0" (argRebalanceBars args >= 0)
   ensure "--rebalance-threshold must be >= 0" (argRebalanceThreshold args >= 0)
+  ensure "--rebalance-cost-mult must be >= 0" (argRebalanceCostMult args >= 0)
   let fundingRate = argFundingRate args
   ensure "--funding-rate must be finite" (not (isNaN fundingRate || isInfinite fundingRate))
   ensure "--blend-weight must be between 0 and 1" (argBlendWeight args >= 0 && argBlendWeight args <= 1)
