@@ -846,12 +846,12 @@ body.panelMaximized .cardMaximized {
   overflow: hidden;
 }
 
-.combosCard:not(.cardMaximized) .cardBody > .row {
+.combosCard .cardBody > .row {
   min-height: 0;
   height: 100%;
 }
 
-.combosCard:not(.cardMaximized) .cardBody > .row > .field {
+.combosCard .cardBody > .row > .field {
   min-height: 0;
   height: 100%;
 }
@@ -866,15 +866,15 @@ body.panelMaximized .cardMaximized {
   scrollbar-gutter: stable;
 }
 
-.combosCard.cardMaximized .cardBody {
+.combosCard.cardMaximized .combosList {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
+  padding-bottom: 16px;
 }
 
-.combosCard.cardMaximized .combosList {
-  flex: 0 0 auto;
-  min-height: 0;
-  overflow: visible;
-  padding-bottom: 16px;
+.combosCard.cardMaximized .cardBody {
+  overflow: hidden;
 }
 
 .card[data-panel="panel-live-bot"]:not(.cardMaximized):not(.chartCard),
