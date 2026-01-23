@@ -17,6 +17,7 @@ module Trader.Optimization
   ) where
 
 import Data.List (foldl', group, intercalate, sort)
+import Data.Maybe (mapMaybe)
 import qualified Data.Vector as V
 
 import Trader.Method (Method(..))
@@ -81,6 +82,7 @@ data TuneConfig = TuneConfig
   , tcPenaltyTurnover :: !Double
   , tcPeriodsPerYear :: !Double
   , tcWalkForwardFolds :: !Int
+  , tcWalkForwardEmbargoBars :: !Int
   , tcMinRoundTrips :: !Int
   , tcStressVolMultiplier :: !Double
   , tcStressShock :: !Double
@@ -102,6 +104,7 @@ defaultTuneConfig periodsPerYear =
     , tcPenaltyTurnover = 0.0
     , tcPeriodsPerYear = max 1e-12 periodsPerYear
     , tcWalkForwardFolds = 1
+    , tcWalkForwardEmbargoBars = 0
     , tcMinRoundTrips = 0
     , tcStressVolMultiplier = 1.0
     , tcStressShock = 0.0
@@ -523,8 +526,19 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 else bmRoundTrips metrics' >= minRoundTripsReq
                             foldsReq = max 1 (tcWalkForwardFolds cfg)
                             foldRs = foldRanges stepCount foldsReq
+                            embargoBars = max 0 (tcWalkForwardEmbargoBars cfg)
+                            applyEmbargo e (t0, t1) =
+                              let t0' = t0 + e
+                                  t1' = t1 - e
+                               in if t1' < t0' then Nothing else Just (t0', t1')
+                            foldRsEval =
+                              if length foldRs <= 1 || embargoBars <= 0
+                                then foldRs
+                                else mapMaybe (applyEmbargo embargoBars) foldRs
+                            eligible'' =
+                              eligible' && (length foldRs <= 1 || not (null foldRsEval))
                             foldScores' =
-                              if not eligible'
+                              if not eligible''
                                 then [ineligibleScore]
                                 else
                                   if length foldRs <= 1
@@ -544,10 +558,10 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                          in case btFoldE of
                                               Left _ -> ineligibleScore
                                               Right btFold -> scoreBacktest cfg btFold
-                                      | (t0, t1) <- foldRs
+                                      | (t0, t1) <- foldRsEval
                                       , t1 >= t0
                                       ]
-                         in (btFull', metrics', eligible', foldScores')
+                         in (btFull', metrics', eligible'', foldScores')
                   m = mean foldScores
                   s = stddev foldScores
                   stats =
