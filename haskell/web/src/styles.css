@@ -846,6 +846,17 @@ body.panelMaximized .cardMaximized {
   overflow: hidden;
 }
 
+.combosScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
 .combosCard .cardBody > .row {
   flex: 1 1 auto;
   min-height: 0;
@@ -857,20 +868,8 @@ body.panelMaximized .cardMaximized {
 }
 
 .combosList {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
   display: grid;
   gap: 12px;
-  padding-right: 4px;
-  scrollbar-gutter: stable;
-}
-
-.combosCard.cardMaximized .combosList {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding-bottom: 16px;
 }
 
 .combosCard.cardMaximized .cardBody {

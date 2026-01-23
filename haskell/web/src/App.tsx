@@ -9135,11 +9135,11 @@ export function App() {
                   Start bot with selected combo is disabled: {comboStartBlockedReason}
                 </div>
               ) : null}
-              <div className="combosList">
-              <details className="details" style={{ marginBottom: 12 }}>
-                <summary>Run optimizer (create combos)</summary>
-                <div onChange={() => setOptimizerRunDirty((prev) => (prev ? prev : true))}>
-                <div className="row" style={{ marginTop: 10 }}>
+              <div className="combosScroll">
+                <details className="details">
+                  <summary>Run optimizer (create combos)</summary>
+                  <div onChange={() => setOptimizerRunDirty((prev) => (prev ? prev : true))}>
+                    <div className="row" style={{ marginTop: 10 }}>
                   <div className="field">
                     <label className="label" htmlFor="optimizerSource">
                       Source
@@ -10457,24 +10457,26 @@ export function App() {
                     {optimizerRunUi.error}
                   </div>
                 ) : null}
+                  </div>
+                </details>
+                <div className="combosList">
+                  <Suspense fallback={<PanelFallback label="Loading optimizer combos…" />}>
+                    <TopCombosChart
+                      combos={topCombos}
+                      loading={topCombosLoading}
+                      error={topCombosError}
+                      selectedId={selectedComboId}
+                      onSelect={handleComboPreview}
+                      onApply={handleComboApply}
+                    />
+                  </Suspense>
                 </div>
-              </details>
-              <Suspense fallback={<PanelFallback label="Loading optimizer combos…" />}>
-                <TopCombosChart
-                  combos={topCombos}
-                  loading={topCombosLoading}
-                  error={topCombosError}
-                  selectedId={selectedComboId}
-                  onSelect={handleComboPreview}
-                  onApply={handleComboApply}
-                />
-              </Suspense>
-              <div className="hint">
-                Select a combo to preview. Click Apply to load params into the form and auto-start a live bot for that symbol (Binance only). bars=0 uses all CSV data or the exchange default (500).
-              </div>
-              <div className="hint">
-                Top combos auto-apply when available (manual overrides respected). If the bot is idle, it will auto-start once the top combo is applied.
-              </div>
+                <div className="hint">
+                  Select a combo to preview. Click Apply to load params into the form and auto-start a live bot for that symbol (Binance only). bars=0 uses all CSV data or the exchange default (500).
+                </div>
+                <div className="hint">
+                  Top combos auto-apply when available (manual overrides respected). If the bot is idle, it will auto-start once the top combo is applied.
+                </div>
               </div>
             </div>
           </div>
