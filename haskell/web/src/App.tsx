@@ -8999,7 +8999,11 @@ export function App() {
                   min={1}
                   max={200}
                   value={opsPerformanceCommitLimit}
-                  onChange={(e) => setOpsPerformanceCommitLimit(clamp(Math.trunc(numFromInput(e.target.value) ?? 0), 1, 200))}
+                  onChange={(e) =>
+                    setOpsPerformanceCommitLimit(
+                      clamp(Math.trunc(numFromInput(e.target.value, opsPerformanceCommitLimit)), 1, 200),
+                    )
+                  }
                 />
               </div>
               <div className="field">
@@ -9013,7 +9017,11 @@ export function App() {
                   min={1}
                   max={200}
                   value={opsPerformanceComboLimit}
-                  onChange={(e) => setOpsPerformanceComboLimit(clamp(Math.trunc(numFromInput(e.target.value) ?? 0), 1, 200))}
+                  onChange={(e) =>
+                    setOpsPerformanceComboLimit(
+                      clamp(Math.trunc(numFromInput(e.target.value, opsPerformanceComboLimit)), 1, 200),
+                    )
+                  }
                 />
               </div>
               <div className="field">
