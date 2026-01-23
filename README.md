@@ -260,6 +260,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--tune-stress-shock F` shock added to returns for stress scoring (`0` disables)
   - `--tune-stress-weight F` penalty weight for stress scoring (`0` disables)
   - `--walk-forward-folds 7` number of folds used to score the tune split and report backtest variability (`1` disables)
+  - `--walk-forward-embargo-bars N` optional: drop `N` bars from each fold edge when scoring walk-forward folds (`0` disables)
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
   - `--fee 0.0008` fee applied when switching position
   - The CLI also prints an estimated **round-trip cost** (fee + slippage + spread) and warns when thresholds are below it.
@@ -302,10 +303,11 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - `--vol-floor F` annualized vol floor for sizing (default: `0.15`)
     - `--vol-scale-max F` cap volatility scaling (limits leverage)
     - `--max-volatility F` block entries when annualized vol exceeds this (`0` disables; default: `1.5`)
-  - `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables rebalancing; backtests only; default: `24`, entry-anchored)
-  - `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables rebalancing; default: `0.05`)
-  - `--rebalance-global` optional: anchor rebalance cadence to global bars instead of entry age
-  - `--rebalance-reset-on-signal` optional: reset rebalance cadence when a same-side open signal updates size
+- `--rebalance-bars N` optional: resize open positions every `N` bars toward the target size (`0` disables rebalancing; backtests only; default: `24`, entry-anchored)
+- `--rebalance-threshold F` optional: minimum absolute size delta required to rebalance (`0` disables rebalancing; default: `0.05`)
+- `--rebalance-cost-mult F` optional: require size delta ≥ `F * perSideCost` to rebalance (`0` disables)
+- `--rebalance-global` optional: anchor rebalance cadence to global bars instead of entry age
+- `--rebalance-reset-on-signal` optional: reset rebalance cadence when a same-side open signal updates size
   - `--funding-rate F` optional: annualized funding/borrow rate applied per bar in backtests (`0` disables; negative allowed; default: `0.1`)
   - `--funding-by-side` optional: apply funding sign by side (long pays positive, short receives)
     - Without `--funding-by-side`, the funding rate is applied uniformly (negative values credit both sides).
@@ -636,6 +638,7 @@ Multi-symbol notes:
 
 Live safety (startup position):
 - When `botTrade=true`, `/bot/start` adopts any existing position or open exchange orders for the symbol (long or short, subject to positioning).
+- Adopted positions now estimate size from current balances/positions so partial exits and fee modeling stay aligned with the live account.
 - Live bots cache the Binance API key/secret in memory for the life of the bot so order operations do not depend on the UI sending keys (not persisted across restarts).
 - Adopted positions are kept only if the open-threshold signal still agrees with the position.
 - Live bot exit decisions during the run loop close positions when the open-threshold signal no longer agrees (subject to `--min-hold-bars`).

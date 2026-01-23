@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: show full optimizer combo parameters inline and add symbol/market/interval/method filters in the combos panel.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
+- Live bot: size adopted positions from current balances/positions and charge flip fees on the full close+open size.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
@@ -58,6 +59,7 @@ All notable changes to this project will be documented in this file.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
 - Trading: add performance gates (`--perf-*`), loss-streak cooldowns, and adaptive filter tightening (`--adaptive-*`) for live bots.
+- Docs: document `--walk-forward-embargo-bars` and `--rebalance-cost-mult` options.
 - Trading: allow partial take-profit scaling for live bots via `--take-profit-partial`.
 - Live bot: emit `bot.adjust` events after each completed trade with rolling performance and effective filter adjustments.
 - Web UI: default Live orders + Trading armed toggles to on.
