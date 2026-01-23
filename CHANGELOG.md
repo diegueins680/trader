@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
 - Web UI: allow scrolling the full optimizer combos panel when maximized so long lists remain accessible.
 - Ops: add `performance_rollups` via `haskell/scripts/rollup_performance.sh` to correlate git commits with live-bot equity performance.
 - Ops: extend performance rollups with `performance_commit_summary` plus commit/combo delta views for regression tracking.
+- API: add `/ops/performance` to expose performance rollups and deltas.
+- API: add `/state/sync` to export/import bot snapshots and optimizer `top-combos.json` for syncing local and AWS deployments.
+- Web UI: add “Performance vs code” panel to review commit-level and combo-level rollups.
 - Web UI: switch the configuration dock to a menu bar and show each section as its own page to reduce clutter.
 - Web UI: make the configuration panel a full-page scroll instead of a fixed-height docked panel.
 - Web UI: show full optimizer combo parameters inline and add symbol/market/interval/method filters in the combos panel.
@@ -65,6 +68,7 @@ All notable changes to this project will be documented in this file.
 - Trading: `--max-daily-loss` validation now errors when provided timestamps do not match the closes length.
 - Trading: `--no-trade-window` now requires bar timestamps or a recognized interval for UTC window gating.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
+- Trading: multiply order sizes by 10x at execution (sizing inputs and position sizing; exits follow the scaled position size).
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
 - Trading: add performance gates (`--perf-*`), loss-streak cooldowns, and adaptive filter tightening (`--adaptive-*`) for live bots.
 - Trading: apply `--min-hold-bars` to signal reversals, and entry gates now hold existing positions instead of forcing an exit.

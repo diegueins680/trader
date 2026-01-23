@@ -181,6 +181,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
+  - Order sizes are multiplied by 10x at execution time (sizing inputs and position sizing; exits follow the scaled position size).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
 
 - Coinbase API keys (optional; used for `/coinbase/keys` checks and Coinbase trades)
@@ -325,7 +326,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-position-size 0.15` minimum entry size after sizing/vol scaling (`0..1`; entries below this are skipped)
     - Must be <= `--max-position-size`.
   - When confidence sizing is enabled, live orders also scale entry size by the LSTM confidence score (clamp01(|next/current - 1| / (2 * openThreshold))) using the method-selected prediction stream (Kalman/LSTM/blend/router) to match backtests.
-  - The UI defaults to `orderQuote=100` so new setups clear common minQty/step sizes; adjust sizing to your account.
+  - The UI defaults to `orderQuote=100` (effective `~1000` with the 10x order-size multiplier) so new setups clear common minQty/step sizes; adjust sizing to your account.
   - Trade-test quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
   - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio, backtest ratio, bars, or lookback to restore a valid split.
@@ -423,6 +424,8 @@ Endpoints:
   - Combo symbols are normalized for Binance (e.g., `BTC/USDT` → `BTCUSDT`) and trim dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` → `BNBUSDT`) when read/merged.
   - Combos can include sizing params (`orderQuote`, `orderQuantity`, `orderQuoteFraction`, `maxOrderQuote`); applying combos will honor them so orders have a usable size.
   - `top-combos.json` also includes `bestOptimizationTechniques`, a curated list of optimization best practices with short explanations for downstream consumers, plus `optimizationTechniquesApplied`/`ensemble` sections that summarize the Sobol seeding, successive halving, Bayesian-inspired exploitation, walk-forward validation, and ensemble construction applied during a run.
+- `GET /state/sync` → exports bot snapshots and optimizer `top-combos.json` for syncing between deployments
+- `POST /state/sync` → imports state from another deployment (bot snapshots keep the latest `snapshotAtMs`; `top-combos.json` replaces only when the incoming `generatedAtMs` is newer)
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (futures signed probe uses the futures balance endpoint; test order quantity is rounded to the symbol step size and auto-bumped to minNotional; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or unavailable pricing; quote sizing falls back to mark price, 24h last price, then the latest 1m close if the ticker price is unavailable).
 - `POST /binance/keys` (futures): `binanceSymbol` is optional for the signed probe; the trade test is skipped when `binanceSymbol` is missing, and dataset-style suffixes are trimmed before the trade test runs.
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
@@ -763,6 +766,7 @@ Filter the Data Log by label; Copy shown respects the current filter, and Jump t
 Performance rollups (code vs trading):
 - Run `haskell/scripts/rollup_performance.sh` to snapshot per-commit performance based on live bot equity (`bot.status` / `bot.order`) into `performance_rollups` (the script rebuilds the table each run).
 - The script also builds `performance_commit_summary` plus delta views (`performance_commit_deltas`, `performance_combo_deltas`) to compare regressions between commits.
+- The UI surfaces these rollups in the “Performance vs code” panel via the `/ops/performance` endpoint.
 - Schedule it via cron to keep commit-level metrics fresh (requires `TRADER_DB_URL`).
 
 Run it:

@@ -525,6 +525,71 @@ export type OpsResponse = {
   ops: OpsOperation[];
 };
 
+export type PerformanceCommitDelta = {
+  gitCommitId: number;
+  commitHash?: string;
+  committedAtMs?: number;
+  startAtMs?: number;
+  endAtMs?: number;
+  symbols?: number;
+  combos?: number;
+  rollups?: number;
+  avgReturn?: number;
+  medianReturn?: number;
+  minReturn?: number;
+  maxReturn?: number;
+  avgDrawdown?: number;
+  medianDrawdown?: number;
+  worstDrawdown?: number;
+  statusPoints?: number;
+  orderCount?: number;
+  samplePoints?: number;
+  updatedAtMs?: number;
+  prevCommitHash?: string;
+  prevMedianReturn?: number;
+  deltaMedianReturn?: number;
+  prevMedianDrawdown?: number;
+  deltaMedianDrawdown?: number;
+  prevWorstDrawdown?: number;
+  deltaWorstDrawdown?: number;
+};
+
+export type PerformanceComboDelta = {
+  gitCommitId: number;
+  commitHash?: string;
+  committedAtMs?: number;
+  symbol?: string;
+  market?: string;
+  interval?: string;
+  comboUuid?: string;
+  startAtMs?: number;
+  endAtMs?: number;
+  firstEquity?: number;
+  lastEquity?: number;
+  return?: number;
+  maxDrawdown?: number;
+  statusPoints?: number;
+  orderCount?: number;
+  samplePoints?: number;
+  updatedAtMs?: number;
+  prevCommitHash?: string;
+  prevReturn?: number;
+  deltaReturn?: number;
+  prevMaxDrawdown?: number;
+  deltaDrawdown?: number;
+};
+
+export type OpsPerformanceResponse = {
+  enabled: boolean;
+  ready: boolean;
+  commitsReady: boolean;
+  combosReady: boolean;
+  hint?: string;
+  updatedAtMs?: number;
+  commits: PerformanceCommitDelta[];
+  combos: PerformanceComboDelta[];
+};
+
 export type OptimizerSource = "binance" | "coinbase" | "kraken" | "poloniex" | "csv";
 
 export type OptimizerRunRequest = {

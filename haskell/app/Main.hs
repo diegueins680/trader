@@ -1076,6 +1076,18 @@ data ApiError = ApiError
 instance ToJSON ApiError where
   toJSON = Aeson.genericToJSON (jsonOptions 2)
 
+data StateSyncPayload = StateSyncPayload
+  { sspGeneratedAtMs :: !(Maybe Int64)
+  , sspBotSnapshots :: !(Maybe [BotStatusSnapshot])
+  , sspTopCombos :: !(Maybe Aeson.Value)
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON StateSyncPayload where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 3)
+
+instance ToJSON StateSyncPayload where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
 instance ToJSON LatestSignal where
   toJSON s =
     let regimesJson =
@@ -1605,6 +1617,136 @@ instance ToJSON PersistedOperation where
 
 instance FromJSON PersistedOperation where
   parseJSON = Aeson.genericParseJSON (jsonOptions 2)
+
+data PerformanceCommitDelta = PerformanceCommitDelta
+  { pcdGitCommitId :: !Int64
+  , pcdCommitHash :: !(Maybe Text)
+  , pcdCommittedAtMs :: !(Maybe Int64)
+  , pcdStartAtMs :: !(Maybe Int64)
+  , pcdEndAtMs :: !(Maybe Int64)
+  , pcdSymbols :: !(Maybe Int)
+  , pcdCombos :: !(Maybe Int)
+  , pcdRollups :: !(Maybe Int)
+  , pcdAvgReturn :: !(Maybe Double)
+  , pcdMedianReturn :: !(Maybe Double)
+  , pcdMinReturn :: !(Maybe Double)
+  , pcdMaxReturn :: !(Maybe Double)
+  , pcdAvgDrawdown :: !(Maybe Double)
+  , pcdMedianDrawdown :: !(Maybe Double)
+  , pcdWorstDrawdown :: !(Maybe Double)
+  , pcdStatusPoints :: !(Maybe Int)
+  , pcdOrderCount :: !(Maybe Int)
+  , pcdSamplePoints :: !(Maybe Int)
+  , pcdUpdatedAtMs :: !(Maybe Int64)
+  , pcdPrevCommitHash :: !(Maybe Text)
+  , pcdPrevMedianReturn :: !(Maybe Double)
+  , pcdDeltaMedianReturn :: !(Maybe Double)
+  , pcdPrevMedianDrawdown :: !(Maybe Double)
+  , pcdDeltaMedianDrawdown :: !(Maybe Double)
+  , pcdPrevWorstDrawdown :: !(Maybe Double)
+  , pcdDeltaWorstDrawdown :: !(Maybe Double)
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON PerformanceCommitDelta where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+instance FromRow PerformanceCommitDelta where
+  fromRow =
+    PerformanceCommitDelta
+      <$> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+
+data PerformanceComboDelta = PerformanceComboDelta
+  { pcoGitCommitId :: !Int64
+  , pcoCommitHash :: !(Maybe Text)
+  , pcoCommittedAtMs :: !(Maybe Int64)
+  , pcoSymbol :: !(Maybe Text)
+  , pcoMarket :: !(Maybe Text)
+  , pcoInterval :: !(Maybe Text)
+  , pcoComboUuid :: !(Maybe Text)
+  , pcoStartAtMs :: !(Maybe Int64)
+  , pcoEndAtMs :: !(Maybe Int64)
+  , pcoFirstEquity :: !(Maybe Double)
+  , pcoLastEquity :: !(Maybe Double)
+  , pcoReturn :: !(Maybe Double)
+  , pcoMaxDrawdown :: !(Maybe Double)
+  , pcoStatusPoints :: !(Maybe Int)
+  , pcoOrderCount :: !(Maybe Int)
+  , pcoSamplePoints :: !(Maybe Int)
+  , pcoUpdatedAtMs :: !(Maybe Int64)
+  , pcoPrevCommitHash :: !(Maybe Text)
+  , pcoPrevReturn :: !(Maybe Double)
+  , pcoDeltaReturn :: !(Maybe Double)
+  , pcoPrevMaxDrawdown :: !(Maybe Double)
+  , pcoDeltaDrawdown :: !(Maybe Double)
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON PerformanceComboDelta where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
+
+instance FromRow PerformanceComboDelta where
+  fromRow =
+    PerformanceComboDelta
+      <$> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+      <*> field
+
+data OpsPerformanceResponse = OpsPerformanceResponse
+  { oprEnabled :: !Bool
+  , oprReady :: !Bool
+  , oprCommitsReady :: !Bool
+  , oprCombosReady :: !Bool
+  , oprHint :: !(Maybe Text)
+  , oprUpdatedAtMs :: !(Maybe Int64)
+  , oprCommits :: ![PerformanceCommitDelta]
+  , oprCombos :: ![PerformanceComboDelta]
+  } deriving (Eq, Show, Generic)
+
+instance ToJSON OpsPerformanceResponse where
+  toJSON = Aeson.genericToJSON (jsonOptions 3)
 
 data OpsStore = OpsStore
   { osLock :: !(MVar ())
@@ -2684,6 +2826,81 @@ opsList store sinceId limit mKind mSymbol mComboUuid mOrderId mFromMs mToMs mBot
       rows <- withMVar (osLock store) $ \_ -> query (osConn store) (fromString sql) params
       let ops = map persistedOperationFromRow rows
       pure (if isJust sinceId then ops else reverse ops)
+
+data OpsPerformanceReady = OpsPerformanceReady
+  { oprCommitsReadyFlag :: !Bool
+  , oprCombosReadyFlag :: !Bool
+  } deriving (Eq, Show)
+
+opsPerformanceReady :: OpsStore -> IO OpsPerformanceReady
+opsPerformanceReady store =
+  withMVar (osLock store) $ \_ -> do
+    rows <-
+      query
+        (osConn store)
+        "SELECT to_regclass('public.performance_commit_deltas') IS NOT NULL, to_regclass('public.performance_combo_deltas') IS NOT NULL"
+        ()
+        :: IO [(Bool, Bool)]
+    case rows of
+      ((commitsReady, combosReady) : _) -> pure (OpsPerformanceReady commitsReady combosReady)
+      _ -> pure (OpsPerformanceReady False False)
+
+opsPerformanceCommits :: OpsStore -> Int -> IO [PerformanceCommitDelta]
+opsPerformanceCommits store limit = do
+  let limitSafe = max 0 (min 200 limit)
+  if limitSafe <= 0
+    then pure []
+    else
+      withMVar (osLock store) $ \_ ->
+        query
+          (osConn store)
+          ( "SELECT git_commit_id, commit_hash, committed_at_ms, start_at_ms, end_at_ms, symbols, combos, rollups, "
+              <> "avg_return, median_return, min_return, max_return, avg_drawdown, median_drawdown, worst_drawdown, "
+              <> "status_points, order_count, sample_points, updated_at_ms, prev_commit_hash, prev_median_return, "
+              <> "delta_median_return, prev_median_drawdown, delta_median_drawdown, prev_worst_drawdown, delta_worst_drawdown "
+              <> "FROM performance_commit_deltas "
+              <> "ORDER BY committed_at_ms DESC NULLS LAST, git_commit_id DESC "
+              <> "LIMIT ?"
+          )
+          (Only limitSafe)
+
+opsPerformanceCombos :: OpsStore -> Int -> Text -> Text -> IO [PerformanceComboDelta]
+opsPerformanceCombos store limit scope order = do
+  let limitSafe = max 0 (min 200 limit)
+      scopeNorm = T.toLower (T.strip scope)
+      orderNorm = T.toLower (T.strip order)
+      scopeSql =
+        if scopeNorm == "all"
+          then ""
+          else
+            "WHERE committed_at_ms = ("
+              <> "SELECT committed_at_ms FROM performance_combo_deltas "
+              <> "WHERE committed_at_ms IS NOT NULL "
+              <> "ORDER BY committed_at_ms DESC NULLS LAST LIMIT 1"
+              <> ")"
+      orderSql =
+        case orderNorm of
+          "recent" -> "ORDER BY committed_at_ms DESC NULLS LAST, git_commit_id DESC"
+          "return" -> "ORDER BY return DESC NULLS LAST"
+          _ -> "ORDER BY delta_return ASC NULLS LAST"
+  if limitSafe <= 0
+    then pure []
+    else
+      withMVar (osLock store) $ \_ ->
+        query
+          (osConn store)
+          ( fromString
+              ( "SELECT git_commit_id, commit_hash, committed_at_ms, symbol, market, interval, combo_uuid::text, "
+                  <> "start_at_ms, end_at_ms, first_equity, last_equity, return, max_drawdown, status_points, order_count, "
+                  <> "sample_points, updated_at_ms, prev_commit_hash, prev_return, delta_return, prev_max_drawdown, delta_drawdown "
+                  <> "FROM performance_combo_deltas "
+                  <> scopeSql
+                  <> " "
+                  <> orderSql
+                  <> " LIMIT ?"
+              )
+          )
+          (Only limitSafe)
 
 binanceOpsLogger :: OpsStore -> BinanceLog -> IO ()
 binanceOpsLogger store entry = do
@@ -8842,6 +9059,7 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
 
           ["optimizer", "run"] -> "optimizer/run"
           ["optimizer", "combos"] -> "optimizer/combos"
+          ["state", "sync"] -> "state/sync"
           _ ->
             let go xs =
                   case xs of
@@ -8874,6 +9092,7 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                           .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
                                              , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
                                              , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/ops/performance" :: String)]
                                              , object ["method" .= ("GET" :: String), "path" .= ("/cache" :: String)]
                                              , object ["method" .= ("POST" :: String), "path" .= ("/cache/clear" :: String)]
                                              , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
@@ -8901,6 +9120,8 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                              , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
                                              , object ["method" .= ("POST" :: String), "path" .= ("/optimizer/run" :: String)]
                                              , object ["method" .= ("GET" :: String), "path" .= ("/optimizer/combos" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/state/sync" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/state/sync" :: String)]
                                              ]
                                        ]
                                 )
@@ -8943,6 +9164,10 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                   ["ops"] ->
                     case Wai.requestMethod req of
                       "GET" -> handleOps mOps req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["ops", "performance"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleOpsPerformance mOps req respondCors
                       _ -> respondCors (jsonError status405 "Method not allowed")
                   ["cache"] ->
                     case Wai.requestMethod req of
@@ -9059,6 +9284,11 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                   ["optimizer", "combos"] ->
                     case Wai.requestMethod req of
                       "GET" -> handleOptimizerCombos projectRoot optimizerTmp respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["state", "sync"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleStateSyncExport mBotStateDir optimizerTmp respondCors
+                      "POST" -> handleStateSyncImport reqLimits mBotStateDir optimizerTmp req respondCors
                       _ -> respondCors (jsonError status405 "Method not allowed")
                   _ -> respondCors (jsonError status404 "Not found")
 
@@ -10409,6 +10639,21 @@ sanitizeTopCombosValue val =
         _ -> (val, 0)
     _ -> (val, 0)
 
+topCombosGeneratedAtMs :: Aeson.Value -> Maybe Int64
+topCombosGeneratedAtMs val =
+  case val of
+    Aeson.Object o -> KM.lookup (AK.fromString "generatedAtMs") o >>= AT.parseMaybe parseJSON
+    _ -> Nothing
+
+isTopCombosPayload :: Aeson.Value -> Bool
+isTopCombosPayload val =
+  case val of
+    Aeson.Object o ->
+      case KM.lookup (AK.fromString "combos") o of
+        Just (Aeson.Array _) -> True
+        _ -> False
+    _ -> False
+
 comboIdentityKey :: Aeson.Value -> Maybe BS.ByteString
 comboIdentityKey val = do
   params <- comboMetricValue "params" val
@@ -10793,6 +11038,110 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
         Aeson.Object o -> Aeson.Object (KM.insert "rank" (toJSON rank) o)
         other -> other
 
+handleStateSyncExport ::
+  Maybe FilePath ->
+  FilePath ->
+  (Wai.Response -> IO Wai.ResponseReceived) ->
+  IO Wai.ResponseReceived
+handleStateSyncExport mBotStateDir optimizerTmp respond = do
+  now <- getTimestampMs
+  snaps <- readBotStatusSnapshotsMaybe mBotStateDir
+  topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+  topVal <- readTopCombosValue topJsonPath
+  let payload =
+        StateSyncPayload
+          { sspGeneratedAtMs = Just now
+          , sspBotSnapshots = if null snaps then Nothing else Just snaps
+          , sspTopCombos =
+              case topVal of
+                Right val -> Just val
+                Left _ -> Nothing
+          }
+  respond (jsonValue status200 payload)
+
+handleStateSyncImport ::
+  ApiRequestLimits ->
+  Maybe FilePath ->
+  FilePath ->
+  Wai.Request ->
+  (Wai.Response -> IO Wai.ResponseReceived) ->
+  IO Wai.ResponseReceived
+handleStateSyncImport reqLimits mBotStateDir optimizerTmp req respond = do
+  payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid state sync payload: "
+  case payloadOrErr of
+    Left resp -> respond resp
+    Right payload -> do
+      now <- getTimestampMs
+      let incomingSnaps = fromMaybe [] (sspBotSnapshots payload)
+      existingSnaps <- readBotStatusSnapshotsMaybe mBotStateDir
+      let mergedSnaps = mergeBotSnapshots (existingSnaps ++ incomingSnaps)
+          snapsWithSymbol =
+            mapMaybe
+              (\snap -> fmap (\sym -> (sym, snap)) (botSnapshotSymbol snap))
+              mergedSnaps
+          writtenCount = length snapsWithSymbol
+          skippedCount = length mergedSnaps - writtenCount
+          snapStats =
+            object
+              [ "incoming" .= length incomingSnaps
+              , "existing" .= length existingSnaps
+              , "merged" .= length mergedSnaps
+              , "written" .= writtenCount
+              , "skipped" .= skippedCount
+              ]
+      forM_ snapsWithSymbol $ \(sym, snap) ->
+        writeBotStatusSnapshotMaybe mBotStateDir sym snap
+
+      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+      localTopValResult <- readTopCombosValue topJsonPath
+      let localTopVal =
+            case localTopValResult of
+              Right val -> Just val
+              Left _ -> Nothing
+          localGeneratedAt = localTopVal >>= topCombosGeneratedAtMs
+          mkTopStats :: String -> Maybe Int64 -> Aeson.Value
+          mkTopStats action incoming =
+            object
+              ( ["action" .= (action :: String)]
+                  ++ maybe [] (\v -> ["incomingGeneratedAtMs" .= v]) incoming
+                  ++ maybe [] (\v -> ["localGeneratedAtMs" .= v]) localGeneratedAt
+              )
+
+      topStatsOrErr <-
+        case sspTopCombos payload of
+          Nothing -> pure (Right (mkTopStats "skipped" Nothing))
+          Just raw ->
+            if not (isTopCombosPayload raw)
+              then pure (Left (jsonError status400 "Invalid topCombos payload (expected object with combos array)."))
+              else do
+                let (incomingSanitized, _) = sanitizeTopCombosValue raw
+                    incomingGeneratedAt = topCombosGeneratedAtMs incomingSanitized
+                    shouldReplace =
+                      case (incomingGeneratedAt, localGeneratedAt) of
+                        (Just incomingTs, Just localTs) -> incomingTs >= localTs
+                        (Just _, Nothing) -> True
+                        (Nothing, Nothing) -> True
+                        (Nothing, Just _) -> False
+                if shouldReplace
+                  then do
+                    writeResult <- writeTopCombosValue topJsonPath incomingSanitized
+                    case writeResult of
+                      Left err ->
+                        pure (Left (jsonError status500 ("Failed to write top combos: " ++ err)))
+                      Right _ -> do
+                        persistTopCombosMaybe topJsonPath
+                        pure (Right (mkTopStats "replaced" incomingGeneratedAt))
+                  else pure (Right (mkTopStats "kept" incomingGeneratedAt))
+
+      case topStatsOrErr of
+        Left resp -> respond resp
+        Right topStats ->
+          respond
+            ( jsonValue
+                status200
+                (object ["ok" .= True, "atMs" .= now, "botSnapshots" .= snapStats, "topCombos" .= topStats])
+            )
+
 handleMetrics :: Metrics -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleMetrics metrics botCtrl respond = do
   states <- botGetStates botCtrl
@@ -10845,6 +11194,72 @@ handleOps mOps req respond =
       ops <- opsList store sinceId limit kind symbol comboUuid orderId fromMs toMs botOnly
       latestId <- readIORef (osLatestId store)
       respond (jsonValue status200 (object ["enabled" .= True, "latestId" .= latestId, "ops" .= ops]))
+
+handleOpsPerformance :: Maybe OpsStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleOpsPerformance mOps req respond =
+  case mOps of
+    Nothing ->
+      respond
+        ( jsonValue
+            status200
+            ( OpsPerformanceResponse
+                { oprEnabled = False
+                , oprReady = False
+                , oprCommitsReady = False
+                , oprCombosReady = False
+                , oprHint = Just "Set TRADER_DB_URL (or DATABASE_URL) to enable ops persistence."
+                , oprUpdatedAtMs = Nothing
+                , oprCommits = []
+                , oprCombos = []
+                }
+            )
+        )
+    Just store -> do
+      let q = Wai.queryString req
+          lookupParam name =
+            case lookup (BS.pack name) q of
+              Just (Just raw) -> Just raw
+              _ -> Nothing
+          readIntParam name =
+            lookupParam name >>= (readMaybe . BS.unpack)
+          readTextParam name =
+            T.pack . BS.unpack <$> lookupParam name
+          limitParam name def =
+            case readIntParam name of
+              Nothing -> def
+              Just n -> max 0 (min 200 n)
+          commitLimit = limitParam "commitLimit" 40
+          comboLimit = limitParam "comboLimit" 40
+          comboScope = fromMaybe "latest" (readTextParam "comboScope")
+          comboOrder = fromMaybe "delta" (readTextParam "comboOrder")
+      now <- getTimestampMs
+      ready <- opsPerformanceReady store
+      let commitsReady = oprCommitsReadyFlag ready
+          combosReady = oprCombosReadyFlag ready
+          baseHint =
+            if commitsReady
+              then
+                if combosReady
+                  then Nothing
+                  else Just "Combo deltas are unavailable; rerun rollup_performance.sh to create the views."
+              else Just "Performance rollups are unavailable; run haskell/scripts/rollup_performance.sh to build them."
+      commits <- if commitsReady then opsPerformanceCommits store commitLimit else pure []
+      combos <- if combosReady then opsPerformanceCombos store comboLimit comboScope comboOrder else pure []
+      respond
+        ( jsonValue
+            status200
+            ( OpsPerformanceResponse
+                { oprEnabled = True
+                , oprReady = commitsReady
+                , oprCommitsReady = commitsReady
+                , oprCombosReady = combosReady
+                , oprHint = baseHint
+                , oprUpdatedAtMs = Just now
+                , oprCommits = commits
+                , oprCombos = combos
+                }
+            )
+        )
 
 handleSignal :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
@@ -12542,11 +12957,11 @@ computeBinanceKeysStatusFromArgs mOps args = do
               Just sym'' -> do
                 let qty =
                       case argOrderQuantity args of
-                        Just q | q > 0 -> Just q
+                        Just q | q > 0 -> Just (scaleOrderSize q)
                         _ -> Nothing
                     qqArg =
                       case argOrderQuote args of
-                        Just q | q > 0 -> Just q
+                        Just q | q > 0 -> Just (scaleOrderSize q)
                         _ -> Nothing
                 qq <-
                   case (qty, qqArg, argOrderQuoteFraction args) of
@@ -12554,12 +12969,13 @@ computeBinanceKeysStatusFromArgs mOps args = do
                       let (_baseAsset, quoteAsset) = splitSymbol sym''
                       quoteBal <- fetchFreeBalance env quoteAsset
                       let q0 = quoteBal * f
+                          q0Scaled = scaleOrderSize q0
                           q1 =
                             let mCap =
                                   case argMaxOrderQuote args of
-                                    Just q | q > 0 -> Just q
+                                    Just q | q > 0 -> Just (scaleOrderSize q)
                                     _ -> Nothing
-                             in maybe q0 (\capQ -> min capQ q0) mCap
+                             in maybe q0Scaled (\capQ -> min capQ q0Scaled) mCap
                       pure (if q1 > 0 then Just q1 else Nothing)
                     _ -> pure qqArg
                 if qty == Nothing && qq == Nothing
@@ -12586,7 +13002,7 @@ computeBinanceKeysStatusFromArgs mOps args = do
               Just sym'' -> do
                 let qtyFromArgs =
                       case argOrderQuantity args of
-                        Just q | q > 0 -> Just q
+                        Just q | q > 0 -> Just (scaleOrderSize q)
                         _ -> Nothing
                 case qtyFromArgs of
                   Just qRaw -> do
@@ -12598,19 +13014,20 @@ computeBinanceKeysStatusFromArgs mOps args = do
                   Nothing -> do
                     qq <-
                       case argOrderQuote args of
-                        Just qq | qq > 0 -> pure (Just qq)
+                        Just qq | qq > 0 -> pure (Just (scaleOrderSize qq))
                         _ ->
                           case argOrderQuoteFraction args of
                             Just f | f > 0 -> do
                               let (_baseAsset, quoteAsset) = splitSymbol sym''
                               bal <- fetchFuturesAvailableBalance env quoteAsset
                               let q0 = bal * f
+                                  q0Scaled = scaleOrderSize q0
                                   q1 =
                                     let mCap =
                                           case argMaxOrderQuote args of
-                                            Just q | q > 0 -> Just q
+                                            Just q | q > 0 -> Just (scaleOrderSize q)
                                             _ -> Nothing
-                                     in maybe q0 (\capQ -> min capQ q0) mCap
+                                     in maybe q0Scaled (\capQ -> min capQ q0Scaled) mCap
                               pure (if q1 > 0 then Just q1 else Nothing)
                             _ -> pure Nothing
                     case qq of
@@ -13231,6 +13648,12 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                   foldl' step (1, 1, 0) [startT .. stepCount - 1]
              in (fOpenFinal, fCloseFinal)
 
+orderSizeMultiplier :: Double
+orderSizeMultiplier = 10
+
+scaleOrderSize :: Double -> Double
+scaleOrderSize x = x * orderSizeMultiplier
+
 entryScaleForSignal :: Args -> BinanceMarket -> LatestSignal -> Double
 entryScaleForSignal args market sig =
   let s0 = maybe 1 id (lsPositionSize sig)
@@ -13241,7 +13664,7 @@ entryScaleForSignal args market sig =
         case market of
           MarketFutures -> s2
           _ -> min 1 s2
-   in max 0 (s3 * lstmScale)
+   in scaleOrderSize (max 0 (s3 * lstmScale))
 
 placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
 placeOrderForSignal args sym sig env =
@@ -13460,7 +13883,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
           qtyArg = case argOrderQuantity args of { Just q | q > 0 -> Just q; _ -> Nothing }
           quoteArg = case argOrderQuote args of { Just q | q > 0 -> Just q; _ -> Nothing }
           quoteFracArg = case argOrderQuoteFraction args of { Just f | f > 0 -> Just f; _ -> Nothing }
-          maxOrderQuoteArg = case argMaxOrderQuote args of { Just q | q > 0 -> Just q; _ -> Nothing }
+          maxOrderQuoteArg = case argMaxOrderQuote args of { Just q | q > 0 -> Just (scaleOrderSize q); _ -> Nothing }
 
       case dir of
         1 ->
@@ -13531,8 +13954,9 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
           if not alreadyLong
             then pure baseResult { aorMessage = "No order: already flat." }
             else do
-              let qRaw0 =
-                    case qtyArg of
+              let qtyArgSell = fmap scaleOrderSize qtyArg
+                  qRaw0 =
+                    case qtyArgSell of
                       Just q -> min q baseBal
                       Nothing -> baseBal
                   qRaw = qRaw0 * exitScale
@@ -13711,7 +14135,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                     q1 =
                       let mCap =
                             case argMaxOrderQuote args of
-                              Just q | q > 0 -> Just q
+                              Just q | q > 0 -> Just (scaleOrderSize q)
                               _ -> Nothing
                        in maybe q0 (\capQ -> min capQ q0) mCap
                 pure (Just q1)
@@ -13990,7 +14414,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                       _ -> Nothing
                   maxOrderQuoteArg =
                     case argMaxOrderQuote args of
-                      Just q | q > 0 -> Just q
+                      Just q | q > 0 -> Just (scaleOrderSize q)
                       _ -> Nothing
                   quoteFromFraction =
                     case (qtyArg, quoteArg, quoteFracArg) of
@@ -14027,8 +14451,9 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                 case argOrderQuantity args of
                   Just q | q > 0 -> Just q
                   _ -> Nothing
+              qtyArgSell = fmap scaleOrderSize qtyArg
               qRaw =
-                case qtyArg of
+                case qtyArgSell of
                   Just q -> min q baseBal
                   Nothing -> baseBal
           if qRaw <= 0

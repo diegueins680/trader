@@ -13,6 +13,7 @@ import type {
   BotStatus,
   CoinbaseKeysStatus,
   LatestSignal,
+  OpsPerformanceResponse,
   OpsResponse,
   OptimizerRunRequest,
   OptimizerRunResponse,
@@ -908,6 +909,24 @@ export async function ops(
   if (typeof params?.since === "number" && Number.isFinite(params.since)) query.set("since", String(Math.trunc(params.since)));
   const path = query.size > 0 ? `/ops?${query.toString()}` : "/ops";
   return fetchJson<OpsResponse>(baseUrl, path, { method: "GET" }, opts);
+}
+
+export async function opsPerformance(
+  baseUrl: string,
+  params?: { commitLimit?: number; comboLimit?: number; comboScope?: string; comboOrder?: string },
+  opts?: FetchJsonOptions,
+): Promise<OpsPerformanceResponse> {
+  const query = new URLSearchParams();
+  if (typeof params?.commitLimit === "number" && Number.isFinite(params.commitLimit)) {
+    query.set("commitLimit", String(Math.trunc(params.commitLimit)));
+  }
+  if (typeof params?.comboLimit === "number" && Number.isFinite(params.comboLimit)) {
+    query.set("comboLimit", String(Math.trunc(params.comboLimit)));
+  }
+  if (params?.comboScope) query.set("comboScope", params.comboScope);
+  if (params?.comboOrder) query.set("comboOrder", params.comboOrder);
+  const path = query.size > 0 ? `/ops/performance?${query.toString()}` : "/ops/performance";
+  return fetchJson<OpsPerformanceResponse>(baseUrl, path, { method: "GET" }, opts);
 }
 
 export async function optimizerCombos(baseUrl: string, opts?: FetchJsonOptions): Promise<unknown> {

@@ -23,6 +23,7 @@ import type {
   Method,
   Normalization,
   OpsOperation,
+  OpsPerformanceResponse,
   OptimizerRunRequest,
   OptimizerRunResponse,
   OptimizerSource,
@@ -46,6 +47,7 @@ import {
   coinbaseKeysStatus,
   health,
   ops,
+  opsPerformance,
   optimizerCombos,
   optimizerRun,
   signal,
@@ -306,6 +308,18 @@ const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
+type OpsPerformanceUiState = {
+  loading: boolean;
+  error: string | null;
+  enabled: boolean;
+  ready: boolean;
+  commitsReady: boolean;
+  combosReady: boolean;
+  hint: string | null;
+  commits: OpsPerformanceResponse["commits"];
+  combos: OpsPerformanceResponse["combos"];
+  lastFetchedAtMs: number | null;
+};
 const ChartFallback = ({
   height = CHART_HEIGHT,
   label = "Loading chart…",
@@ -502,6 +516,22 @@ export function App() {
     limit: BOT_STATUS_OPS_LIMIT,
     lastFetchedAtMs: null,
   });
+  const [opsPerformanceUi, setOpsPerformanceUi] = useState<OpsPerformanceUiState>({
+    loading: false,
+    error: null,
+    enabled: true,
+    ready: false,
+    commitsReady: false,
+    combosReady: false,
+    hint: null,
+    commits: [],
+    combos: [],
+    lastFetchedAtMs: null,
+  });
+  const [opsPerformanceCommitLimit, setOpsPerformanceCommitLimit] = useState(40);
+  const [opsPerformanceComboLimit, setOpsPerformanceComboLimit] = useState(40);
+  const [opsPerformanceComboScope, setOpsPerformanceComboScope] = useState<"latest" | "all">("latest");
+  const [opsPerformanceComboOrder, setOpsPerformanceComboOrder] = useState<"delta" | "recent" | "return">("delta");
   const [botStatusStartInput, setBotStatusStartInput] = useState(() => formatDatetimeLocal(Date.now() - 6 * 60 * 60 * 1000));
   const [botStatusEndInput, setBotStatusEndInput] = useState(() => formatDatetimeLocal(Date.now()));
 
@@ -535,6 +565,8 @@ export function App() {
   const botStatusTailRef = useRef(BOT_STATUS_TAIL_POINTS);
   const botStatusOpsLimitRef = useRef(BOT_STATUS_OPS_LIMIT);
   const botStatusOpsSinceRef = useRef<number | null>(null);
+  const opsPerformanceAbortRef = useRef<AbortController | null>(null);
+  const opsPerformanceInFlightRef = useRef(false);
   const botAutoStartSuppressedRef = useRef(false);
   const botAutoStartRef = useRef<{ lastAttemptAtMs: number }>({ lastAttemptAtMs: 0 });
 
@@ -3785,6 +3817,69 @@ export function App() {
     [apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
   );
 
+  const fetchOpsPerformance = useCallback(
+    async (opts?: RunOptions) => {
+      if (apiOk !== "ok") return;
+      if (opsPerformanceInFlightRef.current) return;
+      opsPerformanceInFlightRef.current = true;
+      opsPerformanceAbortRef.current?.abort();
+      const controller = new AbortController();
+      opsPerformanceAbortRef.current = controller;
+
+      if (!opts?.silent) setOpsPerformanceUi((s) => ({ ...s, loading: true, error: null }));
+
+      try {
+        const out = await opsPerformance(
+          apiBase,
+          {
+            commitLimit: opsPerformanceCommitLimit,
+            comboLimit: opsPerformanceComboLimit,
+            comboScope: opsPerformanceComboScope,
+            comboOrder: opsPerformanceComboOrder,
+          },
+          { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
+        );
+        setOpsPerformanceUi({
+          loading: false,
+          error: null,
+          enabled: out.enabled,
+          ready: out.ready,
+          commitsReady: out.commitsReady,
+          combosReady: out.combosReady,
+          hint: out.hint ?? null,
+          commits: Array.isArray(out.commits) ? out.commits : [],
+          combos: Array.isArray(out.combos) ? out.combos : [],
+          lastFetchedAtMs: Date.now(),
+        });
+        appendDataLog(`Ops Performance${opts?.silent ? " (auto)" : ""}`, out, { background: Boolean(opts?.silent) });
+      } catch (e) {
+        if (isAbortError(e)) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setOpsPerformanceUi((s) => ({ ...s, loading: false, error: msg }));
+        appendDataLog(`Ops Performance Error${opts?.silent ? " (auto)" : ""}`, buildDataLogError(e, msg), {
+          background: Boolean(opts?.silent),
+          error: true,
+        });
+      } finally {
+        if (opsPerformanceAbortRef.current === controller) opsPerformanceAbortRef.current = null;
+        opsPerformanceInFlightRef.current = false;
+      }
+    },
+    [
+      apiBase,
+      apiOk,
+      appendDataLog,
+      authHeaders,
+      buildDataLogError,
+      opsPerformanceComboLimit,
+      opsPerformanceComboOrder,
+      opsPerformanceComboScope,
+      opsPerformanceCommitLimit,
+    ],
+  );
+
+  const opsPerformancePanelOpen = isPanelOpen("panel-performance", false);
+
   const shouldPollBotStatusOps = useMemo(
     () => isPanelOpen("panel-live-bot", true) || botRunningCharts.length > 0,
     [botRunningCharts.length, isPanelOpen],
@@ -3813,6 +3908,19 @@ export function App() {
       pageVisible && shouldPollBotStatusOps ? BOT_STATUS_OPS_LIMIT : BOT_STATUS_OPS_FALLBACK_LIMIT;
     botStatusOpsLimitRef.current = limitTarget;
   }, [pageVisible, shouldPollBotStatusOps]);
+
+  useEffect(() => {
+    if (!opsPerformancePanelOpen || apiOk !== "ok") return;
+    void fetchOpsPerformance({ silent: true });
+  }, [
+    apiOk,
+    fetchOpsPerformance,
+    opsPerformanceComboLimit,
+    opsPerformanceComboOrder,
+    opsPerformanceComboScope,
+    opsPerformanceCommitLimit,
+    opsPerformancePanelOpen,
+  ]);
 
   const stopLiveBot = useCallback(async (symbol?: string) => {
     setBot((s) => ({ ...s, loading: true, error: null }));
@@ -5989,6 +6097,20 @@ export function App() {
     applyEquityPreset,
     resetOptimizerRunForm,
   } satisfies OptimizerCombosPanelProps;
+
+  const shortCommitHash = (hash?: string | null, size = 8): string => {
+    if (!hash) return "—";
+    const trimmed = hash.trim();
+    if (!trimmed) return "—";
+    return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
+  };
+
+  const shortComboUuid = (uuid?: string | null, size = 6): string => {
+    if (!uuid) return "—";
+    const trimmed = uuid.trim();
+    if (!trimmed) return "—";
+    return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
+  };
 
   return (
     <div className="container">
@@ -8854,6 +8976,262 @@ export function App() {
                 </button>
               </div>
               <pre className="code">{JSON.stringify(requestPreview, null, 2)}</pre>
+          </CollapsibleCard>
+
+          <CollapsibleCard
+            panelId="panel-performance"
+            open={isPanelOpen("panel-performance", false)}
+            onToggle={handlePanelToggle("panel-performance")}
+            maximized={isPanelMaximized("panel-performance")}
+            onToggleMaximize={() => togglePanelMaximize("panel-performance")}
+            title="Performance vs code"
+            subtitle="Per-commit rollups and deltas from the ops log (bot.status/bot.order)."
+          >
+            <div className="row" style={{ marginBottom: 10, gridTemplateColumns: "repeat(4, minmax(0, 1fr)) auto", alignItems: "end" }}>
+              <div className="field">
+                <label className="label" htmlFor="opsPerfCommitLimit">
+                  Commit rows
+                </label>
+                <input
+                  id="opsPerfCommitLimit"
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={opsPerformanceCommitLimit}
+                  onChange={(e) => setOpsPerformanceCommitLimit(clamp(Math.trunc(numFromInput(e.target.value) ?? 0), 1, 200))}
+                />
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="opsPerfComboLimit">
+                  Combo rows
+                </label>
+                <input
+                  id="opsPerfComboLimit"
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={opsPerformanceComboLimit}
+                  onChange={(e) => setOpsPerformanceComboLimit(clamp(Math.trunc(numFromInput(e.target.value) ?? 0), 1, 200))}
+                />
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="opsPerfComboScope">
+                  Combo scope
+                </label>
+                <select
+                  id="opsPerfComboScope"
+                  className="select"
+                  value={opsPerformanceComboScope}
+                  onChange={(e) => setOpsPerformanceComboScope(e.target.value === "all" ? "all" : "latest")}
+                >
+                  <option value="latest">Latest commit</option>
+                  <option value="all">All history</option>
+                </select>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="opsPerfComboOrder">
+                  Combo order
+                </label>
+                <select
+                  id="opsPerfComboOrder"
+                  className="select"
+                  value={opsPerformanceComboOrder}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === "recent" || value === "return" || value === "delta") setOpsPerformanceComboOrder(value);
+                  }}
+                >
+                  <option value="delta">Worst delta return</option>
+                  <option value="recent">Most recent</option>
+                  <option value="return">Highest return</option>
+                </select>
+              </div>
+              <button
+                className="btn"
+                type="button"
+                disabled={opsPerformanceUi.loading || apiOk !== "ok"}
+                onClick={() => void fetchOpsPerformance()}
+              >
+                {opsPerformanceUi.loading ? "Loading..." : "Refresh"}
+              </button>
+            </div>
+
+            {!opsPerformanceUi.enabled ? (
+              <div className="hint">{opsPerformanceUi.hint ?? "Enable TRADER_DB_URL to load performance rollups."}</div>
+            ) : opsPerformanceUi.hint ? (
+              <div className="hint">{opsPerformanceUi.hint}</div>
+            ) : null}
+
+            {opsPerformanceUi.error ? (
+              <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)", marginBottom: 6 }}>
+                {opsPerformanceUi.error}
+              </div>
+            ) : null}
+
+            <div className="pillRow" style={{ marginBottom: 10 }}>
+              <span className="badge">Commits {opsPerformanceUi.commits.length}</span>
+              <span className="badge">Combos {opsPerformanceUi.combos.length}</span>
+              {opsPerformanceUi.lastFetchedAtMs ? <span className="badge">Synced {fmtTimeMs(opsPerformanceUi.lastFetchedAtMs)}</span> : null}
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <div className="hint" style={{ marginBottom: 6 }}>
+                Commit deltas
+              </div>
+              {opsPerformanceUi.commits.length === 0 ? (
+                <div className="hint">No commit rollups yet.</div>
+              ) : (
+                <div className="tableWrap" role="region" aria-label="Commit performance rollups">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Commit</th>
+                        <th>Committed</th>
+                        <th>Median return</th>
+                        <th>Δ return</th>
+                        <th>Median DD</th>
+                        <th>Δ DD</th>
+                        <th>Worst DD</th>
+                        <th>Δ worst</th>
+                        <th>Samples</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {opsPerformanceUi.commits.map((row) => {
+                        const commitLabel = shortCommitHash(row.commitHash);
+                        const commitTitle = row.commitHash ?? "—";
+                        const committedLabel =
+                          typeof row.committedAtMs === "number" && Number.isFinite(row.committedAtMs)
+                            ? fmtTimeMs(row.committedAtMs)
+                            : "—";
+                        const medianReturn = typeof row.medianReturn === "number" && Number.isFinite(row.medianReturn)
+                          ? fmtPct(row.medianReturn, 2)
+                          : "—";
+                        const deltaReturn = typeof row.deltaMedianReturn === "number" && Number.isFinite(row.deltaMedianReturn)
+                          ? fmtPct(row.deltaMedianReturn, 2)
+                          : "—";
+                        const medianDd = typeof row.medianDrawdown === "number" && Number.isFinite(row.medianDrawdown)
+                          ? fmtPct(row.medianDrawdown, 2)
+                          : "—";
+                        const deltaDd = typeof row.deltaMedianDrawdown === "number" && Number.isFinite(row.deltaMedianDrawdown)
+                          ? fmtPct(row.deltaMedianDrawdown, 2)
+                          : "—";
+                        const worstDd = typeof row.worstDrawdown === "number" && Number.isFinite(row.worstDrawdown)
+                          ? fmtPct(row.worstDrawdown, 2)
+                          : "—";
+                        const deltaWorst = typeof row.deltaWorstDrawdown === "number" && Number.isFinite(row.deltaWorstDrawdown)
+                          ? fmtPct(row.deltaWorstDrawdown, 2)
+                          : "—";
+                        const samples = `${row.rollups ?? 0} rollups • ${row.combos ?? 0} combos • ${row.symbols ?? 0} symbols`;
+                        return (
+                          <tr key={`commit-${row.gitCommitId}`}>
+                            <td className="tdMono" title={commitTitle}>
+                              {commitLabel}
+                            </td>
+                            <td>{committedLabel}</td>
+                            <td>
+                              <span className={pnlBadgeClass(row.medianReturn)}>{medianReturn}</span>
+                            </td>
+                            <td>
+                              <span className={pnlBadgeClass(row.deltaMedianReturn)}>{deltaReturn}</span>
+                            </td>
+                            <td>
+                              <span className={pnlBadgeClass(row.medianDrawdown)}>{medianDd}</span>
+                            </td>
+                            <td>
+                              <span className={pnlBadgeClass(row.deltaMedianDrawdown)}>{deltaDd}</span>
+                            </td>
+                            <td>
+                              <span className={pnlBadgeClass(row.worstDrawdown)}>{worstDd}</span>
+                            </td>
+                            <td>
+                              <span className={pnlBadgeClass(row.deltaWorstDrawdown)}>{deltaWorst}</span>
+                            </td>
+                            <td>{samples}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="hint" style={{ marginBottom: 6 }}>
+                Combo deltas
+              </div>
+              {!opsPerformanceUi.combosReady ? (
+                <div className="hint">Combo deltas are unavailable until rollups are built.</div>
+              ) : opsPerformanceUi.combos.length === 0 ? (
+                <div className="hint">No combo deltas available for the selected scope.</div>
+              ) : (
+                <div className="tableWrap" role="region" aria-label="Combo performance deltas">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>Market</th>
+                        <th>Interval</th>
+                        <th>Combo</th>
+                        <th>Return</th>
+                        <th>Δ return</th>
+                        <th>Max DD</th>
+                        <th>Δ DD</th>
+                        <th>Commit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {opsPerformanceUi.combos.map((row, idx) => {
+                        const symbol = row.symbol ?? "—";
+                        const market = row.market ? marketLabel(row.market as Market) : "—";
+                        const interval = row.interval ?? "—";
+                        const combo = shortComboUuid(row.comboUuid);
+                        const commitLabel = shortCommitHash(row.commitHash, 7);
+                        const commitTitle = row.commitHash ?? "—";
+                        const ret = typeof row.return === "number" && Number.isFinite(row.return) ? fmtPct(row.return, 2) : "—";
+                        const deltaRet = typeof row.deltaReturn === "number" && Number.isFinite(row.deltaReturn)
+                          ? fmtPct(row.deltaReturn, 2)
+                          : "—";
+                        const dd = typeof row.maxDrawdown === "number" && Number.isFinite(row.maxDrawdown)
+                          ? fmtPct(row.maxDrawdown, 2)
+                          : "—";
+                        const deltaDd = typeof row.deltaDrawdown === "number" && Number.isFinite(row.deltaDrawdown)
+                          ? fmtPct(row.deltaDrawdown, 2)
+                          : "—";
+                        return (
+                          <tr key={`combo-${row.comboUuid ?? idx}-${row.gitCommitId}`}>
+                            <td className="tdMono">{symbol}</td>
+                            <td>{market}</td>
+                            <td>{interval}</td>
+                            <td className="tdMono" title={row.comboUuid ?? "—"}>
+                              {combo}
+                            </td>
+                            <td>
+                              <span className={pnlBadgeClass(row.return)}>{ret}</span>
+                            </td>
+                            <td>
+                              <span className={pnlBadgeClass(row.deltaReturn)}>{deltaRet}</span>
+                            </td>
+                            <td>
+                              <span className={pnlBadgeClass(row.maxDrawdown)}>{dd}</span>
+                            </td>
+                            <td>
+                              <span className={pnlBadgeClass(row.deltaDrawdown)}>{deltaDd}</span>
+                            </td>
+                            <td className="tdMono" title={commitTitle}>
+                              {commitLabel}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </CollapsibleCard>
         </section>
 
