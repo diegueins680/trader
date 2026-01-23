@@ -467,6 +467,8 @@ export const ConfigDock = (props: ConfigDockProps) => {
     tradeDisabledReason,
     updateOptimizerRunForm,
   } = props;
+  const botProtectionNeedsStops =
+    form.stopLoss <= 0 && form.takeProfit <= 0 && form.stopLossVolMult <= 0 && form.takeProfitVolMult <= 0;
 
   return (
     <CollapsibleCard
@@ -2013,7 +2015,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 <div className="hint">Caps volatility-based scaling.</div>
               </div>
             </div>
-            <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 10 }}>
+            <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 10 }}>
               <div className="field">
                 <label className="label" htmlFor="rebalanceBars">
                   Rebalance bars
@@ -2050,6 +2052,26 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 />
                 <div className="hint">
                   {form.rebalanceThreshold > 0 ? form.rebalanceThreshold.toFixed(2) : "0 disables"} • min abs size delta
+                </div>
+              </div>
+            </div>
+            <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 10 }}>
+              <div className="field">
+                <label className="label" htmlFor="rebalanceCostMult">
+                  Rebalance cost mult
+                </label>
+                <input
+                  id="rebalanceCostMult"
+                  className="input"
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  value={form.rebalanceCostMult}
+                  onChange={(e) => setForm((f) => ({ ...f, rebalanceCostMult: numFromInput(e.target.value, f.rebalanceCostMult) }))}
+                  placeholder="0"
+                />
+                <div className="hint">
+                  {form.rebalanceCostMult > 0 ? form.rebalanceCostMult.toFixed(2) : "0 disables"} • size delta &ge; cost x mult
                 </div>
               </div>
               <div className="field">
@@ -2608,6 +2630,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                     sweepThreshold: false,
                     minRoundTrips: Math.max(5, Math.trunc(f.minRoundTrips)),
                     walkForwardFolds: Math.max(5, Math.trunc(f.walkForwardFolds)),
+                    walkForwardEmbargoBars: Math.max(1, Math.trunc(f.walkForwardEmbargoBars)),
                   }));
                   showToast("Preset: safe optimize (min round trips + folds)");
                 }}
@@ -2625,6 +2648,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                     optimizeOperations: false,
                     minRoundTrips: Math.max(3, Math.trunc(f.minRoundTrips)),
                     walkForwardFolds: Math.max(3, Math.trunc(f.walkForwardFolds)),
+                    walkForwardEmbargoBars: Math.max(1, Math.trunc(f.walkForwardEmbargoBars)),
                   }));
                   showToast("Preset: fast sweep (min round trips + folds)");
                 }}
@@ -2722,7 +2746,24 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 <div className="hint">Used for tune scoring + backtest variability.</div>
               </div>
             </div>
-            <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
+              <div className="field">
+                <label className="label" htmlFor="walkForwardEmbargoBars">
+                  Walk-forward embargo bars
+                </label>
+                <input
+                  id="walkForwardEmbargoBars"
+                  className="input"
+                  type="number"
+                  step="1"
+                  min={0}
+                  value={form.walkForwardEmbargoBars}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, walkForwardEmbargoBars: numFromInput(e.target.value, f.walkForwardEmbargoBars) }))
+                  }
+                />
+                <div className="hint">Drop bars around fold edges (0 disables).</div>
+              </div>
               <div className="field">
                 <label className="label" htmlFor="tuneStressVolMult">
                   Stress vol mult
@@ -2914,6 +2955,44 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 Binance orders; otherwise it runs in paper mode. If “Sweep thresholds” or “Optimize operations” is enabled, the bot re-optimizes after each
                 buy/sell operation.
               </div>
+              <div className="row" style={{ marginTop: 10 }}>
+                <div className="field">
+                  <div className="label">Protection orders</div>
+                  <div className="pillRow">
+                    <label className="pill">
+                      <input
+                        type="checkbox"
+                        checked={form.botProtectionOrders}
+                        onChange={(e) => setForm((f) => ({ ...f, botProtectionOrders: e.target.checked }))}
+                      />
+                      Exchange SL/TP (futures)
+                    </label>
+                  </div>
+                  <div className="hint">
+                    Places reduce-only STOP_MARKET / TAKE_PROFIT_MARKET orders on Binance futures when live orders + trading are armed. Requires stop-loss or
+                    take-profit (or vol-mult). Trailing stops remain internal.
+                  </div>
+                  {!isBinancePlatform ? (
+                    <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
+                      Live bots are Binance-only. Protection orders are ignored on other platforms.
+                    </div>
+                  ) : form.market !== "futures" ? (
+                    <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
+                      Requires Binance futures (market=futures).
+                    </div>
+                  ) : null}
+                  {form.botProtectionOrders && !form.binanceLive ? (
+                    <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
+                      Enable Live orders in Trade settings to place exchange protection orders.
+                    </div>
+                  ) : null}
+                  {form.botProtectionOrders && botProtectionNeedsStops ? (
+                    <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
+                      Configure stop-loss / take-profit (or vol-mult) to place protection orders.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
               {botStartBlockedReason && !botAnyRunning && !botStarting ? (
                 <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
                   Start live bot is disabled: {botStartBlockedReason}
@@ -3013,6 +3092,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                         botOnlineEpochs: defaultForm.botOnlineEpochs,
                         botTrainBars: defaultForm.botTrainBars,
                         botMaxPoints: defaultForm.botMaxPoints,
+                        botProtectionOrders: defaultForm.botProtectionOrders,
                         botAdoptExistingPosition: defaultForm.botAdoptExistingPosition,
                       }))
                     }

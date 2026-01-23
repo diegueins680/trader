@@ -9,10 +9,12 @@ executable trader-hs
   hs-source-dirs:      app
   main-is:             Main.hs
   other-modules:       Trader.Binance
+                     , Trader.Cache
                      , Trader.Coinbase
                      , Trader.App.Args
                      , Trader.BinanceIntervals
                      , Trader.Duration
+                     , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
                      , Trader.Kraken
@@ -73,6 +75,8 @@ executable trader-hs
                      , uuid
                      , vector >=0.12
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  if os(darwin)
+    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
 
 executable optimize-equity
   hs-source-dirs:      app
@@ -101,6 +105,8 @@ executable optimize-equity
                      , time
                      , vector >=0.12
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  if os(darwin)
+    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
 
 executable merge-top-combos
   hs-source-dirs:      app
@@ -125,16 +131,20 @@ executable merge-top-combos
                      , time
                      , vector >=0.12
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  if os(darwin)
+    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
 
 test-suite trader-tests
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test, app
   main-is:             TestMain.hs
   other-modules:       Trader.Binance
+                     , Trader.Cache
                      , Trader.Coinbase
                      , Trader.App.Args
                      , Trader.BinanceIntervals
                      , Trader.Duration
+                     , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
                      , Trader.Kraken
@@ -164,6 +174,8 @@ test-suite trader-tests
                      , Trader.Trading
                      , Paths_trader
   default-language:    Haskell2010
+  if os(darwin)
+    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
   build-depends:       base >=4.14 && <4.20
                      , aeson >=1.5
                      , bytestring >=0.10
@@ -191,10 +203,12 @@ benchmark trader-bench
   hs-source-dirs:      bench, app
   main-is:             BenchMain.hs
   other-modules:       Trader.Binance
+                     , Trader.Cache
                      , Trader.Coinbase
                      , Trader.App.Args
                      , Trader.BinanceIntervals
                      , Trader.Duration
+                     , Trader.Http
                      , Trader.KalmanFusion
                      , Trader.Kalman3
                      , Trader.Kraken
@@ -224,6 +238,8 @@ benchmark trader-bench
                      , Trader.Trading
                      , Paths_trader
   default-language:    Haskell2010
+  if os(darwin)
+    ghc-options:       -optl-Wl,-no_warn_duplicate_libraries
   build-depends:       base >=4.14 && <4.20
                      , aeson >=1.5
                      , bytestring >=0.10

@@ -802,6 +802,7 @@ data ApiParams = ApiParams
   , apBotTrainBars :: Maybe Int
   , apBotMaxPoints :: Maybe Int
   , apBotTrade :: Maybe Bool
+  , apBotProtectionOrders :: Maybe Bool
   , apBotAdoptExistingPosition :: Maybe Bool
   , apKalmanZMin :: Maybe Double
   , apKalmanZMax :: Maybe Double
@@ -888,6 +889,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrRebalanceBarsMax :: !(Maybe Int)
   , arrRebalanceThresholdMin :: !(Maybe Double)
   , arrRebalanceThresholdMax :: !(Maybe Double)
+  , arrRebalanceCostMultMin :: !(Maybe Double)
+  , arrRebalanceCostMultMax :: !(Maybe Double)
   , arrPRebalanceGlobal :: !(Maybe Double)
   , arrPRebalanceResetOnSignal :: !(Maybe Double)
   , arrNormalizations :: !(Maybe String)
@@ -920,6 +923,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
   , arrTuneStressWeightMax :: !(Maybe Double)
   , arrWalkForwardFoldsMin :: !(Maybe Int)
   , arrWalkForwardFoldsMax :: !(Maybe Int)
+  , arrWalkForwardEmbargoBarsMin :: !(Maybe Int)
+  , arrWalkForwardEmbargoBarsMax :: !(Maybe Int)
   , arrMinHoldBarsMin :: !(Maybe Int)
   , arrMinHoldBarsMax :: !(Maybe Int)
   , arrCooldownBarsMin :: !(Maybe Int)
@@ -2730,6 +2735,7 @@ botStatusLogMaybe mOps running st = do
           , "running" .= running
           , "live" .= argBinanceLive args
           , "tradeEnabled" .= bsTradeEnabled settings
+          , "protectionOrders" .= bsProtectionOrders settings
           , "halted" .= isJust (botHaltReason st)
           , "haltReason" .= botHaltReason st
           , "error" .= botError st
@@ -2982,6 +2988,7 @@ data BotSettings = BotSettings
   , bsTrainBars :: !Int
   , bsMaxPoints :: !Int
   , bsTradeEnabled :: !Bool
+  , bsProtectionOrders :: !Bool
   , bsAdoptExistingPosition :: !Bool
   } deriving (Eq, Show)
 
@@ -3312,6 +3319,7 @@ defaultBotSettings args =
     , bsTrainBars = 800
     , bsMaxPoints = 2000
     , bsTradeEnabled = True
+    , bsProtectionOrders = False
     , bsAdoptExistingPosition = True
     }
 
@@ -3322,6 +3330,7 @@ botSettingsFromApi args p = do
       trainBars = maybe 800 id (apBotTrainBars p)
       maxPoints = maybe 2000 id (apBotMaxPoints p)
       tradeEnabled = maybe True id (apBotTrade p)
+      protectionOrders = maybe False id (apBotProtectionOrders p)
       adoptExistingPosition = True
 
   ensure "botPollSeconds must be between 1 and 3600" (poll >= 1 && poll <= 3600)
@@ -3336,6 +3345,7 @@ botSettingsFromApi args p = do
       , bsTrainBars = trainBars
       , bsMaxPoints = maxPoints
       , bsTradeEnabled = tradeEnabled
+      , bsProtectionOrders = protectionOrders
       , bsAdoptExistingPosition = adoptExistingPosition
       }
   where
@@ -3406,6 +3416,7 @@ botStatusJson st =
           , "trainBars" .= bsTrainBars (botSettings st)
           , "maxPoints" .= bsMaxPoints (botSettings st)
           , "tradeEnabled" .= bsTradeEnabled (botSettings st)
+          , "protectionOrders" .= bsProtectionOrders (botSettings st)
           , "adoptExistingPosition" .= bsAdoptExistingPosition (botSettings st)
           ]
     , "startIndex" .= botStartIndex st
@@ -3980,6 +3991,42 @@ fetchBotAccountPos args env sym =
   case argPositioning args of
     LongFlat -> fetchLongFlatAccountPos args env sym
     LongShort -> fetchLongShortAccountPos args env sym
+
+fetchAdoptedPositionSize :: Args -> BinanceEnv -> String -> Double -> IO (Maybe Double)
+fetchAdoptedPositionSize args env sym price =
+  if price <= 0 || isNaN price || isInfinite price
+    then pure Nothing
+    else do
+      let safeMax0 = max 0
+          (baseAsset, quoteAsset) = splitSymbol sym
+          spotSizing = do
+            baseBal <- fetchFreeBalance env baseAsset
+            quoteBal <- fetchFreeBalance env quoteAsset
+            let baseVal = safeMax0 baseBal * price
+                quoteVal = safeMax0 quoteBal
+                totalVal = baseVal + quoteVal
+            if totalVal <= 0 || baseVal <= 0
+              then pure Nothing
+              else pure (Just (baseVal / totalVal))
+          futuresSizing = do
+            summary <- fetchFuturesPositionSummary env sym
+            let posAmt = fpsNetAmt summary
+                notional = abs posAmt * price
+            if abs posAmt <= 1e-12 || notional <= 0
+              then pure Nothing
+              else do
+                quoteBal <- fetchFuturesAvailableBalance env quoteAsset
+                if quoteBal <= 0
+                  then pure Nothing
+                  else pure (Just (notional / quoteBal))
+      r <-
+        try
+          ( case argBinanceMarket args of
+              MarketFutures -> futuresSizing
+              _ -> spotSizing
+          ) ::
+          IO (Either SomeException (Maybe Double))
+      pure (either (const Nothing) id r)
 
 fetchAdoptableAccountPos :: Args -> BinanceEnv -> String -> IO Int
 fetchAdoptableAccountPos args env sym =
@@ -4898,6 +4945,15 @@ initBotState mOps args settings mComboUuid sym = do
               else latest { lsChosenDir = Just (negate startPos0) }
       entrySize = entryScaleForSignal args (beMarket env) latest
 
+  mStartSize <-
+    if tradeEnabled && startPos0 /= 0
+      then fetchAdoptedPositionSize args env sym (V.last pricesV)
+      else pure Nothing
+  let startSize =
+        case mStartSize of
+          Just s | s > 0 -> s
+          _ -> if entrySize > 0 then entrySize else 1
+
   mOrder <-
     if argPositioning args == LongShort && desiredPosSignal == 0 && startPos0 /= 0
       then Just <$> placeBotCloseIfEnabled args settings latestOrder env sym
@@ -4924,7 +4980,17 @@ initBotState mOps args settings mComboUuid sym = do
           else if appliedSwitch then desiredPosSignal else startPos0
       didTradeNow = wantSwitch && appliedSwitch && feeApplied
 
-      feeFrac = min 0.999999 (max 0 (argFee args) * entrySize)
+      feeSize =
+        if not wantSwitch
+          then 0
+          else
+            if startPos0 == 0
+              then entrySize
+              else
+                if desiredPosSignal == 0
+                  then startSize
+                  else startSize + entrySize
+      feeFrac = min 0.999999 (max 0 (argFee args) * feeSize)
       eq1 =
         if didTradeNow
           then eq0 V.// [(n - 1, baseEq * (1 - feeFrac))]
@@ -4934,10 +5000,12 @@ initBotState mOps args settings mComboUuid sym = do
         case desiredPos of
           1 ->
             let px = V.last pricesV
-             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px entrySize px SideLong False)
+                openSize = if desiredPos == startPos0 then startSize else entrySize
+             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px openSize px SideLong False)
           (-1) ->
             let px = V.last pricesV
-             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px entrySize px SideShort False)
+                openSize = if desiredPos == startPos0 then startSize else entrySize
+             in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px openSize px SideShort False)
           _ -> Nothing
       ops =
         if wantSwitch && appliedSwitch
@@ -6922,7 +6990,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
           _ -> False
 
       (latest1, desiredPosWanted1, mExitReason1) =
-        if prevPos /= 0 && desiredPosWanted0b == 0 && mExitReason0b == Just "SIGNAL" && holdBars < minHoldBars
+        if prevPos /= 0 && desiredPosWanted0b /= prevPos && mExitReason0b == Just "SIGNAL" && holdBars < minHoldBars
           then (latest0b { lsAction = "HOLD_MIN_HOLD" }, prevPos, Nothing)
           else (latest0b, desiredPosWanted0b, mExitReason0b)
 
@@ -6930,6 +6998,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         case maxHoldBars of
           Nothing -> False
           Just lim -> prevPos /= 0 && holdBars >= lim && desiredPosWanted1 == prevPos
+
+      maxHoldExit = holdTooLong
 
       (latest2, desiredPosWanted2, mExitReason2) =
         if holdTooLong
@@ -6965,15 +7035,11 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
       (latest2b, desiredPosWanted2b, mExitReason2b) =
         case entryBlockReason of
           Just reason ->
-            let action =
-                  if prevPos == 0
-                    then "HOLD_" ++ reason
-                    else "EXIT_" ++ reason
-                exitReason =
-                  if prevPos /= 0 && entryAttempt
-                    then Just reason
-                    else Nothing
-             in (latest2 { lsAction = action }, 0, exitReason)
+            let action = "HOLD_" ++ reason
+             in
+              if prevPos == 0
+                then (latest2 { lsAction = action }, 0, Nothing)
+                else (latest2 { lsAction = action }, prevPos, Nothing)
           Nothing -> (latest2, desiredPosWanted2, mExitReason2)
 
       (latest, desiredPosWanted, mExitReason) =
@@ -7139,7 +7205,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 feeSize =
                   if desiredPosWanted == 0
                     then prevSize
-                    else max prevSize entrySize
+                    else
+                      if prevPos == 0
+                        then entrySize
+                        else prevSize + entrySize
                 feeFrac = min 0.999999 (max 0 (argFee args) * feeSize)
                 eqAfterFee =
                   if appliedSwitch && feeApplied
@@ -7310,9 +7379,13 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         if prevPos == 0
           then max 0 (cooldownLeft0 - 1)
           else 0
+      cooldownBarsEffective =
+        if maxHoldExit
+          then max cooldownBars 1
+          else cooldownBars
       cooldownLeftBase =
         if posFinal == 0
-          then if prevPos /= 0 then cooldownBars else cooldownDec
+          then if prevPos /= 0 then cooldownBarsEffective else cooldownDec
           else 0
       cooldownLeftNext =
         if lossStreakTriggered
@@ -7529,7 +7602,7 @@ placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String ->
 placeIfEnabled args settings sig env sym =
   if not (bsTradeEnabled settings)
     then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
-    else placeOrderForSignalBot args sym sig env
+    else placeOrderForSignalBot args sym sig env (bsProtectionOrders settings)
 
 placeBotCloseIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeBotCloseIfEnabled args settings sig env sym =
@@ -9369,6 +9442,9 @@ prepareOptimizerArgs outputPath req = do
           walkForwardFoldsArgs =
             maybeIntArg "--walk-forward-folds-min" (fmap (max 1) (arrWalkForwardFoldsMin req))
               ++ maybeIntArg "--walk-forward-folds-max" (fmap (max 1) (arrWalkForwardFoldsMax req))
+          walkForwardEmbargoArgs =
+            maybeIntArg "--walk-forward-embargo-bars-min" (fmap (max 0) (arrWalkForwardEmbargoBarsMin req))
+              ++ maybeIntArg "--walk-forward-embargo-bars-max" (fmap (max 0) (arrWalkForwardEmbargoBarsMax req))
           intervalsVal = pickDefaultString defaultOptimizerIntervals (arrIntervals req)
           lookbackVal = pickDefaultString "7d" (arrLookbackWindow req)
           backtestRatioVal = clamp01 (fromMaybe 0.2 (arrBacktestRatio req))
@@ -9508,6 +9584,9 @@ prepareOptimizerArgs outputPath req = do
           rebalanceThresholdArgs =
             maybeDoubleArg "--rebalance-threshold-min" (fmap (max 0) (arrRebalanceThresholdMin req))
               ++ maybeDoubleArg "--rebalance-threshold-max" (fmap (max 0) (arrRebalanceThresholdMax req))
+          rebalanceCostMultArgs =
+            maybeDoubleArg "--rebalance-cost-mult-min" (fmap (max 0) (arrRebalanceCostMultMin req))
+              ++ maybeDoubleArg "--rebalance-cost-mult-max" (fmap (max 0) (arrRebalanceCostMultMax req))
           rebalanceModeArgs =
             maybeDoubleArg "--p-rebalance-global" (fmap clamp01 (arrPRebalanceGlobal req))
               ++ maybeDoubleArg "--p-rebalance-reset-on-signal" (fmap clamp01 (arrPRebalanceResetOnSignal req))
@@ -9640,6 +9719,7 @@ prepareOptimizerArgs outputPath req = do
               ++ tuneStressShockRangeArgs
               ++ tuneStressWeightRangeArgs
               ++ walkForwardFoldsArgs
+              ++ walkForwardEmbargoArgs
               ++ lrArgs
               ++ patienceArgs
               ++ gradClipArgs
@@ -9661,6 +9741,7 @@ prepareOptimizerArgs outputPath req = do
               ++ fundingModeArgs
               ++ rebalanceBarsArgs
               ++ rebalanceThresholdArgs
+              ++ rebalanceCostMultArgs
               ++ rebalanceModeArgs
               ++ minPositionSizeArgs
               ++ maxPositionSizeArgs
@@ -11845,6 +11926,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                           , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
                           , "interval" .= argInterval (bsrArgs rt)
                           , "tradeEnabled" .= bsTradeEnabled (bsrSettings rt)
+                          , "protectionOrders" .= bsProtectionOrders (bsrSettings rt)
                           ]
                       )
                     opsAppendMaybe
@@ -11858,6 +11940,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                               , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
                               , "interval" .= argInterval (bsrArgs rt)
                               , "tradeEnabled" .= bsTradeEnabled settings
+                              , "protectionOrders" .= bsProtectionOrders settings
                               , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
                               , "botPollSeconds" .= bsPollSeconds settings
                               , "botOnlineEpochs" .= bsOnlineEpochs settings
@@ -13164,9 +13247,9 @@ placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrd
 placeOrderForSignal args sym sig env =
   placeOrderForSignalEx args sym sig env Nothing True
 
-placeOrderForSignalBot :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
-placeOrderForSignalBot args sym sig env =
-  placeOrderForSignalEx args sym sig env Nothing False
+placeOrderForSignalBot :: Args -> String -> LatestSignal -> BinanceEnv -> Bool -> IO ApiOrderResult
+placeOrderForSignalBot args sym sig env enableProtectionOrders =
+  placeOrderForSignalEx args sym sig env Nothing enableProtectionOrders
 
 placeOrderForSignalEx :: Args -> String -> LatestSignal -> BinanceEnv -> Maybe String -> Bool -> IO ApiOrderResult
 placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOrders = do

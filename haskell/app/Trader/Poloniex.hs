@@ -14,12 +14,15 @@ import Data.Char (toUpper)
 import Data.Int (Int64)
 import Data.List (sortOn)
 import qualified Data.Text as T
+import Data.Time.Clock (NominalDiffTime)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 import Network.HTTP.Client
-import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
 import Trader.Text (dedupeStable, trim)
+import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
+import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
+import System.IO.Unsafe (unsafePerformIO)
 
 data PoloniexCandle = PoloniexCandle
   { pcOpenTime :: !Int64
@@ -34,15 +37,27 @@ poloniexBaseUrl = "https://api.poloniex.com/markets"
 poloniexTimeoutMicros :: Int
 poloniexTimeoutMicros = 15 * 1000000
 
+{-# NOINLINE poloniexCandlesCache #-}
+poloniexCandlesCache :: TtlCache String [PoloniexCandle]
+poloniexCandlesCache = unsafePerformIO newTtlCache
+
+poloniexCandlesFreshTtl :: NominalDiffTime
+poloniexCandlesFreshTtl = 30
+
+poloniexCandlesStaleTtl :: NominalDiffTime
+poloniexCandlesStaleTtl = 300
+
 fetchPoloniexCandles :: String -> String -> Int -> Int -> IO [PoloniexCandle]
 fetchPoloniexCandles pair intervalLabel periodSec bars = do
-  mgr <- newManager tlsManagerSettings
-  now <- round <$> getPOSIXTime
-  let lookbackBars = max 1 bars
-      endMs = max 0 (fromIntegral now * 1000)
-      startMs = max 0 (endMs - fromIntegral lookbackBars * fromIntegral periodSec * 1000)
-      candidates = poloniexSymbolCandidates pair
-  go mgr startMs endMs candidates Nothing
+  let key = map toUpper (trim pair) ++ ":" ++ intervalLabel ++ ":" ++ show periodSec ++ ":" ++ show bars
+  fetchWithCache poloniexCandlesCache poloniexCandlesFreshTtl poloniexCandlesStaleTtl key $ do
+    mgr <- getSharedManager
+    now <- round <$> getPOSIXTime
+    let lookbackBars = max 1 bars
+        endMs = max 0 (fromIntegral now * 1000)
+        startMs = max 0 (endMs - fromIntegral lookbackBars * fromIntegral periodSec * 1000)
+        candidates = poloniexSymbolCandidates pair
+    go mgr startMs endMs candidates Nothing
   where
     go _ _ _ [] Nothing = throwIO (userError "Poloniex chart request failed (no symbol candidates).")
     go _ _ _ [] (Just err) = throwIO err
@@ -74,7 +89,7 @@ fetchPoloniexCandles pair intervalLabel periodSec bars = do
                     : requestHeaders req
               , responseTimeout = responseTimeoutMicro poloniexTimeoutMicros
               }
-      resp <- httpLbs req' manager
+      resp <- httpLbsWithRetry defaultRetryConfig (Just "poloniex.candles") manager req'
       let code = statusCode (responseStatus resp)
       if code < 200 || code >= 300
         then pure (Left code)

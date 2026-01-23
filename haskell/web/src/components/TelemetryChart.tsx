@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import { downsampleArray, downsampleIndices } from "../app/utils";
 
 export type TelemetryPoint = {
   atMs: number;
@@ -13,6 +14,7 @@ type Props = {
 };
 
 const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
+const MAX_TELEMETRY_POINTS = 400;
 
 type Pads = { l: number; r: number; t: number; b: number };
 
@@ -107,20 +109,26 @@ function pathFor(series: Array<number | null>, xFor: (i: number) => number, yFor
   return pts < 2 ? "" : d.trim();
 }
 
-export function TelemetryChart({ points, height = DEFAULT_CHART_HEIGHT, label = "Telemetry chart" }: Props) {
+export const TelemetryChart = React.memo(function TelemetryChart({ points, height = DEFAULT_CHART_HEIGHT, label = "Telemetry chart" }: Props) {
   const w = 1000;
   const h = 240;
   const pad: Pads = { l: 66, r: 66, t: 18, b: 34 };
   const resolvedHeight = typeof height === "string" ? height : DEFAULT_CHART_HEIGHT;
   const minHeight = typeof height === "number" ? height : undefined;
 
+  const sampledPoints = useMemo(() => {
+    const indices = downsampleIndices(points.length, MAX_TELEMETRY_POINTS);
+    if (indices.length === points.length) return points;
+    return downsampleArray(points, indices);
+  }, [points]);
+
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
   const { pollSeries, driftSeries, leftAxis, rightAxis, pollPath, driftPath, xFor, yForLeft, yForRight } = useMemo(() => {
-    const pollSeries = points.map((p) => (isFiniteNumber(p.pollLatencyMs) ? p.pollLatencyMs : null));
-    const driftSeries = points.map((p) => (isFiniteNumber(p.driftBps) ? p.driftBps : null));
+    const pollSeries = sampledPoints.map((p) => (isFiniteNumber(p.pollLatencyMs) ? p.pollLatencyMs : null));
+    const driftSeries = sampledPoints.map((p) => (isFiniteNumber(p.driftBps) ? p.driftBps : null));
 
     const pollFinite = pollSeries.filter((v): v is number => isFiniteNumber(v));
     const pollMax = pollFinite.length ? Math.max(0, ...pollFinite) : 1;
@@ -134,7 +142,7 @@ export function TelemetryChart({ points, height = DEFAULT_CHART_HEIGHT, label = 
     const spanLeft = leftAxis.max - leftAxis.min || 1;
     const spanRight = rightAxis.max - rightAxis.min || 1;
 
-    const n = points.length;
+    const n = sampledPoints.length;
     const xFor = (i: number) => pad.l + (i * (w - pad.l - pad.r)) / Math.max(1, n - 1);
     const yForLeft = (v: number) => {
       const t = (v - leftAxis.min) / spanLeft;
@@ -149,21 +157,21 @@ export function TelemetryChart({ points, height = DEFAULT_CHART_HEIGHT, label = 
     const driftPath = pathFor(driftSeries, xFor, yForRight);
 
     return { pollSeries, driftSeries, leftAxis, rightAxis, pollPath, driftPath, xFor, yForLeft, yForRight };
-  }, [points]);
+  }, [sampledPoints]);
 
-  const n = points.length;
+  const n = sampledPoints.length;
   const empty = n < 2 || (!pollPath && !driftPath);
 
   const hover = useMemo(() => {
     if (hoverIdx === null) return null;
     if (n < 1) return null;
     const idx = clamp(hoverIdx, 0, n - 1);
-    const p = points[idx]!;
+    const p = sampledPoints[idx]!;
     const pollLatencyMs = pollSeries[idx] ?? null;
     const driftBps = driftSeries[idx] ?? null;
     const driftPct = isFiniteNumber(driftBps) ? driftBps / 100 : null;
     return { idx, atMs: p.atMs, pollLatencyMs, driftBps, driftPct };
-  }, [driftSeries, hoverIdx, n, points, pollSeries]);
+  }, [driftSeries, hoverIdx, n, pollSeries, sampledPoints]);
 
   const tooltipStyle = useMemo(() => {
     if (!pointer || !hover) return { display: "none" } as React.CSSProperties;
@@ -292,4 +300,4 @@ export function TelemetryChart({ points, height = DEFAULT_CHART_HEIGHT, label = 
       )}
     </div>
   );
-}
+});

@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import { downsampleArray, downsampleIndices } from "../app/utils";
 
 export type BotStatePoint = {
   atMs: number;
@@ -20,6 +21,7 @@ type Props = {
 };
 
 const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
+const MAX_BOT_STATE_POINTS = 2000;
 
 function fmtTimeShort(ms: number): string {
   if (!Number.isFinite(ms)) return "--";
@@ -78,7 +80,13 @@ function buildSegments(points: BotStatePoint[], startMs: number, endMs: number):
   return { segments, hasData: true };
 }
 
-export function BotStateChart({ points, startMs, endMs, height = DEFAULT_CHART_HEIGHT, label = "Bot state timeline" }: Props) {
+export const BotStateChart = React.memo(function BotStateChart({
+  points,
+  startMs,
+  endMs,
+  height = DEFAULT_CHART_HEIGHT,
+  label = "Bot state timeline",
+}: Props) {
   const w = 1000;
   const h = 180;
   const pad = { l: 16, r: 16, t: 12, b: 26 };
@@ -89,7 +97,13 @@ export function BotStateChart({ points, startMs, endMs, height = DEFAULT_CHART_H
   const [hoverMs, setHoverMs] = useState<number | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  const { segments, hasData } = useMemo(() => buildSegments(points, startMs, endMs), [points, startMs, endMs]);
+  const sampledPoints = useMemo(() => {
+    const indices = downsampleIndices(points.length, MAX_BOT_STATE_POINTS);
+    if (indices.length === points.length) return points;
+    return downsampleArray(points, indices);
+  }, [points]);
+
+  const { segments, hasData } = useMemo(() => buildSegments(sampledPoints, startMs, endMs), [sampledPoints, startMs, endMs]);
   const empty = !hasData || segments.length === 0;
 
   const span = Math.max(1, endMs - startMs);
@@ -193,4 +207,4 @@ export function BotStateChart({ points, startMs, endMs, height = DEFAULT_CHART_H
       )}
     </div>
   );
-}
+});

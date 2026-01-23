@@ -182,7 +182,10 @@ export const COMPLEX_TIPS = {
   lstm: ["Normalization affects scaling for LSTM only; keep consistent with training.", "Epochs/hidden size trade off fit vs runtime and overfitting."],
   optimization: ["Sweep thresholds searches open/close gates only.", "Optimize operations also tries methods and thresholds; router disables both."],
   tuneObjective: ["Tune objective defines the score used during fit/tune; it can differ from backtest objective."],
-  walkForward: ["Walk-forward folds split data into sequential folds to estimate stability."],
+  walkForward: [
+    "Walk-forward folds split data into sequential folds to estimate stability.",
+    "Embargo bars drop samples near fold edges to reduce leakage.",
+  ],
 };
 
 export function trimBinanceComboSuffix(value: string): string | null {
@@ -1002,6 +1005,8 @@ export type OptimizerRunForm = {
   maxWalkForwardSharpeStd: string;
   walkForwardFoldsMin: string;
   walkForwardFoldsMax: string;
+  walkForwardEmbargoBarsMin: string;
+  walkForwardEmbargoBarsMax: string;
   minHoldBarsMin: string;
   minHoldBarsMax: string;
   cooldownBarsMin: string;
@@ -1016,6 +1021,8 @@ export type OptimizerRunForm = {
   edgeBufferMax: string;
   trendLookbackMin: string;
   trendLookbackMax: string;
+  rebalanceCostMultMin: string;
+  rebalanceCostMultMax: string;
   pCostAwareEdge: string;
   stopMin: string;
   stopMax: string;
@@ -1124,7 +1131,7 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     pDisableGradClip: "",
     slippageMax: "",
     spreadMax: "",
-    minRoundTrips: "",
+    minRoundTrips: "5",
     minWinRate: "",
     minSharpe: "",
     minAnnualizedReturn: "",
@@ -1136,6 +1143,8 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     maxWalkForwardSharpeStd: "",
     walkForwardFoldsMin: "",
     walkForwardFoldsMax: "",
+    walkForwardEmbargoBarsMin: "1",
+    walkForwardEmbargoBarsMax: "1",
     minHoldBarsMin: "",
     minHoldBarsMax: "",
     cooldownBarsMin: "",
@@ -1150,6 +1159,8 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     edgeBufferMax: "",
     trendLookbackMin: "",
     trendLookbackMax: "",
+    rebalanceCostMultMin: "1",
+    rebalanceCostMultMax: "1",
     pCostAwareEdge: "",
     stopMin: "",
     stopMax: "",
@@ -1303,6 +1314,10 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (walkForwardFoldsMin != null) req.walkForwardFoldsMin = walkForwardFoldsMin;
   const walkForwardFoldsMax = parseOptionalInt(form.walkForwardFoldsMax);
   if (walkForwardFoldsMax != null) req.walkForwardFoldsMax = walkForwardFoldsMax;
+  const walkForwardEmbargoBarsMin = parseOptionalInt(form.walkForwardEmbargoBarsMin);
+  if (walkForwardEmbargoBarsMin != null) req.walkForwardEmbargoBarsMin = walkForwardEmbargoBarsMin;
+  const walkForwardEmbargoBarsMax = parseOptionalInt(form.walkForwardEmbargoBarsMax);
+  if (walkForwardEmbargoBarsMax != null) req.walkForwardEmbargoBarsMax = walkForwardEmbargoBarsMax;
 
   const minHoldBarsMin = parseOptionalInt(form.minHoldBarsMin);
   if (minHoldBarsMin != null) req.minHoldBarsMin = minHoldBarsMin;
@@ -1333,6 +1348,10 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (trendLookbackMin != null) req.trendLookbackMin = trendLookbackMin;
   const trendLookbackMax = parseOptionalInt(form.trendLookbackMax);
   if (trendLookbackMax != null) req.trendLookbackMax = trendLookbackMax;
+  const rebalanceCostMultMin = parseOptionalNumber(form.rebalanceCostMultMin);
+  if (rebalanceCostMultMin != null) req.rebalanceCostMultMin = rebalanceCostMultMin;
+  const rebalanceCostMultMax = parseOptionalNumber(form.rebalanceCostMultMax);
+  if (rebalanceCostMultMax != null) req.rebalanceCostMultMax = rebalanceCostMultMax;
   const pCostAwareEdge = parseOptionalNumber(form.pCostAwareEdge);
   if (pCostAwareEdge != null) req.pCostAwareEdge = pCostAwareEdge;
 
@@ -1752,6 +1771,10 @@ export function applyComboToForm(
     0,
     coerceNumber(combo.params.rebalanceThreshold ?? prev.rebalanceThreshold, prev.rebalanceThreshold),
   );
+  const rebalanceCostMult = Math.max(
+    0,
+    coerceNumber(combo.params.rebalanceCostMult ?? prev.rebalanceCostMult, prev.rebalanceCostMult),
+  );
   const rebalanceGlobal = combo.params.rebalanceGlobal ?? prev.rebalanceGlobal;
   const rebalanceResetOnSignal = combo.params.rebalanceResetOnSignal ?? prev.rebalanceResetOnSignal;
   const fundingRate = coerceNumber(combo.params.fundingRate ?? prev.fundingRate, prev.fundingRate);
@@ -1762,6 +1785,11 @@ export function applyComboToForm(
   const tuneStressShock = coerceNumber(combo.params.tuneStressShock ?? prev.tuneStressShock, prev.tuneStressShock);
   const tuneStressWeight = Math.max(0, coerceNumber(combo.params.tuneStressWeight ?? prev.tuneStressWeight, prev.tuneStressWeight));
   const walkForwardFolds = clampOptionalInt(combo.params.walkForwardFolds ?? prev.walkForwardFolds, 1, 1000);
+  const walkForwardEmbargoBars = clampOptionalInt(
+    combo.params.walkForwardEmbargoBars ?? prev.walkForwardEmbargoBars,
+    0,
+    1_000_000,
+  );
 
   const kalmanZMin = Math.max(0, coerceNumber(combo.params.kalmanZMin, prev.kalmanZMin));
   const kalmanZMax = Math.max(Math.max(0, coerceNumber(combo.params.kalmanZMax, prev.kalmanZMax)), kalmanZMin);
@@ -1892,6 +1920,7 @@ export function applyComboToForm(
     maxVolatility,
     rebalanceBars,
     rebalanceThreshold,
+    rebalanceCostMult,
     rebalanceGlobal,
     rebalanceResetOnSignal,
     fundingRate,
@@ -1918,6 +1947,7 @@ export function applyComboToForm(
     tuneStressShock,
     tuneStressWeight,
     walkForwardFolds,
+    walkForwardEmbargoBars,
     lookbackBars,
     lookbackWindow,
     openThreshold,
@@ -2006,6 +2036,7 @@ export function formApplySignature(form: FormState): string {
     sigNumber(form.maxVolatility),
     sigNumber(form.rebalanceBars),
     sigNumber(form.rebalanceThreshold),
+    sigNumber(form.rebalanceCostMult),
     sigBool(form.rebalanceGlobal),
     sigBool(form.rebalanceResetOnSignal),
     sigNumber(form.fundingRate),
@@ -2025,6 +2056,7 @@ export function formApplySignature(form: FormState): string {
     sigNumber(form.tuneStressShock),
     sigNumber(form.tuneStressWeight),
     sigNumber(form.walkForwardFolds),
+    sigNumber(form.walkForwardEmbargoBars),
     sigNumber(form.openThreshold),
     sigNumber(form.closeThreshold),
   ].join("|");

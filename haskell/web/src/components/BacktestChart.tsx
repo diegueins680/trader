@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { fmtTimeMs } from "../app/utils";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { downsampleArray, downsampleIndices, downsampleOptionalArray, fmtTimeMs, remapIndexToSample } from "../app/utils";
 
 type Trade = {
   entryIndex: number;
@@ -43,6 +43,7 @@ const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
 
 const CHART_MARGIN = { l: 14, r: 78, t: 10, b: 26 };
 const MIN_ZOOM_WINDOW = 6;
+const MAX_BACKTEST_POINTS = 2000;
 
 function fmt(n: number, digits = 4): string {
   if (!Number.isFinite(n)) return "—";
@@ -171,7 +172,7 @@ function deriveOpenTrade(trades: Trade[], pos: number[], equityCurve: number[], 
   };
 }
 
-export function BacktestChart({
+export const BacktestChart = React.memo(function BacktestChart({
   prices,
   equityCurve,
   openTimes,
@@ -185,7 +186,7 @@ export function BacktestChart({
   height = DEFAULT_CHART_HEIGHT,
   actions,
 }: Props) {
-  const n = prices.length;
+  const nFull = prices.length;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -193,7 +194,7 @@ export function BacktestChart({
   const minHeight = typeof height === "number" ? height : undefined;
   const initialHeight = typeof height === "number" ? height : 0;
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: initialHeight });
-  const [view, setView] = useState<View>(() => ({ start: 0, end: Math.max(1, n - 1) }));
+  const [view, setView] = useState<View>(() => ({ start: 0, end: Math.max(1, nFull - 1) }));
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const [locked, setLocked] = useState(false);
@@ -204,43 +205,135 @@ export function BacktestChart({
     moved: boolean;
   } | null>(null);
 
-  const pos = useMemo<number[]>(() => {
-    if (n === 0) return [];
-    if (positions.length >= n) return positions.slice(0, n);
+  const posFull = useMemo<number[]>(() => {
+    if (nFull === 0) return [];
+    if (positions.length >= nFull) return positions.slice(0, nFull);
     const last = positions.length > 0 ? positions[positions.length - 1]! : 0;
-    return [...positions, ...Array.from({ length: n - positions.length }, () => last)];
-  }, [n, positions]);
+    return [...positions, ...Array.from({ length: nFull - positions.length }, () => last)];
+  }, [nFull, positions]);
 
-  const kalman = useMemo<Array<number | null> | null>(() => {
+  const equityFull = useMemo<number[]>(() => {
+    if (nFull === 0) return [];
+    if (equityCurve.length >= nFull) return equityCurve.slice(0, nFull);
+    const last = equityCurve.length > 0 ? equityCurve[equityCurve.length - 1]! : 1;
+    return [...equityCurve, ...Array.from({ length: nFull - equityCurve.length }, () => last)];
+  }, [equityCurve, nFull]);
+
+  const openTimesFull = useMemo<number[] | null>(() => {
+    if (!openTimes) return null;
+    if (nFull === 0) return [];
+    if (openTimes.length >= nFull) return openTimes.slice(0, nFull);
+    const last = openTimes.length > 0 ? openTimes[openTimes.length - 1]! : 0;
+    return [...openTimes, ...Array.from({ length: nFull - openTimes.length }, () => last)];
+  }, [nFull, openTimes]);
+
+  const kalmanFull = useMemo<Array<number | null> | null>(() => {
     if (!kalmanPredNext) return null;
-    if (n === 0) return [];
-    const out = kalmanPredNext.slice(0, n).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null));
-    if (out.length >= n) return out;
-    return [...out, ...Array.from({ length: n - out.length }, () => null)];
-  }, [kalmanPredNext, n]);
+    if (nFull === 0) return [];
+    const out = kalmanPredNext.slice(0, nFull).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null));
+    if (out.length >= nFull) return out;
+    return [...out, ...Array.from({ length: nFull - out.length }, () => null)];
+  }, [kalmanPredNext, nFull]);
 
-  const agree = useMemo<boolean[] | null>(() => {
+  const lstmFull = useMemo<Array<number | null> | null>(() => {
+    if (!lstmPredNext) return null;
+    if (nFull === 0) return [];
+    const out = lstmPredNext.slice(0, nFull).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null));
+    if (out.length >= nFull) return out;
+    return [...out, ...Array.from({ length: nFull - out.length }, () => null)];
+  }, [lstmPredNext, nFull]);
+
+  const agreeFull = useMemo<boolean[] | null>(() => {
     if (!agreementOk) return null;
-    if (n === 0) return [];
-    if (agreementOk.length >= n) return agreementOk.slice(0, n);
+    if (nFull === 0) return [];
+    if (agreementOk.length >= nFull) return agreementOk.slice(0, nFull);
     const last = agreementOk.length > 0 ? agreementOk[agreementOk.length - 1]! : false;
-    return [...agreementOk, ...Array.from({ length: n - agreementOk.length }, () => last)];
-  }, [agreementOk, n]);
+    return [...agreementOk, ...Array.from({ length: nFull - agreementOk.length }, () => last)];
+  }, [agreementOk, nFull]);
 
-  const openTrade = useMemo(() => deriveOpenTrade(trades, pos, equityCurve, n), [equityCurve, n, pos, trades]);
-  const tradesAll = useMemo(() => (openTrade ? [...trades, openTrade] : trades), [openTrade, trades]);
+  const sampled = useMemo(() => {
+    const indices = downsampleIndices(nFull, MAX_BACKTEST_POINTS);
+    if (indices.length === nFull) {
+      return {
+        indices,
+        prices,
+        equityCurve: equityFull,
+        positions: posFull,
+        openTimes: openTimesFull,
+        kalman: kalmanFull,
+        lstm: lstmFull,
+        agree: agreeFull,
+      };
+    }
+    return {
+      indices,
+      prices: downsampleArray(prices, indices),
+      equityCurve: downsampleArray(equityFull, indices),
+      positions: downsampleArray(posFull, indices),
+      openTimes: downsampleOptionalArray(openTimesFull, indices) ?? null,
+      kalman: downsampleOptionalArray(kalmanFull, indices) ?? null,
+      lstm: downsampleOptionalArray(lstmFull, indices) ?? null,
+      agree: downsampleOptionalArray(agreeFull, indices) ?? null,
+    };
+  }, [agreeFull, equityFull, kalmanFull, lstmFull, nFull, openTimesFull, posFull, prices]);
+
+  const n = sampled.prices.length;
+  const indexFor = useCallback(
+    (idx: number) => {
+      if (idx < 0 || idx >= sampled.indices.length) return idx;
+      return sampled.indices[idx] ?? idx;
+    },
+    [sampled.indices],
+  );
+  const needsRemap = sampled.indices.length !== nFull;
+  const remapIndex = useCallback(
+    (idx: number) => (needsRemap ? remapIndexToSample(sampled.indices, idx) : idx),
+    [needsRemap, sampled.indices],
+  );
+
+  const pos = sampled.positions;
+  const kalman = sampled.kalman;
+  const agree = sampled.agree;
+  const pricesSample = sampled.prices;
+  const equitySample = sampled.equityCurve;
+  const openTimesSample = sampled.openTimes;
+
+  const operationsSample = useMemo(() => {
+    if (!operations) return undefined;
+    if (!needsRemap) return operations;
+    return operations
+      .map((op) => ({ ...op, index: remapIndex(op.index) }))
+      .filter((op) => op.index >= 0 && op.index < n);
+  }, [n, needsRemap, operations, remapIndex]);
+
+  const tradesSample = useMemo(() => {
+    if (!needsRemap) return trades;
+    return trades
+      .map((t) => ({
+        ...t,
+        entryIndex: remapIndex(t.entryIndex),
+        exitIndex: remapIndex(t.exitIndex),
+      }))
+      .filter((t) => t.entryIndex <= t.exitIndex && t.exitIndex >= 0);
+  }, [needsRemap, remapIndex, trades]);
+
+  const openTrade = useMemo(
+    () => deriveOpenTrade(tradesSample, pos, equitySample, n),
+    [equitySample, n, pos, tradesSample],
+  );
+  const tradesAll = useMemo(() => (openTrade ? [...tradesSample, openTrade] : tradesSample), [openTrade, tradesSample]);
 
   const legend = useMemo(() => {
     const hasShort = pos.some((p) => p < 0);
     const showKalman = Boolean(kalman && kalman.some((v) => typeof v === "number" && Number.isFinite(v)));
     return {
       showAgreement: agree !== null,
-      showTrades: trades.length > 0 || openTrade !== null,
-      showOps: Boolean(operations && operations.length > 0),
+      showTrades: tradesSample.length > 0 || openTrade !== null,
+      showOps: Boolean(operationsSample && operationsSample.length > 0),
       showKalman,
       hasShort,
     };
-  }, [agree, kalman, openTrade, operations, pos, trades.length]);
+  }, [agree, kalman, openTrade, operationsSample, pos, tradesSample.length]);
 
   const viewSummary = useMemo(() => {
     if (n < 2) return null;
@@ -256,10 +349,10 @@ export function BacktestChart({
     let eqEnd: number | null = null;
     let eqMin = Number.POSITIVE_INFINITY;
     let eqMax = Number.NEGATIVE_INFINITY;
-    const eqFallback = equityCurve.length > 0 ? equityCurve[equityCurve.length - 1]! : null;
+    const eqFallback = equitySample.length > 0 ? equitySample[equitySample.length - 1]! : null;
 
     for (let i = start; i <= end; i += 1) {
-      const p = prices[i];
+      const p = pricesSample[i];
       if (typeof p === "number" && Number.isFinite(p)) {
         if (priceStart === null) priceStart = p;
         priceEnd = p;
@@ -267,7 +360,7 @@ export function BacktestChart({
         priceMax = Math.max(priceMax, p);
       }
 
-      const e = equityCurve[i] ?? eqFallback;
+      const e = equitySample[i] ?? eqFallback;
       if (typeof e === "number" && Number.isFinite(e)) {
         if (eqStart === null) eqStart = e;
         eqEnd = e;
@@ -295,7 +388,7 @@ export function BacktestChart({
       eqChange,
       eqChangePct,
     };
-  }, [equityCurve, n, prices, view]);
+  }, [equitySample, n, pricesSample, view]);
 
   useEffect(() => {
     setView({ start: 0, end: Math.max(1, n - 1) });
@@ -396,9 +489,9 @@ export function BacktestChart({
     let eMax = Number.NEGATIVE_INFINITY;
 
     for (let i = start; i <= end; i += 1) {
-      const p = prices[i]!;
+      const p = pricesSample[i]!;
       const k = kalman?.[i];
-      const e = equityCurve[i] ?? equityCurve[equityCurve.length - 1] ?? 1;
+      const e = equitySample[i] ?? equitySample[equitySample.length - 1] ?? 1;
       if (Number.isFinite(p)) {
         pMin = Math.min(pMin, p);
         pMax = Math.max(pMax, p);
@@ -521,7 +614,7 @@ export function BacktestChart({
     ctx.beginPath();
     for (let i = start; i <= end; i += 1) {
       const x = xFor(i);
-      const y = yScale(prices[i]!, prNice, yPrice0, hPrice);
+      const y = yScale(pricesSample[i]!, prNice, yPrice0, hPrice);
       if (i === start) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -564,7 +657,7 @@ export function BacktestChart({
     ctx.beginPath();
     for (let i = start; i <= end; i += 1) {
       const x = xFor(i);
-      const e = equityCurve[i] ?? equityCurve[equityCurve.length - 1] ?? 1;
+      const e = equitySample[i] ?? equitySample[equitySample.length - 1] ?? 1;
       const y = yScale(e, erNice, yEquity0, hEquity);
       if (i === start) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
@@ -592,11 +685,11 @@ export function BacktestChart({
       if (t.exitIndex < start || t.entryIndex > end) continue;
       const ei = clamp(t.entryIndex, start, end);
       const xi = xFor(ei);
-      const entryPrice = prices[ei]!;
+      const entryPrice = pricesSample[ei]!;
       const yi = yScale(entryPrice, prNice, yPrice0, hPrice);
 
       const xo = xFor(clamp(t.exitIndex, start, end));
-      const exitPrice = prices[clamp(t.exitIndex, start, end)]!;
+      const exitPrice = pricesSample[clamp(t.exitIndex, start, end)]!;
       const yo = yScale(exitPrice, prNice, yPrice0, hPrice);
 
       const isOpen = t.open === true;
@@ -633,12 +726,12 @@ export function BacktestChart({
     }
 
     // Operations (buy/sell markers)
-    if (operations) {
-      for (const op of operations) {
+    if (operationsSample) {
+      for (const op of operationsSample) {
         if (op.index < start || op.index > end) continue;
         const idx = clamp(op.index, start, end);
         const x = xFor(idx);
-        const p = op.price ?? prices[idx]!;
+        const p = op.price ?? pricesSample[idx]!;
         const y = yScale(p, prNice, yPrice0, hPrice);
         if (op.side === "BUY") tri(x, y, true, "rgba(34, 197, 94, 0.95)");
         if (op.side === "SELL") tri(x, y, false, "rgba(239, 68, 68, 0.92)");
@@ -655,8 +748,8 @@ export function BacktestChart({
       ctx.lineTo(x, marginT + h);
       ctx.stroke();
 
-      const hp = yScale(prices[hoverIdx]!, prNice, yPrice0, hPrice);
-      const he = yScale(equityCurve[hoverIdx] ?? 1, erNice, yEquity0, hEquity);
+      const hp = yScale(pricesSample[hoverIdx]!, prNice, yPrice0, hPrice);
+      const he = yScale(equitySample[hoverIdx] ?? 1, erNice, yEquity0, hEquity);
 
       ctx.fillStyle = "rgba(255,255,255,0.85)";
       ctx.beginPath();
@@ -688,52 +781,54 @@ export function BacktestChart({
       ctx.moveTo(x, yBase);
       ctx.lineTo(x, yBase + 5);
       ctx.stroke();
-      ctx.fillText(String(backtestStartIndex + idx), x, yBase + 7);
+      ctx.fillText(String(backtestStartIndex + indexFor(idx)), x, yBase + 7);
     }
   }, [
     agree,
     backtestStartIndex,
-    equityCurve,
+    equitySample,
     height,
     hoverIdx,
     kalman,
     legend.showKalman,
     n,
-    operations,
+    operationsSample,
     pos,
-    prices,
+    pricesSample,
     size.h,
     size.w,
     tradesAll,
     view.end,
     view.start,
+    indexFor,
   ]);
 
   const hover = useMemo(() => {
     if (hoverIdx === null || hoverIdx < 0 || hoverIdx >= n) return null;
-    const price = prices[hoverIdx]!;
-    const eq = equityCurve[hoverIdx] ?? equityCurve[equityCurve.length - 1] ?? 1;
-    const openTime = openTimes?.[hoverIdx];
+    const price = pricesSample[hoverIdx]!;
+    const eq = equitySample[hoverIdx] ?? equitySample[equitySample.length - 1] ?? 1;
+    const openTime = openTimesSample?.[hoverIdx];
     const atMs = typeof openTime === "number" && Number.isFinite(openTime) ? openTime : null;
     const kalPred = legend.showKalman ? kalman?.[hoverIdx] ?? null : null;
     const position = pos[hoverIdx] ?? 0;
     const ok = agree ? (agree[hoverIdx] ?? false) : null;
     const trade = findTrade(tradesAll, hoverIdx);
-    const op = findOp(operations, hoverIdx);
-    const bar = backtestStartIndex + hoverIdx;
+    const op = findOp(operationsSample, hoverIdx);
+    const bar = backtestStartIndex + indexFor(hoverIdx);
     return { idx: hoverIdx, bar, price, atMs, kalPred, eq, position, ok, trade, op };
   }, [
     agree,
     backtestStartIndex,
-    equityCurve,
+    equitySample,
     hoverIdx,
+    indexFor,
     kalman,
     legend.showKalman,
     n,
-    openTimes,
-    operations,
+    openTimesSample,
+    operationsSample,
     pos,
-    prices,
+    pricesSample,
     tradesAll,
   ]);
 
@@ -857,7 +952,9 @@ export function BacktestChart({
       <div className="btChartHeader">
         <div className="btChartTitle">Chart</div>
         <div className="btChartMeta">
-          <span className="badge">Window {backtestStartIndex + view.start}-{backtestStartIndex + view.end}</span>
+          <span className="badge">
+            Window {backtestStartIndex + indexFor(view.start)}-{backtestStartIndex + indexFor(view.end)}
+          </span>
           <span className="badge">Zoom: {Math.round(((view.end - view.start + 1) / Math.max(1, n)) * 100)}%</span>
           {viewSummary ? <span className="badge">Bars {viewSummary.bars}</span> : null}
           {viewSummary ? <span className="badge">Price {priceLabel}</span> : null}
@@ -1018,4 +1115,4 @@ export function BacktestChart({
       </div>
     </div>
   );
-}
+});

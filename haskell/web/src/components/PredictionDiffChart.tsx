@@ -1,5 +1,5 @@
-import React, { useId, useMemo, useRef, useState } from "react";
-import { fmtTimeMs } from "../app/utils";
+import React, { useCallback, useId, useMemo, useRef, useState } from "react";
+import { downsampleArray, downsampleIndices, downsampleOptionalArray, fmtTimeMs } from "../app/utils";
 
 type Series = Array<number | null | undefined>;
 
@@ -16,6 +16,7 @@ type Props = {
 };
 
 const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
+const MAX_PREDICTION_POINTS = 1400;
 
 type ErrorMode = "abs" | "pct";
 
@@ -128,7 +129,7 @@ function pathFor(series: Array<number | null>, w: number, h: number, pad: Pads, 
   return d.trim();
 }
 
-export function PredictionDiffChart({
+export const PredictionDiffChart = React.memo(function PredictionDiffChart({
   prices,
   openTimes,
   kalmanPredNext,
@@ -142,9 +143,38 @@ export function PredictionDiffChart({
   const w = 1000;
   const h = 240;
   const pad: Pads = { l: 66, r: 18, t: 18, b: 34 };
-  const nPred = Math.max(0, prices.length - 1);
   const resolvedHeight = typeof height === "string" ? height : DEFAULT_CHART_HEIGHT;
   const minHeight = typeof height === "number" ? height : undefined;
+
+  const sampled = useMemo(() => {
+    const indices = downsampleIndices(prices.length, MAX_PREDICTION_POINTS);
+    if (indices.length === prices.length) {
+      return {
+        indices,
+        prices,
+        openTimes: openTimes ?? null,
+        kalmanPredNext,
+        lstmPredNext,
+      };
+    }
+    return {
+      indices,
+      prices: downsampleArray(prices, indices),
+      openTimes: openTimes ? downsampleArray(openTimes, indices) : null,
+      kalmanPredNext: downsampleOptionalArray(kalmanPredNext, indices),
+      lstmPredNext: downsampleOptionalArray(lstmPredNext, indices),
+    };
+  }, [kalmanPredNext, lstmPredNext, openTimes, prices]);
+
+  const indexFor = useCallback(
+    (idx: number) => {
+      if (idx < 0 || idx >= sampled.indices.length) return idx;
+      return sampled.indices[idx] ?? idx;
+    },
+    [sampled.indices],
+  );
+
+  const nPred = Math.max(0, sampled.prices.length - 1);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const group = useId();
@@ -152,21 +182,17 @@ export function PredictionDiffChart({
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  const { kalErr, lstmErr, min, max, kalPreds, lstmPreds } = useMemo(() => {
-    const kalErr = buildNextPriceError(prices, kalmanPredNext, mode);
-    const lstmErr = buildNextPriceError(prices, lstmPredNext, mode);
-    
-    // Collect actual predictions (next price values)
-    const kalPreds = kalmanPredNext ? [...kalmanPredNext] : [];
-    const lstmPreds = lstmPredNext ? [...lstmPredNext] : [];
+  const { kalErr, lstmErr, min, max } = useMemo(() => {
+    const kalErr = buildNextPriceError(sampled.prices, sampled.kalmanPredNext, mode);
+    const lstmErr = buildNextPriceError(sampled.prices, sampled.lstmPredNext, mode);
     
     const finiteVals = [...kalErr, ...lstmErr].filter((v): v is number => isFiniteNumber(v));
-    if (finiteVals.length === 0) return { kalErr, lstmErr, min: -1, max: 1, kalPreds, lstmPreds };
+    if (finiteVals.length === 0) return { kalErr, lstmErr, min: -1, max: 1 };
     const min = Math.min(0, ...finiteVals);
     const max = Math.max(0, ...finiteVals);
-    if (min === max) return { kalErr, lstmErr, min: min - 1, max: max + 1, kalPreds, lstmPreds };
-    return { kalErr, lstmErr, min, max, kalPreds, lstmPreds };
-  }, [kalmanPredNext, lstmPredNext, mode, prices]);
+    if (min === max) return { kalErr, lstmErr, min: min - 1, max: max + 1 };
+    return { kalErr, lstmErr, min, max };
+  }, [mode, sampled]);
 
   const yAxis = useMemo(() => niceTicks(min, max, 5), [max, min]);
   const yMin = yAxis.min;
@@ -188,14 +214,14 @@ export function PredictionDiffChart({
     if (hoverIdx === null) return null;
     if (nPred < 1) return null;
     const idx = clamp(hoverIdx, 0, nPred - 1);
-    const openTime = openTimes?.[idx];
+    const openTime = sampled.openTimes?.[idx];
     const atMs = typeof openTime === "number" && Number.isFinite(openTime) ? openTime : null;
-    const actualNext = prices[idx + 1]!;
-    const kalPred = kalmanPredNext?.[idx];
-    const lstmPred = lstmPredNext?.[idx];
+    const actualNext = sampled.prices[idx + 1]!;
+    const kalPred = sampled.kalmanPredNext?.[idx];
+    const lstmPred = sampled.lstmPredNext?.[idx];
     const kalE = kalErr[idx];
     const lstmE = lstmErr[idx];
-    const currentPrice = prices[idx]!;
+    const currentPrice = sampled.prices[idx]!;
     const kalDiff = isFiniteNumber(kalPred) ? kalPred - currentPrice : null;
     const lstmDiff = isFiniteNumber(lstmPred) ? lstmPred - currentPrice : null;
     return {
@@ -210,7 +236,7 @@ export function PredictionDiffChart({
       kalErr: isFiniteNumber(kalE) ? kalE : null,
       lstmErr: isFiniteNumber(lstmE) ? lstmE : null,
     };
-  }, [hoverIdx, kalErr, kalmanPredNext, lstmErr, lstmPredNext, nPred, openTimes, prices]);
+  }, [hoverIdx, kalErr, lstmErr, nPred, sampled]);
 
   const tooltipStyle = useMemo(() => {
     if (!pointer || !hover) return { display: "none" } as React.CSSProperties;
@@ -269,7 +295,7 @@ export function PredictionDiffChart({
         {hover ? (
           <div className="btTooltip" style={tooltipStyle} aria-hidden={false}>
           <div className="btTooltipTitle">
-            <span className="badge">bar {startIndex + hover.idx}</span>
+            <span className="badge">bar {startIndex + indexFor(hover.idx)}</span>
             <span className="badge">{mode === "pct" ? "percent" : "absolute"}</span>
           </div>
           {hover.atMs !== null ? (
@@ -379,7 +405,7 @@ export function PredictionDiffChart({
                     <g key={`x-${idx}`}>
                       <line x1={x} x2={x} y1={h - pad.b} y2={h - pad.b + 6} stroke="rgba(255,255,255,0.14)" strokeWidth="1" />
                       <text x={x} y={h - pad.b + 22} fill="rgba(255,255,255,0.62)" fontSize="14" fontFamily="monospace" textAnchor="middle">
-                        {startIndex + idx}
+                        {startIndex + indexFor(idx)}
                       </text>
                     </g>
                   );
@@ -421,4 +447,4 @@ export function PredictionDiffChart({
       </div>
     </div>
   );
-}
+});

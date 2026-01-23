@@ -13,10 +13,13 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import Data.Int (Int64)
 import qualified Data.Text as T
+import Data.Time.Clock (NominalDiffTime)
 import qualified Data.Vector as V
 import Network.HTTP.Client
-import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
+import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
+import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
+import System.IO.Unsafe (unsafePerformIO)
 
 data KrakenCandle = KrakenCandle
   { kcOpenTime :: !Int64
@@ -28,27 +31,39 @@ data KrakenCandle = KrakenCandle
 krakenBaseUrl :: String
 krakenBaseUrl = "https://api.kraken.com"
 
+{-# NOINLINE krakenCandlesCache #-}
+krakenCandlesCache :: TtlCache String [KrakenCandle]
+krakenCandlesCache = unsafePerformIO newTtlCache
+
+krakenCandlesFreshTtl :: NominalDiffTime
+krakenCandlesFreshTtl = 30
+
+krakenCandlesStaleTtl :: NominalDiffTime
+krakenCandlesStaleTtl = 300
+
 fetchKrakenCandles :: String -> Int -> IO [KrakenCandle]
 fetchKrakenCandles pair intervalMin = do
-  mgr <- newManager tlsManagerSettings
-  req0 <- parseRequest (krakenBaseUrl ++ "/0/public/OHLC")
-  let req =
-        setQueryString
-          [ ("pair", Just (BS.pack pair))
-          , ("interval", Just (BS.pack (show intervalMin)))
-          ]
-          req0
-  resp <- httpLbs req mgr
-  let code = statusCode (responseStatus resp)
-  if code < 200 || code >= 300
-    then throwIO (userError ("Kraken OHLC request failed (HTTP " ++ show code ++ ")"))
-    else pure ()
-  case eitherDecode (responseBody resp) of
-    Left err -> throwIO (userError ("Failed to decode Kraken OHLC: " ++ err))
-    Right v ->
-      case AT.parseEither (parseKrakenResponse pair) v of
-        Left err -> throwIO (userError ("Failed to parse Kraken OHLC: " ++ err))
-        Right xs -> pure xs
+  let key = pair ++ ":" ++ show intervalMin
+  fetchWithCache krakenCandlesCache krakenCandlesFreshTtl krakenCandlesStaleTtl key $ do
+    mgr <- getSharedManager
+    req0 <- parseRequest (krakenBaseUrl ++ "/0/public/OHLC")
+    let req =
+          setQueryString
+            [ ("pair", Just (BS.pack pair))
+            , ("interval", Just (BS.pack (show intervalMin)))
+            ]
+            req0
+    resp <- httpLbsWithRetry defaultRetryConfig (Just "kraken.ohlc") mgr req
+    let code = statusCode (responseStatus resp)
+    if code < 200 || code >= 300
+      then throwIO (userError ("Kraken OHLC request failed (HTTP " ++ show code ++ ")"))
+      else pure ()
+    case eitherDecode (responseBody resp) of
+      Left err -> throwIO (userError ("Failed to decode Kraken OHLC: " ++ err))
+      Right v ->
+        case AT.parseEither (parseKrakenResponse pair) v of
+          Left err -> throwIO (userError ("Failed to parse Kraken OHLC: " ++ err))
+          Right xs -> pure xs
 
 parseKrakenResponse :: String -> Value -> AT.Parser [KrakenCandle]
 parseKrakenResponse pair =

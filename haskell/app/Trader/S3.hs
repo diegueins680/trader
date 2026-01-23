@@ -18,8 +18,7 @@ import Data.Char (isSpace)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
 import Data.Time (UTCTime, defaultTimeLocale, formatTime, getCurrentTime)
-import Network.HTTP.Client (Response, httpLbs, method, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
-import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Client (Response, method, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
 import Network.HTTP.Types (statusCode)
 import Network.HTTP.Types.URI (urlEncode)
 import System.Environment (lookupEnv)
@@ -28,6 +27,7 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Network.HTTP.Client as HTTP
+import Trader.Http (RetryConfig(..), defaultRetryConfig, getSharedManager, httpLbsWithRetry)
 
 data AwsCredentials = AwsCredentials
   { awsAccessKeyId :: !BS.ByteString
@@ -47,6 +47,9 @@ data ContainerCredentials = ContainerCredentials
   , ccSecretAccessKey :: !String
   , ccToken :: !(Maybe String)
   } deriving (Eq, Show)
+
+s3RetryConfig :: RetryConfig
+s3RetryConfig = defaultRetryConfig { rcRetryWrites = True }
 
 instance FromJSON ContainerCredentials where
   parseJSON =
@@ -159,14 +162,14 @@ resolveContainerCredentials = do
             contents <- try (readFile path) :: IO (Either SomeException String)
             pure (either (const Nothing) (nonEmpty . trim) contents)
       let auth = tokenFromFile <|> (mAuth >>= nonEmpty)
-      manager <- HTTP.newManager tlsManagerSettings
+      manager <- getSharedManager
       req0 <- parseRequest credUri
       let headers =
             case auth of
               Nothing -> requestHeaders req0
               Just tok -> ("Authorization", BS.pack tok) : requestHeaders req0
           req = req0 { requestHeaders = headers }
-      respOrErr <- try (httpLbs req manager) :: IO (Either SomeException (Response BL.ByteString))
+      respOrErr <- try (httpLbsWithRetry defaultRetryConfig (Just "aws.credentials") manager req) :: IO (Either SomeException (Response BL.ByteString))
       case respOrErr of
         Left e -> pure (Left ("Failed to fetch container credentials: " ++ show e))
         Right resp ->
@@ -188,7 +191,7 @@ resolveContainerCredentials = do
 s3Request :: S3State -> BS.ByteString -> String -> BL.ByteString -> IO (Either String (Response BL.ByteString))
 s3Request st reqMethod key body = do
   now <- getCurrentTime
-  manager <- HTTP.newManager tlsManagerSettings
+  manager <- getSharedManager
   let host = s3Host st
       payloadHash = sha256Hex body
       amzDate = formatAmzDate now
@@ -249,7 +252,7 @@ s3Request st reqMethod key body = do
           , requestHeaders = headers
           , requestBody = HTTP.RequestBodyLBS body
           }
-  respOrErr <- try (httpLbs req manager) :: IO (Either SomeException (Response BL.ByteString))
+  respOrErr <- try (httpLbsWithRetry s3RetryConfig (Just "s3.request") manager req) :: IO (Either SomeException (Response BL.ByteString))
   case respOrErr of
     Left e -> pure (Left ("S3 request failed: " ++ show e))
     Right resp -> pure (Right resp)

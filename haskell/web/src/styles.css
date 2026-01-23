@@ -332,7 +332,7 @@ textarea {
   max-height: none;
 }
 
-.dockLayoutConfigPage .configCard {
+.dockLayoutConfigPage .configCard:not(.cardMaximized) {
   max-height: none;
   overflow: visible;
 }
@@ -425,7 +425,7 @@ textarea {
   padding-right: 12px;
 }
 
-.dockLayoutConfigPage .configCard .cardBody {
+.dockLayoutConfigPage .configCard:not(.cardMaximized) .cardBody {
   overflow: visible;
   padding-right: 0;
 }
@@ -534,7 +534,7 @@ textarea {
   -webkit-overflow-scrolling: touch;
 }
 
-.dockLayoutConfigPage .configPanelBody {
+.dockLayoutConfigPage .configPanel:not(.configPanelMaximized) .configPanelBody {
   overflow: visible;
 }
 
@@ -873,7 +873,32 @@ body.panelMaximized .cardMaximized {
 }
 
 .combosCard.cardMaximized .cardBody {
-  overflow: hidden;
+  overflow: visible;
+}
+
+.combosCard.cardMaximized .combosScroll {
+  flex: 0 0 auto;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.combosCard.cardMaximized .cardBody > .row,
+.combosCard.cardMaximized .cardBody > .row > .field {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
+.combosCard.cardMaximized {
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.combosCard.cardMaximized > .cardHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card-solid);
+  padding-bottom: 12px;
 }
 
 .card[data-panel="panel-live-bot"]:not(.cardMaximized):not(.chartCard),
@@ -1435,6 +1460,8 @@ body.panelMaximized .cardMaximized {
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--stroke);
+  content-visibility: auto;
+  contain-intrinsic-size: 120px;
 }
 
 .dataLogEntry:last-child {
@@ -2068,6 +2095,8 @@ body.panelMaximized .cardMaximized {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  content-visibility: auto;
+  contain-intrinsic-size: 280px;
 }
 
 .comboRow:hover {
@@ -2270,6 +2299,11 @@ body.panelMaximized .cardMaximized {
   letter-spacing: 0.2px;
   text-align: left;
   z-index: 1;
+}
+
+.table tbody tr {
+  content-visibility: auto;
+  contain-intrinsic-size: 44px;
 }
 
 .table tr:hover td {

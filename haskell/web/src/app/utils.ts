@@ -86,6 +86,53 @@ export function botTradeEnabled(status: BotStatusSingle): boolean | null {
   return status.snapshot?.settings?.tradeEnabled ?? null;
 }
 
+export function downsampleIndices(total: number, maxPoints: number): number[] {
+  const n = Math.max(0, Math.trunc(total));
+  const max = Math.max(1, Math.trunc(maxPoints));
+  if (n === 0) return [];
+  if (n <= max) return Array.from({ length: n }, (_, i) => i);
+  if (max === 1) return [0];
+  const step = (n - 1) / (max - 1);
+  const out: number[] = [];
+  let last = -1;
+  for (let i = 0; i < max; i += 1) {
+    const idx = Math.min(n - 1, Math.round(i * step));
+    if (idx <= last) continue;
+    out.push(idx);
+    last = idx;
+  }
+  if (out[out.length - 1] !== n - 1) out.push(n - 1);
+  return out;
+}
+
+export function downsampleArray<T>(arr: T[], indices: number[]): T[] {
+  if (indices.length === 0) return [];
+  return indices.map((idx) => arr[idx] as T);
+}
+
+export function downsampleOptionalArray<T>(arr: Array<T> | null | undefined, indices: number[]): Array<T> | undefined {
+  if (!arr) return arr ?? undefined;
+  return downsampleArray(arr, indices);
+}
+
+export function remapIndexToSample(indices: number[], idx: number): number {
+  if (indices.length === 0) return 0;
+  let lo = 0;
+  let hi = indices.length - 1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const v = indices[mid]!;
+    if (v === idx) return mid;
+    if (v < idx) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  const prev = Math.max(0, hi);
+  const next = Math.min(indices.length - 1, lo);
+  const prevIdx = indices[prev]!;
+  const nextIdx = indices[next]!;
+  return Math.abs(idx - prevIdx) <= Math.abs(nextIdx - idx) ? prev : next;
+}
+
 export type OrphanedPosition<T> = { pos: T; status: BotStatusSingle | null; reason: string };
 
 type OrphanedPositionsOptions = { market?: Market | null };

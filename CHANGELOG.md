@@ -17,12 +17,16 @@ All notable changes to this project will be documented in this file.
 - Web UI: retry `/bot/status` with a smaller tail on timeout errors to keep the dashboard responsive.
 - Web UI: fix optimizer combos list scrolling in docked/maximized modes so long lists remain reachable.
 - Web UI: keep optimizer combo controls fixed while the combos list scrolls in the docked/maximized panel.
+- Web UI: allow scrolling the full optimizer combos panel when maximized so long lists remain accessible.
+- Ops: add `performance_rollups` via `haskell/scripts/rollup_performance.sh` to correlate git commits with live-bot equity performance.
+- Ops: extend performance rollups with `performance_commit_summary` plus commit/combo delta views for regression tracking.
 - Web UI: switch the configuration dock to a menu bar and show each section as its own page to reduce clutter.
 - Web UI: make the configuration panel a full-page scroll instead of a fixed-height docked panel.
 - Web UI: show full optimizer combo parameters inline and add symbol/market/interval/method filters in the combos panel.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Live bot: size adopted positions from current balances/positions and charge flip fees on the full close+open size.
+- Live bot: add `botProtectionOrders` to place exchange-managed STOP_MARKET/TAKE_PROFIT_MARKET protection orders on Binance futures when enabled.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
@@ -35,6 +39,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: page Binance klines to support >1000 bars and honor `TRADER_OPTIMIZER_MAX_POINTS` (up to 5000) for `/optimizer/run` and auto optimizer runs.
 - Optimizer: optimize-operations/sweep scoring now uses the configured periods-per-year for annualized metrics.
 - Optimizer: include `router` in optimize-operations candidate methods.
+- Optimizer: `optimize-equity` now defaults to tuning stop-loss/take-profit (set `--p-disable-stop`/`--p-disable-tp` to allow disabling).
+- Optimizer: allow walk-forward embargo and rebalance cost multiplier ranges in `optimize-equity` and `/optimizer/run`.
 - Database: add `platforms`, `platform_symbols`, `bots`, and `positions` tables so ops/positions link back to platform metadata and running bots.
 - Database: add `git_commits` plus `ops.git_commit_id` to track the code version for each operation.
 - Ops: add `--ops-backfill-commits` to populate git commits from repo history and backfill `ops.git_commit_id`.
@@ -46,9 +52,11 @@ All notable changes to this project will be documented in this file.
 - API: keep `/bot/status` responsive during bot starts by moving preflight work outside the runtime lock.
 - API: return JSON 500 responses with CORS headers when request handlers throw unexpected exceptions.
 - API: cap `/bot/status` tail defaults to 1000 points to prevent upstream 5xx responses.
+- Networking: add shared HTTP managers, retries with jitter (respecting `Retry-After`), per-host rate limiting, and cached stale fallbacks for exchange data; optional `TRADER_HTTP_LOG` for request tracing.
 - API: treat the first `botSymbols` entry as `binanceSymbol` for `/bot/start` validation when `binanceSymbol` is missing.
 - API: ignore client disconnect exceptions so `/bot/status` polling does not log noisy 500s when the client aborts.
 - Web UI: throttle live-bot status polling and skip overlapping `/bot/status` requests to reduce aborted connections.
+- Web UI: split the optimizer combos panel into a lazy-loaded chunk to cut initial bundle size.
 - API: skip top-combo candidates that exceed compute limits when starting live bots, falling back to the base args.
 - API: manage Binance listenKey user-data streams server-side and expose `/binance/listenKey/stream` as an SSE relay.
 - API: `/binance/keys` signed futures probe no longer requires `binanceSymbol` (trade test skips when missing).
@@ -59,6 +67,8 @@ All notable changes to this project will be documented in this file.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
 - Trading: add performance gates (`--perf-*`), loss-streak cooldowns, and adaptive filter tightening (`--adaptive-*`) for live bots.
+- Trading: apply `--min-hold-bars` to signal reversals, and entry gates now hold existing positions instead of forcing an exit.
+- Trading: enforce the documented 1-bar cooldown after `MAX_HOLD` exits and reject `--take-profit-partial` values >= 1.
 - Docs: document `--walk-forward-embargo-bars` and `--rebalance-cost-mult` options.
 - Trading: allow partial take-profit scaling for live bots via `--take-profit-partial`.
 - Live bot: emit `bot.adjust` events after each completed trade with rolling performance and effective filter adjustments.
@@ -70,8 +80,11 @@ All notable changes to this project will be documented in this file.
 - Web UI: block Binance positions/trades refresh until API keys are provided or verified via “Check keys”.
 - Web UI: skip live bot start requests when no symbols are selected and surface a local error instead of a 400.
 - Web UI: keep configuration sub-panels at fixed heights so their contents scroll reliably.
+- Web UI: default tuning to annualized equity with higher min round trips and expose walk-forward embargo/rebalance cost multiplier controls.
 - Web UI: ensure the docked configuration pane remains scrollable.
 - Web UI: keep maximized config panels scrollable.
+- Web UI: restore scrolling for maximized docked panels in the configuration layout.
+- Web UI: throttle background polling when the tab is hidden, abort stale requests, and downsample/virtualize long charts and lists for responsiveness.
 - Web UI: cap maximized configuration panes so the body scroll remains usable.
 - Web UI: align bars inputs with API LSTM limits and platform defaults instead of hard-capping Binance at 1000.
 - Web UI: send API tokens via `X-API-Key` only to avoid proxy issues with `Authorization` headers.

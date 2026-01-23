@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useMemo } from "react";
+import { downsampleArray, downsampleIndices } from "../app/utils";
 
 type Props = {
   series: number[];
@@ -7,6 +8,7 @@ type Props = {
 };
 
 const DEFAULT_CHART_HEIGHT = "var(--chart-height)";
+const MAX_LINE_POINTS = 2000;
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
@@ -50,14 +52,20 @@ function niceTicks(min: number, max: number, ticks = 5): { ticks: number[]; min:
   return { ticks: out, min: lo, max: hi, step };
 }
 
-export function LineChart({ series, height = DEFAULT_CHART_HEIGHT, label = "Series chart" }: Props) {
+export const LineChart = React.memo(function LineChart({ series, height = DEFAULT_CHART_HEIGHT, label = "Series chart" }: Props) {
   const w = 1000;
   const h = 240;
   const pad = { l: 66, r: 14, t: 14, b: 34 };
   const resolvedHeight = typeof height === "string" ? height : DEFAULT_CHART_HEIGHT;
   const minHeight = typeof height === "number" ? height : undefined;
 
-  if (series.length < 2) {
+  const sampledSeries = useMemo(() => {
+    const indices = downsampleIndices(series.length, MAX_LINE_POINTS);
+    if (indices.length === series.length) return series;
+    return downsampleArray(series, indices);
+  }, [series]);
+
+  if (sampledSeries.length < 2) {
     return (
       <div className="chart" style={{ height: resolvedHeight, minHeight }} aria-label={label}>
         <div className="chartEmpty">Not enough points</div>
@@ -65,7 +73,7 @@ export function LineChart({ series, height = DEFAULT_CHART_HEIGHT, label = "Seri
     );
   }
 
-  const safe = series.filter((v) => Number.isFinite(v));
+  const safe = sampledSeries.filter((v) => Number.isFinite(v));
   const min = Math.min(...safe);
   const max = Math.max(...safe);
   const yAxis = niceTicks(min, max, 5);
@@ -73,8 +81,8 @@ export function LineChart({ series, height = DEFAULT_CHART_HEIGHT, label = "Seri
   const yMax = yAxis.max;
   const span = yMax - yMin || 1;
 
-  const pts = series.map((v, i) => {
-    const x = pad.l + (i * (w - pad.l - pad.r)) / (series.length - 1);
+  const pts = sampledSeries.map((v, i) => {
+    const x = pad.l + (i * (w - pad.l - pad.r)) / (sampledSeries.length - 1);
     const t = (v - yMin) / span;
     const y = pad.t + (1 - clamp(t, 0, 1)) * (h - pad.t - pad.b);
     return { x, y };
@@ -126,11 +134,11 @@ export function LineChart({ series, height = DEFAULT_CHART_HEIGHT, label = "Seri
             const target = clamp(Math.round((w - pad.l - pad.r) / 240) + 1, 2, 6);
             const ticks: number[] = [];
             for (let k = 0; k < target; k += 1) {
-              const idx = Math.round((k * (series.length - 1)) / Math.max(1, target - 1));
+              const idx = Math.round((k * (sampledSeries.length - 1)) / Math.max(1, target - 1));
               if (ticks[ticks.length - 1] !== idx) ticks.push(idx);
             }
             return ticks.map((idx) => {
-              const x = pad.l + (idx * (w - pad.l - pad.r)) / Math.max(1, series.length - 1);
+              const x = pad.l + (idx * (w - pad.l - pad.r)) / Math.max(1, sampledSeries.length - 1);
               return (
                 <g key={`x-${idx}`}>
                   <line x1={x} x2={x} y1={h - pad.b} y2={h - pad.b + 7} stroke="rgba(255,255,255,0.14)" strokeWidth="1" />
@@ -145,4 +153,4 @@ export function LineChart({ series, height = DEFAULT_CHART_HEIGHT, label = "Seri
       </svg>
     </div>
   );
-}
+});

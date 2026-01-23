@@ -38,6 +38,7 @@ export type ApiParams = {
   tunePenaltyTurnover?: number;
   minRoundTrips?: number;
   walkForwardFolds?: number;
+  walkForwardEmbargoBars?: number;
   patience?: number;
   gradClip?: number;
   seed?: number;
@@ -82,6 +83,7 @@ export type ApiParams = {
   maxVolatility?: number;
   rebalanceBars?: number;
   rebalanceThreshold?: number;
+  rebalanceCostMult?: number;
   rebalanceGlobal?: boolean;
   rebalanceResetOnSignal?: boolean;
   fundingRate?: number;
@@ -118,6 +120,7 @@ export type ApiParams = {
   botTrainBars?: number;
   botMaxPoints?: number;
   botTrade?: boolean;
+  botProtectionOrders?: boolean;
   botAdoptExistingPosition?: boolean;
 };
 
@@ -345,6 +348,7 @@ export type BacktestResponse = {
   maxVolatility?: number | null;
   rebalanceBars?: number;
   rebalanceThreshold?: number;
+  rebalanceCostMult?: number;
   rebalanceGlobal?: boolean;
   rebalanceResetOnSignal?: boolean;
   fundingRate?: number;
@@ -360,6 +364,7 @@ export type BacktestResponse = {
     stressWeight: number;
     minRoundTrips?: number;
     walkForwardFolds: number;
+    walkForwardEmbargoBars?: number;
     tuneStats?: { folds: number; scores: number[]; meanScore: number; stdScore: number } | null;
     tuneMetrics?: BacktestMetrics | null;
   };
@@ -432,7 +437,15 @@ export type BotStatusRunning = {
   threshold: number;
   openThreshold?: number;
   closeThreshold?: number;
-  settings?: { pollSeconds: number; onlineEpochs: number; trainBars: number; maxPoints: number; tradeEnabled: boolean };
+  settings?: {
+    pollSeconds: number;
+    onlineEpochs: number;
+    trainBars: number;
+    maxPoints: number;
+    tradeEnabled: boolean;
+    protectionOrders?: boolean;
+    adoptExistingPosition?: boolean;
+  };
   halted: boolean;
   peakEquity: number;
   dayStartEquity: number;
@@ -570,6 +583,8 @@ export type OptimizerRunRequest = {
   tunePenaltyTurnover?: number;
   walkForwardFoldsMin?: number;
   walkForwardFoldsMax?: number;
+  walkForwardEmbargoBarsMin?: number;
+  walkForwardEmbargoBarsMax?: number;
   minHoldBarsMin?: number;
   minHoldBarsMax?: number;
   cooldownBarsMin?: number;
@@ -585,6 +600,8 @@ export type OptimizerRunRequest = {
   pCostAwareEdge?: number;
   trendLookbackMin?: number;
   trendLookbackMax?: number;
+  rebalanceCostMultMin?: number;
+  rebalanceCostMultMax?: number;
   stopMin?: number;
   stopMax?: number;
   tpMin?: number;

@@ -61,9 +61,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (lenientDecode)
+import Data.Time.Clock (NominalDiffTime)
 import qualified Data.Vector as V
 import Network.HTTP.Client
-import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.URI (parseQuery, renderSimpleQuery)
 import Network.HTTP.Types.Status (statusCode)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
@@ -73,6 +73,9 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Numeric (showFFloat)
 import Text.Read (readMaybe)
 import Trader.Text (normalizeKey)
+import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
+import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
+import System.IO.Unsafe (unsafePerformIO)
 
 data BinanceEnv = BinanceEnv
   { beManager :: Manager
@@ -209,15 +212,45 @@ binanceFuturesBaseUrl = "https://fapi.binance.com"
 binanceFuturesTestnetBaseUrl :: String
 binanceFuturesTestnetBaseUrl = "https://testnet.binancefuture.com"
 
+{-# NOINLINE binanceTickersCache #-}
+binanceTickersCache :: TtlCache String [Ticker24h]
+binanceTickersCache = unsafePerformIO newTtlCache
+
+{-# NOINLINE binanceExchangeInfoCache #-}
+binanceExchangeInfoCache :: TtlCache String SymbolFilters
+binanceExchangeInfoCache = unsafePerformIO newTtlCache
+
+{-# NOINLINE binanceKlinesCache #-}
+binanceKlinesCache :: TtlCache String [Kline]
+binanceKlinesCache = unsafePerformIO newTtlCache
+
+binanceTickersFreshTtl :: NominalDiffTime
+binanceTickersFreshTtl = 10
+
+binanceTickersStaleTtl :: NominalDiffTime
+binanceTickersStaleTtl = 60
+
+binanceExchangeInfoFreshTtl :: NominalDiffTime
+binanceExchangeInfoFreshTtl = 600
+
+binanceExchangeInfoStaleTtl :: NominalDiffTime
+binanceExchangeInfoStaleTtl = 3600
+
+binanceKlinesFreshTtl :: NominalDiffTime
+binanceKlinesFreshTtl = 5
+
+binanceKlinesStaleTtl :: NominalDiffTime
+binanceKlinesStaleTtl = 60
+
 newBinanceEnv :: BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnv market baseUrl apiKey apiSecret = do
-  mgr <- newManager tlsManagerSettings
+  mgr <- newHttpManager
   pure BinanceEnv { beManager = mgr, beBaseUrl = baseUrl, beMarket = market, beApiKey = apiKey, beApiSecret = apiSecret, beLogger = Nothing }
 
 binanceHttp :: BinanceEnv -> String -> Request -> IO (Response BL.ByteString)
 binanceHttp env label req = do
   t0 <- getTimestampMs
-  respOrErr <- try (httpLbs req (beManager env)) :: IO (Either SomeException (Response BL.ByteString))
+  respOrErr <- try (httpLbsWithRetry defaultRetryConfig Nothing (beManager env) req) :: IO (Either SomeException (Response BL.ByteString))
   t1 <- getTimestampMs
   let latencyMs = max 0 (fromIntegral (t1 - t0) :: Int)
       methodTxt = decodeUtf8With lenientDecode (method req)
@@ -388,22 +421,24 @@ instance FromJSON ExchangeSymbol where
 
 fetchSymbolFilters :: BinanceEnv -> String -> IO SymbolFilters
 fetchSymbolFilters env symbol = do
-  let path =
-        case beMarket env of
-          MarketSpot -> "/api/v3/exchangeInfo"
-          MarketMargin -> "/api/v3/exchangeInfo"
-          MarketFutures -> "/fapi/v1/exchangeInfo"
-  req0 <- parseRequest (beBaseUrl env ++ path)
-  let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
-      req = req0 { method = "GET", queryString = qs }
-  resp <- binanceHttp env "exchangeInfo" req
-  ensure2xx "exchangeInfo" resp
-  case eitherDecode (responseBody resp) of
-    Left e -> throwIO (userError ("Failed to decode exchangeInfo: " ++ e))
-    Right (ExchangeInfo syms) ->
-      case listToMaybe [s | s <- syms, map toUpperAscii (esSymbol s) == map toUpperAscii symbol] of
-        Nothing -> throwIO (userError ("exchangeInfo: symbol not found: " ++ symbol))
-        Just s -> pure (parseSymbolFilters (esFilters s))
+  let key = beBaseUrl env ++ ":" ++ show (beMarket env) ++ ":" ++ map toUpperAscii symbol
+  fetchWithCache binanceExchangeInfoCache binanceExchangeInfoFreshTtl binanceExchangeInfoStaleTtl key $ do
+    let path =
+          case beMarket env of
+            MarketSpot -> "/api/v3/exchangeInfo"
+            MarketMargin -> "/api/v3/exchangeInfo"
+            MarketFutures -> "/fapi/v1/exchangeInfo"
+    req0 <- parseRequest (beBaseUrl env ++ path)
+    let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
+        req = req0 { method = "GET", queryString = qs }
+    resp <- binanceHttp env "exchangeInfo" req
+    ensure2xx "exchangeInfo" resp
+    case eitherDecode (responseBody resp) of
+      Left e -> throwIO (userError ("Failed to decode exchangeInfo: " ++ e))
+      Right (ExchangeInfo syms) ->
+        case listToMaybe [s | s <- syms, map toUpperAscii (esSymbol s) == map toUpperAscii symbol] of
+          Nothing -> throwIO (userError ("exchangeInfo: symbol not found: " ++ symbol))
+          Just s -> pure (parseSymbolFilters (esFilters s))
 
 parseSymbolFilters :: [Aeson.Object] -> SymbolFilters
 parseSymbolFilters objs =
@@ -450,6 +485,17 @@ parseSymbolFilters objs =
 
 fetchKlines :: BinanceEnv -> String -> String -> Int -> IO [Kline]
 fetchKlines env symbol interval limit = do
+  let key =
+        beBaseUrl env
+          ++ ":" ++ show (beMarket env)
+          ++ ":" ++ map toUpperAscii symbol
+          ++ ":" ++ interval
+          ++ ":" ++ show limit
+  fetchWithCache binanceKlinesCache binanceKlinesFreshTtl binanceKlinesStaleTtl key $
+    fetchKlinesRaw env symbol interval limit
+
+fetchKlinesRaw :: BinanceEnv -> String -> String -> Int -> IO [Kline]
+fetchKlinesRaw env symbol interval limit = do
   let maxPerRequest = 1000
       wanted = max 1 limit
       path =
@@ -585,18 +631,20 @@ instance FromJSON Ticker24h where
 
 fetchTickers24h :: BinanceEnv -> IO [Ticker24h]
 fetchTickers24h env = do
-  let path =
-        case beMarket env of
-          MarketSpot -> "/api/v3/ticker/24hr"
-          MarketMargin -> "/api/v3/ticker/24hr"
-          MarketFutures -> "/fapi/v1/ticker/24hr"
-  req0 <- parseRequest (beBaseUrl env ++ path)
-  let req = req0 { method = "GET" }
-  resp <- binanceHttp env "ticker/24hr" req
-  ensure2xx "ticker/24hr" resp
-  case eitherDecode (responseBody resp) of
-    Left e -> throwIO (userError ("Failed to decode ticker/24hr: " ++ e))
-    Right xs -> pure xs
+  let key = beBaseUrl env ++ ":" ++ show (beMarket env)
+  fetchWithCache binanceTickersCache binanceTickersFreshTtl binanceTickersStaleTtl key $ do
+    let path =
+          case beMarket env of
+            MarketSpot -> "/api/v3/ticker/24hr"
+            MarketMargin -> "/api/v3/ticker/24hr"
+            MarketFutures -> "/fapi/v1/ticker/24hr"
+    req0 <- parseRequest (beBaseUrl env ++ path)
+    let req = req0 { method = "GET" }
+    resp <- binanceHttp env "ticker/24hr" req
+    ensure2xx "ticker/24hr" resp
+    case eitherDecode (responseBody resp) of
+      Left e -> throwIO (userError ("Failed to decode ticker/24hr: " ++ e))
+      Right xs -> pure xs
 
 -- | Returns the highest-volume symbols by 24h quote volume for the provided quote asset.
 -- Filtering is conservative to avoid leveraged tokens and stable-stable pairs.

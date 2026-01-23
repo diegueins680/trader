@@ -25,14 +25,17 @@ import Data.Int (Int64)
 import Data.List (find, sortOn)
 import qualified Data.Set as Set
 import qualified Data.Text as T
+import Data.Time.Clock (NominalDiffTime)
 import Data.Time.Clock.POSIX (getPOSIXTime, posixSecondsToUTCTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import qualified Data.Vector as V
 import Network.HTTP.Client
-import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
 import Numeric (showFFloat)
 import Trader.Text (trim)
+import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
+import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry, newHttpManager)
+import System.IO.Unsafe (unsafePerformIO)
 
 
 data CoinbaseCandle = CoinbaseCandle
@@ -64,6 +67,16 @@ coinbaseTimeoutMicros = 15 * 1000000
 coinbaseMaxBarsPerRequest :: Int
 coinbaseMaxBarsPerRequest = 300
 
+{-# NOINLINE coinbaseCandlesCache #-}
+coinbaseCandlesCache :: TtlCache String [CoinbaseCandle]
+coinbaseCandlesCache = unsafePerformIO newTtlCache
+
+coinbaseCandlesFreshTtl :: NominalDiffTime
+coinbaseCandlesFreshTtl = 30
+
+coinbaseCandlesStaleTtl :: NominalDiffTime
+coinbaseCandlesStaleTtl = 300
+
 
 data CoinbaseEnv = CoinbaseEnv
   { ceManager :: !Manager
@@ -75,14 +88,18 @@ data CoinbaseEnv = CoinbaseEnv
 
 newCoinbaseEnv :: Maybe BS.ByteString -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO CoinbaseEnv
 newCoinbaseEnv apiKey apiSecret apiPassphrase = do
-  mgr <- newManager tlsManagerSettings
+  mgr <- newHttpManager
   pure CoinbaseEnv { ceManager = mgr, ceBaseUrl = coinbaseBaseUrl, ceApiKey = apiKey, ceApiSecret = apiSecret, ceApiPassphrase = apiPassphrase }
+
+coinbaseHttp :: CoinbaseEnv -> String -> Request -> IO (Response BL.ByteString)
+coinbaseHttp env label req =
+  httpLbsWithRetry defaultRetryConfig (Just label) (ceManager env) req
 
 fetchCoinbaseAccounts :: CoinbaseEnv -> IO BL.ByteString
 fetchCoinbaseAccounts env = do
   req0 <- parseRequest (ceBaseUrl env ++ "/accounts")
   req <- signCoinbaseRequest env "GET" "/accounts" BS.empty req0
-  resp <- httpLbs req (ceManager env)
+  resp <- coinbaseHttp env "coinbase.accounts" req
   ensure2xx "Coinbase accounts" resp
   pure (responseBody resp)
 
@@ -128,7 +145,7 @@ placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId =
           , requestHeaders = ("Content-Type", BS8.pack "application/json") : requestHeaders reqSigned
           , responseTimeout = responseTimeoutMicro coinbaseTimeoutMicros
           }
-  resp <- httpLbs req (ceManager env)
+  resp <- coinbaseHttp env "coinbase.order" req
   ensure2xx "Coinbase order" resp
   pure (responseBody resp)
   where
@@ -136,14 +153,16 @@ placeCoinbaseMarketOrder env product sideRaw mSizeRaw mFundsRaw mClientOrderId =
 
 fetchCoinbaseCandles :: String -> Int -> Int -> IO [CoinbaseCandle]
 fetchCoinbaseCandles product granularitySec bars = do
-  mgr <- newManager tlsManagerSettings
-  now <- round <$> getPOSIXTime
-  let totalBars = max 1 bars
-      ranges = buildRanges (fromIntegral now) (fromIntegral granularitySec) totalBars
-  chunks <- mapM (fetchRange mgr) ranges
-  let candles = concat chunks
-      sorted = sortOn ccOpenTime candles
-  pure (dedupByTime sorted)
+  let key = map toUpperAscii (trim product) ++ ":" ++ show granularitySec ++ ":" ++ show bars
+  fetchWithCache coinbaseCandlesCache coinbaseCandlesFreshTtl coinbaseCandlesStaleTtl key $ do
+    mgr <- getSharedManager
+    now <- round <$> getPOSIXTime
+    let totalBars = max 1 bars
+        ranges = buildRanges (fromIntegral now) (fromIntegral granularitySec) totalBars
+    chunks <- mapM (fetchRange mgr) ranges
+    let candles = concat chunks
+        sorted = sortOn ccOpenTime candles
+    pure (dedupByTime sorted)
   where
     cleaned = map toUpperAscii (trim product)
 
@@ -164,7 +183,7 @@ fetchCoinbaseCandles product granularitySec bars = do
                     : requestHeaders req
               , responseTimeout = responseTimeoutMicro coinbaseTimeoutMicros
               }
-      resp <- httpLbs req' manager
+      resp <- httpLbsWithRetry defaultRetryConfig (Just "coinbase.candles") manager req'
       ensure2xx "Coinbase candles" resp
       case eitherDecode (responseBody resp) of
         Left err -> throwIO (userError ("Failed to decode Coinbase candles: " ++ err))

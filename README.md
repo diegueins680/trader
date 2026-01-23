@@ -110,9 +110,9 @@ Sending exchange orders (optional)
 Binance: live orders are the default. Use `--no-binance-live` to send test orders (`/api/v3/order/test` or `/fapi/v1/order/test`). Futures use `--futures` (uses `/fapi` endpoints). Margin uses `--margin` (requires live orders).
 Coinbase: spot-only and live-only (no test endpoint). Use `--platform coinbase`.
 
-Futures protection orders (live, manual trades only):
+Futures protection orders (live):
 - When sending **LIVE futures** orders via the CLI (`--binance-trade`) or REST `/trade`, providing `--stop-loss` and/or `--take-profit` places exchange-native trigger orders (`STOP_MARKET` / `TAKE_PROFIT_MARKET`) with `closePosition=true`.
-- The continuous `/bot` loop does not place exchange-native protection orders to avoid bot/exchange state desync.
+- The continuous `/bot` loop skips exchange-native protection orders by default; set `botProtectionOrders=true` on `/bot/start` to place reduce-only `STOP_MARKET` / `TAKE_PROFIT_MARKET` protection orders on Binance futures (trailing stops remain internal).
 
 Environment variables:
 - `BINANCE_API_KEY`
@@ -120,6 +120,7 @@ Environment variables:
 - `COINBASE_API_KEY`
 - `COINBASE_API_SECRET`
 - `COINBASE_API_PASSPHRASE`
+- `TRADER_HTTP_LOG` (optional; set to `1`/`true` to log outgoing HTTP requests and retries)
 
 Getting Binance API keys:
 - Binance → Profile → **API Management** → **Create API**
@@ -266,7 +267,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - The CLI also prints an estimated **round-trip cost** (fee + slippage + spread) and warns when thresholds are below it.
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
   - `--take-profit F` optional synthetic take profit (`0 < F < 1`)
-  - `--take-profit-partial F` scale out this fraction at take-profit before keeping the remainder open (`0` disables; live bots only)
+  - `--take-profit-partial F` scale out this fraction at take-profit before keeping the remainder open (`0` disables; `0 < F < 1`; live bots only)
   - `--trailing-stop F` optional synthetic trailing stop (`0 < F < 1`)
   - `--stop-loss-vol-mult F` optional: stop loss as per-bar sigma multiple (`0` disables; overrides `--stop-loss` when vol estimate is available)
   - `--take-profit-vol-mult F` optional: take profit as per-bar sigma multiple (`0` disables; overrides `--take-profit` when vol estimate is available)
@@ -276,6 +277,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
   - `--max-trades-per-day N` block new entries after `N` entries per UTC day (`0` disables)
   - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows; requires bar timestamps or a recognized `--interval`)
+    - Entry gates block new entries/reversals; existing positions are held until the gate clears.
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables; LSTM methods only)
   - `--lstm-exit-flip-grace-bars N` ignore LSTM flip exits during the first `N` bars of a trade (LSTM methods only)
@@ -463,6 +465,7 @@ Backtest limits:
 
 Optimizer script tips:
 - `optimize-equity` defaults to `--objective annualized-equity` (annualized return).
+- `optimize-equity` now tunes stop-loss and take-profit by default for annualized-equity; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - CSV runs derive `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename) and normalize it to a valid exchange symbol, trimming dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` -> `BNBUSDT`) before combos are persisted.
@@ -479,16 +482,16 @@ Optimizer script tips:
 - `--stop-min/max`, `--tp-min/max`, `--trail-min/max`, and `--p-disable-stop/tp/trail` sample bracket exits; `--stop-vol-mult-min/max`, `--tp-vol-mult-min/max`, `--trail-vol-mult-min/max`, and `--p-disable-*-vol-mult` sample volatility-based brackets.
 - `--max-position-size-min/max`, `--snr-size-weight-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, `--vol-floor-*`, `--vol-scale-max-*`, `--max-volatility-*`, and `--periods-per-year-*` tune sizing (use `--p-disable-vol-target`/`--p-disable-max-volatility` to mix disabled samples).
 - `--p-disable-vol-ewma-alpha` mixes EWMA vs rolling vol when using `--vol-ewma-alpha-*`.
-- `--funding-rate-min/max`, `--p-funding-by-side`, `--p-funding-on-open`, `--rebalance-bars-min/max`, `--rebalance-threshold-min/max`, `--p-rebalance-global`, and `--p-rebalance-reset-on-signal` sample funding and rebalance behavior.
+- `--funding-rate-min/max`, `--p-funding-by-side`, `--p-funding-on-open`, `--rebalance-bars-min/max`, `--rebalance-threshold-min/max`, `--rebalance-cost-mult-min/max`, `--p-rebalance-global`, and `--p-rebalance-reset-on-signal` sample funding and rebalance behavior.
 - `--blend-weight-min/max` plus `--method-weight-blend` sample the blend method mix.
 - `--router-score-pnl-weight-min/max` tunes the return weight in router scoring (0=accuracy/coverage, 1=return).
 - `--kalman-market-top-n-min/max` tunes the Kalman market-context sample size (Binance only).
 - `--kalman-z-min-min/max`, `--kalman-z-max-min/max`, `--max-high-vol-prob-min/max`, `--max-conformal-width-min/max`, `--max-quantile-width-min/max`, `--p-confirm-conformal`, `--p-confirm-quantiles`, `--p-confidence-sizing`, `--lstm-confidence-soft-min/max`, `--lstm-confidence-hard-min/max`, and `--min-position-size-min/max` tune confidence gating/sizing (use `--p-disable-max-*` to mix disabled samples).
 - `--lr-min/max`, `--patience-max`, `--grad-clip-min/max`, and `--p-disable-grad-clip` tune LSTM training hyperparameters.
 - `--tune-objective`, `--tune-penalty-*`, and `--tune-stress-*` align the internal threshold sweep objective (`--tune-stress-*-min/max` lets it sample ranges).
-- `--walk-forward-folds-min/max` varies walk-forward fold counts in the tune stats.
+- `--walk-forward-folds-min/max` and `--walk-forward-embargo-bars-min/max` vary walk-forward fold counts/embargo in the tune stats.
 - Auto optimizer biases `--p-long-short` to match existing open positions/orders (short requires long-short; spot/margin suppresses long-short).
-- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `seedTrials`, `seedRatio`, `survivorFraction`, `perturbScaleDouble`, `perturbScaleInt`, `earlyStopNoImprove`, `minHoldBarsMin`, `blendWeightMin`, `routerScorePnlWeightMin`, `routerScorePnlWeightMax`, `minWinRate`, `minAnnualizedReturn`, `minCalmar`, `maxTurnover`, `minSignalToNoiseMin`, `snrSizeWeightMin`, `snrSizeWeightMax`, `pThresholdFactor`, `thresholdFactorAlphaMin`, `thresholdFactorMinMin`, `thresholdFactorWeightMax`, `minSharpe`, `minWalkForwardSharpeMean`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `triLayerExitOnSlow`, `fundingRateMin`, `fundingRateMax`, `rebalanceBarsMin`, `rebalanceBarsMax`, `rebalanceThresholdMin`, `rebalanceThresholdMax`, `pFundingBySide`, `pFundingOnOpen`, `pRebalanceGlobal`, `pRebalanceResetOnSignal`, `kalmanBandLookbackMin`, `kalmanBandStdMultMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmExitFlipStrong`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
+- `/optimizer/run` accepts the same options via camelCase JSON fields (e.g., `barsAutoProb`, `seedTrials`, `seedRatio`, `survivorFraction`, `perturbScaleDouble`, `perturbScaleInt`, `earlyStopNoImprove`, `minHoldBarsMin`, `blendWeightMin`, `routerScorePnlWeightMin`, `routerScorePnlWeightMax`, `minWinRate`, `minAnnualizedReturn`, `minCalmar`, `maxTurnover`, `minSignalToNoiseMin`, `snrSizeWeightMin`, `snrSizeWeightMax`, `pThresholdFactor`, `thresholdFactorAlphaMin`, `thresholdFactorMinMin`, `thresholdFactorWeightMax`, `minSharpe`, `minWalkForwardSharpeMean`, `walkForwardFoldsMin`, `walkForwardFoldsMax`, `walkForwardEmbargoBarsMin`, `walkForwardEmbargoBarsMax`, `stopMin`, `pIntrabarTakeProfitFirst`, `pTriLayer`, `pTriLayerPriceAction`, `triLayerFastMultMin`, `triLayerCloudPaddingMin`, `triLayerCloudSlopeMin`, `triLayerCloudWidthMin`, `triLayerTouchLookbackMin`, `triLayerPriceActionBodyMin`, `triLayerExitOnSlow`, `fundingRateMin`, `fundingRateMax`, `rebalanceBarsMin`, `rebalanceBarsMax`, `rebalanceThresholdMin`, `rebalanceThresholdMax`, `rebalanceCostMultMin`, `rebalanceCostMultMax`, `pFundingBySide`, `pFundingOnOpen`, `pRebalanceGlobal`, `pRebalanceResetOnSignal`, `kalmanBandLookbackMin`, `kalmanBandStdMultMin`, `lstmExitFlipBarsMin`, `lstmExitFlipGraceBarsMin`, `lstmExitFlipStrong`, `lstmConfidenceSoftMin`, `lstmConfidenceHardMin`, `kalmanZMinMin`, `lrMin`, `platforms`); numeric fields may be JSON numbers or numeric strings (including `nan`/`inf`) for legacy compatibility.
 - Genetic crossover blends parent combos with `operationCount`/`tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
 
 Database (required for ops + combo persistence):
@@ -643,6 +646,7 @@ Live safety (startup position):
 - Adopted positions are kept only if the open-threshold signal still agrees with the position.
 - Live bot exit decisions during the run loop close positions when the open-threshold signal no longer agrees (subject to `--min-hold-bars`).
 - When `botTrade=true`, `/bot/start` also auto-starts bots for orphan open futures positions (even if not listed in `botSymbols`).
+- Set `botProtectionOrders=true` to place exchange-managed `STOP_MARKET` / `TAKE_PROFIT_MARKET` orders on Binance futures (requires stop-loss or take-profit; trailing stops remain internal).
 - `botAdoptExistingPosition` is now implied and ignored if provided.
 - If an existing position or open orders are detected, `/bot/start` adopts immediately using the current settings (auto-upgrades to `positioning=long-short` for shorts). It applies a compatible top combo when available but no longer blocks startup waiting for one.
 
@@ -686,7 +690,8 @@ Maximized panels ignore main-area height caps so full card contents stay visible
 Maximizing the configuration panel now escapes the docked layout so it fills the viewport cleanly.
 Maximized panels render above the docked layout so they stay visible instead of disappearing behind the dimmer.
 Maximized panels no longer dim the interface background.
-Maximized panels scroll within the panel so long content stays accessible without clipping.
+Maximized panels scroll within the panel so long content stays accessible without clipping, including docked configuration cards and panels.
+When the browser tab is hidden the UI slows background polling, and long lists/charts are rendered with lazy visibility + downsampling to stay responsive.
 Configuration stays in a fixed top dock, optimizer combos live in a fixed bottom dock, and each running bot has its own scrollable panel.
 The Data Log panel aligns toolbar controls and uses theme-matched styling with a responsive log viewport; code/log surfaces are more opaque so background content doesn't bleed through.
 The configuration pane preserves its scroll position during live updates.
@@ -701,7 +706,7 @@ Missing/invalid saved symbols fall back to platform defaults, and trade-test ski
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.
-Live bot and per-bot panels expand to show full chart contents without internal clipping, while the optimizer combos panel keeps controls fixed with the combos list in a scrollable pane for docked/maximized modes so long lists remain reachable even with expanded sections.
+Live bot and per-bot panels expand to show full chart contents without internal clipping, while the optimizer combos panel keeps controls fixed with the combos list in a scrollable pane when docked; when maximized, the whole panel scrolls so long lists stay reachable even if controls exceed the viewport.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API LSTM compute limits reported by `/health`.
@@ -710,6 +715,7 @@ The UI reads combos from the API, shows their last update time, and how many com
 Live-bot status polling skips overlapping `/bot/status` requests and runs at a modest cadence to avoid client aborts while keeping the dashboard responsive.
 Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, display full combo parameters inline, and can be filtered by symbol/market/interval/method plus minimum final equity.
 Optimizer run forms (including the Optimizer combos panel) launch `/optimizer/run` with constraints, accept advanced JSON overrides for `source`/`binanceSymbol`/`data` and `timeoutSec`, validate backtest/tune ratios, include an annualized-equity preset button, and surface equity-focused info popovers; complex parameters (method/thresholds/splits/LSTM/optimization) include info buttons.
+Optimization defaults in the UI bias toward annualized equity: tune objective is `annualized-equity`, min round trips is `5`, walk-forward embargo is `1`, and rebalance cost mult is `1` (adjust as needed).
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
 Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), selecting the existing bot if it is already running; top-combo auto-apply pauses while a manual Apply is starting a bot, and Refresh combos resyncs.
@@ -753,6 +759,11 @@ Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separator
 The Data Log panel supports auto-scroll to keep the newest responses in view; scrolling up pauses auto-scroll until you jump back to latest.
 The Data Log can record auto-refresh/background responses (including health/cache/ops polls) and error payloads, and can remember the last 100 entries across reloads.
 Filter the Data Log by label; Copy shown respects the current filter, and Jump to latest scrolls back down.
+
+Performance rollups (code vs trading):
+- Run `haskell/scripts/rollup_performance.sh` to snapshot per-commit performance based on live bot equity (`bot.status` / `bot.order`) into `performance_rollups` (the script rebuilds the table each run).
+- The script also builds `performance_commit_summary` plus delta views (`performance_commit_deltas`, `performance_combo_deltas`) to compare regressions between commits.
+- Schedule it via cron to keep commit-level metrics fresh (requires `TRADER_DB_URL`).
 
 Run it:
 ```

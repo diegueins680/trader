@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import type { IntrabarFill, Method, Normalization, Platform, Positioning } from "../lib/types";
 import { fmtPct, fmtRatio } from "../lib/format";
 import { PLATFORM_LABELS } from "../app/constants";
@@ -65,6 +65,7 @@ export type OptimizationComboParams = {
   maxVolatility?: number | null;
   rebalanceBars?: number | null;
   rebalanceThreshold?: number | null;
+  rebalanceCostMult?: number | null;
   rebalanceGlobal?: boolean | null;
   rebalanceResetOnSignal?: boolean | null;
   fundingRate?: number | null;
@@ -72,6 +73,7 @@ export type OptimizationComboParams = {
   fundingOnOpen?: boolean | null;
   periodsPerYear?: number | null;
   walkForwardFolds?: number | null;
+  walkForwardEmbargoBars?: number | null;
   tuneStressVolMult?: number | null;
   tuneStressShock?: number | null;
   tuneStressWeight?: number | null;
@@ -118,7 +120,7 @@ type Props = {
   onApply: (combo: OptimizationCombo) => void;
 };
 
-export function TopCombosChart({ combos, loading, error, selectedId, onSelect, onApply }: Props) {
+export const TopCombosChart = React.memo(function TopCombosChart({ combos, loading, error, selectedId, onSelect, onApply }: Props) {
   if (loading) {
     return <div className="hint">Looking for optimizer combos…</div>;
   }
@@ -143,8 +145,11 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
     const annEq = annReturn + 1;
     return Number.isFinite(annEq) ? annEq : null;
   };
-  const maxRating =
-    combos.reduce((acc, combo) => Math.max(acc, annualizedEquityValue(combo) ?? combo.finalEquity), 0.0) || 1.0;
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
+  const maxRating = useMemo(
+    () => combos.reduce((acc, combo) => Math.max(acc, annualizedEquityValue(combo) ?? combo.finalEquity), 0.0) || 1.0,
+    [combos],
+  );
   const fmtOptRatio = (v: number | null | undefined, digits = 4): string =>
     typeof v === "number" && Number.isFinite(v) ? fmtRatio(v, digits) : "—";
   const fmtOptPct = (v: number | null | undefined, digits = 2): string =>
@@ -225,6 +230,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
             ...entries.filter(([key]) => key !== "openThreshold" && key !== "closeThreshold"),
           ] as Array<[string, unknown]>;
         })();
+        const showOpsDetails = hasOps && (hoveredId === combo.id || selectedId === combo.id);
         return (
           <div
             key={combo.id}
@@ -238,6 +244,10 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
                 onSelect(combo);
               }
             }}
+            onMouseEnter={() => setHoveredId(combo.id)}
+            onMouseLeave={() => setHoveredId((prev) => (prev === combo.id ? null : prev))}
+            onFocus={() => setHoveredId(combo.id)}
+            onBlur={() => setHoveredId((prev) => (prev === combo.id ? null : prev))}
           >
             <div className="comboRowHeader">
               <div>
@@ -314,7 +324,7 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
                 ))}
               </div>
             </div>
-            {hasOps ? (
+            {showOpsDetails ? (
               <div className="comboOpsTooltip" aria-hidden="true">
                 <div className="comboOpsTitle">
                   Operations <span className="badge">{operations.length}</span>
@@ -355,4 +365,4 @@ export function TopCombosChart({ combos, loading, error, selectedId, onSelect, o
       })}
     </div>
   );
-}
+});

@@ -831,7 +831,7 @@ validateArgs args0 = do
   ensure "--stop-loss-vol-mult must be >= 0" (argStopLossVolMult args >= 0)
   ensure "--take-profit-vol-mult must be >= 0" (argTakeProfitVolMult args >= 0)
   ensure "--trailing-stop-vol-mult must be >= 0" (argTrailingStopVolMult args >= 0)
-  ensure "--take-profit-partial must be between 0 and 1" (argTakeProfitPartial args >= 0 && argTakeProfitPartial args <= 1)
+  ensure "--take-profit-partial must be >= 0 and < 1" (argTakeProfitPartial args >= 0 && argTakeProfitPartial args < 1)
   ensure "--min-hold-bars must be >= 0" (argMinHoldBars args >= 0)
   ensure "--cooldown-bars must be >= 0" (argCooldownBars args >= 0)
   case argMaxHoldBars args of

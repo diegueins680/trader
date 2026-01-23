@@ -45,6 +45,7 @@ export type FormState = {
   maxVolatility: number;
   rebalanceBars: number;
   rebalanceThreshold: number;
+  rebalanceCostMult: number;
   rebalanceGlobal: boolean;
   rebalanceResetOnSignal: boolean;
   fundingRate: number;
@@ -63,6 +64,7 @@ export type FormState = {
   tuneStressWeight: number;
   minRoundTrips: number;
   walkForwardFolds: number;
+  walkForwardEmbargoBars: number;
   normalization: Normalization;
   epochs: number;
   learningRate: number;
@@ -98,6 +100,7 @@ export type FormState = {
   botOnlineEpochs: number;
   botTrainBars: number;
   botMaxPoints: number;
+  botProtectionOrders: boolean;
   botAdoptExistingPosition: boolean;
 };
 
@@ -144,6 +147,7 @@ export const defaultForm: FormState = {
   maxVolatility: 1.5,
   rebalanceBars: 24,
   rebalanceThreshold: 0.05,
+  rebalanceCostMult: 1,
   rebalanceGlobal: false,
   rebalanceResetOnSignal: false,
   fundingRate: 0.1,
@@ -154,14 +158,15 @@ export const defaultForm: FormState = {
   routerMinScore: 0.25,
   backtestRatio: 0.2,
   tuneRatio: 0.25,
-  tuneObjective: "equity-dd-turnover",
+  tuneObjective: "annualized-equity",
   tunePenaltyMaxDrawdown: 1.5,
   tunePenaltyTurnover: 0.2,
   tuneStressVolMult: 1.0,
   tuneStressShock: 0,
   tuneStressWeight: 0,
-  minRoundTrips: 0,
+  minRoundTrips: 5,
   walkForwardFolds: 7,
+  walkForwardEmbargoBars: 1,
   normalization: "standard",
   epochs: 30,
   learningRate: 0.001,
@@ -196,6 +201,7 @@ export const defaultForm: FormState = {
   botOnlineEpochs: 1,
   botTrainBars: 800,
   botMaxPoints: 2000,
+  botProtectionOrders: false,
   botAdoptExistingPosition: true,
 };
 
@@ -399,6 +405,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     tuneStressWeight: normalizeFiniteNumber(rawRec.tuneStressWeight ?? merged.tuneStressWeight, defaultForm.tuneStressWeight, 0, 1e9),
     minRoundTrips: normalizeFiniteNumber(rawRec.minRoundTrips ?? merged.minRoundTrips, defaultForm.minRoundTrips, 0, 1e9),
     walkForwardFolds: normalizeFiniteNumber(rawRec.walkForwardFolds ?? merged.walkForwardFolds, defaultForm.walkForwardFolds, 1, 1000),
+    walkForwardEmbargoBars: normalizeFiniteNumber(
+      rawRec.walkForwardEmbargoBars ?? merged.walkForwardEmbargoBars,
+      defaultForm.walkForwardEmbargoBars,
+      0,
+      1e9,
+    ),
     kalmanZMin,
     kalmanZMax,
     minEdge: normalizeFiniteNumber(rawRec.minEdge ?? merged.minEdge, defaultForm.minEdge, 0, 1e9),
@@ -425,6 +437,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
       0,
       1e9,
     ),
+    rebalanceCostMult: normalizeFiniteNumber(
+      rawRec.rebalanceCostMult ?? merged.rebalanceCostMult,
+      defaultForm.rebalanceCostMult,
+      0,
+      1e9,
+    ),
     rebalanceGlobal: normalizeBool(rawRec.rebalanceGlobal ?? merged.rebalanceGlobal, defaultForm.rebalanceGlobal),
     rebalanceResetOnSignal: normalizeBool(
       rawRec.rebalanceResetOnSignal ?? merged.rebalanceResetOnSignal,
@@ -448,6 +466,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
     gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
     minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
+    botProtectionOrders: normalizeBool(rawRec.botProtectionOrders ?? merged.botProtectionOrders, defaultForm.botProtectionOrders),
     botAdoptExistingPosition: true,
   };
 }

@@ -527,6 +527,8 @@ data OptimizerArgs = OptimizerArgs
   , oaTuneStressWeightMax :: !(Maybe Double)
   , oaWalkForwardFoldsMin :: !Int
   , oaWalkForwardFoldsMax :: !Int
+  , oaWalkForwardEmbargoBarsMin :: !Int
+  , oaWalkForwardEmbargoBarsMax :: !Int
   , oaInterval :: !(Maybe String)
   , oaIntervals :: !(Maybe String)
   , oaPlatform :: !(Maybe String)
@@ -549,6 +551,8 @@ data OptimizerArgs = OptimizerArgs
   , oaRebalanceBarsMax :: !Int
   , oaRebalanceThresholdMin :: !Double
   , oaRebalanceThresholdMax :: !Double
+  , oaRebalanceCostMultMin :: !Double
+  , oaRebalanceCostMultMax :: !Double
   , oaPRebalanceGlobal :: !Double
   , oaPRebalanceResetOnSignal :: !Double
   , oaOpenThresholdMin :: !Double
@@ -802,6 +806,7 @@ data TrialParams = TrialParams
   , tpFundingOnOpen :: !Bool
   , tpRebalanceBars :: !Int
   , tpRebalanceThreshold :: !Double
+  , tpRebalanceCostMult :: !Double
   , tpRebalanceGlobal :: !Bool
   , tpRebalanceResetOnSignal :: !Bool
   , tpEpochs :: !Int
@@ -810,6 +815,7 @@ data TrialParams = TrialParams
   , tpValRatio :: !Double
   , tpPatience :: !Int
   , tpWalkForwardFolds :: !Int
+  , tpWalkForwardEmbargoBars :: !Int
   , tpTuneStressVolMult :: !Double
   , tpTuneStressShock :: !Double
   , tpTuneStressWeight :: !Double
@@ -1013,6 +1019,8 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , show (max 0 (tpRebalanceBars params))
              , "--rebalance-threshold"
              , printf "%.12g" (max 0 (tpRebalanceThreshold params))
+             , "--rebalance-cost-mult"
+             , printf "%.12g" (max 0 (tpRebalanceCostMult params))
              , "--epochs"
              , show (tpEpochs params)
              , "--hidden-size"
@@ -1025,6 +1033,8 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              , show (tpPatience params)
              , "--walk-forward-folds"
              , show (max 1 (tpWalkForwardFolds params))
+             , "--walk-forward-embargo-bars"
+             , show (max 0 (tpWalkForwardEmbargoBars params))
              , "--tune-stress-vol-mult"
              , printf "%.6f" (max 1e-12 (tpTuneStressVolMult params))
              , "--tune-stress-shock"
@@ -1399,6 +1409,7 @@ trialToRecord tr symbolLabel =
         , "fundingOnOpen" .= tpFundingOnOpen (trParams tr)
         , "rebalanceBars" .= tpRebalanceBars (trParams tr)
         , "rebalanceThreshold" .= tpRebalanceThreshold (trParams tr)
+        , "rebalanceCostMult" .= tpRebalanceCostMult (trParams tr)
         , "rebalanceGlobal" .= tpRebalanceGlobal (trParams tr)
         , "rebalanceResetOnSignal" .= tpRebalanceResetOnSignal (trParams tr)
         , "epochs" .= tpEpochs (trParams tr)
@@ -1407,6 +1418,7 @@ trialToRecord tr symbolLabel =
         , "valRatio" .= tpValRatio (trParams tr)
         , "patience" .= tpPatience (trParams tr)
         , "walkForwardFolds" .= tpWalkForwardFolds (trParams tr)
+        , "walkForwardEmbargoBars" .= tpWalkForwardEmbargoBars (trParams tr)
         , "tuneStressVolMult" .= tpTuneStressVolMult (trParams tr)
         , "tuneStressShock" .= tpTuneStressShock (trParams tr)
         , "tuneStressWeight" .= tpTuneStressWeight (trParams tr)
@@ -1526,6 +1538,7 @@ sampleParams
   pFundingOnOpen
   rebalanceBarsRange
   rebalanceThresholdRange
+  rebalanceCostMultRange
   pRebalanceGlobal
   pRebalanceResetOnSignal
   pLongShort
@@ -1557,6 +1570,7 @@ sampleParams
   valMax
   patienceMax
   walkForwardFoldsRange
+  walkForwardEmbargoBarsRange
   tuneStressVolMultRange
   tuneStressShockRange
   tuneStressWeightRange
@@ -1740,8 +1754,13 @@ sampleParams
         (rebalanceThreshold, rng26e) =
           let (lo, hi) = ordered rebalanceThresholdRange
            in nextUniform lo hi rng26d
+        (rebalanceCostMult, rng26e') =
+          let (lo, hi) = ordered rebalanceCostMultRange
+              lo' = max 0 lo
+              hi' = max lo' hi
+           in nextUniform lo' hi' rng26e
         (rebalanceGlobal, rng26f) =
-          let (r, rng') = nextDouble rng26e
+          let (r, rng') = nextDouble rng26e'
            in (r < clamp pRebalanceGlobal 0 1, rng')
         (rebalanceResetOnSignal, rng26g) =
           let (r, rng') = nextDouble rng26f
@@ -1754,11 +1773,14 @@ sampleParams
         (walkForwardFolds, rng32) =
           let (lo, hi) = ordered walkForwardFoldsRange
            in nextIntRange (max 1 lo) (max 1 hi) rng31
+        (walkForwardEmbargoBarsRaw, rng32a) =
+          nextIntRange (fst walkForwardEmbargoBarsRange) (snd walkForwardEmbargoBarsRange) rng32
+        walkForwardEmbargoBars = max 0 walkForwardEmbargoBarsRaw
         (tuneStressVolMult, rng33) =
           let (lo, hi) = ordered tuneStressVolMultRange
               lo' = max 1e-12 lo
               hi' = max lo' hi
-           in nextUniform lo' hi' rng32
+           in nextUniform lo' hi' rng32a
         (tuneStressShock, rng34) =
           let (lo, hi) = ordered tuneStressShockRange
            in nextUniform lo hi rng33
@@ -2029,6 +2051,7 @@ sampleParams
             , tpFundingOnOpen = fundingOnOpen
             , tpRebalanceBars = rebalanceBars
             , tpRebalanceThreshold = rebalanceThreshold
+            , tpRebalanceCostMult = rebalanceCostMult
             , tpRebalanceGlobal = rebalanceGlobal
             , tpRebalanceResetOnSignal = rebalanceResetOnSignal
             , tpEpochs = epochs
@@ -2037,6 +2060,7 @@ sampleParams
             , tpValRatio = valRatio
             , tpPatience = patience
             , tpWalkForwardFolds = walkForwardFolds
+            , tpWalkForwardEmbargoBars = walkForwardEmbargoBars
             , tpTuneStressVolMult = tuneStressVolMult
             , tpTuneStressShock = tuneStressShock
             , tpTuneStressWeight = tuneStressWeight
@@ -2227,6 +2251,9 @@ runOptimizer args0 = do
                               gradClipMax = max gradClipMin (oaGradClipMax args)
                               walkForwardFoldsMin = max 1 (oaWalkForwardFoldsMin args)
                               walkForwardFoldsMax = max walkForwardFoldsMin (oaWalkForwardFoldsMax args)
+                              walkForwardEmbargoBarsMin = max 0 (oaWalkForwardEmbargoBarsMin args)
+                              walkForwardEmbargoBarsMax = max walkForwardEmbargoBarsMin (oaWalkForwardEmbargoBarsMax args)
+                              walkForwardEmbargoBarsRange = (walkForwardEmbargoBarsMin, walkForwardEmbargoBarsMax)
                               tuneStressVolMultBase = max 1e-12 (oaTuneStressVolMult args)
                               tuneStressShockBase = oaTuneStressShock args
                               tuneStressWeightBase = max 0 (oaTuneStressWeight args)
@@ -2257,6 +2284,9 @@ runOptimizer args0 = do
                               rebalanceThresholdMin = max 0 (oaRebalanceThresholdMin args)
                               rebalanceThresholdMax = max rebalanceThresholdMin (oaRebalanceThresholdMax args)
                               rebalanceThresholdRange = (rebalanceThresholdMin, rebalanceThresholdMax)
+                              rebalanceCostMultMin = max 0 (oaRebalanceCostMultMin args)
+                              rebalanceCostMultMax = max rebalanceCostMultMin (oaRebalanceCostMultMax args)
+                              rebalanceCostMultRange = (rebalanceCostMultMin, rebalanceCostMultMax)
                               pRebalanceGlobal = clamp (oaPRebalanceGlobal args) 0 1
                               pRebalanceResetOnSignal = clamp (oaPRebalanceResetOnSignal args) 0 1
                               openThresholdMin = max 1e-12 (oaOpenThresholdMin args)
@@ -2521,6 +2551,7 @@ runOptimizer args0 = do
                                           pFundingOnOpen
                                           rebalanceBarsRange
                                           rebalanceThresholdRange
+                                          rebalanceCostMultRange
                                           pRebalanceGlobal
                                           pRebalanceResetOnSignal
                                           pLongShort
@@ -2552,6 +2583,7 @@ runOptimizer args0 = do
                                           valMax
                                           patienceMax
                                           (walkForwardFoldsMin, walkForwardFoldsMax)
+                                          walkForwardEmbargoBarsRange
                                           tuneStressVolMultRange
                                           tuneStressShockRange
                                           tuneStressWeightRange
@@ -3140,6 +3172,7 @@ printBest tr = do
   putStrLn ("  valRatio:      " ++ show (tpValRatio p))
   putStrLn ("  patience:      " ++ show (tpPatience p))
   putStrLn ("  walkForwardFolds:" ++ show (tpWalkForwardFolds p))
+  putStrLn ("  walkForwardEmbargoBars:" ++ show (tpWalkForwardEmbargoBars p))
   putStrLn ("  tuneStressVolMult:" ++ show (tpTuneStressVolMult p))
   putStrLn ("  tuneStressShock: " ++ show (tpTuneStressShock p))
   putStrLn ("  tuneStressWeight:" ++ show (tpTuneStressWeight p))
@@ -3150,6 +3183,7 @@ printBest tr = do
   putStrLn ("  fundingOnOpen: " ++ show (tpFundingOnOpen p))
   putStrLn ("  rebalanceBars: " ++ show (tpRebalanceBars p))
   putStrLn ("  rebalanceThreshold:" ++ show (tpRebalanceThreshold p))
+  putStrLn ("  rebalanceCostMult:" ++ show (tpRebalanceCostMult p))
   putStrLn ("  rebalanceGlobal: " ++ show (tpRebalanceGlobal p))
   putStrLn ("  rebalanceResetOnSignal:" ++ show (tpRebalanceResetOnSignal p))
   putStrLn ("  slippage:      " ++ show (tpSlippage p))
@@ -3366,7 +3400,8 @@ crossoverTrialParams a b rng0 =
       (tpFundingOnOpen', rng43) = pickValue (tpFundingOnOpen a) (tpFundingOnOpen b) rng42
       (tpRebalanceBars', rng44) = pickValue (tpRebalanceBars a) (tpRebalanceBars b) rng43
       (tpRebalanceThreshold', rng45) = pickValue (tpRebalanceThreshold a) (tpRebalanceThreshold b) rng44
-      (tpRebalanceGlobal', rng46) = pickValue (tpRebalanceGlobal a) (tpRebalanceGlobal b) rng45
+      (tpRebalanceCostMult', rng45a) = pickValue (tpRebalanceCostMult a) (tpRebalanceCostMult b) rng45
+      (tpRebalanceGlobal', rng46) = pickValue (tpRebalanceGlobal a) (tpRebalanceGlobal b) rng45a
       (tpRebalanceResetOnSignal', rng47) = pickValue (tpRebalanceResetOnSignal a) (tpRebalanceResetOnSignal b) rng46
       (tpEpochs', rng48) = pickValue (tpEpochs a) (tpEpochs b) rng47
       (tpHiddenSize', rng49) = pickValue (tpHiddenSize a) (tpHiddenSize b) rng48
@@ -3374,7 +3409,8 @@ crossoverTrialParams a b rng0 =
       (tpValRatio', rng51) = pickValue (tpValRatio a) (tpValRatio b) rng50
       (tpPatience', rng52) = pickValue (tpPatience a) (tpPatience b) rng51
       (tpWalkForwardFolds', rng53) = pickValue (tpWalkForwardFolds a) (tpWalkForwardFolds b) rng52
-      (tpTuneStressVolMult', rng54) = pickValue (tpTuneStressVolMult a) (tpTuneStressVolMult b) rng53
+      (tpWalkForwardEmbargoBars', rng53a) = pickValue (tpWalkForwardEmbargoBars a) (tpWalkForwardEmbargoBars b) rng53
+      (tpTuneStressVolMult', rng54) = pickValue (tpTuneStressVolMult a) (tpTuneStressVolMult b) rng53a
       (tpTuneStressShock', rng55) = pickValue (tpTuneStressShock a) (tpTuneStressShock b) rng54
       (tpTuneStressWeight', rng56) = pickValue (tpTuneStressWeight a) (tpTuneStressWeight b) rng55
       (tpGradClip', rng57) = pickValue (tpGradClip a) (tpGradClip b) rng56
@@ -3467,6 +3503,7 @@ crossoverTrialParams a b rng0 =
           , tpFundingOnOpen = tpFundingOnOpen'
           , tpRebalanceBars = tpRebalanceBars'
           , tpRebalanceThreshold = tpRebalanceThreshold'
+          , tpRebalanceCostMult = tpRebalanceCostMult'
           , tpRebalanceGlobal = tpRebalanceGlobal'
           , tpRebalanceResetOnSignal = tpRebalanceResetOnSignal'
           , tpEpochs = tpEpochs'
@@ -3475,6 +3512,7 @@ crossoverTrialParams a b rng0 =
           , tpValRatio = tpValRatio'
           , tpPatience = tpPatience'
           , tpWalkForwardFolds = tpWalkForwardFolds'
+          , tpWalkForwardEmbargoBars = tpWalkForwardEmbargoBars'
           , tpTuneStressVolMult = tpTuneStressVolMult'
           , tpTuneStressShock = tpTuneStressShock'
           , tpTuneStressWeight = tpTuneStressWeight'
@@ -3559,7 +3597,8 @@ perturbTrialParams scaleDouble scaleInt p rng0 =
       (fundingRate', rng29) = perturbDoubleSigned (tpFundingRate p) scaleDouble rng28
       (rebalanceBars', rng30) = perturbInt (tpRebalanceBars p) scaleInt rng29
       (rebalanceThreshold', rng31) = perturbDouble (tpRebalanceThreshold p) scaleDouble rng30
-      (learningRate', rng32) = perturbDouble (tpLearningRate p) scaleDouble rng31
+      (rebalanceCostMult', rng31a) = perturbDouble (tpRebalanceCostMult p) scaleDouble rng31
+      (learningRate', rng32) = perturbDouble (tpLearningRate p) scaleDouble rng31a
       (thresholdFactorAlpha', rng33) = perturbDouble (tpThresholdFactorAlpha p) scaleDouble rng32
       (thresholdFactorMin', rng34) = perturbDouble (tpThresholdFactorMin p) scaleDouble rng33
       (thresholdFactorMax', rng35) = perturbDouble (tpThresholdFactorMax p) scaleDouble rng34
@@ -3618,6 +3657,7 @@ perturbTrialParams scaleDouble scaleInt p rng0 =
           , tpFundingRate = fundingRate'
           , tpRebalanceBars = rebalanceBars'
           , tpRebalanceThreshold = rebalanceThreshold'
+          , tpRebalanceCostMult = rebalanceCostMult'
           , tpLearningRate = learningRate'
           }
       , rng44
@@ -3739,6 +3779,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
           , "fundingOnOpen" .= tpFundingOnOpen params
           , "rebalanceBars" .= tpRebalanceBars params
           , "rebalanceThreshold" .= tpRebalanceThreshold params
+          , "rebalanceCostMult" .= tpRebalanceCostMult params
           , "rebalanceGlobal" .= tpRebalanceGlobal params
           , "rebalanceResetOnSignal" .= tpRebalanceResetOnSignal params
           , "epochs" .= tpEpochs params
@@ -3747,6 +3788,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
           , "valRatio" .= tpValRatio params
           , "patience" .= tpPatience params
           , "walkForwardFolds" .= tpWalkForwardFolds params
+          , "walkForwardEmbargoBars" .= tpWalkForwardEmbargoBars params
           , "tuneStressVolMult" .= tpTuneStressVolMult params
           , "tuneStressShock" .= tpTuneStressShock params
           , "tuneStressWeight" .= tpTuneStressWeight params
