@@ -20,20 +20,27 @@ tcnFeaturesAt dilations kernelSize prices t =
   if null dilations || kernelSize <= 0
     then Nothing
     else
-      let maxLag = maximum (map (\d -> 1 + d * (kernelSize - 1)) dilations)
-       in if t < maxLag || t >= V.length prices
-            then Nothing
-            else
-              let retLag lag =
-                    let p0 = prices V.! (t - lag)
-                        p1 = prices V.! (t - lag + 1)
-                     in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
-                  lags =
-                    [ 1 + d * k
-                    | d <- dilations
-                    , k <- [0 .. kernelSize - 1]
-                    ]
-               in traverse retLag lags
+      let lags = tcnLags dilations kernelSize
+          maxLag = maximum lags
+       in tcnFeaturesAtWithLags maxLag lags prices t
+
+tcnFeaturesAtWithLags :: Int -> [Int] -> V.Vector Double -> Int -> Maybe [Double]
+tcnFeaturesAtWithLags maxLag lags prices t =
+  if t < maxLag || t >= V.length prices
+    then Nothing
+    else
+      let retLag lag =
+            let p0 = prices V.! (t - lag)
+                p1 = prices V.! (t - lag + 1)
+             in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+       in traverse retLag lags
+
+tcnLags :: [Int] -> Int -> [Int]
+tcnLags dilations kernelSize =
+  [ 1 + d * k
+  | d <- dilations
+  , k <- [0 .. kernelSize - 1]
+  ]
 
 predictTCN :: TCNModel -> V.Vector Double -> Int -> Maybe (Double, Maybe Double)
 predictTCN m prices t = do
@@ -49,11 +56,13 @@ trainTCN lookbackBars prices trainTargets
       let kernelSize = min 3 lookbackBars
           maxD = max 1 ((lookbackBars - 1) `div` (kernelSize - 1))
           dilations = takeWhile (<= maxD) (iterate (* 2) 1)
+          lags = tcnLags dilations kernelSize
+          maxLag = maximum lags
           lambda = 1e-3
           xsYs =
             [ (x ++ [1.0], y)
             | (t, y) <- trainTargets
-            , Just x <- [tcnFeaturesAt dilations kernelSize prices t]
+            , Just x <- [tcnFeaturesAtWithLags maxLag lags prices t]
             ]
        in if null xsYs
             then TCNModel { tmDilations = dilations, tmKernelSize = kernelSize, tmWeights = replicate (kernelSize * length dilations + 1) 0, tmSigma = Nothing }

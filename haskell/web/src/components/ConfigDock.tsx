@@ -155,6 +155,9 @@ export type ConfigDockProps = {
   setBinanceApiSecret: (value: string) => void;
   platformKeyHasValues: boolean;
   platformKeyHint: string;
+  keysLoading: boolean;
+  keysCheckedAtMs: number | null;
+  refreshKeys: () => void;
   persistSecrets: boolean;
   setPersistSecrets: React.Dispatch<React.SetStateAction<boolean>>;
   profileSelected: string;
@@ -387,6 +390,8 @@ export const ConfigDock = (props: ConfigDockProps) => {
     isCoinbasePlatform,
     isPanelMaximized,
     isPanelOpen,
+    keysCheckedAtMs,
+    keysLoading,
     longShortBotDisabled,
     lookbackState,
     markManualOverrides,
@@ -419,6 +424,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
     rateLimitReason,
     refreshBot,
     refreshCacheStats,
+    refreshKeys,
     requestDisabled,
     requestDisabledReason,
     requestIssueDetails,
@@ -469,6 +475,15 @@ export const ConfigDock = (props: ConfigDockProps) => {
   } = props;
   const botProtectionNeedsStops =
     form.stopLoss <= 0 && form.takeProfit <= 0 && form.stopLossVolMult <= 0 && form.takeProfitVolMult <= 0;
+  const keysSupported = isBinancePlatform || isCoinbasePlatform;
+  const keysHint =
+    !keysSupported
+      ? "Switch Platform to Binance or Coinbase to check keys."
+      : keysCheckedAtMs
+        ? `Last checked: ${fmtTimeMs(keysCheckedAtMs)}`
+        : isBinancePlatform
+          ? "Uses Binance signed endpoints + /order/test (no real order)."
+          : "Uses Coinbase signed /accounts.";
 
   return (
     <CollapsibleCard
@@ -821,6 +836,19 @@ export const ConfigDock = (props: ConfigDockProps) => {
             <div className="hint">
               {platformKeyHint} Stored in {persistSecrets ? "local storage" : "session storage"}. The request preview/curl omits it.
             </div>
+            {platformKeyMode ? (
+              <div className="actions" style={{ marginTop: 8 }}>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => refreshKeys()}
+                  disabled={!keysSupported || keysLoading || apiOk === "down" || apiOk === "auth"}
+                >
+                  {keysLoading ? "Checking…" : "Check keys"}
+                </button>
+                <span className="hint">{keysHint}</span>
+              </div>
+            ) : null}
             {!platformKeyMode ? (
               <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>
                 Keys are only editable when Platform is set to Binance or Coinbase.

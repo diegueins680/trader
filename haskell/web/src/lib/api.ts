@@ -17,6 +17,8 @@ import type {
   OpsResponse,
   OptimizerRunRequest,
   OptimizerRunResponse,
+  StateSyncImportResponse,
+  StateSyncPayload,
 } from "./types";
 import { TRADER_UI_CONFIG } from "./deployConfig";
 import { readJson, writeJson } from "./storage";
@@ -947,5 +949,28 @@ export async function optimizerRun(
       body: JSON.stringify(params),
     },
     opts,
+  );
+}
+
+export async function stateSyncExport(baseUrl: string, opts?: FetchJsonOptions): Promise<StateSyncPayload> {
+  const mergedOpts = { ...opts, allowFallback: false };
+  return fetchJson<StateSyncPayload>(baseUrl, "/state/sync", { method: "GET" }, mergedOpts);
+}
+
+export async function stateSyncImport(
+  baseUrl: string,
+  payload: StateSyncPayload,
+  opts?: FetchJsonOptions,
+): Promise<StateSyncImportResponse> {
+  const mergedOpts = { ...opts, allowFallback: false };
+  return fetchJson<StateSyncImportResponse>(
+    baseUrl,
+    "/state/sync",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    mergedOpts,
   );
 }

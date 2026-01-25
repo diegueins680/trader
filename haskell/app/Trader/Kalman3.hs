@@ -9,11 +9,16 @@ module Trader.Kalman3
   , step
   , constantAcceleration1D
   , KalmanRun(..)
+  , KalmanRunV(..)
   , runConstantAcceleration1D
+  , runConstantAcceleration1DVec
   , forecastNextConstantAcceleration1D
   ) where
 
+import Control.Monad.ST (runST)
 import Data.List (foldl')
+import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 
 data Vec3 = Vec3 !Double !Double !Double deriving (Eq, Show)
 
@@ -130,6 +135,11 @@ data KalmanRun = KalmanRun
   , krFiltered  :: [Double] -- length n
   } deriving (Eq, Show)
 
+data KalmanRunV = KalmanRunV
+  { krPredictedV :: V.Vector Double -- length n-1
+  , krFilteredV  :: V.Vector Double -- length n
+  } deriving (Eq, Show)
+
 runConstantAcceleration1D :: Double -> Double -> Double -> [Double] -> KalmanRun
 runConstantAcceleration1D dt processVar measurementVar values =
   case values of
@@ -143,6 +153,33 @@ runConstantAcceleration1D dt processVar measurementVar values =
             in (k', pred : preds, pos : filts)
           (_, predsRev, filtsRev) = foldl' stepFn (k0, [], [x0]) xs
       in KalmanRun { krPredicted = reverse predsRev, krFiltered = reverse filtsRev }
+
+runConstantAcceleration1DVec :: Double -> Double -> Double -> V.Vector Double -> KalmanRunV
+runConstantAcceleration1DVec dt processVar measurementVar valuesV =
+  let n = V.length valuesV
+  in if n < 2
+       then error "Need at least 2 values"
+       else
+         runST $ do
+           preds <- MV.new (n - 1)
+           filts <- MV.new n
+           let x0 = valuesV V.! 0
+               k0 = constantAcceleration1D dt processVar measurementVar x0
+           MV.write filts 0 x0
+           let go i k =
+                 if i >= n
+                   then pure ()
+                   else do
+                     let z = valuesV V.! i
+                         (pred, k') = step z k
+                         Vec3 pos _ _ = kx k'
+                     MV.write preds (i - 1) pred
+                     MV.write filts i pos
+                     go (i + 1) k'
+           go 1 k0
+           predsV <- V.unsafeFreeze preds
+           filtsV <- V.unsafeFreeze filts
+           pure KalmanRunV { krPredictedV = predsV, krFilteredV = filtsV }
 
 forecastNextConstantAcceleration1D :: Double -> Double -> Double -> [Double] -> Double
 forecastNextConstantAcceleration1D dt processVar measurementVar values =

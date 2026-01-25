@@ -28,7 +28,7 @@ import Data.List (foldl')
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Trader.Duration (TimeWindow, minuteOfDayFromMs, timeWindowContains)
-import Trader.Kalman3 (KalmanRun(..), runConstantAcceleration1D)
+import Trader.Kalman3 (KalmanRunV(..), runConstantAcceleration1DVec)
 
 data Positioning
   = LongFlat
@@ -651,12 +651,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
               (cloudFastV, cloudSlowV) =
                 if kalmanCloudEnabled
                   then
-                    let run mult =
-                          let mv = max 1e-12 (kalMeasVar * mult)
-                              KalmanRun { krFiltered = filts } =
-                                runConstantAcceleration1D kalDt kalProcessVar mv (V.toList pricesV)
-                           in V.fromList filts
-                     in (run fastMult, run slowMult)
+                      let run mult =
+                            let mv = max 1e-12 (kalMeasVar * mult)
+                                KalmanRunV { krFilteredV = filts } =
+                                  runConstantAcceleration1DVec kalDt kalProcessVar mv pricesV
+                             in filts
+                       in (run fastMult, run slowMult)
                   else (pricesV, pricesV)
               kalmanResidualV =
                 if kalmanBandEnabled

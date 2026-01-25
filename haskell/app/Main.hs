@@ -22,7 +22,7 @@ import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import qualified Data.CaseInsensitive as CI
 import Data.Foldable (toList)
 import Data.Int (Int64)
-import Data.List (find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix)
+import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.String (fromString)
 import Data.Text (Text)
@@ -109,7 +109,7 @@ import Trader.Binance
   , keepAliveListenKey
   , closeListenKey
   )
-import Trader.Kalman3 (KalmanRun(..), runConstantAcceleration1D)
+import Trader.Kalman3 (KalmanRunV(..), runConstantAcceleration1DVec)
 import Trader.KalmanFusion (Kalman1(..), initKalman1, stepMulti)
 import Trader.LSTM
   ( LSTMConfig(..)
@@ -6628,10 +6628,8 @@ makeBinanceEnv mOps args = do
   if market == MarketMargin && argBinanceTestnet args
     then error "--binance-testnet is not supported for margin operations"
     else pure ()
-  let base =
-        case market of
-          MarketFutures -> if argBinanceTestnet args then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-          _ -> if argBinanceTestnet args then binanceTestnetBaseUrl else binanceBaseUrl
+  urls <- resolveBinanceBaseUrls
+  let base = selectBinanceBaseUrl urls (argBinanceTestnet args) market
   apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
   newBinanceEnvWithOps mOps market base (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
@@ -12022,10 +12020,8 @@ handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do
                 else do
                   apiKey <- resolveEnv "BINANCE_API_KEY" (alsBinanceApiKey params <|> argBinanceApiKey baseArgs)
                   apiSecret <- resolveEnv "BINANCE_API_SECRET" (alsBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                  let baseUrl =
-                        case market of
-                          MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                          _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                  urls <- resolveBinanceBaseUrls
+                  let baseUrl = selectBinanceBaseUrl urls testnet market
                   env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                   r <- try (createListenKey env) :: IO (Either SomeException String)
                   case r of
@@ -12079,10 +12075,8 @@ handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req res
                     _ -> do
                       apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
                       apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                      let baseUrl =
-                            case market of
-                              MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                              _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                      urls <- resolveBinanceBaseUrls
+                      let baseUrl = selectBinanceBaseUrl urls testnet market
                       env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                       r <- try (keepAliveListenKey env listenKey) :: IO (Either SomeException ())
                       case r of
@@ -12118,10 +12112,8 @@ handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respond
                     else do
                       apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
                       apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                      let baseUrl =
-                            case market of
-                              MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                              _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                      urls <- resolveBinanceBaseUrls
+                      let baseUrl = selectBinanceBaseUrl urls testnet market
                       env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                       r <- try (closeListenKey env listenKey) :: IO (Either SomeException ())
                       case r of
@@ -12150,10 +12142,8 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                 else do
                   apiKey <- resolveEnv "BINANCE_API_KEY" (abrBinanceApiKey params <|> argBinanceApiKey baseArgs)
                   apiSecret <- resolveEnv "BINANCE_API_SECRET" (abrBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                  let baseUrl =
-                        case market of
-                          MarketFutures -> if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-                          _ -> if testnet then binanceTestnetBaseUrl else binanceBaseUrl
+                  urls <- resolveBinanceBaseUrls
+                  let baseUrl = selectBinanceBaseUrl urls testnet market
                   env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                   let symbolsRaw =
                         case abrSymbols params of
@@ -12210,7 +12200,8 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
                 else do
                   apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
                   apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                  let baseUrl = if testnet then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
+                  urls <- resolveBinanceBaseUrls
+                  let baseUrl = selectBinanceBaseUrl urls testnet market
                   env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                   r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
                   case r of
@@ -13649,7 +13640,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
              in (fOpenFinal, fCloseFinal)
 
 orderSizeMultiplier :: Double
-orderSizeMultiplier = 10
+orderSizeMultiplier = 100
 
 scaleOrderSize :: Double -> Double
 scaleOrderSize x = x * orderSizeMultiplier
@@ -16348,11 +16339,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                   (cloudFastV, cloudSlowV) =
                     if cloudReady
                       then
-                        let run mult =
-                              let mv = max 1e-12 (kalMeasVar * mult)
-                                  KalmanRun { krFiltered = filts } =
-                                    runConstantAcceleration1D kalDt kalProcessVar mv (V.toList pricesV)
-                               in V.fromList filts
+                          let run mult =
+                                let mv = max 1e-12 (kalMeasVar * mult)
+                                    KalmanRunV { krFilteredV = filts } =
+                                      runConstantAcceleration1DVec kalDt kalProcessVar mv pricesV
+                                 in filts
                          in (run fastMult, run slowMult)
                       else (pricesV, pricesV)
 
@@ -17124,14 +17115,9 @@ loadPricesBinance mOps args sym = do
     then error "--binance-testnet is not supported for margin operations"
     else pure ()
   let bars = resolveBarsForBinance args
-  let tradeBase =
-        case market of
-          MarketFutures -> if argBinanceTestnet args then binanceFuturesTestnetBaseUrl else binanceFuturesBaseUrl
-          _ -> if argBinanceTestnet args then binanceTestnetBaseUrl else binanceBaseUrl
-      dataBase =
-        case market of
-          MarketFutures -> binanceFuturesBaseUrl
-          _ -> binanceBaseUrl
+  urls <- resolveBinanceBaseUrls
+  let tradeBase = selectBinanceBaseUrl urls (argBinanceTestnet args) market
+      dataBase = selectBinanceDataBaseUrl urls market
   apiKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey args)
   apiSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret args)
   envTrade <- newBinanceEnvWithOps mOps market tradeBase (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
@@ -17207,6 +17193,61 @@ loadPricesPoloniex args sym = do
       lows' = if bars > 0 then takeLast bars lows else lows
       openTimes' = if bars > 0 then takeLast bars openTimes else openTimes
   pure (PriceSeries closes' (Just highs') (Just lows') (Just openTimes'))
+
+data BinanceBaseUrls = BinanceBaseUrls
+  { bbuSpot :: !String
+  , bbuSpotTestnet :: !String
+  , bbuFutures :: !String
+  , bbuFuturesTestnet :: !String
+  } deriving (Eq, Show)
+
+resolveBinanceBaseUrls :: IO BinanceBaseUrls
+resolveBinanceBaseUrls = do
+  spot <- resolveUrlEnv "TRADER_BINANCE_REST_URL" binanceBaseUrl
+  spotTestnet <- resolveUrlEnv "TRADER_BINANCE_TESTNET_REST_URL" binanceTestnetBaseUrl
+  futures <- resolveUrlEnv "TRADER_BINANCE_FUTURES_REST_URL" binanceFuturesBaseUrl
+  futuresTestnet <- resolveUrlEnv "TRADER_BINANCE_FUTURES_TESTNET_REST_URL" binanceFuturesTestnetBaseUrl
+  pure
+    BinanceBaseUrls
+      { bbuSpot = spot
+      , bbuSpotTestnet = spotTestnet
+      , bbuFutures = futures
+      , bbuFuturesTestnet = futuresTestnet
+      }
+
+resolveUrlEnv :: String -> String -> IO String
+resolveUrlEnv key fallback = do
+  raw <- lookupEnv key
+  pure $
+    case raw >>= nonEmptyTrim of
+      Just v -> sanitizeBaseUrl v
+      Nothing -> fallback
+
+selectBinanceBaseUrl :: BinanceBaseUrls -> Bool -> BinanceMarket -> String
+selectBinanceBaseUrl urls testnet market =
+  case market of
+    MarketFutures -> if testnet then bbuFuturesTestnet urls else bbuFutures urls
+    _ -> if testnet then bbuSpotTestnet urls else bbuSpot urls
+
+selectBinanceDataBaseUrl :: BinanceBaseUrls -> BinanceMarket -> String
+selectBinanceDataBaseUrl urls market =
+  case market of
+    MarketFutures -> bbuFutures urls
+    _ -> bbuSpot urls
+
+sanitizeBaseUrl :: String -> String
+sanitizeBaseUrl raw =
+  let trimmed = trimString raw
+      stripped = dropWhileEnd (== '/') trimmed
+   in if null stripped then trimmed else stripped
+
+nonEmptyTrim :: String -> Maybe String
+nonEmptyTrim raw =
+  let trimmed = trimString raw
+   in if null trimmed then Nothing else Just trimmed
+
+trimString :: String -> String
+trimString = dropWhileEnd isSpace . dropWhile isSpace
 
 resolveEnv :: String -> Maybe String -> IO (Maybe String)
 resolveEnv name override =

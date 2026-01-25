@@ -8,7 +8,7 @@ module Trader.Http
   , defaultTimeoutMicros
   ) where
 
-import Control.Concurrent (MVar, modifyMVar, newMVar, readMVar, threadDelay)
+import Control.Concurrent (MVar, modifyMVar, newMVar, threadDelay)
 import Control.Exception (SomeException, displayException, throwIO, try)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as BS
@@ -37,15 +37,19 @@ data RetryConfig = RetryConfig
   , rcRetryWrites :: !Bool
   }
 
-defaultRetryConfig :: RetryConfig
-defaultRetryConfig =
+defaultRetryConfigBase :: RetryConfig
+defaultRetryConfigBase =
   RetryConfig
-    { rcMaxRetries = 3
-    , rcBaseDelayMs = 250
-    , rcMaxDelayMs = 8000
-    , rcJitterFrac = 0.2
+    { rcMaxRetries = 5
+    , rcBaseDelayMs = 300
+    , rcMaxDelayMs = 12000
+    , rcJitterFrac = 0.25
     , rcRetryWrites = False
     }
+
+{-# NOINLINE defaultRetryConfig #-}
+defaultRetryConfig :: RetryConfig
+defaultRetryConfig = unsafePerformIO (retryConfigFromEnv defaultRetryConfigBase)
 
 defaultTimeoutMicros :: Int
 defaultTimeoutMicros = 15 * 1000000
@@ -64,12 +68,11 @@ sharedManager :: MVar (Maybe Manager)
 sharedManager = unsafePerformIO (newMVar Nothing)
 
 getSharedManager :: IO Manager
-getSharedManager = do
-  cached <- readMVar sharedManager
-  case cached of
-    Just mgr -> pure mgr
-    Nothing ->
-      modifyMVar sharedManager $ \_ -> do
+getSharedManager =
+  modifyMVar sharedManager $ \cached ->
+    case cached of
+      Just mgr -> pure (cached, mgr)
+      Nothing -> do
         mgr <- newHttpManager
         pure (Just mgr, mgr)
 
@@ -189,15 +192,11 @@ applyRateLimit host = do
     else do
       now <- getTimeMs
       waitMs <- modifyMVar rateLimiter $ \m -> do
-        let lastMs = Map.lookup host m
-            gapMs =
-              case lastMs of
-                Nothing -> 0
-                Just prev ->
-                  let diffMs = fromIntegral (now - prev)
-                   in max 0 (delayMs - diffMs)
-            reserveUntil = now + fromIntegral gapMs
-        pure (Map.insert host reserveUntil m, gapMs)
+        let nextAllowed = Map.findWithDefault now host m
+            startAt = max now nextAllowed
+            waitFor = max 0 (startAt - now)
+            reserveUntil = startAt + fromIntegral delayMs
+        pure (Map.insert host reserveUntil m, waitFor)
       sleepMs (fromIntegral waitMs)
 
 rateLimitMsForHost :: ByteString -> Int
@@ -285,3 +284,50 @@ isTruthy raw =
 sanitize :: String -> String
 sanitize =
   map (\c -> if c == '\n' || c == '\r' then ' ' else c)
+
+retryConfigFromEnv :: RetryConfig -> IO RetryConfig
+retryConfigFromEnv base = do
+  maxRetries <- readEnvInt "TRADER_HTTP_RETRY_MAX" (rcMaxRetries base)
+  baseDelay <- readEnvInt "TRADER_HTTP_RETRY_BASE_MS" (rcBaseDelayMs base)
+  maxDelay <- readEnvInt "TRADER_HTTP_RETRY_MAX_MS" (rcMaxDelayMs base)
+  jitter <- readEnvDouble "TRADER_HTTP_RETRY_JITTER" (rcJitterFrac base)
+  retryWrites <- readEnvBool "TRADER_HTTP_RETRY_WRITES" (rcRetryWrites base)
+  let maxRetries' = max 0 maxRetries
+      baseDelay' = max 0 baseDelay
+      maxDelay' = max 0 maxDelay
+      jitter' = clampDouble 0 1 jitter
+  pure
+    base
+      { rcMaxRetries = maxRetries'
+      , rcBaseDelayMs = baseDelay'
+      , rcMaxDelayMs = maxDelay'
+      , rcJitterFrac = jitter'
+      , rcRetryWrites = retryWrites
+      }
+
+readEnvInt :: String -> Int -> IO Int
+readEnvInt key fallback = do
+  raw <- lookupEnv key
+  pure $
+    case raw >>= readMaybe of
+      Just v -> v
+      Nothing -> fallback
+
+readEnvDouble :: String -> Double -> IO Double
+readEnvDouble key fallback = do
+  raw <- lookupEnv key
+  pure $
+    case raw >>= readMaybe of
+      Just v -> v
+      Nothing -> fallback
+
+readEnvBool :: String -> Bool -> IO Bool
+readEnvBool key fallback = do
+  raw <- lookupEnv key
+  pure $
+    case raw of
+      Nothing -> fallback
+      Just v -> isTruthy v
+
+clampDouble :: Double -> Double -> Double -> Double
+clampDouble lo hi v = max lo (min hi v)

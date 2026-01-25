@@ -507,6 +507,34 @@ export type BotStatusMulti = {
 
 export type BotStatus = BotStatusSingle | BotStatusMulti;
 
+export type BotStatusSnapshot = {
+  savedAtMs: number;
+  status: BotStatusSingle;
+};
+
+export type StateSyncPayload = {
+  generatedAtMs?: number;
+  botSnapshots?: BotStatusSnapshot[];
+  topCombos?: unknown;
+};
+
+export type StateSyncImportResponse = {
+  ok: boolean;
+  atMs: number;
+  botSnapshots?: {
+    incoming: number;
+    existing: number;
+    merged: number;
+    written: number;
+    skipped: number;
+  };
+  topCombos?: {
+    action: "replaced" | "kept" | "skipped";
+    incomingGeneratedAtMs?: number;
+    localGeneratedAtMs?: number;
+  };
+};
+
 export type OpsOperation = {
   id: number;
   atMs: number;

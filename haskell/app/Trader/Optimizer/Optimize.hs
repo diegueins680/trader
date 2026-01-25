@@ -21,6 +21,7 @@ import Data.List (foldl', intercalate, sort, sortBy)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Ord (comparing)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as Set
 import Data.ByteArray (convert)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
@@ -2864,7 +2865,7 @@ runOptimizer args0 = do
         (Just a, Nothing) -> (a, a)
         (Nothing, Just b) -> (b, b)
         (Just a, Just b) -> (a, b)
-    unique = foldl' (\acc v -> if v `elem` acc then acc else acc ++ [v]) []
+    unique = Set.toList . Set.fromList
 
 resolveTraderBin :: OptimizerArgs -> IO (Either String FilePath)
 resolveTraderBin args =

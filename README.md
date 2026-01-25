@@ -121,6 +121,9 @@ Environment variables:
 - `COINBASE_API_SECRET`
 - `COINBASE_API_PASSPHRASE`
 - `TRADER_HTTP_LOG` (optional; set to `1`/`true` to log outgoing HTTP requests and retries)
+- `TRADER_HTTP_RETRY_MAX` / `TRADER_HTTP_RETRY_BASE_MS` / `TRADER_HTTP_RETRY_MAX_MS` / `TRADER_HTTP_RETRY_JITTER` / `TRADER_HTTP_RETRY_WRITES` (optional; override HTTP retry/backoff defaults)
+- `TRADER_BINANCE_REST_URL` / `TRADER_BINANCE_TESTNET_REST_URL` (optional; override Binance spot REST base URLs)
+- `TRADER_BINANCE_FUTURES_REST_URL` / `TRADER_BINANCE_FUTURES_TESTNET_REST_URL` (optional; override Binance futures REST base URLs)
 
 Getting Binance API keys:
 - Binance → Profile → **API Management** → **Create API**
@@ -181,7 +184,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
-  - Order sizes are multiplied by 10x at execution time (sizing inputs and position sizing; exits follow the scaled position size).
+  - Order sizes are multiplied by 100x at execution time (sizing inputs and position sizing; exits follow the scaled position size).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
 
 - Coinbase API keys (optional; used for `/coinbase/keys` checks and Coinbase trades)
@@ -326,7 +329,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-position-size 0.15` minimum entry size after sizing/vol scaling (`0..1`; entries below this are skipped)
     - Must be <= `--max-position-size`.
   - When confidence sizing is enabled, live orders also scale entry size by the LSTM confidence score (clamp01(|next/current - 1| / (2 * openThreshold))) using the method-selected prediction stream (Kalman/LSTM/blend/router) to match backtests.
-  - The UI defaults to `orderQuote=100` (effective `~1000` with the 10x order-size multiplier) so new setups clear common minQty/step sizes; adjust sizing to your account.
+  - The UI defaults to `orderQuote=100` (effective `~10000` with the 100x order-size multiplier) so new setups clear common minQty/step sizes; adjust sizing to your account.
   - Trade-test quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
   - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio, backtest ratio, bars, or lookback to restore a valid split.
@@ -730,6 +733,7 @@ The Binance account trades panel includes a trade P&L breakdown (realizedPnl, wi
 The Binance trade P&L breakdown also reports total filled quantity and quote volume for the analyzed fills.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes).
 The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
+The UI includes a “State sync” panel to export bot snapshots and optimizer combos and push them to another API via `/state/sync`.
 The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available.
 Charts surface range and change badges in the chart headers and group the main backtest view with compact side charts for prediction and telemetry analysis.

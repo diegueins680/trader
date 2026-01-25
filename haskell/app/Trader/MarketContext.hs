@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Trader.MarketContext
   ( MarketModel(..)
   , buildMarketModel
@@ -5,10 +7,12 @@ module Trader.MarketContext
   , fitLinearRange
   ) where
 
-import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, try)
+import Control.Concurrent (QSem, forkIO, modifyMVar, newEmptyMVar, newMVar, newQSem, putMVar, signalQSem, takeMVar, threadDelay, waitQSem)
+import Control.Exception (SomeException, finally, try)
+import Control.Monad (forM)
 import Data.List (foldl')
 import Data.Maybe (catMaybes)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Data.Vector as V
 
 import Trader.App.Args (Args(..))
@@ -139,28 +143,26 @@ buildMarketModel args env targetSymbol fitEnd pricesV = do
       ranked <- fetchTopSymbolsByQuoteVolume env quote (topN + 5)
       let targetU = map toUpperAscii targetSymbol
           ranked' = filter (\(s, _w) -> map toUpperAscii s /= targetU) ranked
-          sleepUs = 60 * 1000
 
+      rateLimiter <- mkRateLimiter 60
+      let maxConcurrent = max 1 (min 4 topN)
+          fetchOne (sym, w) = do
+            rateLimiter
+            r <- try (fetchCloses env sym (argInterval args) n) :: IO (Either SomeException [Double])
+            case r of
+              Left _ -> pure Nothing
+              Right closes
+                | length closes < n -> pure Nothing
+                | otherwise -> do
+                    let v = V.fromList (takeLast n closes)
+                        rets = returnsFromCloses v
+                    pure (Just (sym, max 0 w, rets))
       fetched <-
         fmap catMaybes $
-          mapM
-            (\(sym, w) -> do
-               r <- try (fetchCloses env sym (argInterval args) n) :: IO (Either SomeException [Double])
-               threadDelay sleepUs
-               case r of
-                 Left _ -> pure Nothing
-                 Right closes
-                   | length closes < n -> pure Nothing
-                   | otherwise -> do
-                       let v = V.fromList (takeLast n closes)
-                           rets = returnsFromCloses v
-                       pure (Just (sym, max 0 w, rets)))
-            (take topN ranked')
-
+          mapConcurrentlyBounded maxConcurrent fetchOne (take topN ranked')
       let usedSyms = [s | (s, _w, _r) <- fetched]
           wrets = [(w, r) | (_s, w, r) <- fetched]
-
-      let minSymbols = max 1 (min topN 5)
+          minSymbols = max 1 (min topN 5)
       if length wrets < minSymbols
         then pure Nothing
         else do
@@ -169,6 +171,39 @@ buildMarketModel args env targetSymbol fitEnd pricesV = do
               (a, b, var0) = fitLinearRange lag ys 1 (min (fitEnd - 1) (n - 1))
               var = max measVarFloor var0
           pure (Just MarketModel { mmSymbols = usedSyms, mmIntercept = a, mmBeta = b, mmVar = var, mmLag = lag })
+
+mapConcurrentlyBounded :: forall a b. Int -> (a -> IO (Maybe b)) -> [a] -> IO [Maybe b]
+mapConcurrentlyBounded limit action xs = do
+  sem <- newQSem (max 1 limit)
+  vars <- forM xs $ \x -> do
+    mv <- newEmptyMVar
+    _ <- forkIO $ do
+      waitQSem sem
+      res <- (try (action x) :: IO (Either SomeException (Maybe b))) `finally` signalQSem sem
+      case res of
+        Left _ -> putMVar mv Nothing
+        Right v -> putMVar mv v
+    pure mv
+  mapM takeMVar vars
+
+mkRateLimiter :: Int -> IO (IO ())
+mkRateLimiter delayMs = do
+  ref <- newMVar (0 :: Integer)
+  pure $ do
+    now <- getTimeMs
+    waitMs <- modifyMVar ref $ \nextAllowed -> do
+      let startAt = max now nextAllowed
+          waitFor = max 0 (startAt - now)
+          reserveUntil = startAt + fromIntegral delayMs
+      pure (reserveUntil, waitFor)
+    if waitMs <= 0
+      then pure ()
+      else threadDelay (fromIntegral waitMs * 1000)
+
+getTimeMs :: IO Integer
+getTimeMs = do
+  t <- getPOSIXTime
+  pure (floor (t * 1000))
 
 marketMeasurementAt :: MarketModel -> Int -> Maybe (Double, Double)
 marketMeasurementAt m t =

@@ -29,6 +29,8 @@ import type {
   OptimizerSource,
   Platform,
   Positioning,
+  StateSyncImportResponse,
+  StateSyncPayload,
 } from "./lib/types";
 import {
   HttpError,
@@ -50,6 +52,8 @@ import {
   opsPerformance,
   optimizerCombos,
   optimizerRun,
+  stateSyncExport,
+  stateSyncImport,
   signal,
   trade,
 } from "./lib/api";
@@ -113,6 +117,8 @@ import {
   STORAGE_PANEL_PREFS_KEY,
   STORAGE_PERSIST_SECRETS_KEY,
   STORAGE_PROFILES_KEY,
+  STORAGE_STATE_SYNC_TARGET_KEY,
+  STORAGE_STATE_SYNC_TOKEN_KEY,
   TRADE_TIMEOUT_MS,
   TUNE_OBJECTIVES,
 } from "./app/constants";
@@ -308,6 +314,54 @@ const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
+const TRADE_PNL_EPS_LABEL = fmtNum(TRADE_PNL_EPS, 9);
+const ACCOUNT_TRADE_PNL_TIPS = {
+  outcomes: [
+    "Counts trades by exchange realized P&L (realizedPnl).",
+    `Win/loss if |P&L| > ${TRADE_PNL_EPS_LABEL}; otherwise flat.`,
+    "Win rate = wins / total trades (after filters).",
+  ],
+  avgWinLoss: [
+    "Average realized P&L per winning/losing trade.",
+    "Payoff ratio = avg win / |avg loss|.",
+    "Fees are shown separately.",
+  ],
+  bestWorst: [
+    "Largest positive/negative realized P&L in this set.",
+    "Avg P&L = mean realized P&L across all trades.",
+  ],
+  totalPnl: [
+    "Total P&L = sum of realized P&L across trades.",
+    "Total win/loss = sum of positive/negative realized P&L.",
+    "Profit factor = gross wins / |gross losses|.",
+    "Fees are listed by asset (not subtracted from totals).",
+  ],
+  totals: [
+    "Qty = sum of trade quantities.",
+    "Quote = sum of quote quantities.",
+    "Scope follows the current filters/symbol selection.",
+  ],
+};
+const BACKTEST_TRADE_PNL_TIPS = {
+  outcomes: [
+    "Counts trades by per-trade return from the backtest engine.",
+    `Win/loss if |return| > ${TRADE_PNL_EPS_LABEL}; otherwise flat.`,
+    "Returns are shown as % of equity per trade.",
+  ],
+  avgWinLoss: [
+    "Average return per winning/losing trade.",
+    "Payoff ratio = avg win / |avg loss|.",
+    "Hold bars show average holding periods for wins/losses.",
+  ],
+  bestWorst: [
+    "Largest positive/negative per-trade return.",
+    "Avg return = mean return across all trades.",
+  ],
+  totals: [
+    "Total win/loss = sum of per-trade returns (not compounded).",
+    "Profit factor = gross wins / |gross losses|.",
+  ],
+};
 type OpsPerformanceUiState = {
   loading: boolean;
   error: string | null;
@@ -319,6 +373,16 @@ type OpsPerformanceUiState = {
   commits: OpsPerformanceResponse["commits"];
   combos: OpsPerformanceResponse["combos"];
   lastFetchedAtMs: number | null;
+};
+type StateSyncUiState = {
+  exporting: boolean;
+  exportError: string | null;
+  payload: StateSyncPayload | null;
+  exportedAtMs: number | null;
+  pushing: boolean;
+  pushError: string | null;
+  pushResult: StateSyncImportResponse | null;
+  pushedAtMs: number | null;
 };
 const ChartFallback = ({
   height = CHART_HEIGHT,
@@ -351,6 +415,12 @@ export function App() {
   const [persistSecrets, setPersistSecrets] = useState<boolean>(() => readJson<boolean>(STORAGE_PERSIST_SECRETS_KEY) ?? false);
   const deployApiBaseUrl = TRADER_UI_CONFIG.apiBaseUrl;
   const apiToken = TRADER_UI_CONFIG.apiToken;
+  const [stateSyncTargetInput, setStateSyncTargetInput] = useState<string>(() => readLocalString(STORAGE_STATE_SYNC_TARGET_KEY) ?? "");
+  const [stateSyncTargetToken, setStateSyncTargetToken] = useState<string>(() => {
+    const persisted = readLocalString(STORAGE_STATE_SYNC_TOKEN_KEY) ?? "";
+    const session = readSessionString(STORAGE_STATE_SYNC_TOKEN_KEY) ?? "";
+    return persistSecrets ? persisted || session : session;
+  });
   const [binanceApiKey, setBinanceApiKey] = useState<string>(() => {
     const persisted = readLocalString(SESSION_BINANCE_KEY_KEY) ?? "";
     const session = readSessionString(SESSION_BINANCE_KEY_KEY) ?? "";
@@ -527,6 +597,16 @@ export function App() {
     commits: [],
     combos: [],
     lastFetchedAtMs: null,
+  });
+  const [stateSyncUi, setStateSyncUi] = useState<StateSyncUiState>({
+    exporting: false,
+    exportError: null,
+    payload: null,
+    exportedAtMs: null,
+    pushing: false,
+    pushError: null,
+    pushResult: null,
+    pushedAtMs: null,
   });
   const [opsPerformanceCommitLimit, setOpsPerformanceCommitLimit] = useState(40);
   const [opsPerformanceComboLimit, setOpsPerformanceComboLimit] = useState(40);
@@ -1191,6 +1271,25 @@ export function App() {
   }, [coinbaseApiPassphrase, persistSecrets]);
 
   useEffect(() => {
+    const v = stateSyncTargetToken.trim();
+    if (persistSecrets) {
+      if (!v) removeLocalKey(STORAGE_STATE_SYNC_TOKEN_KEY);
+      else writeLocalString(STORAGE_STATE_SYNC_TOKEN_KEY, v);
+      removeSessionKey(STORAGE_STATE_SYNC_TOKEN_KEY);
+    } else {
+      if (!v) removeSessionKey(STORAGE_STATE_SYNC_TOKEN_KEY);
+      else writeSessionString(STORAGE_STATE_SYNC_TOKEN_KEY, v);
+      removeLocalKey(STORAGE_STATE_SYNC_TOKEN_KEY);
+    }
+  }, [persistSecrets, stateSyncTargetToken]);
+
+  useEffect(() => {
+    const v = stateSyncTargetInput.trim();
+    if (!v) removeLocalKey(STORAGE_STATE_SYNC_TARGET_KEY);
+    else writeLocalString(STORAGE_STATE_SYNC_TARGET_KEY, v);
+  }, [stateSyncTargetInput]);
+
+  useEffect(() => {
     writeJson(STORAGE_PERSIST_SECRETS_KEY, persistSecrets);
   }, [persistSecrets]);
 
@@ -1417,6 +1516,70 @@ export function App() {
     return `${apiBaseAbsolute.replace(/\/+$/, "")}/health`;
   }, [apiBaseAbsolute]);
 
+  const stateSyncTargetBase = useMemo(() => normalizeApiBaseUrlInput(stateSyncTargetInput), [stateSyncTargetInput]);
+  const stateSyncTargetError = useMemo(() => {
+    const candidate = stateSyncTargetBase.trim();
+    if (!candidate) return null;
+    if (candidate.startsWith("/")) return null;
+    if (!/^https?:\/\//i.test(candidate)) return "Target API base must start with http(s):// or a /path.";
+    try {
+      new URL(candidate);
+    } catch {
+      return "Target API base must be a valid URL (e.g., https://your-api-host).";
+    }
+    return null;
+  }, [stateSyncTargetBase]);
+  const stateSyncTargetAbsolute = useMemo(() => {
+    const candidate = stateSyncTargetBase.trim();
+    if (!candidate) return "";
+    if (/^https?:\/\//i.test(candidate)) return candidate;
+    if (typeof window !== "undefined") return `${window.location.origin}${candidate}`;
+    return candidate;
+  }, [stateSyncTargetBase]);
+  const stateSyncTargetCrossOrigin = useMemo(() => {
+    if (!stateSyncTargetAbsolute || typeof window === "undefined") return false;
+    if (!/^https?:\/\//i.test(stateSyncTargetAbsolute)) return false;
+    try {
+      return new URL(stateSyncTargetAbsolute).origin !== window.location.origin;
+    } catch {
+      return false;
+    }
+  }, [stateSyncTargetAbsolute]);
+  const stateSyncTargetCorsHint = useMemo(() => {
+    if (!stateSyncTargetCrossOrigin) return null;
+    return "Target API is cross-origin; it must allow this UI origin (CORS) for /state/sync.";
+  }, [stateSyncTargetCrossOrigin]);
+  const stateSyncTargetHeaders = useMemo(() => {
+    const token = stateSyncTargetToken.trim();
+    return token ? { "X-API-Key": token } : undefined;
+  }, [stateSyncTargetToken]);
+  const stateSyncTargetMissing = !stateSyncTargetBase.trim();
+  const stateSyncPayloadJson = useMemo(
+    () => (stateSyncUi.payload ? JSON.stringify(stateSyncUi.payload, null, 2) : ""),
+    [stateSyncUi.payload],
+  );
+  const stateSyncPayloadSummary = useMemo(() => {
+    const payload = stateSyncUi.payload;
+    if (!payload) return null;
+    const botCount = payload.botSnapshots?.length ?? 0;
+    let comboCount: number | null = null;
+    let comboGeneratedAt: number | null = null;
+    const topCombos = payload.topCombos;
+    if (topCombos && typeof topCombos === "object") {
+      const topCombosRecord = topCombos as { combos?: unknown; generatedAtMs?: unknown };
+      comboCount = Array.isArray(topCombosRecord.combos) ? topCombosRecord.combos.length : null;
+      comboGeneratedAt =
+        typeof topCombosRecord.generatedAtMs === "number" && Number.isFinite(topCombosRecord.generatedAtMs)
+          ? topCombosRecord.generatedAtMs
+          : null;
+    }
+    return {
+      botCount,
+      comboCount,
+      generatedAtMs: payload.generatedAtMs ?? comboGeneratedAt ?? null,
+    };
+  }, [stateSyncUi.payload]);
+
   const appendDataLog = useCallback(
     (label: string, data: unknown, opts?: { background?: boolean; error?: boolean }) => {
       if (opts?.background && !dataLogLogBackground) return;
@@ -1440,6 +1603,88 @@ export function App() {
     if (err !== undefined) data.payload = err;
     return data;
   }, []);
+
+  const exportStateSync = useCallback(async (): Promise<StateSyncPayload | null> => {
+    setStateSyncUi((prev) => ({ ...prev, exporting: true, exportError: null }));
+    try {
+      const out = await stateSyncExport(apiBase, { headers: authHeaders, timeoutMs: 30_000 });
+      setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: null, payload: out, exportedAtMs: Date.now() }));
+      appendDataLog("State Sync Export", out);
+      setApiOk("ok");
+      showToast("State export ready");
+      return out;
+    } catch (e) {
+      let msg = e instanceof Error ? e.message : "Failed to export state.";
+      if (e instanceof HttpError) {
+        if (e.status === 401) msg = "Unauthorized (check apiToken / TRADER_API_TOKEN).";
+        if (e.status === 404) msg = "State sync endpoint not available on this API.";
+      }
+      if (isTimeoutError(e)) msg = "State export timed out.";
+      setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: msg }));
+      appendDataLog("State Sync Export Error", buildDataLogError(e, msg), { error: true });
+      return null;
+    }
+  }, [apiBase, appendDataLog, authHeaders, buildDataLogError, showToast]);
+
+  const sendStateSync = useCallback(
+    async (payloadOverride?: StateSyncPayload | null) => {
+      const targetBase = stateSyncTargetBase.trim();
+      if (stateSyncTargetMissing) {
+        setStateSyncUi((prev) => ({ ...prev, pushError: "Enter a target API base URL." }));
+        return;
+      }
+      if (stateSyncTargetError) {
+        setStateSyncUi((prev) => ({ ...prev, pushError: stateSyncTargetError }));
+        return;
+      }
+      const payload = payloadOverride ?? stateSyncUi.payload;
+      if (!payload) {
+        setStateSyncUi((prev) => ({ ...prev, pushError: "Export state first." }));
+        return;
+      }
+      setStateSyncUi((prev) => ({ ...prev, pushing: true, pushError: null }));
+      try {
+        const out = await stateSyncImport(targetBase, payload, { headers: stateSyncTargetHeaders, timeoutMs: 30_000 });
+        setStateSyncUi((prev) => ({ ...prev, pushing: false, pushError: null, pushResult: out, pushedAtMs: Date.now() }));
+        appendDataLog("State Sync Push", { target: stateSyncTargetAbsolute || targetBase, response: out });
+        showToast("State sync sent");
+      } catch (e) {
+        let msg = e instanceof Error ? e.message : "Failed to send state sync payload.";
+        if (e instanceof HttpError) {
+          if (e.status === 401) msg = "Unauthorized (check target API token).";
+          if (e.status === 404) msg = "Target API does not expose /state/sync.";
+        }
+        if (isTimeoutError(e)) msg = "State sync push timed out.";
+        setStateSyncUi((prev) => ({ ...prev, pushing: false, pushError: msg }));
+        appendDataLog("State Sync Push Error", buildDataLogError(e, msg), { error: true });
+      }
+    },
+    [
+      appendDataLog,
+      buildDataLogError,
+      showToast,
+      stateSyncTargetAbsolute,
+      stateSyncTargetBase,
+      stateSyncTargetError,
+      stateSyncTargetHeaders,
+      stateSyncTargetMissing,
+      stateSyncUi.payload,
+    ],
+  );
+
+  const exportAndSendStateSync = useCallback(async () => {
+    if (stateSyncTargetMissing) {
+      setStateSyncUi((prev) => ({ ...prev, pushError: "Enter a target API base URL." }));
+      return;
+    }
+    if (stateSyncTargetError) {
+      setStateSyncUi((prev) => ({ ...prev, pushError: stateSyncTargetError }));
+      return;
+    }
+    const payload = await exportStateSync();
+    if (!payload) return;
+    await sendStateSync(payload);
+  }, [exportStateSync, sendStateSync, stateSyncTargetError, stateSyncTargetMissing]);
 
   const runOptimizer = useCallback(async () => {
     if (optimizerRunValidationError) {
@@ -5961,6 +6206,9 @@ export function App() {
     setBinanceApiSecret,
     platformKeyHasValues,
     platformKeyHint,
+    keysLoading: keys.loading,
+    keysCheckedAtMs,
+    refreshKeys,
     persistSecrets,
     setPersistSecrets,
     profileSelected,
@@ -7520,7 +7768,12 @@ export function App() {
                               <>
                                 <div className="summaryGrid">
                                   <div className="summaryItem">
-                                    <div className="summaryLabel">Outcomes</div>
+                                    <div className="labelRow">
+                                      <div className="summaryLabel">Outcomes</div>
+                                      <InfoPopover label="Outcomes">
+                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.outcomes} />
+                                      </InfoPopover>
+                                    </div>
                                     <div className="summaryValue">
                                       <span className="badge badgeStrong badgeLong">{stats.wins} wins</span>
                                       <span className="badge badgeStrong badgeFlat">{stats.losses} losses</span>
@@ -7529,7 +7782,12 @@ export function App() {
                                     </div>
                                   </div>
                                   <div className="summaryItem">
-                                    <div className="summaryLabel">Avg win / loss</div>
+                                    <div className="labelRow">
+                                      <div className="summaryLabel">Avg win / loss</div>
+                                      <InfoPopover label="Average win/loss">
+                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.avgWinLoss} />
+                                      </InfoPopover>
+                                    </div>
                                     <div className="summaryValue">
                                       <span className={pnlBadgeClass(stats.avgWin)}>{avgWinLabel}</span>
                                       <span className={pnlBadgeClass(stats.avgLoss)}>{avgLossLabel}</span>
@@ -7537,7 +7795,12 @@ export function App() {
                                     </div>
                                   </div>
                                   <div className="summaryItem">
-                                    <div className="summaryLabel">Best / worst trade</div>
+                                    <div className="labelRow">
+                                      <div className="summaryLabel">Best / worst trade</div>
+                                      <InfoPopover label="Best/worst trade">
+                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.bestWorst} />
+                                      </InfoPopover>
+                                    </div>
                                     <div className="summaryValue">
                                       <span className={pnlBadgeClass(stats.maxWin)}>{maxWinLabel}</span>
                                       <span className={pnlBadgeClass(stats.maxLoss)}>{maxLossLabel}</span>
@@ -7545,7 +7808,12 @@ export function App() {
                                     </div>
                                   </div>
                                   <div className="summaryItem">
-                                    <div className="summaryLabel">Total P&amp;L</div>
+                                    <div className="labelRow">
+                                      <div className="summaryLabel">Total P&amp;L</div>
+                                      <InfoPopover label="Total P&L" align="left">
+                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.totalPnl} />
+                                      </InfoPopover>
+                                    </div>
                                     <div className="summaryValue">
                                       <span className={pnlBadgeClass(stats.totalPnl)}>{totalPnlLabel}</span>
                                       <span className={pnlBadgeClass(stats.totalWin)}>{totalWinLabel}</span>
@@ -7554,7 +7822,12 @@ export function App() {
                                     </div>
                                   </div>
                                   <div className="summaryItem">
-                                    <div className="summaryLabel">Totals</div>
+                                    <div className="labelRow">
+                                      <div className="summaryLabel">Totals</div>
+                                      <InfoPopover label="Totals" align="left">
+                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.totals} />
+                                      </InfoPopover>
+                                    </div>
                                     <div className="summaryValue">
                                       <span className="badge">Qty {totalQtyLabel}</span>
                                       <span className="badge">Quote {totalQuoteLabel}</span>
@@ -8482,7 +8755,12 @@ export function App() {
                             <>
                               <div className="summaryGrid">
                                 <div className="summaryItem">
-                                  <div className="summaryLabel">Outcomes</div>
+                                  <div className="labelRow">
+                                    <div className="summaryLabel">Outcomes</div>
+                                    <InfoPopover label="Outcomes">
+                                      <InfoList items={BACKTEST_TRADE_PNL_TIPS.outcomes} />
+                                    </InfoPopover>
+                                  </div>
                                   <div className="summaryValue">
                                     <span className="badge badgeStrong badgeLong">{stats.wins} wins</span>
                                     <span className="badge badgeStrong badgeFlat">{stats.losses} losses</span>
@@ -8491,7 +8769,12 @@ export function App() {
                                   </div>
                                 </div>
                                 <div className="summaryItem">
-                                  <div className="summaryLabel">Avg win / loss</div>
+                                  <div className="labelRow">
+                                    <div className="summaryLabel">Avg win / loss</div>
+                                    <InfoPopover label="Average win/loss">
+                                      <InfoList items={BACKTEST_TRADE_PNL_TIPS.avgWinLoss} />
+                                    </InfoPopover>
+                                  </div>
                                   <div className="summaryValue">
                                     <span className={pnlBadgeClass(stats.avgWin)}>{avgWinLabel}</span>
                                     <span className={pnlBadgeClass(stats.avgLoss)}>{avgLossLabel}</span>
@@ -8499,7 +8782,12 @@ export function App() {
                                   </div>
                                 </div>
                                 <div className="summaryItem">
-                                  <div className="summaryLabel">Best / worst trade</div>
+                                  <div className="labelRow">
+                                    <div className="summaryLabel">Best / worst trade</div>
+                                    <InfoPopover label="Best/worst trade">
+                                      <InfoList items={BACKTEST_TRADE_PNL_TIPS.bestWorst} />
+                                    </InfoPopover>
+                                  </div>
                                   <div className="summaryValue">
                                     <span className={pnlBadgeClass(stats.maxWin)}>{maxWinLabel}</span>
                                     <span className={pnlBadgeClass(stats.maxLoss)}>{maxLossLabel}</span>
@@ -8507,7 +8795,12 @@ export function App() {
                                   </div>
                                 </div>
                                 <div className="summaryItem">
-                                  <div className="summaryLabel">Trade return totals</div>
+                                  <div className="labelRow">
+                                    <div className="summaryLabel">Trade return totals</div>
+                                    <InfoPopover label="Trade return totals" align="left">
+                                      <InfoList items={BACKTEST_TRADE_PNL_TIPS.totals} />
+                                    </InfoPopover>
+                                  </div>
                                   <div className="summaryValue">
                                     <span className={pnlBadgeClass(stats.totalWin)}>{totalWinLabel}</span>
                                     <span className={pnlBadgeClass(stats.totalLoss)}>{totalLossLabel}</span>
@@ -8932,6 +9225,172 @@ export function App() {
               ) : (
                 <div className="hint">Not running.</div>
               )}
+          </CollapsibleCard>
+
+          <CollapsibleCard
+            panelId="panel-state-sync"
+            open={isPanelOpen("panel-state-sync", false)}
+            onToggle={handlePanelToggle("panel-state-sync")}
+            maximized={isPanelMaximized("panel-state-sync")}
+            onToggleMaximize={() => togglePanelMaximize("panel-state-sync")}
+            title="State sync"
+            subtitle="Export bot snapshots + optimizer combos and push them to another API."
+          >
+              <div className="row" style={{ alignItems: "end" }}>
+                <div className="field" style={{ flex: "2 1 320px" }}>
+                  <label className="label" htmlFor="stateSyncTargetBase">
+                    Target API base
+                  </label>
+                  <input
+                    id="stateSyncTargetBase"
+                    className="input"
+                    value={stateSyncTargetInput}
+                    onChange={(e) => setStateSyncTargetInput(e.target.value)}
+                    placeholder="https://api.example.com or /api"
+                    spellCheck={false}
+                  />
+                  <div className="hint">POSTs to `/state/sync` on the target API.</div>
+                </div>
+                <div className="field" style={{ flex: "1 1 220px" }}>
+                  <label className="label" htmlFor="stateSyncTargetToken">
+                    Target API token (optional)
+                  </label>
+                  <input
+                    id="stateSyncTargetToken"
+                    className="input"
+                    type={revealSecrets ? "text" : "password"}
+                    value={stateSyncTargetToken}
+                    onChange={(e) => setStateSyncTargetToken(e.target.value)}
+                    placeholder="X-API-Key"
+                    spellCheck={false}
+                  />
+                  <div className="hint">Sent as `X-API-Key` when provided.</div>
+                </div>
+              </div>
+
+              <div className="hint" style={{ marginTop: 6 }}>
+                Source: <span className="tdMono">{apiBaseAbsolute || apiBase}</span>
+                {stateSyncTargetAbsolute ? (
+                  <>
+                    {" "}
+                    → Target: <span className="tdMono">{stateSyncTargetAbsolute}</span>
+                  </>
+                ) : null}
+              </div>
+              {stateSyncTargetError ? (
+                <div className="hint" style={{ marginTop: 6, color: "rgba(239, 68, 68, 0.9)" }}>
+                  {stateSyncTargetError}
+                </div>
+              ) : null}
+              {stateSyncTargetCorsHint ? (
+                <div className="hint" style={{ marginTop: 6 }}>
+                  {stateSyncTargetCorsHint}
+                </div>
+              ) : null}
+
+              <div className="actions" style={{ marginTop: 10 }}>
+                <button className="btn" type="button" disabled={stateSyncUi.exporting || apiOk !== "ok"} onClick={() => void exportStateSync()}>
+                  {stateSyncUi.exporting ? "Exporting…" : "Export"}
+                </button>
+                <button
+                  className="btn btnPrimary"
+                  type="button"
+                  disabled={
+                    stateSyncUi.pushing ||
+                    stateSyncUi.exporting ||
+                    stateSyncTargetMissing ||
+                    Boolean(stateSyncTargetError) ||
+                    !stateSyncUi.payload
+                  }
+                  onClick={() => void sendStateSync()}
+                >
+                  {stateSyncUi.pushing ? "Sending…" : "Send to target"}
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={stateSyncUi.pushing || stateSyncUi.exporting || stateSyncTargetMissing || Boolean(stateSyncTargetError)}
+                  onClick={() => void exportAndSendStateSync()}
+                >
+                  {stateSyncUi.exporting || stateSyncUi.pushing ? "Working…" : "Export & send"}
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={!stateSyncUi.payload}
+                  onClick={async () => {
+                    await copyText(stateSyncPayloadJson);
+                    showToast("Copied state sync payload");
+                  }}
+                >
+                  Copy JSON
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={!stateSyncUi.payload && !stateSyncUi.pushResult && !stateSyncUi.exportError && !stateSyncUi.pushError}
+                  onClick={() =>
+                    setStateSyncUi((prev) => ({
+                      ...prev,
+                      payload: null,
+                      exportError: null,
+                      exportedAtMs: null,
+                      pushError: null,
+                      pushResult: null,
+                      pushedAtMs: null,
+                    }))
+                  }
+                >
+                  Clear
+                </button>
+              </div>
+
+              {stateSyncUi.exportError ? (
+                <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.9)" }}>
+                  {stateSyncUi.exportError}
+                </div>
+              ) : null}
+              {stateSyncUi.pushError ? (
+                <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.9)" }}>
+                  {stateSyncUi.pushError}
+                </div>
+              ) : null}
+
+              {stateSyncPayloadSummary ? (
+                <div className="pillRow" style={{ marginTop: 10 }}>
+                  <span className="badge">Bots {stateSyncPayloadSummary.botCount}</span>
+                  <span className="badge">
+                    Combos {stateSyncPayloadSummary.comboCount == null ? "—" : stateSyncPayloadSummary.comboCount}
+                  </span>
+                  {stateSyncPayloadSummary.generatedAtMs ? (
+                    <span className="badge">Generated {fmtTimeMs(stateSyncPayloadSummary.generatedAtMs)}</span>
+                  ) : null}
+                  {stateSyncUi.exportedAtMs ? <span className="badge">Exported {fmtTimeMs(stateSyncUi.exportedAtMs)}</span> : null}
+                </div>
+              ) : (
+                <div className="hint" style={{ marginTop: 10 }}>
+                  No export yet.
+                </div>
+              )}
+
+              {stateSyncUi.pushResult ? (
+                <div className="pillRow" style={{ marginTop: 8 }}>
+                  <span className="badge">Target {stateSyncUi.pushResult.ok ? "OK" : "Error"}</span>
+                  {stateSyncUi.pushResult.topCombos?.action ? (
+                    <span className="badge">Combos {stateSyncUi.pushResult.topCombos.action}</span>
+                  ) : null}
+                  {stateSyncUi.pushedAtMs ? <span className="badge">Sent {fmtTimeMs(stateSyncUi.pushedAtMs)}</span> : null}
+                </div>
+              ) : null}
+
+              {stateSyncUi.payload ? (
+                <details className="details" style={{ marginTop: 10 }}>
+                  <summary>Payload JSON</summary>
+                  <pre className="code" style={{ marginTop: 10 }}>
+                    {stateSyncPayloadJson}
+                  </pre>
+                </details>
+              ) : null}
           </CollapsibleCard>
 
           <CollapsibleCard

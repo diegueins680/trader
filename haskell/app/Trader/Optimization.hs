@@ -16,8 +16,9 @@ module Trader.Optimization
   , sweepThresholdWithHLWith
   ) where
 
-import Data.List (foldl', group, intercalate, sort)
+import Data.List (foldl', intercalate, sort)
 import Data.Maybe (mapMaybe)
+import qualified Data.Set as Set
 import qualified Data.Vector as V
 
 import Trader.Method (Method(..))
@@ -440,29 +441,33 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
           MethodBlend -> [blendV]
           MethodKalmanOnly -> [kalV]
           MethodLstmOnly -> [lstmV]
-      mags =
-        [ v
-        | t <- [0 .. stepCount - 1]
-        , let prev = pricesV V.! t
-        , prev /= 0
-        , predsV <- predSources
-        , let pred = predsV V.! t
-        , let v = abs (pred / prev - 1)
-        , not (isNaN v)
-        , not (isInfinite v)
-        ]
-
-      uniqueSorted = map head . group . sort
       epsilonFor v =
         let rel = abs v * 1e-9
          in max eps rel
-      candidates0 = uniqueSorted (0 : map (\v -> max 0 (v - epsilonFor v)) mags)
+      magsSet =
+        foldl'
+          (\acc t ->
+             let prev = pricesV V.! t
+             in if prev == 0
+                  then acc
+                  else
+                    foldl'
+                      (\acc' predsV ->
+                         let pred = predsV V.! t
+                             v = abs (pred / prev - 1)
+                          in if isNaN v || isInfinite v
+                               then acc'
+                               else Set.insert (max 0 (v - epsilonFor v)) acc')
+                      acc
+                      predSources)
+          Set.empty
+          [0 .. stepCount - 1]
+      candidates0 = Set.toAscList (Set.insert 0 magsSet)
+      isFinite v = not (isNaN v || isInfinite v)
+      baseCandidates = filter isFinite [baseOpenThreshold, baseCloseThreshold]
       candidates =
-        uniqueSorted
-          ( baseOpenThreshold
-              : baseCloseThreshold
-              : downsample maxCandidates candidates0
-          )
+        Set.toAscList
+          (Set.fromList (baseCandidates ++ downsample maxCandidates candidates0))
       ppy = max 1e-12 (tcPeriodsPerYear cfg)
       emptyBacktest =
         BacktestResult
@@ -474,6 +479,19 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
           , brTrades = []
           }
       emptyMetrics = computeMetrics ppy emptyBacktest
+      foldsReq = max 1 (tcWalkForwardFolds cfg)
+      foldRs = foldRanges stepCount foldsReq
+      embargoBars = max 0 (tcWalkForwardEmbargoBars cfg)
+      applyEmbargo e (t0, t1) =
+        let t0' = t0 + e
+            t1' = t1 - e
+         in if t1' < t0' then Nothing else Just (t0', t1')
+      foldSingle = length foldRs <= 1
+      foldRsEval =
+        if foldSingle || embargoBars <= 0
+          then foldRs
+          else mapMaybe (applyEmbargo embargoBars) foldRs
+      foldEvalOk = foldSingle || not (null foldRsEval)
 
       lstmFlipEnabled =
         case method of
@@ -524,24 +542,12 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                               if minRoundTripsReq <= 0
                                 then True
                                 else bmRoundTrips metrics' >= minRoundTripsReq
-                            foldsReq = max 1 (tcWalkForwardFolds cfg)
-                            foldRs = foldRanges stepCount foldsReq
-                            embargoBars = max 0 (tcWalkForwardEmbargoBars cfg)
-                            applyEmbargo e (t0, t1) =
-                              let t0' = t0 + e
-                                  t1' = t1 - e
-                               in if t1' < t0' then Nothing else Just (t0', t1')
-                            foldRsEval =
-                              if length foldRs <= 1 || embargoBars <= 0
-                                then foldRs
-                                else mapMaybe (applyEmbargo embargoBars) foldRs
-                            eligible'' =
-                              eligible' && (length foldRs <= 1 || not (null foldRsEval))
+                            eligible'' = eligible' && foldEvalOk
                             foldScores' =
                               if not eligible''
                                 then [ineligibleScore]
                                 else
-                                  if length foldRs <= 1
+                                  if foldSingle
                                     then [scoreBacktest cfg btFull']
                                     else
                                       [ let steps = t1 - t0 + 1

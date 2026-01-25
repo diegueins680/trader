@@ -16,6 +16,8 @@ export const STORAGE_CONFIG_PAGE_KEY = "trader.ui.configPage.v1";
 export const STORAGE_CONFIG_TAB_KEY = "trader.ui.configTab.v1";
 export const STORAGE_DATA_LOG_KEY = "trader.ui.dataLog.v1";
 export const STORAGE_DATA_LOG_PREFS_KEY = "trader.ui.dataLogPrefs.v1";
+export const STORAGE_STATE_SYNC_TARGET_KEY = "trader.ui.stateSyncTarget.v1";
+export const STORAGE_STATE_SYNC_TOKEN_KEY = "trader.ui.stateSyncToken.v1";
 
 const DEFAULT_SIGNAL_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_BACKTEST_TIMEOUT_MS = 20 * 60_000;

@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
 - Ops: extend performance rollups with `performance_commit_summary` plus commit/combo delta views for regression tracking.
 - API: add `/ops/performance` to expose performance rollups and deltas.
 - API: add `/state/sync` to export/import bot snapshots and optimizer `top-combos.json` for syncing local and AWS deployments.
+- Web UI: add a State sync panel to export `/state/sync` payloads and push them to another API.
+- Web UI: state sync requests no longer fall back to `apiFallbackUrl`, avoiding accidental cross-environment writes.
 - Web UI: add “Performance vs code” panel to review commit-level and combo-level rollups.
 - Web UI: switch the configuration dock to a menu bar and show each section as its own page to reduce clutter.
 - Web UI: make the configuration panel a full-page scroll instead of a fixed-height docked panel.
@@ -34,6 +36,8 @@ All notable changes to this project will be documented in this file.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
 - Binance: `/binance/keys` trade tests auto-bump order sizing to the symbol minNotional instead of skipping.
+- HTTP: increase retry/backoff defaults and allow overrides via `TRADER_HTTP_RETRY_*` env vars.
+- Binance: allow overriding REST base URLs via `TRADER_BINANCE_*_REST_URL` env vars for spot/futures (including testnet).
 - Binance: parse `NOTIONAL` exchange filters so minNotional checks apply consistently.
 - Binance: listenKey user-data stream now sends WebSocket pings and auto-reconnects after disconnects.
 - API: avoid Warp keepAliveRef errors when clients disconnect mid-request.
@@ -68,7 +72,7 @@ All notable changes to this project will be documented in this file.
 - Trading: `--max-daily-loss` validation now errors when provided timestamps do not match the closes length.
 - Trading: `--no-trade-window` now requires bar timestamps or a recognized interval for UTC window gating.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
-- Trading: multiply order sizes by 10x at execution (sizing inputs and position sizing; exits follow the scaled position size).
+- Trading: multiply order sizes by 100x at execution (sizing inputs and position sizing; exits follow the scaled position size).
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
 - Trading: add performance gates (`--perf-*`), loss-streak cooldowns, and adaptive filter tightening (`--adaptive-*`) for live bots.
 - Trading: apply `--min-hold-bars` to signal reversals, and entry gates now hold existing positions instead of forcing an exit.
