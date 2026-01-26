@@ -26,6 +26,7 @@ export type ApiParams = {
   coinbaseApiKey?: string;
   coinbaseApiSecret?: string;
   coinbaseApiPassphrase?: string;
+  tenantKey?: string;
   normalization?: Normalization;
   hiddenSize?: number;
   epochs?: number;
@@ -184,6 +185,7 @@ export type BinanceKeysStatus = {
   symbol?: string;
   hasApiKey: boolean;
   hasApiSecret: boolean;
+  tenantKey?: string;
   signed?: BinanceProbe;
   tradeTest?: BinanceProbe;
 };
@@ -192,6 +194,7 @@ export type CoinbaseKeysStatus = {
   hasApiKey: boolean;
   hasApiSecret: boolean;
   hasApiPassphrase: boolean;
+  tenantKey?: string;
   signed?: BinanceProbe;
 };
 
@@ -246,6 +249,7 @@ export type ApiBinancePositionsRequest = {
   binanceTestnet?: boolean;
   binanceApiKey?: string;
   binanceApiSecret?: string;
+  tenantKey?: string;
   interval?: string;
   limit?: number;
 };
@@ -265,6 +269,7 @@ export type ApiBinanceTradesRequest = {
   binanceTestnet?: boolean;
   binanceApiKey?: string;
   binanceApiSecret?: string;
+  tenantKey?: string;
   symbol?: string;
   symbols?: string[];
   limit?: number;

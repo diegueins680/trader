@@ -124,6 +124,7 @@ Environment variables:
 - `TRADER_HTTP_RETRY_MAX` / `TRADER_HTTP_RETRY_BASE_MS` / `TRADER_HTTP_RETRY_MAX_MS` / `TRADER_HTTP_RETRY_JITTER` / `TRADER_HTTP_RETRY_WRITES` (optional; override HTTP retry/backoff defaults)
 - `TRADER_BINANCE_REST_URL` / `TRADER_BINANCE_TESTNET_REST_URL` (optional; override Binance spot REST base URLs)
 - `TRADER_BINANCE_FUTURES_REST_URL` / `TRADER_BINANCE_FUTURES_TESTNET_REST_URL` (optional; override Binance futures REST base URLs)
+- `TRADER_BINANCE_PROXY_URL` (optional; route Binance HTTP requests through a fixed-IP proxy, `http://user:pass@host:port`)
 
 Getting Binance API keys:
 - Binance → Profile → **API Management** → **Create API**
@@ -397,6 +398,13 @@ Optional CORS:
 - If `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, the API echoes the request Origin so direct UI calls can succeed without extra CORS config.
 - When `TRADER_CORS_ORIGIN` is unset and no auth headers are present, no `Access-Control-Allow-Origin` header is returned; keep using same-origin `/api/*` or let `deploy-aws-quick.sh` fill it for direct CloudFront UI deploys.
 
+Tenant isolation (multi-user UI):
+- The web UI hashes API keys in-browser into a `tenantKey` (SHA-256; `binance:<hex>` or `coinbase:<hex>`).
+- The backend stores only the hash and uses it to isolate stateful resources (live bots, listenKey streams, state sync snapshots).
+- Pass `tenantKey` in JSON payloads; for GET endpoints use `X-Tenant-Key` or `?tenantKey=`.
+- `/binance/keys` and `/coinbase/keys` return `tenantKey` when keys are present.
+- Trades use backend env keys only when the request `tenantKey` matches the backend keys; otherwise requests must include the user's API keys.
+
 Build info:
 - `GET /` and `GET /health` include `version` and optional `commit` (from env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA`).
 
@@ -429,6 +437,7 @@ Endpoints:
   - `top-combos.json` also includes `bestOptimizationTechniques`, a curated list of optimization best practices with short explanations for downstream consumers, plus `optimizationTechniquesApplied`/`ensemble` sections that summarize the Sobol seeding, successive halving, Bayesian-inspired exploitation, walk-forward validation, and ensemble construction applied during a run.
 - `GET /state/sync` → exports bot snapshots and optimizer `top-combos.json` for syncing between deployments
 - `POST /state/sync` → imports state from another deployment (bot snapshots keep the latest `snapshotAtMs`; `top-combos.json` replaces only when the incoming `generatedAtMs` is newer)
+- `/bot/*`, `/state/sync`, and `/binance/listenKey/*` require `tenantKey` (header/query for GET, JSON for POST).
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (futures signed probe uses the futures balance endpoint; test order quantity is rounded to the symbol step size and auto-bumped to minNotional; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or unavailable pricing; quote sizing falls back to mark price, 24h last price, then the latest 1m close if the ticker price is unavailable).
 - `POST /binance/keys` (futures): `binanceSymbol` is optional for the signed probe; the trade test is skipped when `binanceSymbol` is missing, and dataset-style suffixes are trimmed before the trade test runs.
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)

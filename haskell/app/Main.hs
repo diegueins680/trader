@@ -683,6 +683,7 @@ data ApiParams = ApiParams
   , apCoinbaseApiKey :: Maybe String
   , apCoinbaseApiSecret :: Maybe String
   , apCoinbaseApiPassphrase :: Maybe String
+  , apTenantKey :: Maybe String
   , apNormalization :: Maybe String
   , apHiddenSize :: Maybe Int
   , apEpochs :: Maybe Int
@@ -1184,6 +1185,7 @@ data ApiBinanceKeysStatus = ApiBinanceKeysStatus
   , abkSymbol :: !(Maybe String)
   , abkHasApiKey :: !Bool
   , abkHasApiSecret :: !Bool
+  , abkTenantKey :: !(Maybe String)
   , abkSigned :: !(Maybe ApiBinanceProbe)
   , abkTradeTest :: !(Maybe ApiBinanceProbe)
   } deriving (Eq, Show, Generic)
@@ -1195,6 +1197,7 @@ data ApiCoinbaseKeysStatus = ApiCoinbaseKeysStatus
   { ackHasApiKey :: !Bool
   , ackHasApiSecret :: !Bool
   , ackHasApiPassphrase :: !Bool
+  , ackTenantKey :: !(Maybe String)
   , ackSigned :: !(Maybe ApiBinanceProbe)
   } deriving (Eq, Show, Generic)
 
@@ -1206,6 +1209,7 @@ data ApiListenKeyStartParams = ApiListenKeyStartParams
   , alsBinanceTestnet :: !(Maybe Bool)
   , alsBinanceApiKey :: !(Maybe String)
   , alsBinanceApiSecret :: !(Maybe String)
+  , alsTenantKey :: !(Maybe String)
   } deriving (Eq, Show, Generic)
 
 instance FromJSON ApiListenKeyStartParams where
@@ -1216,6 +1220,7 @@ data ApiListenKeyActionParams = ApiListenKeyActionParams
   , alaBinanceTestnet :: !(Maybe Bool)
   , alaBinanceApiKey :: !(Maybe String)
   , alaBinanceApiSecret :: !(Maybe String)
+  , alaTenantKey :: !(Maybe String)
   , alaListenKey :: !String
   } deriving (Eq, Show, Generic)
 
@@ -1238,6 +1243,7 @@ data ApiBinanceTradesRequest = ApiBinanceTradesRequest
   , abrBinanceTestnet :: !(Maybe Bool)
   , abrBinanceApiKey :: !(Maybe String)
   , abrBinanceApiSecret :: !(Maybe String)
+  , abrTenantKey :: !(Maybe String)
   , abrSymbol :: !(Maybe String)
   , abrSymbols :: !(Maybe [String])
   , abrLimit :: !(Maybe Int)
@@ -1266,6 +1272,7 @@ data ApiBinancePositionsRequest = ApiBinancePositionsRequest
   , abpBinanceTestnet :: !(Maybe Bool)
   , abpBinanceApiKey :: !(Maybe String)
   , abpBinanceApiSecret :: !(Maybe String)
+  , abpTenantKey :: !(Maybe String)
   , abpInterval :: !(Maybe String)
   , abpLimit :: !(Maybe Int)
   } deriving (Eq, Show, Generic)
@@ -1765,6 +1772,16 @@ sanitizeApiParams p =
     , apCoinbaseApiKey = Nothing
     , apCoinbaseApiSecret = Nothing
     , apCoinbaseApiPassphrase = Nothing
+    }
+
+sanitizeArgsKeys :: Args -> Args
+sanitizeArgsKeys args =
+  args
+    { argBinanceApiKey = Nothing
+    , argBinanceApiSecret = Nothing
+    , argCoinbaseApiKey = Nothing
+    , argCoinbaseApiSecret = Nothing
+    , argCoinbaseApiPassphrase = Nothing
     }
 
 boolFromMaybe :: Maybe a -> Bool
@@ -3210,9 +3227,10 @@ data BotSettings = BotSettings
   } deriving (Eq, Show)
 
 type BotRuntimeMap = HM.HashMap String BotRuntimeState
+type BotTenantMap = HM.HashMap TenantKey BotRuntimeMap
 
 data BotController = BotController
-  { bcRuntime :: MVar BotRuntimeMap
+  { bcRuntime :: MVar BotTenantMap
   }
 
 data BotStartRuntime = BotStartRuntime
@@ -3221,6 +3239,7 @@ data BotStartRuntime = BotStartRuntime
   , bsrArgs :: !Args
   , bsrSettings :: !BotSettings
   , bsrSymbol :: !String
+  , bsrTenantKey :: !TenantKey
   , bsrRequestedAtMs :: !Int64
   , bsrStartReason :: !String
   }
@@ -3350,6 +3369,7 @@ data BotState = BotState
   { botArgs :: !Args
   , botSettings :: !BotSettings
   , botSymbol :: !String
+  , botTenantKey :: !TenantKey
   , botComboUuid :: !(Maybe Text)
   , botEnv :: !BinanceEnv
   , botLookback :: !Int
@@ -3620,6 +3640,7 @@ botStatusJson st =
   object $
     [ "running" .= True
     , "symbol" .= botSymbol st
+    , "tenantKey" .= botTenantKey st
     , "interval" .= argInterval (botArgs st)
     , "market" .= marketCode (argBinanceMarket (botArgs st))
     , "method" .= methodCode (argMethod (botArgs st))
@@ -3759,6 +3780,7 @@ botStartingJson rt =
     , "starting" .= True
     , "startingReason" .= bsrStartReason rt
     , "symbol" .= bsrSymbol rt
+    , "tenantKey" .= bsrTenantKey rt
     , "interval" .= argInterval (bsrArgs rt)
     , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
     , "method" .= methodCode (argMethod (bsrArgs rt))
@@ -3862,17 +3884,21 @@ resolveBotStateDir = do
       let baseDir = fromMaybe defaultBotStateDir mStateDir
       pure (Just baseDir)
 
-botStatePathFor :: FilePath -> String -> FilePath
-botStatePathFor dir sym =
-  dir </> (botStateFilePrefix ++ sanitizeFileComponent sym ++ ".json")
+tenantStateDirFor :: FilePath -> TenantKey -> FilePath
+tenantStateDirFor dir tenantKey =
+  dir </> "tenants" </> sanitizeFileComponent (T.unpack tenantKey)
 
-s3BotSnapshotKey :: S3State -> String -> String
-s3BotSnapshotKey st sym =
-  s3KeyFor st ["bot", botStateFilePrefix ++ sanitizeFileComponent sym ++ ".json"]
+botStatePathFor :: FilePath -> TenantKey -> String -> FilePath
+botStatePathFor dir tenantKey sym =
+  tenantStateDirFor dir tenantKey </> (botStateFilePrefix ++ sanitizeFileComponent sym ++ ".json")
 
-s3BotSnapshotIndexKey :: S3State -> String
-s3BotSnapshotIndexKey st =
-  s3KeyFor st ["bot", "bot-state-index.json"]
+s3BotSnapshotKey :: S3State -> TenantKey -> String -> String
+s3BotSnapshotKey st tenantKey sym =
+  s3KeyFor st ["bot", sanitizeFileComponent (T.unpack tenantKey), botStateFilePrefix ++ sanitizeFileComponent sym ++ ".json"]
+
+s3BotSnapshotIndexKey :: S3State -> TenantKey -> String
+s3BotSnapshotIndexKey st tenantKey =
+  s3KeyFor st ["bot", sanitizeFileComponent (T.unpack tenantKey), "bot-state-index.json"]
 
 writeBotStatusSnapshot :: FilePath -> BotStatusSnapshot -> IO ()
 writeBotStatusSnapshot path snap = do
@@ -3889,21 +3915,21 @@ writeBotStatusSnapshot path snap = do
       _ <- try (renameFile tmpPath path) :: IO (Either SomeException ())
       pure ()
 
-writeBotStatusSnapshotMaybe :: Maybe FilePath -> String -> BotStatusSnapshot -> IO ()
-writeBotStatusSnapshotMaybe mDir sym snap = do
+writeBotStatusSnapshotMaybe :: Maybe FilePath -> TenantKey -> String -> BotStatusSnapshot -> IO ()
+writeBotStatusSnapshotMaybe mDir tenantKey sym snap = do
   case mDir of
     Nothing -> pure ()
     Just dir -> do
-      let path = botStatePathFor dir sym
+      let path = botStatePathFor dir tenantKey sym
       _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
       pure ()
   mS3 <- resolveS3State
   case mS3 of
     Nothing -> pure ()
     Just st -> do
-      let key = s3BotSnapshotKey st sym
+      let key = s3BotSnapshotKey st tenantKey sym
       _ <- try (s3PutObject st key (encode snap)) :: IO (Either SomeException (Either String ()))
-      _ <- try (updateBotSnapshotIndex st sym) :: IO (Either SomeException ())
+      _ <- try (updateBotSnapshotIndex st tenantKey sym) :: IO (Either SomeException ())
       pure ()
 
 persistBotStatusMaybe :: Maybe FilePath -> BotState -> IO ()
@@ -3917,7 +3943,7 @@ persistBotStatusMaybe mDir st =
               { bssSavedAtMs = now
               , bssStatus = botStatusJson st
               }
-      writeBotStatusSnapshotMaybe mDir (botSymbol st) snap
+      writeBotStatusSnapshotMaybe mDir (botTenantKey st) (botSymbol st) snap
 
 readBotStatusSnapshotAtPath :: FilePath -> IO (Maybe BotStatusSnapshot)
 readBotStatusSnapshotAtPath path = do
@@ -3933,13 +3959,13 @@ readBotStatusSnapshotAtPath path = do
             Left _ -> pure Nothing
             Right snap -> pure (Just snap)
 
-readBotStatusSnapshotMaybe :: Maybe FilePath -> String -> IO (Maybe BotStatusSnapshot)
-readBotStatusSnapshotMaybe mDir sym = do
+readBotStatusSnapshotMaybe :: Maybe FilePath -> TenantKey -> String -> IO (Maybe BotStatusSnapshot)
+readBotStatusSnapshotMaybe mDir tenantKey sym = do
   localSnap <-
     case mDir of
       Nothing -> pure Nothing
       Just dir -> do
-        let path = botStatePathFor dir sym
+        let path = botStatePathFor dir tenantKey sym
         readBotStatusSnapshotAtPath path
   case localSnap of
     Just snap -> pure (Just snap)
@@ -3948,39 +3974,35 @@ readBotStatusSnapshotMaybe mDir sym = do
       s3Snap <-
         case mS3 of
           Nothing -> pure Nothing
-          Just st -> readBotStatusSnapshotS3 st sym
+          Just st -> readBotStatusSnapshotS3 st tenantKey sym
       case (s3Snap, mDir) of
         (Just snap, Just dir) -> do
-          let path = botStatePathFor dir sym
+          let path = botStatePathFor dir tenantKey sym
           _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
           pure (Just snap)
         (Just snap, _) -> pure (Just snap)
         (Nothing, _) -> pure Nothing
 
-readBotStatusSnapshotsMaybe :: Maybe FilePath -> IO [BotStatusSnapshot]
-readBotStatusSnapshotsMaybe mDir = do
+readBotStatusSnapshotsMaybe :: Maybe FilePath -> TenantKey -> IO [BotStatusSnapshot]
+readBotStatusSnapshotsMaybe mDir tenantKey = do
   localSnaps <-
     case mDir of
       Nothing -> pure []
       Just dir -> do
-        exists <- doesFileExist (dir </> botStateFileName)
-        legacySnap <-
-          if exists
-            then readBotStatusSnapshotAtPath (dir </> botStateFileName)
-            else pure Nothing
-        dirExists <- doesDirectoryExist dir
+        let tenantDir = tenantStateDirFor dir tenantKey
+        dirExists <- doesDirectoryExist tenantDir
         if not dirExists
-          then pure (maybeToList legacySnap)
+          then pure []
           else do
-            entries <- listDirectory dir
+            entries <- listDirectory tenantDir
             let targets =
-                  [ dir </> name
+                  [ tenantDir </> name
                   | name <- entries
                   , botStateFilePrefix `isPrefixOf` name
                   , ".json" `isSuffixOf` name
                   ]
             snaps <- mapM readBotStatusSnapshotAtPath targets
-            pure (maybeToList legacySnap ++ mapMaybe id snaps)
+            pure (mapMaybe id snaps)
   if not (null localSnaps)
     then pure localSnaps
     else do
@@ -3989,8 +4011,8 @@ readBotStatusSnapshotsMaybe mDir = do
         case mS3 of
           Nothing -> pure []
           Just st -> do
-            symbols <- readBotSnapshotIndex st
-            snaps <- mapM (readBotStatusSnapshotS3 st) symbols
+            symbols <- readBotSnapshotIndex st tenantKey
+            snaps <- mapM (readBotStatusSnapshotS3 st tenantKey) symbols
             pure (mapMaybe id snaps)
       case mDir of
         Nothing -> pure ()
@@ -3999,14 +4021,14 @@ readBotStatusSnapshotsMaybe mDir = do
             case botSnapshotSymbol snap of
               Nothing -> pure ()
               Just sym -> do
-                let path = botStatePathFor dir sym
+                let path = botStatePathFor dir tenantKey sym
                 _ <- try (writeBotStatusSnapshot path snap) :: IO (Either SomeException ())
                 pure ()
       pure (mergeBotSnapshots s3Snaps)
 
-readBotSnapshotIndex :: S3State -> IO [String]
-readBotSnapshotIndex st = do
-  let key = s3BotSnapshotIndexKey st
+readBotSnapshotIndex :: S3State -> TenantKey -> IO [String]
+readBotSnapshotIndex st tenantKey = do
+  let key = s3BotSnapshotIndexKey st tenantKey
   r <- s3GetObject st key
   case r of
     Left _ -> pure []
@@ -4016,17 +4038,17 @@ readBotSnapshotIndex st = do
         Left _ -> pure []
         Right symbols -> pure (filter (not . null) (map normalizeSymbol symbols))
 
-updateBotSnapshotIndex :: S3State -> String -> IO ()
-updateBotSnapshotIndex st sym = do
-  symbols <- readBotSnapshotIndex st
+updateBotSnapshotIndex :: S3State -> TenantKey -> String -> IO ()
+updateBotSnapshotIndex st tenantKey sym = do
+  symbols <- readBotSnapshotIndex st tenantKey
   let symNorm = normalizeSymbol sym
       next = if symNorm `elem` symbols then symbols else symbols ++ [symNorm]
-  _ <- s3PutObject st (s3BotSnapshotIndexKey st) (encode next)
+  _ <- s3PutObject st (s3BotSnapshotIndexKey st tenantKey) (encode next)
   pure ()
 
-readBotStatusSnapshotS3 :: S3State -> String -> IO (Maybe BotStatusSnapshot)
-readBotStatusSnapshotS3 st sym = do
-  let key = s3BotSnapshotKey st sym
+readBotStatusSnapshotS3 :: S3State -> TenantKey -> String -> IO (Maybe BotStatusSnapshot)
+readBotStatusSnapshotS3 st tenantKey sym = do
+  let key = s3BotSnapshotKey st tenantKey sym
   r <- s3GetObject st key
   case r of
     Left _ -> pure Nothing
@@ -4102,6 +4124,115 @@ normalizeBinanceCredential raw =
       let trimmed = trim v
        in if null trimmed then Nothing else Just trimmed
 
+type TenantKey = Text
+
+tenantKeyPrefixBinance :: String
+tenantKeyPrefixBinance = "binance"
+
+tenantKeyPrefixCoinbase :: String
+tenantKeyPrefixCoinbase = "coinbase"
+
+normalizeTenantKey :: Maybe String -> Maybe TenantKey
+normalizeTenantKey raw =
+  case raw of
+    Nothing -> Nothing
+    Just v ->
+      let trimmed = trim v
+       in if null trimmed then Nothing else Just (T.pack trimmed)
+
+tenantKeyFromBinanceKeys :: Maybe String -> Maybe String -> Maybe TenantKey
+tenantKeyFromBinanceKeys mKey mSecret = do
+  key <- normalizeBinanceCredential mKey
+  secret <- normalizeBinanceCredential mSecret
+  let payload = key ++ ":" ++ secret
+  pure (T.pack (tenantKeyPrefixBinance ++ ":" ++ hashKeyHex payload))
+
+tenantKeyFromCoinbaseKeys :: Maybe String -> Maybe String -> Maybe String -> Maybe TenantKey
+tenantKeyFromCoinbaseKeys mKey mSecret mPass = do
+  key <- normalizeBinanceCredential mKey
+  secret <- normalizeBinanceCredential mSecret
+  passphrase <- normalizeBinanceCredential mPass
+  let payload = key ++ ":" ++ secret ++ ":" ++ passphrase
+  pure (T.pack (tenantKeyPrefixCoinbase ++ ":" ++ hashKeyHex payload))
+
+resolveTenantKeyFromParams ::
+  Maybe String ->
+  Maybe String ->
+  Maybe String ->
+  Maybe String ->
+  Maybe String ->
+  Maybe String ->
+  Either String (Maybe TenantKey)
+resolveTenantKeyFromParams mTenantRaw bKey bSecret cKey cSecret cPass =
+  let explicit = normalizeTenantKey mTenantRaw
+      computed = tenantKeyFromBinanceKeys bKey bSecret <|> tenantKeyFromCoinbaseKeys cKey cSecret cPass
+   in case (explicit, computed) of
+        (Just e, Just c) ->
+          if e == c
+            then Right (Just c)
+            else Left "tenantKey does not match provided API keys."
+        (Just e, Nothing) -> Right (Just e)
+        (Nothing, Just c) -> Right (Just c)
+        (Nothing, Nothing) -> Right Nothing
+
+resolveTenantKeyFromApiParams :: ApiParams -> Either String (Maybe TenantKey)
+resolveTenantKeyFromApiParams p =
+  resolveTenantKeyFromParams
+    (apTenantKey p)
+    (apBinanceApiKey p)
+    (apBinanceApiSecret p)
+    (apCoinbaseApiKey p)
+    (apCoinbaseApiSecret p)
+    (apCoinbaseApiPassphrase p)
+
+resolveTenantKeyFromListenKeyStart :: ApiListenKeyStartParams -> Either String (Maybe TenantKey)
+resolveTenantKeyFromListenKeyStart p =
+  resolveTenantKeyFromParams (alsTenantKey p) (alsBinanceApiKey p) (alsBinanceApiSecret p) Nothing Nothing Nothing
+
+resolveTenantKeyFromListenKeyAction :: ApiListenKeyActionParams -> Either String (Maybe TenantKey)
+resolveTenantKeyFromListenKeyAction p =
+  resolveTenantKeyFromParams (alaTenantKey p) (alaBinanceApiKey p) (alaBinanceApiSecret p) Nothing Nothing Nothing
+
+resolveTenantKeyFromBinanceTradesRequest :: ApiBinanceTradesRequest -> Either String (Maybe TenantKey)
+resolveTenantKeyFromBinanceTradesRequest p =
+  resolveTenantKeyFromParams (abrTenantKey p) (abrBinanceApiKey p) (abrBinanceApiSecret p) Nothing Nothing Nothing
+
+resolveTenantKeyFromBinancePositionsRequest :: ApiBinancePositionsRequest -> Either String (Maybe TenantKey)
+resolveTenantKeyFromBinancePositionsRequest p =
+  resolveTenantKeyFromParams (abpTenantKey p) (abpBinanceApiKey p) (abpBinanceApiSecret p) Nothing Nothing Nothing
+
+requireTenantKey :: String -> Maybe TenantKey -> Either String TenantKey
+requireTenantKey label mTenant =
+  case mTenant of
+    Just tenant -> Right tenant
+    Nothing -> Left (label ++ " requires tenantKey or API keys.")
+
+tenantKeyFromRequest :: Wai.Request -> Maybe TenantKey
+tenantKeyFromRequest req =
+  let headers = Wai.requestHeaders req
+      headerRaw = lookupHeaderNormalized "X-Tenant-Key" headers
+      queryRaw =
+        case lookup (BS.pack "tenantKey") (Wai.queryString req) of
+          Just (Just raw) -> Just raw
+          _ -> Nothing
+      headerStr = fmap BS.unpack headerRaw
+      queryStr = fmap BS.unpack queryRaw
+   in normalizeTenantKey headerStr <|> normalizeTenantKey queryStr
+
+serverTenantKeyForPlatform :: Platform -> IO (Maybe TenantKey)
+serverTenantKeyForPlatform platform =
+  case platform of
+    PlatformBinance -> do
+      key <- lookupEnv "BINANCE_API_KEY"
+      secret <- lookupEnv "BINANCE_API_SECRET"
+      pure (tenantKeyFromBinanceKeys key secret)
+    PlatformCoinbase -> do
+      key <- lookupEnv "COINBASE_API_KEY"
+      secret <- lookupEnv "COINBASE_API_SECRET"
+      passphrase <- lookupEnv "COINBASE_API_PASSPHRASE"
+      pure (tenantKeyFromCoinbaseKeys key secret passphrase)
+    _ -> pure Nothing
+
 applyBinanceKeyFallback :: Maybe String -> Maybe String -> Args -> Args
 applyBinanceKeyFallback mKey mSecret args =
   let key = normalizeBinanceCredential (argBinanceApiKey args) <|> mKey
@@ -4128,6 +4259,12 @@ hasBinanceKeys :: Args -> Bool
 hasBinanceKeys args =
   isJust (normalizeBinanceCredential (argBinanceApiKey args))
     && isJust (normalizeBinanceCredential (argBinanceApiSecret args))
+
+hasCoinbaseKeys :: Args -> Bool
+hasCoinbaseKeys args =
+  isJust (normalizeBinanceCredential (argCoinbaseApiKey args))
+    && isJust (normalizeBinanceCredential (argCoinbaseApiSecret args))
+    && isJust (normalizeBinanceCredential (argCoinbaseApiPassphrase args))
 
 fetchLongFlatAccountPos :: Args -> BinanceEnv -> String -> IO Int
 fetchLongFlatAccountPos args env sym =
@@ -4552,12 +4689,13 @@ botStartSymbol ::
   TopCombosBacktestCtx ->
   AdoptRequirement ->
   BotController ->
+  TenantKey ->
   Args ->
   Maybe Text ->
   ApiParams ->
   String ->
   IO (Either String BotStartOutcome)
-botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args mComboUuid p symRaw =
+botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl tenantKey args mComboUuid p symRaw =
   case botSettingsFromApi args p of
     Left e -> pure (Left e)
     Right settings ->
@@ -4573,6 +4711,7 @@ botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimiz
         topCombosCtx
         adoptReq
         ctrl
+        tenantKey
         args
         settings
         mComboUuid
@@ -4590,12 +4729,13 @@ botStartSymbolWithSettings ::
   TopCombosBacktestCtx ->
   AdoptRequirement ->
   BotController ->
+  TenantKey ->
   Args ->
   BotSettings ->
   Maybe Text ->
   String ->
   IO (Either String BotStartOutcome)
-botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args settings mComboUuid symRaw =
+botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid symRaw =
   if not (platformSupportsLiveBot (argPlatform args))
     then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
     else
@@ -4609,7 +4749,8 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                   argsSym = args { argBinanceSymbol = Just sym }
                   startReason = botStartReasonFromAdopt adoptReq
               mrt0 <- readMVar (bcRuntime ctrl)
-              case HM.lookup sym mrt0 of
+              let tenantMap0 = fromMaybe HM.empty (HM.lookup tenantKey mrt0)
+              case HM.lookup sym tenantMap0 of
                 Just st ->
                   if allowExisting
                     then pure (Right (BotStartOutcome sym st False))
@@ -4623,7 +4764,8 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                     Left e | not (arActive adoptReq) -> pure (Left e)
                     _ ->
                       modifyMVar (bcRuntime ctrl) $ \mrt ->
-                        case HM.lookup sym mrt of
+                        let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+                         in case HM.lookup sym tenantMap of
                           Just st ->
                             if allowExisting
                               then pure (mrt, Right (BotStartOutcome sym st False))
@@ -4633,20 +4775,23 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                   BotStarting _ -> pure (mrt, Left "Bot is starting")
                           Nothing -> do
                             stopSig <- newEmptyMVar
-                            tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl argsSym settings mComboUuid sym stopSig)
+                            tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid sym stopSig)
                             now <- getTimestampMs
                             let rt =
                                   BotStartRuntime
                                     { bsrThreadId = tid
                                     , bsrStopSignal = stopSig
-                                    , bsrArgs = argsSym
+                                    , bsrArgs = sanitizeArgsKeys argsSym
                                     , bsrSettings = settings
                                     , bsrSymbol = sym
+                                    , bsrTenantKey = tenantKey
                                     , bsrRequestedAtMs = now
                                     , bsrStartReason = startReason
-                                    }
+                                }
                                 st = BotStarting rt
-                            pure (HM.insert sym st mrt, Right (BotStartOutcome sym st True))
+                                tenantMap' = HM.insert sym st tenantMap
+                                mrt' = HM.insert tenantKey tenantMap' mrt
+                            pure (mrt', Right (BotStartOutcome sym st True))
 
 botStartWorker ::
   Maybe OpsStore ->
@@ -4659,13 +4804,14 @@ botStartWorker ::
   TopCombosBacktestCtx ->
   AdoptRequirement ->
   BotController ->
+  TenantKey ->
   Args ->
   BotSettings ->
   Maybe Text ->
   String ->
   MVar () ->
   IO ()
-botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl args settings mComboUuid sym stopSig = do
+botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid sym stopSig = do
   tid <- myThreadId
   let doStart baseArgs = do
         (argsFinal, comboUuidFinal) <-
@@ -4675,7 +4821,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits t
         preflight <- preflightBotStart mOps argsFinal settings sym
         case preflight of
           Left e -> throwIO (userError e)
-          Right () -> initBotState mOps argsFinal settings comboUuidFinal sym
+          Right () -> initBotState mOps tenantKey argsFinal settings comboUuidFinal sym
   r <- try (doStart args) :: IO (Either SomeException BotState)
   case r of
     Left ex -> do
@@ -4693,9 +4839,18 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits t
         Nothing
       webhookNotifyMaybe mWebhook (webhookEventBotStartFailed args sym ex)
       modifyMVar_ (bcRuntime ctrl) $ \mrt ->
-        case HM.lookup sym mrt of
-          Just (BotStarting rt) | bsrThreadId rt == tid -> pure (HM.delete sym mrt)
-          _ -> pure mrt
+        case HM.lookup tenantKey mrt of
+          Just tenantMap ->
+            case HM.lookup sym tenantMap of
+              Just (BotStarting rt) | bsrThreadId rt == tid ->
+                let tenantMap' = HM.delete sym tenantMap
+                 in pure
+                      ( if HM.null tenantMap'
+                          then HM.delete tenantKey mrt
+                          else HM.insert tenantKey tenantMap' mrt
+                      )
+              _ -> pure mrt
+          Nothing -> pure mrt
     Right st0 -> do
       let eq0 =
             if V.null (botEquityCurve st0)
@@ -4725,10 +4880,14 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits t
               }
       startOk <-
         modifyMVar (bcRuntime ctrl) $ \mrt ->
-          case HM.lookup sym mrt of
-            Just (BotStarting rt) | bsrThreadId rt == tid ->
-              pure (HM.insert sym (BotRunning (BotRuntime tid stVar stopSig (Just optimizerRt))) mrt, True)
-            _ -> pure (mrt, False)
+          case HM.lookup tenantKey mrt of
+            Just tenantMap ->
+              case HM.lookup sym tenantMap of
+                Just (BotStarting rt) | bsrThreadId rt == tid ->
+                  let tenantMap' = HM.insert sym (BotRunning (BotRuntime tid stVar stopSig (Just optimizerRt))) tenantMap
+                   in pure (HM.insert tenantKey tenantMap' mrt, True)
+                _ -> pure (mrt, False)
+            Nothing -> pure (mrt, False)
       if startOk
         then botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stopSig (Just optimizerPending)
         else do
@@ -4746,8 +4905,9 @@ botAutoStartLoop ::
   TopCombosBacktestCtx ->
   Args ->
   BotController ->
+  TenantKey ->
   IO ()
-botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs botCtrl = do
+botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs botCtrl tenantKey = do
   autostartEnv <- lookupEnv "TRADER_BOT_AUTOSTART"
   let autostartEnabled = readEnvBool autostartEnv True
   if not autostartEnabled
@@ -4871,6 +5031,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                                 topCombosCtx
                                 adoptReq
                                 botCtrl
+                                tenantKey
                                 argsOk
                                 settings
                                 mComboUuid
@@ -4888,18 +5049,9 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                         topSymbols = map fst topTargets
                         targetSymbolsBase = dedupeStable (baseSymbols ++ topSymbols)
                     mrt <- readMVar (bcRuntime botCtrl)
-                    botStates <- mapM runtimeStateToState (HM.elems mrt)
-                    let mCredsArgs =
-                          listToMaybe
-                            [ botArgs st
-                            | Just st <- botStates
-                            , hasBinanceKeys (botArgs st)
-                            ]
-                        argsWithKeys =
-                          case mCredsArgs of
-                            Nothing -> argsBase
-                            Just credsArgs -> argsWithBinanceKeysFromArgs credsArgs argsBase
-                        runningSymbols = HM.keys mrt
+                    let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+                        argsWithKeys = argsBase
+                        runningSymbols = HM.keys tenantMap
                         orphanRequested = dedupeStable (targetSymbolsBase ++ runningSymbols)
                     orphanSymbols <- resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsWithKeys orphanRequested
                     let targetSymbols = dedupeStable (targetSymbolsBase ++ orphanSymbols)
@@ -4907,25 +5059,30 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                     when (prevTargets /= targetSymbols) $ do
                       writeIORef targetsRef targetSymbols
                       putStrLn ("Live bot auto-start targets: " ++ formatList targetSymbols)
-                    let missing = filter (not . (`HM.member` mrt)) targetSymbols
+                    let missing = filter (not . (`HM.member` tenantMap)) targetSymbols
                     mapM_ (\sym -> startSymbol argsWithKeys sym (HM.lookup sym topTargetMap)) missing
                     sleepSec pollSec
                     loop
               loop
 
-botStop :: BotController -> Maybe String -> IO [BotState]
-botStop ctrl mSymbol =
+botStop :: BotController -> TenantKey -> Maybe String -> IO [BotState]
+botStop ctrl tenantKey mSymbol =
   modifyMVar (bcRuntime ctrl) $ \mrt -> do
-    let (targets, remaining) =
+    let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+        (targets, remainingTenant) =
           case mSymbol of
-            Nothing -> (HM.toList mrt, HM.empty)
+            Nothing -> (HM.toList tenantMap, HM.empty)
             Just symRaw ->
               let sym = normalizeSymbol symRaw
-               in case HM.lookup sym mrt of
-                    Nothing -> ([], mrt)
-                    Just st -> ([(sym, st)], HM.delete sym mrt)
+               in case HM.lookup sym tenantMap of
+                    Nothing -> ([], tenantMap)
+                    Just st -> ([(sym, st)], HM.delete sym tenantMap)
+        mrt' =
+          if HM.null remainingTenant
+            then HM.delete tenantKey mrt
+            else HM.insert tenantKey remainingTenant mrt
     stopped <- mapM (stopRuntime . snd) targets
-    pure (remaining, catMaybes stopped)
+    pure (mrt', catMaybes stopped)
   where
     stopRuntime st =
       case st of
@@ -4950,21 +5107,30 @@ runtimeStateToState st =
     BotRunning rt -> Just <$> readMVar (brStateVar rt)
     _ -> pure Nothing
 
-botGetStates :: BotController -> IO [BotState]
-botGetStates ctrl = do
+botGetStates :: BotController -> TenantKey -> IO [BotState]
+botGetStates ctrl tenantKey = do
   mrt <- readMVar (bcRuntime ctrl)
-  states <- mapM runtimeStateToState (HM.elems mrt)
+  let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+  states <- mapM runtimeStateToState (HM.elems tenantMap)
   pure (catMaybes states)
 
-botGetStateFor :: BotController -> String -> IO (Maybe BotState)
-botGetStateFor ctrl symRaw = do
+botGetStatesAll :: BotController -> IO [BotState]
+botGetStatesAll ctrl = do
   mrt <- readMVar (bcRuntime ctrl)
-  case HM.lookup (normalizeSymbol symRaw) mrt of
+  let allStates = concatMap HM.elems (HM.elems mrt)
+  states <- mapM runtimeStateToState allStates
+  pure (catMaybes states)
+
+botGetStateFor :: BotController -> TenantKey -> String -> IO (Maybe BotState)
+botGetStateFor ctrl tenantKey symRaw = do
+  mrt <- readMVar (bcRuntime ctrl)
+  let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+  case HM.lookup (normalizeSymbol symRaw) tenantMap of
     Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
     _ -> pure Nothing
 
-initBotState :: Maybe OpsStore -> Args -> BotSettings -> Maybe Text -> String -> IO BotState
-initBotState mOps args settings mComboUuid sym = do
+initBotState :: Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> String -> IO BotState
+initBotState mOps tenantKey args settings mComboUuid sym = do
   let lookback = argLookback args
   now <- getTimestampMs
   env <- makeBinanceEnv mOps args
@@ -5292,11 +5458,13 @@ initBotState mOps args settings mComboUuid sym = do
           Just lim | initOrderErrors >= lim -> (Just "MAX_ORDER_ERRORS", Just now)
           _ -> (Nothing, Nothing)
 
+      argsStored = sanitizeArgsKeys argsWithKeys
       st0 =
         BotState
-          { botArgs = argsWithKeys
+          { botArgs = argsStored
           , botSettings = settings
           , botSymbol = sym
+          , botTenantKey = tenantKey
           , botComboUuid = mComboUuid
           , botEnv = env
           , botLookback = lookback
@@ -5542,7 +5710,7 @@ botOptimizeAfterOperation st = do
                         , phLstmHealth = Nothing
                         }
                   )
-          pure st { botArgs = args', botLatestSignal = latest' }
+          pure st { botArgs = sanitizeArgsKeys args', botLatestSignal = latest' }
 
 argLookbackEither :: Args -> Either String Int
 argLookbackEither args =
@@ -5613,7 +5781,7 @@ botApplyOptimizerUpdate st upd = do
                   Nothing
           pure
             st
-              { botArgs = argsWithKeys
+              { botArgs = sanitizeArgsKeys argsWithKeys
               , botLookback = lookback'
               , botLstmCtx = mLstmCtx'
               , botKalmanCtx = mKalmanCtx'
@@ -6742,16 +6910,26 @@ botLoop mOps metrics mJournal mWebhook mBotStateDir topCombosCtx ctrl stVar stop
                     loop
 
       cleanup = do
+        st <- readMVar stVar
+        let tenantKey = botTenantKey st
         modifyMVar_ (bcRuntime ctrl) $ \mrt ->
-          case HM.lookup sym mrt of
-            Just (BotRunning rt) | brThreadId rt == tid -> do
-              case brOptimizer rt of
-                Nothing -> pure ()
-                Just optRt -> do
-                  _ <- tryPutMVar (borStopSignal optRt) ()
-                  killThread (borThreadId optRt)
-              pure (HM.delete sym mrt)
-            _ -> pure mrt
+          case HM.lookup tenantKey mrt of
+            Just tenantMap ->
+              case HM.lookup sym tenantMap of
+                Just (BotRunning rt) | brThreadId rt == tid -> do
+                  case brOptimizer rt of
+                    Nothing -> pure ()
+                    Just optRt -> do
+                      _ <- tryPutMVar (borStopSignal optRt) ()
+                      killThread (borThreadId optRt)
+                  let tenantMap' = HM.delete sym tenantMap
+                  pure
+                    ( if HM.null tenantMap'
+                        then HM.delete tenantKey mrt
+                        else HM.insert tenantKey tenantMap' mrt
+                    )
+                _ -> pure mrt
+            Nothing -> pure mrt
 
   loop `finally` cleanup
 
@@ -6949,7 +7127,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         savePersistedLstmModelMaybe mPath (length obsTrain) lstmModel1
         pure (Just (normState, obsAll', lstmModel1))
 
-  allStates <- botGetStates ctrl
+  allStates <- botGetStates ctrl (botTenantKey st)
 
   let latest0Raw =
         computeLatestSignal
@@ -8013,8 +8191,15 @@ runRestApi baseArgs mWebhook = do
   now <- getTimestampMs
   journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
   opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
+  autoBotKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey baseArgs)
+  autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
+  let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
   bot <- newBotController
-  _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot)
+  case mAutoBotTenant of
+    Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
+    Just tenantKey -> do
+      _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot tenantKey)
+      pure ()
   _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
   _ <- forkIO (topCombosCandleWorker topCombosCtx)
   _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
@@ -9285,7 +9470,7 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                       _ -> respondCors (jsonError status405 "Method not allowed")
                   ["state", "sync"] ->
                     case Wai.requestMethod req of
-                      "GET" -> handleStateSyncExport mBotStateDir optimizerTmp respondCors
+                      "GET" -> handleStateSyncExport mBotStateDir optimizerTmp req respondCors
                       "POST" -> handleStateSyncImport reqLimits mBotStateDir optimizerTmp req respondCors
                       _ -> respondCors (jsonError status405 "Method not allowed")
                   _ -> respondCors (jsonError status404 "Not found")
@@ -11039,23 +11224,27 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
 handleStateSyncExport ::
   Maybe FilePath ->
   FilePath ->
+  Wai.Request ->
   (Wai.Response -> IO Wai.ResponseReceived) ->
   IO Wai.ResponseReceived
-handleStateSyncExport mBotStateDir optimizerTmp respond = do
-  now <- getTimestampMs
-  snaps <- readBotStatusSnapshotsMaybe mBotStateDir
-  topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-  topVal <- readTopCombosValue topJsonPath
-  let payload =
-        StateSyncPayload
-          { sspGeneratedAtMs = Just now
-          , sspBotSnapshots = if null snaps then Nothing else Just snaps
-          , sspTopCombos =
-              case topVal of
-                Right val -> Just val
-                Left _ -> Nothing
-          }
-  respond (jsonValue status200 payload)
+handleStateSyncExport mBotStateDir optimizerTmp req respond =
+  case requireTenantKey "state/sync" (tenantKeyFromRequest req) of
+    Left e -> respond (jsonError status400 e)
+    Right tenantKey -> do
+      now <- getTimestampMs
+      snaps <- readBotStatusSnapshotsMaybe mBotStateDir tenantKey
+      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+      topVal <- readTopCombosValue topJsonPath
+      let payload =
+            StateSyncPayload
+              { sspGeneratedAtMs = Just now
+              , sspBotSnapshots = if null snaps then Nothing else Just snaps
+              , sspTopCombos =
+                  case topVal of
+                    Right val -> Just val
+                    Left _ -> Nothing
+              }
+      respond (jsonValue status200 payload)
 
 handleStateSyncImport ::
   ApiRequestLimits ->
@@ -11068,81 +11257,84 @@ handleStateSyncImport reqLimits mBotStateDir optimizerTmp req respond = do
   payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid state sync payload: "
   case payloadOrErr of
     Left resp -> respond resp
-    Right payload -> do
-      now <- getTimestampMs
-      let incomingSnaps = fromMaybe [] (sspBotSnapshots payload)
-      existingSnaps <- readBotStatusSnapshotsMaybe mBotStateDir
-      let mergedSnaps = mergeBotSnapshots (existingSnaps ++ incomingSnaps)
-          snapsWithSymbol =
-            mapMaybe
-              (\snap -> fmap (\sym -> (sym, snap)) (botSnapshotSymbol snap))
-              mergedSnaps
-          writtenCount = length snapsWithSymbol
-          skippedCount = length mergedSnaps - writtenCount
-          snapStats =
-            object
-              [ "incoming" .= length incomingSnaps
-              , "existing" .= length existingSnaps
-              , "merged" .= length mergedSnaps
-              , "written" .= writtenCount
-              , "skipped" .= skippedCount
-              ]
-      forM_ snapsWithSymbol $ \(sym, snap) ->
-        writeBotStatusSnapshotMaybe mBotStateDir sym snap
+    Right payload ->
+      case requireTenantKey "state/sync" (tenantKeyFromRequest req) of
+        Left e -> respond (jsonError status400 e)
+        Right tenantKey -> do
+          now <- getTimestampMs
+          let incomingSnaps = fromMaybe [] (sspBotSnapshots payload)
+          existingSnaps <- readBotStatusSnapshotsMaybe mBotStateDir tenantKey
+          let mergedSnaps = mergeBotSnapshots (existingSnaps ++ incomingSnaps)
+              snapsWithSymbol =
+                mapMaybe
+                  (\snap -> fmap (\sym -> (sym, snap)) (botSnapshotSymbol snap))
+                  mergedSnaps
+              writtenCount = length snapsWithSymbol
+              skippedCount = length mergedSnaps - writtenCount
+              snapStats =
+                object
+                  [ "incoming" .= length incomingSnaps
+                  , "existing" .= length existingSnaps
+                  , "merged" .= length mergedSnaps
+                  , "written" .= writtenCount
+                  , "skipped" .= skippedCount
+                  ]
+          forM_ snapsWithSymbol $ \(sym, snap) ->
+            writeBotStatusSnapshotMaybe mBotStateDir tenantKey sym snap
 
-      topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-      localTopValResult <- readTopCombosValue topJsonPath
-      let localTopVal =
-            case localTopValResult of
-              Right val -> Just val
-              Left _ -> Nothing
-          localGeneratedAt = localTopVal >>= topCombosGeneratedAtMs
-          mkTopStats :: String -> Maybe Int64 -> Aeson.Value
-          mkTopStats action incoming =
-            object
-              ( ["action" .= (action :: String)]
-                  ++ maybe [] (\v -> ["incomingGeneratedAtMs" .= v]) incoming
-                  ++ maybe [] (\v -> ["localGeneratedAtMs" .= v]) localGeneratedAt
-              )
+          topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+          localTopValResult <- readTopCombosValue topJsonPath
+          let localTopVal =
+                case localTopValResult of
+                  Right val -> Just val
+                  Left _ -> Nothing
+              localGeneratedAt = localTopVal >>= topCombosGeneratedAtMs
+              mkTopStats :: String -> Maybe Int64 -> Aeson.Value
+              mkTopStats action incoming =
+                object
+                  ( ["action" .= (action :: String)]
+                      ++ maybe [] (\v -> ["incomingGeneratedAtMs" .= v]) incoming
+                      ++ maybe [] (\v -> ["localGeneratedAtMs" .= v]) localGeneratedAt
+                  )
 
-      topStatsOrErr <-
-        case sspTopCombos payload of
-          Nothing -> pure (Right (mkTopStats "skipped" Nothing))
-          Just raw ->
-            if not (isTopCombosPayload raw)
-              then pure (Left (jsonError status400 "Invalid topCombos payload (expected object with combos array)."))
-              else do
-                let (incomingSanitized, _) = sanitizeTopCombosValue raw
-                    incomingGeneratedAt = topCombosGeneratedAtMs incomingSanitized
-                    shouldReplace =
-                      case (incomingGeneratedAt, localGeneratedAt) of
-                        (Just incomingTs, Just localTs) -> incomingTs >= localTs
-                        (Just _, Nothing) -> True
-                        (Nothing, Nothing) -> True
-                        (Nothing, Just _) -> False
-                if shouldReplace
-                  then do
-                    writeResult <- writeTopCombosValue topJsonPath incomingSanitized
-                    case writeResult of
-                      Left err ->
-                        pure (Left (jsonError status500 ("Failed to write top combos: " ++ err)))
-                      Right _ -> do
-                        persistTopCombosMaybe topJsonPath
-                        pure (Right (mkTopStats "replaced" incomingGeneratedAt))
-                  else pure (Right (mkTopStats "kept" incomingGeneratedAt))
+          topStatsOrErr <-
+            case sspTopCombos payload of
+              Nothing -> pure (Right (mkTopStats "skipped" Nothing))
+              Just raw ->
+                if not (isTopCombosPayload raw)
+                  then pure (Left (jsonError status400 "Invalid topCombos payload (expected object with combos array)."))
+                  else do
+                    let (incomingSanitized, _) = sanitizeTopCombosValue raw
+                        incomingGeneratedAt = topCombosGeneratedAtMs incomingSanitized
+                        shouldReplace =
+                          case (incomingGeneratedAt, localGeneratedAt) of
+                            (Just incomingTs, Just localTs) -> incomingTs >= localTs
+                            (Just _, Nothing) -> True
+                            (Nothing, Nothing) -> True
+                            (Nothing, Just _) -> False
+                    if shouldReplace
+                      then do
+                        writeResult <- writeTopCombosValue topJsonPath incomingSanitized
+                        case writeResult of
+                          Left err ->
+                            pure (Left (jsonError status500 ("Failed to write top combos: " ++ err)))
+                          Right _ -> do
+                            persistTopCombosMaybe topJsonPath
+                            pure (Right (mkTopStats "replaced" incomingGeneratedAt))
+                      else pure (Right (mkTopStats "kept" incomingGeneratedAt))
 
-      case topStatsOrErr of
-        Left resp -> respond resp
-        Right topStats ->
-          respond
-            ( jsonValue
-                status200
-                (object ["ok" .= True, "atMs" .= now, "botSnapshots" .= snapStats, "topCombos" .= topStats])
-            )
+          case topStatsOrErr of
+            Left resp -> respond resp
+            Right topStats ->
+              respond
+                ( jsonValue
+                    status200
+                    (object ["ok" .= True, "atMs" .= now, "botSnapshots" .= snapStats, "topCombos" .= topStats])
+                )
 
 handleMetrics :: Metrics -> BotController -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleMetrics metrics botCtrl respond = do
-  states <- botGetStates botCtrl
+  states <- botGetStatesAll botCtrl
   body <- renderMetricsText metrics (not (null states))
   respond (textValue status200 body)
 
@@ -11349,53 +11541,95 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
   case payloadOrErr of
     Left resp -> respond resp
     Right params ->
-      case argsFromApi baseArgs params of
-        Left e -> respond (jsonError status400 e)
-        Right args0 -> do
-          let args1 =
-                args0
-                  { argTradeOnly = True
-                  , argBinanceTrade = True
-                  , argSweepThreshold = False
-                  , argOptimizeOperations = False
-                  }
-          case validateArgs args1 of
+      let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+       in case
+            resolveTenantKeyFromParams
+              tenantHint
+              (apBinanceApiKey params)
+              (apBinanceApiSecret params)
+              (apCoinbaseApiKey params)
+              (apCoinbaseApiSecret params)
+              (apCoinbaseApiPassphrase params) of
             Left e -> respond (jsonError status400 e)
-            Right args ->
-              case validateApiComputeLimits limits args of
+            Right mReqTenant ->
+              case argsFromApi baseArgs params of
                 Left e -> respond (jsonError status400 e)
-                Right argsOk -> do
-                  r <- try (computeTradeFromArgsWithLimits limits mOps argsOk) :: IO (Either SomeException ApiTradeResponse)
-                  case r of
-                    Left ex ->
-                      let (st, msg) = exceptionToHttp ex
-                       in respond (jsonError st msg)
-                    Right out -> do
-                      metricsRecordOrder metrics (atrOrder out)
-                      now <- getTimestampMs
-                      journalWriteMaybe
-                        mJournal
-                        ( object
-                            [ "type" .= ("trade.order" :: String)
-                            , "atMs" .= now
-                            , "symbol" .= argBinanceSymbol argsOk
-                            , "market" .= marketCode (argBinanceMarket argsOk)
-                            , "action" .= lsAction (atrSignal out)
-                            , "order" .= atrOrder out
-                            ]
-                        )
-                      opsAppendMaybe
-                        mOps
-                        "trade.order"
-                        (Just (toJSON (sanitizeApiParams params)))
-                        (Just (argsPublicJson argsOk))
-                        (Just (toJSON out))
-                        Nothing
-                        Nothing
-                        (T.pack <$> argBinanceSymbol argsOk)
-                        (orderIdFromOrderResult (atrOrder out))
-                      webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsOk (atrSignal out) (atrOrder out))
-                      respond (jsonValue status200 out)
+                Right args0 -> do
+                  let args1 =
+                        args0
+                          { argTradeOnly = True
+                          , argBinanceTrade = True
+                          , argSweepThreshold = False
+                          , argOptimizeOperations = False
+                          }
+                  case validateArgs args1 of
+                    Left e -> respond (jsonError status400 e)
+                    Right args ->
+                      case validateApiComputeLimits limits args of
+                        Left e -> respond (jsonError status400 e)
+                        Right argsOk -> do
+                          mServerTenant <- serverTenantKeyForPlatform (argPlatform argsOk)
+                          let ownerMatch =
+                                case (mReqTenant, mServerTenant) of
+                                  (Just reqTenant, Just serverTenant) -> reqTenant == serverTenant
+                                  _ -> False
+                              needsUserKeys =
+                                case (argPlatform argsOk, mReqTenant) of
+                                  (PlatformBinance, Just _) -> not ownerMatch
+                                  (PlatformCoinbase, Just _) -> not ownerMatch
+                                  _ -> False
+                              hasUserKeys =
+                                case argPlatform argsOk of
+                                  PlatformBinance -> hasBinanceKeys argsOk
+                                  PlatformCoinbase -> hasCoinbaseKeys argsOk
+                                  _ -> True
+                          if needsUserKeys && not hasUserKeys
+                            then
+                              respond
+                                ( jsonError
+                                    status400
+                                    ( case argPlatform argsOk of
+                                        PlatformBinance -> "binanceApiKey and binanceApiSecret are required for non-owner trades."
+                                        PlatformCoinbase -> "coinbaseApiKey, coinbaseApiSecret, and coinbaseApiPassphrase are required for non-owner trades."
+                                        _ -> "API keys are required for this trade."
+                                    )
+                                )
+                            else do
+                              let argsFinal =
+                                    if ownerMatch
+                                      then sanitizeArgsKeys argsOk
+                                      else argsOk
+                              r <- try (computeTradeFromArgsWithLimits limits mOps argsFinal) :: IO (Either SomeException ApiTradeResponse)
+                              case r of
+                                Left ex ->
+                                  let (st, msg) = exceptionToHttp ex
+                                   in respond (jsonError st msg)
+                                Right out -> do
+                                  metricsRecordOrder metrics (atrOrder out)
+                                  now <- getTimestampMs
+                                  journalWriteMaybe
+                                    mJournal
+                                    ( object
+                                        [ "type" .= ("trade.order" :: String)
+                                        , "atMs" .= now
+                                        , "symbol" .= argBinanceSymbol argsFinal
+                                        , "market" .= marketCode (argBinanceMarket argsFinal)
+                                        , "action" .= lsAction (atrSignal out)
+                                        , "order" .= atrOrder out
+                                        ]
+                                    )
+                                  opsAppendMaybe
+                                    mOps
+                                    "trade.order"
+                                    (Just (toJSON (sanitizeApiParams params)))
+                                    (Just (argsPublicJson argsFinal))
+                                    (Just (toJSON out))
+                                    Nothing
+                                    Nothing
+                                    (T.pack <$> argBinanceSymbol argsFinal)
+                                    (orderIdFromOrderResult (atrOrder out))
+                                  webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsFinal (atrSignal out) (atrOrder out))
+                                  respond (jsonValue status200 out)
 
 handleTradeAsync :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> JobStore ApiTradeResponse -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs req respond = do
@@ -11403,55 +11637,97 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
   case payloadOrErr of
     Left resp -> respond resp
     Right params ->
-      case argsFromApi baseArgs params of
-        Left e -> respond (jsonError status400 e)
-        Right args0 -> do
-          let args1 =
-                args0
-                  { argTradeOnly = True
-                  , argBinanceTrade = True
-                  , argSweepThreshold = False
-                  , argOptimizeOperations = False
-                  }
-          case validateArgs args1 of
+      let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+       in case
+            resolveTenantKeyFromParams
+              tenantHint
+              (apBinanceApiKey params)
+              (apBinanceApiSecret params)
+              (apCoinbaseApiKey params)
+              (apCoinbaseApiSecret params)
+              (apCoinbaseApiPassphrase params) of
             Left e -> respond (jsonError status400 e)
-            Right args ->
-              case validateApiComputeLimits limits args of
+            Right mReqTenant ->
+              case argsFromApi baseArgs params of
                 Left e -> respond (jsonError status400 e)
-                Right argsOk -> do
-                  let paramsJson = Just (toJSON (sanitizeApiParams params))
-                      argsJson = Just (argsPublicJson argsOk)
-                  r <-
-                    startJob store $ do
-                      out <- computeTradeFromArgsWithLimits limits mOps argsOk
-                      metricsRecordOrder metrics (atrOrder out)
-                      now <- getTimestampMs
-                      journalWriteMaybe
-                        mJournal
-                        ( object
-                            [ "type" .= ("trade.order" :: String)
-                            , "atMs" .= now
-                            , "symbol" .= argBinanceSymbol argsOk
-                            , "market" .= marketCode (argBinanceMarket argsOk)
-                            , "action" .= lsAction (atrSignal out)
-                            , "order" .= atrOrder out
-                            ]
-                        )
-                      opsAppendMaybe
-                        mOps
-                        "trade.order"
-                        paramsJson
-                        argsJson
-                        (Just (toJSON out))
-                        Nothing
-                        Nothing
-                        (T.pack <$> argBinanceSymbol argsOk)
-                        (orderIdFromOrderResult (atrOrder out))
-                      webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsOk (atrSignal out) (atrOrder out))
-                      pure out
-                  case r of
-                    Left e -> respond (jsonError status429 e)
-                    Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
+                Right args0 -> do
+                  let args1 =
+                        args0
+                          { argTradeOnly = True
+                          , argBinanceTrade = True
+                          , argSweepThreshold = False
+                          , argOptimizeOperations = False
+                          }
+                  case validateArgs args1 of
+                    Left e -> respond (jsonError status400 e)
+                    Right args ->
+                      case validateApiComputeLimits limits args of
+                        Left e -> respond (jsonError status400 e)
+                        Right argsOk -> do
+                          mServerTenant <- serverTenantKeyForPlatform (argPlatform argsOk)
+                          let ownerMatch =
+                                case (mReqTenant, mServerTenant) of
+                                  (Just reqTenant, Just serverTenant) -> reqTenant == serverTenant
+                                  _ -> False
+                              needsUserKeys =
+                                case (argPlatform argsOk, mReqTenant) of
+                                  (PlatformBinance, Just _) -> not ownerMatch
+                                  (PlatformCoinbase, Just _) -> not ownerMatch
+                                  _ -> False
+                              hasUserKeys =
+                                case argPlatform argsOk of
+                                  PlatformBinance -> hasBinanceKeys argsOk
+                                  PlatformCoinbase -> hasCoinbaseKeys argsOk
+                                  _ -> True
+                          if needsUserKeys && not hasUserKeys
+                            then
+                              respond
+                                ( jsonError
+                                    status400
+                                    ( case argPlatform argsOk of
+                                        PlatformBinance -> "binanceApiKey and binanceApiSecret are required for non-owner trades."
+                                        PlatformCoinbase -> "coinbaseApiKey, coinbaseApiSecret, and coinbaseApiPassphrase are required for non-owner trades."
+                                        _ -> "API keys are required for this trade."
+                                    )
+                                )
+                            else do
+                              let argsFinal =
+                                    if ownerMatch
+                                      then sanitizeArgsKeys argsOk
+                                      else argsOk
+                                  paramsJson = Just (toJSON (sanitizeApiParams params))
+                                  argsJson = Just (argsPublicJson argsFinal)
+                              r <-
+                                startJob store $ do
+                                  out <- computeTradeFromArgsWithLimits limits mOps argsFinal
+                                  metricsRecordOrder metrics (atrOrder out)
+                                  now <- getTimestampMs
+                                  journalWriteMaybe
+                                    mJournal
+                                    ( object
+                                        [ "type" .= ("trade.order" :: String)
+                                        , "atMs" .= now
+                                        , "symbol" .= argBinanceSymbol argsFinal
+                                        , "market" .= marketCode (argBinanceMarket argsFinal)
+                                        , "action" .= lsAction (atrSignal out)
+                                        , "order" .= atrOrder out
+                                        ]
+                                    )
+                                  opsAppendMaybe
+                                    mOps
+                                    "trade.order"
+                                    paramsJson
+                                    argsJson
+                                    (Just (toJSON out))
+                                    Nothing
+                                    Nothing
+                                    (T.pack <$> argBinanceSymbol argsFinal)
+                                    (orderIdFromOrderResult (atrOrder out))
+                                  webhookNotifyMaybe mWebhook (webhookEventTradeOrder argsFinal (atrSignal out) (atrOrder out))
+                                  pure out
+                              case r of
+                                Left e -> respond (jsonError status429 e)
+                                Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 extractBacktestFinalEquity :: Aeson.Value -> Maybe Double
 extractBacktestFinalEquity =
@@ -11627,18 +11903,21 @@ handleBinanceKeys reqLimits mOps baseArgs req respond = do
   case payloadOrErr of
     Left resp -> respond resp
     Right params ->
-      case argsFromApi baseArgs params of
+      case resolveTenantKeyFromApiParams params of
         Left e -> respond (jsonError status400 e)
-        Right args0 -> do
-          if argPlatform args0 /= PlatformBinance
-            then respond (jsonError status400 ("Binance keys require platform=binance (got " ++ platformCode (argPlatform args0) ++ ")."))
-            else do
-              r <- try (computeBinanceKeysStatusFromArgs mOps args0) :: IO (Either SomeException ApiBinanceKeysStatus)
-              case r of
-                Left ex ->
-                  let (st, msg) = exceptionToHttp ex
-                   in respond (jsonError st msg)
-                Right out -> respond (jsonValue status200 out)
+        Right _ ->
+          case argsFromApi baseArgs params of
+            Left e -> respond (jsonError status400 e)
+            Right args0 -> do
+              if argPlatform args0 /= PlatformBinance
+                then respond (jsonError status400 ("Binance keys require platform=binance (got " ++ platformCode (argPlatform args0) ++ ")."))
+                else do
+                  r <- try (computeBinanceKeysStatusFromArgs mOps args0) :: IO (Either SomeException ApiBinanceKeysStatus)
+                  case r of
+                    Left ex ->
+                      let (st, msg) = exceptionToHttp ex
+                       in respond (jsonError st msg)
+                    Right out -> respond (jsonValue status200 out)
 
 handleCoinbaseKeys :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleCoinbaseKeys reqLimits baseArgs req respond = do
@@ -11646,18 +11925,21 @@ handleCoinbaseKeys reqLimits baseArgs req respond = do
   case payloadOrErr of
     Left resp -> respond resp
     Right params ->
-      case argsFromApi baseArgs params of
+      case resolveTenantKeyFromApiParams params of
         Left e -> respond (jsonError status400 e)
-        Right args0 -> do
-          if argPlatform args0 /= PlatformCoinbase
-            then respond (jsonError status400 ("Coinbase keys require platform=coinbase (got " ++ platformCode (argPlatform args0) ++ ")."))
-            else do
-              r <- try (computeCoinbaseKeysStatusFromArgs args0) :: IO (Either SomeException ApiCoinbaseKeysStatus)
-              case r of
-                Left ex ->
-                  let (st, msg) = exceptionToHttp ex
-                   in respond (jsonError st msg)
-                Right out -> respond (jsonValue status200 out)
+        Right _ ->
+          case argsFromApi baseArgs params of
+            Left e -> respond (jsonError status400 e)
+            Right args0 -> do
+              if argPlatform args0 /= PlatformCoinbase
+                then respond (jsonError status400 ("Coinbase keys require platform=coinbase (got " ++ platformCode (argPlatform args0) ++ ")."))
+                else do
+                  r <- try (computeCoinbaseKeysStatusFromArgs args0) :: IO (Either SomeException ApiCoinbaseKeysStatus)
+                  case r of
+                    Left ex ->
+                      let (st, msg) = exceptionToHttp ex
+                       in respond (jsonError st msg)
+                    Right out -> respond (jsonValue status200 out)
 
 parseMarketForListenKey :: Args -> Maybe String -> Either String BinanceMarket
 parseMarketForListenKey baseArgs raw =
@@ -11716,10 +11998,10 @@ data ListenKeyStream = ListenKeyStream
   , lksKeepAliveThread :: !ThreadId
   }
 
-newtype ListenKeyManager = ListenKeyManager { lkmState :: MVar (Maybe ListenKeyStream) }
+newtype ListenKeyManager = ListenKeyManager { lkmState :: MVar (HM.HashMap TenantKey ListenKeyStream) }
 
 newListenKeyManager :: IO ListenKeyManager
-newListenKeyManager = ListenKeyManager <$> newMVar Nothing
+newListenKeyManager = ListenKeyManager <$> newMVar HM.empty
 
 listenKeyStreamHeaders :: ResponseHeaders
 listenKeyStreamHeaders =
@@ -11828,28 +12110,28 @@ stopListenKeyStreamInternal stream = do
   _ <- try (closeListenKey (lksEnv st) (lksListenKey st)) :: IO (Either SomeException ())
   pure ()
 
-stopListenKeyStream :: ListenKeyManager -> IO ()
-stopListenKeyStream manager =
-  modifyMVar_ (lkmState manager) $ \mStream -> do
-    case mStream of
-      Nothing -> pure Nothing
+stopListenKeyStream :: ListenKeyManager -> TenantKey -> IO ()
+stopListenKeyStream manager tenantKey =
+  modifyMVar_ (lkmState manager) $ \streams -> do
+    case HM.lookup tenantKey streams of
+      Nothing -> pure streams
       Just stream -> do
         stopListenKeyStreamInternal stream
-        pure Nothing
+        pure (HM.delete tenantKey streams)
 
-stopListenKeyStreamMatching :: ListenKeyManager -> String -> IO Bool
-stopListenKeyStreamMatching manager listenKey =
-  modifyMVar (lkmState manager) $ \mStream ->
-    case mStream of
+stopListenKeyStreamMatching :: ListenKeyManager -> TenantKey -> String -> IO Bool
+stopListenKeyStreamMatching manager tenantKey listenKey =
+  modifyMVar (lkmState manager) $ \streams ->
+    case HM.lookup tenantKey streams of
       Just stream | lksListenKey (lksState stream) == listenKey -> do
         stopListenKeyStreamInternal stream
-        pure (Nothing, True)
-      _ -> pure (mStream, False)
+        pure (HM.delete tenantKey streams, True)
+      _ -> pure (streams, False)
 
-startListenKeyStream :: ListenKeyManager -> BinanceEnv -> BinanceMarket -> Bool -> String -> Int -> IO ListenKeyStream
-startListenKeyStream manager env market testnet listenKey keepAliveMs =
-  modifyMVar (lkmState manager) $ \mStream -> do
-    case mStream of
+startListenKeyStream :: ListenKeyManager -> TenantKey -> BinanceEnv -> BinanceMarket -> Bool -> String -> Int -> IO ListenKeyStream
+startListenKeyStream manager tenantKey env market testnet listenKey keepAliveMs =
+  modifyMVar (lkmState manager) $ \streams -> do
+    case HM.lookup tenantKey streams of
       Nothing -> pure ()
       Just stream -> stopListenKeyStreamInternal stream
     chan <- newChan
@@ -11881,7 +12163,7 @@ startListenKeyStream manager env market testnet listenKey keepAliveMs =
             , lksWsThread = wsThread
             , lksKeepAliveThread = keepAliveThread
             }
-    pure (Just stream, stream)
+    pure (HM.insert tenantKey stream streams, stream)
 
 parseListenKeyWsUrl :: String -> Either String (Bool, String, Int, String)
 parseListenKeyWsUrl raw = do
@@ -11965,42 +12247,45 @@ listenKeyKeepAliveWorker st = do
   loop
 
 handleBinanceListenKeyStream :: ListenKeyManager -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinanceListenKeyStream manager _ respond = do
-  mStream <- readMVar (lkmState manager)
-  case mStream of
-    Nothing -> respond (jsonError status404 "Listen key stream not running.")
-    Just stream -> do
-      let st = lksState stream
-      respond $
-        Wai.responseStream status200 listenKeyStreamHeaders $ \write flush -> do
-          chan <- dupChan (lksChan st)
-          let handleSendError :: IOException -> IO Bool
-              handleSendError _ = pure False
-              send payload =
-                (write (byteString payload) >> flush >> pure True)
-                  `catch` handleSendError
-              sendMaybeEvent eventName payload =
-                case payload of
-                  Nothing -> pure True
-                  Just raw -> send (mkSseEvent eventName raw)
-          statusPayload <- readIORef (lksStatusRef st)
-          okStatus <- sendMaybeEvent "status" statusPayload
-          when okStatus $ do
-            keepAliveAt <- readIORef (lksKeepAliveAtRef st)
-            let keepAlivePayload = fmap listenKeyKeepAlivePayload keepAliveAt
-            okKeepAlive <- sendMaybeEvent "keepalive" keepAlivePayload
-            when okKeepAlive $ do
-              lastEvent <- readIORef (lksLastEventRef st)
-              okLast <- sendMaybeEvent "binance" lastEvent
-              when okLast $ do
-                let loop = do
-                      evt <- readChan chan
-                      case listenKeyEventToSse evt of
-                        Nothing -> pure ()
-                        Just payload -> do
-                          ok <- send payload
-                          when ok loop
-                loop
+handleBinanceListenKeyStream manager req respond =
+  case requireTenantKey "binance/listenKey/stream" (tenantKeyFromRequest req) of
+    Left e -> respond (jsonError status400 e)
+    Right tenantKey -> do
+      streams <- readMVar (lkmState manager)
+      case HM.lookup tenantKey streams of
+        Nothing -> respond (jsonError status404 "Listen key stream not running.")
+        Just stream -> do
+          let st = lksState stream
+          respond $
+            Wai.responseStream status200 listenKeyStreamHeaders $ \write flush -> do
+              chan <- dupChan (lksChan st)
+              let handleSendError :: IOException -> IO Bool
+                  handleSendError _ = pure False
+                  send payload =
+                    (write (byteString payload) >> flush >> pure True)
+                      `catch` handleSendError
+                  sendMaybeEvent eventName payload =
+                    case payload of
+                      Nothing -> pure True
+                      Just raw -> send (mkSseEvent eventName raw)
+              statusPayload <- readIORef (lksStatusRef st)
+              okStatus <- sendMaybeEvent "status" statusPayload
+              when okStatus $ do
+                keepAliveAt <- readIORef (lksKeepAliveAtRef st)
+                let keepAlivePayload = fmap listenKeyKeepAlivePayload keepAliveAt
+                okKeepAlive <- sendMaybeEvent "keepalive" keepAlivePayload
+                when okKeepAlive $ do
+                  lastEvent <- readIORef (lksLastEventRef st)
+                  okLast <- sendMaybeEvent "binance" lastEvent
+                  when okLast $ do
+                    let loop = do
+                          evt <- readChan chan
+                          case listenKeyEventToSse evt of
+                            Nothing -> pure ()
+                            Just payload -> do
+                              ok <- send payload
+                              when ok loop
+                    loop
 
 handleBinanceListenKey :: ApiRequestLimits -> Maybe OpsStore -> ListenKeyManager -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do
@@ -12011,35 +12296,42 @@ handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do
       case payloadOrErr of
         Left resp -> respond resp
         Right params -> do
-          let testnet = resolveTestnetForListenKey baseArgs (alsBinanceTestnet params)
-          case parseMarketForListenKey baseArgs (alsMarket params) of
+          let tenantHint = alsTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+          case resolveTenantKeyFromParams tenantHint (alsBinanceApiKey params) (alsBinanceApiSecret params) Nothing Nothing Nothing of
             Left e -> respond (jsonError status400 e)
-            Right market -> do
-              if market == MarketMargin && testnet
-                then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
-                else do
-                  apiKey <- resolveEnv "BINANCE_API_KEY" (alsBinanceApiKey params <|> argBinanceApiKey baseArgs)
-                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (alsBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                  urls <- resolveBinanceBaseUrls
-                  let baseUrl = selectBinanceBaseUrl urls testnet market
-                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                  r <- try (createListenKey env) :: IO (Either SomeException String)
-                  case r of
-                    Left ex ->
-                      let (st, msg) = exceptionToHttp ex
-                       in respond (jsonError st msg)
-                    Right lk -> do
-                      let keepAliveMs = 25 * 60 * 1000
-                      _ <- startListenKeyStream listenKeyManager env market testnet lk keepAliveMs
-                      let resp =
-                            ApiListenKeyResponse
-                              { alrListenKey = lk
-                              , alrMarket = marketCode market
-                              , alrTestnet = testnet
-                              , alrWsUrl = binanceUserStreamWsUrl market testnet lk
-                              , alrKeepAliveMs = keepAliveMs
-                              }
-                      respond (jsonValue status200 resp)
+            Right mTenant ->
+              case requireTenantKey "binance/listenKey" mTenant of
+                Left e -> respond (jsonError status400 e)
+                Right tenantKey -> do
+                  let testnet = resolveTestnetForListenKey baseArgs (alsBinanceTestnet params)
+                  case parseMarketForListenKey baseArgs (alsMarket params) of
+                    Left e -> respond (jsonError status400 e)
+                    Right market -> do
+                      if market == MarketMargin && testnet
+                        then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+                        else do
+                          apiKey <- resolveEnv "BINANCE_API_KEY" (alsBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                          apiSecret <- resolveEnv "BINANCE_API_SECRET" (alsBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                          urls <- resolveBinanceBaseUrls
+                          let baseUrl = selectBinanceBaseUrl urls testnet market
+                          env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                          r <- try (createListenKey env) :: IO (Either SomeException String)
+                          case r of
+                            Left ex ->
+                              let (st, msg) = exceptionToHttp ex
+                               in respond (jsonError st msg)
+                            Right lk -> do
+                              let keepAliveMs = 25 * 60 * 1000
+                              _ <- startListenKeyStream listenKeyManager tenantKey env market testnet lk keepAliveMs
+                              let resp =
+                                    ApiListenKeyResponse
+                                      { alrListenKey = lk
+                                      , alrMarket = marketCode market
+                                      , alrTestnet = testnet
+                                      , alrWsUrl = binanceUserStreamWsUrl market testnet lk
+                                      , alrKeepAliveMs = keepAliveMs
+                                      }
+                              respond (jsonValue status200 resp)
 
 handleBinanceListenKeyKeepAlive :: ApiRequestLimits -> Maybe OpsStore -> ListenKeyManager -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req respond = do
@@ -12050,42 +12342,49 @@ handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req res
       case payloadOrErr of
         Left resp -> respond resp
         Right params -> do
-          let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
-          case parseMarketForListenKey baseArgs (alaMarket params) of
+          let tenantHint = alaTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+          case resolveTenantKeyFromParams tenantHint (alaBinanceApiKey params) (alaBinanceApiSecret params) Nothing Nothing Nothing of
             Left e -> respond (jsonError status400 e)
-            Right market -> do
-              if market == MarketMargin && testnet
-                then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
-                else do
-                  let listenKey = alaListenKey params
-                  mStream <- readMVar (lkmState listenKeyManager)
-                  case mStream of
-                    Just stream | lksListenKey (lksState stream) == listenKey -> do
-                      let st = lksState stream
-                      r <- try (keepAliveListenKey (lksEnv st) listenKey) :: IO (Either SomeException ())
-                      case r of
-                        Left ex -> do
-                          emitListenKeyError st (displayException ex)
-                          let (respSt, msg) = exceptionToHttp ex
-                           in respond (jsonError respSt msg)
-                        Right _ -> do
-                          now <- getTimestampMs
-                          emitListenKeyKeepAlive st now
-                          respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
-                    _ -> do
-                      apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
-                      apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                      urls <- resolveBinanceBaseUrls
-                      let baseUrl = selectBinanceBaseUrl urls testnet market
-                      env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                      r <- try (keepAliveListenKey env listenKey) :: IO (Either SomeException ())
-                      case r of
-                        Left ex ->
-                          let (st, msg) = exceptionToHttp ex
-                           in respond (jsonError st msg)
-                        Right _ -> do
-                          now <- getTimestampMs
-                          respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+            Right mTenant ->
+              case requireTenantKey "binance/listenKey/keepAlive" mTenant of
+                Left e -> respond (jsonError status400 e)
+                Right tenantKey -> do
+                  let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
+                  case parseMarketForListenKey baseArgs (alaMarket params) of
+                    Left e -> respond (jsonError status400 e)
+                    Right market -> do
+                      if market == MarketMargin && testnet
+                        then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+                        else do
+                          let listenKey = alaListenKey params
+                          streams <- readMVar (lkmState listenKeyManager)
+                          case HM.lookup tenantKey streams of
+                            Just stream | lksListenKey (lksState stream) == listenKey -> do
+                              let st = lksState stream
+                              r <- try (keepAliveListenKey (lksEnv st) listenKey) :: IO (Either SomeException ())
+                              case r of
+                                Left ex -> do
+                                  emitListenKeyError st (displayException ex)
+                                  let (respSt, msg) = exceptionToHttp ex
+                                   in respond (jsonError respSt msg)
+                                Right _ -> do
+                                  now <- getTimestampMs
+                                  emitListenKeyKeepAlive st now
+                                  respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+                            _ -> do
+                              apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                              apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                              urls <- resolveBinanceBaseUrls
+                              let baseUrl = selectBinanceBaseUrl urls testnet market
+                              env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                              r <- try (keepAliveListenKey env listenKey) :: IO (Either SomeException ())
+                              case r of
+                                Left ex ->
+                                  let (st, msg) = exceptionToHttp ex
+                                   in respond (jsonError st msg)
+                                Right _ -> do
+                                  now <- getTimestampMs
+                                  respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
 handleBinanceListenKeyClose :: ApiRequestLimits -> Maybe OpsStore -> ListenKeyManager -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respond = do
@@ -12096,33 +12395,40 @@ handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respond
       case payloadOrErr of
         Left resp -> respond resp
         Right params -> do
-          let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
-          case parseMarketForListenKey baseArgs (alaMarket params) of
+          let tenantHint = alaTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+          case resolveTenantKeyFromParams tenantHint (alaBinanceApiKey params) (alaBinanceApiSecret params) Nothing Nothing Nothing of
             Left e -> respond (jsonError status400 e)
-            Right market -> do
-              if market == MarketMargin && testnet
-                then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
-                else do
-                  let listenKey = alaListenKey params
-                  stopped <- stopListenKeyStreamMatching listenKeyManager listenKey
-                  if stopped
-                    then do
-                      now <- getTimestampMs
-                      respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
-                    else do
-                      apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
-                      apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                      urls <- resolveBinanceBaseUrls
-                      let baseUrl = selectBinanceBaseUrl urls testnet market
-                      env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                      r <- try (closeListenKey env listenKey) :: IO (Either SomeException ())
-                      case r of
-                        Left ex ->
-                          let (st, msg) = exceptionToHttp ex
-                           in respond (jsonError st msg)
-                        Right _ -> do
-                          now <- getTimestampMs
-                          respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+            Right mTenant ->
+              case requireTenantKey "binance/listenKey/close" mTenant of
+                Left e -> respond (jsonError status400 e)
+                Right tenantKey -> do
+                  let testnet = resolveTestnetForListenKey baseArgs (alaBinanceTestnet params)
+                  case parseMarketForListenKey baseArgs (alaMarket params) of
+                    Left e -> respond (jsonError status400 e)
+                    Right market -> do
+                      if market == MarketMargin && testnet
+                        then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
+                        else do
+                          let listenKey = alaListenKey params
+                          stopped <- stopListenKeyStreamMatching listenKeyManager tenantKey listenKey
+                          if stopped
+                            then do
+                              now <- getTimestampMs
+                              respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+                            else do
+                              apiKey <- resolveEnv "BINANCE_API_KEY" (alaBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                              apiSecret <- resolveEnv "BINANCE_API_SECRET" (alaBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                              urls <- resolveBinanceBaseUrls
+                              let baseUrl = selectBinanceBaseUrl urls testnet market
+                              env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                              r <- try (closeListenKey env listenKey) :: IO (Either SomeException ())
+                              case r of
+                                Left ex ->
+                                  let (st, msg) = exceptionToHttp ex
+                                   in respond (jsonError st msg)
+                                Right _ -> do
+                                  now <- getTimestampMs
+                                  respond (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
 
 handleBinanceTrades :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceTrades reqLimits mOps baseArgs req respond = do
@@ -12133,54 +12439,57 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
       case payloadOrErr of
         Left resp -> respond resp
         Right params -> do
-          let testnet = resolveTestnetForListenKey baseArgs (abrBinanceTestnet params)
-          case parseMarketForListenKey baseArgs (abrMarket params) of
+          case resolveTenantKeyFromBinanceTradesRequest params of
             Left e -> respond (jsonError status400 e)
-            Right market -> do
-              if market == MarketMargin && testnet
-                then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
-                else do
-                  apiKey <- resolveEnv "BINANCE_API_KEY" (abrBinanceApiKey params <|> argBinanceApiKey baseArgs)
-                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (abrBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                  urls <- resolveBinanceBaseUrls
-                  let baseUrl = selectBinanceBaseUrl urls testnet market
-                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                  let symbolsRaw =
-                        case abrSymbols params of
-                          Just xs -> map trim xs
-                          Nothing ->
-                            case fmap trim (abrSymbol params) of
-                              Just s | not (null s) -> [s]
-                              _ -> []
-                      symbols = filter (not . null) (dedupeStable (map normalizeSymbol symbolsRaw))
-                      allSymbols = null symbols
-                      limit = abrLimit params
-                      startTime = abrStartTimeMs params
-                      endTime = abrEndTimeMs params
-                      fromId = abrFromId params
-                  if allSymbols && market /= MarketFutures
-                    then respond (jsonError status400 "binance trades require symbol for spot/margin markets")
+            Right _ -> do
+              let testnet = resolveTestnetForListenKey baseArgs (abrBinanceTestnet params)
+              case parseMarketForListenKey baseArgs (abrMarket params) of
+                Left e -> respond (jsonError status400 e)
+                Right market -> do
+                  if market == MarketMargin && testnet
+                    then respond (jsonError status400 "binanceTestnet is not supported for margin operations")
                     else do
-                      trades <- do
-                        if allSymbols
-                          then fetchAccountTrades env Nothing limit startTime endTime fromId
-                          else fmap concat $
-                            mapM
-                              (\sym -> fetchAccountTrades env (Just sym) limit startTime endTime fromId)
-                              symbols
-                      let tradesSorted = sortOn (negate . btTime) trades
-                      now <- getTimestampMs
-                      respond $
-                        jsonValue
-                          status200
-                          ApiBinanceTradesResponse
-                            { abtrMarket = marketCode market
-                            , abtrTestnet = testnet
-                            , abtrSymbols = symbols
-                            , abtrAllSymbols = allSymbols
-                            , abtrTrades = tradesSorted
-                            , abtrFetchedAtMs = now
-                            }
+                      apiKey <- resolveEnv "BINANCE_API_KEY" (abrBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                      apiSecret <- resolveEnv "BINANCE_API_SECRET" (abrBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                      urls <- resolveBinanceBaseUrls
+                      let baseUrl = selectBinanceBaseUrl urls testnet market
+                      env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                      let symbolsRaw =
+                            case abrSymbols params of
+                              Just xs -> map trim xs
+                              Nothing ->
+                                case fmap trim (abrSymbol params) of
+                                  Just s | not (null s) -> [s]
+                                  _ -> []
+                          symbols = filter (not . null) (dedupeStable (map normalizeSymbol symbolsRaw))
+                          allSymbols = null symbols
+                          limit = abrLimit params
+                          startTime = abrStartTimeMs params
+                          endTime = abrEndTimeMs params
+                          fromId = abrFromId params
+                      if allSymbols && market /= MarketFutures
+                        then respond (jsonError status400 "binance trades require symbol for spot/margin markets")
+                        else do
+                          trades <- do
+                            if allSymbols
+                              then fetchAccountTrades env Nothing limit startTime endTime fromId
+                              else fmap concat $
+                                mapM
+                                  (\sym -> fetchAccountTrades env (Just sym) limit startTime endTime fromId)
+                                  symbols
+                          let tradesSorted = sortOn (negate . btTime) trades
+                          now <- getTimestampMs
+                          respond $
+                            jsonValue
+                              status200
+                              ApiBinanceTradesResponse
+                                { abtrMarket = marketCode market
+                                , abtrTestnet = testnet
+                                , abtrSymbols = symbols
+                                , abtrAllSymbols = allSymbols
+                                , abtrTrades = tradesSorted
+                                , abtrFetchedAtMs = now
+                                }
 
 handleBinancePositions :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinancePositions reqLimits mOps baseArgs req respond = do
@@ -12191,69 +12500,72 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
       case payloadOrErr of
         Left resp -> respond resp
         Right params -> do
-          let testnet = resolveTestnetForListenKey baseArgs (abpBinanceTestnet params)
-          case parseMarketForListenKey baseArgs (abpMarket params) of
+          case resolveTenantKeyFromBinancePositionsRequest params of
             Left e -> respond (jsonError status400 e)
-            Right market -> do
-              if market /= MarketFutures
-                then respond (jsonError status400 "binance positions require market=futures")
-                else do
-                  apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
-                  apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
-                  urls <- resolveBinanceBaseUrls
-                  let baseUrl = selectBinanceBaseUrl urls testnet market
-                  env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                  r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
-                  case r of
-                    Left ex ->
-                      let (st, msg) = exceptionToHttp ex
-                       in respond (jsonError st msg)
-                    Right positions -> do
-                      let interval = fromMaybe (argInterval baseArgs) (abpInterval params)
-                          limitRaw = fromMaybe 120 (abpLimit params)
-                          limitSafe = max 10 (min 1000 limitRaw)
-                          openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
-                          toApiPosition p =
-                            ApiBinancePosition
-                              { abpSymbol = fprSymbol p
-                              , abpPositionAmt = fprPositionAmt p
-                              , abpEntryPrice = fprEntryPrice p
-                              , abpMarkPrice = fprMarkPrice p
-                              , abpUnrealizedPnl = fprUnrealizedProfit p
-                              , abpLiquidationPrice = fprLiquidationPrice p
-                              , abpBreakEvenPrice = fprBreakEvenPrice p
-                              , abpLeverage = fprLeverage p
-                              , abpMarginType = fprMarginType p
-                              , abpPositionSide = fprPositionSide p
-                              }
-                      persistBinancePositionsMaybe mOps market openPositions
-                      chartsRaw <-
-                        forM openPositions $ \pos -> do
-                          let sym = fprSymbol pos
-                          kr <- try (fetchKlines env sym interval limitSafe) :: IO (Either SomeException [Kline])
-                          pure $
-                            case kr of
-                              Left _ -> Nothing
-                              Right ks ->
-                                Just
-                                  ApiBinancePositionChart
-                                    { abpcSymbol = sym
-                                    , abpcOpenTimes = map kOpenTime ks
-                                    , abpcPrices = map kClose ks
-                                    }
-                      now <- getTimestampMs
-                      respond $
-                        jsonValue
-                          status200
-                          ApiBinancePositionsResponse
-                            { abprMarket = marketCode market
-                            , abprTestnet = testnet
-                            , abprInterval = interval
-                            , abprLimit = limitSafe
-                            , abprPositions = map toApiPosition openPositions
-                            , abprCharts = catMaybes chartsRaw
-                            , abprFetchedAtMs = now
-                            }
+            Right _ -> do
+              let testnet = resolveTestnetForListenKey baseArgs (abpBinanceTestnet params)
+              case parseMarketForListenKey baseArgs (abpMarket params) of
+                Left e -> respond (jsonError status400 e)
+                Right market -> do
+                  if market /= MarketFutures
+                    then respond (jsonError status400 "binance positions require market=futures")
+                    else do
+                      apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                      apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                      urls <- resolveBinanceBaseUrls
+                      let baseUrl = selectBinanceBaseUrl urls testnet market
+                      env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                      r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
+                      case r of
+                        Left ex ->
+                          let (st, msg) = exceptionToHttp ex
+                           in respond (jsonError st msg)
+                        Right positions -> do
+                          let interval = fromMaybe (argInterval baseArgs) (abpInterval params)
+                              limitRaw = fromMaybe 120 (abpLimit params)
+                              limitSafe = max 10 (min 1000 limitRaw)
+                              openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
+                              toApiPosition p =
+                                ApiBinancePosition
+                                  { abpSymbol = fprSymbol p
+                                  , abpPositionAmt = fprPositionAmt p
+                                  , abpEntryPrice = fprEntryPrice p
+                                  , abpMarkPrice = fprMarkPrice p
+                                  , abpUnrealizedPnl = fprUnrealizedProfit p
+                                  , abpLiquidationPrice = fprLiquidationPrice p
+                                  , abpBreakEvenPrice = fprBreakEvenPrice p
+                                  , abpLeverage = fprLeverage p
+                                  , abpMarginType = fprMarginType p
+                                  , abpPositionSide = fprPositionSide p
+                                  }
+                          persistBinancePositionsMaybe mOps market openPositions
+                          chartsRaw <-
+                            forM openPositions $ \pos -> do
+                              let sym = fprSymbol pos
+                              kr <- try (fetchKlines env sym interval limitSafe) :: IO (Either SomeException [Kline])
+                              pure $
+                                case kr of
+                                  Left _ -> Nothing
+                                  Right ks ->
+                                    Just
+                                      ApiBinancePositionChart
+                                        { abpcSymbol = sym
+                                        , abpcOpenTimes = map kOpenTime ks
+                                        , abpcPrices = map kClose ks
+                                        }
+                          now <- getTimestampMs
+                          respond $
+                            jsonValue
+                              status200
+                              ApiBinancePositionsResponse
+                                { abprMarket = marketCode market
+                                , abprTestnet = testnet
+                                , abprInterval = interval
+                                , abprLimit = limitSafe
+                                , abprPositions = map toApiPosition openPositions
+                                , abprCharts = catMaybes chartsRaw
+                                , abprFetchedAtMs = now
+                                }
 
 handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> TopCombosBacktestCtx -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
@@ -12261,139 +12573,146 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
   case payloadOrErr of
     Left resp -> respond resp
     Right params ->
-      case argsFromApi baseArgs params of
+      let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+      in case resolveTenantKeyFromParams tenantHint (apBinanceApiKey params) (apBinanceApiSecret params) (apCoinbaseApiKey params) (apCoinbaseApiSecret params) (apCoinbaseApiPassphrase params) of
         Left e -> respond (jsonError status400 e)
-        Right args0 -> do
-          let argsBase = args0 { argTradeOnly = True }
-              tradeEnabled = maybe False id (apBotTrade params)
-          symbolsOrErr <- resolveBotSymbols argsBase params
-          let requestedSymbols =
-                case symbolsOrErr of
-                  Left _ -> []
-                  Right syms -> syms
-          orphanSymbols <-
-            if tradeEnabled && platformSupportsLiveBot (argPlatform argsBase)
-              then resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsBase requestedSymbols
-              else pure []
-          let symbols = dedupeStable (requestedSymbols ++ orphanSymbols)
-              errorMsg =
-                case symbolsOrErr of
-                  Left e -> e
-                  Right _ -> "bot/start requires binanceSymbol or botSymbols"
-          if null symbols
-            then respond (jsonError status400 errorMsg)
-            else do
-              let allowExistingBase = length requestedSymbols > 1
-                  orphanNorm = map normalizeSymbol orphanSymbols
-                  allowExistingFor sym = allowExistingBase || normalizeSymbol sym `elem` orphanNorm
-                  noAdoptRequirement = AdoptRequirement False False
-              results <- forM symbols $ \sym -> do
-                let argsSym = argsBase { argBinanceSymbol = Just sym }
-                    allowExisting = allowExistingFor sym
-                adoptReqOrErr <-
-                  if tradeEnabled && platformSupportsLiveBot (argPlatform argsSym)
-                    then resolveAdoptionRequirement mOps argsSym sym
-                    else pure (Right noAdoptRequirement)
-                case adoptReqOrErr of
-                  Left err -> pure (sym, Left err)
-                  Right adoptReq -> do
-                    (argsCombo, mComboUuid) <-
-                      if arActive adoptReq
-                        then pure (argsSym, Nothing)
-                        else applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
-                    case validateApiComputeLimits limits argsCombo of
-                      Left err -> pure (sym, Left err)
-                      Right argsOk -> do
-                        r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq botCtrl argsOk mComboUuid params sym
-                        pure (sym, r)
-
-              let errors =
-                    [ object ["symbol" .= sym, "error" .= err]
-                    | (sym, Left err) <- results
-                    ]
-              statuses <- forM [outcome | (_, Right outcome) <- results] $ \outcome ->
-                case bsoState outcome of
-                  BotStarting rt -> pure (botStartingJson rt)
-                  BotRunning rt -> do
-                    st <- readMVar (brStateVar rt)
-                    pure (botStatusJson st)
-
-              now <- getTimestampMs
-              forM_ [outcome | (_, Right outcome) <- results, bsoStarted outcome] $ \outcome ->
-                case bsoState outcome of
-                  BotStarting rt -> do
-                    let settings = bsrSettings rt
-                    journalWriteMaybe
-                      mJournal
-                      ( object
-                          [ "type" .= ("bot.start" :: String)
-                          , "atMs" .= now
-                          , "symbol" .= bsrSymbol rt
-                          , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
-                          , "interval" .= argInterval (bsrArgs rt)
-                          , "tradeEnabled" .= bsTradeEnabled (bsrSettings rt)
-                          , "protectionOrders" .= bsProtectionOrders (bsrSettings rt)
-                          ]
-                      )
-                    opsAppendMaybe
-                      mOps
-                      "bot.start"
-                      (Just (toJSON (sanitizeApiParams params)))
-                      (Just (argsPublicJson (bsrArgs rt)))
-                      ( Just
-                          ( object
-                              [ "symbol" .= bsrSymbol rt
-                              , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
-                              , "interval" .= argInterval (bsrArgs rt)
-                              , "tradeEnabled" .= bsTradeEnabled settings
-                              , "protectionOrders" .= bsProtectionOrders settings
-                              , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
-                              , "botPollSeconds" .= bsPollSeconds settings
-                              , "botOnlineEpochs" .= bsOnlineEpochs settings
-                              , "botTrainBars" .= bsTrainBars settings
-                              , "botMaxPoints" .= bsMaxPoints settings
-                              ]
-                          )
-                      )
-                      Nothing
-                      Nothing
-                      (Just (T.pack (bsrSymbol rt)))
-                      Nothing
-                  _ -> pure ()
-
-              case (symbols, errors, statuses) of
-                ([_], [], [status]) -> respond (jsonValue status202 status)
-                _ ->
-                  if null statuses
-                    then
-                      case errors of
-                        [] -> respond (jsonError status400 "Failed to start bot.")
-                        errs -> do
-                          let errorMsgFromValue err =
-                                case err of
-                                  Aeson.Object o ->
-                                    case KM.lookup "error" o of
-                                      Just (Aeson.String t) -> Just (T.unpack t)
-                                      _ -> Nothing
-                                  _ -> Nothing
-                              msg =
-                                case errs of
-                                  [err] -> fromMaybe "Failed to start bot." (errorMsgFromValue err)
-                                  _ -> "Failed to start bot."
-                              payload = object ["error" .= msg, "errors" .= errs]
-                          respond (jsonValue status400 payload)
+        Right mTenant ->
+          case requireTenantKey "bot/start" mTenant of
+            Left e -> respond (jsonError status400 e)
+            Right tenantKey ->
+              case argsFromApi baseArgs params of
+                Left e -> respond (jsonError status400 e)
+                Right args0 -> do
+                  let argsBase = args0 { argTradeOnly = True }
+                      tradeEnabled = maybe False id (apBotTrade params)
+                  symbolsOrErr <- resolveBotSymbols argsBase params
+                  let requestedSymbols =
+                        case symbolsOrErr of
+                          Left _ -> []
+                          Right syms -> syms
+                  orphanSymbols <-
+                    if tradeEnabled && platformSupportsLiveBot (argPlatform argsBase)
+                      then resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsBase requestedSymbols
+                      else pure []
+                  let symbols = dedupeStable (requestedSymbols ++ orphanSymbols)
+                      errorMsg =
+                        case symbolsOrErr of
+                          Left e -> e
+                          Right _ -> "bot/start requires binanceSymbol or botSymbols"
+                  if null symbols
+                    then respond (jsonError status400 errorMsg)
                     else do
-                      let base = botStatusJsonMulti statuses
-                          payload =
-                            case base of
-                              Aeson.Object o ->
-                                let o' =
-                                      if null errors
-                                        then o
-                                        else KM.insert "errors" (toJSON errors) o
-                                 in Aeson.Object o'
-                              _ -> base
-                      respond (jsonValue status202 payload)
+                      let allowExistingBase = length requestedSymbols > 1
+                          orphanNorm = map normalizeSymbol orphanSymbols
+                          allowExistingFor sym = allowExistingBase || normalizeSymbol sym `elem` orphanNorm
+                          noAdoptRequirement = AdoptRequirement False False
+                      results <- forM symbols $ \sym -> do
+                        let argsSym = argsBase { argBinanceSymbol = Just sym }
+                            allowExisting = allowExistingFor sym
+                        adoptReqOrErr <-
+                          if tradeEnabled && platformSupportsLiveBot (argPlatform argsSym)
+                            then resolveAdoptionRequirement mOps argsSym sym
+                            else pure (Right noAdoptRequirement)
+                        case adoptReqOrErr of
+                          Left err -> pure (sym, Left err)
+                          Right adoptReq -> do
+                            (argsCombo, mComboUuid) <-
+                              if arActive adoptReq
+                                then pure (argsSym, Nothing)
+                                else applyLatestTopCombo optimizerTmp limits sym argsSym adoptReq
+                            case validateApiComputeLimits limits argsCombo of
+                              Left err -> pure (sym, Left err)
+                              Right argsOk -> do
+                                r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid params sym
+                                pure (sym, r)
+
+                      let errors =
+                            [ object ["symbol" .= sym, "error" .= err]
+                            | (sym, Left err) <- results
+                            ]
+                      statuses <- forM [outcome | (_, Right outcome) <- results] $ \outcome ->
+                        case bsoState outcome of
+                          BotStarting rt -> pure (botStartingJson rt)
+                          BotRunning rt -> do
+                            st <- readMVar (brStateVar rt)
+                            pure (botStatusJson st)
+
+                      now <- getTimestampMs
+                      forM_ [outcome | (_, Right outcome) <- results, bsoStarted outcome] $ \outcome ->
+                        case bsoState outcome of
+                          BotStarting rt -> do
+                            let settings = bsrSettings rt
+                            journalWriteMaybe
+                              mJournal
+                              ( object
+                                  [ "type" .= ("bot.start" :: String)
+                                  , "atMs" .= now
+                                  , "symbol" .= bsrSymbol rt
+                                  , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
+                                  , "interval" .= argInterval (bsrArgs rt)
+                                  , "tradeEnabled" .= bsTradeEnabled (bsrSettings rt)
+                                  , "protectionOrders" .= bsProtectionOrders (bsrSettings rt)
+                                  ]
+                              )
+                            opsAppendMaybe
+                              mOps
+                              "bot.start"
+                              (Just (toJSON (sanitizeApiParams params)))
+                              (Just (argsPublicJson (bsrArgs rt)))
+                              ( Just
+                                  ( object
+                                      [ "symbol" .= bsrSymbol rt
+                                      , "market" .= marketCode (argBinanceMarket (bsrArgs rt))
+                                      , "interval" .= argInterval (bsrArgs rt)
+                                      , "tradeEnabled" .= bsTradeEnabled settings
+                                      , "protectionOrders" .= bsProtectionOrders settings
+                                      , "botAdoptExistingPosition" .= bsAdoptExistingPosition settings
+                                      , "botPollSeconds" .= bsPollSeconds settings
+                                      , "botOnlineEpochs" .= bsOnlineEpochs settings
+                                      , "botTrainBars" .= bsTrainBars settings
+                                      , "botMaxPoints" .= bsMaxPoints settings
+                                      ]
+                                  )
+                              )
+                              Nothing
+                              Nothing
+                              (Just (T.pack (bsrSymbol rt)))
+                              Nothing
+                          _ -> pure ()
+
+                      case (symbols, errors, statuses) of
+                        ([_], [], [status]) -> respond (jsonValue status202 status)
+                        _ ->
+                          if null statuses
+                            then
+                              case errors of
+                                [] -> respond (jsonError status400 "Failed to start bot.")
+                                errs -> do
+                                  let errorMsgFromValue err =
+                                        case err of
+                                          Aeson.Object o ->
+                                            case KM.lookup "error" o of
+                                              Just (Aeson.String t) -> Just (T.unpack t)
+                                              _ -> Nothing
+                                          _ -> Nothing
+                                      msg =
+                                        case errs of
+                                          [err] -> fromMaybe "Failed to start bot." (errorMsgFromValue err)
+                                          _ -> "Failed to start bot."
+                                      payload = object ["error" .= msg, "errors" .= errs]
+                                  respond (jsonValue status400 payload)
+                            else do
+                              let base = botStatusJsonMulti statuses
+                                  payload =
+                                    case base of
+                                      Aeson.Object o ->
+                                        let o' =
+                                              if null errors
+                                                then o
+                                                else KM.insert "errors" (toJSON errors) o
+                                         in Aeson.Object o'
+                                      _ -> base
+                              respond (jsonValue status202 payload)
 
 handleBotStop :: Maybe OpsStore -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
@@ -12401,44 +12720,47 @@ handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
         case lookup (BS.pack "symbol") (Wai.queryString req) of
           Just (Just raw) -> Just (BS.unpack raw)
           _ -> Nothing
-  stopped <- botStop botCtrl mSymbol
-  now <- getTimestampMs
-  let stoppedSymbols = map botSymbol stopped
-      mStopSymbol =
-        case stoppedSymbols of
-          [sym] -> Just (T.pack sym)
-          _ -> Nothing
-  journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now, "symbols" .= stoppedSymbols])
-  opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing Nothing mStopSymbol Nothing
-  forM_ stopped (botStatusLogMaybe mOps False)
-  webhookNotifyMaybe mWebhook (webhookEventBotStop stoppedSymbols)
+  case requireTenantKey "bot/stop" (tenantKeyFromRequest req) of
+    Left e -> respond (jsonError status400 e)
+    Right tenantKey -> do
+      stopped <- botStop botCtrl tenantKey mSymbol
+      now <- getTimestampMs
+      let stoppedSymbols = map botSymbol stopped
+          mStopSymbol =
+            case stoppedSymbols of
+              [sym] -> Just (T.pack sym)
+              _ -> Nothing
+      journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now, "symbols" .= stoppedSymbols])
+      opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing Nothing mStopSymbol Nothing
+      forM_ stopped (botStatusLogMaybe mOps False)
+      webhookNotifyMaybe mWebhook (webhookEventBotStop stoppedSymbols)
 
-  let snaps =
-        [ BotStatusSnapshot
-            { bssSavedAtMs = now
-            , bssStatus = botStatusJson st
-            }
-        | st <- stopped
-        ]
-  forM_ stopped $ \st -> do
-    let snap =
-          BotStatusSnapshot
-            { bssSavedAtMs = now
-            , bssStatus = botStatusJson st
-            }
-    writeBotStatusSnapshotMaybe mBotStateDir (botSymbol st) snap
+      let snaps =
+            [ BotStatusSnapshot
+                { bssSavedAtMs = now
+                , bssStatus = botStatusJson st
+                }
+            | st <- stopped
+            ]
+      forM_ stopped $ \st -> do
+        let snap =
+              BotStatusSnapshot
+                { bssSavedAtMs = now
+                , bssStatus = botStatusJson st
+                }
+        writeBotStatusSnapshotMaybe mBotStateDir tenantKey (botSymbol st) snap
 
-  case snaps of
-    [] -> do
-      case mSymbol of
-        Nothing -> respond (jsonValue status200 botStoppedJson)
-        Just sym -> do
-          mSnap <- readBotStatusSnapshotMaybe mBotStateDir sym
-          case mSnap of
+      case snaps of
+        [] -> do
+          case mSymbol of
             Nothing -> respond (jsonValue status200 botStoppedJson)
-            Just snap -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
-    [snap] -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
-    _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
+            Just sym -> do
+              mSnap <- readBotStatusSnapshotMaybe mBotStateDir tenantKey sym
+              case mSnap of
+                Nothing -> respond (jsonValue status200 botStoppedJson)
+                Just snap -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
+        [snap] -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
+        _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
 
 handleBotStatus :: ApiRequestLimits -> BotController -> Maybe FilePath -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStatus reqLimits botCtrl mBotStateDir req respond = do
@@ -12453,47 +12775,51 @@ handleBotStatus reqLimits botCtrl mBotStateDir req respond = do
           Just (Just raw) -> Just (BS.unpack raw)
           _ -> Nothing
 
-  case mSymbol of
-    Just sym -> do
-      mSt <- botGetStateFor botCtrl sym
-      case mSt of
-        Just st -> do
-          let st' = maybe st (`botStateTail` st) tailN
-          respond (jsonValue status200 (botStatusJson st'))
+  case requireTenantKey "bot/status" (tenantKeyFromRequest req) of
+    Left e -> respond (jsonError status400 e)
+    Right tenantKey ->
+      case mSymbol of
+        Just sym -> do
+          mSt <- botGetStateFor botCtrl tenantKey sym
+          case mSt of
+            Just st -> do
+              let st' = maybe st (`botStateTail` st) tailN
+              respond (jsonValue status200 (botStatusJson st'))
+            Nothing -> do
+              mSnap <- readBotStatusSnapshotMaybe mBotStateDir tenantKey sym
+              case mSnap of
+                Nothing -> respond (jsonValue status200 botStoppedJson)
+                Just snap -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
         Nothing -> do
-          mSnap <- readBotStatusSnapshotMaybe mBotStateDir sym
-          case mSnap of
-            Nothing -> respond (jsonValue status200 botStoppedJson)
-            Just snap -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
-    Nothing -> do
-      mrt <- readMVar (bcRuntime botCtrl)
-      if HM.null mrt
-        then do
-          snaps <- readBotStatusSnapshotsMaybe mBotStateDir
-          case snaps of
-            [] -> respond (jsonValue status200 botStoppedJson)
-            [snap] -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
-            _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
-        else do
-          let entries = sortOn fst (HM.toList mrt)
-          case entries of
-            [(_sym, state)] ->
-              case state of
-                BotStarting rt -> respond (jsonValue status200 (botStartingJson rt))
-                BotRunning rt -> do
-                  st <- readMVar (brStateVar rt)
-                  let st' = maybe st (`botStateTail` st) tailN
-                  respond (jsonValue status200 (botStatusJson st'))
-            _ -> do
-              statuses <-
-                forM entries $ \(_sym, state) ->
+          mrt <- readMVar (bcRuntime botCtrl)
+          let tenantMap = fromMaybe HM.empty (HM.lookup tenantKey mrt)
+          if HM.null tenantMap
+            then do
+              snaps <- readBotStatusSnapshotsMaybe mBotStateDir tenantKey
+              case snaps of
+                [] -> respond (jsonValue status200 botStoppedJson)
+                [snap] -> respond (jsonValue status200 (botStoppedSnapshotJson snap))
+                _ -> respond (jsonValue status200 (botStoppedMultiJson snaps))
+            else do
+              let entries = sortOn fst (HM.toList tenantMap)
+              case entries of
+                [(_sym, state)] ->
                   case state of
-                    BotStarting rt -> pure (botStartingJson rt)
+                    BotStarting rt -> respond (jsonValue status200 (botStartingJson rt))
                     BotRunning rt -> do
                       st <- readMVar (brStateVar rt)
                       let st' = maybe st (`botStateTail` st) tailN
-                      pure (botStatusJson st')
-              respond (jsonValue status200 (botStatusJsonMulti statuses))
+                      respond (jsonValue status200 (botStatusJson st'))
+                _ -> do
+                  statuses <-
+                    forM entries $ \(_sym, state) ->
+                      case state of
+                        BotStarting rt -> pure (botStartingJson rt)
+                        BotRunning rt -> do
+                          st <- readMVar (brStateVar rt)
+                          let st' = maybe st (`botStateTail` st) tailN
+                          pure (botStatusJson st')
+                  respond (jsonValue status200 (botStatusJsonMulti statuses))
 
 argsFromApi :: Args -> ApiParams -> Either String Args
 argsFromApi baseArgs p = do
@@ -12911,6 +13237,7 @@ computeBinanceKeysStatusFromArgs mOps args = do
       market = argBinanceMarket args
       sym = argBinanceSymbol args
       mSym = normalizeBinanceSymbolForKeys sym
+      tenantKey = fmap T.unpack (tenantKeyFromBinanceKeys apiKey apiSecret)
       baseStatus =
         ApiBinanceKeysStatus
           { abkMarket = marketCode market
@@ -12918,6 +13245,7 @@ computeBinanceKeysStatusFromArgs mOps args = do
           , abkSymbol = sym
           , abkHasApiKey = hasApiKey
           , abkHasApiSecret = hasApiSecret
+          , abkTenantKey = tenantKey
           , abkSigned = Nothing
           , abkTradeTest = Nothing
           }
@@ -13172,11 +13500,13 @@ computeCoinbaseKeysStatusFromArgs args = do
       hasApiKey = isJust apiKey
       hasApiSecret = isJust apiSecret
       hasApiPassphrase = isJust apiPassphrase
+      tenantKey = fmap T.unpack (tenantKeyFromCoinbaseKeys apiKey apiSecret apiPassphrase)
       baseStatus =
         ApiCoinbaseKeysStatus
           { ackHasApiKey = hasApiKey
           , ackHasApiSecret = hasApiSecret
           , ackHasApiPassphrase = hasApiPassphrase
+          , ackTenantKey = tenantKey
           , ackSigned = Nothing
           }
 

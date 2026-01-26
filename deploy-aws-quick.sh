@@ -41,6 +41,7 @@ TRADER_STATE_S3_BUCKET_SET="${TRADER_STATE_S3_BUCKET+true}"
 TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
 TRADER_STATE_S3_REGION="${TRADER_STATE_S3_REGION:-}"
+TRADER_BINANCE_PROXY_URL="${TRADER_BINANCE_PROXY_URL:-}"
 TRADER_BOT_SYMBOLS="${TRADER_BOT_SYMBOLS:-}"
 TRADER_BOT_SYMBOL="${TRADER_BOT_SYMBOL:-}"
 TRADER_BOT_TRADE="${TRADER_BOT_TRADE:-true}"
@@ -146,6 +147,7 @@ Environment variables (equivalents):
   TRADER_STATE_S3_BUCKET
   TRADER_STATE_S3_PREFIX
   TRADER_STATE_S3_REGION
+  TRADER_BINANCE_PROXY_URL
   TRADER_API_MAX_BARS_LSTM
   TRADER_API_MAX_EPOCHS
   TRADER_API_MAX_HIDDEN_SIZE
@@ -1314,6 +1316,24 @@ create_app_runner() {
     fi
   fi
 
+  if [[ -z "${TRADER_BINANCE_PROXY_URL:-}" && -n "$existing_service_arn" ]]; then
+    local existing_proxy_url=""
+    existing_proxy_url="$(
+      aws apprunner describe-service \
+        --service-arn "$existing_service_arn" \
+        --region "$AWS_REGION" \
+        --query 'Service.SourceConfiguration.ImageRepository.ImageConfiguration.RuntimeEnvironmentVariables.TRADER_BINANCE_PROXY_URL' \
+        --output text 2>/dev/null || true
+    )"
+    if [[ "$existing_proxy_url" == "None" ]]; then
+      existing_proxy_url=""
+    fi
+    if [[ -n "$existing_proxy_url" ]]; then
+      TRADER_BINANCE_PROXY_URL="$existing_proxy_url"
+      echo -e "${YELLOW}✓ Reusing existing TRADER_BINANCE_PROXY_URL from service${NC}" >&2
+    fi
+  fi
+
   if [[ -z "${TRADER_OPTIMIZER_ENABLED:-}" && -n "$existing_service_arn" ]]; then
     local existing_optimizer_enabled=""
     existing_optimizer_enabled="$(
@@ -1552,6 +1572,9 @@ create_app_runner() {
   fi
   if [[ -n "${TRADER_DB_URL:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_DB_URL\":\"${TRADER_DB_URL}\""
+  fi
+  if [[ -n "${TRADER_BINANCE_PROXY_URL:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_BINANCE_PROXY_URL\":\"${TRADER_BINANCE_PROXY_URL}\""
   fi
   if [[ -n "${TRADER_CORS_ORIGIN:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_CORS_ORIGIN\":\"${TRADER_CORS_ORIGIN}\""
@@ -2175,6 +2198,11 @@ main() {
     echo "  State Dir: ${TRADER_STATE_DIR}"
   else
     echo "  State Dir: (disabled)"
+  fi
+  if [[ -n "${TRADER_BINANCE_PROXY_URL:-}" ]]; then
+    echo "  Binance Proxy: (set)"
+  else
+    echo "  Binance Proxy: (not set)"
   fi
   if [[ -n "${TRADER_STATE_S3_BUCKET:-}" ]]; then
     echo "  State S3 Bucket: ${TRADER_STATE_S3_BUCKET}"

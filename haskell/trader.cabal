@@ -56,6 +56,7 @@ executable trader-hs
                      , directory
                      , filepath
                      , memory
+                     , network-uri
                      , http-client
                      , http-client-tls
                      , http-types

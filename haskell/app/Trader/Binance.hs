@@ -64,17 +64,21 @@ import Data.Text.Encoding.Error (lenientDecode)
 import Data.Time.Clock (NominalDiffTime)
 import qualified Data.Vector as V
 import Network.HTTP.Client
+import Network.HTTP.Types.Header (hProxyAuthorization)
 import Network.HTTP.Types.URI (parseQuery, renderSimpleQuery)
 import Network.HTTP.Types.Status (statusCode)
+import Network.URI (URI(..), URIAuth(..), parseURI)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Crypto.Hash.Algorithms (SHA256)
 import Data.ByteArray (convert)
+import Data.ByteArray.Encoding (Base(Base64), convertToBase)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Numeric (showFFloat)
 import Text.Read (readMaybe)
 import Trader.Text (normalizeKey)
 import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
+import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
 
 data BinanceEnv = BinanceEnv
@@ -84,7 +88,13 @@ data BinanceEnv = BinanceEnv
   , beApiKey :: Maybe BS.ByteString
   , beApiSecret :: Maybe BS.ByteString
   , beLogger :: Maybe (BinanceLog -> IO ())
+  , beProxy :: Maybe BinanceProxy
   }
+
+data BinanceProxy = BinanceProxy
+  { bpProxy :: !Proxy
+  , bpAuthHeader :: !(Maybe BS.ByteString)
+  } deriving (Eq, Show)
 
 data BinanceLog = BinanceLog
   { blAtMs :: !Int64
@@ -245,11 +255,85 @@ binanceKlinesStaleTtl = 60
 newBinanceEnv :: BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnv market baseUrl apiKey apiSecret = do
   mgr <- newHttpManager
-  pure BinanceEnv { beManager = mgr, beBaseUrl = baseUrl, beMarket = market, beApiKey = apiKey, beApiSecret = apiSecret, beLogger = Nothing }
+  proxyCfg <- resolveBinanceProxy
+  pure
+    BinanceEnv
+      { beManager = mgr
+      , beBaseUrl = baseUrl
+      , beMarket = market
+      , beApiKey = apiKey
+      , beApiSecret = apiSecret
+      , beLogger = Nothing
+      , beProxy = proxyCfg
+      }
+
+resolveBinanceProxy :: IO (Maybe BinanceProxy)
+resolveBinanceProxy = do
+  mRaw <- lookupEnv "TRADER_BINANCE_PROXY_URL"
+  pure (mRaw >>= parseBinanceProxy)
+
+parseBinanceProxy :: String -> Maybe BinanceProxy
+parseBinanceProxy raw = do
+  let trimmed = trimString raw
+  if null trimmed then Nothing else do
+    uri <- parseURI trimmed
+    auth <- uriAuthority uri
+    let hostName = uriRegName auth
+        portNum = parseProxyPort (uriPort auth)
+    if null hostName || portNum <= 0
+      then Nothing
+      else
+        let proxyCfg = Proxy (BS.pack hostName) portNum
+            authHeader = parseUserInfo (uriUserInfo auth) >>= proxyAuthHeader
+         in Just BinanceProxy { bpProxy = proxyCfg, bpAuthHeader = authHeader }
+
+parseProxyPort :: String -> Int
+parseProxyPort portRaw =
+  case portRaw of
+    "" -> 3128
+    ':' : rest ->
+      case readMaybe rest of
+        Just n | n > 0 -> n
+        _ -> 0
+    _ -> 0
+
+parseUserInfo :: String -> Maybe (String, String)
+parseUserInfo raw =
+  let trimmed = dropWhileEnd (== '@') raw
+   in if null trimmed
+        then Nothing
+        else
+          case break (== ':') trimmed of
+            (u, ':' : p) -> Just (u, p)
+            (u, "") -> Just (u, "")
+
+proxyAuthHeader :: (String, String) -> Maybe BS.ByteString
+proxyAuthHeader (user, pass) =
+  if null user
+    then Nothing
+    else
+      let raw = BS.pack (user ++ ":" ++ pass)
+          encoded = convertToBase Base64 raw
+       in Just (BS.concat ["Basic ", encoded])
+
+trimString :: String -> String
+trimString = dropWhileEnd isSpace . dropWhile isSpace
+
+applyBinanceProxy :: BinanceEnv -> Request -> Request
+applyBinanceProxy env req =
+  case beProxy env of
+    Nothing -> req
+    Just proxyCfg ->
+      let headers =
+            case bpAuthHeader proxyCfg of
+              Nothing -> requestHeaders req
+              Just authVal -> (hProxyAuthorization, authVal) : requestHeaders req
+       in req { proxy = Just (bpProxy proxyCfg), requestHeaders = headers }
 
 binanceHttp :: BinanceEnv -> String -> Request -> IO (Response BL.ByteString)
-binanceHttp env label req = do
+binanceHttp env label req0 = do
   t0 <- getTimestampMs
+  let req = applyBinanceProxy env req0
   respOrErr <- try (httpLbsWithRetry defaultRetryConfig Nothing (beManager env) req) :: IO (Either SomeException (Response BL.ByteString))
   t1 <- getTimestampMs
   let latencyMs = max 0 (fromIntegral (t1 - t0) :: Int)

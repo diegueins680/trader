@@ -789,7 +789,7 @@ export async function coinbaseKeysStatus(
   );
 }
 
-type BinanceListenKeyStartParams = Pick<ApiParams, "market" | "binanceTestnet" | "binanceApiKey" | "binanceApiSecret">;
+type BinanceListenKeyStartParams = Pick<ApiParams, "market" | "binanceTestnet" | "binanceApiKey" | "binanceApiSecret" | "tenantKey">;
 type BinanceListenKeyActionParams = BinanceListenKeyStartParams & { listenKey: string };
 
 export async function binanceListenKey(baseUrl: string, params: BinanceListenKeyStartParams, opts?: FetchJsonOptions): Promise<BinanceListenKeyResponse> {
@@ -886,16 +886,26 @@ export async function botStart(baseUrl: string, params: ApiParams, opts?: FetchJ
   );
 }
 
-export async function botStop(baseUrl: string, opts?: FetchJsonOptions, symbol?: string): Promise<BotStatus> {
-  const path = symbol ? `/bot/stop?symbol=${encodeURIComponent(symbol)}` : "/bot/stop";
+export async function botStop(baseUrl: string, opts?: FetchJsonOptions, symbol?: string, tenantKey?: string): Promise<BotStatus> {
+  const query = new URLSearchParams();
+  if (symbol) query.set("symbol", symbol);
+  if (tenantKey) query.set("tenantKey", tenantKey);
+  const path = query.size > 0 ? `/bot/stop?${query.toString()}` : "/bot/stop";
   return fetchJson<BotStatus>(baseUrl, path, { method: "POST" }, opts);
 }
 
-export async function botStatus(baseUrl: string, opts?: FetchJsonOptions, tail?: number, symbol?: string): Promise<BotStatus> {
+export async function botStatus(
+  baseUrl: string,
+  opts?: FetchJsonOptions,
+  tail?: number,
+  symbol?: string,
+  tenantKey?: string,
+): Promise<BotStatus> {
   const tailSafe = typeof tail === "number" && Number.isFinite(tail) ? Math.trunc(tail) : 0;
   const query = new URLSearchParams();
   if (tailSafe > 0) query.set("tail", String(tailSafe));
   if (symbol) query.set("symbol", symbol);
+  if (tenantKey) query.set("tenantKey", tenantKey);
   const path = query.size > 0 ? `/bot/status?${query.toString()}` : "/bot/status";
   return fetchJson<BotStatus>(baseUrl, path, { method: "GET" }, opts);
 }
@@ -952,20 +962,26 @@ export async function optimizerRun(
   );
 }
 
-export async function stateSyncExport(baseUrl: string, opts?: FetchJsonOptions): Promise<StateSyncPayload> {
+export async function stateSyncExport(baseUrl: string, opts?: FetchJsonOptions & { tenantKey?: string }): Promise<StateSyncPayload> {
   const mergedOpts = { ...opts, allowFallback: false };
-  return fetchJson<StateSyncPayload>(baseUrl, "/state/sync", { method: "GET" }, mergedOpts);
+  const query = new URLSearchParams();
+  if (opts?.tenantKey) query.set("tenantKey", opts.tenantKey);
+  const path = query.size > 0 ? `/state/sync?${query.toString()}` : "/state/sync";
+  return fetchJson<StateSyncPayload>(baseUrl, path, { method: "GET" }, mergedOpts);
 }
 
 export async function stateSyncImport(
   baseUrl: string,
   payload: StateSyncPayload,
-  opts?: FetchJsonOptions,
+  opts?: FetchJsonOptions & { tenantKey?: string },
 ): Promise<StateSyncImportResponse> {
   const mergedOpts = { ...opts, allowFallback: false };
+  const query = new URLSearchParams();
+  if (opts?.tenantKey) query.set("tenantKey", opts.tenantKey);
+  const path = query.size > 0 ? `/state/sync?${query.toString()}` : "/state/sync";
   return fetchJson<StateSyncImportResponse>(
     baseUrl,
-    "/state/sync",
+    path,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -57,6 +57,7 @@ import {
   signal,
   trade,
 } from "./lib/api";
+import { buildTenantKey } from "./lib/tenant";
 import { copyText } from "./lib/clipboard";
 import { TRADER_UI_CONFIG } from "./lib/deployConfig";
 import { readJson, readLocalString, readSessionString, removeLocalKey, removeSessionKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
@@ -446,6 +447,8 @@ export function App() {
     const session = readSessionString(SESSION_COINBASE_PASSPHRASE_KEY) ?? "";
     return persistSecrets ? persisted || session : session;
   });
+  const [binanceTenantKey, setBinanceTenantKey] = useState<string | null>(null);
+  const [coinbaseTenantKey, setCoinbaseTenantKey] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(() => normalizeFormState(readJson<FormStateJson>(STORAGE_KEY)));
   const [customSymbolByPlatform, setCustomSymbolByPlatform] = useState<Record<Platform, string>>(() => ({
     binance: defaultForm.binanceSymbol,
@@ -500,6 +503,19 @@ export function App() {
         ? Boolean(binanceApiKey.trim() || binanceApiSecret.trim())
         : false;
   const binanceKeyLocalReady = Boolean(binanceApiKey.trim() && binanceApiSecret.trim());
+  const binanceTenantKeyFromStatus = useMemo(() => {
+    if (keys.platform !== "binance" || !keys.status || !isBinanceKeysStatus(keys.status)) return null;
+    const raw = keys.status.tenantKey?.trim();
+    return raw ? raw : null;
+  }, [keys.platform, keys.status]);
+  const coinbaseTenantKeyFromStatus = useMemo(() => {
+    if (keys.platform !== "coinbase" || !keys.status || !isCoinbaseKeysStatus(keys.status)) return null;
+    const raw = keys.status.tenantKey?.trim();
+    return raw ? raw : null;
+  }, [keys.platform, keys.status]);
+  const binanceTenantKeyResolved = binanceTenantKey ?? binanceTenantKeyFromStatus;
+  const coinbaseTenantKeyResolved = coinbaseTenantKey ?? coinbaseTenantKeyFromStatus;
+  const activeTenantKey = isBinancePlatform ? binanceTenantKeyResolved : isCoinbasePlatform ? coinbaseTenantKeyResolved : null;
   const normalizedSymbol = form.binanceSymbol.trim().toUpperCase();
   const symbolFormatError = useMemo(() => {
     if (!normalizedSymbol) return null;
@@ -1271,6 +1287,53 @@ export function App() {
   }, [coinbaseApiPassphrase, persistSecrets]);
 
   useEffect(() => {
+    let cancelled = false;
+    const key = binanceApiKey.trim();
+    const secret = binanceApiSecret.trim();
+    if (!key || !secret) {
+      setBinanceTenantKey(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void (async () => {
+      try {
+        const next = await buildTenantKey("binance", key, secret);
+        if (!cancelled) setBinanceTenantKey(next);
+      } catch {
+        if (!cancelled) setBinanceTenantKey(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [binanceApiKey, binanceApiSecret]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const key = coinbaseApiKey.trim();
+    const secret = coinbaseApiSecret.trim();
+    const passphrase = coinbaseApiPassphrase.trim();
+    if (!key || !secret || !passphrase) {
+      setCoinbaseTenantKey(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    void (async () => {
+      try {
+        const next = await buildTenantKey("coinbase", key, secret, passphrase);
+        if (!cancelled) setCoinbaseTenantKey(next);
+      } catch {
+        if (!cancelled) setCoinbaseTenantKey(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [coinbaseApiKey, coinbaseApiPassphrase, coinbaseApiSecret]);
+
+  useEffect(() => {
     const v = stateSyncTargetToken.trim();
     if (persistSecrets) {
       if (!v) removeLocalKey(STORAGE_STATE_SYNC_TOKEN_KEY);
@@ -1607,7 +1670,12 @@ export function App() {
   const exportStateSync = useCallback(async (): Promise<StateSyncPayload | null> => {
     setStateSyncUi((prev) => ({ ...prev, exporting: true, exportError: null }));
     try {
-      const out = await stateSyncExport(apiBase, { headers: authHeaders, timeoutMs: 30_000 });
+      if (!activeTenantKey) {
+        const msg = "Tenant key required. Add API keys (or check keys) to export state.";
+        setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: msg }));
+        return null;
+      }
+      const out = await stateSyncExport(apiBase, { headers: authHeaders, timeoutMs: 30_000, tenantKey: activeTenantKey });
       setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: null, payload: out, exportedAtMs: Date.now() }));
       appendDataLog("State Sync Export", out);
       setApiOk("ok");
@@ -1624,7 +1692,7 @@ export function App() {
       appendDataLog("State Sync Export Error", buildDataLogError(e, msg), { error: true });
       return null;
     }
-  }, [apiBase, appendDataLog, authHeaders, buildDataLogError, showToast]);
+  }, [activeTenantKey, apiBase, appendDataLog, authHeaders, buildDataLogError, showToast]);
 
   const sendStateSync = useCallback(
     async (payloadOverride?: StateSyncPayload | null) => {
@@ -1644,7 +1712,11 @@ export function App() {
       }
       setStateSyncUi((prev) => ({ ...prev, pushing: true, pushError: null }));
       try {
-        const out = await stateSyncImport(targetBase, payload, { headers: stateSyncTargetHeaders, timeoutMs: 30_000 });
+        const out = await stateSyncImport(targetBase, payload, {
+          headers: stateSyncTargetHeaders,
+          timeoutMs: 30_000,
+          tenantKey: activeTenantKey ?? undefined,
+        });
         setStateSyncUi((prev) => ({ ...prev, pushing: false, pushError: null, pushResult: out, pushedAtMs: Date.now() }));
         appendDataLog("State Sync Push", { target: stateSyncTargetAbsolute || targetBase, response: out });
         showToast("State sync sent");
@@ -1660,6 +1732,7 @@ export function App() {
       }
     },
     [
+      activeTenantKey,
       appendDataLog,
       buildDataLogError,
       showToast,
@@ -2001,7 +2074,9 @@ export function App() {
     }
 
     try {
-      await botStatus(apiBase, { timeoutMs: 10_000, headers: authHeaders });
+      if (activeTenantKey) {
+        await botStatus(apiBase, { timeoutMs: 10_000, headers: authHeaders }, undefined, undefined, activeTenantKey);
+      }
       setApiOk("ok");
       showToast("API online");
     } catch (e) {
@@ -2014,7 +2089,7 @@ export function App() {
       setApiOk("down");
       showToast(isTimeoutError(e) ? "API request timed out" : "API unreachable");
     }
-  }, [apiBase, apiToken, appendDataLog, authHeaders, buildDataLogError, showToast]);
+  }, [activeTenantKey, apiBase, apiToken, appendDataLog, authHeaders, buildDataLogError, showToast]);
 
   const refreshCacheStats = useCallback(async () => {
     setCacheUi((s) => ({ ...s, loading: true, error: null }));
@@ -2268,14 +2343,16 @@ export function App() {
       if (form.platform !== "binance") return p;
       const key = binanceApiKey.trim();
       const secret = binanceApiSecret.trim();
-      if (!key && !secret) return p;
+      const tenantKey = binanceTenantKeyResolved?.trim();
+      if (!key && !secret && !tenantKey) return p;
       return {
         ...p,
+        ...(tenantKey ? { tenantKey } : {}),
         ...(key ? { binanceApiKey: key } : {}),
         ...(secret ? { binanceApiSecret: secret } : {}),
       };
     },
-    [binanceApiKey, binanceApiSecret, form.platform],
+    [binanceApiKey, binanceApiSecret, binanceTenantKeyResolved, form.platform],
   );
 
   const withPlatformKeys = useCallback(
@@ -2285,15 +2362,25 @@ export function App() {
       const key = coinbaseApiKey.trim();
       const secret = coinbaseApiSecret.trim();
       const passphrase = coinbaseApiPassphrase.trim();
-      if (!key && !secret && !passphrase) return p;
+      const tenantKey = coinbaseTenantKeyResolved?.trim();
+      if (!key && !secret && !passphrase && !tenantKey) return p;
       return {
         ...p,
+        ...(tenantKey ? { tenantKey } : {}),
         ...(key ? { coinbaseApiKey: key } : {}),
         ...(secret ? { coinbaseApiSecret: secret } : {}),
         ...(passphrase ? { coinbaseApiPassphrase: passphrase } : {}),
       };
     },
-    [coinbaseApiKey, coinbaseApiPassphrase, coinbaseApiSecret, isBinancePlatform, isCoinbasePlatform, withBinanceKeys],
+    [
+      coinbaseApiKey,
+      coinbaseApiPassphrase,
+      coinbaseApiSecret,
+      coinbaseTenantKeyResolved,
+      isBinancePlatform,
+      isCoinbasePlatform,
+      withBinanceKeys,
+    ],
   );
 
   const keysParams: ApiParams = useMemo(() => {
@@ -3373,8 +3460,13 @@ export function App() {
       listenKeyStreamAbortRef.current = controller;
 
       try {
+        const tenantKey = binanceTenantKeyResolved?.trim();
+        if (!tenantKey) {
+          throw new Error("Tenant key required. Add Binance API keys (or check keys) to open the listen key stream.");
+        }
         const requestHeaders = { ...(authHeaders ?? {}), Accept: "text/event-stream" };
-        const res = await fetch(`${apiBase}/binance/listenKey/stream`, {
+        const url = `${apiBase}/binance/listenKey/stream?tenantKey=${encodeURIComponent(tenantKey)}`;
+        const res = await fetch(url, {
           method: "GET",
           headers: requestHeaders,
           signal: controller.signal,
@@ -3449,7 +3541,7 @@ export function App() {
         }
       }
     },
-    [apiBase, authHeaders, showToast],
+    [apiBase, authHeaders, binanceTenantKeyResolved, showToast],
   );
 
   const startListenKeyStream = useCallback(
@@ -3536,6 +3628,11 @@ export function App() {
       if (!silent) setBot((s) => ({ ...s, loading: true, error: null }));
 
       try {
+        if (!activeTenantKey) {
+          const msg = "Tenant key required. Add API keys (or check keys) to load bot status.";
+          if (!silent) setBot((s) => ({ ...s, loading: false, error: msg }));
+          return;
+        }
         const tailPoints = botStatusTailRef.current;
         let out: BotStatus | BotStatusMulti;
         try {
@@ -3543,6 +3640,8 @@ export function App() {
             apiBase,
             { signal: controller.signal, headers: authHeaders, timeoutMs: BOT_STATUS_TIMEOUT_MS },
             tailPoints,
+            undefined,
+            activeTenantKey,
           );
         } catch (e) {
           const shouldFallback =
@@ -3554,6 +3653,8 @@ export function App() {
               apiBase,
               { signal: controller.signal, headers: authHeaders, timeoutMs: BOT_STATUS_TIMEOUT_MS },
               fallbackTail,
+              undefined,
+              activeTenantKey,
             );
             botStatusTailRef.current = fallbackTail;
           } else {
@@ -3756,7 +3857,7 @@ export function App() {
         if (requestId === botRequestSeqRef.current) botAbortRef.current = null;
       }
     },
-    [apiBase, authHeaders],
+    [activeTenantKey, apiBase, authHeaders],
   );
 
   type StartBotOptions = { auto?: boolean; forceAdopt?: boolean; silent?: boolean; symbolsOverride?: string[] };
@@ -4170,7 +4271,13 @@ export function App() {
   const stopLiveBot = useCallback(async (symbol?: string) => {
     setBot((s) => ({ ...s, loading: true, error: null }));
     try {
-      const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 }, symbol);
+      if (!activeTenantKey) {
+        const msg = "Tenant key required. Add API keys (or check keys) to stop the bot.";
+        setBot((s) => ({ ...s, loading: false, error: msg }));
+        showToast("Bot stop failed");
+        return;
+      }
+      const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 }, symbol, activeTenantKey);
       setBot((s) => ({ ...s, loading: false, error: null, status: out }));
       appendDataLog("Bot Stop Response", out);
       botAutoStartSuppressedRef.current = true;
@@ -4182,7 +4289,7 @@ export function App() {
       appendDataLog("Bot Stop Error", buildDataLogError(e, msg), { error: true });
       showToast("Bot stop failed");
     }
-  }, [apiBase, authHeaders, showToast]);
+  }, [activeTenantKey, apiBase, authHeaders, showToast]);
 
   const binanceTradesSymbols = useMemo(() => parseSymbolsInput(binanceTradesSymbolsInput), [binanceTradesSymbolsInput]);
   const binanceTradesSymbolsInvalid = useMemo(
