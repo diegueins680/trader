@@ -12034,6 +12034,9 @@ listenKeyWsPingIntervalSec = 180
 listenKeyWsReconnectDelayMs :: Int
 listenKeyWsReconnectDelayMs = 5000
 
+listenKeyStreamHeartbeatMs :: Int
+listenKeyStreamHeartbeatMs = 15000
+
 maxListenKeyEventBytes :: Int
 maxListenKeyEventBytes = 20000
 
@@ -12290,13 +12293,20 @@ handleBinanceListenKeyStream manager req respond =
                   lastEvent <- readIORef (lksLastEventRef st)
                   okLast <- sendMaybeEvent "binance" lastEvent
                   when okLast $ do
-                    let loop = do
-                          evt <- readChan chan
-                          case listenKeyEventToSse evt of
-                            Nothing -> pure ()
-                            Just payload -> do
-                              ok <- send payload
+                    let heartbeatUs = listenKeyStreamHeartbeatMs * 1000
+                        heartbeatPayload = ":\n\n"
+                        loop = do
+                          evtOrTimeout <- timeout heartbeatUs (readChan chan)
+                          case evtOrTimeout of
+                            Nothing -> do
+                              ok <- send heartbeatPayload
                               when ok loop
+                            Just evt ->
+                              case listenKeyEventToSse evt of
+                                Nothing -> pure ()
+                                Just payload -> do
+                                  ok <- send payload
+                                  when ok loop
                     loop
 
 handleBinanceListenKey :: ApiRequestLimits -> Maybe OpsStore -> ListenKeyManager -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
