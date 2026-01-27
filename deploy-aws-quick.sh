@@ -1382,7 +1382,7 @@ create_app_runner() {
     fi
   fi
 
-  if [[ -z "${TRADER_BINANCE_PROXY_URL:-}" && ! is_true "${TRADER_BINANCE_PROXY_CLEAR:-false}" && -n "$existing_service_arn" ]]; then
+  if [[ -z "${TRADER_BINANCE_PROXY_URL:-}" && -n "$existing_service_arn" ]]; then
     local existing_proxy_url=""
     existing_proxy_url="$(
       aws apprunner describe-service \
