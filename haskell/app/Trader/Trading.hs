@@ -58,7 +58,7 @@ data EnsembleConfig = EnsembleConfig
   , ecExpectancyLookback :: !Int       -- trades; 0 disables expectancy gating
   , ecMinExpectancy :: !(Maybe Double) -- avg trade return threshold
   , ecNoTradeWindows :: ![TimeWindow]  -- UTC windows to block entries
-  , ecIntervalSeconds :: !(Maybe Int)  -- required for daily-loss; inferred from CLI interval
+  , ecIntervalSeconds :: !(Maybe Int)  -- inferred from CLI interval; UTC day/week windows require bar timestamps
   , ecOpenTimes :: !(Maybe (V.Vector Int64)) -- optional bar open times (ms since epoch) for daily-loss day keys
   , ecMetaMask :: !(Maybe (V.Vector Bool)) -- optional per-bar mask to apply Kalman meta gating
   , ecPositioning :: !Positioning
@@ -439,18 +439,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                   ++ ")"
               )
           _ -> Nothing
-      intervalSeconds =
-        case ecIntervalSeconds cfg of
-          Just s | s > 0 -> Just s
-          _ -> Nothing
-      hasDailyKey =
+      hasCalendar =
         case openTimesV of
           Just _ -> True
-          Nothing ->
-            case intervalSeconds of
-              Just _ -> True
-              Nothing -> False
-      hasWeeklyKey = hasDailyKey
+          Nothing -> False
+      hasDailyKey = hasCalendar
+      hasWeeklyKey = hasCalendar
       dailyLossReq =
         case ecMaxDailyLoss cfg of
           Just v | v > 0 && v < 1 && not (isNaN v || isInfinite v) -> Just v
@@ -523,7 +517,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                   then Just "lookback must be less than number of prices"
                   else
                     if (dailyLossReq /= Nothing || weeklyLossReq /= Nothing || maxTradesPerDayReq /= Nothing || noTradeReq) && not hasDailyKey
-                      then Just "--max-daily-loss/--max-weekly-loss/--max-trades-per-day/--no-trade-window require bar timestamps or interval seconds"
+                      then Just "--max-daily-loss/--max-weekly-loss/--max-trades-per-day/--no-trade-window require bar timestamps"
                       else
                         if minExpectancy /= Nothing && expectancyLookback <= 0
                           then Just "--min-expectancy requires --expectancy-lookback >= 1"
@@ -725,12 +719,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                     | i >= 0 && i < V.length tsV ->
                         let dayMs = 86400000 :: Int64
                          in fromIntegral ((tsV V.! i) `div` dayMs)
-                  _ ->
-                    case intervalSeconds of
-                      Nothing -> 0
-                      Just sec ->
-                        let tSec = fromIntegral i * fromIntegral sec :: Integer
-                         in fromIntegral (tSec `div` 86400)
+                  _ -> 0
               weekKeyAt :: Int -> Int
               weekKeyAt i =
                 case openTimesV of
@@ -738,23 +727,13 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                     | i >= 0 && i < V.length tsV ->
                         let weekMs = 7 * 86400000 :: Int64
                          in fromIntegral ((tsV V.! i) `div` weekMs)
-                  _ ->
-                    case intervalSeconds of
-                      Nothing -> 0
-                      Just sec ->
-                        let tSec = fromIntegral i * fromIntegral sec :: Integer
-                         in fromIntegral (tSec `div` (86400 * 7))
+                  _ -> 0
               minuteOfDayAt :: Int -> Int
               minuteOfDayAt i =
                 case openTimesV of
                   Just tsV
                     | i >= 0 && i < V.length tsV -> minuteOfDayFromMs (tsV V.! i)
-                  _ ->
-                    case intervalSeconds of
-                      Nothing -> 0
-                      Just sec ->
-                        let minutes = (fromIntegral i * fromIntegral sec) `div` 60 :: Integer
-                         in fromIntegral (minutes `mod` 1440)
+                  _ -> 0
               direction thr prev pred =
                 let upEdge = prev * (1 + thr)
                     downEdge = prev * (1 - thr)

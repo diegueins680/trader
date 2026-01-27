@@ -469,10 +469,10 @@ opts = do
           )
       )
   argMaxDrawdown <- optional (option auto (long "max-drawdown" <> help "Halt the live bot if peak-to-trough drawdown exceeds this fraction (0..1)"))
-  argMaxDailyLoss <- optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day"))
-  argMaxWeeklyLoss <- optional (option auto (long "max-weekly-loss" <> help "Halt the live bot if weekly loss exceeds this fraction (0..1), based on UTC weeks"))
+  argMaxDailyLoss <- optional (option auto (long "max-daily-loss" <> help "Halt the live bot if daily loss exceeds this fraction (0..1), based on UTC day (requires bar timestamps)"))
+  argMaxWeeklyLoss <- optional (option auto (long "max-weekly-loss" <> help "Halt the live bot if weekly loss exceeds this fraction (0..1), based on UTC weeks (requires bar timestamps)"))
   argRiskPerTrade <- optional (option auto (long "risk-per-trade" <> help "Fraction of equity to risk per trade (requires --stop-loss or --stop-loss-vol-mult)"))
-  argMaxTradesPerDay <- optional (option auto (long "max-trades-per-day" <> help "Block new entries after N entries per UTC day (0 disables)"))
+  argMaxTradesPerDay <- optional (option auto (long "max-trades-per-day" <> help "Block new entries after N entries per UTC day (0 disables; requires bar timestamps)"))
   argExpectancyLookback <- option auto (long "expectancy-lookback" <> value 20 <> help "Lookback trades for expectancy gating (0 disables; requires --min-expectancy)")
   argMinExpectancy <- optional (option auto (long "min-expectancy" <> help "Halt trading when avg return of the last N trades falls below this"))
   argPerfLookback <- option auto (long "perf-lookback" <> value 0 <> showDefault <> help "Lookback trades for performance gates/adaptive filters (0 disables)")
@@ -486,7 +486,7 @@ opts = do
           (eitherReader parseTimeWindow)
           ( long "no-trade-window"
               <> metavar "HH:MM-HH:MM"
-              <> help "UTC time window to block new entries (repeatable; wraps across midnight)."
+              <> help "UTC time window to block new entries (repeatable; wraps across midnight; requires bar timestamps)."
           )
       )
   argMaxOpenPositions <- optional (option auto (long "max-open-positions" <> help "Max open positions across all running bots (0 disables)"))
@@ -857,7 +857,7 @@ validateArgs args0 = do
        in ensure "--risk-per-trade requires --stop-loss or --stop-loss-vol-mult" (stopLossOn || stopLossVolOn)
   case argMaxTradesPerDay args of
     Nothing -> pure ()
-    Just n -> ensure "--max-trades-per-day must be >= 1" (n >= 1)
+    Just n -> ensure "--max-trades-per-day must be >= 0" (n >= 0)
   ensure "--expectancy-lookback must be >= 0" (argExpectancyLookback args >= 0)
   case argMinExpectancy args of
     Nothing -> pure ()
@@ -875,10 +875,10 @@ validateArgs args0 = do
   ensure "--loss-streak-cooldown-bars must be >= 0" (argLossStreakCooldownBars args >= 0)
   case argMaxOpenPositions args of
     Nothing -> pure ()
-    Just n -> ensure "--max-open-positions must be >= 1" (n >= 1)
+    Just n -> ensure "--max-open-positions must be >= 0" (n >= 0)
   case argMaxOpenPerBase args of
     Nothing -> pure ()
-    Just n -> ensure "--max-open-per-base must be >= 1" (n >= 1)
+    Just n -> ensure "--max-open-per-base must be >= 0" (n >= 0)
   ensure "--min-edge must be >= 0" (argMinEdge args >= 0)
   ensure "--min-signal-to-noise must be >= 0" (argMinSignalToNoise args >= 0)
   ensure "--snr-size-weight must be between 0 and 1" (argSnrSizeWeight args >= 0 && argSnrSizeWeight args <= 1)

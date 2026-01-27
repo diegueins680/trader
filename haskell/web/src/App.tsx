@@ -503,6 +503,56 @@ export function App() {
         ? Boolean(binanceApiKey.trim() || binanceApiSecret.trim())
         : false;
   const binanceKeyLocalReady = Boolean(binanceApiKey.trim() && binanceApiSecret.trim());
+  const [keys, setKeys] = useState<KeysUiState>({
+    loading: false,
+    error: null,
+    status: null,
+    platform: null,
+    checkedAtMs: null,
+  });
+  const activeKeysStatus = keys.platform === platform ? keys.status : null;
+  const keysProvided =
+    activeKeysStatus
+      ? isCoinbaseKeysStatus(activeKeysStatus)
+        ? activeKeysStatus.hasApiKey && activeKeysStatus.hasApiSecret && activeKeysStatus.hasApiPassphrase
+        : activeKeysStatus.hasApiKey && activeKeysStatus.hasApiSecret
+      : null;
+  const binancePrivateKeysReady = isBinancePlatform && (binanceKeyLocalReady || keysProvided === true);
+  const binancePrivateKeysMissing = isBinancePlatform && !binanceKeyLocalReady && keysProvided === false;
+  const binancePrivateKeysUnknown = isBinancePlatform && !binanceKeyLocalReady && keysProvided === null;
+  const binanceSignedKeysHint =
+    !isBinancePlatform
+      ? null
+      : binancePrivateKeysMissing
+        ? 'Binance API keys missing. Add keys or click "Check keys".'
+        : binancePrivateKeysUnknown
+          ? 'Add Binance API keys or click "Check keys" to verify server env keys.'
+          : null;
+  const binancePrivateKeysIssue = useMemo(() => {
+    if (!isBinancePlatform) return null;
+    if (binancePrivateKeysMissing) {
+      return 'Binance API keys missing. Add keys or click "Check keys".';
+    }
+    if (binancePrivateKeysUnknown) {
+      return 'Binance API keys required. Add keys or click "Check keys" to verify server env keys.';
+    }
+    return null;
+  }, [binancePrivateKeysMissing, binancePrivateKeysUnknown, isBinancePlatform]);
+  const keysProvidedLabel = keysProvided === null ? "unknown" : keysProvided ? "provided" : "missing";
+  const keysSigned = activeKeysStatus?.signed ?? null;
+  const keysTradeTest =
+    activeKeysStatus && isBinanceKeysStatus(activeKeysStatus) ? activeKeysStatus.tradeTest ?? null : null;
+  const keysCheckedAtMs = keys.platform === platform ? keys.checkedAtMs : null;
+  const botTradeKeysIssue = useMemo(() => {
+    if (!isBinancePlatform || !form.tradeArmed) return null;
+    if (binanceKeyLocalReady || keysProvided === true) return null;
+    if (keysProvided === false) {
+      return "Trading armed requires Binance API keys. Add keys or disable Arm trading for paper mode.";
+    }
+    return 'Trading armed requires Binance API keys. Add keys or click "Check keys" to verify server env keys, or disable Arm trading for paper mode.';
+  }, [binanceKeyLocalReady, form.tradeArmed, isBinancePlatform, keysProvided]);
+  const autoKeysCheckRef = useRef(false);
+  const autoListenKeyStartRef = useRef(false);
   const binanceTenantKeyFromStatus = useMemo(() => {
     if (keys.platform !== "binance" || !keys.status || !isBinanceKeysStatus(keys.status)) return null;
     const raw = keys.status.tenantKey?.trim();
@@ -665,57 +715,6 @@ export function App() {
   const opsPerformanceInFlightRef = useRef(false);
   const botAutoStartSuppressedRef = useRef(false);
   const botAutoStartRef = useRef<{ lastAttemptAtMs: number }>({ lastAttemptAtMs: 0 });
-
-  const [keys, setKeys] = useState<KeysUiState>({
-    loading: false,
-    error: null,
-    status: null,
-    platform: null,
-    checkedAtMs: null,
-  });
-  const activeKeysStatus = keys.platform === platform ? keys.status : null;
-  const keysProvided =
-    activeKeysStatus
-      ? isCoinbaseKeysStatus(activeKeysStatus)
-        ? activeKeysStatus.hasApiKey && activeKeysStatus.hasApiSecret && activeKeysStatus.hasApiPassphrase
-        : activeKeysStatus.hasApiKey && activeKeysStatus.hasApiSecret
-      : null;
-  const binancePrivateKeysReady = isBinancePlatform && (binanceKeyLocalReady || keysProvided === true);
-  const binancePrivateKeysMissing = isBinancePlatform && !binanceKeyLocalReady && keysProvided === false;
-  const binancePrivateKeysUnknown = isBinancePlatform && !binanceKeyLocalReady && keysProvided === null;
-  const binanceSignedKeysHint =
-    !isBinancePlatform
-      ? null
-      : binancePrivateKeysMissing
-        ? 'Binance API keys missing. Add keys or click "Check keys".'
-        : binancePrivateKeysUnknown
-          ? 'Add Binance API keys or click "Check keys" to verify server env keys.'
-          : null;
-  const binancePrivateKeysIssue = useMemo(() => {
-    if (!isBinancePlatform) return null;
-    if (binancePrivateKeysMissing) {
-      return 'Binance API keys missing. Add keys or click "Check keys".';
-    }
-    if (binancePrivateKeysUnknown) {
-      return 'Binance API keys required. Add keys or click "Check keys" to verify server env keys.';
-    }
-    return null;
-  }, [binancePrivateKeysMissing, binancePrivateKeysUnknown, isBinancePlatform]);
-  const keysProvidedLabel = keysProvided === null ? "unknown" : keysProvided ? "provided" : "missing";
-  const keysSigned = activeKeysStatus?.signed ?? null;
-  const keysTradeTest =
-    activeKeysStatus && isBinanceKeysStatus(activeKeysStatus) ? activeKeysStatus.tradeTest ?? null : null;
-  const keysCheckedAtMs = keys.platform === platform ? keys.checkedAtMs : null;
-  const botTradeKeysIssue = useMemo(() => {
-    if (!isBinancePlatform || !form.tradeArmed) return null;
-    if (binanceKeyLocalReady || keysProvided === true) return null;
-    if (keysProvided === false) {
-      return "Trading armed requires Binance API keys. Add keys or disable Arm trading for paper mode.";
-    }
-    return 'Trading armed requires Binance API keys. Add keys or click "Check keys" to verify server env keys, or disable Arm trading for paper mode.';
-  }, [binanceKeyLocalReady, form.tradeArmed, isBinancePlatform, keysProvided]);
-  const autoKeysCheckRef = useRef(false);
-  const autoListenKeyStartRef = useRef(false);
 
   const [cacheUi, setCacheUi] = useState<CacheUiState>({ loading: false, error: null, stats: null });
 

@@ -98,6 +98,7 @@ import Trader.Binance
   , fetchFuturesPositionRisks
   , fetchOpenOrders
   , cancelFuturesOpenOrdersByClientPrefix
+  , binanceProxyHealth
   , fetchSymbolFilters
   , quantizeDown
   , getTimestampMs
@@ -233,7 +234,7 @@ import Trader.Poloniex (PoloniexCandle(..), fetchPoloniexCandles, poloniexBaseUr
 
 -- CSV loading
 
-resolveCsvColumnKey :: FilePath -> String -> [BS.ByteString] -> String -> BS.ByteString
+resolveCsvColumnKey :: FilePath -> String -> [BS.ByteString] -> String -> Either String BS.ByteString
 resolveCsvColumnKey path flagName hdrList raw =
   let wanted = trim raw
       wantedLower = map toLower wanted
@@ -270,17 +271,17 @@ resolveCsvColumnKey path flagName hdrList raw =
          in take 5 (map snd (sortOn fst scored))
    in
     if null wanted
-      then error (flagName ++ " cannot be empty")
+      then Left (flagName ++ " cannot be empty")
       else
         case mKey of
-          Just k -> k
+          Just k -> Right k
           Nothing ->
             let hint =
                   if null suggestions
                     then ""
                     else " Suggestions: " ++ BS.unpack (BS.intercalate ", " suggestions) ++ "."
              in
-              error
+              Left
                 ( "Column not found for "
                     ++ flagName
                     ++ ": "
@@ -293,16 +294,16 @@ resolveCsvColumnKey path flagName hdrList raw =
                     ++ hint
                 )
 
-extractCellDoubleAt :: Int -> BS.ByteString -> Csv.NamedRecord -> Double
+extractCellDoubleAt :: Int -> BS.ByteString -> Csv.NamedRecord -> Either String Double
 extractCellDoubleAt rowIndex key rec =
   case HM.lookup key rec of
-    Nothing -> error ("Column not found: " ++ BS.unpack key)
+    Nothing -> Left ("Column not found: " ++ BS.unpack key)
     Just raw ->
       let s = trim (BS.unpack raw)
        in case readMaybe s of
-            Just d -> d
+            Just d -> Right d
             Nothing ->
-              error
+              Left
                 ( "Failed to parse value at row "
                     ++ show rowIndex
                     ++ " ("
@@ -311,36 +312,37 @@ extractCellDoubleAt rowIndex key rec =
                     ++ s
                 )
 
-loadCsvPriceSeries :: FilePath -> String -> Maybe String -> Maybe String -> IO ([Double], Maybe [Double], Maybe [Double], Maybe [Int64])
+loadCsvPriceSeries :: FilePath -> String -> Maybe String -> Maybe String -> IO (Either String ([Double], Maybe [Double], Maybe [Double], Maybe [Int64]))
 loadCsvPriceSeries path closeCol mHighCol mLowCol = do
   exists <- doesFileExist path
   if not exists
     then do
       cwd <- getCurrentDirectory
-      error ("CSV path not found: " ++ path ++ " (cwd: " ++ cwd ++ ")")
-    else pure ()
-  bs <- BL.readFile path
-  case Csv.decodeByName bs of
-    Left err -> error ("CSV decode failed (" ++ path ++ "): " ++ err)
-    Right (hdr, rows) -> do
-      let hdrList = V.toList hdr
-          rowsList0 = V.toList rows
-          mTimeKey = csvTimeKey hdrList
-          rowsList = maybe rowsList0 (\tk -> sortCsvRowsByTime tk rowsList0) mTimeKey
-          closeKey = resolveCsvColumnKey path "--price-column" hdrList closeCol
-          mHighKey = fmap (resolveCsvColumnKey path "--high-column" hdrList) mHighCol
-          mLowKey = fmap (resolveCsvColumnKey path "--low-column" hdrList) mLowCol
-          closeSeries = zipWith (\i row -> extractCellDoubleAt i closeKey row) [1 :: Int ..] rowsList
-          highSeries = fmap (\k -> zipWith (\i row -> extractCellDoubleAt i k row) [1 :: Int ..] rowsList) mHighKey
-          lowSeries = fmap (\k -> zipWith (\i row -> extractCellDoubleAt i k row) [1 :: Int ..] rowsList) mLowKey
-          openTimes =
-            case mTimeKey of
-              Nothing -> Nothing
-              Just tk ->
-                case parseCsvTimes tk rowsList of
-                  Left err -> error err
-                  Right ts -> Just ts
-      pure (closeSeries, highSeries, lowSeries, openTimes)
+      pure (Left ("CSV path not found: " ++ path ++ " (cwd: " ++ cwd ++ ")"))
+    else do
+      bs <- BL.readFile path
+      case Csv.decodeByName bs of
+        Left err -> pure (Left ("CSV decode failed (" ++ path ++ "): " ++ err))
+        Right (hdr, rows) -> do
+          let hdrList = V.toList hdr
+              rowsList0 = V.toList rows
+              mTimeKey = csvTimeKey hdrList
+              rowsList = maybe rowsList0 (\tk -> sortCsvRowsByTime tk rowsList0) mTimeKey
+              rowPairs = zip [1 :: Int ..] rowsList
+              seriesFor key = traverse (\(i, row) -> extractCellDoubleAt i key row) rowPairs
+              openTimesE =
+                case mTimeKey of
+                  Nothing -> Right Nothing
+                  Just tk -> Just <$> parseCsvTimes tk rowsList
+          pure $ do
+            closeKey <- resolveCsvColumnKey path "--price-column" hdrList closeCol
+            mHighKey <- traverse (resolveCsvColumnKey path "--high-column" hdrList) mHighCol
+            mLowKey <- traverse (resolveCsvColumnKey path "--low-column" hdrList) mLowCol
+            closeSeries <- seriesFor closeKey
+            highSeries <- traverse seriesFor mHighKey
+            lowSeries <- traverse seriesFor mLowKey
+            openTimes <- openTimesE
+            pure (closeSeries, highSeries, lowSeries, openTimes)
 
 csvTimeKey :: [BS.ByteString] -> Maybe BS.ByteString
 csvTimeKey hdrList =
@@ -9293,6 +9295,7 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                              , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
                                              , object ["method" .= ("POST" :: String), "path" .= ("/binance/trades" :: String)]
                                              , object ["method" .= ("POST" :: String), "path" .= ("/binance/positions" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/binance/proxy/health" :: String)]
                                              , object ["method" .= ("POST" :: String), "path" .= ("/coinbase/keys" :: String)]
                                              , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
                                              , object ["method" .= ("GET" :: String), "path" .= ("/binance/listenKey/stream" :: String)]
@@ -9427,6 +9430,10 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                   ["binance", "trades"] ->
                     case Wai.requestMethod req of
                       "POST" -> handleBinanceTrades reqLimits mOps baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "proxy", "health"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleBinanceProxyHealth respondCors
                       _ -> respondCors (jsonError status405 "Method not allowed")
                   ["coinbase", "keys"] ->
                     case Wai.requestMethod req of
@@ -11918,6 +11925,11 @@ handleBinanceKeys reqLimits mOps baseArgs req respond = do
                       let (st, msg) = exceptionToHttp ex
                        in respond (jsonError st msg)
                     Right out -> respond (jsonValue status200 out)
+
+handleBinanceProxyHealth :: (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceProxyHealth respond = do
+  health <- binanceProxyHealth
+  respond (jsonValue status200 health)
 
 handleCoinbaseKeys :: ApiRequestLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleCoinbaseKeys reqLimits baseArgs req respond = do
@@ -15415,6 +15427,15 @@ savePersistedLstmModelMaybe mPath trainBars model =
 trainLstmWithPersistence :: Args -> Int -> LSTMConfig -> [Double] -> IO (LSTMModel, [EpochStats])
 trainLstmWithPersistence args lookback cfg series = do
   let trainBars = length series
+  when (trainBars <= lookback) $
+    throwIO
+      ( userError
+          ( printf
+              "Not enough data for lookback=%d (got %d bars). Increase --bars/--lookback-window or reduce --lookback-bars."
+              lookback
+              trainBars
+          )
+      )
   mPath <- lstmWeightsPath args lookback
   mSeed <-
     case mPath of
@@ -17395,7 +17416,11 @@ loadPrices :: Maybe OpsStore -> Args -> IO (PriceSeries, Maybe BinanceEnv)
 loadPrices mOps args =
   case (argData args, argBinanceSymbol args) of
     (Just path, Nothing) -> do
-      (closes, mHighs, mLows, mOpenTimes) <- loadCsvPriceSeries path (argPriceCol args) (argHighCol args) (argLowCol args)
+      csvOrErr <- loadCsvPriceSeries path (argPriceCol args) (argHighCol args) (argLowCol args)
+      (closes, mHighs, mLows, mOpenTimes) <-
+        case csvOrErr of
+          Left err -> throwIO (userError err)
+          Right out -> pure out
       let bars = resolveBarsForCsv args
       let closes' =
             if bars > 0

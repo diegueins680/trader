@@ -189,6 +189,7 @@ test-suite trader-tests
                      , http-client
                      , http-client-tls
                      , http-types
+                     , network-uri
                      , containers
                      , unordered-containers
                      , optparse-applicative >=0.17
@@ -253,6 +254,7 @@ benchmark trader-bench
                      , http-client
                      , http-client-tls
                      , http-types
+                     , network-uri
                      , containers
                      , unordered-containers
                      , optparse-applicative >=0.17

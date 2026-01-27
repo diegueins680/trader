@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Trading: allow `--max-trades-per-day`, `--max-open-positions`, and `--max-open-per-base` to accept `0` to disable, matching CLI help.
+- Optimizer: allow `--max-hold-bars 0` from optimize-equity sweeps to disable the max-hold gate.
+- Web UI: avoid scheme-relative API URLs when `apiBaseUrl` is empty by falling back to same-origin paths.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
 - Deploy: include `libpq` in the runtime image so Postgres ops persistence starts cleanly.
 - Deploy/UI: when CloudFront is configured, `deploy-aws-quick.sh` now defaults UI `apiBaseUrl` to `/api` unless `TRADER_UI_API_MODE` is set (use `direct` for full API URL/CORS).
@@ -11,7 +14,10 @@ All notable changes to this project will be documented in this file.
 - Deploy/UI: quick AWS deploy defaults `apiFallbackUrl` to `/api` in direct mode to allow same-origin failover.
 - Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.
 - Deploy/API: quick AWS deploy now reuses `TRADER_BOT_AUTOSTART` from the service and supports setting it on deploy.
+- Deploy/API: quick AWS deploy can clear `TRADER_BINANCE_PROXY_URL` via `--clear-binance-proxy` / `TRADER_BINANCE_PROXY_CLEAR`.
+- Deploy/API: quick AWS deploy now checks Binance proxy connectivity when a proxy is configured (optional strict failure).
 - API: add `TRADER_BOT_AUTOSTART` to disable live-bot auto-start on boot.
+- API: add `/binance/proxy/health` to report Binance proxy connectivity.
 - API: when `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, echo the request Origin so direct UI calls work without explicit CORS config.
 - Web UI: try `apiBaseUrl` first and fail over to `apiFallbackUrl` after network/502/503/504 errors, remembering successful fallbacks for the session.
 - Web UI: retry `/bot/status` with a smaller tail on timeout errors to keep the dashboard responsive.
@@ -71,9 +77,11 @@ All notable changes to this project will be documented in this file.
 - API: manage Binance listenKey user-data streams server-side and expose `/binance/listenKey/stream` as an SSE relay.
 - API: `/binance/keys` signed futures probe no longer requires `binanceSymbol` (trade test skips when missing).
 - CSV: sort rows by parsed timestamps only; unparseable timestamps preserve file order.
+- CSV/LSTM: surface CSV column/time parse failures and insufficient LSTM bars as user errors instead of generic crashes.
 - Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Trading: `--max-daily-loss` validation now errors when provided timestamps do not match the closes length.
-- Trading: `--no-trade-window` now requires bar timestamps or a recognized interval for UTC window gating.
+- Trading: `--no-trade-window`/UTC day-week limits now require bar timestamps (interval-only fallback removed) to avoid misaligned boundaries.
+- Metrics: clamp invalid/negative equity values when computing returns and keep stress scoring anchored to the starting equity.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
 - Trading: multiply order sizes by 100x at execution (sizing inputs and position sizing; exits follow the scaled position size).
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.

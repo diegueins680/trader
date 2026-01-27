@@ -98,6 +98,10 @@ function resolveUrl(baseUrl: string, path: string): string {
   const pathname = queryIndex >= 0 ? rawNoHash.slice(0, queryIndex) : rawNoHash;
   const search = queryIndex >= 0 ? rawNoHash.slice(queryIndex) : "";
 
+  if (!base || base === "/") {
+    return `${pathname}${search}${hash}`;
+  }
+
   if (/^https?:\/\//.test(base)) {
     const url = new URL(base);
     const basePath = url.pathname.replace(/\/+$/, "");

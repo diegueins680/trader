@@ -125,6 +125,8 @@ Environment variables:
 - `TRADER_BINANCE_REST_URL` / `TRADER_BINANCE_TESTNET_REST_URL` (optional; override Binance spot REST base URLs)
 - `TRADER_BINANCE_FUTURES_REST_URL` / `TRADER_BINANCE_FUTURES_TESTNET_REST_URL` (optional; override Binance futures REST base URLs)
 - `TRADER_BINANCE_PROXY_URL` (optional; route Binance HTTP requests through a fixed-IP proxy, `http://user:pass@host:port`)
+- `TRADER_BINANCE_PROXY_CLEAR` (optional; `true` clears any existing proxy when deploying with `deploy-aws-quick.sh`)
+- `TRADER_BINANCE_PROXY_HEALTHCHECK` / `TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT` (optional; enable/strict-fail proxy connectivity checks in `deploy-aws-quick.sh`)
 
 Getting Binance API keys:
 - Binance → Profile → **API Management** → **Create API**
@@ -280,8 +282,8 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Live-bot bracket exits honor the vol-mult overrides when exchange-native protection orders are not in use.
   - `--min-hold-bars N` minimum holding periods before allowing a signal-based exit (`0` disables; default: `4`; bracket exits still apply)
   - `--cooldown-bars N` after an exit to flat, wait `N` bars before allowing a new entry (`0` disables; default: `2`)
-  - `--max-trades-per-day N` block new entries after `N` entries per UTC day (`0` disables)
-  - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows; requires bar timestamps or a recognized `--interval`)
+  - `--max-trades-per-day N` block new entries after `N` entries per UTC day (`0` disables; requires bar timestamps)
+  - `--no-trade-window HH:MM-HH:MM` block new entries during UTC time windows (repeatable; supports overnight windows; requires bar timestamps)
     - Entry gates block new entries/reversals; existing positions are held until the gate clears.
   - `--max-hold-bars N` force exit after holding for `N` bars (`0` disables; default: `36`; exit reason `MAX_HOLD`, then wait 1 bar before re-entry)
   - `--lstm-exit-flip-bars N` exit after `N` consecutive LSTM bars flip against the position (`0` disables; LSTM methods only)
@@ -337,18 +339,18 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Close-direction gating ignores `--min-position-size` so `closeDirection` is still reported even when size floors would block entries.
   - Conformal/quantile confirmations apply the open threshold for entries and in-position agreement checks; `closeDirection` still uses `closeThreshold` for diagnostics.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
-  - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day)
-  - `--max-weekly-loss F` optional live-bot kill switch: halt if weekly loss exceeds `F` (UTC week)
+  - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; requires bar timestamps)
+  - `--max-weekly-loss F` optional live-bot kill switch: halt if weekly loss exceeds `F` (UTC week; requires bar timestamps)
   - `--min-expectancy F` halt trading when the average return of the last `--expectancy-lookback` trades falls below `F`
   - `--expectancy-lookback N` trade lookback for the expectancy gate (`0` disables; default: `20`)
     - Live-bot drawdown/daily loss uses the sized position (confidence/vol scaling) rather than assuming full size.
-    - Backtests use bar timestamps when available (exchange data or CSV time columns); otherwise they fall back to interval-based day keys.
+    - Backtests use bar timestamps (exchange data or CSV time columns) for UTC day/week limits and no-trade windows.
     - If timestamps are present but do not align to the closes series, `--max-daily-loss` errors to avoid misaligned day boundaries.
     - Invalid CSV time values now error instead of silently disabling time-based day keys.
-    - If neither timestamps nor interval seconds are available, `--max-daily-loss` errors instead of silently disabling.
-    - Weekly loss and max-trades-per-day use the same timestamp/interval rules as daily loss.
-  - `--max-open-positions N` cap open positions across all running bots
-  - `--max-open-per-base N` cap open positions per base asset across all running bots
+    - If timestamps are missing, `--max-daily-loss`/`--max-weekly-loss`/`--max-trades-per-day`/`--no-trade-window` error instead of silently disabling.
+    - Weekly loss and max-trades-per-day use the same timestamp rules as daily loss.
+  - `--max-open-positions N` cap open positions across all running bots (`0` disables)
+  - `--max-open-per-base N` cap open positions per base asset across all running bots (`0` disables)
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
   - Risk halts are evaluated on post-bar equity and can close open positions at the bar close.
   - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS`/`MAX_WEEKLY_LOSS`/`NEGATIVE_EXPECTANCY` as the exit reason.
@@ -440,6 +442,7 @@ Endpoints:
 - `/bot/*`, `/state/sync`, and `/binance/listenKey/*` require `tenantKey` (header/query for GET, JSON for POST).
 - `POST /binance/keys` → checks key/secret presence and probes signed endpoints (futures signed probe uses the futures balance endpoint; test order quantity is rounded to the symbol step size and auto-bumped to minNotional; `tradeTest.skipped` indicates the test order was not attempted due to missing/invalid sizing or unavailable pricing; quote sizing falls back to mark price, 24h last price, then the latest 1m close if the ticker price is unavailable).
 - `POST /binance/keys` (futures): `binanceSymbol` is optional for the signed probe; the trade test is skipped when `binanceSymbol` is missing, and dataset-style suffixes are trimmed before the trade test runs.
+- `GET /binance/proxy/health` → checks Binance proxy connectivity (reports `status=ok|error|not_configured`)
 - `POST /binance/trades` → returns account trades (spot/margin require symbol; futures supports all symbols)
 - `POST /binance/positions` → returns open Binance futures positions plus recent klines for charting
 - `POST /coinbase/keys` → checks Coinbase key/secret/passphrase via a signed `/accounts` probe
@@ -542,7 +545,7 @@ State directory (required for file-based state across deployments):
 - Docker image default: `TRADER_STATE_DIR=/var/lib/trader/state` (mount `/var/lib/trader` to durable storage to keep state across redeploys).
 - For Docker/VMs, mount the state directory (or set `TRADER_STATE_DIR` to a durable volume) so state survives redeploys.
 - For App Runner (no EFS support), use S3 persistence via `TRADER_STATE_S3_BUCKET` to keep state across deploys; `TRADER_STATE_DIR` remains local-only.
-- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`, requires S3 state for API deploys unless `TRADER_DB_URL` is set for ops persistence (S3 still preserves bot snapshots/top-combos), and forwards `TRADER_DB_URL` when set; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values; set `TRADER_STATE_S3_BUCKET` (or `--state-s3-bucket ""`) to an empty string to clear S3 state reuse. It defaults `TRADER_BOT_TRADE=true` unless overridden, and forwards `TRADER_BOT_SYMBOLS`/`TRADER_BOT_TRADE`/`TRADER_BOT_AUTOSTART` plus `BINANCE_API_KEY`/`BINANCE_API_SECRET` when set.
+- `deploy-aws-quick.sh` defaults `TRADER_STATE_DIR` to `/var/lib/trader/state`, requires S3 state for API deploys unless `TRADER_DB_URL` is set for ops persistence (S3 still preserves bot snapshots/top-combos), and forwards `TRADER_DB_URL` when set; you can add S3 state flags (`--state-s3-*`) and `--instance-role-arn`. When updating an existing App Runner service, it reuses the service's S3 state settings and instance role if you don't pass new values; set `TRADER_STATE_S3_BUCKET` (or `--state-s3-bucket ""`) to an empty string to clear S3 state reuse. It reuses `TRADER_BINANCE_PROXY_URL` unless you pass a new value; use `--clear-binance-proxy` or `TRADER_BINANCE_PROXY_CLEAR=true` to remove the proxy. It defaults `TRADER_BOT_TRADE=true` unless overridden, and forwards `TRADER_BOT_SYMBOLS`/`TRADER_BOT_TRADE`/`TRADER_BOT_AUTOSTART` plus `BINANCE_API_KEY`/`BINANCE_API_SECRET` when set.
 
 S3 state (required for App Runner persistence):
 - Set `TRADER_STATE_S3_BUCKET` (optional `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`) to persist bot snapshots and optimizer top-combos in S3.
@@ -834,7 +837,7 @@ Troubleshooting: “No live operations yet”
 Assumptions and limitations
 ---------------------------
 - The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests/live bot); it includes basic sizing/filters but is not a full portfolio/risk system or detailed transaction-cost model.
-- Daily-loss resets prefer bar open timestamps when available; if timestamps are missing, backtests fall back to interval-based day boundaries.
+- UTC day/week resets and no-trade windows require bar open timestamps; interval-only inputs now error to avoid misaligned boundaries.
 - When `--max-daily-loss` is enabled and open timestamps are provided (CSV or API), their length must match the closes series; mismatches return an error to avoid misaligned day boundaries.
 - Live order placement applies exchange filters (minQty/step size/minNotional) by flooring entry sizes to the minimums when possible and treating dust-sized positions as flat; orders can still be rejected if filters change or balances are insufficient.
 - This code is for experimentation and education only; it is **not** production-ready nor financial advice.

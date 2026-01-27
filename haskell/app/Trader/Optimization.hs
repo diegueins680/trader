@@ -155,25 +155,40 @@ scoreObjective cfg m =
 stressEquityCurve :: Double -> Double -> [Double] -> [Double]
 stressEquityCurve volMult shock eq =
   let rets = returnsFromEquity eq
+      bad x = isNaN x || isInfinite x
+      clamp x =
+        if bad x || x < 0
+          then 0
+          else x
+      startEq =
+        case eq of
+          (x:_) -> clamp x
+          [] -> 1.0
       step acc r =
         let r' = r * volMult + shock
             next = acc * (1 + r')
             next' = if isNaN next || isInfinite next || next < 0 then 0 else next
          in next'
-   in case rets of
-        [] -> eq
-        _ -> scanl step 1.0 rets
+   in case eq of
+        [] -> []
+        [_] -> [startEq]
+        _ -> scanl step startEq rets
 
 returnsFromEquity :: [Double] -> [Double]
 returnsFromEquity eq =
-  case eq of
+  case eq' of
     [] -> []
     [_] -> []
-    _ -> zipWith ret eq (tail eq)
+    _ -> zipWith ret eq' (tail eq')
   where
     bad x = isNaN x || isInfinite x
+    clamp x =
+      if bad x || x < 0
+        then 0
+        else x
+    eq' = map clamp eq
     ret a b =
-      if bad a || bad b || a <= 0
+      if a <= 0
         then 0
         else b / a - 1
 

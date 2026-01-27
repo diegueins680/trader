@@ -225,21 +225,24 @@ metricInt m key def =
             Nothing -> def
         _ -> def
 
-metricProfitFactor :: Maybe (KM.KeyMap Value) -> Double
+metricProfitFactor :: Maybe (KM.KeyMap Value) -> Maybe Double
 metricProfitFactor m =
   case m of
-    Nothing -> 0
+    Nothing -> Nothing
     Just metrics ->
       case KM.lookup (Key.fromString "profitFactor") metrics of
-        Just (Number n) -> fromMaybe 0 (scientificToDouble n)
-        _ ->
-          let grossProfit = metricFloat m "grossProfit" 0
-              grossLoss = metricFloat m "grossLoss" 0
-           in if grossLoss > 0
-                then grossProfit / grossLoss
-                else if grossProfit > 0
-                  then 1 / 0
-                  else 0
+        Just (Number n) -> scientificToDouble n
+        Just Null -> derived
+        _ -> derived
+  where
+    derived =
+      let grossProfit = metricFloat m "grossProfit" 0
+          grossLoss = metricFloat m "grossLoss" 0
+       in if grossLoss > 0
+            then Just (grossProfit / grossLoss)
+            else if grossProfit > 0
+              then Nothing
+              else Just 0
 
 scientificToDouble :: Scientific -> Maybe Double
 scientificToDouble n =
@@ -930,7 +933,7 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
              ]
       cmd5 =
         case tpMaxHoldBars params of
-          Just v -> cmd4 ++ ["--max-hold-bars", show (max 1 v)]
+          Just v -> cmd4 ++ ["--max-hold-bars", show (max 0 v)]
           Nothing -> cmd4
       cmd6 =
         cmd5
@@ -2670,7 +2673,11 @@ runOptimizer args0 = do
                                                                 then (False, Just (printf "winRate<%.3f" minWinRate), Nothing)
                                                                 else
                                                                   let profitFactor = metricProfitFactor (trMetrics tr0)
-                                                                   in if minProfitFactor > 0 && profitFactor < minProfitFactor
+                                                                      pfOk =
+                                                                        case profitFactor of
+                                                                          Nothing -> True
+                                                                          Just pf -> pf >= minProfitFactor
+                                                                   in if minProfitFactor > 0 && not pfOk
                                                                         then (False, Just (printf "profitFactor<%.3f" minProfitFactor), Nothing)
                                                                         else
                                                                           let exposure = metricFloat (trMetrics tr0) "exposure" 0

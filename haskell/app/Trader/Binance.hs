@@ -38,6 +38,8 @@ module Trader.Binance
   , fetchFuturesPositionRisks
   , fetchOpenOrders
   , cancelFuturesOpenOrdersByClientPrefix
+  , BinanceProxyHealth(..)
+  , binanceProxyHealth
   , createListenKey
   , keepAliveListenKey
   , closeListenKey
@@ -95,6 +97,29 @@ data BinanceProxy = BinanceProxy
   { bpProxy :: !Proxy
   , bpAuthHeader :: !(Maybe BS.ByteString)
   } deriving (Eq, Show)
+
+data BinanceProxyHealth = BinanceProxyHealth
+  { bphConfigured :: !Bool
+  , bphOk :: !Bool
+  , bphHost :: !(Maybe Text)
+  , bphPort :: !(Maybe Int)
+  , bphError :: !(Maybe Text)
+  } deriving (Eq, Show)
+
+instance ToJSON BinanceProxyHealth where
+  toJSON h =
+    let status =
+          if not (bphConfigured h)
+            then ("not_configured" :: String)
+            else if bphOk h then "ok" else "error"
+     in object
+          [ "status" .= status
+          , "configured" .= bphConfigured h
+          , "ok" .= bphOk h
+          , "host" .= bphHost h
+          , "port" .= bphPort h
+          , "error" .= bphError h
+          ]
 
 data BinanceLog = BinanceLog
   { blAtMs :: !Int64
@@ -272,8 +297,77 @@ resolveBinanceProxy = do
   mRaw <- lookupEnv "TRADER_BINANCE_PROXY_URL"
   pure (mRaw >>= parseBinanceProxy)
 
+binanceProxyHealth :: IO BinanceProxyHealth
+binanceProxyHealth = do
+  mRaw <- lookupEnv "TRADER_BINANCE_PROXY_URL"
+  case mRaw of
+    Nothing -> pure (BinanceProxyHealth False True Nothing Nothing Nothing)
+    Just raw ->
+      let trimmed = trimString raw
+       in if null trimmed
+            then pure (BinanceProxyHealth False True Nothing Nothing Nothing)
+            else
+              case parseBinanceProxyDetails trimmed of
+                Nothing ->
+                  pure
+                    ( BinanceProxyHealth
+                        { bphConfigured = True
+                        , bphOk = False
+                        , bphHost = Nothing
+                        , bphPort = Nothing
+                        , bphError = Just "Invalid TRADER_BINANCE_PROXY_URL"
+                        }
+                    )
+                Just (proxyCfg, hostName, portNum) -> do
+                  mgr <- newHttpManager
+                  req0 <- parseRequest (binanceBaseUrl ++ "/api/v3/time")
+                  let env =
+                        BinanceEnv
+                          { beManager = mgr
+                          , beBaseUrl = binanceBaseUrl
+                          , beMarket = MarketSpot
+                          , beApiKey = Nothing
+                          , beApiSecret = Nothing
+                          , beLogger = Nothing
+                          , beProxy = Just proxyCfg
+                          }
+                      req = applyBinanceProxy env req0
+                  respOrErr <- try (httpLbs req mgr) :: IO (Either SomeException (Response BL.ByteString))
+                  case respOrErr of
+                    Left ex ->
+                      pure
+                        ( BinanceProxyHealth
+                            { bphConfigured = True
+                            , bphOk = False
+                            , bphHost = Just (T.pack hostName)
+                            , bphPort = Just portNum
+                            , bphError = Just (binanceExceptionSummary ex)
+                            }
+                        )
+                    Right resp ->
+                      let code = statusCode (responseStatus resp)
+                          ok = code >= 200 && code < 300
+                          err =
+                            if ok
+                              then Nothing
+                              else Just (T.pack ("HTTP " ++ show code))
+                       in pure
+                            ( BinanceProxyHealth
+                                { bphConfigured = True
+                                , bphOk = ok
+                                , bphHost = Just (T.pack hostName)
+                                , bphPort = Just portNum
+                                , bphError = err
+                                }
+                            )
+
 parseBinanceProxy :: String -> Maybe BinanceProxy
 parseBinanceProxy raw = do
+  (proxyCfg, _, _) <- parseBinanceProxyDetails raw
+  pure proxyCfg
+
+parseBinanceProxyDetails :: String -> Maybe (BinanceProxy, String, Int)
+parseBinanceProxyDetails raw = do
   let trimmed = trimString raw
   if null trimmed then Nothing else do
     uri <- parseURI trimmed
@@ -285,7 +379,7 @@ parseBinanceProxy raw = do
       else
         let proxyCfg = Proxy (BS.pack hostName) portNum
             authHeader = parseUserInfo (uriUserInfo auth) >>= proxyAuthHeader
-         in Just BinanceProxy { bpProxy = proxyCfg, bpAuthHeader = authHeader }
+         in Just (BinanceProxy { bpProxy = proxyCfg, bpAuthHeader = authHeader }, hostName, portNum)
 
 parseProxyPort :: String -> Int
 parseProxyPort portRaw =

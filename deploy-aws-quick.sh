@@ -42,6 +42,9 @@ TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
 TRADER_STATE_S3_REGION="${TRADER_STATE_S3_REGION:-}"
 TRADER_BINANCE_PROXY_URL="${TRADER_BINANCE_PROXY_URL:-}"
+TRADER_BINANCE_PROXY_CLEAR="${TRADER_BINANCE_PROXY_CLEAR:-false}"
+TRADER_BINANCE_PROXY_HEALTHCHECK="${TRADER_BINANCE_PROXY_HEALTHCHECK:-true}"
+TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT="${TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT:-false}"
 TRADER_BOT_SYMBOLS="${TRADER_BOT_SYMBOLS:-}"
 TRADER_BOT_SYMBOL="${TRADER_BOT_SYMBOL:-}"
 TRADER_BOT_TRADE="${TRADER_BOT_TRADE:-true}"
@@ -121,6 +124,9 @@ Flags:
   --state-s3-bucket <bucket>        S3 bucket for App Runner state (required unless TRADER_DB_URL is set)
   --state-s3-prefix <prefix>        S3 key prefix for state (TRADER_STATE_S3_PREFIX)
   --state-s3-region <region>        S3 region override (TRADER_STATE_S3_REGION)
+  --binance-proxy-url <url>         Binance HTTP proxy URL (overrides reuse)
+  --clear-binance-proxy             Clear TRADER_BINANCE_PROXY_URL on update
+  --skip-binance-proxy-check        Skip Binance proxy connectivity check
   --instance-role-arn <arn>         App Runner instance role ARN (for S3 access)
   --ensure-resources                Create/reuse AWS resources (defaults state bucket; CloudFront when --cloudfront or --distribution-id)
   --api-only                         Deploy API only
@@ -148,6 +154,9 @@ Environment variables (equivalents):
   TRADER_STATE_S3_PREFIX
   TRADER_STATE_S3_REGION
   TRADER_BINANCE_PROXY_URL
+  TRADER_BINANCE_PROXY_CLEAR
+  TRADER_BINANCE_PROXY_HEALTHCHECK
+  TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT
   TRADER_API_MAX_BARS_LSTM
   TRADER_API_MAX_EPOCHS
   TRADER_API_MAX_HIDDEN_SIZE
@@ -202,6 +211,19 @@ mask_token() {
   echo "${tok:0:6}…${tok:n-4:4}"
 }
 
+mask_proxy_url() {
+  local raw="${1:-}"
+  if [[ -z "$raw" ]]; then
+    echo "(not set)"
+    return 0
+  fi
+  if [[ "$raw" =~ ^(https?://)([^@/]+)@(.+)$ ]]; then
+    echo "${BASH_REMATCH[1]}***@${BASH_REMATCH[3]}"
+  else
+    echo "$raw"
+  fi
+}
+
 is_true() {
   case "${1:-}" in
     1|true|TRUE|yes|YES|y|Y)
@@ -211,6 +233,36 @@ is_true() {
       return 1
       ;;
   esac
+}
+
+health_check_binance_proxy() {
+  if is_true "${TRADER_BINANCE_PROXY_CLEAR:-false}"; then
+    return 0
+  fi
+  if [[ -z "${TRADER_BINANCE_PROXY_URL:-}" ]]; then
+    return 0
+  fi
+  if ! is_true "${TRADER_BINANCE_PROXY_HEALTHCHECK:-true}"; then
+    return 0
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Warning: curl not found; skipping Binance proxy check${NC}" >&2
+    return 0
+  fi
+  local test_url="https://api.binance.com/api/v3/time"
+  local masked
+  masked="$(mask_proxy_url "$TRADER_BINANCE_PROXY_URL")"
+  if curl -fsS --connect-timeout 5 --max-time 10 -x "$TRADER_BINANCE_PROXY_URL" "$test_url" >/dev/null; then
+    echo -e "${GREEN}✓ Binance proxy ok (${masked})${NC}" >&2
+  else
+    local msg="Warning: Binance proxy check failed (${masked})"
+    if is_true "${TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT:-false}"; then
+      echo -e "${RED}✗ ${msg}${NC}" >&2
+      exit 1
+    else
+      echo -e "${YELLOW}${msg}${NC}" >&2
+    fi
+  fi
 }
 
 health_check_api() {
@@ -402,6 +454,20 @@ while [[ $# -gt 0 ]]; do
     --state-s3-region)
       TRADER_STATE_S3_REGION="${2:-}"
       shift 2
+      ;;
+    --binance-proxy-url)
+      TRADER_BINANCE_PROXY_URL="${2:-}"
+      TRADER_BINANCE_PROXY_CLEAR="false"
+      shift 2
+      ;;
+    --clear-binance-proxy)
+      TRADER_BINANCE_PROXY_CLEAR="true"
+      TRADER_BINANCE_PROXY_URL=""
+      shift
+      ;;
+    --skip-binance-proxy-check)
+      TRADER_BINANCE_PROXY_HEALTHCHECK="false"
+      shift
       ;;
     --instance-role-arn)
       APP_RUNNER_INSTANCE_ROLE_ARN="${2:-}"
@@ -1316,7 +1382,7 @@ create_app_runner() {
     fi
   fi
 
-  if [[ -z "${TRADER_BINANCE_PROXY_URL:-}" && -n "$existing_service_arn" ]]; then
+  if [[ -z "${TRADER_BINANCE_PROXY_URL:-}" && ! is_true "${TRADER_BINANCE_PROXY_CLEAR:-false}" && -n "$existing_service_arn" ]]; then
     local existing_proxy_url=""
     existing_proxy_url="$(
       aws apprunner describe-service \
@@ -1573,7 +1639,9 @@ create_app_runner() {
   if [[ -n "${TRADER_DB_URL:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_DB_URL\":\"${TRADER_DB_URL}\""
   fi
-  if [[ -n "${TRADER_BINANCE_PROXY_URL:-}" ]]; then
+  if is_true "${TRADER_BINANCE_PROXY_CLEAR:-false}"; then
+    runtime_env_json="${runtime_env_json},\"TRADER_BINANCE_PROXY_URL\":\"\""
+  elif [[ -n "${TRADER_BINANCE_PROXY_URL:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_BINANCE_PROXY_URL\":\"${TRADER_BINANCE_PROXY_URL}\""
   fi
   if [[ -n "${TRADER_CORS_ORIGIN:-}" ]]; then
@@ -2199,10 +2267,14 @@ main() {
   else
     echo "  State Dir: (disabled)"
   fi
-  if [[ -n "${TRADER_BINANCE_PROXY_URL:-}" ]]; then
-    echo "  Binance Proxy: (set)"
+  if is_true "${TRADER_BINANCE_PROXY_CLEAR:-false}"; then
+    echo "  Binance Proxy: (cleared)"
   else
-    echo "  Binance Proxy: (not set)"
+    if [[ -n "${TRADER_BINANCE_PROXY_URL:-}" ]]; then
+      echo "  Binance Proxy: (set)"
+    else
+      echo "  Binance Proxy: (not set)"
+    fi
   fi
   if [[ -n "${TRADER_STATE_S3_BUCKET:-}" ]]; then
     echo "  State S3 Bucket: ${TRADER_STATE_S3_BUCKET}"
@@ -2220,6 +2292,9 @@ main() {
   if [[ -n "${TRADER_BOT_AUTOSTART:-}" ]]; then
     echo "  Bot Autostart: ${TRADER_BOT_AUTOSTART}"
   fi
+
+  health_check_binance_proxy
+
   if [[ "$DEPLOY_UI" == "true" ]]; then
     echo "  UI Bucket: ${UI_BUCKET:-"(not set)"}"
     if [[ -n "${UI_DISTRIBUTION_ID:-}" ]]; then
