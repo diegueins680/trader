@@ -48,6 +48,7 @@ All notable changes to this project will be documented in this file.
 - Binance: allow overriding REST base URLs via `TRADER_BINANCE_*_REST_URL` env vars for spot/futures (including testnet).
 - Binance: allow routing Binance HTTP requests through a fixed-IP proxy via `TRADER_BINANCE_PROXY_URL`.
 - Binance: add SSE heartbeats for `/binance/listenKey/stream` to prevent idle disconnects.
+- Binance: signed requests now align to cached server time offsets to avoid `-1021` timestamp skew errors.
 - Binance: parse `NOTIONAL` exchange filters so minNotional checks apply consistently.
 - Binance: listenKey user-data stream now sends WebSocket pings and auto-reconnects after disconnects.
 - API: avoid Warp keepAliveRef errors when clients disconnect mid-request.

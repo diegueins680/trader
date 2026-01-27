@@ -133,6 +133,7 @@ Getting Binance API keys:
 - Enable only what you need (Spot/Margin/Futures trading) and keep withdrawals disabled
 - Prefer IP restrictions (allowlist your server IP) when possible
 - Save the secret: Binance only shows it once
+- Signed requests auto-adjust to Binance server time; if you see `-1021` timestamp errors, ensure the time endpoint is reachable (proxy allowed) and the host clock is roughly in sync.
 
 Example (test endpoint with `--no-binance-live`):
 ```

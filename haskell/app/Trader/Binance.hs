@@ -166,6 +166,10 @@ data BinanceTrade = BinanceTrade
   , btRealizedPnl :: !(Maybe Double)
   } deriving (Eq, Show)
 
+newtype BinanceServerTime = BinanceServerTime
+  { bstServerTime :: Int64
+  } deriving (Eq, Show)
+
 instance FromJSON BinanceTrade where
   parseJSON = withObject "BinanceTrade" $ \o -> do
     sym <- o .: "symbol"
@@ -216,6 +220,11 @@ instance FromJSON BinanceTrade where
         , btRealizedPnl = realizedPnl
         }
 
+instance FromJSON BinanceServerTime where
+  parseJSON = withObject "BinanceServerTime" $ \o -> do
+    ts <- o .: "serverTime"
+    pure (BinanceServerTime ts)
+
 instance ToJSON BinanceTrade where
   toJSON t =
     object
@@ -259,6 +268,10 @@ binanceExchangeInfoCache = unsafePerformIO newTtlCache
 binanceKlinesCache :: TtlCache String [Kline]
 binanceKlinesCache = unsafePerformIO newTtlCache
 
+{-# NOINLINE binanceTimeOffsetCache #-}
+binanceTimeOffsetCache :: TtlCache String Int64
+binanceTimeOffsetCache = unsafePerformIO newTtlCache
+
 binanceTickersFreshTtl :: NominalDiffTime
 binanceTickersFreshTtl = 10
 
@@ -276,6 +289,12 @@ binanceKlinesFreshTtl = 5
 
 binanceKlinesStaleTtl :: NominalDiffTime
 binanceKlinesStaleTtl = 60
+
+binanceTimeOffsetFreshTtl :: NominalDiffTime
+binanceTimeOffsetFreshTtl = 10
+
+binanceTimeOffsetStaleTtl :: NominalDiffTime
+binanceTimeOffsetStaleTtl = 60
 
 newBinanceEnv :: BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnv market baseUrl apiKey apiSecret = do
@@ -854,6 +873,35 @@ getTimestampMs = do
   t <- getPOSIXTime
   pure (floor (t * 1000))
 
+getBinanceTimestampMs :: BinanceEnv -> IO Int64
+getBinanceTimestampMs env = do
+  let key = beBaseUrl env ++ ":" ++ show (beMarket env) ++ ":timeOffsetMs"
+  offsetOrErr <-
+    (try $
+       fetchWithCache binanceTimeOffsetCache binanceTimeOffsetFreshTtl binanceTimeOffsetStaleTtl key $ do
+         serverMs <- fetchBinanceServerTime env
+         localMs <- getTimestampMs
+         pure (serverMs - localMs)
+    ) :: IO (Either SomeException Int64)
+  localMs <- getTimestampMs
+  case offsetOrErr of
+    Right offset -> pure (localMs + offset)
+    Left _ -> pure localMs
+
+fetchBinanceServerTime :: BinanceEnv -> IO Int64
+fetchBinanceServerTime env = do
+  let path =
+        case beMarket env of
+          MarketFutures -> "/fapi/v1/time"
+          _ -> "/api/v3/time"
+  req0 <- parseRequest (beBaseUrl env ++ path)
+  let req = req0 { method = "GET" }
+  resp <- binanceHttp env "time" req
+  ensure2xx "time" resp
+  case eitherDecode (responseBody resp) of
+    Left e -> throwIO (userError ("Failed to decode time: " ++ e))
+    Right (BinanceServerTime ts) -> pure ts
+
 signQuery :: BS.ByteString -> BS.ByteString -> BS.ByteString
 signQuery secret query =
   let mac :: HMAC SHA256
@@ -874,7 +922,7 @@ placeMarketOrder
 placeMarketOrder env mode symbol side quantity quoteOrderQty reduceOnly mClientOrderId = do
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
   let sideTxt = case side of { Buy -> "BUY"; Sell -> "SELL" }
       baseParams =
         [ ("symbol", BS.pack (map toUpperAscii symbol))
@@ -971,7 +1019,7 @@ placeFuturesTriggerMarketOrder env mode symbol side orderType stopPrice mClientO
     else pure ()
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
 
   let sideTxt = case side of { Buy -> "BUY"; Sell -> "SELL" }
       baseParams =
@@ -1015,7 +1063,7 @@ fetchOrderByClientId :: BinanceEnv -> String -> String -> IO BL.ByteString
 fetchOrderByClientId env symbol clientOrderId = do
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
 
   let (path, label) =
         case beMarket env of
@@ -1050,7 +1098,7 @@ fetchAccountTrades :: BinanceEnv -> Maybe String -> Maybe Int -> Maybe Int64 -> 
 fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
 
   symbolParam <-
     case (beMarket env, mSymbol) of
@@ -1155,7 +1203,7 @@ fetchOpenOrdersWith ::
 fetchOpenOrdersWith env label path symbol = do
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
 
   let params =
         [ ("symbol", BS.pack (map toUpperAscii symbol))
@@ -1201,7 +1249,7 @@ cancelFuturesOrderByClientId env symbol clientOrderId = do
     else pure ()
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
 
   let params =
         [ ("symbol", BS.pack (map toUpperAscii symbol))
@@ -1250,7 +1298,7 @@ fetchFreeBalance env asset = do
     _ -> pure ()
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
 
   let params =
         [ ("timestamp", BS.pack (show ts))
@@ -1343,7 +1391,7 @@ fetchFuturesAvailableBalance env asset = do
     else pure ()
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
 
   let params =
         [ ("timestamp", BS.pack (show ts))
@@ -1391,7 +1439,7 @@ fetchFuturesPositionAmt env symbol = do
     else pure ()
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
 
   let params =
         [ ("symbol", BS.pack (map toUpperAscii symbol))
@@ -1471,7 +1519,7 @@ fetchFuturesPositionRisks env = do
     else pure ()
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getTimestampMs
+  ts <- getBinanceTimestampMs env
 
   let params =
         [ ("timestamp", BS.pack (show ts))
