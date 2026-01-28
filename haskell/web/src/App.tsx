@@ -361,7 +361,8 @@ const parseTopCombosPayload = (raw: unknown): ComboImportParseResult => {
   const generatedAtMsRaw = (candidate as Record<string, unknown>).generatedAtMs;
   const generatedAtMs =
     typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
-  const sourceRaw = typeof (candidate as Record<string, unknown>).source === "string" ? (candidate as Record<string, unknown>).source.trim() : "";
+  const sourceValue = (candidate as Record<string, unknown>).source;
+  const sourceRaw = typeof sourceValue === "string" ? sourceValue.trim() : "";
   const source = sourceRaw ? sourceRaw : null;
   return {
     payload: candidate,
