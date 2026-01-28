@@ -474,7 +474,7 @@ Always-on live bot (cron watchdog):
 ```
 
 Request limits:
-- `TRADER_API_MAX_BODY_BYTES` (default 10485760) caps JSON request payload size; larger requests return 413.
+- `TRADER_API_MAX_BODY_BYTES` (default 26214400) caps JSON request payload size; larger requests return 413.
 - `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000) truncates `/optimizer/run` stdout/stderr in responses.
 - Truncated optimizer trial errors end with a `…` marker.
 - Optimizer JSON output uses stable key ordering for easier diffs.
@@ -750,7 +750,7 @@ The Binance account trades panel shows timestamps with millisecond precision to 
 The Binance trade P&L breakdown also reports total filled quantity and quote volume for the analyzed fills.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes).
 The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
-The UI includes a “State sync” panel to export bot snapshots and optimizer combos and push them to another API via `/state/sync`.
+The UI includes a “State sync” panel to export bot snapshots and optimizer combos and push them to another API via `/state/sync`, with controls to limit per-request payload size.
 The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available.
 Charts surface range and change badges in the chart headers and group the main backtest view with compact side charts for prediction and telemetry analysis.

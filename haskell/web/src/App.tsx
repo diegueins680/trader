@@ -317,6 +317,21 @@ const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
 const TRADE_PNL_EPS_LABEL = fmtNum(TRADE_PNL_EPS, 9);
+const STATE_SYNC_CHUNK_DEFAULT_BYTES = 900_000;
+const STATE_SYNC_CHUNK_MAX_BYTES = 50_000_000;
+const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+const textByteLength = (raw: string): number => {
+  if (textEncoder) return textEncoder.encode(raw).length;
+  if (typeof Blob !== "undefined") return new Blob([raw]).size;
+  return raw.length;
+};
+const jsonByteLength = (value: unknown): number => {
+  try {
+    return textByteLength(JSON.stringify(value));
+  } catch {
+    return 0;
+  }
+};
 type ComboImportSummary = {
   comboCount: number;
   generatedAtMs: number | null;
@@ -388,6 +403,78 @@ const parseTopCombosJson = (rawText: string): ComboImportParseResult => {
     return { payload: null, summary: null, error: `Invalid JSON: ${msg}` };
   }
 };
+const pruneStateSyncPayload = (
+  payload: StateSyncPayload,
+  opts: { includeBots: boolean; includeCombos: boolean },
+): StateSyncPayload => {
+  const out: StateSyncPayload = {};
+  if (payload.generatedAtMs != null) out.generatedAtMs = payload.generatedAtMs;
+  if (opts.includeBots && Array.isArray(payload.botSnapshots) && payload.botSnapshots.length > 0) {
+    out.botSnapshots = payload.botSnapshots;
+  }
+  if (opts.includeCombos && payload.topCombos != null) {
+    out.topCombos = payload.topCombos;
+  }
+  return out;
+};
+const isStateSyncPayloadEmpty = (payload: StateSyncPayload): boolean => {
+  const hasBots = Array.isArray(payload.botSnapshots) && payload.botSnapshots.length > 0;
+  const hasCombos = payload.topCombos != null;
+  return !hasBots && !hasCombos;
+};
+const buildStateSyncChunks = (payload: StateSyncPayload, maxBytes: number): StateSyncPayload[] => {
+  const chunks: StateSyncPayload[] = [];
+  const generatedAtMs = payload.generatedAtMs;
+  const botSnapshots = payload.botSnapshots ?? [];
+  const topCombos = payload.topCombos;
+  const buildBotPayload = (snaps: StateSyncPayload["botSnapshots"]) => {
+    const out: StateSyncPayload = {};
+    if (generatedAtMs != null) out.generatedAtMs = generatedAtMs;
+    if (snaps && snaps.length > 0) out.botSnapshots = snaps;
+    return out;
+  };
+
+  if (botSnapshots.length > 0) {
+    if (maxBytes <= 0) {
+      chunks.push(buildBotPayload(botSnapshots));
+    } else {
+      const prefix = generatedAtMs != null ? `{"generatedAtMs":${generatedAtMs},"botSnapshots":[` : `{"botSnapshots":[`;
+      const suffix = "]}";
+      const prefixBytes = textByteLength(prefix);
+      const suffixBytes = textByteLength(suffix);
+      let current: NonNullable<StateSyncPayload["botSnapshots"]> = [];
+      let currentBytes = prefixBytes + suffixBytes;
+      for (const snap of botSnapshots) {
+        const snapJson = JSON.stringify(snap);
+        const snapBytes = textByteLength(snapJson);
+        const extraBytes = (current.length > 0 ? 1 : 0) + snapBytes;
+        if (current.length > 0 && currentBytes + extraBytes > maxBytes) {
+          chunks.push(buildBotPayload(current));
+          current = [snap];
+          currentBytes = prefixBytes + suffixBytes + snapBytes;
+          continue;
+        }
+        current.push(snap);
+        currentBytes += extraBytes;
+        if (current.length === 1 && currentBytes > maxBytes) {
+          chunks.push(buildBotPayload(current));
+          current = [];
+          currentBytes = prefixBytes + suffixBytes;
+        }
+      }
+      if (current.length > 0) {
+        chunks.push(buildBotPayload(current));
+      }
+    }
+  }
+  if (topCombos != null) {
+    const comboPayload: StateSyncPayload = {};
+    if (generatedAtMs != null) comboPayload.generatedAtMs = generatedAtMs;
+    comboPayload.topCombos = topCombos;
+    chunks.push(comboPayload);
+  }
+  return chunks;
+};
 const ACCOUNT_TRADE_PNL_TIPS = {
   outcomes: [
     "Counts trades by exchange realized P&L (realizedPnl).",
@@ -455,6 +542,7 @@ type StateSyncUiState = {
   pushing: boolean;
   pushError: string | null;
   pushResult: StateSyncImportResponse | null;
+  pushChunkCount: number | null;
   pushedAtMs: number | null;
 };
 const ChartFallback = ({
@@ -494,6 +582,9 @@ export function App() {
     const session = readSessionString(STORAGE_STATE_SYNC_TOKEN_KEY) ?? "";
     return persistSecrets ? persisted || session : session;
   });
+  const [stateSyncIncludeBots, setStateSyncIncludeBots] = useState(true);
+  const [stateSyncIncludeCombos, setStateSyncIncludeCombos] = useState(true);
+  const [stateSyncChunkBytesInput, setStateSyncChunkBytesInput] = useState(() => String(STATE_SYNC_CHUNK_DEFAULT_BYTES));
   const [binanceApiKey, setBinanceApiKey] = useState<string>(() => {
     const persisted = readLocalString(SESSION_BINANCE_KEY_KEY) ?? "";
     const session = readSessionString(SESSION_BINANCE_KEY_KEY) ?? "";
@@ -744,6 +835,7 @@ export function App() {
     pushing: false,
     pushError: null,
     pushResult: null,
+    pushChunkCount: null,
     pushedAtMs: null,
   });
   const [opsPerformanceCommitLimit, setOpsPerformanceCommitLimit] = useState(40);
@@ -1724,6 +1816,13 @@ export function App() {
     return token ? { "X-API-Key": token } : undefined;
   }, [stateSyncTargetToken]);
   const stateSyncTargetMissing = !stateSyncTargetBase.trim();
+  const stateSyncChunkBytes = useMemo(() => {
+    const parsed = numFromInput(stateSyncChunkBytesInput, STATE_SYNC_CHUNK_DEFAULT_BYTES);
+    if (!Number.isFinite(parsed)) return STATE_SYNC_CHUNK_DEFAULT_BYTES;
+    if (parsed <= 0) return 0;
+    return Math.trunc(Math.min(parsed, STATE_SYNC_CHUNK_MAX_BYTES));
+  }, [stateSyncChunkBytesInput]);
+  const stateSyncSelectionEmpty = !stateSyncIncludeBots && !stateSyncIncludeCombos;
   const stateSyncPayloadJson = useMemo(
     () => (stateSyncUi.payload ? JSON.stringify(stateSyncUi.payload, null, 2) : ""),
     [stateSyncUi.payload],
@@ -1749,6 +1848,27 @@ export function App() {
       generatedAtMs: payload.generatedAtMs ?? comboGeneratedAt ?? null,
     };
   }, [stateSyncUi.payload]);
+  const stateSyncChunkPlan = useMemo(() => {
+    const payload = stateSyncUi.payload;
+    if (!payload) return null;
+    const chunks = buildStateSyncChunks(payload, stateSyncChunkBytes);
+    const payloadBytes = jsonByteLength(payload);
+    const chunkSizes = chunks.map((chunk) => jsonByteLength(chunk));
+    const largestChunkBytes = chunkSizes.length > 0 ? Math.max(...chunkSizes) : 0;
+    const combosBytes =
+      payload.topCombos != null
+        ? jsonByteLength({
+            ...(payload.generatedAtMs != null ? { generatedAtMs: payload.generatedAtMs } : {}),
+            topCombos: payload.topCombos,
+          })
+        : null;
+    return {
+      payloadBytes,
+      chunkCount: chunks.length,
+      largestChunkBytes,
+      combosBytes,
+    };
+  }, [stateSyncUi.payload, stateSyncChunkBytes]);
 
   const appendDataLog = useCallback(
     (label: string, data: unknown, opts?: { background?: boolean; error?: boolean }) => {
@@ -1777,17 +1897,35 @@ export function App() {
   const exportStateSync = useCallback(async (): Promise<StateSyncPayload | null> => {
     setStateSyncUi((prev) => ({ ...prev, exporting: true, exportError: null }));
     try {
+      if (stateSyncSelectionEmpty) {
+        const msg = "Select bot snapshots and/or combos to export.";
+        setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: msg }));
+        return null;
+      }
       if (!activeTenantKey) {
         const msg = "Tenant key required. Add API keys (or check keys) to export state.";
         setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: msg }));
         return null;
       }
       const out = await stateSyncExport(apiBase, { headers: authHeaders, timeoutMs: 30_000, tenantKey: activeTenantKey });
-      setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: null, payload: out, exportedAtMs: Date.now() }));
-      appendDataLog("State Sync Export", out);
+      const filtered = pruneStateSyncPayload(out, { includeBots: stateSyncIncludeBots, includeCombos: stateSyncIncludeCombos });
+      if (isStateSyncPayloadEmpty(filtered)) {
+        const msg = "Nothing to export for the selected payload options.";
+        setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: msg, payload: null, exportedAtMs: null }));
+        return null;
+      }
+      setStateSyncUi((prev) => ({
+        ...prev,
+        exporting: false,
+        exportError: null,
+        payload: filtered,
+        exportedAtMs: Date.now(),
+        pushChunkCount: null,
+      }));
+      appendDataLog("State Sync Export", filtered);
       setApiOk("ok");
       showToast("State export ready");
-      return out;
+      return filtered;
     } catch (e) {
       let msg = e instanceof Error ? e.message : "Failed to export state.";
       if (e instanceof HttpError) {
@@ -1799,7 +1937,17 @@ export function App() {
       appendDataLog("State Sync Export Error", buildDataLogError(e, msg), { error: true });
       return null;
     }
-  }, [activeTenantKey, apiBase, appendDataLog, authHeaders, buildDataLogError, showToast]);
+  }, [
+    activeTenantKey,
+    apiBase,
+    appendDataLog,
+    authHeaders,
+    buildDataLogError,
+    showToast,
+    stateSyncIncludeBots,
+    stateSyncIncludeCombos,
+    stateSyncSelectionEmpty,
+  ]);
 
   const sendStateSync = useCallback(
     async (payloadOverride?: StateSyncPayload | null) => {
@@ -1817,16 +1965,61 @@ export function App() {
         setStateSyncUi((prev) => ({ ...prev, pushError: "Export state first." }));
         return;
       }
-      setStateSyncUi((prev) => ({ ...prev, pushing: true, pushError: null }));
+      const payloadChunks = buildStateSyncChunks(payload, stateSyncChunkBytes);
+      if (payloadChunks.length === 0) {
+        setStateSyncUi((prev) => ({ ...prev, pushError: "State sync payload is empty." }));
+        return;
+      }
+      setStateSyncUi((prev) => ({
+        ...prev,
+        pushing: true,
+        pushError: null,
+        pushResult: null,
+        pushChunkCount: payloadChunks.length,
+      }));
       try {
-        const out = await stateSyncImport(targetBase, payload, {
-          headers: stateSyncTargetHeaders,
-          timeoutMs: 30_000,
-          tenantKey: activeTenantKey ?? undefined,
+        let lastOut: StateSyncImportResponse | null = null;
+        for (let idx = 0; idx < payloadChunks.length; idx += 1) {
+          const chunk = payloadChunks[idx];
+          try {
+            lastOut = await stateSyncImport(targetBase, chunk, {
+              headers: stateSyncTargetHeaders,
+              timeoutMs: 30_000,
+              tenantKey: activeTenantKey ?? undefined,
+            });
+          } catch (e) {
+            let msg = e instanceof Error ? e.message : "Failed to send state sync payload.";
+            if (e instanceof HttpError) {
+              if (e.status === 401) msg = "Unauthorized (check target API token).";
+              if (e.status === 404) msg = "Target API does not expose /state/sync.";
+            }
+            if (isTimeoutError(e)) msg = "State sync push timed out.";
+            if (payloadChunks.length > 1) {
+              msg = `Failed after ${idx} of ${payloadChunks.length} payloads. ${msg}`;
+            }
+            setStateSyncUi((prev) => ({ ...prev, pushing: false, pushError: msg }));
+            appendDataLog(
+              "State Sync Push Error",
+              { ...buildDataLogError(e, msg), chunk: idx + 1, chunks: payloadChunks.length },
+              { error: true },
+            );
+            return;
+          }
+        }
+        setStateSyncUi((prev) => ({
+          ...prev,
+          pushing: false,
+          pushError: null,
+          pushResult: lastOut,
+          pushedAtMs: Date.now(),
+          pushChunkCount: payloadChunks.length,
+        }));
+        appendDataLog("State Sync Push", {
+          target: stateSyncTargetAbsolute || targetBase,
+          response: lastOut,
+          chunks: payloadChunks.length,
         });
-        setStateSyncUi((prev) => ({ ...prev, pushing: false, pushError: null, pushResult: out, pushedAtMs: Date.now() }));
-        appendDataLog("State Sync Push", { target: stateSyncTargetAbsolute || targetBase, response: out });
-        showToast("State sync sent");
+        showToast(payloadChunks.length > 1 ? `State sync sent (${payloadChunks.length} chunks)` : "State sync sent");
       } catch (e) {
         let msg = e instanceof Error ? e.message : "Failed to send state sync payload.";
         if (e instanceof HttpError) {
@@ -1843,6 +2036,7 @@ export function App() {
       appendDataLog,
       buildDataLogError,
       showToast,
+      stateSyncChunkBytes,
       stateSyncTargetAbsolute,
       stateSyncTargetBase,
       stateSyncTargetError,
@@ -9680,7 +9874,12 @@ export function App() {
               ) : null}
 
               <div className="actions" style={{ marginTop: 10 }}>
-                <button className="btn" type="button" disabled={stateSyncUi.exporting || apiOk !== "ok"} onClick={() => void exportStateSync()}>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={stateSyncUi.exporting || apiOk !== "ok" || stateSyncSelectionEmpty}
+                  onClick={() => void exportStateSync()}
+                >
                   {stateSyncUi.exporting ? "Exporting…" : "Export"}
                 </button>
                 <button
@@ -9700,7 +9899,13 @@ export function App() {
                 <button
                   className="btn"
                   type="button"
-                  disabled={stateSyncUi.pushing || stateSyncUi.exporting || stateSyncTargetMissing || Boolean(stateSyncTargetError)}
+                  disabled={
+                    stateSyncUi.pushing ||
+                    stateSyncUi.exporting ||
+                    stateSyncTargetMissing ||
+                    Boolean(stateSyncTargetError) ||
+                    stateSyncSelectionEmpty
+                  }
                   onClick={() => void exportAndSendStateSync()}
                 >
                   {stateSyncUi.exporting || stateSyncUi.pushing ? "Working…" : "Export & send"}
@@ -9728,6 +9933,7 @@ export function App() {
                       exportedAtMs: null,
                       pushError: null,
                       pushResult: null,
+                      pushChunkCount: null,
                       pushedAtMs: null,
                     }))
                   }
@@ -9735,6 +9941,49 @@ export function App() {
                   Clear
                 </button>
               </div>
+
+              <div className="pillRow" style={{ marginTop: 8 }}>
+                <span className="hint" style={{ marginRight: 6 }}>
+                  Payload:
+                </span>
+                <label className="pill" style={{ userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={stateSyncIncludeBots}
+                    onChange={(e) => setStateSyncIncludeBots(e.target.checked)}
+                  />
+                  Bot snapshots
+                </label>
+                <label className="pill" style={{ userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={stateSyncIncludeCombos}
+                    onChange={(e) => setStateSyncIncludeCombos(e.target.checked)}
+                  />
+                  Optimizer combos
+                </label>
+              </div>
+              <div className="row" style={{ marginTop: 8, alignItems: "end" }}>
+                <div className="field" style={{ flex: "1 1 240px" }}>
+                  <label className="label" htmlFor="stateSyncChunkBytes">
+                    Max bytes per request
+                  </label>
+                  <input
+                    id="stateSyncChunkBytes"
+                    className="input"
+                    value={stateSyncChunkBytesInput}
+                    onChange={(e) => setStateSyncChunkBytesInput(e.target.value)}
+                    placeholder={String(STATE_SYNC_CHUNK_DEFAULT_BYTES)}
+                    spellCheck={false}
+                  />
+                  <div className="hint">0 disables bot chunking; combos are sent separately.</div>
+                </div>
+              </div>
+              {stateSyncSelectionEmpty ? (
+                <div className="hint" style={{ marginTop: 6, color: "rgba(239, 68, 68, 0.9)" }}>
+                  Select bot snapshots and/or optimizer combos to export.
+                </div>
+              ) : null}
 
               {stateSyncUi.exportError ? (
                 <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.9)" }}>
@@ -9763,6 +10012,16 @@ export function App() {
                   No export yet.
                 </div>
               )}
+              {stateSyncChunkPlan ? (
+                <div className="hint" style={{ marginTop: 6 }}>
+                  Payload {fmtNum(stateSyncChunkPlan.payloadBytes, 0)} bytes; sending {stateSyncChunkPlan.chunkCount} request
+                  {stateSyncChunkPlan.chunkCount === 1 ? "" : "s"}
+                  {stateSyncChunkBytes > 0 ? ` (max ${fmtNum(stateSyncChunkBytes, 0)} bytes)` : "; bot chunking disabled"}
+                  {stateSyncChunkPlan.largestChunkBytes > 0 && stateSyncChunkBytes > 0 && stateSyncChunkPlan.largestChunkBytes > stateSyncChunkBytes
+                    ? " — some chunks exceed the limit; increase max bytes or reduce payload."
+                    : ""}
+                </div>
+              ) : null}
 
               {stateSyncUi.pushResult ? (
                 <div className="pillRow" style={{ marginTop: 8 }}>
@@ -9770,6 +10029,7 @@ export function App() {
                   {stateSyncUi.pushResult.topCombos?.action ? (
                     <span className="badge">Combos {stateSyncUi.pushResult.topCombos.action}</span>
                   ) : null}
+                  {stateSyncUi.pushChunkCount ? <span className="badge">Chunks {stateSyncUi.pushChunkCount}</span> : null}
                   {stateSyncUi.pushedAtMs ? <span className="badge">Sent {fmtTimeMs(stateSyncUi.pushedAtMs)}</span> : null}
                 </div>
               ) : null}

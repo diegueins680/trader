@@ -29,8 +29,9 @@ All notable changes to this project will be documented in this file.
 - Ops: extend performance rollups with `performance_commit_summary` plus commit/combo delta views for regression tracking.
 - API: add `/ops/performance` to expose performance rollups and deltas.
 - API: add `/state/sync` to export/import bot snapshots and optimizer `top-combos.json` for syncing local and AWS deployments.
-- API: increase default `TRADER_API_MAX_BODY_BYTES` to 10485760 (10 MiB) for larger request payloads.
+- API: increase default `TRADER_API_MAX_BODY_BYTES` to 26214400 (25 MiB) for larger request payloads.
 - Web UI: add a State sync panel to export `/state/sync` payloads and push them to another API.
+- Web UI: split state sync pushes into smaller requests with a configurable per-request payload cap.
 - Web UI: state sync requests no longer fall back to `apiFallbackUrl`, avoiding accidental cross-environment writes.
 - Web UI: add import/export controls for optimizer combos (download/copy top-combos JSON and import via `/state/sync`).
 - API/UI: add `tenantKey` (SHA-256 hash of API keys) for per-tenant isolation; stateful endpoints require `tenantKey` and the backend only stores the hash (returned by `/binance/keys` and `/coinbase/keys`).

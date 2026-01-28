@@ -9211,7 +9211,7 @@ backtestFailureToHttp gate failure =
     BacktestException ex -> exceptionToHttp ex
 
 defaultApiMaxBodyBytes :: Int64
-defaultApiMaxBodyBytes = 10 * 1024 * 1024
+defaultApiMaxBodyBytes = 25 * 1024 * 1024
 
 defaultApiMaxOptimizerOutputBytes :: Int
 defaultApiMaxOptimizerOutputBytes = 20000
