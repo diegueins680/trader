@@ -143,6 +143,7 @@ import {
   fmtEtaMs,
   fmtProfitFactor,
   fmtTimeMs,
+  fmtTimeMsWithMs,
   generateIdempotencyKey,
   indexTopLevelPrimitiveArrays,
   isAbortError,
@@ -316,6 +317,76 @@ const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
 const TRADE_PNL_EPS_LABEL = fmtNum(TRADE_PNL_EPS, 9);
+type ComboImportSummary = {
+  comboCount: number;
+  generatedAtMs: number | null;
+  source: string | null;
+};
+
+type ComboImportParseResult = {
+  payload: Record<string, unknown> | null;
+  summary: ComboImportSummary | null;
+  error: string | null;
+};
+
+type ComboImportUiState = {
+  text: string;
+  payload: Record<string, unknown> | null;
+  summary: ComboImportSummary | null;
+  parseError: string | null;
+  importError: string | null;
+  importing: boolean;
+  importResult: StateSyncImportResponse["topCombos"] | null;
+  importedAtMs: number | null;
+  stampNow: boolean;
+};
+
+const parseTopCombosPayload = (raw: unknown): ComboImportParseResult => {
+  if (!raw || typeof raw !== "object") {
+    return { payload: null, summary: null, error: "Expected a JSON object." };
+  }
+  const root = raw as Record<string, unknown>;
+  const embedded =
+    root.topCombos && typeof root.topCombos === "object" && root.topCombos !== null
+      ? (root.topCombos as Record<string, unknown>)
+      : null;
+  const candidate = embedded ?? root;
+  if (!candidate || typeof candidate !== "object") {
+    return { payload: null, summary: null, error: "Expected top-combos JSON object." };
+  }
+  const combos = (candidate as Record<string, unknown>).combos;
+  if (!Array.isArray(combos)) {
+    return { payload: null, summary: null, error: "Expected an object with a combos array." };
+  }
+  const generatedAtMsRaw = (candidate as Record<string, unknown>).generatedAtMs;
+  const generatedAtMs =
+    typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
+  const sourceRaw = typeof (candidate as Record<string, unknown>).source === "string" ? (candidate as Record<string, unknown>).source.trim() : "";
+  const source = sourceRaw ? sourceRaw : null;
+  return {
+    payload: candidate,
+    summary: {
+      comboCount: combos.length,
+      generatedAtMs,
+      source,
+    },
+    error: null,
+  };
+};
+
+const parseTopCombosJson = (rawText: string): ComboImportParseResult => {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return { payload: null, summary: null, error: "Paste combos JSON first." };
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return parseTopCombosPayload(parsed);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid JSON.";
+    return { payload: null, summary: null, error: `Invalid JSON: ${msg}` };
+  }
+};
 const ACCOUNT_TRADE_PNL_TIPS = {
   outcomes: [
     "Counts trades by exchange realized P&L (realizedPnl).",
@@ -941,6 +1012,18 @@ export function App() {
     fallbackReason: null,
     comboCount: null,
   });
+  const [topCombosPayload, setTopCombosPayload] = useState<Record<string, unknown> | null>(null);
+  const [comboImportUi, setComboImportUi] = useState<ComboImportUiState>(() => ({
+    text: "",
+    payload: null,
+    summary: null,
+    parseError: null,
+    importError: null,
+    importing: false,
+    importResult: null,
+    importedAtMs: null,
+    stampNow: false,
+  }));
   const topCombosDisplayMax = useMemo(() => {
     const count = topCombosFiltered.length;
     if (count && count > 0) return Math.max(TOP_COMBOS_DISPLAY_MIN, count);
@@ -952,6 +1035,30 @@ export function App() {
     comboMarketFilter !== "all" ||
     comboIntervalFilter !== "all" ||
     comboMethodFilter !== "all";
+  const comboExportJson = useMemo(() => {
+    if (!topCombosPayload) return "";
+    try {
+      return JSON.stringify(topCombosPayload, null, 2);
+    } catch {
+      return "";
+    }
+  }, [topCombosPayload]);
+  const comboExportReady = comboExportJson.length > 0;
+  const comboExportFilename = useMemo(() => {
+    const stamp = formatDatetimeLocal(topCombosMeta.generatedAtMs ?? Date.now());
+    const safeStamp = sanitizeFilenameSegment(stamp, "latest");
+    return `top-combos-${safeStamp}.json`;
+  }, [topCombosMeta.generatedAtMs]);
+  const comboImportReady = useMemo(
+    () => Boolean(comboImportUi.payload) && !comboImportUi.parseError,
+    [comboImportUi.parseError, comboImportUi.payload],
+  );
+  const comboImportDisabledReason = useMemo(() => {
+    if (!activeTenantKey) return "Tenant key required. Add API keys and check keys.";
+    if (comboImportUi.parseError) return comboImportUi.parseError;
+    if (!comboImportUi.payload) return "Parse combos JSON first.";
+    return null;
+  }, [activeTenantKey, comboImportUi.parseError, comboImportUi.payload]);
   const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
@@ -1757,6 +1864,159 @@ export function App() {
     if (!payload) return;
     await sendStateSync(payload);
   }, [exportStateSync, sendStateSync, stateSyncTargetError, stateSyncTargetMissing]);
+
+  const updateComboImportText = useCallback((text: string) => {
+    setComboImportUi((prev) => ({
+      ...prev,
+      text,
+      payload: null,
+      summary: null,
+      parseError: null,
+      importError: null,
+      importResult: null,
+      importedAtMs: null,
+    }));
+  }, []);
+
+  const setComboImportStampNow = useCallback((value: boolean) => {
+    setComboImportUi((prev) => ({ ...prev, stampNow: value }));
+  }, []);
+
+  const parseComboImportText = useCallback(
+    (textOverride?: string) => {
+      const text = textOverride ?? comboImportUi.text;
+      const result = parseTopCombosJson(text);
+      setComboImportUi((prev) => ({
+        ...prev,
+        text,
+        payload: result.payload,
+        summary: result.summary,
+        parseError: result.error,
+        importError: null,
+        importResult: null,
+        importedAtMs: null,
+      }));
+    },
+    [comboImportUi.text],
+  );
+
+  const handleComboImportFile = useCallback(
+    (file: File | null) => {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = typeof reader.result === "string" ? reader.result : "";
+        const result = parseTopCombosJson(text);
+        setComboImportUi((prev) => ({
+          ...prev,
+          text,
+          payload: result.payload,
+          summary: result.summary,
+          parseError: result.error,
+          importError: null,
+          importResult: null,
+          importedAtMs: null,
+        }));
+      };
+      reader.onerror = () => {
+        setComboImportUi((prev) => ({
+          ...prev,
+          text: "",
+          payload: null,
+          summary: null,
+          parseError: "Failed to read file.",
+          importError: null,
+          importResult: null,
+          importedAtMs: null,
+        }));
+      };
+      reader.readAsText(file);
+    },
+    [],
+  );
+
+  const copyComboExport = useCallback(async () => {
+    if (!comboExportReady) {
+      showToast("No combos to export yet");
+      return;
+    }
+    await copyText(comboExportJson);
+    showToast("Copied combos JSON");
+  }, [comboExportJson, comboExportReady, showToast]);
+
+  const downloadComboExport = useCallback(() => {
+    if (!comboExportReady) {
+      showToast("No combos to export yet");
+      return;
+    }
+    downloadTextFile(comboExportFilename, comboExportJson, "application/json");
+  }, [comboExportFilename, comboExportJson, comboExportReady, showToast]);
+
+  const importCombos = useCallback(async () => {
+    if (!activeTenantKey) {
+      setComboImportUi((prev) => ({ ...prev, importError: "Tenant key required. Add API keys and check keys." }));
+      return;
+    }
+    if (!comboImportUi.payload) {
+      setComboImportUi((prev) => ({ ...prev, importError: "Parse combos JSON first." }));
+      return;
+    }
+    setComboImportUi((prev) => ({ ...prev, importing: true, importError: null }));
+    try {
+      const payload =
+        comboImportUi.stampNow
+          ? { ...comboImportUi.payload, generatedAtMs: Date.now() }
+          : comboImportUi.payload;
+      const out = await stateSyncImport(
+        apiBase,
+        { generatedAtMs: Date.now(), topCombos: payload } satisfies StateSyncPayload,
+        { headers: authHeaders, timeoutMs: 30_000, tenantKey: activeTenantKey },
+      );
+      setComboImportUi((prev) => ({
+        ...prev,
+        importing: false,
+        importError: null,
+        importResult: out.topCombos ?? null,
+        importedAtMs: Date.now(),
+      }));
+      appendDataLog("Combos Import", { response: out, combos: payload });
+      showToast(`Combos import ${out.topCombos?.action ?? "complete"}`);
+      refreshTopCombos();
+    } catch (e) {
+      let msg = e instanceof Error ? e.message : "Failed to import combos.";
+      if (e instanceof HttpError) {
+        if (e.status === 401) msg = "Unauthorized (check apiToken / TRADER_API_TOKEN).";
+        if (e.status === 400) msg = "Invalid combos JSON (expected object with combos array).";
+      }
+      if (isTimeoutError(e)) msg = "Combos import timed out.";
+      setComboImportUi((prev) => ({ ...prev, importing: false, importError: msg }));
+      appendDataLog("Combos Import Error", buildDataLogError(e, msg), { error: true });
+    }
+  }, [
+    activeTenantKey,
+    apiBase,
+    appendDataLog,
+    authHeaders,
+    buildDataLogError,
+    comboImportUi.payload,
+    comboImportUi.stampNow,
+    refreshTopCombos,
+    showToast,
+  ]);
+
+  const clearComboImport = useCallback(() => {
+    setComboImportUi({
+      text: "",
+      payload: null,
+      summary: null,
+      parseError: null,
+      importError: null,
+      importing: false,
+      importResult: null,
+      importedAtMs: null,
+      stampNow: false,
+    });
+  }, []);
 
   const runOptimizer = useCallback(async () => {
     if (optimizerRunValidationError) {
@@ -2824,7 +3084,7 @@ export function App() {
         const side = binanceTradeSideLabel(trade);
         const qty = typeof trade.qty === "number" && Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
         const quote = typeof trade.quoteQty === "number" && Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
-        return `${fmtTimeMs(trade.time)} | ${trade.symbol} | ${side} | ${fmtMoney(trade.price, 4)} | ${qty} | ${quote}`;
+        return `${fmtTimeMsWithMs(trade.time)} | ${trade.symbol} | ${side} | ${fmtMoney(trade.price, 4)} | ${qty} | ${quote}`;
       })
       .join("\n");
   }, [binanceTradesFiltered, binanceTradesUi.response]);
@@ -4555,7 +4815,8 @@ export function App() {
         const source: TopCombosSource = "api";
         const fallbackReason: string | null = null;
         if (isCancelled) return;
-        const payloadRec = (payload as Record<string, unknown> | null | undefined) ?? {};
+        const payloadObj = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
+        const payloadRec = payloadObj ?? {};
         const rawCombos: unknown[] = Array.isArray(payloadRec.combos) ? (payloadRec.combos as unknown[]) : [];
         const generatedAtMsRaw = payloadRec.generatedAtMs;
         const generatedAtMs =
@@ -4941,6 +5202,9 @@ export function App() {
           if (eq !== 0) return eq;
           return a.id - b.id;
         });
+        if (payloadObj && Array.isArray(payloadObj.combos)) {
+          setTopCombosPayload(payloadObj);
+        }
         setTopCombosAll(sanitized);
         const comboCount = rawCombos.length;
         const payloadSourceRaw =
@@ -6450,6 +6714,26 @@ export function App() {
     syncOptimizerRunSymbolInterval,
     applyEquityPreset,
     resetOptimizerRunForm,
+    comboExportReady,
+    comboExportFilename,
+    copyComboExport,
+    downloadComboExport,
+    comboImportText: comboImportUi.text,
+    setComboImportText: updateComboImportText,
+    parseComboImportText: () => parseComboImportText(),
+    comboImportParseError: comboImportUi.parseError,
+    comboImportSummary: comboImportUi.summary,
+    comboImporting: comboImportUi.importing,
+    comboImportError: comboImportUi.importError,
+    comboImportResult: comboImportUi.importResult,
+    comboImportAtMs: comboImportUi.importedAtMs,
+    comboImportReady,
+    comboImportDisabledReason,
+    comboImportStampNow: comboImportUi.stampNow,
+    setComboImportStampNow,
+    handleComboImportFile,
+    importCombos,
+    clearComboImport,
   } satisfies OptimizerCombosPanelProps;
 
   const shortCommitHash = (hash?: string | null, size = 8): string => {
@@ -7975,7 +8259,7 @@ export function App() {
                                                 : "—";
                                             return (
                                               <tr key={`binance-win-${row.tradeId}`}>
-                                                <td className="tdMono">{fmtTimeMs(row.time)}</td>
+                                                <td className="tdMono">{fmtTimeMsWithMs(row.time)}</td>
                                                 <td className="tdMono">{row.symbol}</td>
                                                 <td>
                                                   <span className={sideClass}>{row.side}</span>
@@ -8032,7 +8316,7 @@ export function App() {
                                                 : "—";
                                             return (
                                               <tr key={`binance-loss-${row.tradeId}`}>
-                                                <td className="tdMono">{fmtTimeMs(row.time)}</td>
+                                                <td className="tdMono">{fmtTimeMsWithMs(row.time)}</td>
                                                 <td className="tdMono">{row.symbol}</td>
                                                 <td>
                                                   <span className={sideClass}>{row.side}</span>
@@ -8103,7 +8387,7 @@ export function App() {
                               trade.realizedPnl != null && Number.isFinite(trade.realizedPnl) ? fmtMoney(trade.realizedPnl, 4) : "—";
                             return (
                               <tr key={`${trade.symbol}-${trade.tradeId}`}>
-                                <td className="tdMono">{fmtTimeMs(trade.time)}</td>
+                                <td className="tdMono">{fmtTimeMsWithMs(trade.time)}</td>
                                 <td className="tdMono">{trade.symbol}</td>
                                 <td>
                                   <span className={side === "BUY" ? "badge badgeStrong badgeLong" : side === "SELL" ? "badge badgeStrong badgeFlat" : "badge"}>

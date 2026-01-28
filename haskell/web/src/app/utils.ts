@@ -290,6 +290,19 @@ export function fmtTimeMs(ms: number): string {
   }
 }
 
+export function fmtTimeMsWithMs(ms: number): string {
+  if (!Number.isFinite(ms)) return "—";
+  try {
+    const d = new Date(ms);
+    if (!Number.isFinite(d.getTime())) return String(ms);
+    const pad2 = (v: number) => String(v).padStart(2, "0");
+    const pad3 = (v: number) => String(v).padStart(3, "0");
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(d.getMilliseconds())}`;
+  } catch {
+    return String(ms);
+  }
+}
+
 export function fmtDurationMs(ms: number | null | undefined): string {
   if (typeof ms !== "number" || !Number.isFinite(ms)) return "—";
   const sign = ms < 0 ? "-" : "";
