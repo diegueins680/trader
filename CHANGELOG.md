@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Deploy/API: quick AWS deploy can clear `TRADER_BINANCE_PROXY_URL` via `--clear-binance-proxy` / `TRADER_BINANCE_PROXY_CLEAR`.
 - Deploy/API: quick AWS deploy now checks Binance proxy connectivity when a proxy is configured (optional strict failure).
 - API: add `TRADER_BOT_AUTOSTART` to disable live-bot auto-start on boot.
+- API: load `.env` (or `TRADER_ENV_FILE`) on startup to populate environment variables like `TRADER_DB_URL`.
 - API: add `/binance/proxy/health` to report Binance proxy connectivity.
 - API: when `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, echo the request Origin so direct UI calls work without explicit CORS config.
 - Web UI: try `apiBaseUrl` first and fail over to `apiFallbackUrl` after network/502/503/504 errors, remembering successful fallbacks for the session.
@@ -28,8 +29,10 @@ All notable changes to this project will be documented in this file.
 - Ops: extend performance rollups with `performance_commit_summary` plus commit/combo delta views for regression tracking.
 - API: add `/ops/performance` to expose performance rollups and deltas.
 - API: add `/state/sync` to export/import bot snapshots and optimizer `top-combos.json` for syncing local and AWS deployments.
+- API: increase default `TRADER_API_MAX_BODY_BYTES` to 10485760 (10 MiB) for larger request payloads.
 - Web UI: add a State sync panel to export `/state/sync` payloads and push them to another API.
 - Web UI: state sync requests no longer fall back to `apiFallbackUrl`, avoiding accidental cross-environment writes.
+- Web UI: add import/export controls for optimizer combos (download/copy top-combos JSON and import via `/state/sync`).
 - API/UI: add `tenantKey` (SHA-256 hash of API keys) for per-tenant isolation; stateful endpoints require `tenantKey` and the backend only stores the hash (returned by `/binance/keys` and `/coinbase/keys`).
 - API: `/trade` and `/trade/async` use backend keys only when the request `tenantKey` matches; non-owner trades must include user keys.
 - Web UI: add “Performance vs code” panel to review commit-level and combo-level rollups.
@@ -85,7 +88,7 @@ All notable changes to this project will be documented in this file.
 - Trading: `--no-trade-window`/UTC day-week limits now require bar timestamps (interval-only fallback removed) to avoid misaligned boundaries.
 - Metrics: clamp invalid/negative equity values when computing returns and keep stress scoring anchored to the starting equity.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
-- Trading: multiply order sizes by 100x at execution (sizing inputs and position sizing; exits follow the scaled position size).
+- Trading: remove the 100x order-size multiplier; order sizing inputs are applied directly.
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
 - Trading: add performance gates (`--perf-*`), loss-streak cooldowns, and adaptive filter tightening (`--adaptive-*`) for live bots.
 - Trading: apply `--min-hold-bars` to signal reversals, and entry gates now hold existing positions instead of forcing an exit.
@@ -116,6 +119,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add a decision-logic checklist to the Latest signal card showing the gates and sizing behind operate/hold outcomes.
 - Web UI: add a trade P&L analysis section to the Backtest summary (win/loss breakdown + top winners/losers).
 - Web UI: add a trade P&L analysis section to the Binance account trades panel when realizedPnl is available (futures only).
+- Web UI: show milliseconds in Binance account trade timestamps to distinguish fills within the same second.
 - Web UI: add total filled quantity and quote volume to the Binance trade P&L analysis.
 - Web UI: add live trading visual aids (price pulse, signal/position compass, risk buffer) to the Live bot panel.
 - Web UI: make configuration sections and result panels collapsible with locally remembered open/closed state, add expand/collapse-all controls, and default low-signal panels to collapsed.

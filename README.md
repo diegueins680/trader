@@ -128,6 +128,8 @@ Environment variables:
 - `TRADER_BINANCE_PROXY_CLEAR` (optional; `true` clears any existing proxy when deploying with `deploy-aws-quick.sh`)
 - `TRADER_BINANCE_PROXY_HEALTHCHECK` / `TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT` (optional; enable/strict-fail proxy connectivity checks in `deploy-aws-quick.sh`)
 
+The CLI/API loads `.env` on startup (override with `TRADER_ENV_FILE`; relative paths resolve from the working directory, then its parent, then the git repo root). Existing environment variables take precedence, and set `TRADER_ENV_FILE=""` to disable loading.
+
 Getting Binance API keys:
 - Binance → Profile → **API Management** → **Create API**
 - Enable only what you need (Spot/Margin/Futures trading) and keep withdrawals disabled
@@ -188,7 +190,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
-  - Order sizes are multiplied by 100x at execution time (sizing inputs and position sizing; exits follow the scaled position size).
+  - Order sizes are sent as specified (after sizing inputs and position sizing; exits follow the sized position).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
 
 - Coinbase API keys (optional; used for `/coinbase/keys` checks and Coinbase trades)
@@ -333,7 +335,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--min-position-size 0.15` minimum entry size after sizing/vol scaling (`0..1`; entries below this are skipped)
     - Must be <= `--max-position-size`.
   - When confidence sizing is enabled, live orders also scale entry size by the LSTM confidence score (clamp01(|next/current - 1| / (2 * openThreshold))) using the method-selected prediction stream (Kalman/LSTM/blend/router) to match backtests.
-  - The UI defaults to `orderQuote=100` (effective `~10000` with the 100x order-size multiplier) so new setups clear common minQty/step sizes; adjust sizing to your account.
+  - The UI defaults to `orderQuote=100`; adjust sizing to your account and exchange minimums.
   - Trade-test quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
   - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio, backtest ratio, bars, or lookback to restore a valid split.
@@ -472,7 +474,7 @@ Always-on live bot (cron watchdog):
 ```
 
 Request limits:
-- `TRADER_API_MAX_BODY_BYTES` (default 1048576) caps JSON request payload size; larger requests return 413.
+- `TRADER_API_MAX_BODY_BYTES` (default 10485760) caps JSON request payload size; larger requests return 413.
 - `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000) truncates `/optimizer/run` stdout/stderr in responses.
 - Truncated optimizer trial errors end with a `…` marker.
 - Optimizer JSON output uses stable key ordering for easier diffs.
@@ -739,10 +741,12 @@ Manual edits to Method/open/close thresholds are preserved when optimizer combos
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
 Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), selecting the existing bot if it is already running; top-combo auto-apply pauses while a manual Apply is starting a bot, and Refresh combos resyncs.
 If a refresh fails, the last known combos remain visible with a warning banner.
+The Optimizer combos panel includes import/export controls for top-combos JSON (download/copy and upload via `/state/sync`).
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
 The Binance account trades panel stays scrollable when maximized so long histories remain accessible.
 The Binance account trades panel supports symbol/side/date filters and shows total P&L plus commission for the filtered trades.
 The Binance account trades panel includes a trade P&L breakdown (realizedPnl, win/loss totals, top winners/losers) when Binance returns realized P&L (futures only).
+The Binance account trades panel shows timestamps with millisecond precision to distinguish fills within the same second.
 The Binance trade P&L breakdown also reports total filled quantity and quote volume for the analyzed fills.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes).
 The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
