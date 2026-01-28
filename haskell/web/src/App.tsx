@@ -86,6 +86,9 @@ import {
   BOT_STATUS_TAIL_FALLBACK_POINTS,
   BOT_STATUS_TAIL_POINTS,
   BOT_STATUS_TIMEOUT_MS,
+  OPTIMIZER_UI_MAX_BARS,
+  OPTIMIZER_UI_MAX_TIMEOUT_SEC,
+  OPTIMIZER_UI_MAX_TRIALS,
   BOT_AUTOSTART_RETRY_MS,
   BOT_TELEMETRY_POINTS,
   DATA_LOG_AUTO_SCROLL_SLOP_PX,
@@ -975,6 +978,15 @@ export function App() {
     const extraSymbol = typeof extras.binanceSymbol === "string" ? extras.binanceSymbol.trim() : "";
     const high = optimizerRunForm.highColumn.trim() || (typeof extras.highColumn === "string" ? extras.highColumn.trim() : "");
     const low = optimizerRunForm.lowColumn.trim() || (typeof extras.lowColumn === "string" ? extras.lowColumn.trim() : "");
+    const intervals =
+      typeof extras.intervals === "string" ? extras.intervals.trim() : optimizerRunForm.intervals.trim();
+    const lookbackWindow =
+      typeof extras.lookbackWindow === "string" ? extras.lookbackWindow.trim() : optimizerRunForm.lookbackWindow.trim();
+    const trials = typeof extras.trials === "number" ? extras.trials : parseOptionalInt(optimizerRunForm.trials);
+    const timeoutSec =
+      typeof extras.timeoutSec === "number" ? extras.timeoutSec : parseOptionalNumber(optimizerRunForm.timeoutSec);
+    const barsMin = typeof extras.barsMin === "number" ? extras.barsMin : parseOptionalInt(optimizerRunForm.barsMin);
+    const barsMax = typeof extras.barsMax === "number" ? extras.barsMax : parseOptionalInt(optimizerRunForm.barsMax);
     const backtestRatio =
       typeof extras.backtestRatio === "number" ? extras.backtestRatio : parseOptionalNumber(optimizerRunForm.backtestRatio);
     const tuneRatio = typeof extras.tuneRatio === "number" ? extras.tuneRatio : parseOptionalNumber(optimizerRunForm.tuneRatio);
@@ -994,17 +1006,51 @@ export function App() {
     if (backtestRatio != null && tuneRatio != null && backtestRatio + tuneRatio >= 1) {
       return "Backtest ratio + tune ratio must be < 1.";
     }
+    if (trials != null && trials > OPTIMIZER_UI_MAX_TRIALS) {
+      return `Trials must be <= ${OPTIMIZER_UI_MAX_TRIALS} (UI guardrail).`;
+    }
+    if (timeoutSec != null && timeoutSec > OPTIMIZER_UI_MAX_TIMEOUT_SEC) {
+      return `TimeoutSec must be <= ${OPTIMIZER_UI_MAX_TIMEOUT_SEC} (UI guardrail).`;
+    }
+    if (barsMin != null && barsMin > OPTIMIZER_UI_MAX_BARS) {
+      return `Bars min exceeds ${OPTIMIZER_UI_MAX_BARS} (UI guardrail).`;
+    }
+    if (barsMax != null && barsMax > OPTIMIZER_UI_MAX_BARS) {
+      return `Bars max exceeds ${OPTIMIZER_UI_MAX_BARS} (UI guardrail).`;
+    }
+    if (lookbackWindow && intervals) {
+      const lookbackSec = parseDurationSeconds(lookbackWindow);
+      if (lookbackSec && lookbackSec > 0) {
+        const intervalList = intervals.split(/[,\s]+/).map((v) => v.trim()).filter(Boolean);
+        for (const interval of intervalList) {
+          const intervalSec =
+            source === "csv" ? parseDurationSeconds(interval) : platformIntervalSeconds(platform, interval);
+          if (!intervalSec || intervalSec <= 0) continue;
+          const bars = Math.ceil(lookbackSec / intervalSec);
+          if (bars > OPTIMIZER_UI_MAX_BARS) {
+            return `LookbackWindow requires ${bars} bars at ${interval}, exceeding ${OPTIMIZER_UI_MAX_BARS} (UI guardrail).`;
+          }
+        }
+      }
+    }
     return null;
   }, [
     optimizerRunExtras.error,
     optimizerRunExtras.value,
     optimizerRunForm.backtestRatio,
+    optimizerRunForm.barsMax,
+    optimizerRunForm.barsMin,
     optimizerRunForm.dataPath,
     optimizerRunForm.highColumn,
+    optimizerRunForm.intervals,
     optimizerRunForm.lowColumn,
+    optimizerRunForm.lookbackWindow,
     optimizerRunForm.source,
     optimizerRunForm.symbol,
+    optimizerRunForm.timeoutSec,
     optimizerRunForm.tuneRatio,
+    optimizerRunForm.trials,
+    platform,
   ]);
   const optimizerRunRecordJson = useMemo(() => {
     if (!optimizerRunUi.response) return null;
@@ -1163,6 +1209,7 @@ export function App() {
   }, [activeTenantKey, comboImportUi.parseError, comboImportUi.payload]);
   const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
+  const [autoApplyTopCombo, setAutoApplyTopCombo] = useState(false);
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
   const [pendingComboStart, setPendingComboStart] = useState<{
     signature: string;
@@ -5446,7 +5493,7 @@ export function App() {
         });
         setTopCombosError(null);
         const topCombo = sanitized[0];
-        if (topCombo) {
+        if (topCombo && autoApplyTopCombo) {
           const currentForm = formRef.current;
           const topSig = comboApplySignature(
             topCombo,
@@ -5498,7 +5545,7 @@ export function App() {
         topCombosSyncRef.current = null;
       }
     };
-  }, [apiBase, apiOk, authHeaders, applyCombo, pageVisible, showToast]);
+  }, [apiBase, apiOk, authHeaders, applyCombo, autoApplyTopCombo, pageVisible, showToast]);
 
   useEffect(() => {
     return () => {
@@ -6881,6 +6928,8 @@ export function App() {
     apiOk,
     autoAppliedCombo,
     autoAppliedAge,
+    autoApplyTopCombo,
+    setAutoApplyTopCombo,
     manualOverrideLabels,
     clearManualOverrides,
     topCombosMeta,

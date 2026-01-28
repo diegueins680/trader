@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: allow `--max-hold-bars 0` from optimize-equity sweeps to disable the max-hold gate.
 - Web UI: avoid scheme-relative API URLs when `apiBaseUrl` is empty by falling back to same-origin paths.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
+- Dev: add `haskell/scripts/run_api_with_db.sh` helper to start the API with local Postgres persistence.
 - Deploy: include `libpq` in the runtime image so Postgres ops persistence starts cleanly.
 - Deploy/UI: when CloudFront is configured, `deploy-aws-quick.sh` now defaults UI `apiBaseUrl` to `/api` unless `TRADER_UI_API_MODE` is set (use `direct` for full API URL/CORS).
 - Deploy/UI: quick AWS deploy now uploads `index.html` with no-cache headers so clients pick up new bundles promptly.
@@ -47,6 +48,8 @@ All notable changes to this project will be documented in this file.
 - Live bot: size adopted positions from current balances/positions and charge flip fees on the full close+open size.
 - Live bot: apply flip fees per side (exit + entry) to match backtest cost modeling.
 - Live bot: add `botProtectionOrders` to place exchange-managed STOP_MARKET/TAKE_PROFIT_MARKET protection orders on Binance futures when enabled.
+- Trading: retry Binance futures protection orders via the Algo Order API when the standard futures endpoint rejects trigger orders.
+- Trading: cancel bot-owned Binance futures algo protection orders after reduce-only closes when possible.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
 - Binance: `/binance/keys` futures signed probe now uses the futures balance endpoint to avoid invalid-symbol errors.
@@ -71,6 +74,11 @@ All notable changes to this project will be documented in this file.
 - Database: add `git_commits` plus `ops.git_commit_id` to track the code version for each operation.
 - Ops: add `--ops-backfill-commits` to populate git commits from repo history and backfill `ops.git_commit_id`.
 - Optimizer: add genetic crossover using parent combos with `tradeCount > 5` and `annualizedReturn > 1` to maximize annualized equity.
+- Optimizer: cap in-flight stdout/stderr capture for `/optimizer/run` to prevent runaway memory usage.
+- API: add `/optimizer/run` guardrails via `TRADER_OPTIMIZER_MAX_TRIALS`, `TRADER_OPTIMIZER_MAX_TIMEOUT_SEC`, and `TRADER_OPTIMIZER_MAX_BARS`.
+- Web UI: add optimizer run guardrails for trials/timeout/bars to prevent runaway runs.
+- Web UI: add a toggle to disable auto-applying the top combo so manual symbol changes persist.
+- Dev: add `haskell/scripts/start_api_bg.sh` helper to run the API with `.env` in the background.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
 - API: include CSV file size/mtime in cache keys so updated CSVs invalidate cached signal/backtest results.
 - API: allowlist CORS via `TRADER_CORS_ORIGIN` (no `Access-Control-Allow-Origin` when unset).
@@ -93,7 +101,7 @@ All notable changes to this project will be documented in this file.
 - Trading: `--no-trade-window`/UTC day-week limits now require bar timestamps (interval-only fallback removed) to avoid misaligned boundaries.
 - Metrics: clamp invalid/negative equity values when computing returns and keep stress scoring anchored to the starting equity.
 - Trading: close positions when the open-threshold signal no longer agrees with the current direction on each bar (backtest + live bot).
-- Trading: remove the 100x order-size multiplier; order sizing inputs are applied directly.
+- Trading: remove the order-size multiplier so sizing inputs apply directly.
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
 - Trading: add performance gates (`--perf-*`), loss-streak cooldowns, and adaptive filter tightening (`--adaptive-*`) for live bots.
 - Trading: apply `--min-hold-bars` to signal reversals, and entry gates now hold existing positions instead of forcing an exit.

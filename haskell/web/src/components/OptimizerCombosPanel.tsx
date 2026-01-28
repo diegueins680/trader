@@ -23,6 +23,8 @@ export type OptimizerCombosPanelProps = {
   apiOk: "unknown" | "ok" | "down" | "auth";
   autoAppliedCombo: { id: number; atMs: number } | null;
   autoAppliedAge: string | null;
+  autoApplyTopCombo: boolean;
+  setAutoApplyTopCombo: (value: boolean) => void;
   manualOverrideLabels: string[];
   clearManualOverrides: () => void;
   topCombosMeta: TopCombosMeta;
@@ -101,6 +103,8 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
     apiOk,
     autoAppliedCombo,
     autoAppliedAge,
+    autoApplyTopCombo,
+    setAutoApplyTopCombo,
     manualOverrideLabels,
     clearManualOverrides,
     topCombosMeta,
@@ -178,6 +182,9 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
   <div className="row" style={{ gridTemplateColumns: "1fr" }}>
     <div className="field">
       <div className="label">Optimizer combos</div>
+      <div className="hint" style={{ marginTop: 4 }}>
+        Auto-apply is off by default to prevent the top combo from resetting your symbol.
+      </div>
       {(() => {
         const updatedAtMs = topCombosMeta.generatedAtMs;
         const updatedLabel = updatedAtMs ? fmtTimeMs(updatedAtMs) : "—";
@@ -242,6 +249,17 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
             {autoAppliedAge ? ` (${autoAppliedAge} ago)` : ""}
           </span>
         ) : null}
+        <label className="pill" style={{ cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={autoApplyTopCombo}
+            onChange={(e) => setAutoApplyTopCombo(e.target.checked)}
+          />
+          Auto-apply top combo
+        </label>
+        <span className="hint" style={{ marginLeft: 4 }}>
+          When enabled, the top combo overwrites the form (including symbol) on refresh.
+        </span>
         {manualOverrideLabels.length > 0 ? (
           <>
             <span

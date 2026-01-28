@@ -113,6 +113,8 @@ Coinbase: spot-only and live-only (no test endpoint). Use `--platform coinbase`.
 Futures protection orders (live):
 - When sending **LIVE futures** orders via the CLI (`--binance-trade`) or REST `/trade`, providing `--stop-loss` and/or `--take-profit` places exchange-native trigger orders (`STOP_MARKET` / `TAKE_PROFIT_MARKET`) with `closePosition=true`.
 - The continuous `/bot` loop skips exchange-native protection orders by default; set `botProtectionOrders=true` on `/bot/start` to place reduce-only `STOP_MARKET` / `TAKE_PROFIT_MARKET` protection orders on Binance futures (trailing stops remain internal).
+- If Binance requires the Algo Order API for futures trigger orders, the backend will automatically retry via `/fapi/v1/algoOrder` for those protections (live-only).
+- When a futures position is closed with a reduce-only order, the backend attempts to cancel any remaining bot-owned algo protection orders for the same symbol.
 
 Environment variables:
 - `BINANCE_API_KEY`
@@ -190,7 +192,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--max-order-quote Q` (default: none) cap the computed quote amount when using `--order-quote-fraction`
   - `--idempotency-key ID` (default: none) optional Binance `newClientOrderId` for idempotent orders
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
-  - Order sizes are sent as specified (after sizing inputs and position sizing; exits follow the sized position).
+  - Order sizes are applied as specified (no extra multiplier).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
 
 - Coinbase API keys (optional; used for `/coinbase/keys` checks and Coinbase trades)
@@ -433,6 +435,7 @@ Endpoints:
 - `GET /backtest/async/:jobId` → polls an async backtest job (also accepts `POST` for proxy compatibility)
 - Backtest endpoints return 400 for inconsistent inputs (e.g., lookback >= bars, high/low length mismatches).
 - `POST /optimizer/run` → runs the optimizer executable, merges the run into `top-combos.json`, and returns the last JSONL record
+  - The Web UI applies guardrails for trials/timeout/bars to avoid runaway optimizer runs (see UI constants).
 - `GET /optimizer/combos` → returns `top-combos.json` (UI helper; includes combo `operations` when available)
   - Top-combo merges rank by annualized equity (`metrics.annualizedReturn`), using score and final equity as tie-breakers.
   - Top-combo merges de-duplicate by full combo identity (params + thresholds + objective + source) so new parameter variants persist.
@@ -580,6 +583,9 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - When unset, defaults to `TRADER_STATE_DIR/optimizer` (if set) or `.tmp/optimizer` (local only).
 - `TRADER_OPTIMIZER_MAX_COMBOS` (default: `200`) caps the merged combo list size
 - `TRADER_OPTIMIZER_MAX_POINTS` (default: `1000`, max: `5000`) caps how many klines the optimizer fetches per run (applies to `/optimizer/run` and the auto optimizer; raise it to allow longer lookback windows on short intervals).
+- `TRADER_OPTIMIZER_MAX_TRIALS` (default: `30`) max trials accepted by `/optimizer/run` (returns 400 if exceeded).
+- `TRADER_OPTIMIZER_MAX_TIMEOUT_SEC` (default: `1200`) max timeout accepted by `/optimizer/run` (returns 400 if exceeded).
+- `TRADER_OPTIMIZER_MAX_BARS` (default: `1500`) max bars accepted by `/optimizer/run` (caps `barsMin`/`barsMax` and rejects lookback windows that require more bars at the selected intervals).
 - `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
 - When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained, and history snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
@@ -618,6 +624,11 @@ Optional LSTM weight persistence (recommended for faster repeated backtests):
 Examples:
 ```
 curl -s http://127.0.0.1:8080/health
+```
+
+Start the API in the background (loads `.env`, writes logs to `/tmp/trader-api.log` by default):
+```
+./haskell/scripts/start_api_bg.sh
 ```
 
 ```
@@ -777,7 +788,7 @@ The backtest summary chart includes a Download log button to export the backtest
 Backtest charts allow deeper zoom (mouse wheel down to ~6 bars) for close inspection.
 When the UI is served via CloudFront, `deploy-aws-quick.sh` defaults `apiBaseUrl` to `/api` (same-origin) when a distribution ID/domain is configured. Use `--ui-api-direct`/`TRADER_UI_API_MODE=direct` to call the API URL directly (CORS required; set `TRADER_CORS_ORIGIN`, or let the script auto-fill it from the CloudFront domain when available). When `/api` is used and the API URL is known, the script auto-fills `apiFallbackUrl` to the API URL; in direct mode it also defaults `apiFallbackUrl` to `/api` so same-origin failover works if direct calls are blocked. The UI tries `apiBaseUrl` first and falls back to `apiFallbackUrl` after network/502/503/504 errors, remembering a successful fallback for the session. Set `--ui-api-fallback`/`TRADER_UI_API_FALLBACK_URL` explicitly to override. The script creates/updates the `/api/*` behavior to point at the API origin (disables caching, forwards auth headers, and excludes the Host header to avoid App Runner 404s) when a distribution ID is provided. On small API instances, disable background CPU/memory work with `TRADER_OPTIMIZER_ENABLED=false`, `TRADER_TOP_COMBOS_BACKTEST_ENABLED=false`, and `TRADER_BOT_AUTOSTART=false`, and cap LSTM training with `TRADER_API_MAX_EPOCHS` if you see OOM restarts.
 To keep a stable CloudFront URL across deploys, set `TRADER_UI_CLOUDFRONT_DOMAIN` (or `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`) so the quick deploy reuses the distribution and its S3 bucket.
-The UI auto-applies top combos when available and shows when a combo auto-applied; it also auto-starts missing bots for the top 5 combo symbols (Binance only) once interval/lookback validation passes, and manual override locks include an unlock button to let combos update those fields again.
+The UI can auto-apply top combos when enabled; it shows when a combo auto-applied and can auto-start missing bots for the top 5 combo symbols (Binance only) once interval/lookback validation passes. Manual override locks include an unlock button to let combos update those fields again.
 The API panel includes quick actions to copy the base URL and open `/health`.
 Numeric inputs accept comma decimals (e.g., 0,25) and ignore thousands separators.
 The Data Log panel supports auto-scroll to keep the newest responses in view; scrolling up pauses auto-scroll until you jump back to latest.
@@ -800,6 +811,12 @@ cabal run -v0 trader-hs -- --serve --port 8080
 cd haskell/web
 npm install
 npm run dev
+```
+
+Or (backend with local Postgres ops persistence):
+```
+cd haskell
+./scripts/run_api_with_db.sh
 ```
 
 If your API uses a different port:

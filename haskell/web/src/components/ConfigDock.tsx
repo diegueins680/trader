@@ -2993,12 +2993,12 @@ export const ConfigDock = (props: ConfigDockProps) => {
                         checked={form.botProtectionOrders}
                         onChange={(e) => setForm((f) => ({ ...f, botProtectionOrders: e.target.checked }))}
                       />
-                      Exchange SL/TP (futures)
+                      Exchange SL/TP (futures, algo)
                     </label>
                   </div>
                   <div className="hint">
-                    Places reduce-only STOP_MARKET / TAKE_PROFIT_MARKET orders on Binance futures when live orders + trading are armed. Requires stop-loss or
-                    take-profit (or vol-mult). Trailing stops remain internal.
+                    Places reduce-only STOP_MARKET / TAKE_PROFIT_MARKET orders on Binance futures when live orders + trading are armed. Uses the Algo Order API
+                    when required. Requires stop-loss or take-profit (or vol-mult). Trailing stops remain internal.
                   </div>
                   {!isBinancePlatform ? (
                     <div className="hint" style={{ color: "rgba(245, 158, 11, 0.9)" }}>

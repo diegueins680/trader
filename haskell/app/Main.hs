@@ -6,7 +6,7 @@ module Main where
 
 import Control.Concurrent (ThreadId, forkIO, killThread, myThreadId, threadDelay)
 import Control.Concurrent.Chan (Chan, dupChan, newChan, readChan, writeChan)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
+import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, swapMVar, tryPutMVar, tryReadMVar, withMVar)
 import Control.Exception (AsyncException, IOException, SomeException, catch, displayException, finally, fromException, throwIO, try)
 import Control.Applicative ((<|>))
 import Control.Monad (forM, forM_, forever, unless, when, void)
@@ -59,9 +59,9 @@ import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirecto
 import System.Environment (getExecutablePath, lookupEnv, setEnv)
 import System.Exit (ExitCode(..), die, exitFailure)
 import System.FilePath ((</>), isAbsolute, takeDirectory)
-import System.IO (Handle, IOMode(ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, openTempFile, stderr, stdout, withFile)
-import System.IO.Error (ioeGetErrorString, isUserError)
-import System.Process (CreateProcess(..), proc, readCreateProcessWithExitCode)
+import System.IO (Handle, IOMode(ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, hSetBinaryMode, openTempFile, stderr, stdout, withFile)
+import System.IO.Error (catchIOError, ioeGetErrorString, isUserError)
+import System.Process (CreateProcess(..), StdStream(CreatePipe), proc, createProcess, readCreateProcessWithExitCode, waitForProcess)
 import System.Random (randomIO)
 import System.Timeout (timeout)
 import Data.Time.Clock.POSIX (getPOSIXTime, utcTimeToPOSIXSeconds)
@@ -77,6 +77,7 @@ import Trader.Binance
   , BinanceOrderMode(..)
   , BinanceTrade(..)
   , FuturesPositionRisk(..)
+  , FuturesAlgoOpenOrder(..)
   , OrderSide(..)
   , BinanceOpenOrder(..)
   , SymbolFilters(..)
@@ -104,6 +105,9 @@ import Trader.Binance
   , getTimestampMs
   , placeMarketOrder
   , placeFuturesTriggerMarketOrder
+  , placeFuturesAlgoTriggerMarketOrder
+  , fetchFuturesOpenAlgoOrders
+  , cancelFuturesAlgoOrderByClientId
   , fetchOrderByClientId
   , fetchAccountTrades
   , createListenKey
@@ -6452,6 +6456,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                   symbolsEnv <- lookupEnv "TRADER_OPTIMIZER_SYMBOLS"
                   intervalsEnv <- lookupEnv "TRADER_OPTIMIZER_INTERVALS"
                   maxCombos <- optimizerMaxCombosFromEnv
+                  maxOutputBytes <- optimizerOutputCapFromEnv
                   exePath <- getExecutablePath
 
                   let everySec :: Int
@@ -6602,7 +6607,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                                 Nothing -> cliArgs
                                                 Just pLongShort -> cliArgs ++ ["--p-long-short", show pLongShort]
 
-                                        runResult <- runOptimizerProcess projectRoot recordsPath cliArgs'
+                                        runResult <- runOptimizerProcess projectRoot recordsPath maxOutputBytes cliArgs'
                                         case runResult of
                                           Left (msg, out, err) -> do
                                             now <- getTimestampMs
@@ -9795,6 +9800,21 @@ maybeDoubleArg flag (Just n) = [flag, show n]
 prepareOptimizerArgs :: FilePath -> ApiOptimizerRunRequest -> IO (Either String [String])
 prepareOptimizerArgs outputPath req = do
   exePath <- getExecutablePath
+  maxTrialsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_TRIALS"
+  maxTimeoutEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_TIMEOUT_SEC"
+  maxBarsEnv <- lookupEnv "TRADER_OPTIMIZER_MAX_BARS"
+  let maxTrialsCap =
+        case maxTrialsEnv >>= readMaybe of
+          Just n | n >= 1 -> n
+          _ -> 30
+      maxTimeoutCap =
+        case maxTimeoutEnv >>= readMaybe of
+          Just n | n >= 1 -> n
+          _ -> 1200
+      maxBarsCap =
+        case maxBarsEnv >>= readMaybe of
+          Just n | n >= 1 -> n
+          _ -> 1500
   let source = fromMaybe OptimizerSourceBinance (arrSource req)
       sourcePlatform = optimizerSourcePlatform source
       platformsRaw = fmap trim (arrPlatforms req)
@@ -10282,6 +10302,54 @@ prepareOptimizerArgs outputPath req = do
               ++ routerScorePnlWeightArgs
               ++ kalmanMarketTopNArgs
               ++ ["--output", outputPath]
+      let intervalsList = splitEnvList intervalsVal
+          lookbackBarsOver =
+            if maxBarsCap <= 0
+              then []
+              else
+                [ (interval, lb)
+                | interval <- intervalsList
+                , Right lb <- [lookbackBarsFrom interval lookbackVal]
+                , lb > maxBarsCap
+                ]
+          limitErr =
+            case () of
+              _
+                | trialsVal > maxTrialsCap ->
+                    Just
+                      ( "Optimizer trials capped at "
+                          ++ show maxTrialsCap
+                          ++ " (set TRADER_OPTIMIZER_MAX_TRIALS to override)."
+                      )
+                | timeoutVal > maxTimeoutCap ->
+                    Just
+                      ( "Optimizer timeoutSec capped at "
+                          ++ show maxTimeoutCap
+                          ++ " (set TRADER_OPTIMIZER_MAX_TIMEOUT_SEC to override)."
+                      )
+                | Just mn <- barsMinRaw, mn > maxBarsCap ->
+                    Just
+                      ( "barsMin exceeds TRADER_OPTIMIZER_MAX_BARS="
+                          ++ show maxBarsCap
+                          ++ "."
+                      )
+                | Just mx <- barsMaxRaw, mx > maxBarsCap ->
+                    Just
+                      ( "barsMax exceeds TRADER_OPTIMIZER_MAX_BARS="
+                          ++ show maxBarsCap
+                          ++ "."
+                      )
+                | (interval, lb) : _ <- lookbackBarsOver ->
+                    Just
+                      ( "lookbackWindow requires "
+                          ++ show lb
+                          ++ " bars at interval "
+                          ++ interval
+                          ++ ", exceeding TRADER_OPTIMIZER_MAX_BARS="
+                          ++ show maxBarsCap
+                          ++ "."
+                      )
+                | otherwise -> Nothing
       pure $
         case (platformArgsResult, ohlcArgsResult, objectiveArgsResult, tuneObjectiveArgsResult, barsDistributionArgsResult) of
           (Left e, _, _, _, _) -> Left e
@@ -10290,20 +10358,23 @@ prepareOptimizerArgs outputPath req = do
           (_, _, _, Left e, _) -> Left e
           (_, _, _, _, Left e) -> Left e
           (Right platformArgs, Right ohlcArgs, Right objectiveArgs, Right tuneObjectiveArgs, Right barsDistributionArgs) ->
-            let tuneArgs = tuneArgsBase ++ objectiveArgs ++ tuneObjectiveArgs ++ barsDistributionArgs ++ tuneArgsSuffix
-             in Right
-                  ( sourceArgs
-                      ++ platformArgs
-                      ++ priceColumnArgs
-                      ++ ohlcArgs
-                      ++ tuneArgs
-                      ++ barsArgs
-                      ++ epochArgs
-                      ++ hiddenArgs
-                      ++ ["--binary", exePath]
-                      ++ boolArg "--disable-lstm-persistence" disableLstm
-                      ++ boolArg "--no-sweep-threshold" noSweep
-                  )
+            case limitErr of
+              Just msg -> Left msg
+              Nothing ->
+                let tuneArgs = tuneArgsBase ++ objectiveArgs ++ tuneObjectiveArgs ++ barsDistributionArgs ++ tuneArgsSuffix
+                 in Right
+                      ( sourceArgs
+                          ++ platformArgs
+                          ++ priceColumnArgs
+                          ++ ohlcArgs
+                          ++ tuneArgs
+                          ++ barsArgs
+                          ++ epochArgs
+                          ++ hiddenArgs
+                          ++ ["--binary", exePath]
+                          ++ boolArg "--disable-lstm-persistence" disableLstm
+                          ++ boolArg "--no-sweep-threshold" noSweep
+                      )
 
 optimizerCombosFileName :: FilePath
 optimizerCombosFileName = "top-combos.json"
@@ -10362,6 +10433,69 @@ truncateProcessOutput maxBytes raw =
                 prefix = printf "... (truncated, showing last %d bytes)\n" maxBytes'
              in prefix ++ BS.unpack kept
 
+appendCappedBytes :: Int -> BS.ByteString -> BS.ByteString -> BS.ByteString
+appendCappedBytes maxBytes chunk acc =
+  if maxBytes <= 0
+    then BS.empty
+    else
+      let combined = acc <> chunk
+          len = BS.length combined
+       in if len <= maxBytes then combined else BS.drop (len - maxBytes) combined
+
+readProcessLimited ::
+  CreateProcess ->
+  Int ->
+  IO (ExitCode, String, String)
+readProcessLimited proc' maxBytes = do
+  let procLimited =
+        proc'
+          { std_in = CreatePipe
+          , std_out = CreatePipe
+          , std_err = CreatePipe
+          }
+  (mIn, mOut, mErr, ph) <- createProcess procLimited
+  maybe (pure ()) (\h -> catchIOError (hClose h) (\_ -> pure ())) mIn
+  outRef <- newIORef BS.empty
+  errRef <- newIORef BS.empty
+  outDone <- newEmptyMVar
+  errDone <- newEmptyMVar
+
+  let reader h ref done = do
+        hSetBinaryMode h True
+        let loop = do
+              chunk <- BS.hGetSome h 8192
+              if BS.null chunk
+                then pure ()
+                else do
+                  when (maxBytes > 0) $
+                    modifyIORef' ref (appendCappedBytes maxBytes chunk)
+                  loop
+        catchIOError loop (\_ -> pure ())
+        catchIOError (hClose h) (\_ -> pure ())
+        putMVar done ()
+
+  case mOut of
+    Just h -> void (forkIO (reader h outRef outDone))
+    Nothing -> putMVar outDone ()
+  case mErr of
+    Just h -> void (forkIO (reader h errRef errDone))
+    Nothing -> putMVar errDone ()
+
+  exitCode <- waitForProcess ph
+  _ <- readMVar outDone
+  _ <- readMVar errDone
+  out <- readIORef outRef
+  err <- readIORef errRef
+  pure (exitCode, BS.unpack out, BS.unpack err)
+
+optimizerOutputCapFromEnv :: IO Int
+optimizerOutputCapFromEnv = do
+  maxOptimizerOutputBytesEnv <- lookupEnv "TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES"
+  pure $
+    case (maxOptimizerOutputBytesEnv >>= readMaybe :: Maybe Int) of
+      Just n | n > 0 -> n
+      _ -> defaultApiMaxOptimizerOutputBytes
+
 resolveOptimizerExecutable :: FilePath -> String -> IO (Either String FilePath)
 resolveOptimizerExecutable projectRoot name = do
   exePath <- getExecutablePath
@@ -10405,15 +10539,16 @@ resolveOptimizerExecutable projectRoot name = do
 runOptimizerProcess ::
   FilePath ->
   FilePath ->
+  Int ->
   [String] ->
   IO (Either (String, String, String) ApiOptimizerRunResponse)
-runOptimizerProcess projectRoot outputPath cliArgs = do
+runOptimizerProcess projectRoot outputPath maxOutputBytes cliArgs = do
   exeResult <- resolveOptimizerExecutable projectRoot "optimize-equity"
   case exeResult of
     Left err -> pure (Left (err, "", ""))
     Right exePath -> do
       let proc' = (proc exePath cliArgs) {cwd = Just projectRoot}
-      (exitCode, out, err) <- readCreateProcessWithExitCode proc' ""
+      (exitCode, out, err) <- readProcessLimited proc' maxOutputBytes
       case exitCode of
         ExitSuccess -> do
           recordOrErr <- readLastOptimizerRecord outputPath
@@ -11203,7 +11338,7 @@ handleOptimizerRun reqLimits mOps projectRoot optimizerTmp req respond = do
       case argsOrErr of
         Left msg -> respond (jsonError status400 msg)
         Right args -> do
-          runResult <- runOptimizerProcess projectRoot recordsPath args
+          runResult <- runOptimizerProcess projectRoot recordsPath maxOutputBytes args
           case runResult of
             Left (msg, out, err) ->
               respond
@@ -14087,6 +14222,11 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                   foldl' step (1, 1, 0) [startT .. stepCount - 1]
              in (fOpenFinal, fCloseFinal)
 
+orderSizeMultiplier :: Double
+orderSizeMultiplier = 1
+
+scaleOrderSize :: Double -> Double
+scaleOrderSize x = x * orderSizeMultiplier
 entryScaleForSignal :: Args -> BinanceMarket -> LatestSignal -> Double
 entryScaleForSignal args market sig =
   let s0 = maybe 1 id (lsPositionSize sig)
@@ -14097,7 +14237,7 @@ entryScaleForSignal args market sig =
         case market of
           MarketFutures -> s2
           _ -> min 1 s2
-   in max 0 (s3 * lstmScale)
+   in scaleOrderSize (max 0 (s3 * lstmScale))
 
 placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
 placeOrderForSignal args sym sig env =
@@ -14517,6 +14657,10 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                 | not protectionEnabled = pure (Right ())
                 | otherwise = do
                     ts <- getTimestampMs
+                    let requiresAlgo msg =
+                          "-4120" `isInfixOf` msg
+                            || "Algo Order" `isInfixOf` msg
+                            || "algo order" `isInfixOf` msg
                     let mkCid suffix =
                           let raw = protectPrefix ++ show ts ++ "_" ++ suffix
                            in if length raw <= 36 then raw else take 36 raw
@@ -14526,10 +14670,32 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                           let cid = mkCid suffix
                               px1 = normalizeStopPrice px
                           r <- try (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
-                          pure $
-                            case r of
-                              Left ex -> Left (take 240 (show ex))
-                              Right _ -> Right ()
+                          case r of
+                            Right _ -> pure (Right ())
+                            Left ex -> do
+                              let msg = take 240 (show ex)
+                              if requiresAlgo msg
+                                then do
+                                  let hedgeSide =
+                                        if protectDir < 0
+                                          then Just "SHORT"
+                                          else Just "LONG"
+                                      shouldRetryWithSide errMsg =
+                                        "positionSide" `isInfixOf` errMsg || "Position side" `isInfixOf` errMsg
+                                  rAlgo <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) Nothing) :: IO (Either SomeException BL.ByteString)
+                                  case rAlgo of
+                                    Right _ -> pure (Right ())
+                                    Left exAlgo -> do
+                                      let msgAlgo = take 240 (show exAlgo)
+                                      if shouldRetryWithSide msgAlgo
+                                        then do
+                                          rAlgo2 <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) hedgeSide) :: IO (Either SomeException BL.ByteString)
+                                          pure $
+                                            case rAlgo2 of
+                                              Left exAlgo2 -> Left (take 240 (show exAlgo2))
+                                              Right _ -> Right ()
+                                        else pure (Left msgAlgo)
+                                else pure (Left msg)
 
                         (slSide, mSlPx, tpSide, mTpPx) =
                           if protectDir < 0
@@ -14601,7 +14767,52 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                   Right q ->
                     if q <= 0
                       then pure baseResult { aorMessage = "No order: quantity is 0." }
-                      else sendMarketOrder sideLabel side (Just q) Nothing (Just True)
+                      else do
+                        out <- sendMarketOrder sideLabel side (Just q) Nothing (Just True)
+                        if not (aorSent out) || mode /= OrderLive
+                          then pure out
+                          else do
+                            let isLongClose = side == Sell
+                                wantSide = if isLongClose then Just "LONG" else Just "SHORT"
+                                normalizeSide = fmap normalizeKey
+                                matchesSide ps =
+                                  case (normalizeSide ps, normalizeSide wantSide) of
+                                    (Just "long", Just "long") -> True
+                                    (Just "short", Just "short") -> True
+                                    _ -> False
+                                isBotAlgo cid = "trader_prot_" `isPrefixOf` cid
+                            let waitMax = 12 :: Int
+                                waitDelayUs = 500000
+                                waitLoop n = do
+                                  amt <- fetchFuturesPositionAmt env sym
+                                  if abs amt <= 1e-12 || n <= 0
+                                    then pure ()
+                                    else threadDelay waitDelayUs >> waitLoop (n - 1)
+                            waitLoop waitMax
+                            algoOrdersOrErr <- try (fetchFuturesOpenAlgoOrders env sym) :: IO (Either SomeException [FuturesAlgoOpenOrder])
+                            case algoOrdersOrErr of
+                              Left _ -> pure out
+                              Right orders -> do
+                                let filtered =
+                                      [ o
+                                      | o <- orders
+                                      , let symOk = normalizeKey (faoSymbol o) == normalizeKey sym
+                                      , symOk
+                                      , let mCid = faoClientAlgoId o
+                                      , maybe False isBotAlgo mCid
+                                      , let ps = faoPositionSide o
+                                      , case normalizeSide ps of
+                                          Just "long" -> matchesSide ps
+                                          Just "short" -> matchesSide ps
+                                          _ -> True
+                                      ]
+                                forM_ filtered $ \o ->
+                                  case faoClientAlgoId o of
+                                    Nothing -> pure ()
+                                    Just cid -> do
+                                      _ <- try (cancelFuturesAlgoOrderByClientId env cid) :: IO (Either SomeException BL.ByteString)
+                                      pure ()
+                                pure out
     
               noFuturesSizingMsg =
                 if maybe False (> 0) (argOrderQuoteFraction args)
