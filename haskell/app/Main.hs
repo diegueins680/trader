@@ -56,9 +56,9 @@ import qualified Network.WebSockets as WS
 import qualified Wuss
 import Options.Applicative
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, findExecutable, getCurrentDirectory, getFileSize, getModificationTime, listDirectory, removeFile, renameFile)
-import System.Environment (getExecutablePath, lookupEnv)
+import System.Environment (getExecutablePath, lookupEnv, setEnv)
 import System.Exit (ExitCode(..), die, exitFailure)
-import System.FilePath ((</>), takeDirectory)
+import System.FilePath ((</>), isAbsolute, takeDirectory)
 import System.IO (Handle, IOMode(ReadMode), hClose, hFlush, hGetLine, hIsEOF, hPutStrLn, openTempFile, stderr, stdout, withFile)
 import System.IO.Error (ioeGetErrorString, isUserError)
 import System.Process (CreateProcess(..), proc, readCreateProcessWithExitCode)
@@ -630,8 +630,102 @@ getBuildCommit = do
     Just s | not (null s) -> pure (Just s)
     _ -> pure Nothing
 
+loadEnvFile :: IO ()
+loadEnvFile = do
+  mEnvFileRaw <- lookupEnv "TRADER_ENV_FILE"
+  let envFileRaw = maybe ".env" trim mEnvFileRaw
+      envFileName = trim envFileRaw
+  if null envFileName
+    then pure ()
+    else do
+      mPath <- resolveEnvFilePath envFileName
+      case mPath of
+        Nothing -> do
+          when (isJust mEnvFileRaw) $
+            hPutStrLn stderr ("WARN: TRADER_ENV_FILE not found: " ++ envFileName)
+        Just path -> do
+          contentsResult <- try (readFile path) :: IO (Either IOException String)
+          case contentsResult of
+            Left err ->
+              hPutStrLn stderr ("WARN: failed to read TRADER_ENV_FILE (" ++ path ++ "): " ++ displayException err)
+            Right contents -> do
+              let entries = parseEnvFile contents
+              forM_ entries $ \(key, value) -> do
+                existing <- lookupEnv key
+                case existing of
+                  Nothing -> setEnv key value
+                  Just _ -> pure ()
+
+resolveEnvFilePath :: FilePath -> IO (Maybe FilePath)
+resolveEnvFilePath raw = do
+  let trimmed = trim raw
+  if null trimmed
+    then pure Nothing
+    else
+      if isAbsolute trimmed
+        then do
+          exists <- doesFileExist trimmed
+          pure (if exists then Just trimmed else Nothing)
+        else do
+          cwd <- getCurrentDirectory
+          let cwdPath = cwd </> trimmed
+          cwdExists <- doesFileExist cwdPath
+          if cwdExists
+            then pure (Just cwdPath)
+            else do
+              let parent = takeDirectory cwd
+                  parentPath = parent </> trimmed
+              parentExists <- doesFileExist parentPath
+              if parentExists
+                then pure (Just parentPath)
+                else do
+                  gitExe <- findExecutable "git"
+                  case gitExe of
+                    Nothing -> pure Nothing
+                    Just _ -> do
+                      rootResult <- try resolveGitRepoRoot :: IO (Either SomeException (Either String FilePath))
+                      case rootResult of
+                        Left _ -> pure Nothing
+                        Right (Right root) -> do
+                          let rootPath = root </> trimmed
+                          rootExists <- doesFileExist rootPath
+                          pure (if rootExists then Just rootPath else Nothing)
+                        Right (Left _) -> pure Nothing
+
+parseEnvFile :: String -> [(String, String)]
+parseEnvFile =
+  mapMaybe parseEnvLine . lines
+
+parseEnvLine :: String -> Maybe (String, String)
+parseEnvLine raw =
+  let stripped = trim raw
+   in if null stripped || "#" `isPrefixOf` stripped
+        then Nothing
+        else
+          let withoutExport = fromMaybe stripped (stripPrefix "export " stripped)
+              (keyRaw, rest) = break (== '=') withoutExport
+           in case rest of
+                '=' : valueRaw ->
+                  let key = trim keyRaw
+                      value = parseEnvValue valueRaw
+                   in if null key then Nothing else Just (key, value)
+                _ -> Nothing
+
+parseEnvValue :: String -> String
+parseEnvValue raw =
+  let trimmed = trim raw
+   in case trimmed of
+        "" -> ""
+        _ ->
+          let firstChar = head trimmed
+              lastChar = last trimmed
+           in if (firstChar == '"' && lastChar == '"') || (firstChar == '\'' && lastChar == '\'')
+                then init (tail trimmed)
+                else trimmed
+
 main :: IO ()
 main = do
+  loadEnvFile
   let versionOption =
         infoOption
           ("trader-hs " ++ traderVersion)
@@ -9117,7 +9211,7 @@ backtestFailureToHttp gate failure =
     BacktestException ex -> exceptionToHttp ex
 
 defaultApiMaxBodyBytes :: Int64
-defaultApiMaxBodyBytes = 1024 * 1024
+defaultApiMaxBodyBytes = 10 * 1024 * 1024
 
 defaultApiMaxOptimizerOutputBytes :: Int
 defaultApiMaxOptimizerOutputBytes = 20000
@@ -13298,11 +13392,11 @@ computeBinanceKeysStatusFromArgs mOps args = do
               Just sym'' -> do
                 let qty =
                       case argOrderQuantity args of
-                        Just q | q > 0 -> Just (scaleOrderSize q)
+                        Just q | q > 0 -> Just q
                         _ -> Nothing
                     qqArg =
                       case argOrderQuote args of
-                        Just q | q > 0 -> Just (scaleOrderSize q)
+                        Just q | q > 0 -> Just q
                         _ -> Nothing
                 qq <-
                   case (qty, qqArg, argOrderQuoteFraction args) of
@@ -13310,11 +13404,11 @@ computeBinanceKeysStatusFromArgs mOps args = do
                       let (_baseAsset, quoteAsset) = splitSymbol sym''
                       quoteBal <- fetchFreeBalance env quoteAsset
                       let q0 = quoteBal * f
-                          q0Scaled = scaleOrderSize q0
+                          q0Scaled = q0
                           q1 =
                             let mCap =
                                   case argMaxOrderQuote args of
-                                    Just q | q > 0 -> Just (scaleOrderSize q)
+                                    Just q | q > 0 -> Just q
                                     _ -> Nothing
                              in maybe q0Scaled (\capQ -> min capQ q0Scaled) mCap
                       pure (if q1 > 0 then Just q1 else Nothing)
@@ -13343,7 +13437,7 @@ computeBinanceKeysStatusFromArgs mOps args = do
               Just sym'' -> do
                 let qtyFromArgs =
                       case argOrderQuantity args of
-                        Just q | q > 0 -> Just (scaleOrderSize q)
+                        Just q | q > 0 -> Just q
                         _ -> Nothing
                 case qtyFromArgs of
                   Just qRaw -> do
@@ -13355,18 +13449,18 @@ computeBinanceKeysStatusFromArgs mOps args = do
                   Nothing -> do
                     qq <-
                       case argOrderQuote args of
-                        Just qq | qq > 0 -> pure (Just (scaleOrderSize qq))
+                        Just qq | qq > 0 -> pure (Just qq)
                         _ ->
                           case argOrderQuoteFraction args of
                             Just f | f > 0 -> do
                               let (_baseAsset, quoteAsset) = splitSymbol sym''
                               bal <- fetchFuturesAvailableBalance env quoteAsset
                               let q0 = bal * f
-                                  q0Scaled = scaleOrderSize q0
+                                  q0Scaled = q0
                                   q1 =
                                     let mCap =
                                           case argMaxOrderQuote args of
-                                            Just q | q > 0 -> Just (scaleOrderSize q)
+                                            Just q | q > 0 -> Just q
                                             _ -> Nothing
                                      in maybe q0Scaled (\capQ -> min capQ q0Scaled) mCap
                               pure (if q1 > 0 then Just q1 else Nothing)
@@ -13991,12 +14085,6 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                   foldl' step (1, 1, 0) [startT .. stepCount - 1]
              in (fOpenFinal, fCloseFinal)
 
-orderSizeMultiplier :: Double
-orderSizeMultiplier = 100
-
-scaleOrderSize :: Double -> Double
-scaleOrderSize x = x * orderSizeMultiplier
-
 entryScaleForSignal :: Args -> BinanceMarket -> LatestSignal -> Double
 entryScaleForSignal args market sig =
   let s0 = maybe 1 id (lsPositionSize sig)
@@ -14007,7 +14095,7 @@ entryScaleForSignal args market sig =
         case market of
           MarketFutures -> s2
           _ -> min 1 s2
-   in scaleOrderSize (max 0 (s3 * lstmScale))
+   in max 0 (s3 * lstmScale)
 
 placeOrderForSignal :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
 placeOrderForSignal args sym sig env =
@@ -14226,7 +14314,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
           qtyArg = case argOrderQuantity args of { Just q | q > 0 -> Just q; _ -> Nothing }
           quoteArg = case argOrderQuote args of { Just q | q > 0 -> Just q; _ -> Nothing }
           quoteFracArg = case argOrderQuoteFraction args of { Just f | f > 0 -> Just f; _ -> Nothing }
-          maxOrderQuoteArg = case argMaxOrderQuote args of { Just q | q > 0 -> Just (scaleOrderSize q); _ -> Nothing }
+          maxOrderQuoteArg = case argMaxOrderQuote args of { Just q | q > 0 -> Just q; _ -> Nothing }
 
       case dir of
         1 ->
@@ -14297,7 +14385,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
           if not alreadyLong
             then pure baseResult { aorMessage = "No order: already flat." }
             else do
-              let qtyArgSell = fmap scaleOrderSize qtyArg
+              let qtyArgSell = qtyArg
                   qRaw0 =
                     case qtyArgSell of
                       Just q -> min q baseBal
@@ -14478,7 +14566,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                     q1 =
                       let mCap =
                             case argMaxOrderQuote args of
-                              Just q | q > 0 -> Just (scaleOrderSize q)
+                              Just q | q > 0 -> Just q
                               _ -> Nothing
                        in maybe q0 (\capQ -> min capQ q0) mCap
                 pure (Just q1)
@@ -14757,7 +14845,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                       _ -> Nothing
                   maxOrderQuoteArg =
                     case argMaxOrderQuote args of
-                      Just q | q > 0 -> Just (scaleOrderSize q)
+                      Just q | q > 0 -> Just q
                       _ -> Nothing
                   quoteFromFraction =
                     case (qtyArg, quoteArg, quoteFracArg) of
@@ -14794,7 +14882,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
                 case argOrderQuantity args of
                   Just q | q > 0 -> Just q
                   _ -> Nothing
-              qtyArgSell = fmap scaleOrderSize qtyArg
+              qtyArgSell = qtyArg
               qRaw =
                 case qtyArgSell of
                   Just q -> min q baseBal

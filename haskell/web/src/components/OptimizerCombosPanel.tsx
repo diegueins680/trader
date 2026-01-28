@@ -4,7 +4,7 @@ import { TUNE_OBJECTIVES } from "../app/constants";
 import { comboMarketLabel, type ComboMarketFilter, type ComboMarketValue } from "../app/comboMarket";
 import { clamp, fmtDurationMs, fmtTimeMs, methodLabel, numFromInput } from "../app/utils";
 import { fmtRatio } from "../lib/format";
-import type { Method, OptimizerSource } from "../lib/types";
+import type { Method, OptimizerSource, StateSyncImportResponse } from "../lib/types";
 import { InfoList, InfoPopover } from "./InfoPopover";
 import type { OptimizationCombo } from "./TopCombosChart";
 import { TopCombosChart } from "./TopCombosChart";
@@ -17,6 +17,7 @@ type ComboFilterOptions = {
 };
 
 type OptimizerRunExtras = { value: Record<string, unknown> | null; error: string | null };
+type ComboImportSummary = { comboCount: number; generatedAtMs: number | null; source: string | null };
 
 export type OptimizerCombosPanelProps = {
   apiOk: "unknown" | "ok" | "down" | "auth";
@@ -73,6 +74,26 @@ export type OptimizerCombosPanelProps = {
   syncOptimizerRunSymbolInterval: () => void;
   applyEquityPreset: () => void;
   resetOptimizerRunForm: () => void;
+  comboExportReady: boolean;
+  comboExportFilename: string;
+  copyComboExport: () => void;
+  downloadComboExport: () => void;
+  comboImportText: string;
+  setComboImportText: (value: string) => void;
+  parseComboImportText: () => void;
+  comboImportParseError: string | null;
+  comboImportSummary: ComboImportSummary | null;
+  comboImporting: boolean;
+  comboImportError: string | null;
+  comboImportResult: StateSyncImportResponse["topCombos"] | null;
+  comboImportAtMs: number | null;
+  comboImportReady: boolean;
+  comboImportDisabledReason: string | null;
+  comboImportStampNow: boolean;
+  setComboImportStampNow: (value: boolean) => void;
+  handleComboImportFile: (file: File | null) => void;
+  importCombos: () => void;
+  clearComboImport: () => void;
 };
 
 export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
@@ -131,6 +152,26 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
     syncOptimizerRunSymbolInterval,
     applyEquityPreset,
     resetOptimizerRunForm,
+    comboExportReady,
+    comboExportFilename,
+    copyComboExport,
+    downloadComboExport,
+    comboImportText,
+    setComboImportText,
+    parseComboImportText,
+    comboImportParseError,
+    comboImportSummary,
+    comboImporting,
+    comboImportError,
+    comboImportResult,
+    comboImportAtMs,
+    comboImportReady,
+    comboImportDisabledReason,
+    comboImportStampNow,
+    setComboImportStampNow,
+    handleComboImportFile,
+    importCombos,
+    clearComboImport,
   } = props;
 
   return (
@@ -1777,6 +1818,128 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
             {optimizerRunUi.error}
           </div>
         ) : null}
+          </div>
+        </details>
+        <details className="details" style={{ marginTop: 12 }}>
+          <summary>Import / export combos</summary>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
+            <div className="field">
+              <div className="label">Export</div>
+              <div className="actions" style={{ marginTop: 6 }}>
+                <button className="btnSmall" type="button" onClick={copyComboExport} disabled={!comboExportReady}>
+                  Copy JSON
+                </button>
+                <button className="btnSmall" type="button" onClick={downloadComboExport} disabled={!comboExportReady}>
+                  Download JSON
+                </button>
+              </div>
+              <div className="hint">
+                Exports the latest <code>/optimizer/combos</code> payload.
+              </div>
+              <div className="hint">
+                Filename:{" "}
+                {comboExportReady ? <span className="tdMono">{comboExportFilename}</span> : "—"}
+              </div>
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="comboImportFile">
+                Import JSON
+              </label>
+              <input
+                id="comboImportFile"
+                className="input"
+                type="file"
+                accept="application/json,.json"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  handleComboImportFile(file);
+                  e.currentTarget.value = "";
+                }}
+              />
+              <textarea
+                id="comboImportText"
+                className="input"
+                value={comboImportText}
+                onChange={(e) => setComboImportText(e.target.value)}
+                placeholder='Paste top-combos.json or /optimizer/combos payload'
+                rows={4}
+                spellCheck={false}
+              />
+              <div className="hint">
+                Paste a top-combos JSON file or a /state/sync payload (topCombos field will be used).
+              </div>
+              <label className="label" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={comboImportStampNow}
+                  onChange={(e) => setComboImportStampNow(e.target.checked)}
+                />
+                Stamp import with now (force replace)
+              </label>
+              <div className="hint">
+                Use when the incoming JSON has no generatedAtMs or should override newer combos.
+              </div>
+              <div className="actions" style={{ marginTop: 8 }}>
+                <button className="btnSmall" type="button" onClick={parseComboImportText} disabled={!comboImportText.trim()}>
+                  Parse JSON
+                </button>
+                <button
+                  className="btnSmall btnPrimary"
+                  type="button"
+                  onClick={() => importCombos()}
+                  disabled={!comboImportReady || comboImporting || Boolean(comboImportDisabledReason)}
+                  title={comboImportDisabledReason ?? undefined}
+                >
+                  {comboImporting ? "Importing…" : "Import to API"}
+                </button>
+                <button
+                  className="btnSmall"
+                  type="button"
+                  onClick={clearComboImport}
+                  disabled={!comboImportText && !comboImportParseError && !comboImportError && !comboImportResult}
+                >
+                  Clear
+                </button>
+              </div>
+              {comboImportParseError ? (
+                <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.85)" }}>
+                  {comboImportParseError}
+                </div>
+              ) : null}
+              {comboImportSummary ? (
+                <div className="pillRow" style={{ marginTop: 8 }}>
+                  <span className="badge">Combos {comboImportSummary.comboCount}</span>
+                  {comboImportSummary.generatedAtMs ? (
+                    <span className="badge">Generated {fmtTimeMs(comboImportSummary.generatedAtMs)}</span>
+                  ) : (
+                    <span className="badge">Generated —</span>
+                  )}
+                  {comboImportSummary.source ? <span className="badge">Source {comboImportSummary.source}</span> : null}
+                </div>
+              ) : null}
+              {comboImportError ? (
+                <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.85)" }}>
+                  {comboImportError}
+                </div>
+              ) : null}
+              {comboImportResult ? (
+                <div className="pillRow" style={{ marginTop: 8 }}>
+                  <span className="badge">Import {comboImportResult.action}</span>
+                  {comboImportResult.incomingGeneratedAtMs ? (
+                    <span className="badge">Incoming {fmtTimeMs(comboImportResult.incomingGeneratedAtMs)}</span>
+                  ) : null}
+                  {comboImportResult.localGeneratedAtMs ? (
+                    <span className="badge">Local {fmtTimeMs(comboImportResult.localGeneratedAtMs)}</span>
+                  ) : null}
+                  {comboImportAtMs ? <span className="badge">Imported {fmtTimeMs(comboImportAtMs)}</span> : null}
+                </div>
+              ) : null}
+              {!comboImportSummary && comboImportText.trim() && !comboImportParseError ? (
+                <div className="hint" style={{ marginTop: 8 }}>
+                  Parse the JSON to preview the combo count before importing.
+                </div>
+              ) : null}
+            </div>
           </div>
         </details>
         <div className="combosList">

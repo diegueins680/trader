@@ -11,11 +11,11 @@
     "test": "tsc -p tsconfig.test.json --noEmit && esbuild src/app/utils.ts --bundle --platform=node --format=esm --outfile=.tmp/web-tests/utils.js && node --test test/*.test.mjs"
   },
   "dependencies": {
-    "react": "^19.2.3",
+    "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
-    "@types/react": "^19.2.7",
+    "@types/react": "^19.2.9",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.2",
     "typescript": "^5.6.3",
