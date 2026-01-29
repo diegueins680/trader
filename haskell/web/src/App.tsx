@@ -319,6 +319,7 @@ const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
 const BINANCE_POSITIONS_OPEN_TIME_LIMIT = 200;
+const BINANCE_POSITIONS_OPEN_TIME_CACHE_MS = 60_000;
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
@@ -5384,27 +5385,54 @@ export function App() {
 
   const fetchBinancePositionTrades = useCallback(
     async (positions: ApiBinancePositionsResponse["positions"], opts?: { retrying?: boolean }) => {
+      if (positions.length === 0) {
+        binancePositionTradesAbortRef.current?.abort();
+        setBinancePositionTradesUi({ loading: false, error: null, response: null });
+        return;
+      }
+      const symbols = Array.from(
+        new Set(
+          positions
+            .map((pos) => pos.symbol.trim())
+            .filter((sym) => sym.length > 0),
+        ),
+      );
+      if (symbols.length === 0) {
+        binancePositionTradesAbortRef.current?.abort();
+        setBinancePositionTradesUi({ loading: false, error: null, response: null });
+        return;
+      }
+
+      const now = Date.now();
+      const symbolSet = new Set(symbols.map((sym) => normalizeSymbolKey(sym)));
+      const isFresh = (resp: ApiBinanceTradesResponse | null) =>
+        Boolean(resp && Number.isFinite(resp.fetchedAtMs) && now - resp.fetchedAtMs <= BINANCE_POSITIONS_OPEN_TIME_CACHE_MS);
+      const coversSymbols = (resp: ApiBinanceTradesResponse | null) => {
+        if (!resp) return false;
+        if (resp.market !== form.market || resp.testnet !== form.binanceTestnet) return false;
+        if (resp.allSymbols) return true;
+        const respSet = new Set(resp.symbols.map((sym) => normalizeSymbolKey(sym)));
+        for (const sym of symbolSet) {
+          if (!respSet.has(sym)) return false;
+        }
+        return true;
+      };
+      const reuse =
+        (isFresh(binancePositionTradesUi.response) && coversSymbols(binancePositionTradesUi.response)
+          ? binancePositionTradesUi.response
+          : null) ??
+        (isFresh(binanceTradesUi.response) && coversSymbols(binanceTradesUi.response) ? binanceTradesUi.response : null);
+      if (reuse) {
+        binancePositionTradesAbortRef.current?.abort();
+        setBinancePositionTradesUi({ loading: false, error: null, response: reuse });
+        return;
+      }
+
       binancePositionTradesAbortRef.current?.abort();
       const controller = new AbortController();
       binancePositionTradesAbortRef.current = controller;
-      if (positions.length === 0) {
-        setBinancePositionTradesUi({ loading: false, error: null, response: null });
-        if (binancePositionTradesAbortRef.current === controller) binancePositionTradesAbortRef.current = null;
-        return;
-      }
       setBinancePositionTradesUi({ loading: true, error: null, response: null });
       try {
-        const symbols = Array.from(
-          new Set(
-            positions
-              .map((pos) => pos.symbol.trim())
-              .filter((sym) => sym.length > 0),
-          ),
-        );
-        if (symbols.length === 0) {
-          setBinancePositionTradesUi({ loading: false, error: null, response: null });
-          return;
-        }
         const params: ApiBinanceTradesRequest = {
           market: form.market,
           binanceTestnet: form.binanceTestnet,
@@ -5440,7 +5468,15 @@ export function App() {
         if (binancePositionTradesAbortRef.current === controller) binancePositionTradesAbortRef.current = null;
       }
     },
-    [apiBase, authHeaders, form.binanceTestnet, form.market, withBinanceKeys],
+    [
+      apiBase,
+      authHeaders,
+      binancePositionTradesUi.response,
+      binanceTradesUi.response,
+      form.binanceTestnet,
+      form.market,
+      withBinanceKeys,
+    ],
   );
 
   const fetchBinancePositions = useCallback(async (opts?: { retrying?: boolean }) => {
@@ -5517,9 +5553,11 @@ export function App() {
     if (trades.length === 0) return map;
     for (const pos of binancePositionsList) {
       const estimate = inferBinancePositionOpenTime(pos, trades);
-      if (!estimate || estimate.openedAtMs == null) continue;
+      if (!estimate) continue;
+      const openedAtMs = estimate.openedAtMs;
+      if (openedAtMs == null) continue;
       const sideKey = positionSideInfo(pos.positionAmt, pos.positionSide).key;
-      map.set(`${normalizeSymbolKey(pos.symbol)}:${sideKey}`, estimate);
+      map.set(`${normalizeSymbolKey(pos.symbol)}:${sideKey}`, { openedAtMs, isLowerBound: estimate.isLowerBound });
     }
     return map;
   }, [binancePositionTradesUi.response?.trades, binancePositionsList]);
@@ -5626,7 +5664,9 @@ export function App() {
           fallbackReason,
           comboCount: parsed.comboCount,
         });
-        writeJson(STORAGE_TOP_COMBOS_KEY, parsed.payload);
+        if (parsed.comboCount > 0) {
+          writeJson(STORAGE_TOP_COMBOS_KEY, parsed.payload);
+        }
       };
       const maybeAutoApplyTopCombo = (combos: OptimizationCombo[]) => {
         const topCombo = combos[0];
@@ -5687,6 +5727,18 @@ export function App() {
         const parsed = sanitizeTopCombosPayload(payload);
         if (!parsed) {
           throw new Error("Invalid optimizer combos payload.");
+        }
+        if (parsed.comboCount === 0) {
+          const fallback = await loadFallback();
+          if (fallback && fallback.parsed.comboCount > 0 && !isCancelled) {
+            const emptyMsg = "API returned no combos.";
+            applyTopCombos(fallback.parsed, fallback.source, emptyMsg);
+            if (!silent || !combosApplied) {
+              setTopCombosError(emptyMsg);
+            }
+            maybeAutoApplyTopCombo(fallback.parsed.combos);
+            return;
+          }
         }
         applyTopCombos(parsed, "api", null);
         setTopCombosError(null);

@@ -438,7 +438,10 @@ function tradeDeltaForPosition(trade: BinanceTrade, posSide: "LONG" | "SHORT"): 
   return side === "SELL" ? -qty : qty;
 }
 
-export function inferBinancePositionOpenTime(position: BinancePosition, trades: BinanceTrade[]): PositionOpenTimeEstimate | null {
+export function inferBinancePositionOpenTime(
+  position: ApiBinancePositionsResponse["positions"][number],
+  trades: BinanceTrade[],
+): PositionOpenTimeEstimate | null {
   const posAmt = position.positionAmt;
   if (!Number.isFinite(posAmt) || Math.abs(posAmt) <= 1e-12) return null;
   const sideRaw = normalizePositionSide(position.positionSide);
