@@ -566,6 +566,15 @@ const ChartSuspense = ({
   children: React.ReactNode;
 }) => <Suspense fallback={<ChartFallback height={height} label={label} />}>{children}</Suspense>;
 const PanelFallback = ({ label }: { label: string }) => <div className="hint">{label}</div>;
+function isBinanceTimestampErrorMessage(msg: string): boolean {
+  const lowered = msg.toLowerCase();
+  return (
+    lowered.includes("recvwindow") ||
+    lowered.includes("timestamp for this request is outside") ||
+    lowered.includes("binance code -1021") ||
+    lowered.includes("code -1021")
+  );
+}
 export function App() {
   const [apiOk, setApiOk] = useState<"unknown" | "ok" | "down" | "auth">("unknown");
   const [healthInfo, setHealthInfo] = useState<Awaited<ReturnType<typeof health>> | null>(null);
@@ -1950,7 +1959,7 @@ export function App() {
   ]);
 
   const sendStateSync = useCallback(
-    async (payloadOverride?: StateSyncPayload | null) => {
+    async (payloadOverride: StateSyncPayload | null = null) => {
       const targetBase = stateSyncTargetBase.trim();
       if (stateSyncTargetMissing) {
         setStateSyncUi((prev) => ({ ...prev, pushError: "Enter a target API base URL." }));
@@ -1979,8 +1988,7 @@ export function App() {
       }));
       try {
         let lastOut: StateSyncImportResponse | null = null;
-        for (let idx = 0; idx < payloadChunks.length; idx += 1) {
-          const chunk = payloadChunks[idx];
+        for (const [idx, chunk] of payloadChunks.entries()) {
           try {
             lastOut = await stateSyncImport(targetBase, chunk, {
               headers: stateSyncTargetHeaders,
@@ -4858,7 +4866,7 @@ export function App() {
     withBinanceKeys,
   ]);
 
-  const fetchBinancePositions = useCallback(async () => {
+  const fetchBinancePositions = useCallback(async (opts?: { retrying?: boolean }) => {
     binancePositionsAbortRef.current?.abort();
     const controller = new AbortController();
     binancePositionsAbortRef.current = controller;
@@ -4884,7 +4892,22 @@ export function App() {
     } catch (e) {
       if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : String(e);
-      setBinancePositionsUi((s) => ({ ...s, loading: false, error: msg }));
+      const isTimestampError = isBinanceTimestampErrorMessage(msg);
+      if (isTimestampError && !opts?.retrying) {
+        setBinancePositionsUi((s) => ({
+          ...s,
+          loading: true,
+          error: "Binance timestamp out of sync (code -1021). Retrying after time sync…",
+        }));
+        window.setTimeout(() => {
+          void fetchBinancePositions({ retrying: true });
+        }, 750);
+        return;
+      }
+      const finalMsg = isTimestampError
+        ? "Binance timestamp out of sync (code -1021). Ensure system time is synced and the Binance time endpoint is reachable, then retry."
+        : msg;
+      setBinancePositionsUi((s) => ({ ...s, loading: false, error: finalMsg }));
     } finally {
       if (binancePositionsAbortRef.current === controller) binancePositionsAbortRef.current = null;
     }

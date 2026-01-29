@@ -1796,9 +1796,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                               else Nothing
 
                         (desiredSideFinal0, desiredSizeFinal0) =
-                          if cooldownActive || entryBlockReason /= Nothing
+                          if cooldownActive
                             then (Nothing, 0)
-                            else (desiredSideHoldAdjusted, desiredSizeHoldAdjusted)
+                            else
+                              case entryBlockReason of
+                                Nothing -> (desiredSideHoldAdjusted, desiredSizeHoldAdjusted)
+                                Just _ ->
+                                  case posSide of
+                                    Just side -> (Just side, posSize)
+                                    Nothing -> (Nothing, 0)
 
                         holdTooLong =
                           case maxHoldBars of
@@ -1815,16 +1821,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             then (Nothing, 0)
                             else (desiredSideFinal1, desiredSizeFinal1)
 
-                        entryBlockExit =
-                          case (entryBlockReason, posSide, entryAttempt) of
-                            (Just reason, Just _, True) -> Just (ExitOther reason)
-                            _ -> Nothing
-
                         exitReasonOverride =
                           case () of
                             _ | halted -> haltReason1
                               | holdTooLong -> Just (ExitOther "MAX_HOLD")
-                              | entryBlockExit /= Nothing -> entryBlockExit
                               | lstmFlipExit -> Just (ExitOther "LSTM_FLIP")
                               | slowCrossExit -> Just (ExitOther "KALMAN_SLOW")
                               | kalmanBandExit -> Just (ExitOther "KALMAN_BAND")

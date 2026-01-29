@@ -135,7 +135,7 @@ Getting Binance API keys:
 - Enable only what you need (Spot/Margin/Futures trading) and keep withdrawals disabled
 - Prefer IP restrictions (allowlist your server IP) when possible
 - Save the secret: Binance only shows it once
-- Signed requests auto-adjust to Binance server time; if you see `-1021` timestamp errors, ensure the time endpoint is reachable (proxy allowed) and the host clock is roughly in sync.
+- Signed requests auto-adjust to Binance server time and retry once on `-1021` timestamp errors; if they persist, ensure the time endpoint is reachable (proxy allowed) and the host clock is roughly in sync.
 
 Example (test endpoint with `--no-binance-live`):
 ```
@@ -273,7 +273,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--walk-forward-folds 7` number of folds used to score the tune split and report backtest variability (`1` disables)
   - `--walk-forward-embargo-bars N` optional: drop `N` bars from each fold edge when scoring walk-forward folds (`0` disables)
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
-  - `--fee 0.0008` fee applied when switching position
+  - `--fee 0.0008` fee applied per side when switching position (flips charge exit + entry)
   - The CLI also prints an estimated **round-trip cost** (fee + slippage + spread) and warns when thresholds are below it.
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
   - `--take-profit F` optional synthetic take profit (`0 < F < 1`)

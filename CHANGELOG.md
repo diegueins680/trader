@@ -18,10 +18,12 @@ All notable changes to this project will be documented in this file.
 - Deploy/API: quick AWS deploy now checks Binance proxy connectivity when a proxy is configured (optional strict failure).
 - API: add `TRADER_BOT_AUTOSTART` to disable live-bot auto-start on boot.
 - API: load `.env` (or `TRADER_ENV_FILE`) on startup to populate environment variables like `TRADER_DB_URL`.
+- API: ignore malformed quoted `.env` values instead of crashing on parse.
 - API: add `/binance/proxy/health` to report Binance proxy connectivity.
 - API: when `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, echo the request Origin so direct UI calls work without explicit CORS config.
 - Web UI: try `apiBaseUrl` first and fail over to `apiFallbackUrl` after network/502/503/504 errors, remembering successful fallbacks for the session.
 - Web UI: retry `/bot/status` with a smaller tail on timeout errors to keep the dashboard responsive.
+- Web UI: auto-retry Binance positions refresh once on `-1021` timestamp errors and show a clearer time-sync hint.
 - Web UI: fix optimizer combos list scrolling in docked/maximized modes so long lists remain reachable.
 - Web UI: keep optimizer combo controls fixed while the combos list scrolls in the docked/maximized panel.
 - Web UI: allow scrolling the full optimizer combos panel when maximized so long lists remain accessible.
@@ -43,6 +45,7 @@ All notable changes to this project will be documented in this file.
 - Combos: persist top-combo metrics/params to PostgreSQL with `strategies` and `combo_parameters` tables plus per-combo operation counts.
 - Live bot: update combo rows in PostgreSQL on each candle with the latest equity/annualized metrics.
 - Live bot: size adopted positions from current balances/positions and charge flip fees on the full close+open size.
+- Live bot: apply flip fees per side (exit + entry) to match backtest cost modeling.
 - Live bot: add `botProtectionOrders` to place exchange-managed STOP_MARKET/TAKE_PROFIT_MARKET protection orders on Binance futures when enabled.
 - Binance: `/binance/keys` quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
 - Binance: `/binance/keys` trims dataset-style suffixes from `binanceSymbol` before running the trade test.
@@ -53,6 +56,7 @@ All notable changes to this project will be documented in this file.
 - Binance: allow routing Binance HTTP requests through a fixed-IP proxy via `TRADER_BINANCE_PROXY_URL`.
 - Binance: add SSE heartbeats for `/binance/listenKey/stream` to prevent idle disconnects.
 - Binance: signed requests now align to cached server time offsets to avoid `-1021` timestamp skew errors.
+- Binance: retry signed requests once with a forced server-time sync on `-1021` errors and use a 10s recvWindow for signed endpoints.
 - Binance: parse `NOTIONAL` exchange filters so minNotional checks apply consistently.
 - Binance: listenKey user-data stream now sends WebSocket pings and auto-reconnects after disconnects.
 - API: avoid Warp keepAliveRef errors when clients disconnect mid-request.
@@ -93,6 +97,7 @@ All notable changes to this project will be documented in this file.
 - Trading: add risk-per-trade sizing, weekly loss limits, no-trade windows, max trades per day, expectancy halts, and exposure caps across bots.
 - Trading: add performance gates (`--perf-*`), loss-streak cooldowns, and adaptive filter tightening (`--adaptive-*`) for live bots.
 - Trading: apply `--min-hold-bars` to signal reversals, and entry gates now hold existing positions instead of forcing an exit.
+- Trading: backtests now hold positions on entry blocks (no-trade windows / max trades per day) to match live behavior.
 - Trading: enforce the documented 1-bar cooldown after `MAX_HOLD` exits and reject `--take-profit-partial` values >= 1.
 - Docs: document `--walk-forward-embargo-bars` and `--rebalance-cost-mult` options.
 - Trading: allow partial take-profit scaling for live bots via `--take-profit-partial`.

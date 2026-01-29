@@ -3,6 +3,7 @@ module Trader.Cache
   ( TtlCache
   , newTtlCache
   , fetchWithCache
+  , insertCache
   ) where
 
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
@@ -32,6 +33,9 @@ fetchWithCache cache freshTtl staleTtl key action = do
           case mEntry of
             Just (ts, val) | diffUTCTime now ts <= staleTtl -> pure val
             _ -> throwIO err
+
+insertCache :: Ord k => TtlCache k v -> k -> v -> IO ()
+insertCache = insertEntry
 
 readEntry :: Ord k => TtlCache k v -> k -> IO (Maybe (UTCTime, v))
 readEntry (TtlCache ref) key = Map.lookup key <$> readMVar ref

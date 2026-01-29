@@ -54,9 +54,9 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Base16 as B16
-import Data.Char (isSpace)
+import Data.Char (isSpace, toLower)
 import Data.Int (Int64)
-import Data.List (foldl', isPrefixOf, isSuffixOf, sortBy)
+import Data.List (foldl', isInfixOf, isPrefixOf, isSuffixOf, sortBy)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Ord (comparing)
 import Data.Text (Text)
@@ -78,7 +78,7 @@ import Data.Time.Clock.POSIX (getPOSIXTime)
 import Numeric (showFFloat)
 import Text.Read (readMaybe)
 import Trader.Text (normalizeKey)
-import Trader.Cache (TtlCache, fetchWithCache, newTtlCache)
+import Trader.Cache (TtlCache, fetchWithCache, insertCache, newTtlCache)
 import Trader.Http (defaultRetryConfig, httpLbsWithRetry, newHttpManager)
 import System.Environment (lookupEnv)
 import System.IO.Unsafe (unsafePerformIO)
@@ -255,6 +255,9 @@ binanceFuturesBaseUrl = "https://fapi.binance.com"
 
 binanceFuturesTestnetBaseUrl :: String
 binanceFuturesTestnetBaseUrl = "https://testnet.binancefuture.com"
+
+binanceRecvWindowMs :: BS.ByteString
+binanceRecvWindowMs = "10000"
 
 {-# NOINLINE binanceTickersCache #-}
 binanceTickersCache :: TtlCache String [Ticker24h]
@@ -873,9 +876,12 @@ getTimestampMs = do
   t <- getPOSIXTime
   pure (floor (t * 1000))
 
+binanceTimeOffsetCacheKey :: BinanceEnv -> String
+binanceTimeOffsetCacheKey env = beBaseUrl env ++ ":" ++ show (beMarket env) ++ ":timeOffsetMs"
+
 getBinanceTimestampMs :: BinanceEnv -> IO Int64
 getBinanceTimestampMs env = do
-  let key = beBaseUrl env ++ ":" ++ show (beMarket env) ++ ":timeOffsetMs"
+  let key = binanceTimeOffsetCacheKey env
   offsetOrErr <-
     (try $
        fetchWithCache binanceTimeOffsetCache binanceTimeOffsetFreshTtl binanceTimeOffsetStaleTtl key $ do
@@ -887,6 +893,15 @@ getBinanceTimestampMs env = do
   case offsetOrErr of
     Right offset -> pure (localMs + offset)
     Left _ -> pure localMs
+
+getBinanceTimestampMsFresh :: BinanceEnv -> IO Int64
+getBinanceTimestampMsFresh env = do
+  serverMs <- fetchBinanceServerTime env
+  localMs <- getTimestampMs
+  let offset = serverMs - localMs
+      key = binanceTimeOffsetCacheKey env
+  insertCache binanceTimeOffsetCache key offset
+  pure (localMs + offset)
 
 fetchBinanceServerTime :: BinanceEnv -> IO Int64
 fetchBinanceServerTime env = do
@@ -901,6 +916,34 @@ fetchBinanceServerTime env = do
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode time: " ++ e))
     Right (BinanceServerTime ts) -> pure ts
+
+binanceTimestampErrorCode :: Int
+binanceTimestampErrorCode = -1021
+
+isBinanceTimestampError :: Response BL.ByteString -> Bool
+isBinanceTimestampError resp =
+  case eitherDecode (responseBody resp) :: Either String BinanceErrorBody of
+    Right be ->
+      case bebCode be of
+        Just code | code == binanceTimestampErrorCode -> True
+        _ ->
+          let msg = maybe "" (map toLower) (bebMsg be)
+           in "timestamp for this request is outside of the recvwindow" `isInfixOf` msg
+    Left _ -> False
+
+withBinanceTimestampRetry :: BinanceEnv -> (Int64 -> IO (Response BL.ByteString)) -> IO (Response BL.ByteString)
+withBinanceTimestampRetry env send = do
+  ts <- getBinanceTimestampMs env
+  resp <- send ts
+  let code = statusCode (responseStatus resp)
+  if code >= 200 && code < 300
+    then pure resp
+    else
+      if isBinanceTimestampError resp
+        then do
+          tsFresh <- getBinanceTimestampMsFresh env
+          send tsFresh
+        else pure resp
 
 signQuery :: BS.ByteString -> BS.ByteString -> BS.ByteString
 signQuery secret query =
@@ -928,7 +971,7 @@ placeMarketOrder env mode symbol side quantity quoteOrderQty reduceOnly mClientO
         [ ("symbol", BS.pack (map toUpperAscii symbol))
         , ("side", sideTxt)
         , ("type", "MARKET")
-        , ("recvWindow", "5000")
+        , ("recvWindow", binanceRecvWindowMs)
         , ("timestamp", BS.pack (show ts))
         ]
       clientIdParam =
@@ -1028,7 +1071,7 @@ placeFuturesTriggerMarketOrder env mode symbol side orderType stopPrice mClientO
         , ("type", BS.pack orderType')
         , ("stopPrice", renderDouble stopPrice)
         , ("closePosition", "true")
-        , ("recvWindow", "5000")
+        , ("recvWindow", binanceRecvWindowMs)
         , ("timestamp", BS.pack (show ts))
         ]
       clientIdParam =
@@ -1075,7 +1118,7 @@ fetchOrderByClientId env symbol clientOrderId = do
         [ ("symbol", BS.pack (map toUpperAscii symbol))
         , ("origClientOrderId", BS.pack (trim clientOrderId))
         , ("timestamp", BS.pack (show ts))
-        , ("recvWindow", "5000")
+        , ("recvWindow", binanceRecvWindowMs)
         ]
 
       queryToSign = renderSimpleQuery False params
@@ -1125,7 +1168,7 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
           Just v -> [("fromId", BS.pack (show (max 0 v)))]
       baseParams =
         [ ("timestamp", BS.pack (show ts))
-        , ("recvWindow", "5000")
+        , ("recvWindow", binanceRecvWindowMs)
         ]
       params = symbolParam ++ limitParam ++ startTimeParam ++ endTimeParam ++ fromIdParam ++ baseParams
       queryToSign = renderSimpleQuery False params
@@ -1208,7 +1251,7 @@ fetchOpenOrdersWith env label path symbol = do
   let params =
         [ ("symbol", BS.pack (map toUpperAscii symbol))
         , ("timestamp", BS.pack (show ts))
-        , ("recvWindow", "5000")
+        , ("recvWindow", binanceRecvWindowMs)
         ]
       queryToSign = renderSimpleQuery False params
       sig = signQuery secret queryToSign
@@ -1255,7 +1298,7 @@ cancelFuturesOrderByClientId env symbol clientOrderId = do
         [ ("symbol", BS.pack (map toUpperAscii symbol))
         , ("origClientOrderId", BS.pack (trim clientOrderId))
         , ("timestamp", BS.pack (show ts))
-        , ("recvWindow", "5000")
+        , ("recvWindow", binanceRecvWindowMs)
         ]
       queryToSign = renderSimpleQuery False params
       sig = signQuery secret queryToSign
@@ -1302,7 +1345,7 @@ fetchFreeBalance env asset = do
 
   let params =
         [ ("timestamp", BS.pack (show ts))
-        , ("recvWindow", "5000")
+        , ("recvWindow", binanceRecvWindowMs)
         ]
       queryToSign = renderSimpleQuery False params
       sig = signQuery secret queryToSign
@@ -1395,7 +1438,7 @@ fetchFuturesAvailableBalance env asset = do
 
   let params =
         [ ("timestamp", BS.pack (show ts))
-        , ("recvWindow", "5000")
+        , ("recvWindow", binanceRecvWindowMs)
         ]
       queryToSign = renderSimpleQuery False params
       sig = signQuery secret queryToSign
@@ -1439,26 +1482,25 @@ fetchFuturesPositionAmt env symbol = do
     else pure ()
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getBinanceTimestampMs env
-
-  let params =
-        [ ("symbol", BS.pack (map toUpperAscii symbol))
-        , ("timestamp", BS.pack (show ts))
-        , ("recvWindow", "5000")
-        ]
-      queryToSign = renderSimpleQuery False params
-      sig = signQuery secret queryToSign
-      paramsSigned = params ++ [("signature", sig)]
-      qs = renderSimpleQuery True paramsSigned
-
-  req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/positionRisk")
-  let req =
-        req0
-          { method = "GET"
-          , queryString = qs
-          , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-          }
-  resp <- binanceHttp env "futures/positionRisk" req
+  let send ts = do
+        let params =
+              [ ("symbol", BS.pack (map toUpperAscii symbol))
+              , ("timestamp", BS.pack (show ts))
+              , ("recvWindow", binanceRecvWindowMs)
+              ]
+            queryToSign = renderSimpleQuery False params
+            sig = signQuery secret queryToSign
+            paramsSigned = params ++ [("signature", sig)]
+            qs = renderSimpleQuery True paramsSigned
+        req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/positionRisk")
+        let req =
+              req0
+                { method = "GET"
+                , queryString = qs
+                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                }
+        binanceHttp env "futures/positionRisk" req
+  resp <- withBinanceTimestampRetry env send
   ensure2xx "futures/positionRisk" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode futures positionRisk: " ++ e))
@@ -1519,25 +1561,24 @@ fetchFuturesPositionRisks env = do
     else pure ()
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
-  ts <- getBinanceTimestampMs env
-
-  let params =
-        [ ("timestamp", BS.pack (show ts))
-        , ("recvWindow", "5000")
-        ]
-      queryToSign = renderSimpleQuery False params
-      sig = signQuery secret queryToSign
-      paramsSigned = params ++ [("signature", sig)]
-      qs = renderSimpleQuery True paramsSigned
-
-  req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/positionRisk")
-  let req =
-        req0
-          { method = "GET"
-          , queryString = qs
-          , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-          }
-  resp <- binanceHttp env "futures/positionRisk" req
+  let send ts = do
+        let params =
+              [ ("timestamp", BS.pack (show ts))
+              , ("recvWindow", binanceRecvWindowMs)
+              ]
+            queryToSign = renderSimpleQuery False params
+            sig = signQuery secret queryToSign
+            paramsSigned = params ++ [("signature", sig)]
+            qs = renderSimpleQuery True paramsSigned
+        req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/positionRisk")
+        let req =
+              req0
+                { method = "GET"
+                , queryString = qs
+                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+                }
+        binanceHttp env "futures/positionRisk" req
+  resp <- withBinanceTimestampRetry env send
   ensure2xx "futures/positionRisk" resp
   case eitherDecode (responseBody resp) of
     Left e -> throwIO (userError ("Failed to decode futures positionRisk: " ++ e))

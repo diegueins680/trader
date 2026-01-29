@@ -719,7 +719,8 @@ parseEnvValue raw =
         _ ->
           let firstChar = head trimmed
               lastChar = last trimmed
-           in if (firstChar == '"' && lastChar == '"') || (firstChar == '\'' && lastChar == '\'')
+           in if length trimmed >= 2
+                && ((firstChar == '"' && lastChar == '"') || (firstChar == '\'' && lastChar == '\''))
                 then init (tail trimmed)
                 else trimmed
 
@@ -7691,17 +7692,18 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                   if not tradeEnabled
                     then True
                     else aorSent o
-                feeSize =
-                  if desiredPosWanted == 0
-                    then prevSize
-                    else
-                      if prevPos == 0
-                        then entrySize
-                        else prevSize + entrySize
-                feeFrac = min 0.999999 (max 0 (argFee args) * feeSize)
+                feeRate = max 0 (argFee args)
+                applyFee eq size =
+                  let s = max 0 size
+                      feeFrac = min 0.999999 (feeRate * s)
+                   in eq * (1 - feeFrac)
                 eqAfterFee =
                   if appliedSwitch && feeApplied
-                    then eqAfterReturn * (1 - feeFrac)
+                    then
+                      case (prevPos, desiredPosWanted) of
+                        (0, _) -> applyFee eqAfterReturn entrySize
+                        (_, 0) -> applyFee eqAfterReturn prevSize
+                        _ -> applyFee (applyFee eqAfterReturn prevSize) entrySize
                     else eqAfterReturn
                 posNew = if appliedSwitch then desiredPosWanted else prevPos
                 switchedApplied1 = posNew /= prevPos
