@@ -689,11 +689,27 @@ export function downloadTextFile(filename: string, contents: string, contentType
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-export function buildPositionSeries(prices: number[], side: number): number[] {
+export function buildPositionSeries(prices: number[], side: number, entryPrice?: number | null): number[] {
   if (prices.length === 0) return [];
   if (!Number.isFinite(side) || side === 0) return Array.from({ length: prices.length }, () => 0);
   const dir = side > 0 ? 1 : -1;
-  return Array.from({ length: prices.length }, () => dir);
+  const entry =
+    typeof entryPrice === "number" && Number.isFinite(entryPrice) && entryPrice > 0 ? entryPrice : null;
+  if (entry == null) return Array.from({ length: prices.length }, () => dir);
+
+  let bestIdx = 0;
+  let bestDiff = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < prices.length; i += 1) {
+    const p = prices[i] ?? Number.NaN;
+    if (!Number.isFinite(p)) continue;
+    const diff = Math.abs(p - entry);
+    if (diff < bestDiff || (diff === bestDiff && i > bestIdx)) {
+      bestDiff = diff;
+      bestIdx = i;
+    }
+  }
+
+  return prices.map((_, i) => (i < bestIdx ? 0 : dir));
 }
 
 export function buildEquityCurve(prices: number[], side: number): number[] {

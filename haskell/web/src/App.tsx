@@ -8967,7 +8967,7 @@ export function App() {
                       const sideLabel = sideInfo.label;
                       const sideKey = sideInfo.key;
                       const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
-                      const positionsSeries = buildPositionSeries(prices, posDir);
+                      const positionsSeries = buildPositionSeries(prices, posDir, pos.entryPrice);
                       const equityCurve = buildEquityCurve(prices, posDir);
                       return (
                         <div key={`${pos.symbol}:${sideKey}`}>
@@ -9061,7 +9061,7 @@ export function App() {
                       const sideLabel = sideInfo.label;
                       const sideKey = sideInfo.key;
                       const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
-                      const positionsSeries = buildPositionSeries(prices, posDir);
+                      const positionsSeries = buildPositionSeries(prices, posDir, pos.entryPrice);
                       const equityCurve = buildEquityCurve(prices, posDir);
                       const tradeEnabled = status?.running
                         ? status.settings?.tradeEnabled
