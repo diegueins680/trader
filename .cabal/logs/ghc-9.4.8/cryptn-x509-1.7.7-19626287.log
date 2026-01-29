@@ -1,0 +1,91 @@
+Configuring library for crypton-x509-1.7.7...
+Preprocessing library for crypton-x509-1.7.7...
+Building library for crypton-x509-1.7.7...
+[ 1 of 14] Compiling Data.X509.AlgorithmIdentifier ( Data/X509/AlgorithmIdentifier.hs, dist/build/Data/X509/AlgorithmIdentifier.o, dist/build/Data/X509/AlgorithmIdentifier.dyn_o )
+[ 2 of 14] Compiling Data.X509.Internal ( Data/X509/Internal.hs, dist/build/Data/X509/Internal.o, dist/build/Data/X509/Internal.dyn_o )
+[ 3 of 14] Compiling Data.X509.ExtensionRaw ( Data/X509/ExtensionRaw.hs, dist/build/Data/X509/ExtensionRaw.o, dist/build/Data/X509/ExtensionRaw.dyn_o )
+
+Data/X509/ExtensionRaw.hs:17:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+17 | import Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 4 of 14] Compiling Data.X509.DistinguishedName ( Data/X509/DistinguishedName.hs, dist/build/Data/X509/DistinguishedName.o, dist/build/Data/X509/DistinguishedName.dyn_o )
+
+Data/X509/DistinguishedName.hs:20:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+20 | import Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Data/X509/DistinguishedName.hs:22:1: warning: [-Wunused-imports]
+    The import of ‘Data.Semigroup’ is redundant
+      except perhaps to import instances from ‘Data.Semigroup’
+    To import instances alone, use: import Data.Semigroup()
+   |
+22 | import           Data.Semigroup
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 5 of 14] Compiling Data.X509.Ext    ( Data/X509/Ext.hs, dist/build/Data/X509/Ext.o, dist/build/Data/X509/Ext.dyn_o )
+
+Data/X509/Ext.hs:46:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+46 | import Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 6 of 14] Compiling Data.X509.CRL    ( Data/X509/CRL.hs, dist/build/Data/X509/CRL.o, dist/build/Data/X509/CRL.dyn_o )
+
+Data/X509/CRL.hs:19:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+19 | import Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 7 of 14] Compiling Data.X509.OID    ( Data/X509/OID.hs, dist/build/Data/X509/OID.o, dist/build/Data/X509/OID.dyn_o )
+
+Data/X509/OID.hs:15:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+15 | import Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 8 of 14] Compiling Data.X509.PublicKey ( Data/X509/PublicKey.hs, dist/build/Data/X509/PublicKey.o, dist/build/Data/X509/PublicKey.dyn_o )
+[ 9 of 14] Compiling Data.X509.PrivateKey ( Data/X509/PrivateKey.hs, dist/build/Data/X509/PrivateKey.o, dist/build/Data/X509/PrivateKey.dyn_o )
+
+Data/X509/PrivateKey.hs:16:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+16 | import Control.Applicative ((<$>), pure)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Data/X509/PrivateKey.hs:18:1: warning: [-Wunused-imports]
+    The import of ‘Data.Word’ is redundant
+      except perhaps to import instances from ‘Data.Word’
+    To import instances alone, use: import Data.Word()
+   |
+18 | import Data.Word (Word)
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+[10 of 14] Compiling Data.X509.EC     ( Data/X509/EC.hs, dist/build/Data/X509/EC.o, dist/build/Data/X509/EC.dyn_o )
+[11 of 14] Compiling Data.X509.Cert   ( Data/X509/Cert.hs, dist/build/Data/X509/Cert.o, dist/build/Data/X509/Cert.dyn_o )
+
+Data/X509/Cert.hs:15:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+15 | import Control.Applicative ((<$>), (<*>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[12 of 14] Compiling Data.X509.Signed ( Data/X509/Signed.hs, dist/build/Data/X509/Signed.o, dist/build/Data/X509/Signed.dyn_o )
+[13 of 14] Compiling Data.X509.CertificateChain ( Data/X509/CertificateChain.hs, dist/build/Data/X509/CertificateChain.o, dist/build/Data/X509/CertificateChain.dyn_o )
+[14 of 14] Compiling Data.X509        ( Data/X509.hs, dist/build/Data/X509.o, dist/build/Data/X509.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/cryptn-x509-1.7.7-19626287/lib

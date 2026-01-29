@@ -31,6 +31,7 @@ type Props = {
   backtestStartIndex?: number;
   height?: number | string;
   actions?: React.ReactNode;
+  positionOpenedAt?: { atMs: number; isLowerBound?: boolean } | null;
 };
 
 type View = { start: number; end: number };
@@ -185,6 +186,7 @@ export const BacktestChart = React.memo(function BacktestChart({
   backtestStartIndex = 0,
   height = DEFAULT_CHART_HEIGHT,
   actions,
+  positionOpenedAt,
 }: Props) {
   const nFull = prices.length;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1052,8 +1054,17 @@ export const BacktestChart = React.memo(function BacktestChart({
               </div>
               {hover.atMs !== null ? (
                 <div className="btTooltipRow">
-                  <div className="k">Time</div>
+                  <div className="k">Bar time</div>
                   <div className="v">{fmtTimeMs(hover.atMs)}</div>
+                </div>
+              ) : null}
+              {positionOpenedAt && Number.isFinite(positionOpenedAt.atMs) ? (
+                <div className="btTooltipRow">
+                  <div className="k">Opened</div>
+                  <div className="v">
+                    {positionOpenedAt.isLowerBound ? "before " : ""}
+                    {fmtTimeMs(positionOpenedAt.atMs)}
+                  </div>
                 </div>
               ) : null}
               <div className="btTooltipRow">

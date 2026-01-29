@@ -25,7 +25,7 @@ import { defaultForm, parseDurationSeconds, platformIntervalSeconds } from "./fo
 import type { FormState } from "./formState";
 import type { cacheStats, health } from "../lib/api";
 import { PLATFORM_DEFAULT_SYMBOL } from "./constants";
-import { clamp, normalizeSymbolKey, numFromInput } from "./utils";
+import { clamp, normalizePositionSide, normalizeSymbolKey, numFromInput, positionSideFromAmount } from "./utils";
 
 export type RequestKind = "signal" | "backtest" | "trade";
 
@@ -420,6 +420,49 @@ export function binanceTradeSideLabel(trade: BinanceTrade): "BUY" | "SELL" | "�
   if (trade.isBuyer === true) return "BUY";
   if (trade.isBuyer === false) return "SELL";
   return "—";
+}
+
+export type PositionOpenTimeEstimate = {
+  openedAtMs: number | null;
+  isLowerBound: boolean;
+};
+
+function tradeDeltaForPosition(trade: BinanceTrade, posSide: "LONG" | "SHORT"): number {
+  const side = binanceTradeSideLabel(trade);
+  if (side === "—") return 0;
+  const qty = trade.qty;
+  if (!Number.isFinite(qty) || qty <= 0) return 0;
+  const tradeSide = normalizePositionSide(trade.positionSide);
+  if (tradeSide && tradeSide !== "BOTH" && tradeSide !== posSide) return 0;
+  if (posSide === "LONG") return side === "BUY" ? qty : -qty;
+  return side === "SELL" ? -qty : qty;
+}
+
+export function inferBinancePositionOpenTime(position: BinancePosition, trades: BinanceTrade[]): PositionOpenTimeEstimate | null {
+  const posAmt = position.positionAmt;
+  if (!Number.isFinite(posAmt) || Math.abs(posAmt) <= 1e-12) return null;
+  const sideRaw = normalizePositionSide(position.positionSide);
+  const posSide = sideRaw && sideRaw !== "BOTH" ? sideRaw : positionSideFromAmount(posAmt);
+  if (!posSide) return null;
+  const symKey = normalizeSymbolKey(position.symbol);
+  const symTrades = trades.filter((trade) => normalizeSymbolKey(trade.symbol) === symKey);
+  if (symTrades.length === 0) return null;
+  const sorted = [...symTrades].sort((a, b) => b.time - a.time);
+  let remaining = (posSide === "LONG" ? 1 : -1) * Math.abs(posAmt);
+  let oldestRelevant: number | null = null;
+  for (const trade of sorted) {
+    if (!Number.isFinite(trade.time)) continue;
+    const delta = tradeDeltaForPosition(trade, posSide);
+    if (!Number.isFinite(delta) || delta === 0) continue;
+    oldestRelevant = oldestRelevant === null ? trade.time : Math.min(oldestRelevant, trade.time);
+    const next = remaining - delta;
+    if (Math.sign(remaining) !== 0 && (next === 0 || Math.sign(next) !== Math.sign(remaining))) {
+      return { openedAtMs: trade.time, isLowerBound: false };
+    }
+    remaining = next;
+  }
+  if (oldestRelevant !== null) return { openedAtMs: oldestRelevant, isLowerBound: true };
+  return null;
 }
 
 export function backtestTradePhase(split: BacktestResponse["split"], entryIndex: number): string {
@@ -1054,7 +1097,7 @@ export type OptimizerRunForm = {
   extraJson: string;
 };
 
-export type TopCombosSource = "api";
+export type TopCombosSource = "api" | "repo" | "cache";
 
 export type TopCombosMeta = {
   source: TopCombosSource;

@@ -1,0 +1,10 @@
+pkgid: erf-2.0.0.0
+src: 24f0b79c7e1d25cb2cd44c2258d7a464bf6db8079775b50b60b54a254616b337
+pkg-config-deps: 
+deps: base-4.17.2.1
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

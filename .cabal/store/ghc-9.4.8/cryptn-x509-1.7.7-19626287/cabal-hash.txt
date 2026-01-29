@@ -1,0 +1,11 @@
+pkgid: crypton-x509-1.7.7
+component: ComponentLib
+src: efece48c8c4adfee209979c2967037d90e6ba1b7b4e7bb1081d1d4cd93daf382
+pkg-config-deps: 
+deps: base-4.17.2.1, bytestring-0.11.5.3, containers-0.6.7, cryptn-1.0.6-150359d9, hrglss-0.2.12-dc3a30e2, mmry-0.18.0-e767045c, pm-0.2.4-f1dbde61, sn1-ncdng-0.9.6-88d69f0f, sn1-prs-0.9.5-bd5097df, sn1-typs-0.3.4-76529e2a, transformers-0.5.6.2
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

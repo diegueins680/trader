@@ -1,0 +1,32 @@
+Configuring library for semigroupoids-6.0.2...
+Preprocessing library for semigroupoids-6.0.2...
+Building library for semigroupoids-6.0.2...
+[ 1 of 27] Compiling Data.Functor.Extend ( src/Data/Functor/Extend.hs, dist/build/Data/Functor/Extend.o, dist/build/Data/Functor/Extend.dyn_o )
+[ 2 of 27] Compiling Data.Semigroup.Foldable.Class ( src/Data/Semigroup/Foldable/Class.hs, dist/build/Data/Semigroup/Foldable/Class.o, dist/build/Data/Semigroup/Foldable/Class.dyn_o )
+[ 3 of 27] Compiling Data.Traversable.Instances ( src/Data/Traversable/Instances.hs, dist/build/Data/Traversable/Instances.o, dist/build/Data/Traversable/Instances.dyn_o )
+[ 4 of 27] Compiling Semigroupoids.Internal ( src/Semigroupoids/Internal.hs, dist/build/Semigroupoids/Internal.o, dist/build/Semigroupoids/Internal.dyn_o )
+[ 5 of 27] Compiling Data.Functor.Bind.Class ( src/Data/Functor/Bind/Class.hs, dist/build/Data/Functor/Bind/Class.o, dist/build/Data/Functor/Bind/Class.dyn_o )
+[ 6 of 27] Compiling Data.Functor.Apply ( src/Data/Functor/Apply.hs, dist/build/Data/Functor/Apply.o, dist/build/Data/Functor/Apply.dyn_o )
+[ 7 of 27] Compiling Data.Semigroup.Bifoldable ( src/Data/Semigroup/Bifoldable.hs, dist/build/Data/Semigroup/Bifoldable.o, dist/build/Data/Semigroup/Bifoldable.dyn_o )
+[ 8 of 27] Compiling Data.Functor.Contravariant.Divise ( src/Data/Functor/Contravariant/Divise.hs, dist/build/Data/Functor/Contravariant/Divise.o, dist/build/Data/Functor/Contravariant/Divise.dyn_o )
+[ 9 of 27] Compiling Data.Functor.Contravariant.Decide ( src/Data/Functor/Contravariant/Decide.hs, dist/build/Data/Functor/Contravariant/Decide.o, dist/build/Data/Functor/Contravariant/Decide.dyn_o )
+[10 of 27] Compiling Data.Functor.Contravariant.Conclude ( src/Data/Functor/Contravariant/Conclude.hs, dist/build/Data/Functor/Contravariant/Conclude.o, dist/build/Data/Functor/Contravariant/Conclude.dyn_o )
+[11 of 27] Compiling Data.Functor.Bind ( src/Data/Functor/Bind.hs, dist/build/Data/Functor/Bind.o, dist/build/Data/Functor/Bind.dyn_o )
+[12 of 27] Compiling Data.Semigroupoid ( src/Data/Semigroupoid.hs, dist/build/Data/Semigroupoid.o, dist/build/Data/Semigroupoid.dyn_o )
+[13 of 27] Compiling Data.Semigroupoid.Ob ( src/Data/Semigroupoid/Ob.hs, dist/build/Data/Semigroupoid/Ob.o, dist/build/Data/Semigroupoid/Ob.dyn_o )
+[14 of 27] Compiling Data.Semigroupoid.Dual ( src/Data/Semigroupoid/Dual.hs, dist/build/Data/Semigroupoid/Dual.o, dist/build/Data/Semigroupoid/Dual.dyn_o )
+[15 of 27] Compiling Data.Semigroupoid.Categorical ( src/Data/Semigroupoid/Categorical.hs, dist/build/Data/Semigroupoid/Categorical.o, dist/build/Data/Semigroupoid/Categorical.dyn_o )
+[16 of 27] Compiling Data.Groupoid    ( src/Data/Groupoid.hs, dist/build/Data/Groupoid.o, dist/build/Data/Groupoid.dyn_o )
+[17 of 27] Compiling Data.Isomorphism ( src/Data/Isomorphism.hs, dist/build/Data/Isomorphism.o, dist/build/Data/Isomorphism.dyn_o )
+[18 of 27] Compiling Data.Functor.Bind.Trans ( src/Data/Functor/Bind/Trans.hs, dist/build/Data/Functor/Bind/Trans.o, dist/build/Data/Functor/Bind/Trans.dyn_o )
+[19 of 27] Compiling Data.Bifunctor.Apply ( src/Data/Bifunctor/Apply.hs, dist/build/Data/Bifunctor/Apply.o, dist/build/Data/Bifunctor/Apply.dyn_o )
+[20 of 27] Compiling Data.Functor.Alt ( src/Data/Functor/Alt.hs, dist/build/Data/Functor/Alt.o, dist/build/Data/Functor/Alt.dyn_o )
+[21 of 27] Compiling Data.Semigroup.Foldable ( src/Data/Semigroup/Foldable.hs, dist/build/Data/Semigroup/Foldable.o, dist/build/Data/Semigroup/Foldable.dyn_o )
+[22 of 27] Compiling Data.Semigroup.Traversable.Class ( src/Data/Semigroup/Traversable/Class.hs, dist/build/Data/Semigroup/Traversable/Class.o, dist/build/Data/Semigroup/Traversable/Class.dyn_o )
+[23 of 27] Compiling Data.Semigroup.Traversable ( src/Data/Semigroup/Traversable.hs, dist/build/Data/Semigroup/Traversable.o, dist/build/Data/Semigroup/Traversable.dyn_o )
+[24 of 27] Compiling Data.Semigroup.Bitraversable ( src/Data/Semigroup/Bitraversable.hs, dist/build/Data/Semigroup/Bitraversable.o, dist/build/Data/Semigroup/Bitraversable.dyn_o )
+[25 of 27] Compiling Data.Functor.Plus ( src/Data/Functor/Plus.hs, dist/build/Data/Functor/Plus.o, dist/build/Data/Functor/Plus.dyn_o )
+[26 of 27] Compiling Semigroupoids.Do ( src/Semigroupoids/Do.hs, dist/build/Semigroupoids/Do.o, dist/build/Semigroupoids/Do.dyn_o )
+[27 of 27] Compiling Data.Semigroupoid.Static ( src/Data/Semigroupoid/Static.hs, dist/build/Data/Semigroupoid/Static.o, dist/build/Data/Semigroupoid/Static.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/smgrpds-6.0.2-bb635058/lib

@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Trader.Optimizer.Optimize
-  ( OptimizerArgs (..)
-  , applyQualityPreset
-  , runOptimizer
-  ) where
+module Trader.Optimizer.Optimize (
+    OptimizerArgs (..),
+    applyQualityPreset,
+    runOptimizer,
+) where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
@@ -16,54 +16,54 @@ import Data.Aeson (Value (..), object, (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
-import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
-import Data.List (foldl', intercalate, sort, sortBy)
-import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
-import Data.Ord (comparing)
-import qualified Data.Map.Strict as M
-import qualified Data.Set as Set
 import Data.ByteArray (convert)
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
+import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
+import Data.List (foldl', intercalate, sort, sortBy)
+import qualified Data.Map.Strict as M
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Ord (comparing)
+import Data.Scientific (Scientific, toRealFloat)
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TEE
-import qualified Data.Vector as V
-import Data.Scientific (Scientific, toRealFloat)
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
-import System.Directory
-  ( canonicalizePath
-  , createDirectoryIfMissing
-  , doesFileExist
-  , findExecutable
-  , getCurrentDirectory
-  , getHomeDirectory
-  )
+import qualified Data.Vector as V
+import System.Directory (
+    canonicalizePath,
+    createDirectoryIfMissing,
+    doesFileExist,
+    findExecutable,
+    getCurrentDirectory,
+    getHomeDirectory,
+ )
 import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>), takeBaseName, takeDirectory)
-import System.IO
-  ( IOMode (..)
-  , hClose
-  , hFlush
-  , hGetContents
-  , hPutStrLn
-  , hSetEncoding
-  , openFile
-  , stderr
-  , stdout
-  , utf8
-  )
-import System.Process
-  ( CreateProcess (..)
-  , StdStream (..)
-  , createProcess
-  , proc
-  , terminateProcess
-  , waitForProcess
-  )
+import System.FilePath (takeBaseName, takeDirectory, (</>))
+import System.IO (
+    IOMode (..),
+    hClose,
+    hFlush,
+    hGetContents,
+    hPutStrLn,
+    hSetEncoding,
+    openFile,
+    stderr,
+    stdout,
+    utf8,
+ )
+import System.Process (
+    CreateProcess (..),
+    StdStream (..),
+    createProcess,
+    proc,
+    terminateProcess,
+    waitForProcess,
+ )
 import System.Timeout (timeout)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
@@ -71,16 +71,16 @@ import Text.Read (readMaybe)
 import Trader.BinanceIntervals (binanceIntervalsCsv)
 import Trader.Duration (inferPeriodsPerYear, lookbackBarsFrom)
 import Trader.Optimizer.Json (encodePretty)
-import Trader.Optimizer.Random
-  ( Rng
-  , nextChoice
-  , nextDouble
-  , nextIntRange
-  , nextLogUniform
-  , nextMaybe
-  , nextUniform
-  , seedRng
-  )
+import Trader.Optimizer.Random (
+    Rng,
+    nextChoice,
+    nextDouble,
+    nextIntRange,
+    nextLogUniform,
+    nextMaybe,
+    nextUniform,
+    seedRng,
+ )
 import Trader.Platform (Platform (..), platformIntervals)
 import Trader.Symbol (sanitizeComboSymbolForPlatform)
 
@@ -95,3803 +95,3810 @@ clamp x lo hi = max lo (min hi x)
 
 normalizeSymbol :: Maybe String -> Maybe String
 normalizeSymbol raw =
-  case raw of
-    Nothing -> Nothing
-    Just v ->
-      let s = map toUpper (trim v)
-       in if null s then Nothing else Just s
+    case raw of
+        Nothing -> Nothing
+        Just v ->
+            let s = map toUpper (trim v)
+             in if null s then Nothing else Just s
 
 normalizeHeaderName :: String -> String
 normalizeHeaderName raw =
-  let s = map toLower (trim raw)
-   in [c | c <- s, isAlphaNum c]
+    let s = map toLower (trim raw)
+     in [c | c <- s, isAlphaNum c]
 
 radicalInverse :: Int -> Int -> Double
 radicalInverse base n = go 0 1 n
   where
     go acc f i
-      | i <= 0 = acc
-      | otherwise =
-          let f' = f / fromIntegral base
-              acc' = acc + f' * fromIntegral (i `mod` base)
-           in go acc' f' (i `div` base)
+        | i <= 0 = acc
+        | otherwise =
+            let f' = f / fromIntegral base
+                acc' = acc + f' * fromIntegral (i `mod` base)
+             in go acc' f' (i `div` base)
 
 sobolValue :: Int -> Double
 sobolValue i =
-  let v2 = radicalInverse 2 i
-      v3 = radicalInverse 3 i
-   in fmod1 (v2 + v3 * 0.5)
+    let v2 = radicalInverse 2 i
+        v3 = radicalInverse 3 i
+     in fmod1 (v2 + v3 * 0.5)
   where
     fmod1 x = x - fromIntegral (floor x :: Int)
 
 sobolSeeds :: Int -> Int -> [Int]
 sobolSeeds seed count =
-  [ seed + round (sobolValue i * 1000000) + i * 997
-  | i <- [1 .. count]
-  ]
+    [ seed + round (sobolValue i * 1000000) + i * 997
+    | i <- [1 .. count]
+    ]
 
 expandUser :: FilePath -> IO FilePath
 expandUser path =
-  case path of
-    ('~' : '/' : rest) -> do
-      home <- getHomeDirectory
-      pure (home </> rest)
-    "~" -> getHomeDirectory
-    _ -> pure path
+    case path of
+        ('~' : '/' : rest) -> do
+            home <- getHomeDirectory
+            pure (home </> rest)
+        "~" -> getHomeDirectory
+        _ -> pure path
 
 parseCsvLine :: String -> [String]
 parseCsvLine input =
-  let go acc field inQuotes chars =
-        case chars of
-          [] -> reverse (reverse field : acc)
-          c : cs
-            | c == '"' ->
-                if inQuotes
-                  then case cs of
-                    '"' : rest -> go acc ('"' : field) True rest
-                    _ -> go acc field False cs
-                  else go acc field True cs
-            | c == ',' && not inQuotes -> go (reverse field : acc) [] False cs
-            | (c == '\n' || c == '\r') && not inQuotes -> reverse (reverse field : acc)
-            | otherwise -> go acc (c : field) inQuotes cs
-   in case input of
-        [] -> []
-        _ -> go [] [] False input
+    let go acc field inQuotes chars =
+            case chars of
+                [] -> reverse (reverse field : acc)
+                c : cs
+                    | c == '"' ->
+                        if inQuotes
+                            then case cs of
+                                '"' : rest -> go acc ('"' : field) True rest
+                                _ -> go acc field False cs
+                            else go acc field True cs
+                    | c == ',' && not inQuotes -> go (reverse field : acc) [] False cs
+                    | (c == '\n' || c == '\r') && not inQuotes -> reverse (reverse field : acc)
+                    | otherwise -> go acc (c : field) inQuotes cs
+     in case input of
+            [] -> []
+            _ -> go [] [] False input
 
 detectHighLowColumns :: FilePath -> IO (Maybe String, Maybe String)
 detectHighLowColumns path = do
-  res <- try (BS.readFile path) :: IO (Either SomeException BS.ByteString)
-  case res of
-    Left _ -> pure (Nothing, Nothing)
-    Right bs ->
-      let (line, _) = BS.break (== 10) bs
-       in if BS.null line
-            then pure (Nothing, Nothing)
-            else do
-              let headerText =
-                    TE.decodeUtf8With TEE.lenientDecode line
-                  header = parseCsvLine (T.unpack headerText)
-              if null header
-                then pure (Nothing, Nothing)
-                else do
-                  let normalized = foldl' insertHeaderKey M.empty header
-                      high = firstMatch normalized ["high", "highprice", "highpx"]
-                      low = firstMatch normalized ["low", "lowprice", "lowpx"]
-                  pure (high, low)
+    res <- try (BS.readFile path) :: IO (Either SomeException BS.ByteString)
+    case res of
+        Left _ -> pure (Nothing, Nothing)
+        Right bs ->
+            let (line, _) = BS.break (== 10) bs
+             in if BS.null line
+                    then pure (Nothing, Nothing)
+                    else do
+                        let headerText =
+                                TE.decodeUtf8With TEE.lenientDecode line
+                            header = parseCsvLine (T.unpack headerText)
+                        if null header
+                            then pure (Nothing, Nothing)
+                            else do
+                                let normalized = foldl' insertHeaderKey M.empty header
+                                    high = firstMatch normalized ["high", "highprice", "highpx"]
+                                    low = firstMatch normalized ["low", "lowprice", "lowpx"]
+                                pure (high, low)
   where
     insertHeaderKey acc col =
-      let key = normalizeHeaderName col
-       in if null key || M.member key acc
-            then acc
-            else M.insert key col acc
+        let key = normalizeHeaderName col
+         in if null key || M.member key acc
+                then acc
+                else M.insert key col acc
     firstMatch acc keys =
-      case keys of
-        [] -> Nothing
-        k : ks ->
-          case M.lookup k acc of
-            Just v -> Just v
-            Nothing -> firstMatch acc ks
+        case keys of
+            [] -> Nothing
+            k : ks ->
+                case M.lookup k acc of
+                    Just v -> Just v
+                    Nothing -> firstMatch acc ks
 
 countCsvRows :: FilePath -> IO Int
 countCsvRows path = do
-  bs <- BS.readFile path
-  if BS.null bs
-    then pure 0
-    else do
-      let newlines = BS.count 10 bs
-          lastByte = BS.last bs
-          extra = if lastByte == 10 then 0 else 1
-      pure (fromIntegral newlines + extra)
+    bs <- BS.readFile path
+    if BS.null bs
+        then pure 0
+        else do
+            let newlines = BS.count 10 bs
+                lastByte = BS.last bs
+                extra = if lastByte == 10 then 0 else 1
+            pure (fromIntegral newlines + extra)
 
 metricFloat :: Maybe (KM.KeyMap Value) -> String -> Double -> Double
 metricFloat m key def =
-  case m of
-    Nothing -> def
-    Just metrics ->
-      case KM.lookup (Key.fromString key) metrics of
-        Just (Number n) -> fromMaybe def (scientificToDouble n)
-        _ -> def
+    case m of
+        Nothing -> def
+        Just metrics ->
+            case KM.lookup (Key.fromString key) metrics of
+                Just (Number n) -> fromMaybe def (scientificToDouble n)
+                _ -> def
 
 metricInt :: Maybe (KM.KeyMap Value) -> String -> Int -> Int
 metricInt m key def =
-  case m of
-    Nothing -> def
-    Just metrics ->
-      case KM.lookup (Key.fromString key) metrics of
-        Just (Bool v) -> if v then 1 else 0
-        Just (Number n) ->
-          case scientificToDouble n of
-            Just d -> truncate d
-            Nothing -> def
-        _ -> def
+    case m of
+        Nothing -> def
+        Just metrics ->
+            case KM.lookup (Key.fromString key) metrics of
+                Just (Bool v) -> if v then 1 else 0
+                Just (Number n) ->
+                    case scientificToDouble n of
+                        Just d -> truncate d
+                        Nothing -> def
+                _ -> def
 
 metricProfitFactor :: Maybe (KM.KeyMap Value) -> Maybe Double
 metricProfitFactor m =
-  case m of
-    Nothing -> Nothing
-    Just metrics ->
-      case KM.lookup (Key.fromString "profitFactor") metrics of
-        Just (Number n) -> scientificToDouble n
-        Just Null -> derived
-        _ -> derived
+    case m of
+        Nothing -> Nothing
+        Just metrics ->
+            case KM.lookup (Key.fromString "profitFactor") metrics of
+                Just (Number n) -> scientificToDouble n
+                Just Null -> derived
+                _ -> derived
   where
     derived =
-      let grossProfit = metricFloat m "grossProfit" 0
-          grossLoss = metricFloat m "grossLoss" 0
-       in if grossLoss > 0
-            then Just (grossProfit / grossLoss)
-            else if grossProfit > 0
-              then Nothing
-              else Just 0
+        let grossProfit = metricFloat m "grossProfit" 0
+            grossLoss = metricFloat m "grossLoss" 0
+         in if grossLoss > 0
+                then Just (grossProfit / grossLoss)
+                else
+                    if grossProfit > 0
+                        then Nothing
+                        else Just 0
 
 scientificToDouble :: Scientific -> Maybe Double
 scientificToDouble n =
-  let d = toRealFloat n
-   in if isInfinite d || isNaN d then Nothing else Just d
+    let d = toRealFloat n
+     in if isInfinite d || isNaN d then Nothing else Just d
 
 extractWalkForwardSummary :: Maybe Value -> Maybe (KM.KeyMap Value)
 extractWalkForwardSummary raw = do
-  v <- raw
-  bt <- valueObjectAt v "backtest"
-  wf <- valueObjectAt (Object bt) "walkForward"
-  valueObjectAt (Object wf) "summary"
+    v <- raw
+    bt <- valueObjectAt v "backtest"
+    wf <- valueObjectAt (Object bt) "walkForward"
+    valueObjectAt (Object wf) "summary"
 
 valueObjectAt :: Value -> String -> Maybe (KM.KeyMap Value)
 valueObjectAt val key =
-  case val of
-    Object obj ->
-      case KM.lookup (Key.fromString key) obj of
-        Just (Object v) -> Just v
+    case val of
+        Object obj ->
+            case KM.lookup (Key.fromString key) obj of
+                Just (Object v) -> Just v
+                _ -> Nothing
         _ -> Nothing
-    _ -> Nothing
 
 coerceFloatValue :: Value -> Maybe Double
 coerceFloatValue value =
-  case value of
-    Null -> Nothing
-    Bool v -> Just (if v then 1 else 0)
-    Number n -> scientificToDouble n
-    String s ->
-      let trimmed = trim (T.unpack s)
-       in if null trimmed
-            then Nothing
-            else case reads trimmed of
-              [(v, "")] -> if isInfinite v || isNaN v then Nothing else Just v
-              _ -> Nothing
-    _ -> Nothing
+    case value of
+        Null -> Nothing
+        Bool v -> Just (if v then 1 else 0)
+        Number n -> scientificToDouble n
+        String s ->
+            let trimmed = trim (T.unpack s)
+             in if null trimmed
+                    then Nothing
+                    else case reads trimmed of
+                        [(v, "")] -> if isInfinite v || isNaN v then Nothing else Just v
+                        _ -> Nothing
+        _ -> Nothing
 
 coerceFloatValueLenient :: Value -> Maybe Double
 coerceFloatValueLenient value =
-  case value of
-    Null -> Nothing
-    Bool v -> Just (if v then 1 else 0)
-    Number n -> Just (toRealFloat n)
-    String s ->
-      let trimmed = trim (T.unpack s)
-          lowered = map toLower trimmed
-       in if null trimmed
-            then Nothing
-            else
-              case reads trimmed of
-                [(v, "")] -> Just v
-                _ ->
-                  case lowered of
-                    "nan" -> Just (0 / 0)
-                    "+nan" -> Just (0 / 0)
-                    "-nan" -> Just (0 / 0)
-                    "inf" -> Just (1 / 0)
-                    "+inf" -> Just (1 / 0)
-                    "-inf" -> Just (-1 / 0)
-                    "infinity" -> Just (1 / 0)
-                    "+infinity" -> Just (1 / 0)
-                    "-infinity" -> Just (-1 / 0)
-                    _ -> Nothing
-    _ -> Nothing
+    case value of
+        Null -> Nothing
+        Bool v -> Just (if v then 1 else 0)
+        Number n -> Just (toRealFloat n)
+        String s ->
+            let trimmed = trim (T.unpack s)
+                lowered = map toLower trimmed
+             in if null trimmed
+                    then Nothing
+                    else case reads trimmed of
+                        [(v, "")] -> Just v
+                        _ ->
+                            case lowered of
+                                "nan" -> Just (0 / 0)
+                                "+nan" -> Just (0 / 0)
+                                "-nan" -> Just (0 / 0)
+                                "inf" -> Just (1 / 0)
+                                "+inf" -> Just (1 / 0)
+                                "-inf" -> Just (-1 / 0)
+                                "infinity" -> Just (1 / 0)
+                                "+infinity" -> Just (1 / 0)
+                                "-infinity" -> Just (-1 / 0)
+                                _ -> Nothing
+        _ -> Nothing
 
 coerceIntValue :: Value -> Maybe Int
 coerceIntValue value =
-  case value of
-    Null -> Nothing
-    Bool v -> Just (if v then 1 else 0)
-    Number n ->
-      case scientificToDouble n of
-        Just d -> Just (truncate d)
-        Nothing -> Nothing
-    String s ->
-      let trimmed = trim (T.unpack s)
-       in if null trimmed
-            then Nothing
-            else case reads trimmed of
-              [(v, "")] -> Just (truncate (v :: Double))
-              _ -> Nothing
-    _ -> Nothing
+    case value of
+        Null -> Nothing
+        Bool v -> Just (if v then 1 else 0)
+        Number n ->
+            case scientificToDouble n of
+                Just d -> Just (truncate d)
+                Nothing -> Nothing
+        String s ->
+            let trimmed = trim (T.unpack s)
+             in if null trimmed
+                    then Nothing
+                    else case reads trimmed of
+                        [(v, "")] -> Just (truncate (v :: Double))
+                        _ -> Nothing
+        _ -> Nothing
 
 sanitizeFinalEquity :: Double -> Double
 sanitizeFinalEquity eq
-  | isNaN eq || isInfinite eq || eq < 0 = 0
-  | otherwise = eq
+    | isNaN eq || isInfinite eq || eq < 0 = 0
+    | otherwise = eq
 
 calcAnnualizedReturn :: Double -> Double -> Int -> Double
 calcAnnualizedReturn finalEq periodsPerYear periods
-  | periodsPerYear <= 0 = 0
-  | periods <= 0 = 0
-  | otherwise = finalEq ** (periodsPerYear / fromIntegral periods) - 1
+    | periodsPerYear <= 0 = 0
+    | periods <= 0 = 0
+    | otherwise = finalEq ** (periodsPerYear / fromIntegral periods) - 1
 
 metricsHasAnnualizedReturn :: KM.KeyMap Value -> Bool
 metricsHasAnnualizedReturn metrics =
-  case KM.lookup (Key.fromString "annualizedReturn") metrics >>= coerceFloatValue of
-    Just v -> not (isNaN v || isInfinite v)
-    Nothing -> False
+    case KM.lookup (Key.fromString "annualizedReturn") metrics >>= coerceFloatValue of
+        Just v -> not (isNaN v || isInfinite v)
+        Nothing -> False
 
 ensureAnnualizedReturnMetrics :: Maybe (KM.KeyMap Value) -> Double -> Double -> Int -> Maybe (KM.KeyMap Value)
 ensureAnnualizedReturnMetrics metrics finalEq periodsPerYear periods =
-  let eq = sanitizeFinalEquity finalEq
-      annRet = calcAnnualizedReturn eq periodsPerYear periods
-      annVal = Aeson.toJSON annRet
-      addMetric m = KM.insert (Key.fromString "annualizedReturn") annVal m
-   in case metrics of
-        Just m ->
-          if metricsHasAnnualizedReturn m
-            then Just m
-            else Just (addMetric m)
-        Nothing -> Just (KM.fromList [(Key.fromString "annualizedReturn", annVal)])
+    let eq = sanitizeFinalEquity finalEq
+        annRet = calcAnnualizedReturn eq periodsPerYear periods
+        annVal = Aeson.toJSON annRet
+        addMetric m = KM.insert (Key.fromString "annualizedReturn") annVal m
+     in case metrics of
+            Just m ->
+                if metricsHasAnnualizedReturn m
+                    then Just m
+                    else Just (addMetric m)
+            Nothing -> Just (KM.fromList [(Key.fromString "annualizedReturn", annVal)])
 
 objectiveScore :: KM.KeyMap Value -> String -> Double -> Double -> Double
 objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
-  let finalEq = metricFloat (Just metrics) "finalEquity" 0
-      maxDd = metricFloat (Just metrics) "maxDrawdown" 0
-      sharpe = metricFloat (Just metrics) "sharpe" 0
-      annRet = metricFloat (Just metrics) "annualizedReturn" 0
-      turnover = metricFloat (Just metrics) "turnover" 0
-      obj = map toLower (trim objective)
-   in if obj `elem` ["final-equity", "final_equity", "finalequity"]
-        then finalEq
-        else if obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"]
-          then annRet
-        else if obj == "sharpe"
-          then sharpe
-          else if obj == "calmar"
-            then annRet / max 1e-12 maxDd
-            else if obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"]
-              then finalEq - penaltyMaxDd * maxDd
-              else if obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"]
-                then finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
-                else error ("unknown objective: " ++ show objective)
+    let finalEq = metricFloat (Just metrics) "finalEquity" 0
+        maxDd = metricFloat (Just metrics) "maxDrawdown" 0
+        sharpe = metricFloat (Just metrics) "sharpe" 0
+        annRet = metricFloat (Just metrics) "annualizedReturn" 0
+        turnover = metricFloat (Just metrics) "turnover" 0
+        obj = map toLower (trim objective)
+     in if obj `elem` ["final-equity", "final_equity", "finalequity"]
+            then finalEq
+            else
+                if obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"]
+                    then annRet
+                    else
+                        if obj == "sharpe"
+                            then sharpe
+                            else
+                                if obj == "calmar"
+                                    then annRet / max 1e-12 maxDd
+                                    else
+                                        if obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"]
+                                            then finalEq - penaltyMaxDd * maxDd
+                                            else
+                                                if obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"]
+                                                    then finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
+                                                    else error ("unknown objective: " ++ show objective)
 
 extractOperations :: Maybe Value -> Maybe [Value]
 extractOperations raw = do
-  v <- raw
-  bt <- valueObjectAt v "backtest"
-  case KM.lookup (Key.fromString "trades") bt of
-    Just (Array trades) ->
-      let ops = mapMaybe tradeToOp (V.toList trades)
-       in if null ops then Nothing else Just ops
-    _ -> Nothing
+    v <- raw
+    bt <- valueObjectAt v "backtest"
+    case KM.lookup (Key.fromString "trades") bt of
+        Just (Array trades) ->
+            let ops = mapMaybe tradeToOp (V.toList trades)
+             in if null ops then Nothing else Just ops
+        _ -> Nothing
   where
     tradeToOp value =
-      case value of
-        Object trade -> do
-          entryIdx <- KM.lookup (Key.fromString "entryIndex") trade >>= coerceIntValue
-          exitIdx <- KM.lookup (Key.fromString "exitIndex") trade >>= coerceIntValue
-          let entryEquity = KM.lookup (Key.fromString "entryEquity") trade >>= coerceFloatValue
-              exitEquity = KM.lookup (Key.fromString "exitEquity") trade >>= coerceFloatValue
-              retVal = KM.lookup (Key.fromString "return") trade >>= coerceFloatValue
-              holding = KM.lookup (Key.fromString "holdingPeriods") trade >>= coerceIntValue
-              exitReason =
-                case KM.lookup (Key.fromString "exitReason") trade of
-                  Just (String s) -> Just (T.unpack s)
-                  _ -> Nothing
-          Just
-            ( object
-                [ "entryIndex" .= entryIdx
-                , "exitIndex" .= exitIdx
-                , "entryEquity" .= entryEquity
-                , "exitEquity" .= exitEquity
-                , "return" .= retVal
-                , "holdingPeriods" .= holding
-                , "exitReason" .= exitReason
-                ]
-            )
-        _ -> Nothing
+        case value of
+            Object trade -> do
+                entryIdx <- KM.lookup (Key.fromString "entryIndex") trade >>= coerceIntValue
+                exitIdx <- KM.lookup (Key.fromString "exitIndex") trade >>= coerceIntValue
+                let entryEquity = KM.lookup (Key.fromString "entryEquity") trade >>= coerceFloatValue
+                    exitEquity = KM.lookup (Key.fromString "exitEquity") trade >>= coerceFloatValue
+                    retVal = KM.lookup (Key.fromString "return") trade >>= coerceFloatValue
+                    holding = KM.lookup (Key.fromString "holdingPeriods") trade >>= coerceIntValue
+                    exitReason =
+                        case KM.lookup (Key.fromString "exitReason") trade of
+                            Just (String s) -> Just (T.unpack s)
+                            _ -> Nothing
+                Just
+                    ( object
+                        [ "entryIndex" .= entryIdx
+                        , "exitIndex" .= exitIdx
+                        , "entryEquity" .= entryEquity
+                        , "exitEquity" .= exitEquity
+                        , "return" .= retVal
+                        , "holdingPeriods" .= holding
+                        , "exitReason" .= exitReason
+                        ]
+                    )
+            _ -> Nothing
 
 parsePlatforms :: String -> Either String [String]
 parsePlatforms raw =
-  let cleaned = map (\c -> if c == ',' then ' ' else c) raw
-      parts = filter (not . null) (words (map toLower (trim cleaned)))
-      allowed = ["binance", "coinbase", "kraken", "poloniex"]
-   in if null parts
-        then Left "no platforms provided"
-        else collect allowed [] parts
+    let cleaned = map (\c -> if c == ',' then ' ' else c) raw
+        parts = filter (not . null) (words (map toLower (trim cleaned)))
+        allowed = ["binance", "coinbase", "kraken", "poloniex"]
+     in if null parts
+            then Left "no platforms provided"
+            else collect allowed [] parts
   where
     collect _ acc [] = Right (reverse acc)
     collect allowed acc (p : ps)
-      | p `elem` allowed =
-          if p `elem` acc
-            then collect allowed acc ps
-            else collect allowed (p : acc) ps
-      | otherwise =
-          Left
-            ( "invalid platform: "
-                ++ p
-                ++ " (expected "
-                ++ intercalate ", " (sort allowed)
-                ++ ")"
-            )
+        | p `elem` allowed =
+            if p `elem` acc
+                then collect allowed acc ps
+                else collect allowed (p : acc) ps
+        | otherwise =
+            Left
+                ( "invalid platform: "
+                    ++ p
+                    ++ " (expected "
+                    ++ intercalate ", " (sort allowed)
+                    ++ ")"
+                )
 
 resolveSourceLabel :: Maybe String -> String -> String -> String
 resolveSourceLabel platform dataSource override
-  | not (null override) = override
-  | otherwise = fromMaybe dataSource platform
+    | not (null override) = override
+    | otherwise = fromMaybe dataSource platform
 
 pickIntervals :: [String] -> String -> Int -> [String]
 pickIntervals intervals lookbackWindow maxBarsCap =
-  let keep itv =
-        case lookbackBarsFrom itv lookbackWindow of
-          Left _ -> False
-          Right lb -> lb >= 2 && lb + 3 <= maxBarsCap
-   in filter keep intervals
+    let keep itv =
+            case lookbackBarsFrom itv lookbackWindow of
+                Left _ -> False
+                Right lb -> lb >= 2 && lb + 3 <= maxBarsCap
+     in filter keep intervals
 
 resolvePlatformIntervals :: [String] -> [String] -> String -> Int -> Either String [(String, [String])]
 resolvePlatformIntervals platforms intervalsRaw lookbackWindow maxBarsCap =
-  traverse resolveOne platforms
+    traverse resolveOne platforms
   where
     resolveOne platform =
-      let supported = platformIntervals (platformFromString platform)
-          filtered =
-            if null intervalsRaw
-              then supported
-              else filter (`elem` supported) intervalsRaw
-          intervals = pickIntervals filtered lookbackWindow maxBarsCap
-       in if null intervals
-            then
-              let supportedStr = if null supported then "none" else intercalate ", " supported
-               in Left ("No valid intervals for platform=" ++ platform ++ " (supported: " ++ supportedStr ++ ").")
-            else Right (platform, intervals)
+        let supported = platformIntervals (platformFromString platform)
+            filtered =
+                if null intervalsRaw
+                    then supported
+                    else filter (`elem` supported) intervalsRaw
+            intervals = pickIntervals filtered lookbackWindow maxBarsCap
+         in if null intervals
+                then
+                    let supportedStr = if null supported then "none" else intercalate ", " supported
+                     in Left ("No valid intervals for platform=" ++ platform ++ " (supported: " ++ supportedStr ++ ").")
+                else Right (platform, intervals)
 
 platformFromString :: String -> Platform
 platformFromString platform =
-  case platform of
-    "coinbase" -> PlatformCoinbase
-    "kraken" -> PlatformKraken
-    "poloniex" -> PlatformPoloniex
-    _ -> PlatformBinance
+    case platform of
+        "coinbase" -> PlatformCoinbase
+        "kraken" -> PlatformKraken
+        "poloniex" -> PlatformPoloniex
+        _ -> PlatformBinance
 
 data OptimizerArgs = OptimizerArgs
-  { oaData :: !(Maybe FilePath)
-  , oaBinanceSymbol :: !(Maybe String)
-  , oaSymbolLabel :: !String
-  , oaSourceLabel :: !String
-  , oaPriceColumn :: !String
-  , oaHighColumn :: !String
-  , oaLowColumn :: !String
-  , oaLookbackWindow :: !String
-  , oaBacktestRatio :: !Double
-  , oaTuneRatio :: !Double
-  , oaTrials :: !Int
-  , oaSeed :: !Int
-  , oaSeedTrials :: !(Maybe Int)
-  , oaSeedRatio :: !(Maybe Double)
-  , oaSurvivorFraction :: !Double
-  , oaPerturbScaleDouble :: !Double
-  , oaPerturbScaleInt :: !Int
-  , oaEarlyStopNoImprove :: !Int
-  , oaTimeoutSec :: !Double
-  , oaOutput :: !String
-  , oaAppend :: !Bool
-  , oaBinary :: !String
-  , oaNoSweepThreshold :: !Bool
-  , oaDisableLstmPersistence :: !Bool
-  , oaTopJson :: !String
-  , oaQuality :: !Bool
-  , oaAutoHighLow :: !Bool
-  , oaObjective :: !String
-  , oaPenaltyMaxDrawdown :: !Double
-  , oaPenaltyTurnover :: !Double
-  , oaMinAnnualizedReturn :: !Double
-  , oaMinCalmar :: !Double
-  , oaMaxTurnover :: !Double
-  , oaMinRoundTrips :: !Int
-  , oaMinWinRate :: !Double
-  , oaMinProfitFactor :: !Double
-  , oaMinExposure :: !Double
-  , oaMinSharpe :: !Double
-  , oaMinWfSharpeMean :: !Double
-  , oaMaxWfSharpeStd :: !Double
-  , oaTuneObjective :: !String
-  , oaTunePenaltyMaxDrawdown :: !Double
-  , oaTunePenaltyTurnover :: !Double
-  , oaTuneStressVolMult :: !Double
-  , oaTuneStressShock :: !Double
-  , oaTuneStressWeight :: !Double
-  , oaTuneStressVolMultMin :: !(Maybe Double)
-  , oaTuneStressVolMultMax :: !(Maybe Double)
-  , oaTuneStressShockMin :: !(Maybe Double)
-  , oaTuneStressShockMax :: !(Maybe Double)
-  , oaTuneStressWeightMin :: !(Maybe Double)
-  , oaTuneStressWeightMax :: !(Maybe Double)
-  , oaWalkForwardFoldsMin :: !Int
-  , oaWalkForwardFoldsMax :: !Int
-  , oaWalkForwardEmbargoBarsMin :: !Int
-  , oaWalkForwardEmbargoBarsMax :: !Int
-  , oaInterval :: !(Maybe String)
-  , oaIntervals :: !(Maybe String)
-  , oaPlatform :: !(Maybe String)
-  , oaPlatforms :: !(Maybe String)
-  , oaBarsMin :: !Int
-  , oaBarsMax :: !Int
-  , oaBarsAutoProb :: !Double
-  , oaBarsDistribution :: !String
-  , oaEpochsMin :: !Int
-  , oaEpochsMax :: !Int
-  , oaSlippageMax :: !Double
-  , oaSpreadMax :: !Double
-  , oaFeeMin :: !Double
-  , oaFeeMax :: !Double
-  , oaFundingRateMin :: !Double
-  , oaFundingRateMax :: !Double
-  , oaPFundingBySide :: !Double
-  , oaPFundingOnOpen :: !Double
-  , oaRebalanceBarsMin :: !Int
-  , oaRebalanceBarsMax :: !Int
-  , oaRebalanceThresholdMin :: !Double
-  , oaRebalanceThresholdMax :: !Double
-  , oaRebalanceCostMultMin :: !Double
-  , oaRebalanceCostMultMax :: !Double
-  , oaPRebalanceGlobal :: !Double
-  , oaPRebalanceResetOnSignal :: !Double
-  , oaOpenThresholdMin :: !Double
-  , oaOpenThresholdMax :: !Double
-  , oaCloseThresholdMin :: !Double
-  , oaCloseThresholdMax :: !Double
-  , oaMinHoldBarsMin :: !Int
-  , oaMinHoldBarsMax :: !Int
-  , oaCooldownBarsMin :: !Int
-  , oaCooldownBarsMax :: !Int
-  , oaMaxHoldBarsMin :: !Int
-  , oaMaxHoldBarsMax :: !Int
-  , oaMinEdgeMin :: !Double
-  , oaMinEdgeMax :: !Double
-  , oaMinSignalToNoiseMin :: !Double
-  , oaMinSignalToNoiseMax :: !Double
-  , oaSnrSizeWeightMin :: !Double
-  , oaSnrSizeWeightMax :: !Double
-  , oaPThresholdFactor :: !Double
-  , oaThresholdFactorAlphaMin :: !Double
-  , oaThresholdFactorAlphaMax :: !Double
-  , oaThresholdFactorMinMin :: !Double
-  , oaThresholdFactorMinMax :: !Double
-  , oaThresholdFactorMaxMin :: !Double
-  , oaThresholdFactorMaxMax :: !Double
-  , oaThresholdFactorFloorMin :: !Double
-  , oaThresholdFactorFloorMax :: !Double
-  , oaThresholdFactorWeightMin :: !Double
-  , oaThresholdFactorWeightMax :: !Double
-  , oaEdgeBufferMin :: !Double
-  , oaEdgeBufferMax :: !Double
-  , oaPCostAwareEdge :: !Double
-  , oaTrendLookbackMin :: !Int
-  , oaTrendLookbackMax :: !Int
-  , oaPLongShort :: !Double
-  , oaPIntrabarTakeProfitFirst :: !Double
-  , oaPTriLayer :: !Double
-  , oaTriLayerFastMultMin :: !Double
-  , oaTriLayerFastMultMax :: !Double
-  , oaTriLayerSlowMultMin :: !Double
-  , oaTriLayerSlowMultMax :: !Double
-  , oaPTriLayerPriceAction :: !Double
-  , oaTriLayerCloudPaddingMin :: !Double
-  , oaTriLayerCloudPaddingMax :: !Double
-  , oaTriLayerCloudSlopeMin :: !Double
-  , oaTriLayerCloudSlopeMax :: !Double
-  , oaTriLayerCloudWidthMin :: !Double
-  , oaTriLayerCloudWidthMax :: !Double
-  , oaTriLayerTouchLookbackMin :: !Int
-  , oaTriLayerTouchLookbackMax :: !Int
-  , oaTriLayerPriceActionBodyMin :: !Double
-  , oaTriLayerPriceActionBodyMax :: !Double
-  , oaTriLayerExitOnSlow :: !Bool
-  , oaKalmanBandLookbackMin :: !Int
-  , oaKalmanBandLookbackMax :: !Int
-  , oaKalmanBandStdMultMin :: !Double
-  , oaKalmanBandStdMultMax :: !Double
-  , oaLstmExitFlipBarsMin :: !Int
-  , oaLstmExitFlipBarsMax :: !Int
-  , oaLstmExitFlipGraceBarsMin :: !Int
-  , oaLstmExitFlipGraceBarsMax :: !Int
-  , oaLstmExitFlipStrong :: !Bool
-  , oaLstmConfidenceSoftMin :: !Double
-  , oaLstmConfidenceSoftMax :: !Double
-  , oaLstmConfidenceHardMin :: !Double
-  , oaLstmConfidenceHardMax :: !Double
-  , oaKalmanDtMin :: !Double
-  , oaKalmanDtMax :: !Double
-  , oaKalmanProcessVarMin :: !Double
-  , oaKalmanProcessVarMax :: !Double
-  , oaKalmanMeasurementVarMin :: !Double
-  , oaKalmanMeasurementVarMax :: !Double
-  , oaKalmanZMinMin :: !Double
-  , oaKalmanZMinMax :: !Double
-  , oaKalmanZMaxMin :: !Double
-  , oaKalmanZMaxMax :: !Double
-  , oaKalmanMarketTopNMin :: !Int
-  , oaKalmanMarketTopNMax :: !Int
-  , oaPDisableMaxHighVolProb :: !Double
-  , oaMaxHighVolProbMin :: !Double
-  , oaMaxHighVolProbMax :: !Double
-  , oaPDisableMaxConformalWidth :: !Double
-  , oaMaxConformalWidthMin :: !Double
-  , oaMaxConformalWidthMax :: !Double
-  , oaPDisableMaxQuantileWidth :: !Double
-  , oaMaxQuantileWidthMin :: !Double
-  , oaMaxQuantileWidthMax :: !Double
-  , oaPConfirmConformal :: !Double
-  , oaPConfirmQuantiles :: !Double
-  , oaPConfidenceSizing :: !Double
-  , oaMinPositionSizeMin :: !Double
-  , oaMinPositionSizeMax :: !Double
-  , oaMaxPositionSizeMin :: !Double
-  , oaMaxPositionSizeMax :: !Double
-  , oaVolTargetMin :: !Double
-  , oaVolTargetMax :: !Double
-  , oaPDisableVolTarget :: !Double
-  , oaVolLookbackMin :: !Int
-  , oaVolLookbackMax :: !Int
-  , oaVolEwmaAlphaMin :: !Double
-  , oaVolEwmaAlphaMax :: !Double
-  , oaPDisableVolEwmaAlpha :: !Double
-  , oaVolFloorMin :: !Double
-  , oaVolFloorMax :: !Double
-  , oaVolScaleMaxMin :: !Double
-  , oaVolScaleMaxMax :: !Double
-  , oaMaxVolatilityMin :: !Double
-  , oaMaxVolatilityMax :: !Double
-  , oaPDisableMaxVolatility :: !Double
-  , oaPeriodsPerYearMin :: !Double
-  , oaPeriodsPerYearMax :: !Double
-  , oaStopMin :: !Double
-  , oaStopMax :: !Double
-  , oaTpMin :: !Double
-  , oaTpMax :: !Double
-  , oaTrailMin :: !Double
-  , oaTrailMax :: !Double
-  , oaPDisableStop :: !Double
-  , oaPDisableTp :: !Double
-  , oaPDisableTrail :: !Double
-  , oaStopVolMultMin :: !Double
-  , oaStopVolMultMax :: !Double
-  , oaTpVolMultMin :: !Double
-  , oaTpVolMultMax :: !Double
-  , oaTrailVolMultMin :: !Double
-  , oaTrailVolMultMax :: !Double
-  , oaPDisableStopVolMult :: !Double
-  , oaPDisableTpVolMult :: !Double
-  , oaPDisableTrailVolMult :: !Double
-  , oaPDisableMaxDd :: !Double
-  , oaPDisableMaxDl :: !Double
-  , oaPDisableMaxOe :: !Double
-  , oaMaxDdMin :: !Double
-  , oaMaxDdMax :: !Double
-  , oaMaxDlMin :: !Double
-  , oaMaxDlMax :: !Double
-  , oaMaxOeMin :: !Int
-  , oaMaxOeMax :: !Int
-  , oaMethodWeight11 :: !Double
-  , oaMethodWeight10 :: !Double
-  , oaMethodWeight01 :: !Double
-  , oaMethodWeightBlend :: !Double
-  , oaBlendWeightMin :: !Double
-  , oaBlendWeightMax :: !Double
-  , oaRouterScorePnlWeightMin :: !Double
-  , oaRouterScorePnlWeightMax :: !Double
-  , oaNormalizations :: !String
-  , oaHiddenSizeMin :: !Int
-  , oaHiddenSizeMax :: !Int
-  , oaLrMin :: !Double
-  , oaLrMax :: !Double
-  , oaValRatioMin :: !Double
-  , oaValRatioMax :: !Double
-  , oaPatienceMax :: !Int
-  , oaGradClipMin :: !Double
-  , oaGradClipMax :: !Double
-  , oaPDisableGradClip :: !Double
-  }
-  deriving (Eq, Show)
+    { oaData :: !(Maybe FilePath)
+    , oaBinanceSymbol :: !(Maybe String)
+    , oaSymbolLabel :: !String
+    , oaSourceLabel :: !String
+    , oaPriceColumn :: !String
+    , oaHighColumn :: !String
+    , oaLowColumn :: !String
+    , oaLookbackWindow :: !String
+    , oaBacktestRatio :: !Double
+    , oaTuneRatio :: !Double
+    , oaTrials :: !Int
+    , oaSeed :: !Int
+    , oaSeedTrials :: !(Maybe Int)
+    , oaSeedRatio :: !(Maybe Double)
+    , oaSurvivorFraction :: !Double
+    , oaPerturbScaleDouble :: !Double
+    , oaPerturbScaleInt :: !Int
+    , oaEarlyStopNoImprove :: !Int
+    , oaTimeoutSec :: !Double
+    , oaOutput :: !String
+    , oaAppend :: !Bool
+    , oaBinary :: !String
+    , oaNoSweepThreshold :: !Bool
+    , oaDisableLstmPersistence :: !Bool
+    , oaTopJson :: !String
+    , oaQuality :: !Bool
+    , oaAutoHighLow :: !Bool
+    , oaObjective :: !String
+    , oaPenaltyMaxDrawdown :: !Double
+    , oaPenaltyTurnover :: !Double
+    , oaMinAnnualizedReturn :: !Double
+    , oaMinCalmar :: !Double
+    , oaMaxTurnover :: !Double
+    , oaMinRoundTrips :: !Int
+    , oaMinWinRate :: !Double
+    , oaMinProfitFactor :: !Double
+    , oaMinExposure :: !Double
+    , oaMinSharpe :: !Double
+    , oaMinWfSharpeMean :: !Double
+    , oaMaxWfSharpeStd :: !Double
+    , oaTuneObjective :: !String
+    , oaTunePenaltyMaxDrawdown :: !Double
+    , oaTunePenaltyTurnover :: !Double
+    , oaTuneStressVolMult :: !Double
+    , oaTuneStressShock :: !Double
+    , oaTuneStressWeight :: !Double
+    , oaTuneStressVolMultMin :: !(Maybe Double)
+    , oaTuneStressVolMultMax :: !(Maybe Double)
+    , oaTuneStressShockMin :: !(Maybe Double)
+    , oaTuneStressShockMax :: !(Maybe Double)
+    , oaTuneStressWeightMin :: !(Maybe Double)
+    , oaTuneStressWeightMax :: !(Maybe Double)
+    , oaWalkForwardFoldsMin :: !Int
+    , oaWalkForwardFoldsMax :: !Int
+    , oaWalkForwardEmbargoBarsMin :: !Int
+    , oaWalkForwardEmbargoBarsMax :: !Int
+    , oaInterval :: !(Maybe String)
+    , oaIntervals :: !(Maybe String)
+    , oaPlatform :: !(Maybe String)
+    , oaPlatforms :: !(Maybe String)
+    , oaBarsMin :: !Int
+    , oaBarsMax :: !Int
+    , oaBarsAutoProb :: !Double
+    , oaBarsDistribution :: !String
+    , oaEpochsMin :: !Int
+    , oaEpochsMax :: !Int
+    , oaSlippageMax :: !Double
+    , oaSpreadMax :: !Double
+    , oaFeeMin :: !Double
+    , oaFeeMax :: !Double
+    , oaFundingRateMin :: !Double
+    , oaFundingRateMax :: !Double
+    , oaPFundingBySide :: !Double
+    , oaPFundingOnOpen :: !Double
+    , oaRebalanceBarsMin :: !Int
+    , oaRebalanceBarsMax :: !Int
+    , oaRebalanceThresholdMin :: !Double
+    , oaRebalanceThresholdMax :: !Double
+    , oaRebalanceCostMultMin :: !Double
+    , oaRebalanceCostMultMax :: !Double
+    , oaPRebalanceGlobal :: !Double
+    , oaPRebalanceResetOnSignal :: !Double
+    , oaOpenThresholdMin :: !Double
+    , oaOpenThresholdMax :: !Double
+    , oaCloseThresholdMin :: !Double
+    , oaCloseThresholdMax :: !Double
+    , oaMinHoldBarsMin :: !Int
+    , oaMinHoldBarsMax :: !Int
+    , oaCooldownBarsMin :: !Int
+    , oaCooldownBarsMax :: !Int
+    , oaMaxHoldBarsMin :: !Int
+    , oaMaxHoldBarsMax :: !Int
+    , oaMinEdgeMin :: !Double
+    , oaMinEdgeMax :: !Double
+    , oaMinSignalToNoiseMin :: !Double
+    , oaMinSignalToNoiseMax :: !Double
+    , oaSnrSizeWeightMin :: !Double
+    , oaSnrSizeWeightMax :: !Double
+    , oaPThresholdFactor :: !Double
+    , oaThresholdFactorAlphaMin :: !Double
+    , oaThresholdFactorAlphaMax :: !Double
+    , oaThresholdFactorMinMin :: !Double
+    , oaThresholdFactorMinMax :: !Double
+    , oaThresholdFactorMaxMin :: !Double
+    , oaThresholdFactorMaxMax :: !Double
+    , oaThresholdFactorFloorMin :: !Double
+    , oaThresholdFactorFloorMax :: !Double
+    , oaThresholdFactorWeightMin :: !Double
+    , oaThresholdFactorWeightMax :: !Double
+    , oaEdgeBufferMin :: !Double
+    , oaEdgeBufferMax :: !Double
+    , oaPCostAwareEdge :: !Double
+    , oaTrendLookbackMin :: !Int
+    , oaTrendLookbackMax :: !Int
+    , oaPLongShort :: !Double
+    , oaPIntrabarTakeProfitFirst :: !Double
+    , oaPTriLayer :: !Double
+    , oaTriLayerFastMultMin :: !Double
+    , oaTriLayerFastMultMax :: !Double
+    , oaTriLayerSlowMultMin :: !Double
+    , oaTriLayerSlowMultMax :: !Double
+    , oaPTriLayerPriceAction :: !Double
+    , oaTriLayerCloudPaddingMin :: !Double
+    , oaTriLayerCloudPaddingMax :: !Double
+    , oaTriLayerCloudSlopeMin :: !Double
+    , oaTriLayerCloudSlopeMax :: !Double
+    , oaTriLayerCloudWidthMin :: !Double
+    , oaTriLayerCloudWidthMax :: !Double
+    , oaTriLayerTouchLookbackMin :: !Int
+    , oaTriLayerTouchLookbackMax :: !Int
+    , oaTriLayerPriceActionBodyMin :: !Double
+    , oaTriLayerPriceActionBodyMax :: !Double
+    , oaTriLayerExitOnSlow :: !Bool
+    , oaKalmanBandLookbackMin :: !Int
+    , oaKalmanBandLookbackMax :: !Int
+    , oaKalmanBandStdMultMin :: !Double
+    , oaKalmanBandStdMultMax :: !Double
+    , oaLstmExitFlipBarsMin :: !Int
+    , oaLstmExitFlipBarsMax :: !Int
+    , oaLstmExitFlipGraceBarsMin :: !Int
+    , oaLstmExitFlipGraceBarsMax :: !Int
+    , oaLstmExitFlipStrong :: !Bool
+    , oaLstmConfidenceSoftMin :: !Double
+    , oaLstmConfidenceSoftMax :: !Double
+    , oaLstmConfidenceHardMin :: !Double
+    , oaLstmConfidenceHardMax :: !Double
+    , oaKalmanDtMin :: !Double
+    , oaKalmanDtMax :: !Double
+    , oaKalmanProcessVarMin :: !Double
+    , oaKalmanProcessVarMax :: !Double
+    , oaKalmanMeasurementVarMin :: !Double
+    , oaKalmanMeasurementVarMax :: !Double
+    , oaKalmanZMinMin :: !Double
+    , oaKalmanZMinMax :: !Double
+    , oaKalmanZMaxMin :: !Double
+    , oaKalmanZMaxMax :: !Double
+    , oaKalmanMarketTopNMin :: !Int
+    , oaKalmanMarketTopNMax :: !Int
+    , oaPDisableMaxHighVolProb :: !Double
+    , oaMaxHighVolProbMin :: !Double
+    , oaMaxHighVolProbMax :: !Double
+    , oaPDisableMaxConformalWidth :: !Double
+    , oaMaxConformalWidthMin :: !Double
+    , oaMaxConformalWidthMax :: !Double
+    , oaPDisableMaxQuantileWidth :: !Double
+    , oaMaxQuantileWidthMin :: !Double
+    , oaMaxQuantileWidthMax :: !Double
+    , oaPConfirmConformal :: !Double
+    , oaPConfirmQuantiles :: !Double
+    , oaPConfidenceSizing :: !Double
+    , oaMinPositionSizeMin :: !Double
+    , oaMinPositionSizeMax :: !Double
+    , oaMaxPositionSizeMin :: !Double
+    , oaMaxPositionSizeMax :: !Double
+    , oaVolTargetMin :: !Double
+    , oaVolTargetMax :: !Double
+    , oaPDisableVolTarget :: !Double
+    , oaVolLookbackMin :: !Int
+    , oaVolLookbackMax :: !Int
+    , oaVolEwmaAlphaMin :: !Double
+    , oaVolEwmaAlphaMax :: !Double
+    , oaPDisableVolEwmaAlpha :: !Double
+    , oaVolFloorMin :: !Double
+    , oaVolFloorMax :: !Double
+    , oaVolScaleMaxMin :: !Double
+    , oaVolScaleMaxMax :: !Double
+    , oaMaxVolatilityMin :: !Double
+    , oaMaxVolatilityMax :: !Double
+    , oaPDisableMaxVolatility :: !Double
+    , oaPeriodsPerYearMin :: !Double
+    , oaPeriodsPerYearMax :: !Double
+    , oaStopMin :: !Double
+    , oaStopMax :: !Double
+    , oaTpMin :: !Double
+    , oaTpMax :: !Double
+    , oaTrailMin :: !Double
+    , oaTrailMax :: !Double
+    , oaPDisableStop :: !Double
+    , oaPDisableTp :: !Double
+    , oaPDisableTrail :: !Double
+    , oaStopVolMultMin :: !Double
+    , oaStopVolMultMax :: !Double
+    , oaTpVolMultMin :: !Double
+    , oaTpVolMultMax :: !Double
+    , oaTrailVolMultMin :: !Double
+    , oaTrailVolMultMax :: !Double
+    , oaPDisableStopVolMult :: !Double
+    , oaPDisableTpVolMult :: !Double
+    , oaPDisableTrailVolMult :: !Double
+    , oaPDisableMaxDd :: !Double
+    , oaPDisableMaxDl :: !Double
+    , oaPDisableMaxOe :: !Double
+    , oaMaxDdMin :: !Double
+    , oaMaxDdMax :: !Double
+    , oaMaxDlMin :: !Double
+    , oaMaxDlMax :: !Double
+    , oaMaxOeMin :: !Int
+    , oaMaxOeMax :: !Int
+    , oaMethodWeight11 :: !Double
+    , oaMethodWeight10 :: !Double
+    , oaMethodWeight01 :: !Double
+    , oaMethodWeightBlend :: !Double
+    , oaBlendWeightMin :: !Double
+    , oaBlendWeightMax :: !Double
+    , oaRouterScorePnlWeightMin :: !Double
+    , oaRouterScorePnlWeightMax :: !Double
+    , oaNormalizations :: !String
+    , oaHiddenSizeMin :: !Int
+    , oaHiddenSizeMax :: !Int
+    , oaLrMin :: !Double
+    , oaLrMax :: !Double
+    , oaValRatioMin :: !Double
+    , oaValRatioMax :: !Double
+    , oaPatienceMax :: !Int
+    , oaGradClipMin :: !Double
+    , oaGradClipMax :: !Double
+    , oaPDisableGradClip :: !Double
+    }
+    deriving (Eq, Show)
 
 applyQualityPreset :: OptimizerArgs -> OptimizerArgs
 applyQualityPreset args =
-  let maxIf field val = max field val
-      minIf field val = min field val
-      objective = map toLower (trim (oaObjective args))
-      objective' =
-        if objective `elem` ["final-equity", "final_equity", "finalequity"]
-          then "equity-dd-turnover"
-          else oaObjective args
-      intervalReset =
-        case oaInterval args of
-          Just v | not (null (trim v)) -> True
-          _ -> False
-      intervals' = if intervalReset then Just binanceIntervalsCsv else oaIntervals args
-   in args
-        { oaTrials = maxIf (oaTrials args) 500
-        , oaMinRoundTrips = maxIf (oaMinRoundTrips args) 5
-        , oaOpenThresholdMax = maxIf (oaOpenThresholdMax args) 5e-2
-        , oaCloseThresholdMax = maxIf (oaCloseThresholdMax args) 5e-2
-        , oaMinWinRate = maxIf (oaMinWinRate args) 0.45
-        , oaMinProfitFactor = maxIf (oaMinProfitFactor args) 1.1
-        , oaMinExposure = maxIf (oaMinExposure args) 0.05
-        , oaMinSharpe = maxIf (oaMinSharpe args) 0.25
-        , oaMinWfSharpeMean = maxIf (oaMinWfSharpeMean args) 0.2
-        , oaMaxWfSharpeStd =
-            if oaMaxWfSharpeStd args <= 0
-              then 1.5
-              else oaMaxWfSharpeStd args
-        , oaMinSignalToNoiseMin = maxIf (oaMinSignalToNoiseMin args) 0.2
-        , oaMinSignalToNoiseMax = maxIf (oaMinSignalToNoiseMax args) 1.0
-        , oaEpochsMax = maxIf (oaEpochsMax args) 50
-        , oaHiddenSizeMax = maxIf (oaHiddenSizeMax args) 128
-        , oaLrMax = maxIf (oaLrMax args) 5e-2
-        , oaBacktestRatio = minIf (oaBacktestRatio args) 0.10
-        , oaTuneRatio = minIf (oaTuneRatio args) 0.15
-        , oaObjective = objective'
-        , oaPenaltyTurnover = maxIf (oaPenaltyTurnover args) 0.1
-        , oaBarsMax = if oaBarsMax args > 0 then 0 else oaBarsMax args
-        , oaAutoHighLow = True
-        , oaWalkForwardFoldsMin = maxIf (oaWalkForwardFoldsMin args) 3
-        , oaWalkForwardFoldsMax = maxIf (oaWalkForwardFoldsMax args) (oaWalkForwardFoldsMin args)
-        , oaInterval = if intervalReset then Nothing else oaInterval args
-        , oaIntervals = intervals'
-        }
+    let maxIf field val = max field val
+        minIf field val = min field val
+        objective = map toLower (trim (oaObjective args))
+        objective' =
+            if objective `elem` ["final-equity", "final_equity", "finalequity"]
+                then "equity-dd-turnover"
+                else oaObjective args
+        intervalReset =
+            case oaInterval args of
+                Just v | not (null (trim v)) -> True
+                _ -> False
+        intervals' = if intervalReset then Just binanceIntervalsCsv else oaIntervals args
+     in args
+            { oaTrials = maxIf (oaTrials args) 500
+            , oaMinRoundTrips = maxIf (oaMinRoundTrips args) 5
+            , oaOpenThresholdMax = maxIf (oaOpenThresholdMax args) 5e-2
+            , oaCloseThresholdMax = maxIf (oaCloseThresholdMax args) 5e-2
+            , oaMinWinRate = maxIf (oaMinWinRate args) 0.45
+            , oaMinProfitFactor = maxIf (oaMinProfitFactor args) 1.1
+            , oaMinExposure = maxIf (oaMinExposure args) 0.05
+            , oaMinSharpe = maxIf (oaMinSharpe args) 0.25
+            , oaMinWfSharpeMean = maxIf (oaMinWfSharpeMean args) 0.2
+            , oaMaxWfSharpeStd =
+                if oaMaxWfSharpeStd args <= 0
+                    then 1.5
+                    else oaMaxWfSharpeStd args
+            , oaMinSignalToNoiseMin = maxIf (oaMinSignalToNoiseMin args) 0.2
+            , oaMinSignalToNoiseMax = maxIf (oaMinSignalToNoiseMax args) 1.0
+            , oaEpochsMax = maxIf (oaEpochsMax args) 50
+            , oaHiddenSizeMax = maxIf (oaHiddenSizeMax args) 128
+            , oaLrMax = maxIf (oaLrMax args) 5e-2
+            , oaBacktestRatio = minIf (oaBacktestRatio args) 0.10
+            , oaTuneRatio = minIf (oaTuneRatio args) 0.15
+            , oaObjective = objective'
+            , oaPenaltyTurnover = maxIf (oaPenaltyTurnover args) 0.1
+            , oaBarsMax = if oaBarsMax args > 0 then 0 else oaBarsMax args
+            , oaAutoHighLow = True
+            , oaWalkForwardFoldsMin = maxIf (oaWalkForwardFoldsMin args) 3
+            , oaWalkForwardFoldsMax = maxIf (oaWalkForwardFoldsMax args) (oaWalkForwardFoldsMin args)
+            , oaInterval = if intervalReset then Nothing else oaInterval args
+            , oaIntervals = intervals'
+            }
 
 data TrialParams = TrialParams
-  { tpPlatform :: !(Maybe String)
-  , tpInterval :: !String
-  , tpBars :: !Int
-  , tpMethod :: !String
-  , tpBlendWeight :: !Double
-  , tpRouterScorePnlWeight :: !Double
-  , tpPositioning :: !String
-  , tpNormalization :: !String
-  , tpBaseOpenThreshold :: !Double
-  , tpBaseCloseThreshold :: !Double
-  , tpMinHoldBars :: !Int
-  , tpCooldownBars :: !Int
-  , tpMaxHoldBars :: !(Maybe Int)
-  , tpMinEdge :: !Double
-  , tpMinSignalToNoise :: !Double
-  , tpSnrSizeWeight :: !Double
-  , tpThresholdFactorEnabled :: !Bool
-  , tpThresholdFactorAlpha :: !Double
-  , tpThresholdFactorMin :: !Double
-  , tpThresholdFactorMax :: !Double
-  , tpThresholdFactorFloor :: !Double
-  , tpThresholdFactorEdgeKalWeight :: !Double
-  , tpThresholdFactorEdgeLstmWeight :: !Double
-  , tpThresholdFactorKalmanZWeight :: !Double
-  , tpThresholdFactorHighVolWeight :: !Double
-  , tpThresholdFactorConformalWeight :: !Double
-  , tpThresholdFactorQuantileWeight :: !Double
-  , tpThresholdFactorLstmConfWeight :: !Double
-  , tpThresholdFactorLstmHealthWeight :: !Double
-  , tpEdgeBuffer :: !Double
-  , tpCostAwareEdge :: !Bool
-  , tpTrendLookback :: !Int
-  , tpMaxPositionSize :: !Double
-  , tpVolTarget :: !(Maybe Double)
-  , tpVolLookback :: !Int
-  , tpVolEwmaAlpha :: !(Maybe Double)
-  , tpVolFloor :: !Double
-  , tpVolScaleMax :: !Double
-  , tpMaxVolatility :: !(Maybe Double)
-  , tpPeriodsPerYear :: !(Maybe Double)
-  , tpKalmanMarketTopN :: !Int
-  , tpFee :: !Double
-  , tpFundingRate :: !Double
-  , tpFundingBySide :: !Bool
-  , tpFundingOnOpen :: !Bool
-  , tpRebalanceBars :: !Int
-  , tpRebalanceThreshold :: !Double
-  , tpRebalanceCostMult :: !Double
-  , tpRebalanceGlobal :: !Bool
-  , tpRebalanceResetOnSignal :: !Bool
-  , tpEpochs :: !Int
-  , tpHiddenSize :: !Int
-  , tpLearningRate :: !Double
-  , tpValRatio :: !Double
-  , tpPatience :: !Int
-  , tpWalkForwardFolds :: !Int
-  , tpWalkForwardEmbargoBars :: !Int
-  , tpTuneStressVolMult :: !Double
-  , tpTuneStressShock :: !Double
-  , tpTuneStressWeight :: !Double
-  , tpGradClip :: !(Maybe Double)
-  , tpSlippage :: !Double
-  , tpSpread :: !Double
-  , tpIntrabarFill :: !String
-  , tpTriLayer :: !Bool
-  , tpTriLayerFastMult :: !Double
-  , tpTriLayerSlowMult :: !Double
-  , tpTriLayerCloudPadding :: !Double
-  , tpTriLayerCloudSlope :: !Double
-  , tpTriLayerCloudWidth :: !Double
-  , tpTriLayerTouchLookback :: !Int
-  , tpTriLayerPriceAction :: !Bool
-  , tpTriLayerPriceActionBody :: !Double
-  , tpTriLayerExitOnSlow :: !Bool
-  , tpKalmanBandLookback :: !Int
-  , tpKalmanBandStdMult :: !Double
-  , tpLstmExitFlipBars :: !Int
-  , tpLstmExitFlipGraceBars :: !Int
-  , tpLstmExitFlipStrong :: !Bool
-  , tpLstmConfidenceSoft :: !Double
-  , tpLstmConfidenceHard :: !Double
-  , tpStopLoss :: !(Maybe Double)
-  , tpTakeProfit :: !(Maybe Double)
-  , tpTrailingStop :: !(Maybe Double)
-  , tpStopLossVolMult :: !(Maybe Double)
-  , tpTakeProfitVolMult :: !(Maybe Double)
-  , tpTrailingStopVolMult :: !(Maybe Double)
-  , tpMaxDrawdown :: !(Maybe Double)
-  , tpMaxDailyLoss :: !(Maybe Double)
-  , tpMaxOrderErrors :: !(Maybe Int)
-  , tpKalmanDt :: !Double
-  , tpKalmanProcessVar :: !Double
-  , tpKalmanMeasurementVar :: !Double
-  , tpKalmanZMin :: !Double
-  , tpKalmanZMax :: !Double
-  , tpMaxHighVolProb :: !(Maybe Double)
-  , tpMaxConformalWidth :: !(Maybe Double)
-  , tpMaxQuantileWidth :: !(Maybe Double)
-  , tpConfirmConformal :: !Bool
-  , tpConfirmQuantiles :: !Bool
-  , tpConfidenceSizing :: !Bool
-  , tpMinPositionSize :: !Double
-  }
-  deriving (Eq, Show)
+    { tpPlatform :: !(Maybe String)
+    , tpInterval :: !String
+    , tpBars :: !Int
+    , tpMethod :: !String
+    , tpBlendWeight :: !Double
+    , tpRouterScorePnlWeight :: !Double
+    , tpPositioning :: !String
+    , tpNormalization :: !String
+    , tpBaseOpenThreshold :: !Double
+    , tpBaseCloseThreshold :: !Double
+    , tpMinHoldBars :: !Int
+    , tpCooldownBars :: !Int
+    , tpMaxHoldBars :: !(Maybe Int)
+    , tpMinEdge :: !Double
+    , tpMinSignalToNoise :: !Double
+    , tpSnrSizeWeight :: !Double
+    , tpThresholdFactorEnabled :: !Bool
+    , tpThresholdFactorAlpha :: !Double
+    , tpThresholdFactorMin :: !Double
+    , tpThresholdFactorMax :: !Double
+    , tpThresholdFactorFloor :: !Double
+    , tpThresholdFactorEdgeKalWeight :: !Double
+    , tpThresholdFactorEdgeLstmWeight :: !Double
+    , tpThresholdFactorKalmanZWeight :: !Double
+    , tpThresholdFactorHighVolWeight :: !Double
+    , tpThresholdFactorConformalWeight :: !Double
+    , tpThresholdFactorQuantileWeight :: !Double
+    , tpThresholdFactorLstmConfWeight :: !Double
+    , tpThresholdFactorLstmHealthWeight :: !Double
+    , tpEdgeBuffer :: !Double
+    , tpCostAwareEdge :: !Bool
+    , tpTrendLookback :: !Int
+    , tpMaxPositionSize :: !Double
+    , tpVolTarget :: !(Maybe Double)
+    , tpVolLookback :: !Int
+    , tpVolEwmaAlpha :: !(Maybe Double)
+    , tpVolFloor :: !Double
+    , tpVolScaleMax :: !Double
+    , tpMaxVolatility :: !(Maybe Double)
+    , tpPeriodsPerYear :: !(Maybe Double)
+    , tpKalmanMarketTopN :: !Int
+    , tpFee :: !Double
+    , tpFundingRate :: !Double
+    , tpFundingBySide :: !Bool
+    , tpFundingOnOpen :: !Bool
+    , tpRebalanceBars :: !Int
+    , tpRebalanceThreshold :: !Double
+    , tpRebalanceCostMult :: !Double
+    , tpRebalanceGlobal :: !Bool
+    , tpRebalanceResetOnSignal :: !Bool
+    , tpEpochs :: !Int
+    , tpHiddenSize :: !Int
+    , tpLearningRate :: !Double
+    , tpValRatio :: !Double
+    , tpPatience :: !Int
+    , tpWalkForwardFolds :: !Int
+    , tpWalkForwardEmbargoBars :: !Int
+    , tpTuneStressVolMult :: !Double
+    , tpTuneStressShock :: !Double
+    , tpTuneStressWeight :: !Double
+    , tpGradClip :: !(Maybe Double)
+    , tpSlippage :: !Double
+    , tpSpread :: !Double
+    , tpIntrabarFill :: !String
+    , tpTriLayer :: !Bool
+    , tpTriLayerFastMult :: !Double
+    , tpTriLayerSlowMult :: !Double
+    , tpTriLayerCloudPadding :: !Double
+    , tpTriLayerCloudSlope :: !Double
+    , tpTriLayerCloudWidth :: !Double
+    , tpTriLayerTouchLookback :: !Int
+    , tpTriLayerPriceAction :: !Bool
+    , tpTriLayerPriceActionBody :: !Double
+    , tpTriLayerExitOnSlow :: !Bool
+    , tpKalmanBandLookback :: !Int
+    , tpKalmanBandStdMult :: !Double
+    , tpLstmExitFlipBars :: !Int
+    , tpLstmExitFlipGraceBars :: !Int
+    , tpLstmExitFlipStrong :: !Bool
+    , tpLstmConfidenceSoft :: !Double
+    , tpLstmConfidenceHard :: !Double
+    , tpStopLoss :: !(Maybe Double)
+    , tpTakeProfit :: !(Maybe Double)
+    , tpTrailingStop :: !(Maybe Double)
+    , tpStopLossVolMult :: !(Maybe Double)
+    , tpTakeProfitVolMult :: !(Maybe Double)
+    , tpTrailingStopVolMult :: !(Maybe Double)
+    , tpMaxDrawdown :: !(Maybe Double)
+    , tpMaxDailyLoss :: !(Maybe Double)
+    , tpMaxOrderErrors :: !(Maybe Int)
+    , tpKalmanDt :: !Double
+    , tpKalmanProcessVar :: !Double
+    , tpKalmanMeasurementVar :: !Double
+    , tpKalmanZMin :: !Double
+    , tpKalmanZMax :: !Double
+    , tpMaxHighVolProb :: !(Maybe Double)
+    , tpMaxConformalWidth :: !(Maybe Double)
+    , tpMaxQuantileWidth :: !(Maybe Double)
+    , tpConfirmConformal :: !Bool
+    , tpConfirmQuantiles :: !Bool
+    , tpConfidenceSizing :: !Bool
+    , tpMinPositionSize :: !Double
+    }
+    deriving (Eq, Show)
 
 data TrialResult = TrialResult
-  { trOk :: !Bool
-  , trReason :: !(Maybe String)
-  , trElapsedSec :: !Double
-  , trParams :: !TrialParams
-  , trFinalEquity :: !(Maybe Double)
-  , trMetrics :: !(Maybe (KM.KeyMap Value))
-  , trOpenThreshold :: !(Maybe Double)
-  , trCloseThreshold :: !(Maybe Double)
-  , trStdoutJson :: !(Maybe Value)
-  , trEligible :: !Bool
-  , trFilterReason :: !(Maybe String)
-  , trObjective :: !String
-  , trScore :: !(Maybe Double)
-  }
-  deriving (Eq, Show)
+    { trOk :: !Bool
+    , trReason :: !(Maybe String)
+    , trElapsedSec :: !Double
+    , trParams :: !TrialParams
+    , trFinalEquity :: !(Maybe Double)
+    , trMetrics :: !(Maybe (KM.KeyMap Value))
+    , trOpenThreshold :: !(Maybe Double)
+    , trCloseThreshold :: !(Maybe Double)
+    , trStdoutJson :: !(Maybe Value)
+    , trEligible :: !Bool
+    , trFilterReason :: !(Maybe String)
+    , trObjective :: !String
+    , trScore :: !(Maybe Double)
+    }
+    deriving (Eq, Show)
 
 fmtOptFloat :: Maybe Double -> String
 fmtOptFloat v =
-  case v of
-    Nothing -> "null"
-    Just x -> printf "%.8f" x
+    case v of
+        Nothing -> "null"
+        Just x -> printf "%.8f" x
 
 fmtOptInt :: Maybe Int -> String
 fmtOptInt v =
-  case v of
-    Nothing -> "null"
-    Just x -> show x
+    case v of
+        Nothing -> "null"
+        Just x -> show x
 
 buildCommand :: FilePath -> [String] -> TrialParams -> Double -> Bool -> [String]
 buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
-  let cmd0 = [traderBin] ++ baseArgs
-      cmd1 =
-        case tpPlatform params of
-          Just platform -> cmd0 ++ ["--platform", platform]
-          Nothing -> cmd0
-      cmd2 = cmd1 ++ ["--interval", tpInterval params]
-      isBinance = tpPlatform params == Just "binance" && "--binance-symbol" `elem` baseArgs
-      cmd3 =
-        if tpBars params <= 0
-          then cmd2 ++ ["--bars", if isBinance then "auto" else "0"]
-          else cmd2 ++ ["--bars", show (tpBars params)]
-      cmd4 =
-        cmd3
-          ++ [ "--positioning"
-             , tpPositioning params
-             , "--method"
-             , tpMethod params
-             , "--blend-weight"
-             , printf "%.6f" (clamp (tpBlendWeight params) 0 1)
-             , "--router-score-pnl-weight"
-             , printf "%.6f" (clamp (tpRouterScorePnlWeight params) 0 1)
-             , "--normalization"
-             , tpNormalization params
-             , "--open-threshold"
-             , printf "%.12g" (max 0 (tpBaseOpenThreshold params))
-             , "--close-threshold"
-             , printf "%.12g" (max 0 (tpBaseCloseThreshold params))
-             , "--min-hold-bars"
-             , show (max 0 (tpMinHoldBars params))
-             , "--cooldown-bars"
-             , show (max 0 (tpCooldownBars params))
-             ]
-      cmd5 =
-        case tpMaxHoldBars params of
-          Just v -> cmd4 ++ ["--max-hold-bars", show (max 0 v)]
-          Nothing -> cmd4
-      cmd6 =
-        cmd5
-          ++ [ "--min-edge"
-             , printf "%.12g" (max 0 (tpMinEdge params))
-             , "--min-signal-to-noise"
-             , printf "%.12g" (max 0 (tpMinSignalToNoise params))
-             , "--snr-size-weight"
-             , printf "%.6f" (clamp (tpSnrSizeWeight params) 0 1)
-             , "--edge-buffer"
-             , printf "%.12g" (max 0 (tpEdgeBuffer params))
-             ]
-      cmd6a =
-        cmd6
-          ++ (if tpThresholdFactorEnabled params then ["--threshold-factor"] else ["--no-threshold-factor"])
-          ++ [ "--threshold-factor-alpha"
-             , printf "%.6f" (clamp (tpThresholdFactorAlpha params) 0 1)
-             , "--threshold-factor-min"
-             , printf "%.6f" (max 0 (tpThresholdFactorMin params))
-             , "--threshold-factor-max"
-             , printf "%.6f" (max 0 (tpThresholdFactorMax params))
-             , "--threshold-factor-floor"
-             , printf "%.12g" (max 0 (tpThresholdFactorFloor params))
-             , "--threshold-factor-edge-kal-weight"
-             , printf "%.6f" (tpThresholdFactorEdgeKalWeight params)
-             , "--threshold-factor-edge-lstm-weight"
-             , printf "%.6f" (tpThresholdFactorEdgeLstmWeight params)
-             , "--threshold-factor-kalman-z-weight"
-             , printf "%.6f" (tpThresholdFactorKalmanZWeight params)
-             , "--threshold-factor-high-vol-weight"
-             , printf "%.6f" (tpThresholdFactorHighVolWeight params)
-             , "--threshold-factor-conformal-weight"
-             , printf "%.6f" (tpThresholdFactorConformalWeight params)
-             , "--threshold-factor-quantile-weight"
-             , printf "%.6f" (tpThresholdFactorQuantileWeight params)
-             , "--threshold-factor-lstm-conf-weight"
-             , printf "%.6f" (tpThresholdFactorLstmConfWeight params)
-             , "--threshold-factor-lstm-health-weight"
-             , printf "%.6f" (tpThresholdFactorLstmHealthWeight params)
-             ]
-      cmd7 =
-        if tpCostAwareEdge params
-          then cmd6a ++ ["--cost-aware-edge"]
-          else cmd6a ++ ["--no-cost-aware-edge"]
-      cmd8 =
-        cmd7
-          ++ [ "--trend-lookback"
-             , show (max 0 (tpTrendLookback params))
-             , "--max-position-size"
-             , printf "%.12g" (max 0 (tpMaxPositionSize params))
-             ]
-      cmd9 =
-        case tpVolTarget params of
-          Just v -> cmd8 ++ ["--vol-target", printf "%.12g" (max 1e-12 v)]
-          Nothing -> cmd8
-      cmd10 =
-        cmd9
-          ++ [ "--vol-lookback"
-             , show (max 0 (tpVolLookback params))
-             ]
-      cmd11 =
-        case tpVolEwmaAlpha params of
-          Just v -> cmd10 ++ ["--vol-ewma-alpha", printf "%.6f" (clamp v 0 1)]
-          Nothing -> cmd10
-      cmd12 =
-        cmd11
-          ++ [ "--vol-floor"
-             , printf "%.12g" (max 0 (tpVolFloor params))
-             , "--vol-scale-max"
-             , printf "%.12g" (max 0 (tpVolScaleMax params))
-             ]
-      cmd13 =
-        case tpMaxVolatility params of
-          Just v -> cmd12 ++ ["--max-volatility", printf "%.12g" (max 1e-12 v)]
-          Nothing -> cmd12
-      cmd14 =
-        case tpPeriodsPerYear params of
-          Just v -> cmd13 ++ ["--periods-per-year", printf "%.6f" (max 1e-12 v)]
-          Nothing -> cmd13
-      cmd15 =
-        cmd14
-          ++ [ "--fee"
-             , printf "%.12g" (max 0 (tpFee params))
-             , "--funding-rate"
-             , printf "%.12g" (tpFundingRate params)
-             , "--rebalance-bars"
-             , show (max 0 (tpRebalanceBars params))
-             , "--rebalance-threshold"
-             , printf "%.12g" (max 0 (tpRebalanceThreshold params))
-             , "--rebalance-cost-mult"
-             , printf "%.12g" (max 0 (tpRebalanceCostMult params))
-             , "--epochs"
-             , show (tpEpochs params)
-             , "--hidden-size"
-             , show (tpHiddenSize params)
-             , "--lr"
-             , printf "%.8f" (tpLearningRate params)
-             , "--val-ratio"
-             , printf "%.6f" (tpValRatio params)
-             , "--patience"
-             , show (tpPatience params)
-             , "--walk-forward-folds"
-             , show (max 1 (tpWalkForwardFolds params))
-             , "--walk-forward-embargo-bars"
-             , show (max 0 (tpWalkForwardEmbargoBars params))
-             , "--tune-stress-vol-mult"
-             , printf "%.6f" (max 1e-12 (tpTuneStressVolMult params))
-             , "--tune-stress-shock"
-             , printf "%.6f" (tpTuneStressShock params)
-             , "--tune-stress-weight"
-             , printf "%.6f" (max 0 (tpTuneStressWeight params))
-             ]
-          ++ (if tpFundingBySide params then ["--funding-by-side"] else [])
-          ++ (if tpFundingOnOpen params then ["--funding-on-open"] else [])
-          ++ (if tpRebalanceGlobal params then ["--rebalance-global"] else [])
-          ++ (if tpRebalanceResetOnSignal params then ["--rebalance-reset-on-signal"] else [])
-      cmd16 =
-        case tpGradClip params of
-          Just v -> cmd15 ++ ["--grad-clip", printf "%.8f" v]
-          Nothing -> cmd15
-      cmd17 =
-        cmd16
-          ++ [ "--slippage"
-             , printf "%.8f" (tpSlippage params)
-             , "--spread"
-             , printf "%.8f" (tpSpread params)
-             , "--intrabar-fill"
-             , tpIntrabarFill params
-             ]
-          ++ (if tpTriLayer params then ["--tri-layer"] else [])
-          ++ [ "--tri-layer-fast-mult"
-             , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
-             , "--tri-layer-slow-mult"
-             , printf "%.12g" (max 1e-6 (tpTriLayerSlowMult params))
-             , "--tri-layer-cloud-padding"
-             , printf "%.8f" (max 0 (tpTriLayerCloudPadding params))
-             , "--tri-layer-cloud-slope"
-             , printf "%.8f" (max 0 (tpTriLayerCloudSlope params))
-             , "--tri-layer-cloud-width"
-             , printf "%.8f" (max 0 (tpTriLayerCloudWidth params))
-             , "--tri-layer-touch-lookback"
-             , show (max 1 (tpTriLayerTouchLookback params))
-             , "--tri-layer-price-action-body"
-             , printf "%.8f" (max 0 (tpTriLayerPriceActionBody params))
-             ]
-          ++
-            ( if tpTriLayer params && not (tpTriLayerPriceAction params)
-                then ["--no-tri-layer-price-action"]
-                else []
-            )
-          ++ (if tpTriLayerExitOnSlow params then ["--tri-layer-exit-on-slow"] else [])
-          ++ [ "--kalman-band-lookback"
-             , show (max 0 (tpKalmanBandLookback params))
-             , "--kalman-band-std-mult"
-             , printf "%.8f" (max 0 (tpKalmanBandStdMult params))
-             , "--lstm-exit-flip-bars"
-             , show (max 0 (tpLstmExitFlipBars params))
-             , "--lstm-exit-flip-grace-bars"
-             , show (max 0 (tpLstmExitFlipGraceBars params))
-             ]
-          ++ (if tpLstmExitFlipStrong params then ["--lstm-exit-flip-strong"] else [])
-          ++ [ "--lstm-confidence-soft"
-             , printf "%.4f" (clamp (tpLstmConfidenceSoft params) 0 1)
-             , "--lstm-confidence-hard"
-             , printf "%.4f" (clamp (tpLstmConfidenceHard params) 0 1)
-             ]
-      cmd18 =
-        case tpStopLoss params of
-          Just v -> cmd17 ++ ["--stop-loss", printf "%.8f" v]
-          Nothing -> cmd17
-      cmd19 =
-        case tpTakeProfit params of
-          Just v -> cmd18 ++ ["--take-profit", printf "%.8f" v]
-          Nothing -> cmd18
-      cmd20 =
-        case tpTrailingStop params of
-          Just v -> cmd19 ++ ["--trailing-stop", printf "%.8f" v]
-          Nothing -> cmd19
-      cmd21 =
-        case tpStopLossVolMult params of
-          Just v -> cmd20 ++ ["--stop-loss-vol-mult", printf "%.8f" v]
-          Nothing -> cmd20
-      cmd22 =
-        case tpTakeProfitVolMult params of
-          Just v -> cmd21 ++ ["--take-profit-vol-mult", printf "%.8f" v]
-          Nothing -> cmd21
-      cmd23 =
-        case tpTrailingStopVolMult params of
-          Just v -> cmd22 ++ ["--trailing-stop-vol-mult", printf "%.8f" v]
-          Nothing -> cmd22
-      cmd24 =
-        case tpMaxDrawdown params of
-          Just v -> cmd23 ++ ["--max-drawdown", printf "%.8f" v]
-          Nothing -> cmd23
-      cmd25 =
-        case tpMaxDailyLoss params of
-          Just v -> cmd24 ++ ["--max-daily-loss", printf "%.8f" v]
-          Nothing -> cmd24
-      cmd26 =
-        case tpMaxOrderErrors params of
-          Just v -> cmd25 ++ ["--max-order-errors", show v]
-          Nothing -> cmd25
-      cmd27 =
-        cmd26
-          ++ [ "--kalman-market-top-n"
-             , show (max 0 (tpKalmanMarketTopN params))
-             , "--kalman-dt"
-             , printf "%.12g" (max 1e-12 (tpKalmanDt params))
-             , "--kalman-process-var"
-             , printf "%.12g" (max 1e-12 (tpKalmanProcessVar params))
-             , "--kalman-measurement-var"
-             , printf "%.12g" (max 1e-12 (tpKalmanMeasurementVar params))
-             , "--kalman-z-min"
-             , printf "%.12g" (max 0 (tpKalmanZMin params))
-             , "--kalman-z-max"
-             , printf "%.12g" (max (max 0 (tpKalmanZMin params)) (tpKalmanZMax params))
-             ]
-      cmd28 =
-        case tpMaxHighVolProb params of
-          Just v -> cmd27 ++ ["--max-high-vol-prob", printf "%.12g" (clamp v 0 1)]
-          Nothing -> cmd27
-      cmd29 =
-        case tpMaxConformalWidth params of
-          Just v -> cmd28 ++ ["--max-conformal-width", printf "%.12g" (max 0 v)]
-          Nothing -> cmd28
-      cmd30 =
-        case tpMaxQuantileWidth params of
-          Just v -> cmd29 ++ ["--max-quantile-width", printf "%.12g" (max 0 v)]
-          Nothing -> cmd29
-      cmd31 =
-        if tpConfirmConformal params
-          then cmd30 ++ ["--confirm-conformal"]
-          else cmd30 ++ ["--no-confirm-conformal"]
-      cmd32 =
-        if tpConfirmQuantiles params
-          then cmd31 ++ ["--confirm-quantiles"]
-          else cmd31 ++ ["--no-confirm-quantiles"]
-      cmd33 =
-        if tpConfidenceSizing params
-          then cmd32 ++ ["--confidence-sizing"]
-          else cmd32 ++ ["--no-confidence-sizing"]
-      cmd34 = cmd33 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
-      cmd35 =
-        if useSweepThreshold
-          then cmd34 ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
-          else cmd34
-      cmd36 =
-        if tpThresholdFactorEnabled params
-          then cmd35 ++ ["--tune-objective", "annualized-equity"]
-          else cmd35
-   in cmd36 ++ ["--json"]
+    let cmd0 = [traderBin] ++ baseArgs
+        cmd1 =
+            case tpPlatform params of
+                Just platform -> cmd0 ++ ["--platform", platform]
+                Nothing -> cmd0
+        cmd2 = cmd1 ++ ["--interval", tpInterval params]
+        isBinance = tpPlatform params == Just "binance" && "--binance-symbol" `elem` baseArgs
+        cmd3 =
+            if tpBars params <= 0
+                then cmd2 ++ ["--bars", if isBinance then "auto" else "0"]
+                else cmd2 ++ ["--bars", show (tpBars params)]
+        cmd4 =
+            cmd3
+                ++ [ "--positioning"
+                   , tpPositioning params
+                   , "--method"
+                   , tpMethod params
+                   , "--blend-weight"
+                   , printf "%.6f" (clamp (tpBlendWeight params) 0 1)
+                   , "--router-score-pnl-weight"
+                   , printf "%.6f" (clamp (tpRouterScorePnlWeight params) 0 1)
+                   , "--normalization"
+                   , tpNormalization params
+                   , "--open-threshold"
+                   , printf "%.12g" (max 0 (tpBaseOpenThreshold params))
+                   , "--close-threshold"
+                   , printf "%.12g" (max 0 (tpBaseCloseThreshold params))
+                   , "--min-hold-bars"
+                   , show (max 0 (tpMinHoldBars params))
+                   , "--cooldown-bars"
+                   , show (max 0 (tpCooldownBars params))
+                   ]
+        cmd5 =
+            case tpMaxHoldBars params of
+                Just v -> cmd4 ++ ["--max-hold-bars", show (max 0 v)]
+                Nothing -> cmd4
+        cmd6 =
+            cmd5
+                ++ [ "--min-edge"
+                   , printf "%.12g" (max 0 (tpMinEdge params))
+                   , "--min-signal-to-noise"
+                   , printf "%.12g" (max 0 (tpMinSignalToNoise params))
+                   , "--snr-size-weight"
+                   , printf "%.6f" (clamp (tpSnrSizeWeight params) 0 1)
+                   , "--edge-buffer"
+                   , printf "%.12g" (max 0 (tpEdgeBuffer params))
+                   ]
+        cmd6a =
+            cmd6
+                ++ (if tpThresholdFactorEnabled params then ["--threshold-factor"] else ["--no-threshold-factor"])
+                ++ [ "--threshold-factor-alpha"
+                   , printf "%.6f" (clamp (tpThresholdFactorAlpha params) 0 1)
+                   , "--threshold-factor-min"
+                   , printf "%.6f" (max 0 (tpThresholdFactorMin params))
+                   , "--threshold-factor-max"
+                   , printf "%.6f" (max 0 (tpThresholdFactorMax params))
+                   , "--threshold-factor-floor"
+                   , printf "%.12g" (max 0 (tpThresholdFactorFloor params))
+                   , "--threshold-factor-edge-kal-weight"
+                   , printf "%.6f" (tpThresholdFactorEdgeKalWeight params)
+                   , "--threshold-factor-edge-lstm-weight"
+                   , printf "%.6f" (tpThresholdFactorEdgeLstmWeight params)
+                   , "--threshold-factor-kalman-z-weight"
+                   , printf "%.6f" (tpThresholdFactorKalmanZWeight params)
+                   , "--threshold-factor-high-vol-weight"
+                   , printf "%.6f" (tpThresholdFactorHighVolWeight params)
+                   , "--threshold-factor-conformal-weight"
+                   , printf "%.6f" (tpThresholdFactorConformalWeight params)
+                   , "--threshold-factor-quantile-weight"
+                   , printf "%.6f" (tpThresholdFactorQuantileWeight params)
+                   , "--threshold-factor-lstm-conf-weight"
+                   , printf "%.6f" (tpThresholdFactorLstmConfWeight params)
+                   , "--threshold-factor-lstm-health-weight"
+                   , printf "%.6f" (tpThresholdFactorLstmHealthWeight params)
+                   ]
+        cmd7 =
+            if tpCostAwareEdge params
+                then cmd6a ++ ["--cost-aware-edge"]
+                else cmd6a ++ ["--no-cost-aware-edge"]
+        cmd8 =
+            cmd7
+                ++ [ "--trend-lookback"
+                   , show (max 0 (tpTrendLookback params))
+                   , "--max-position-size"
+                   , printf "%.12g" (max 0 (tpMaxPositionSize params))
+                   ]
+        cmd9 =
+            case tpVolTarget params of
+                Just v -> cmd8 ++ ["--vol-target", printf "%.12g" (max 1e-12 v)]
+                Nothing -> cmd8
+        cmd10 =
+            cmd9
+                ++ [ "--vol-lookback"
+                   , show (max 0 (tpVolLookback params))
+                   ]
+        cmd11 =
+            case tpVolEwmaAlpha params of
+                Just v -> cmd10 ++ ["--vol-ewma-alpha", printf "%.6f" (clamp v 0 1)]
+                Nothing -> cmd10
+        cmd12 =
+            cmd11
+                ++ [ "--vol-floor"
+                   , printf "%.12g" (max 0 (tpVolFloor params))
+                   , "--vol-scale-max"
+                   , printf "%.12g" (max 0 (tpVolScaleMax params))
+                   ]
+        cmd13 =
+            case tpMaxVolatility params of
+                Just v -> cmd12 ++ ["--max-volatility", printf "%.12g" (max 1e-12 v)]
+                Nothing -> cmd12
+        cmd14 =
+            case tpPeriodsPerYear params of
+                Just v -> cmd13 ++ ["--periods-per-year", printf "%.6f" (max 1e-12 v)]
+                Nothing -> cmd13
+        cmd15 =
+            cmd14
+                ++ [ "--fee"
+                   , printf "%.12g" (max 0 (tpFee params))
+                   , "--funding-rate"
+                   , printf "%.12g" (tpFundingRate params)
+                   , "--rebalance-bars"
+                   , show (max 0 (tpRebalanceBars params))
+                   , "--rebalance-threshold"
+                   , printf "%.12g" (max 0 (tpRebalanceThreshold params))
+                   , "--rebalance-cost-mult"
+                   , printf "%.12g" (max 0 (tpRebalanceCostMult params))
+                   , "--epochs"
+                   , show (tpEpochs params)
+                   , "--hidden-size"
+                   , show (tpHiddenSize params)
+                   , "--lr"
+                   , printf "%.8f" (tpLearningRate params)
+                   , "--val-ratio"
+                   , printf "%.6f" (tpValRatio params)
+                   , "--patience"
+                   , show (tpPatience params)
+                   , "--walk-forward-folds"
+                   , show (max 1 (tpWalkForwardFolds params))
+                   , "--walk-forward-embargo-bars"
+                   , show (max 0 (tpWalkForwardEmbargoBars params))
+                   , "--tune-stress-vol-mult"
+                   , printf "%.6f" (max 1e-12 (tpTuneStressVolMult params))
+                   , "--tune-stress-shock"
+                   , printf "%.6f" (tpTuneStressShock params)
+                   , "--tune-stress-weight"
+                   , printf "%.6f" (max 0 (tpTuneStressWeight params))
+                   ]
+                ++ (if tpFundingBySide params then ["--funding-by-side"] else [])
+                ++ (if tpFundingOnOpen params then ["--funding-on-open"] else [])
+                ++ (if tpRebalanceGlobal params then ["--rebalance-global"] else [])
+                ++ (if tpRebalanceResetOnSignal params then ["--rebalance-reset-on-signal"] else [])
+        cmd16 =
+            case tpGradClip params of
+                Just v -> cmd15 ++ ["--grad-clip", printf "%.8f" v]
+                Nothing -> cmd15
+        cmd17 =
+            cmd16
+                ++ [ "--slippage"
+                   , printf "%.8f" (tpSlippage params)
+                   , "--spread"
+                   , printf "%.8f" (tpSpread params)
+                   , "--intrabar-fill"
+                   , tpIntrabarFill params
+                   ]
+                ++ (if tpTriLayer params then ["--tri-layer"] else [])
+                ++ [ "--tri-layer-fast-mult"
+                   , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
+                   , "--tri-layer-slow-mult"
+                   , printf "%.12g" (max 1e-6 (tpTriLayerSlowMult params))
+                   , "--tri-layer-cloud-padding"
+                   , printf "%.8f" (max 0 (tpTriLayerCloudPadding params))
+                   , "--tri-layer-cloud-slope"
+                   , printf "%.8f" (max 0 (tpTriLayerCloudSlope params))
+                   , "--tri-layer-cloud-width"
+                   , printf "%.8f" (max 0 (tpTriLayerCloudWidth params))
+                   , "--tri-layer-touch-lookback"
+                   , show (max 1 (tpTriLayerTouchLookback params))
+                   , "--tri-layer-price-action-body"
+                   , printf "%.8f" (max 0 (tpTriLayerPriceActionBody params))
+                   ]
+                ++ ( if tpTriLayer params && not (tpTriLayerPriceAction params)
+                        then ["--no-tri-layer-price-action"]
+                        else []
+                   )
+                ++ (if tpTriLayerExitOnSlow params then ["--tri-layer-exit-on-slow"] else [])
+                ++ [ "--kalman-band-lookback"
+                   , show (max 0 (tpKalmanBandLookback params))
+                   , "--kalman-band-std-mult"
+                   , printf "%.8f" (max 0 (tpKalmanBandStdMult params))
+                   , "--lstm-exit-flip-bars"
+                   , show (max 0 (tpLstmExitFlipBars params))
+                   , "--lstm-exit-flip-grace-bars"
+                   , show (max 0 (tpLstmExitFlipGraceBars params))
+                   ]
+                ++ (if tpLstmExitFlipStrong params then ["--lstm-exit-flip-strong"] else [])
+                ++ [ "--lstm-confidence-soft"
+                   , printf "%.4f" (clamp (tpLstmConfidenceSoft params) 0 1)
+                   , "--lstm-confidence-hard"
+                   , printf "%.4f" (clamp (tpLstmConfidenceHard params) 0 1)
+                   ]
+        cmd18 =
+            case tpStopLoss params of
+                Just v -> cmd17 ++ ["--stop-loss", printf "%.8f" v]
+                Nothing -> cmd17
+        cmd19 =
+            case tpTakeProfit params of
+                Just v -> cmd18 ++ ["--take-profit", printf "%.8f" v]
+                Nothing -> cmd18
+        cmd20 =
+            case tpTrailingStop params of
+                Just v -> cmd19 ++ ["--trailing-stop", printf "%.8f" v]
+                Nothing -> cmd19
+        cmd21 =
+            case tpStopLossVolMult params of
+                Just v -> cmd20 ++ ["--stop-loss-vol-mult", printf "%.8f" v]
+                Nothing -> cmd20
+        cmd22 =
+            case tpTakeProfitVolMult params of
+                Just v -> cmd21 ++ ["--take-profit-vol-mult", printf "%.8f" v]
+                Nothing -> cmd21
+        cmd23 =
+            case tpTrailingStopVolMult params of
+                Just v -> cmd22 ++ ["--trailing-stop-vol-mult", printf "%.8f" v]
+                Nothing -> cmd22
+        cmd24 =
+            case tpMaxDrawdown params of
+                Just v -> cmd23 ++ ["--max-drawdown", printf "%.8f" v]
+                Nothing -> cmd23
+        cmd25 =
+            case tpMaxDailyLoss params of
+                Just v -> cmd24 ++ ["--max-daily-loss", printf "%.8f" v]
+                Nothing -> cmd24
+        cmd26 =
+            case tpMaxOrderErrors params of
+                Just v -> cmd25 ++ ["--max-order-errors", show v]
+                Nothing -> cmd25
+        cmd27 =
+            cmd26
+                ++ [ "--kalman-market-top-n"
+                   , show (max 0 (tpKalmanMarketTopN params))
+                   , "--kalman-dt"
+                   , printf "%.12g" (max 1e-12 (tpKalmanDt params))
+                   , "--kalman-process-var"
+                   , printf "%.12g" (max 1e-12 (tpKalmanProcessVar params))
+                   , "--kalman-measurement-var"
+                   , printf "%.12g" (max 1e-12 (tpKalmanMeasurementVar params))
+                   , "--kalman-z-min"
+                   , printf "%.12g" (max 0 (tpKalmanZMin params))
+                   , "--kalman-z-max"
+                   , printf "%.12g" (max (max 0 (tpKalmanZMin params)) (tpKalmanZMax params))
+                   ]
+        cmd28 =
+            case tpMaxHighVolProb params of
+                Just v -> cmd27 ++ ["--max-high-vol-prob", printf "%.12g" (clamp v 0 1)]
+                Nothing -> cmd27
+        cmd29 =
+            case tpMaxConformalWidth params of
+                Just v -> cmd28 ++ ["--max-conformal-width", printf "%.12g" (max 0 v)]
+                Nothing -> cmd28
+        cmd30 =
+            case tpMaxQuantileWidth params of
+                Just v -> cmd29 ++ ["--max-quantile-width", printf "%.12g" (max 0 v)]
+                Nothing -> cmd29
+        cmd31 =
+            if tpConfirmConformal params
+                then cmd30 ++ ["--confirm-conformal"]
+                else cmd30 ++ ["--no-confirm-conformal"]
+        cmd32 =
+            if tpConfirmQuantiles params
+                then cmd31 ++ ["--confirm-quantiles"]
+                else cmd31 ++ ["--no-confirm-quantiles"]
+        cmd33 =
+            if tpConfidenceSizing params
+                then cmd32 ++ ["--confidence-sizing"]
+                else cmd32 ++ ["--no-confidence-sizing"]
+        cmd34 = cmd33 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
+        cmd35 =
+            if useSweepThreshold
+                then cmd34 ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
+                else cmd34
+        cmd36 =
+            if tpThresholdFactorEnabled params
+                then cmd35 ++ ["--tune-objective", "annualized-equity"]
+                else cmd35
+     in cmd36 ++ ["--json"]
 
 runTrial :: FilePath -> [String] -> TrialParams -> Double -> Bool -> Double -> Bool -> IO TrialResult
 runTrial traderBin baseArgs params tuneRatio useSweepThreshold timeoutSec disableLstm = do
-  let cmd = buildCommand traderBin baseArgs params tuneRatio useSweepThreshold
-  env0 <- getEnvironment
-  let env = if disableLstm then setEnv "TRADER_LSTM_WEIGHTS_DIR" "" env0 else env0
-      procSpec =
-        (proc traderBin (tail cmd))
-          { cwd = Just (takeDirectory traderBin)
-          , env = Just env
-          , std_out = CreatePipe
-          , std_err = CreatePipe
-          }
-  t0 <- getPOSIXTime
-  res <- runWithTimeout procSpec timeoutSec
-  t1 <- getPOSIXTime
-  let elapsed = realToFrac (t1 - t0)
-  case res of
-    Nothing ->
-      pure
-        TrialResult
-          { trOk = False
-          , trReason = Just ("timeout>" ++ show timeoutSec ++ "s")
-          , trElapsedSec = elapsed
-          , trParams = params
-          , trFinalEquity = Nothing
-          , trMetrics = Nothing
-          , trOpenThreshold = Nothing
-          , trCloseThreshold = Nothing
-          , trStdoutJson = Nothing
-          , trEligible = False
-          , trFilterReason = Nothing
-          , trObjective = "final-equity"
-          , trScore = Nothing
-          }
-    Just (exitCode, out, err) ->
-      case exitCode of
-        ExitFailure code -> do
-          let chosen = if null err then out else err
-              trimmed = trim chosen
-              short = if length trimmed > 300 then take 300 trimmed ++ "…" else trimmed
-              reason = if null short then "exit=" ++ show code else short
-          pure
-            TrialResult
-              { trOk = False
-              , trReason = Just reason
-              , trElapsedSec = elapsed
-              , trParams = params
-              , trFinalEquity = Nothing
-              , trMetrics = Nothing
-              , trOpenThreshold = Nothing
-              , trCloseThreshold = Nothing
-              , trStdoutJson = Nothing
-              , trEligible = False
-              , trFilterReason = Nothing
-              , trObjective = "final-equity"
-              , trScore = Nothing
-              }
-        ExitSuccess ->
-          case Aeson.eitherDecode (BL.fromStrict (TE.encodeUtf8 (T.pack out))) of
-            Left e ->
-              pure
+    let cmd = buildCommand traderBin baseArgs params tuneRatio useSweepThreshold
+    env0 <- getEnvironment
+    let env = if disableLstm then setEnv "TRADER_LSTM_WEIGHTS_DIR" "" env0 else env0
+        procSpec =
+            (proc traderBin (tail cmd))
+                { cwd = Just (takeDirectory traderBin)
+                , env = Just env
+                , std_out = CreatePipe
+                , std_err = CreatePipe
+                }
+    t0 <- getPOSIXTime
+    res <- runWithTimeout procSpec timeoutSec
+    t1 <- getPOSIXTime
+    let elapsed = realToFrac (t1 - t0)
+    case res of
+        Nothing ->
+            pure
                 TrialResult
-                  { trOk = False
-                  , trReason = Just ("json parse error: " ++ e)
-                  , trElapsedSec = elapsed
-                  , trParams = params
-                  , trFinalEquity = Nothing
-                  , trMetrics = Nothing
-                  , trOpenThreshold = Nothing
-                  , trCloseThreshold = Nothing
-                  , trStdoutJson = Nothing
-                  , trEligible = False
-                  , trFilterReason = Nothing
-                  , trObjective = "final-equity"
-                  , trScore = Nothing
-                  }
-            Right outVal ->
-              case extractBacktest outVal of
-                Left e ->
-                  pure
-                    TrialResult
-                      { trOk = False
-                      , trReason = Just ("unexpected json schema: " ++ e)
-                      , trElapsedSec = elapsed
-                      , trParams = params
-                      , trFinalEquity = Nothing
-                      , trMetrics = Nothing
-                      , trOpenThreshold = Nothing
-                      , trCloseThreshold = Nothing
-                      , trStdoutJson = Just outVal
-                      , trEligible = False
-                      , trFilterReason = Nothing
-                      , trObjective = "final-equity"
-                      , trScore = Nothing
-                      }
-                Right (metrics, finalEq, openThr, closeThr) ->
-                  pure
-                    TrialResult
-                      { trOk = True
-                      , trReason = Nothing
-                      , trElapsedSec = elapsed
-                      , trParams = params
-                      , trFinalEquity = Just finalEq
-                      , trMetrics = Just metrics
-                      , trOpenThreshold = openThr
-                      , trCloseThreshold = closeThr
-                      , trStdoutJson = Just outVal
-                      , trEligible = False
-                      , trFilterReason = Nothing
-                      , trObjective = "final-equity"
-                      , trScore = Nothing
-                      }
+                    { trOk = False
+                    , trReason = Just ("timeout>" ++ show timeoutSec ++ "s")
+                    , trElapsedSec = elapsed
+                    , trParams = params
+                    , trFinalEquity = Nothing
+                    , trMetrics = Nothing
+                    , trOpenThreshold = Nothing
+                    , trCloseThreshold = Nothing
+                    , trStdoutJson = Nothing
+                    , trEligible = False
+                    , trFilterReason = Nothing
+                    , trObjective = "final-equity"
+                    , trScore = Nothing
+                    }
+        Just (exitCode, out, err) ->
+            case exitCode of
+                ExitFailure code -> do
+                    let chosen = if null err then out else err
+                        trimmed = trim chosen
+                        short = if length trimmed > 300 then take 300 trimmed ++ "…" else trimmed
+                        reason = if null short then "exit=" ++ show code else short
+                    pure
+                        TrialResult
+                            { trOk = False
+                            , trReason = Just reason
+                            , trElapsedSec = elapsed
+                            , trParams = params
+                            , trFinalEquity = Nothing
+                            , trMetrics = Nothing
+                            , trOpenThreshold = Nothing
+                            , trCloseThreshold = Nothing
+                            , trStdoutJson = Nothing
+                            , trEligible = False
+                            , trFilterReason = Nothing
+                            , trObjective = "final-equity"
+                            , trScore = Nothing
+                            }
+                ExitSuccess ->
+                    case Aeson.eitherDecode (BL.fromStrict (TE.encodeUtf8 (T.pack out))) of
+                        Left e ->
+                            pure
+                                TrialResult
+                                    { trOk = False
+                                    , trReason = Just ("json parse error: " ++ e)
+                                    , trElapsedSec = elapsed
+                                    , trParams = params
+                                    , trFinalEquity = Nothing
+                                    , trMetrics = Nothing
+                                    , trOpenThreshold = Nothing
+                                    , trCloseThreshold = Nothing
+                                    , trStdoutJson = Nothing
+                                    , trEligible = False
+                                    , trFilterReason = Nothing
+                                    , trObjective = "final-equity"
+                                    , trScore = Nothing
+                                    }
+                        Right outVal ->
+                            case extractBacktest outVal of
+                                Left e ->
+                                    pure
+                                        TrialResult
+                                            { trOk = False
+                                            , trReason = Just ("unexpected json schema: " ++ e)
+                                            , trElapsedSec = elapsed
+                                            , trParams = params
+                                            , trFinalEquity = Nothing
+                                            , trMetrics = Nothing
+                                            , trOpenThreshold = Nothing
+                                            , trCloseThreshold = Nothing
+                                            , trStdoutJson = Just outVal
+                                            , trEligible = False
+                                            , trFilterReason = Nothing
+                                            , trObjective = "final-equity"
+                                            , trScore = Nothing
+                                            }
+                                Right (metrics, finalEq, openThr, closeThr) ->
+                                    pure
+                                        TrialResult
+                                            { trOk = True
+                                            , trReason = Nothing
+                                            , trElapsedSec = elapsed
+                                            , trParams = params
+                                            , trFinalEquity = Just finalEq
+                                            , trMetrics = Just metrics
+                                            , trOpenThreshold = openThr
+                                            , trCloseThreshold = closeThr
+                                            , trStdoutJson = Just outVal
+                                            , trEligible = False
+                                            , trFilterReason = Nothing
+                                            , trObjective = "final-equity"
+                                            , trScore = Nothing
+                                            }
 
 extractBacktest :: Value -> Either String (KM.KeyMap Value, Double, Maybe Double, Maybe Double)
 extractBacktest val =
-  case val of
-    Object obj ->
-      case KM.lookup (Key.fromString "backtest") obj of
-        Just (Object bt) ->
-          case KM.lookup (Key.fromString "metrics") bt of
-            Just (Object metrics) -> do
-              finalEq <- lookupRequiredFloat metrics "finalEquity"
-              openThr <- lookupOptionalFloat bt "openThreshold"
-              closeThr <- lookupOptionalFloat bt "closeThreshold"
-              Right (metrics, finalEq, openThr, closeThr)
-            _ -> Left "metrics missing"
+    case val of
+        Object obj ->
+            case KM.lookup (Key.fromString "backtest") obj of
+                Just (Object bt) ->
+                    case KM.lookup (Key.fromString "metrics") bt of
+                        Just (Object metrics) -> do
+                            finalEq <- lookupRequiredFloat metrics "finalEquity"
+                            openThr <- lookupOptionalFloat bt "openThreshold"
+                            closeThr <- lookupOptionalFloat bt "closeThreshold"
+                            Right (metrics, finalEq, openThr, closeThr)
+                        _ -> Left "metrics missing"
+                _ -> Left "backtest missing"
         _ -> Left "backtest missing"
-    _ -> Left "backtest missing"
   where
     lookupRequiredFloat obj key =
-      case KM.lookup (Key.fromString key) obj of
-        Nothing -> Left (key ++ " missing")
-        Just v ->
-          case coerceFloatValueLenient v of
-            Just d -> Right d
-            Nothing -> Left (key ++ " invalid")
+        case KM.lookup (Key.fromString key) obj of
+            Nothing -> Left (key ++ " missing")
+            Just v ->
+                case coerceFloatValueLenient v of
+                    Just d -> Right d
+                    Nothing -> Left (key ++ " invalid")
     lookupOptionalFloat obj key =
-      case KM.lookup (Key.fromString key) obj of
-        Nothing -> Right Nothing
-        Just Null -> Right Nothing
-        Just v ->
-          case coerceFloatValueLenient v of
-            Just d -> Right (Just d)
-            Nothing -> Left (key ++ " invalid")
+        case KM.lookup (Key.fromString key) obj of
+            Nothing -> Right Nothing
+            Just Null -> Right Nothing
+            Just v ->
+                case coerceFloatValueLenient v of
+                    Just d -> Right (Just d)
+                    Nothing -> Left (key ++ " invalid")
 
 runWithTimeout :: CreateProcess -> Double -> IO (Maybe (ExitCode, String, String))
 runWithTimeout procSpec timeoutSec = do
-  let timeoutMicros = max 0 (floor (timeoutSec * 1000000))
-  (_, Just hout, Just herr, ph) <- createProcess procSpec
-  hSetEncoding hout utf8
-  hSetEncoding herr utf8
-  outVar <- newEmptyMVar
-  errVar <- newEmptyMVar
-  _ <- forkIO $ do
-    out <- hGetContents hout
-    _ <- evaluate (length out)
-    putMVar outVar out
-  _ <- forkIO $ do
-    err <- hGetContents herr
-    _ <- evaluate (length err)
-    putMVar errVar err
-  mExit <- timeout timeoutMicros (waitForProcess ph)
-  case mExit of
-    Nothing -> do
-      terminateProcess ph
-      _ <- waitForProcess ph
-      pure Nothing
-    Just exitCode -> do
-      out <- takeMVar outVar
-      err <- takeMVar errVar
-      pure (Just (exitCode, out, err))
+    let timeoutMicros = max 0 (floor (timeoutSec * 1000000))
+    (_, Just hout, Just herr, ph) <- createProcess procSpec
+    hSetEncoding hout utf8
+    hSetEncoding herr utf8
+    outVar <- newEmptyMVar
+    errVar <- newEmptyMVar
+    _ <- forkIO $ do
+        out <- hGetContents hout
+        _ <- evaluate (length out)
+        putMVar outVar out
+    _ <- forkIO $ do
+        err <- hGetContents herr
+        _ <- evaluate (length err)
+        putMVar errVar err
+    mExit <- timeout timeoutMicros (waitForProcess ph)
+    case mExit of
+        Nothing -> do
+            terminateProcess ph
+            _ <- waitForProcess ph
+            pure Nothing
+        Just exitCode -> do
+            out <- takeMVar outVar
+            err <- takeMVar errVar
+            pure (Just (exitCode, out, err))
 
 setEnv :: String -> String -> [(String, String)] -> [(String, String)]
 setEnv key val env =
-  let filtered = filter (\(k, _) -> k /= key) env
-   in (key, val) : filtered
+    let filtered = filter (\(k, _) -> k /= key) env
+     in (key, val) : filtered
 
 trialToRecord :: TrialResult -> Maybe String -> Value
 trialToRecord tr symbolLabel =
-  let paramsPairs =
-        [ "platform" .= tpPlatform (trParams tr)
-        , "interval" .= tpInterval (trParams tr)
-        , "bars" .= tpBars (trParams tr)
-        , "method" .= tpMethod (trParams tr)
-        , "blendWeight" .= tpBlendWeight (trParams tr)
-        , "routerScorePnlWeight" .= tpRouterScorePnlWeight (trParams tr)
-        , "positioning" .= tpPositioning (trParams tr)
-        , "normalization" .= tpNormalization (trParams tr)
-        , "baseOpenThreshold" .= tpBaseOpenThreshold (trParams tr)
-        , "baseCloseThreshold" .= tpBaseCloseThreshold (trParams tr)
-        , "minHoldBars" .= tpMinHoldBars (trParams tr)
-        , "cooldownBars" .= tpCooldownBars (trParams tr)
-        , "maxHoldBars" .= tpMaxHoldBars (trParams tr)
-        , "minEdge" .= tpMinEdge (trParams tr)
-        , "minSignalToNoise" .= tpMinSignalToNoise (trParams tr)
-        , "snrSizeWeight" .= tpSnrSizeWeight (trParams tr)
-        , "thresholdFactorEnabled" .= tpThresholdFactorEnabled (trParams tr)
-        , "thresholdFactorAlpha" .= tpThresholdFactorAlpha (trParams tr)
-        , "thresholdFactorMin" .= tpThresholdFactorMin (trParams tr)
-        , "thresholdFactorMax" .= tpThresholdFactorMax (trParams tr)
-        , "thresholdFactorFloor" .= tpThresholdFactorFloor (trParams tr)
-        , "thresholdFactorEdgeKalWeight" .= tpThresholdFactorEdgeKalWeight (trParams tr)
-        , "thresholdFactorEdgeLstmWeight" .= tpThresholdFactorEdgeLstmWeight (trParams tr)
-        , "thresholdFactorKalmanZWeight" .= tpThresholdFactorKalmanZWeight (trParams tr)
-        , "thresholdFactorHighVolWeight" .= tpThresholdFactorHighVolWeight (trParams tr)
-        , "thresholdFactorConformalWeight" .= tpThresholdFactorConformalWeight (trParams tr)
-        , "thresholdFactorQuantileWeight" .= tpThresholdFactorQuantileWeight (trParams tr)
-        , "thresholdFactorLstmConfWeight" .= tpThresholdFactorLstmConfWeight (trParams tr)
-        , "thresholdFactorLstmHealthWeight" .= tpThresholdFactorLstmHealthWeight (trParams tr)
-        , "edgeBuffer" .= tpEdgeBuffer (trParams tr)
-        , "costAwareEdge" .= tpCostAwareEdge (trParams tr)
-        , "trendLookback" .= tpTrendLookback (trParams tr)
-        , "maxPositionSize" .= tpMaxPositionSize (trParams tr)
-        , "volTarget" .= tpVolTarget (trParams tr)
-        , "volLookback" .= tpVolLookback (trParams tr)
-        , "volEwmaAlpha" .= tpVolEwmaAlpha (trParams tr)
-        , "volFloor" .= tpVolFloor (trParams tr)
-        , "volScaleMax" .= tpVolScaleMax (trParams tr)
-        , "maxVolatility" .= tpMaxVolatility (trParams tr)
-        , "periodsPerYear" .= tpPeriodsPerYear (trParams tr)
-        , "kalmanMarketTopN" .= tpKalmanMarketTopN (trParams tr)
-        , "fee" .= tpFee (trParams tr)
-        , "fundingRate" .= tpFundingRate (trParams tr)
-        , "fundingBySide" .= tpFundingBySide (trParams tr)
-        , "fundingOnOpen" .= tpFundingOnOpen (trParams tr)
-        , "rebalanceBars" .= tpRebalanceBars (trParams tr)
-        , "rebalanceThreshold" .= tpRebalanceThreshold (trParams tr)
-        , "rebalanceCostMult" .= tpRebalanceCostMult (trParams tr)
-        , "rebalanceGlobal" .= tpRebalanceGlobal (trParams tr)
-        , "rebalanceResetOnSignal" .= tpRebalanceResetOnSignal (trParams tr)
-        , "epochs" .= tpEpochs (trParams tr)
-        , "hiddenSize" .= tpHiddenSize (trParams tr)
-        , "learningRate" .= tpLearningRate (trParams tr)
-        , "valRatio" .= tpValRatio (trParams tr)
-        , "patience" .= tpPatience (trParams tr)
-        , "walkForwardFolds" .= tpWalkForwardFolds (trParams tr)
-        , "walkForwardEmbargoBars" .= tpWalkForwardEmbargoBars (trParams tr)
-        , "tuneStressVolMult" .= tpTuneStressVolMult (trParams tr)
-        , "tuneStressShock" .= tpTuneStressShock (trParams tr)
-        , "tuneStressWeight" .= tpTuneStressWeight (trParams tr)
-        , "gradClip" .= tpGradClip (trParams tr)
-        , "slippage" .= tpSlippage (trParams tr)
-        , "spread" .= tpSpread (trParams tr)
-        , "intrabarFill" .= tpIntrabarFill (trParams tr)
-        , "triLayer" .= tpTriLayer (trParams tr)
-        , "triLayerFastMult" .= tpTriLayerFastMult (trParams tr)
-        , "triLayerSlowMult" .= tpTriLayerSlowMult (trParams tr)
-        , "triLayerCloudPadding" .= tpTriLayerCloudPadding (trParams tr)
-        , "triLayerCloudSlope" .= tpTriLayerCloudSlope (trParams tr)
-        , "triLayerCloudWidth" .= tpTriLayerCloudWidth (trParams tr)
-        , "triLayerTouchLookback" .= tpTriLayerTouchLookback (trParams tr)
-        , "triLayerPriceAction" .= tpTriLayerPriceAction (trParams tr)
-        , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody (trParams tr)
-        , "triLayerExitOnSlow" .= tpTriLayerExitOnSlow (trParams tr)
-        , "kalmanBandLookback" .= tpKalmanBandLookback (trParams tr)
-        , "kalmanBandStdMult" .= tpKalmanBandStdMult (trParams tr)
-        , "lstmExitFlipBars" .= tpLstmExitFlipBars (trParams tr)
-        , "lstmExitFlipGraceBars" .= tpLstmExitFlipGraceBars (trParams tr)
-        , "lstmExitFlipStrong" .= tpLstmExitFlipStrong (trParams tr)
-        , "lstmConfidenceSoft" .= tpLstmConfidenceSoft (trParams tr)
-        , "lstmConfidenceHard" .= tpLstmConfidenceHard (trParams tr)
-        , "stopLoss" .= tpStopLoss (trParams tr)
-        , "takeProfit" .= tpTakeProfit (trParams tr)
-        , "trailingStop" .= tpTrailingStop (trParams tr)
-        , "stopLossVolMult" .= tpStopLossVolMult (trParams tr)
-        , "takeProfitVolMult" .= tpTakeProfitVolMult (trParams tr)
-        , "trailingStopVolMult" .= tpTrailingStopVolMult (trParams tr)
-        , "maxDrawdown" .= tpMaxDrawdown (trParams tr)
-        , "maxDailyLoss" .= tpMaxDailyLoss (trParams tr)
-        , "maxOrderErrors" .= tpMaxOrderErrors (trParams tr)
-        , "kalmanDt" .= tpKalmanDt (trParams tr)
-        , "kalmanProcessVar" .= tpKalmanProcessVar (trParams tr)
-        , "kalmanMeasurementVar" .= tpKalmanMeasurementVar (trParams tr)
-        , "kalmanZMin" .= tpKalmanZMin (trParams tr)
-        , "kalmanZMax" .= tpKalmanZMax (trParams tr)
-        , "maxHighVolProb" .= tpMaxHighVolProb (trParams tr)
-        , "maxConformalWidth" .= tpMaxConformalWidth (trParams tr)
-        , "maxQuantileWidth" .= tpMaxQuantileWidth (trParams tr)
-        , "confirmConformal" .= tpConfirmConformal (trParams tr)
-        , "confirmQuantiles" .= tpConfirmQuantiles (trParams tr)
-        , "confidenceSizing" .= tpConfidenceSizing (trParams tr)
-        , "minPositionSize" .= tpMinPositionSize (trParams tr)
-        ]
-      symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
-      paramsPairs' =
-        case symbol of
-          Just sym -> paramsPairs ++ ["binanceSymbol" .= sym]
-          Nothing -> paramsPairs
-      baseFields =
-        [ "ok" .= trOk tr
-        , "eligible" .= trEligible tr
-        , "objective" .= trObjective tr
-        , "score" .= trScore tr
-        , "filterReason" .= trFilterReason tr
-        , "reason" .= trReason tr
-        , "elapsedSec" .= trElapsedSec tr
-        , "finalEquity" .= trFinalEquity tr
-        , "openThreshold" .= trOpenThreshold tr
-        , "closeThreshold" .= trCloseThreshold tr
-        , "params" .= object paramsPairs'
-        ]
-      metricsField =
-        case trMetrics tr of
-          Just m -> ["metrics" .= Object m]
-          Nothing -> []
-      opsField =
-        case extractOperations (trStdoutJson tr) of
-          Just ops -> ["operations" .= ops]
-          Nothing -> []
-   in object (baseFields ++ metricsField ++ opsField)
+    let paramsPairs =
+            [ "platform" .= tpPlatform (trParams tr)
+            , "interval" .= tpInterval (trParams tr)
+            , "bars" .= tpBars (trParams tr)
+            , "method" .= tpMethod (trParams tr)
+            , "blendWeight" .= tpBlendWeight (trParams tr)
+            , "routerScorePnlWeight" .= tpRouterScorePnlWeight (trParams tr)
+            , "positioning" .= tpPositioning (trParams tr)
+            , "normalization" .= tpNormalization (trParams tr)
+            , "baseOpenThreshold" .= tpBaseOpenThreshold (trParams tr)
+            , "baseCloseThreshold" .= tpBaseCloseThreshold (trParams tr)
+            , "minHoldBars" .= tpMinHoldBars (trParams tr)
+            , "cooldownBars" .= tpCooldownBars (trParams tr)
+            , "maxHoldBars" .= tpMaxHoldBars (trParams tr)
+            , "minEdge" .= tpMinEdge (trParams tr)
+            , "minSignalToNoise" .= tpMinSignalToNoise (trParams tr)
+            , "snrSizeWeight" .= tpSnrSizeWeight (trParams tr)
+            , "thresholdFactorEnabled" .= tpThresholdFactorEnabled (trParams tr)
+            , "thresholdFactorAlpha" .= tpThresholdFactorAlpha (trParams tr)
+            , "thresholdFactorMin" .= tpThresholdFactorMin (trParams tr)
+            , "thresholdFactorMax" .= tpThresholdFactorMax (trParams tr)
+            , "thresholdFactorFloor" .= tpThresholdFactorFloor (trParams tr)
+            , "thresholdFactorEdgeKalWeight" .= tpThresholdFactorEdgeKalWeight (trParams tr)
+            , "thresholdFactorEdgeLstmWeight" .= tpThresholdFactorEdgeLstmWeight (trParams tr)
+            , "thresholdFactorKalmanZWeight" .= tpThresholdFactorKalmanZWeight (trParams tr)
+            , "thresholdFactorHighVolWeight" .= tpThresholdFactorHighVolWeight (trParams tr)
+            , "thresholdFactorConformalWeight" .= tpThresholdFactorConformalWeight (trParams tr)
+            , "thresholdFactorQuantileWeight" .= tpThresholdFactorQuantileWeight (trParams tr)
+            , "thresholdFactorLstmConfWeight" .= tpThresholdFactorLstmConfWeight (trParams tr)
+            , "thresholdFactorLstmHealthWeight" .= tpThresholdFactorLstmHealthWeight (trParams tr)
+            , "edgeBuffer" .= tpEdgeBuffer (trParams tr)
+            , "costAwareEdge" .= tpCostAwareEdge (trParams tr)
+            , "trendLookback" .= tpTrendLookback (trParams tr)
+            , "maxPositionSize" .= tpMaxPositionSize (trParams tr)
+            , "volTarget" .= tpVolTarget (trParams tr)
+            , "volLookback" .= tpVolLookback (trParams tr)
+            , "volEwmaAlpha" .= tpVolEwmaAlpha (trParams tr)
+            , "volFloor" .= tpVolFloor (trParams tr)
+            , "volScaleMax" .= tpVolScaleMax (trParams tr)
+            , "maxVolatility" .= tpMaxVolatility (trParams tr)
+            , "periodsPerYear" .= tpPeriodsPerYear (trParams tr)
+            , "kalmanMarketTopN" .= tpKalmanMarketTopN (trParams tr)
+            , "fee" .= tpFee (trParams tr)
+            , "fundingRate" .= tpFundingRate (trParams tr)
+            , "fundingBySide" .= tpFundingBySide (trParams tr)
+            , "fundingOnOpen" .= tpFundingOnOpen (trParams tr)
+            , "rebalanceBars" .= tpRebalanceBars (trParams tr)
+            , "rebalanceThreshold" .= tpRebalanceThreshold (trParams tr)
+            , "rebalanceCostMult" .= tpRebalanceCostMult (trParams tr)
+            , "rebalanceGlobal" .= tpRebalanceGlobal (trParams tr)
+            , "rebalanceResetOnSignal" .= tpRebalanceResetOnSignal (trParams tr)
+            , "epochs" .= tpEpochs (trParams tr)
+            , "hiddenSize" .= tpHiddenSize (trParams tr)
+            , "learningRate" .= tpLearningRate (trParams tr)
+            , "valRatio" .= tpValRatio (trParams tr)
+            , "patience" .= tpPatience (trParams tr)
+            , "walkForwardFolds" .= tpWalkForwardFolds (trParams tr)
+            , "walkForwardEmbargoBars" .= tpWalkForwardEmbargoBars (trParams tr)
+            , "tuneStressVolMult" .= tpTuneStressVolMult (trParams tr)
+            , "tuneStressShock" .= tpTuneStressShock (trParams tr)
+            , "tuneStressWeight" .= tpTuneStressWeight (trParams tr)
+            , "gradClip" .= tpGradClip (trParams tr)
+            , "slippage" .= tpSlippage (trParams tr)
+            , "spread" .= tpSpread (trParams tr)
+            , "intrabarFill" .= tpIntrabarFill (trParams tr)
+            , "triLayer" .= tpTriLayer (trParams tr)
+            , "triLayerFastMult" .= tpTriLayerFastMult (trParams tr)
+            , "triLayerSlowMult" .= tpTriLayerSlowMult (trParams tr)
+            , "triLayerCloudPadding" .= tpTriLayerCloudPadding (trParams tr)
+            , "triLayerCloudSlope" .= tpTriLayerCloudSlope (trParams tr)
+            , "triLayerCloudWidth" .= tpTriLayerCloudWidth (trParams tr)
+            , "triLayerTouchLookback" .= tpTriLayerTouchLookback (trParams tr)
+            , "triLayerPriceAction" .= tpTriLayerPriceAction (trParams tr)
+            , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody (trParams tr)
+            , "triLayerExitOnSlow" .= tpTriLayerExitOnSlow (trParams tr)
+            , "kalmanBandLookback" .= tpKalmanBandLookback (trParams tr)
+            , "kalmanBandStdMult" .= tpKalmanBandStdMult (trParams tr)
+            , "lstmExitFlipBars" .= tpLstmExitFlipBars (trParams tr)
+            , "lstmExitFlipGraceBars" .= tpLstmExitFlipGraceBars (trParams tr)
+            , "lstmExitFlipStrong" .= tpLstmExitFlipStrong (trParams tr)
+            , "lstmConfidenceSoft" .= tpLstmConfidenceSoft (trParams tr)
+            , "lstmConfidenceHard" .= tpLstmConfidenceHard (trParams tr)
+            , "stopLoss" .= tpStopLoss (trParams tr)
+            , "takeProfit" .= tpTakeProfit (trParams tr)
+            , "trailingStop" .= tpTrailingStop (trParams tr)
+            , "stopLossVolMult" .= tpStopLossVolMult (trParams tr)
+            , "takeProfitVolMult" .= tpTakeProfitVolMult (trParams tr)
+            , "trailingStopVolMult" .= tpTrailingStopVolMult (trParams tr)
+            , "maxDrawdown" .= tpMaxDrawdown (trParams tr)
+            , "maxDailyLoss" .= tpMaxDailyLoss (trParams tr)
+            , "maxOrderErrors" .= tpMaxOrderErrors (trParams tr)
+            , "kalmanDt" .= tpKalmanDt (trParams tr)
+            , "kalmanProcessVar" .= tpKalmanProcessVar (trParams tr)
+            , "kalmanMeasurementVar" .= tpKalmanMeasurementVar (trParams tr)
+            , "kalmanZMin" .= tpKalmanZMin (trParams tr)
+            , "kalmanZMax" .= tpKalmanZMax (trParams tr)
+            , "maxHighVolProb" .= tpMaxHighVolProb (trParams tr)
+            , "maxConformalWidth" .= tpMaxConformalWidth (trParams tr)
+            , "maxQuantileWidth" .= tpMaxQuantileWidth (trParams tr)
+            , "confirmConformal" .= tpConfirmConformal (trParams tr)
+            , "confirmQuantiles" .= tpConfirmQuantiles (trParams tr)
+            , "confidenceSizing" .= tpConfidenceSizing (trParams tr)
+            , "minPositionSize" .= tpMinPositionSize (trParams tr)
+            ]
+        symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
+        paramsPairs' =
+            case symbol of
+                Just sym -> paramsPairs ++ ["binanceSymbol" .= sym]
+                Nothing -> paramsPairs
+        baseFields =
+            [ "ok" .= trOk tr
+            , "eligible" .= trEligible tr
+            , "objective" .= trObjective tr
+            , "score" .= trScore tr
+            , "filterReason" .= trFilterReason tr
+            , "reason" .= trReason tr
+            , "elapsedSec" .= trElapsedSec tr
+            , "finalEquity" .= trFinalEquity tr
+            , "openThreshold" .= trOpenThreshold tr
+            , "closeThreshold" .= trCloseThreshold tr
+            , "params" .= object paramsPairs'
+            ]
+        metricsField =
+            case trMetrics tr of
+                Just m -> ["metrics" .= Object m]
+                Nothing -> []
+        opsField =
+            case extractOperations (trStdoutJson tr) of
+                Just ops -> ["operations" .= ops]
+                Nothing -> []
+     in object (baseFields ++ metricsField ++ opsField)
 
 sampleParams
-  rng0
-  platforms
-  platformIntervals
-  intervals
-  pAutoBars
-  barsMin
-  barsMax
-  barsDistribution
-  openThresholdMin
-  openThresholdMax
-  closeThresholdMin
-  closeThresholdMax
-  minHoldBarsRange
-  cooldownBarsRange
-  maxHoldBarsRange
-  minEdgeRange
-  minSignalToNoiseRange
-  snrSizeWeightRange
-  pThresholdFactor
-  thresholdFactorAlphaRange
-  thresholdFactorMinRange
-  thresholdFactorMaxRange
-  thresholdFactorFloorRange
-  thresholdFactorWeightRange
-  edgeBufferRange
-  trendLookbackRange
-  maxPositionSizeRange
-  volTargetRange
-  volLookbackRange
-  volEwmaAlphaRange
-  pDisableVolEwmaAlpha
-  volFloorRange
-  volScaleMaxRange
-  maxVolatilityRange
-  periodsPerYearRange
-  kalmanMarketTopNRange
-  pCostAwareEdge
-  feeMin
-  feeMax
-  fundingRateRange
-  pFundingBySide
-  pFundingOnOpen
-  rebalanceBarsRange
-  rebalanceThresholdRange
-  rebalanceCostMultRange
-  pRebalanceGlobal
-  pRebalanceResetOnSignal
-  pLongShort
-  pIntrabarTakeProfitFirst
-  pTriLayer
-  triLayerFastRange
-  triLayerSlowRange
-  pTriLayerPriceAction
-  triLayerCloudPaddingRange
-  triLayerCloudSlopeRange
-  triLayerCloudWidthRange
-  triLayerTouchLookbackRange
-  triLayerPriceActionBodyRange
-  triLayerExitOnSlowInput
-  kalmanBandLookbackRange
-  kalmanBandStdMultRange
-  lstmExitFlipBarsRange
-  lstmExitFlipGraceBarsRange
-  lstmExitFlipStrongInput
-  lstmConfidenceSoftRange
-  lstmConfidenceHardRange
-  epochsMin
-  epochsMax
-  hiddenMin
-  hiddenMax
-  lrMin
-  lrMax
-  valMin
-  valMax
-  patienceMax
-  walkForwardFoldsRange
-  walkForwardEmbargoBarsRange
-  tuneStressVolMultRange
-  tuneStressShockRange
-  tuneStressWeightRange
-  gradClipMin
-  gradClipMax
-  slippageMax
-  spreadMax
-  kalmanDtMin
-  kalmanDtMax
-  kalmanProcessVarMin
-  kalmanProcessVarMax
-  kalmanMeasurementVarMin
-  kalmanMeasurementVarMax
-  kalmanZMinMin
-  kalmanZMinMax
-  kalmanZMaxMin
-  kalmanZMaxMax
-  pDisableMaxHighVolProb
-  maxHighVolProbRange
-  pDisableMaxConformalWidth
-  maxConformalWidthRange
-  pDisableMaxQuantileWidth
-  maxQuantileWidthRange
-  pConfirmConformal
-  pConfirmQuantiles
-  pConfidenceSizing
-  minPositionSizeRange
-  stopRange
-  takeRange
-  trailRange
-  stopVolMultRange
-  takeVolMultRange
-  trailVolMultRange
-  (methodW11, methodW10, methodW01, methodWBlend)
-  normalizationChoices
-  blendWeightRange
-  routerScorePnlWeightRange
-  pDisableStop
-  pDisableTp
-  pDisableTrail
-  pDisableStopVolMult
-  pDisableTpVolMult
-  pDisableTrailVolMult
-  pDisableMaxDd
-  pDisableMaxDl
-  pDisableMaxOe
-  pDisableGradClip
-  pDisableVolTarget
-  pDisableMaxVolatility
-  maxDdRange
-  maxDlRange
-  maxOeRange =
-    let (platform, rng1) =
-          case platforms of
-            [] -> (Nothing, rng0)
-            _ ->
-              let (p, rng') = nextChoice platforms rng0
-               in (p, rng')
-        intervalPool =
-          case platform of
-            Nothing -> intervals
-            Just p -> fromMaybe intervals (lookup p platformIntervals)
-        (intervalChoice, rng2) = nextChoice intervalPool rng1
-        interval = fromMaybe (fromMaybe "1h" (listToMaybe intervals)) intervalChoice
-        (bars, rng3) = sampleBars rng2
-        methods = [("11", methodW11), ("10", methodW10), ("01", methodW01), ("blend", methodWBlend)]
-        (method, rng4) = chooseWeighted methods rng3
-        (blendWeight, rng5) =
-          let (bwLo, bwHi) = ordered blendWeightRange
-              (val, rng') = nextUniform bwLo bwHi rng4
-           in (clamp val 0 1, rng')
-        (routerScorePnlWeight, rng5a) =
-          let (rwLo, rwHi) = ordered routerScorePnlWeightRange
-              (val, rng') = nextUniform rwLo rwHi rng5
-           in (clamp val 0 1, rng')
-        (normalizationChoice, rng6) = nextChoice normalizationChoices rng5a
-        normalization = fromMaybe "none" normalizationChoice
-        (baseOpenThreshold, rng7) =
-          nextLogUniform (max 1e-12 openThresholdMin) (max 1e-12 openThresholdMax) rng6
-        (baseCloseThreshold, rng8) =
-          nextLogUniform (max 1e-12 closeThresholdMin) (max 1e-12 closeThresholdMax) rng7
-        (minHoldBars, rng9) = nextIntRange (fst minHoldBarsRange) (snd minHoldBarsRange) rng8
-        (cooldownBars, rng10) = nextIntRange (fst cooldownBarsRange) (snd cooldownBarsRange) rng9
-        (maxHoldBars, rng11) =
-          if snd maxHoldBarsRange > 0
-            then
-              let (sample, rng') = nextIntRange (fst maxHoldBarsRange) (snd maxHoldBarsRange) rng10
-               in if sample > 0 then (Just sample, rng') else (Nothing, rng')
-            else (Nothing, rng10)
-        (minEdge, rng12) = nextUniform (fst minEdgeRange) (snd minEdgeRange) rng11
-        (minSignalToNoise, rng13) =
-          let (lo, hi) = ordered minSignalToNoiseRange
-           in nextUniform lo hi rng12
-        (snrSizeWeight, rng13a) =
-          let (lo, hi) = ordered snrSizeWeightRange
-              (val, rng') = nextUniform lo hi rng13
-           in (clamp val 0 1, rng')
-        (edgeBuffer, rng14) = nextUniform (fst edgeBufferRange) (snd edgeBufferRange) rng13a
-        (costAwareEdge, edgeBuffer', rng15) =
-          if pCostAwareEdge < 0
-            then (edgeBuffer > 0, edgeBuffer, rng14)
-            else
-              let (r, rng') = nextDouble rng14
-                  enabled = r < clamp pCostAwareEdge 0 1
-               in if enabled
-                    then (True, edgeBuffer, rng')
-                    else (False, 0, rng')
-        (trendLookback, rng16) = nextIntRange (fst trendLookbackRange) (snd trendLookbackRange) rng15
-        (maxPositionSize, rng17) =
-          let (val, rng') = nextUniform (fst maxPositionSizeRange) (snd maxPositionSizeRange) rng16
-           in (max 0 val, rng')
-        (volTarget, rng18) =
-          if max (fst volTargetRange) (snd volTargetRange) > 0
-            then
-              let (r, rng') = nextDouble rng17
-               in if r >= clamp pDisableVolTarget 0 1
+    rng0
+    platforms
+    platformIntervals
+    intervals
+    pAutoBars
+    barsMin
+    barsMax
+    barsDistribution
+    openThresholdMin
+    openThresholdMax
+    closeThresholdMin
+    closeThresholdMax
+    minHoldBarsRange
+    cooldownBarsRange
+    maxHoldBarsRange
+    minEdgeRange
+    minSignalToNoiseRange
+    snrSizeWeightRange
+    pThresholdFactor
+    thresholdFactorAlphaRange
+    thresholdFactorMinRange
+    thresholdFactorMaxRange
+    thresholdFactorFloorRange
+    thresholdFactorWeightRange
+    edgeBufferRange
+    trendLookbackRange
+    maxPositionSizeRange
+    volTargetRange
+    volLookbackRange
+    volEwmaAlphaRange
+    pDisableVolEwmaAlpha
+    volFloorRange
+    volScaleMaxRange
+    maxVolatilityRange
+    periodsPerYearRange
+    kalmanMarketTopNRange
+    pCostAwareEdge
+    feeMin
+    feeMax
+    fundingRateRange
+    pFundingBySide
+    pFundingOnOpen
+    rebalanceBarsRange
+    rebalanceThresholdRange
+    rebalanceCostMultRange
+    pRebalanceGlobal
+    pRebalanceResetOnSignal
+    pLongShort
+    pIntrabarTakeProfitFirst
+    pTriLayer
+    triLayerFastRange
+    triLayerSlowRange
+    pTriLayerPriceAction
+    triLayerCloudPaddingRange
+    triLayerCloudSlopeRange
+    triLayerCloudWidthRange
+    triLayerTouchLookbackRange
+    triLayerPriceActionBodyRange
+    triLayerExitOnSlowInput
+    kalmanBandLookbackRange
+    kalmanBandStdMultRange
+    lstmExitFlipBarsRange
+    lstmExitFlipGraceBarsRange
+    lstmExitFlipStrongInput
+    lstmConfidenceSoftRange
+    lstmConfidenceHardRange
+    epochsMin
+    epochsMax
+    hiddenMin
+    hiddenMax
+    lrMin
+    lrMax
+    valMin
+    valMax
+    patienceMax
+    walkForwardFoldsRange
+    walkForwardEmbargoBarsRange
+    tuneStressVolMultRange
+    tuneStressShockRange
+    tuneStressWeightRange
+    gradClipMin
+    gradClipMax
+    slippageMax
+    spreadMax
+    kalmanDtMin
+    kalmanDtMax
+    kalmanProcessVarMin
+    kalmanProcessVarMax
+    kalmanMeasurementVarMin
+    kalmanMeasurementVarMax
+    kalmanZMinMin
+    kalmanZMinMax
+    kalmanZMaxMin
+    kalmanZMaxMax
+    pDisableMaxHighVolProb
+    maxHighVolProbRange
+    pDisableMaxConformalWidth
+    maxConformalWidthRange
+    pDisableMaxQuantileWidth
+    maxQuantileWidthRange
+    pConfirmConformal
+    pConfirmQuantiles
+    pConfidenceSizing
+    minPositionSizeRange
+    stopRange
+    takeRange
+    trailRange
+    stopVolMultRange
+    takeVolMultRange
+    trailVolMultRange
+    (methodW11, methodW10, methodW01, methodWBlend)
+    normalizationChoices
+    blendWeightRange
+    routerScorePnlWeightRange
+    pDisableStop
+    pDisableTp
+    pDisableTrail
+    pDisableStopVolMult
+    pDisableTpVolMult
+    pDisableTrailVolMult
+    pDisableMaxDd
+    pDisableMaxDl
+    pDisableMaxOe
+    pDisableGradClip
+    pDisableVolTarget
+    pDisableMaxVolatility
+    maxDdRange
+    maxDlRange
+    maxOeRange =
+        let (platform, rng1) =
+                case platforms of
+                    [] -> (Nothing, rng0)
+                    _ ->
+                        let (p, rng') = nextChoice platforms rng0
+                         in (p, rng')
+            intervalPool =
+                case platform of
+                    Nothing -> intervals
+                    Just p -> fromMaybe intervals (lookup p platformIntervals)
+            (intervalChoice, rng2) = nextChoice intervalPool rng1
+            interval = fromMaybe (fromMaybe "1h" (listToMaybe intervals)) intervalChoice
+            (bars, rng3) = sampleBars rng2
+            methods = [("11", methodW11), ("10", methodW10), ("01", methodW01), ("blend", methodWBlend)]
+            (method, rng4) = chooseWeighted methods rng3
+            (blendWeight, rng5) =
+                let (bwLo, bwHi) = ordered blendWeightRange
+                    (val, rng') = nextUniform bwLo bwHi rng4
+                 in (clamp val 0 1, rng')
+            (routerScorePnlWeight, rng5a) =
+                let (rwLo, rwHi) = ordered routerScorePnlWeightRange
+                    (val, rng') = nextUniform rwLo rwHi rng5
+                 in (clamp val 0 1, rng')
+            (normalizationChoice, rng6) = nextChoice normalizationChoices rng5a
+            normalization = fromMaybe "none" normalizationChoice
+            (baseOpenThreshold, rng7) =
+                nextLogUniform (max 1e-12 openThresholdMin) (max 1e-12 openThresholdMax) rng6
+            (baseCloseThreshold, rng8) =
+                nextLogUniform (max 1e-12 closeThresholdMin) (max 1e-12 closeThresholdMax) rng7
+            (minHoldBars, rng9) = nextIntRange (fst minHoldBarsRange) (snd minHoldBarsRange) rng8
+            (cooldownBars, rng10) = nextIntRange (fst cooldownBarsRange) (snd cooldownBarsRange) rng9
+            (maxHoldBars, rng11) =
+                if snd maxHoldBarsRange > 0
                     then
-                      let vtLo = max 1e-12 (min (fst volTargetRange) (snd volTargetRange))
-                          vtHi = max vtLo (max (fst volTargetRange) (snd volTargetRange))
-                          (val, rng'') = nextUniform vtLo vtHi rng'
-                       in (Just val, rng'')
-                    else (Nothing, rng')
-            else (Nothing, rng17)
-        (volEwmaAlpha, rng19) =
-          if max (fst volEwmaAlphaRange) (snd volEwmaAlphaRange) > 0
-            then
-              let (r, rng') = nextDouble rng18
-               in if r >= clamp pDisableVolEwmaAlpha 0 1
+                        let (sample, rng') = nextIntRange (fst maxHoldBarsRange) (snd maxHoldBarsRange) rng10
+                         in if sample > 0 then (Just sample, rng') else (Nothing, rng')
+                    else (Nothing, rng10)
+            (minEdge, rng12) = nextUniform (fst minEdgeRange) (snd minEdgeRange) rng11
+            (minSignalToNoise, rng13) =
+                let (lo, hi) = ordered minSignalToNoiseRange
+                 in nextUniform lo hi rng12
+            (snrSizeWeight, rng13a) =
+                let (lo, hi) = ordered snrSizeWeightRange
+                    (val, rng') = nextUniform lo hi rng13
+                 in (clamp val 0 1, rng')
+            (edgeBuffer, rng14) = nextUniform (fst edgeBufferRange) (snd edgeBufferRange) rng13a
+            (costAwareEdge, edgeBuffer', rng15) =
+                if pCostAwareEdge < 0
+                    then (edgeBuffer > 0, edgeBuffer, rng14)
+                    else
+                        let (r, rng') = nextDouble rng14
+                            enabled = r < clamp pCostAwareEdge 0 1
+                         in if enabled
+                                then (True, edgeBuffer, rng')
+                                else (False, 0, rng')
+            (trendLookback, rng16) = nextIntRange (fst trendLookbackRange) (snd trendLookbackRange) rng15
+            (maxPositionSize, rng17) =
+                let (val, rng') = nextUniform (fst maxPositionSizeRange) (snd maxPositionSizeRange) rng16
+                 in (max 0 val, rng')
+            (volTarget, rng18) =
+                if max (fst volTargetRange) (snd volTargetRange) > 0
                     then
-                      let vaLo = max 1e-6 (min (fst volEwmaAlphaRange) (snd volEwmaAlphaRange))
-                          vaHi = min 0.999 (max (fst volEwmaAlphaRange) (snd volEwmaAlphaRange))
-                       in if vaHi >= vaLo
-                            then
-                              let (val, rng'') = nextUniform vaLo vaHi rng'
-                               in (Just val, rng'')
-                            else (Nothing, rng')
-                    else (Nothing, rng')
-            else (Nothing, rng18)
-        (volLookback0, rng20) = nextIntRange (fst volLookbackRange) (snd volLookbackRange) rng19
-        volLookback = if volTarget /= Nothing && volEwmaAlpha == Nothing then max 2 volLookback0 else volLookback0
-        (volFloor, rng21) =
-          let (val, rng') = nextUniform (fst volFloorRange) (snd volFloorRange) rng20
-           in (max 0 val, rng')
-        (volScaleMax, rng22) =
-          let (val, rng') = nextUniform (fst volScaleMaxRange) (snd volScaleMaxRange) rng21
-           in (max 0 val, rng')
-        (periodsPerYear, rng23) =
-          if max (fst periodsPerYearRange) (snd periodsPerYearRange) > 0
-            then
-              let ppyMin = max 1e-12 (min (fst periodsPerYearRange) (snd periodsPerYearRange))
-                  ppyMax = max ppyMin (max (fst periodsPerYearRange) (snd periodsPerYearRange))
-                  (val, rng') = nextUniform ppyMin ppyMax rng22
-               in (Just val, rng')
-            else (Nothing, rng22)
-        (kalmanMarketTopN, rng24) = nextIntRange (fst kalmanMarketTopNRange) (snd kalmanMarketTopNRange) rng23
-        (maxVolatility, rng25) =
-          if max (fst maxVolatilityRange) (snd maxVolatilityRange) > 0
-            then
-              let (r, rng') = nextDouble rng24
-               in if r >= clamp pDisableMaxVolatility 0 1
+                        let (r, rng') = nextDouble rng17
+                         in if r >= clamp pDisableVolTarget 0 1
+                                then
+                                    let vtLo = max 1e-12 (min (fst volTargetRange) (snd volTargetRange))
+                                        vtHi = max vtLo (max (fst volTargetRange) (snd volTargetRange))
+                                        (val, rng'') = nextUniform vtLo vtHi rng'
+                                     in (Just val, rng'')
+                                else (Nothing, rng')
+                    else (Nothing, rng17)
+            (volEwmaAlpha, rng19) =
+                if max (fst volEwmaAlphaRange) (snd volEwmaAlphaRange) > 0
                     then
-                      let mvLo = max 1e-12 (min (fst maxVolatilityRange) (snd maxVolatilityRange))
-                          mvHi = max mvLo (max (fst maxVolatilityRange) (snd maxVolatilityRange))
-                          (val, rng'') = nextUniform mvLo mvHi rng'
-                       in (Just val, rng'')
-                    else (Nothing, rng')
-            else (Nothing, rng24)
-        (fee, rng26) = nextUniform (max 0 feeMin) (max 0 feeMax) rng25
-        (fundingRate, rng26a) =
-          let (lo, hi) = ordered fundingRateRange
-           in nextUniform lo hi rng26
-        (fundingBySide, rng26b) =
-          let (r, rng') = nextDouble rng26a
-           in (r < clamp pFundingBySide 0 1, rng')
-        (fundingOnOpen, rng26c) =
-          let (r, rng') = nextDouble rng26b
-           in (r < clamp pFundingOnOpen 0 1, rng')
-        (rebalanceBarsRaw, rng26d) =
-          nextIntRange (fst rebalanceBarsRange) (snd rebalanceBarsRange) rng26c
-        rebalanceBars = max 0 rebalanceBarsRaw
-        (rebalanceThreshold, rng26e) =
-          let (lo, hi) = ordered rebalanceThresholdRange
-           in nextUniform lo hi rng26d
-        (rebalanceCostMult, rng26e') =
-          let (lo, hi) = ordered rebalanceCostMultRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng26e
-        (rebalanceGlobal, rng26f) =
-          let (r, rng') = nextDouble rng26e'
-           in (r < clamp pRebalanceGlobal 0 1, rng')
-        (rebalanceResetOnSignal, rng26g) =
-          let (r, rng') = nextDouble rng26f
-           in (r < clamp pRebalanceResetOnSignal 0 1, rng')
-        (epochs, rng27) = nextIntRange epochsMin epochsMax rng26g
-        (hiddenSize, rng28) = nextIntRange hiddenMin hiddenMax rng27
-        (learningRate, rng29) = nextLogUniform lrMin lrMax rng28
-        (valRatio, rng30) = nextUniform valMin valMax rng29
-        (patience, rng31) = nextIntRange 0 patienceMax rng30
-        (walkForwardFolds, rng32) =
-          let (lo, hi) = ordered walkForwardFoldsRange
-           in nextIntRange (max 1 lo) (max 1 hi) rng31
-        (walkForwardEmbargoBarsRaw, rng32a) =
-          nextIntRange (fst walkForwardEmbargoBarsRange) (snd walkForwardEmbargoBarsRange) rng32
-        walkForwardEmbargoBars = max 0 walkForwardEmbargoBarsRaw
-        (tuneStressVolMult, rng33) =
-          let (lo, hi) = ordered tuneStressVolMultRange
-              lo' = max 1e-12 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng32a
-        (tuneStressShock, rng34) =
-          let (lo, hi) = ordered tuneStressShockRange
-           in nextUniform lo hi rng33
-        (tuneStressWeight, rng35) =
-          let (lo, hi) = ordered tuneStressWeightRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng34
-        (gradClip, rng36) = nextMaybe pDisableGradClip (nextLogUniform gradClipMin gradClipMax) rng35
-        (slippage, rng37) = nextUniform 0 (max 0 slippageMax) rng36
-        (spread, rng38) = nextUniform 0 (max 0 spreadMax) rng37
-        (positioning, rng39) =
-          let (r, rng') = nextDouble rng38
-           in (if r < clamp pLongShort 0 1 then "long-short" else "long-flat", rng')
-        (intrabarFill, rng40) =
-          let (r, rng') = nextDouble rng39
-           in (if r < clamp pIntrabarTakeProfitFirst 0 1 then "take-profit-first" else "stop-first", rng')
-        (triLayerEnabled, rng40a) =
-          let (r, rng') = nextDouble rng40
-           in (r < clamp pTriLayer 0 1, rng')
-        (triLayerFastRaw, rng40b) =
-          let (lo, hi) = ordered triLayerFastRange
-              lo' = max 1e-6 lo
-              hi' = max lo' hi
-           in nextLogUniform lo' hi' rng40a
-        (triLayerSlowRaw, rng40c) =
-          let (lo, hi) = ordered triLayerSlowRange
-              lo' = max 1e-6 lo
-              hi' = max lo' hi
-           in nextLogUniform lo' hi' rng40b
-        triLayerFastMult = max 1e-6 triLayerFastRaw
-        triLayerSlowMult = max triLayerFastMult (max 1e-6 triLayerSlowRaw)
-        (triLayerPriceAction, rng40d) =
-          if triLayerEnabled
-            then
-              let (r, rng') = nextDouble rng40c
-               in (r < clamp pTriLayerPriceAction 0 1, rng')
-            else (False, rng40c)
-        (triLayerCloudPadding, rng40e) =
-          let (lo, hi) = ordered triLayerCloudPaddingRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng40d
-        (triLayerCloudSlope, rng40f) =
-          let (lo, hi) = ordered triLayerCloudSlopeRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng40e
-        (triLayerCloudWidth, rng40g) =
-          let (lo, hi) = ordered triLayerCloudWidthRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng40f
-        (triLayerTouchLookback, rng40h) =
-          let (lo, hi) = ordered triLayerTouchLookbackRange
-              lo' = max 1 lo
-              hi' = max lo' hi
-           in nextIntRange lo' hi' rng40g
-        (triLayerPriceActionBody, rng40i) =
-          let (lo, hi) = ordered triLayerPriceActionBodyRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng40h
-        triLayerExitOnSlow = triLayerExitOnSlowInput
-        (kalmanBandLookback0, rng40j) =
-          let (lo, hi) = ordered kalmanBandLookbackRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextIntRange lo' hi' rng40i
-        (kalmanBandStdMult0, rng40k) =
-          let (lo, hi) = ordered kalmanBandStdMultRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng40j
-        kalmanBandLookback = kalmanBandLookback0
-        kalmanBandStdMult =
-          if kalmanBandStdMult0 > 0 && kalmanBandLookback0 < 2
-            then 0
-            else kalmanBandStdMult0
-        (lstmExitFlipBars, rng40l) =
-          let (lo, hi) = ordered lstmExitFlipBarsRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextIntRange lo' hi' rng40k
-        (lstmExitFlipGraceBars, rng40m) =
-          let (lo, hi) = ordered lstmExitFlipGraceBarsRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextIntRange lo' hi' rng40l
-        (lstmConfidenceSoftRaw, rng40n) =
-          let (lo, hi) = ordered lstmConfidenceSoftRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng40m
-        (lstmConfidenceHardRaw, rng40o) =
-          let (lo, hi) = ordered lstmConfidenceHardRange
-              lo' = max 0 lo
-              hi' = max lo' hi
-           in nextUniform lo' hi' rng40n
-        lstmConfidenceSoft = clamp lstmConfidenceSoftRaw 0 1
-        lstmConfidenceHard = clamp (max lstmConfidenceHardRaw lstmConfidenceSoft) 0 1
-        (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40o
-        (kalmanProcessVar, rng42) =
-          nextLogUniform (max 1e-12 kalmanProcessVarMin) (max 1e-12 kalmanProcessVarMax) rng41
-        (kalmanMeasurementVar, rng43) =
-          nextLogUniform (max 1e-12 kalmanMeasurementVarMin) (max 1e-12 kalmanMeasurementVarMax) rng42
-        (kalmanZMin, rng44) = nextUniform (max 0 kalmanZMinMin) (max 0 kalmanZMinMax) rng43
-        (kalmanZMax, rng45) =
-          let zMaxLo = max kalmanZMin (max 0 kalmanZMaxMin)
-              zMaxHi = max zMaxLo kalmanZMaxMax
-           in nextUniform zMaxLo zMaxHi rng44
-        (maxHighVolProb, rng46) =
-          let (lo, hi) = ordered maxHighVolProbRange
-              (val, rng') =
-                nextMaybe pDisableMaxHighVolProb (nextUniform (min lo hi) (max lo hi)) rng45
-           in (fmap (\v -> clamp v 0 1) val, rng')
-        (maxConformalWidth, rng47) =
-          let (lo, hi) = ordered maxConformalWidthRange
-              lo' = max 1e-12 (min lo hi)
-              hi' = max lo' (max lo hi)
-           in nextMaybe pDisableMaxConformalWidth (nextLogUniform lo' hi') rng46
-        (maxQuantileWidth, rng48) =
-          let (lo, hi) = ordered maxQuantileWidthRange
-              lo' = max 1e-12 (min lo hi)
-              hi' = max lo' (max lo hi)
-           in nextMaybe pDisableMaxQuantileWidth (nextLogUniform lo' hi') rng47
-        (confirmConformal, rng49) =
-          let (r, rng') = nextDouble rng48
-           in (r < clamp pConfirmConformal 0 1, rng')
-        (confirmQuantiles, rng50) =
-          let (r, rng') = nextDouble rng49
-           in (r < clamp pConfirmQuantiles 0 1, rng')
-        (confidenceSizing, rng51) =
-          let (r, rng') = nextDouble rng50
-           in (r < clamp pConfidenceSizing 0 1, rng')
-        (minPositionSize, rng52) =
-          if confidenceSizing
-            then
-              let (lo, hi) = ordered minPositionSizeRange
-                  (val, rng') = nextUniform lo hi rng51
-               in (clamp val 0 1, rng')
-            else (0, rng51)
-        (stopLoss, rng53) = nextMaybe pDisableStop (nextLogUniform (fst stopRange) (snd stopRange)) rng52
-        (takeProfit, rng54) = nextMaybe pDisableTp (nextLogUniform (fst takeRange) (snd takeRange)) rng53
-        (trailingStop, rng55) = nextMaybe pDisableTrail (nextLogUniform (fst trailRange) (snd trailRange)) rng54
-        (stopLossVolMult, rng56) =
-          if max (fst stopVolMultRange) (snd stopVolMultRange) > 0
-            then
-              let lo = max 1e-6 (min (fst stopVolMultRange) (snd stopVolMultRange))
-                  hi = max lo (max (fst stopVolMultRange) (snd stopVolMultRange))
-               in nextMaybe pDisableStopVolMult (nextLogUniform lo hi) rng55
-            else (Nothing, rng55)
-        (takeProfitVolMult, rng57) =
-          if max (fst takeVolMultRange) (snd takeVolMultRange) > 0
-            then
-              let lo = max 1e-6 (min (fst takeVolMultRange) (snd takeVolMultRange))
-                  hi = max lo (max (fst takeVolMultRange) (snd takeVolMultRange))
-               in nextMaybe pDisableTpVolMult (nextLogUniform lo hi) rng56
-            else (Nothing, rng56)
-        (trailingStopVolMult, rng58) =
-          if max (fst trailVolMultRange) (snd trailVolMultRange) > 0
-            then
-              let lo = max 1e-6 (min (fst trailVolMultRange) (snd trailVolMultRange))
-                  hi = max lo (max (fst trailVolMultRange) (snd trailVolMultRange))
-               in nextMaybe pDisableTrailVolMult (nextLogUniform lo hi) rng57
-            else (Nothing, rng57)
-        (maxDrawdown, rng59) = nextMaybe pDisableMaxDd (nextUniform (fst maxDdRange) (snd maxDdRange)) rng58
-        (maxDailyLoss, rng60) = nextMaybe pDisableMaxDl (nextUniform (fst maxDlRange) (snd maxDlRange)) rng59
-        (maxOrderErrors, rng61) =
-          nextMaybe
-            pDisableMaxOe
-            (\r ->
-                let (val, r') = nextIntRange (fst maxOeRange) (snd maxOeRange) r
-                 in (val, r')
+                        let (r, rng') = nextDouble rng18
+                         in if r >= clamp pDisableVolEwmaAlpha 0 1
+                                then
+                                    let vaLo = max 1e-6 (min (fst volEwmaAlphaRange) (snd volEwmaAlphaRange))
+                                        vaHi = min 0.999 (max (fst volEwmaAlphaRange) (snd volEwmaAlphaRange))
+                                     in if vaHi >= vaLo
+                                            then
+                                                let (val, rng'') = nextUniform vaLo vaHi rng'
+                                                 in (Just val, rng'')
+                                            else (Nothing, rng')
+                                else (Nothing, rng')
+                    else (Nothing, rng18)
+            (volLookback0, rng20) = nextIntRange (fst volLookbackRange) (snd volLookbackRange) rng19
+            volLookback = if volTarget /= Nothing && volEwmaAlpha == Nothing then max 2 volLookback0 else volLookback0
+            (volFloor, rng21) =
+                let (val, rng') = nextUniform (fst volFloorRange) (snd volFloorRange) rng20
+                 in (max 0 val, rng')
+            (volScaleMax, rng22) =
+                let (val, rng') = nextUniform (fst volScaleMaxRange) (snd volScaleMaxRange) rng21
+                 in (max 0 val, rng')
+            (periodsPerYear, rng23) =
+                if max (fst periodsPerYearRange) (snd periodsPerYearRange) > 0
+                    then
+                        let ppyMin = max 1e-12 (min (fst periodsPerYearRange) (snd periodsPerYearRange))
+                            ppyMax = max ppyMin (max (fst periodsPerYearRange) (snd periodsPerYearRange))
+                            (val, rng') = nextUniform ppyMin ppyMax rng22
+                         in (Just val, rng')
+                    else (Nothing, rng22)
+            (kalmanMarketTopN, rng24) = nextIntRange (fst kalmanMarketTopNRange) (snd kalmanMarketTopNRange) rng23
+            (maxVolatility, rng25) =
+                if max (fst maxVolatilityRange) (snd maxVolatilityRange) > 0
+                    then
+                        let (r, rng') = nextDouble rng24
+                         in if r >= clamp pDisableMaxVolatility 0 1
+                                then
+                                    let mvLo = max 1e-12 (min (fst maxVolatilityRange) (snd maxVolatilityRange))
+                                        mvHi = max mvLo (max (fst maxVolatilityRange) (snd maxVolatilityRange))
+                                        (val, rng'') = nextUniform mvLo mvHi rng'
+                                     in (Just val, rng'')
+                                else (Nothing, rng')
+                    else (Nothing, rng24)
+            (fee, rng26) = nextUniform (max 0 feeMin) (max 0 feeMax) rng25
+            (fundingRate, rng26a) =
+                let (lo, hi) = ordered fundingRateRange
+                 in nextUniform lo hi rng26
+            (fundingBySide, rng26b) =
+                let (r, rng') = nextDouble rng26a
+                 in (r < clamp pFundingBySide 0 1, rng')
+            (fundingOnOpen, rng26c) =
+                let (r, rng') = nextDouble rng26b
+                 in (r < clamp pFundingOnOpen 0 1, rng')
+            (rebalanceBarsRaw, rng26d) =
+                nextIntRange (fst rebalanceBarsRange) (snd rebalanceBarsRange) rng26c
+            rebalanceBars = max 0 rebalanceBarsRaw
+            (rebalanceThreshold, rng26e) =
+                let (lo, hi) = ordered rebalanceThresholdRange
+                 in nextUniform lo hi rng26d
+            (rebalanceCostMult, rng26e') =
+                let (lo, hi) = ordered rebalanceCostMultRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng26e
+            (rebalanceGlobal, rng26f) =
+                let (r, rng') = nextDouble rng26e'
+                 in (r < clamp pRebalanceGlobal 0 1, rng')
+            (rebalanceResetOnSignal, rng26g) =
+                let (r, rng') = nextDouble rng26f
+                 in (r < clamp pRebalanceResetOnSignal 0 1, rng')
+            (epochs, rng27) = nextIntRange epochsMin epochsMax rng26g
+            (hiddenSize, rng28) = nextIntRange hiddenMin hiddenMax rng27
+            (learningRate, rng29) = nextLogUniform lrMin lrMax rng28
+            (valRatio, rng30) = nextUniform valMin valMax rng29
+            (patience, rng31) = nextIntRange 0 patienceMax rng30
+            (walkForwardFolds, rng32) =
+                let (lo, hi) = ordered walkForwardFoldsRange
+                 in nextIntRange (max 1 lo) (max 1 hi) rng31
+            (walkForwardEmbargoBarsRaw, rng32a) =
+                nextIntRange (fst walkForwardEmbargoBarsRange) (snd walkForwardEmbargoBarsRange) rng32
+            walkForwardEmbargoBars = max 0 walkForwardEmbargoBarsRaw
+            (tuneStressVolMult, rng33) =
+                let (lo, hi) = ordered tuneStressVolMultRange
+                    lo' = max 1e-12 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng32a
+            (tuneStressShock, rng34) =
+                let (lo, hi) = ordered tuneStressShockRange
+                 in nextUniform lo hi rng33
+            (tuneStressWeight, rng35) =
+                let (lo, hi) = ordered tuneStressWeightRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng34
+            (gradClip, rng36) = nextMaybe pDisableGradClip (nextLogUniform gradClipMin gradClipMax) rng35
+            (slippage, rng37) = nextUniform 0 (max 0 slippageMax) rng36
+            (spread, rng38) = nextUniform 0 (max 0 spreadMax) rng37
+            (positioning, rng39) =
+                let (r, rng') = nextDouble rng38
+                 in (if r < clamp pLongShort 0 1 then "long-short" else "long-flat", rng')
+            (intrabarFill, rng40) =
+                let (r, rng') = nextDouble rng39
+                 in (if r < clamp pIntrabarTakeProfitFirst 0 1 then "take-profit-first" else "stop-first", rng')
+            (triLayerEnabled, rng40a) =
+                let (r, rng') = nextDouble rng40
+                 in (r < clamp pTriLayer 0 1, rng')
+            (triLayerFastRaw, rng40b) =
+                let (lo, hi) = ordered triLayerFastRange
+                    lo' = max 1e-6 lo
+                    hi' = max lo' hi
+                 in nextLogUniform lo' hi' rng40a
+            (triLayerSlowRaw, rng40c) =
+                let (lo, hi) = ordered triLayerSlowRange
+                    lo' = max 1e-6 lo
+                    hi' = max lo' hi
+                 in nextLogUniform lo' hi' rng40b
+            triLayerFastMult = max 1e-6 triLayerFastRaw
+            triLayerSlowMult = max triLayerFastMult (max 1e-6 triLayerSlowRaw)
+            (triLayerPriceAction, rng40d) =
+                if triLayerEnabled
+                    then
+                        let (r, rng') = nextDouble rng40c
+                         in (r < clamp pTriLayerPriceAction 0 1, rng')
+                    else (False, rng40c)
+            (triLayerCloudPadding, rng40e) =
+                let (lo, hi) = ordered triLayerCloudPaddingRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40d
+            (triLayerCloudSlope, rng40f) =
+                let (lo, hi) = ordered triLayerCloudSlopeRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40e
+            (triLayerCloudWidth, rng40g) =
+                let (lo, hi) = ordered triLayerCloudWidthRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40f
+            (triLayerTouchLookback, rng40h) =
+                let (lo, hi) = ordered triLayerTouchLookbackRange
+                    lo' = max 1 lo
+                    hi' = max lo' hi
+                 in nextIntRange lo' hi' rng40g
+            (triLayerPriceActionBody, rng40i) =
+                let (lo, hi) = ordered triLayerPriceActionBodyRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40h
+            triLayerExitOnSlow = triLayerExitOnSlowInput
+            (kalmanBandLookback0, rng40j) =
+                let (lo, hi) = ordered kalmanBandLookbackRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextIntRange lo' hi' rng40i
+            (kalmanBandStdMult0, rng40k) =
+                let (lo, hi) = ordered kalmanBandStdMultRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40j
+            kalmanBandLookback = kalmanBandLookback0
+            kalmanBandStdMult =
+                if kalmanBandStdMult0 > 0 && kalmanBandLookback0 < 2
+                    then 0
+                    else kalmanBandStdMult0
+            (lstmExitFlipBars, rng40l) =
+                let (lo, hi) = ordered lstmExitFlipBarsRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextIntRange lo' hi' rng40k
+            (lstmExitFlipGraceBars, rng40m) =
+                let (lo, hi) = ordered lstmExitFlipGraceBarsRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextIntRange lo' hi' rng40l
+            (lstmConfidenceSoftRaw, rng40n) =
+                let (lo, hi) = ordered lstmConfidenceSoftRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40m
+            (lstmConfidenceHardRaw, rng40o) =
+                let (lo, hi) = ordered lstmConfidenceHardRange
+                    lo' = max 0 lo
+                    hi' = max lo' hi
+                 in nextUniform lo' hi' rng40n
+            lstmConfidenceSoft = clamp lstmConfidenceSoftRaw 0 1
+            lstmConfidenceHard = clamp (max lstmConfidenceHardRaw lstmConfidenceSoft) 0 1
+            (kalmanDt, rng41) = nextUniform (max 1e-12 kalmanDtMin) (max 1e-12 kalmanDtMax) rng40o
+            (kalmanProcessVar, rng42) =
+                nextLogUniform (max 1e-12 kalmanProcessVarMin) (max 1e-12 kalmanProcessVarMax) rng41
+            (kalmanMeasurementVar, rng43) =
+                nextLogUniform (max 1e-12 kalmanMeasurementVarMin) (max 1e-12 kalmanMeasurementVarMax) rng42
+            (kalmanZMin, rng44) = nextUniform (max 0 kalmanZMinMin) (max 0 kalmanZMinMax) rng43
+            (kalmanZMax, rng45) =
+                let zMaxLo = max kalmanZMin (max 0 kalmanZMaxMin)
+                    zMaxHi = max zMaxLo kalmanZMaxMax
+                 in nextUniform zMaxLo zMaxHi rng44
+            (maxHighVolProb, rng46) =
+                let (lo, hi) = ordered maxHighVolProbRange
+                    (val, rng') =
+                        nextMaybe pDisableMaxHighVolProb (nextUniform (min lo hi) (max lo hi)) rng45
+                 in (fmap (\v -> clamp v 0 1) val, rng')
+            (maxConformalWidth, rng47) =
+                let (lo, hi) = ordered maxConformalWidthRange
+                    lo' = max 1e-12 (min lo hi)
+                    hi' = max lo' (max lo hi)
+                 in nextMaybe pDisableMaxConformalWidth (nextLogUniform lo' hi') rng46
+            (maxQuantileWidth, rng48) =
+                let (lo, hi) = ordered maxQuantileWidthRange
+                    lo' = max 1e-12 (min lo hi)
+                    hi' = max lo' (max lo hi)
+                 in nextMaybe pDisableMaxQuantileWidth (nextLogUniform lo' hi') rng47
+            (confirmConformal, rng49) =
+                let (r, rng') = nextDouble rng48
+                 in (r < clamp pConfirmConformal 0 1, rng')
+            (confirmQuantiles, rng50) =
+                let (r, rng') = nextDouble rng49
+                 in (r < clamp pConfirmQuantiles 0 1, rng')
+            (confidenceSizing, rng51) =
+                let (r, rng') = nextDouble rng50
+                 in (r < clamp pConfidenceSizing 0 1, rng')
+            (minPositionSize, rng52) =
+                if confidenceSizing
+                    then
+                        let (lo, hi) = ordered minPositionSizeRange
+                            (val, rng') = nextUniform lo hi rng51
+                         in (clamp val 0 1, rng')
+                    else (0, rng51)
+            (stopLoss, rng53) = nextMaybe pDisableStop (nextLogUniform (fst stopRange) (snd stopRange)) rng52
+            (takeProfit, rng54) = nextMaybe pDisableTp (nextLogUniform (fst takeRange) (snd takeRange)) rng53
+            (trailingStop, rng55) = nextMaybe pDisableTrail (nextLogUniform (fst trailRange) (snd trailRange)) rng54
+            (stopLossVolMult, rng56) =
+                if max (fst stopVolMultRange) (snd stopVolMultRange) > 0
+                    then
+                        let lo = max 1e-6 (min (fst stopVolMultRange) (snd stopVolMultRange))
+                            hi = max lo (max (fst stopVolMultRange) (snd stopVolMultRange))
+                         in nextMaybe pDisableStopVolMult (nextLogUniform lo hi) rng55
+                    else (Nothing, rng55)
+            (takeProfitVolMult, rng57) =
+                if max (fst takeVolMultRange) (snd takeVolMultRange) > 0
+                    then
+                        let lo = max 1e-6 (min (fst takeVolMultRange) (snd takeVolMultRange))
+                            hi = max lo (max (fst takeVolMultRange) (snd takeVolMultRange))
+                         in nextMaybe pDisableTpVolMult (nextLogUniform lo hi) rng56
+                    else (Nothing, rng56)
+            (trailingStopVolMult, rng58) =
+                if max (fst trailVolMultRange) (snd trailVolMultRange) > 0
+                    then
+                        let lo = max 1e-6 (min (fst trailVolMultRange) (snd trailVolMultRange))
+                            hi = max lo (max (fst trailVolMultRange) (snd trailVolMultRange))
+                         in nextMaybe pDisableTrailVolMult (nextLogUniform lo hi) rng57
+                    else (Nothing, rng57)
+            (maxDrawdown, rng59) = nextMaybe pDisableMaxDd (nextUniform (fst maxDdRange) (snd maxDdRange)) rng58
+            (maxDailyLoss, rng60) = nextMaybe pDisableMaxDl (nextUniform (fst maxDlRange) (snd maxDlRange)) rng59
+            (maxOrderErrors, rng61) =
+                nextMaybe
+                    pDisableMaxOe
+                    ( \r ->
+                        let (val, r') = nextIntRange (fst maxOeRange) (snd maxOeRange) r
+                         in (val, r')
+                    )
+                    rng60
+            (thresholdFactorEnabled, rng62) =
+                let (r, rng') = nextDouble rng61
+                 in (r < clamp pThresholdFactor 0 1, rng')
+            (thresholdFactorAlpha0, rng63) =
+                let (lo, hi) = ordered thresholdFactorAlphaRange
+                    (val, rng') = nextUniform lo hi rng62
+                 in (clamp val 0 1, rng')
+            (thresholdFactorMin0, rng64) =
+                let (lo, hi) = ordered thresholdFactorMinRange
+                    (val, rng') = nextUniform lo hi rng63
+                 in (max 0 val, rng')
+            (thresholdFactorMax0, rng65) =
+                let (lo, hi) = ordered thresholdFactorMaxRange
+                    (val, rng') = nextUniform lo hi rng64
+                 in (max 0 val, rng')
+            (thresholdFactorMin, thresholdFactorMax) =
+                let (lo, hi) = ordered (thresholdFactorMin0, thresholdFactorMax0)
+                 in (lo, max lo hi)
+            (thresholdFactorFloor, rng66) =
+                let (lo, hi) = ordered thresholdFactorFloorRange
+                    (val, rng') = nextUniform lo hi rng65
+                 in (max 0 val, rng')
+            (thresholdFactorEdgeKalWeight, rng67) =
+                let (lo, hi) = ordered thresholdFactorWeightRange
+                 in nextUniform lo hi rng66
+            (thresholdFactorEdgeLstmWeight, rng68) =
+                let (lo, hi) = ordered thresholdFactorWeightRange
+                 in nextUniform lo hi rng67
+            (thresholdFactorKalmanZWeight, rng69) =
+                let (lo, hi) = ordered thresholdFactorWeightRange
+                 in nextUniform lo hi rng68
+            (thresholdFactorHighVolWeight, rng70) =
+                let (lo, hi) = ordered thresholdFactorWeightRange
+                 in nextUniform lo hi rng69
+            (thresholdFactorConformalWeight, rng71) =
+                let (lo, hi) = ordered thresholdFactorWeightRange
+                 in nextUniform lo hi rng70
+            (thresholdFactorQuantileWeight, rng72) =
+                let (lo, hi) = ordered thresholdFactorWeightRange
+                 in nextUniform lo hi rng71
+            (thresholdFactorLstmConfWeight, rng73) =
+                let (lo, hi) = ordered thresholdFactorWeightRange
+                 in nextUniform lo hi rng72
+            (thresholdFactorLstmHealthWeight, rng74) =
+                let (lo, hi) = ordered thresholdFactorWeightRange
+                 in nextUniform lo hi rng73
+         in ( TrialParams
+                { tpPlatform = platform
+                , tpInterval = interval
+                , tpBars = bars
+                , tpMethod = method
+                , tpBlendWeight = blendWeight
+                , tpRouterScorePnlWeight = routerScorePnlWeight
+                , tpPositioning = positioning
+                , tpNormalization = normalization
+                , tpBaseOpenThreshold = baseOpenThreshold
+                , tpBaseCloseThreshold = baseCloseThreshold
+                , tpMinHoldBars = minHoldBars
+                , tpCooldownBars = cooldownBars
+                , tpMaxHoldBars = maxHoldBars
+                , tpMinEdge = minEdge
+                , tpMinSignalToNoise = minSignalToNoise
+                , tpSnrSizeWeight = snrSizeWeight
+                , tpThresholdFactorEnabled = thresholdFactorEnabled
+                , tpThresholdFactorAlpha = thresholdFactorAlpha0
+                , tpThresholdFactorMin = thresholdFactorMin
+                , tpThresholdFactorMax = thresholdFactorMax
+                , tpThresholdFactorFloor = thresholdFactorFloor
+                , tpThresholdFactorEdgeKalWeight = thresholdFactorEdgeKalWeight
+                , tpThresholdFactorEdgeLstmWeight = thresholdFactorEdgeLstmWeight
+                , tpThresholdFactorKalmanZWeight = thresholdFactorKalmanZWeight
+                , tpThresholdFactorHighVolWeight = thresholdFactorHighVolWeight
+                , tpThresholdFactorConformalWeight = thresholdFactorConformalWeight
+                , tpThresholdFactorQuantileWeight = thresholdFactorQuantileWeight
+                , tpThresholdFactorLstmConfWeight = thresholdFactorLstmConfWeight
+                , tpThresholdFactorLstmHealthWeight = thresholdFactorLstmHealthWeight
+                , tpEdgeBuffer = edgeBuffer'
+                , tpCostAwareEdge = costAwareEdge
+                , tpTrendLookback = trendLookback
+                , tpMaxPositionSize = maxPositionSize
+                , tpVolTarget = volTarget
+                , tpVolLookback = volLookback
+                , tpVolEwmaAlpha = volEwmaAlpha
+                , tpVolFloor = volFloor
+                , tpVolScaleMax = volScaleMax
+                , tpMaxVolatility = maxVolatility
+                , tpPeriodsPerYear = periodsPerYear
+                , tpKalmanMarketTopN = kalmanMarketTopN
+                , tpFee = fee
+                , tpFundingRate = fundingRate
+                , tpFundingBySide = fundingBySide
+                , tpFundingOnOpen = fundingOnOpen
+                , tpRebalanceBars = rebalanceBars
+                , tpRebalanceThreshold = rebalanceThreshold
+                , tpRebalanceCostMult = rebalanceCostMult
+                , tpRebalanceGlobal = rebalanceGlobal
+                , tpRebalanceResetOnSignal = rebalanceResetOnSignal
+                , tpEpochs = epochs
+                , tpHiddenSize = hiddenSize
+                , tpLearningRate = learningRate
+                , tpValRatio = valRatio
+                , tpPatience = patience
+                , tpWalkForwardFolds = walkForwardFolds
+                , tpWalkForwardEmbargoBars = walkForwardEmbargoBars
+                , tpTuneStressVolMult = tuneStressVolMult
+                , tpTuneStressShock = tuneStressShock
+                , tpTuneStressWeight = tuneStressWeight
+                , tpGradClip = gradClip
+                , tpSlippage = slippage
+                , tpSpread = spread
+                , tpIntrabarFill = intrabarFill
+                , tpTriLayer = triLayerEnabled
+                , tpTriLayerFastMult = triLayerFastMult
+                , tpTriLayerSlowMult = triLayerSlowMult
+                , tpTriLayerCloudPadding = triLayerCloudPadding
+                , tpTriLayerCloudSlope = triLayerCloudSlope
+                , tpTriLayerCloudWidth = triLayerCloudWidth
+                , tpTriLayerTouchLookback = triLayerTouchLookback
+                , tpTriLayerPriceAction = triLayerPriceAction
+                , tpTriLayerPriceActionBody = triLayerPriceActionBody
+                , tpTriLayerExitOnSlow = triLayerExitOnSlow
+                , tpKalmanBandLookback = kalmanBandLookback
+                , tpKalmanBandStdMult = kalmanBandStdMult
+                , tpLstmExitFlipBars = lstmExitFlipBars
+                , tpLstmExitFlipGraceBars = lstmExitFlipGraceBars
+                , tpLstmExitFlipStrong = lstmExitFlipStrongInput
+                , tpLstmConfidenceSoft = lstmConfidenceSoft
+                , tpLstmConfidenceHard = lstmConfidenceHard
+                , tpStopLoss = stopLoss
+                , tpTakeProfit = takeProfit
+                , tpTrailingStop = trailingStop
+                , tpStopLossVolMult = stopLossVolMult
+                , tpTakeProfitVolMult = takeProfitVolMult
+                , tpTrailingStopVolMult = trailingStopVolMult
+                , tpMaxDrawdown = maxDrawdown
+                , tpMaxDailyLoss = maxDailyLoss
+                , tpMaxOrderErrors = maxOrderErrors
+                , tpKalmanDt = kalmanDt
+                , tpKalmanProcessVar = kalmanProcessVar
+                , tpKalmanMeasurementVar = kalmanMeasurementVar
+                , tpKalmanZMin = kalmanZMin
+                , tpKalmanZMax = kalmanZMax
+                , tpMaxHighVolProb = maxHighVolProb
+                , tpMaxConformalWidth = maxConformalWidth
+                , tpMaxQuantileWidth = maxQuantileWidth
+                , tpConfirmConformal = confirmConformal
+                , tpConfirmQuantiles = confirmQuantiles
+                , tpConfidenceSizing = confidenceSizing
+                , tpMinPositionSize = minPositionSize
+                }
+            , rng74
             )
-            rng60
-        (thresholdFactorEnabled, rng62) =
-          let (r, rng') = nextDouble rng61
-           in (r < clamp pThresholdFactor 0 1, rng')
-        (thresholdFactorAlpha0, rng63) =
-          let (lo, hi) = ordered thresholdFactorAlphaRange
-              (val, rng') = nextUniform lo hi rng62
-           in (clamp val 0 1, rng')
-        (thresholdFactorMin0, rng64) =
-          let (lo, hi) = ordered thresholdFactorMinRange
-              (val, rng') = nextUniform lo hi rng63
-           in (max 0 val, rng')
-        (thresholdFactorMax0, rng65) =
-          let (lo, hi) = ordered thresholdFactorMaxRange
-              (val, rng') = nextUniform lo hi rng64
-           in (max 0 val, rng')
-        (thresholdFactorMin, thresholdFactorMax) =
-          let (lo, hi) = ordered (thresholdFactorMin0, thresholdFactorMax0)
-           in (lo, max lo hi)
-        (thresholdFactorFloor, rng66) =
-          let (lo, hi) = ordered thresholdFactorFloorRange
-              (val, rng') = nextUniform lo hi rng65
-           in (max 0 val, rng')
-        (thresholdFactorEdgeKalWeight, rng67) =
-          let (lo, hi) = ordered thresholdFactorWeightRange
-           in nextUniform lo hi rng66
-        (thresholdFactorEdgeLstmWeight, rng68) =
-          let (lo, hi) = ordered thresholdFactorWeightRange
-           in nextUniform lo hi rng67
-        (thresholdFactorKalmanZWeight, rng69) =
-          let (lo, hi) = ordered thresholdFactorWeightRange
-           in nextUniform lo hi rng68
-        (thresholdFactorHighVolWeight, rng70) =
-          let (lo, hi) = ordered thresholdFactorWeightRange
-           in nextUniform lo hi rng69
-        (thresholdFactorConformalWeight, rng71) =
-          let (lo, hi) = ordered thresholdFactorWeightRange
-           in nextUniform lo hi rng70
-        (thresholdFactorQuantileWeight, rng72) =
-          let (lo, hi) = ordered thresholdFactorWeightRange
-           in nextUniform lo hi rng71
-        (thresholdFactorLstmConfWeight, rng73) =
-          let (lo, hi) = ordered thresholdFactorWeightRange
-           in nextUniform lo hi rng72
-        (thresholdFactorLstmHealthWeight, rng74) =
-          let (lo, hi) = ordered thresholdFactorWeightRange
-           in nextUniform lo hi rng73
-     in ( TrialParams
-            { tpPlatform = platform
-            , tpInterval = interval
-            , tpBars = bars
-            , tpMethod = method
-            , tpBlendWeight = blendWeight
-            , tpRouterScorePnlWeight = routerScorePnlWeight
-            , tpPositioning = positioning
-            , tpNormalization = normalization
-            , tpBaseOpenThreshold = baseOpenThreshold
-            , tpBaseCloseThreshold = baseCloseThreshold
-            , tpMinHoldBars = minHoldBars
-            , tpCooldownBars = cooldownBars
-            , tpMaxHoldBars = maxHoldBars
-            , tpMinEdge = minEdge
-            , tpMinSignalToNoise = minSignalToNoise
-            , tpSnrSizeWeight = snrSizeWeight
-            , tpThresholdFactorEnabled = thresholdFactorEnabled
-            , tpThresholdFactorAlpha = thresholdFactorAlpha0
-            , tpThresholdFactorMin = thresholdFactorMin
-            , tpThresholdFactorMax = thresholdFactorMax
-            , tpThresholdFactorFloor = thresholdFactorFloor
-            , tpThresholdFactorEdgeKalWeight = thresholdFactorEdgeKalWeight
-            , tpThresholdFactorEdgeLstmWeight = thresholdFactorEdgeLstmWeight
-            , tpThresholdFactorKalmanZWeight = thresholdFactorKalmanZWeight
-            , tpThresholdFactorHighVolWeight = thresholdFactorHighVolWeight
-            , tpThresholdFactorConformalWeight = thresholdFactorConformalWeight
-            , tpThresholdFactorQuantileWeight = thresholdFactorQuantileWeight
-            , tpThresholdFactorLstmConfWeight = thresholdFactorLstmConfWeight
-            , tpThresholdFactorLstmHealthWeight = thresholdFactorLstmHealthWeight
-            , tpEdgeBuffer = edgeBuffer'
-            , tpCostAwareEdge = costAwareEdge
-            , tpTrendLookback = trendLookback
-            , tpMaxPositionSize = maxPositionSize
-            , tpVolTarget = volTarget
-            , tpVolLookback = volLookback
-            , tpVolEwmaAlpha = volEwmaAlpha
-            , tpVolFloor = volFloor
-            , tpVolScaleMax = volScaleMax
-            , tpMaxVolatility = maxVolatility
-            , tpPeriodsPerYear = periodsPerYear
-            , tpKalmanMarketTopN = kalmanMarketTopN
-            , tpFee = fee
-            , tpFundingRate = fundingRate
-            , tpFundingBySide = fundingBySide
-            , tpFundingOnOpen = fundingOnOpen
-            , tpRebalanceBars = rebalanceBars
-            , tpRebalanceThreshold = rebalanceThreshold
-            , tpRebalanceCostMult = rebalanceCostMult
-            , tpRebalanceGlobal = rebalanceGlobal
-            , tpRebalanceResetOnSignal = rebalanceResetOnSignal
-            , tpEpochs = epochs
-            , tpHiddenSize = hiddenSize
-            , tpLearningRate = learningRate
-            , tpValRatio = valRatio
-            , tpPatience = patience
-            , tpWalkForwardFolds = walkForwardFolds
-            , tpWalkForwardEmbargoBars = walkForwardEmbargoBars
-            , tpTuneStressVolMult = tuneStressVolMult
-            , tpTuneStressShock = tuneStressShock
-            , tpTuneStressWeight = tuneStressWeight
-            , tpGradClip = gradClip
-            , tpSlippage = slippage
-            , tpSpread = spread
-            , tpIntrabarFill = intrabarFill
-            , tpTriLayer = triLayerEnabled
-            , tpTriLayerFastMult = triLayerFastMult
-            , tpTriLayerSlowMult = triLayerSlowMult
-            , tpTriLayerCloudPadding = triLayerCloudPadding
-            , tpTriLayerCloudSlope = triLayerCloudSlope
-            , tpTriLayerCloudWidth = triLayerCloudWidth
-            , tpTriLayerTouchLookback = triLayerTouchLookback
-            , tpTriLayerPriceAction = triLayerPriceAction
-            , tpTriLayerPriceActionBody = triLayerPriceActionBody
-            , tpTriLayerExitOnSlow = triLayerExitOnSlow
-            , tpKalmanBandLookback = kalmanBandLookback
-            , tpKalmanBandStdMult = kalmanBandStdMult
-            , tpLstmExitFlipBars = lstmExitFlipBars
-            , tpLstmExitFlipGraceBars = lstmExitFlipGraceBars
-            , tpLstmExitFlipStrong = lstmExitFlipStrongInput
-            , tpLstmConfidenceSoft = lstmConfidenceSoft
-            , tpLstmConfidenceHard = lstmConfidenceHard
-            , tpStopLoss = stopLoss
-            , tpTakeProfit = takeProfit
-            , tpTrailingStop = trailingStop
-            , tpStopLossVolMult = stopLossVolMult
-            , tpTakeProfitVolMult = takeProfitVolMult
-            , tpTrailingStopVolMult = trailingStopVolMult
-            , tpMaxDrawdown = maxDrawdown
-            , tpMaxDailyLoss = maxDailyLoss
-            , tpMaxOrderErrors = maxOrderErrors
-            , tpKalmanDt = kalmanDt
-            , tpKalmanProcessVar = kalmanProcessVar
-            , tpKalmanMeasurementVar = kalmanMeasurementVar
-            , tpKalmanZMin = kalmanZMin
-            , tpKalmanZMax = kalmanZMax
-            , tpMaxHighVolProb = maxHighVolProb
-            , tpMaxConformalWidth = maxConformalWidth
-            , tpMaxQuantileWidth = maxQuantileWidth
-            , tpConfirmConformal = confirmConformal
-            , tpConfirmQuantiles = confirmQuantiles
-            , tpConfidenceSizing = confidenceSizing
-            , tpMinPositionSize = minPositionSize
-            }
-        , rng74
-        )
-  where
-    ordered (a, b) = if a <= b then (a, b) else (b, a)
-    sampleBars rng =
-      let (r, rng') = nextDouble rng
-       in if r < clamp pAutoBars 0 1
-            then (0, rng')
-            else
-              if map toLower (trim barsDistribution) == "log"
-                then
-                  let lo = max 2 barsMin
-                      hi = max lo barsMax
-                      (val, rng'') = nextLogUniform (fromIntegral lo) (fromIntegral hi) rng'
-                   in (round val, rng'')
-                else nextIntRange barsMin barsMax rng'
-    chooseWeighted options rng =
-      case options of
-        [] -> ("", rng)
-        (firstOpt : _) ->
-          let weights = map (max 0 . snd) options
-              total = sum weights
-           in if total <= 0
-                then
-                  let (choice, rng') = nextChoice (map fst options) rng
-                   in (fromMaybe (fst firstOpt) choice, rng')
-                else
-                  let (r, rng') = nextDouble rng
-                      target = r * total
-                      pick acc ((name, w) : rest) =
-                        let acc' = acc + max 0 w
-                         in if target <= acc' then name else pick acc' rest
-                      pick _ [] = fst (last options)
-                   in (pick 0 options, rng')
+      where
+        ordered (a, b) = if a <= b then (a, b) else (b, a)
+        sampleBars rng =
+            let (r, rng') = nextDouble rng
+             in if r < clamp pAutoBars 0 1
+                    then (0, rng')
+                    else
+                        if map toLower (trim barsDistribution) == "log"
+                            then
+                                let lo = max 2 barsMin
+                                    hi = max lo barsMax
+                                    (val, rng'') = nextLogUniform (fromIntegral lo) (fromIntegral hi) rng'
+                                 in (round val, rng'')
+                            else nextIntRange barsMin barsMax rng'
+        chooseWeighted options rng =
+            case options of
+                [] -> ("", rng)
+                (firstOpt : _) ->
+                    let weights = map (max 0 . snd) options
+                        total = sum weights
+                     in if total <= 0
+                            then
+                                let (choice, rng') = nextChoice (map fst options) rng
+                                 in (fromMaybe (fst firstOpt) choice, rng')
+                            else
+                                let (r, rng') = nextDouble rng
+                                    target = r * total
+                                    pick acc ((name, w) : rest) =
+                                        let acc' = acc + max 0 w
+                                         in if target <= acc' then name else pick acc' rest
+                                    pick _ [] = fst (last options)
+                                 in (pick 0 options, rng')
 
 runOptimizer :: OptimizerArgs -> IO Int
 runOptimizer args0 = do
-  let args = if oaQuality args0 then applyQualityPreset args0 else args0
-  traderBin <- resolveTraderBin args
-  case traderBin of
-    Left err -> do
-      hPutStrLn stderr err
-      pure 2
-    Right traderBinPath -> do
-      intervalsIn <- resolveIntervals args
-      case intervalsIn of
+    let args = if oaQuality args0 then applyQualityPreset args0 else args0
+    traderBin <- resolveTraderBin args
+    case traderBin of
         Left err -> do
-          hPutStrLn stderr err
-          pure 2
-        Right intervalsRaw -> do
-          maxBarsCap <- resolveOptimizerMaxPoints
-          csvInfo <-
-            case oaData args of
-              Nothing -> pure (Nothing, maxBarsCap, Nothing)
-              Just raw -> do
-                p0 <- expandUser raw
-                exists <- doesFileExist p0
-                if not exists
-                  then do
-                    hPutStrLn stderr ("--data not found: " ++ p0)
-                    pure (Just (Left "missing"), 0, Nothing)
-                  else do
-                    p <- canonicalizePath p0
-                    let autoDetect = oaAutoHighLow args && null (oaHighColumn args) && null (oaLowColumn args)
-                    (highCol, lowCol) <-
-                      if autoDetect
-                        then do
-                          (h, l) <- detectHighLowColumns p
-                          case (h, l) of
-                            (Just hc, Just lc) -> do
-                              hPutStrLn stderr ("Auto-detected high/low columns: " ++ hc ++ "/" ++ lc)
-                              pure (Just hc, Just lc)
-                            _ -> pure (Nothing, Nothing)
-                        else pure (Nothing, Nothing)
-                    rows <- countCsvRows p
-                    let barsCap = max 2 (max 0 (rows - 1))
-                        cols =
-                          if autoDetect
-                            then (highCol, lowCol)
-                            else
-                              let hCol = trim (oaHighColumn args)
-                                  lCol = trim (oaLowColumn args)
-                               in (if null hCol then Nothing else Just hCol, if null lCol then Nothing else Just lCol)
-                    pure (Nothing, barsCap, Just (p, cols))
-          case csvInfo of
-            (Just (Left _), _, _) -> pure 2
-            (_, maxBarsCap, csvCols) -> do
-              let (platforms, platformIntervalsMap, intervalsResolved) =
-                    if oaBinanceSymbol args == Nothing
-                      then ([], [], Right (pickIntervals intervalsRaw (oaLookbackWindow args) maxBarsCap))
-                      else
-                        let rawPlatforms =
-                              case oaPlatform args of
-                                Just v | not (null (trim v)) -> v
-                                _ ->
-                                  case oaPlatforms args of
-                                    Just v | not (null (trim v)) -> v
-                                    _ -> "binance"
-                         in case parsePlatforms rawPlatforms of
-                              Left e -> ([], [], Left e)
-                              Right ps ->
-                                case resolvePlatformIntervals ps intervalsRaw (oaLookbackWindow args) maxBarsCap of
-                                  Left e -> ([], [], Left e)
-                                  Right platformIntervalsMap' ->
-                                    let allIntervals = sort (unique (concatMap snd platformIntervalsMap'))
-                                     in (ps, platformIntervalsMap', Right allIntervals)
-              case intervalsResolved of
+            hPutStrLn stderr err
+            pure 2
+        Right traderBinPath -> do
+            intervalsIn <- resolveIntervals args
+            case intervalsIn of
                 Left err -> do
-                  hPutStrLn stderr err
-                  pure 2
-                Right intervals ->
-                  if null intervals
-                    then do
-                      hPutStrLn stderr
-                        ( "No feasible intervals for lookback-window="
-                            ++ show (oaLookbackWindow args)
-                            ++ " and max bars="
-                            ++ show maxBarsCap
-                            ++ "."
-                        )
-                      pure 2
-                    else do
-                      let useSweepThreshold = not (oaNoSweepThreshold args)
-                      barsResult <- resolveBars args intervals maxBarsCap useSweepThreshold
-                      case barsResult of
-                        Left err -> do
-                          hPutStrLn stderr err
-                          pure 2
-                        Right (barsMin, barsMax) -> do
-                          let barsAutoProb = clamp (oaBarsAutoProb args) 0 1
-                              barsDistribution = map toLower (trim (oaBarsDistribution args))
-                              epochsMin = max 0 (oaEpochsMin args)
-                              epochsMax = max epochsMin (oaEpochsMax args)
-                              hiddenMin = max 1 (oaHiddenSizeMin args)
-                              hiddenMax = max hiddenMin (oaHiddenSizeMax args)
-                              lrMin = max 1e-9 (oaLrMin args)
-                              lrMax = max lrMin (oaLrMax args)
-                              valMin = clamp (oaValRatioMin args) 0 0.9
-                              valMax = max valMin (oaValRatioMax args)
-                              patienceMax = max 0 (oaPatienceMax args)
-                              gradClipMin = max 1e-9 (oaGradClipMin args)
-                              gradClipMax = max gradClipMin (oaGradClipMax args)
-                              walkForwardFoldsMin = max 1 (oaWalkForwardFoldsMin args)
-                              walkForwardFoldsMax = max walkForwardFoldsMin (oaWalkForwardFoldsMax args)
-                              walkForwardEmbargoBarsMin = max 0 (oaWalkForwardEmbargoBarsMin args)
-                              walkForwardEmbargoBarsMax = max walkForwardEmbargoBarsMin (oaWalkForwardEmbargoBarsMax args)
-                              walkForwardEmbargoBarsRange = (walkForwardEmbargoBarsMin, walkForwardEmbargoBarsMax)
-                              tuneStressVolMultBase = max 1e-12 (oaTuneStressVolMult args)
-                              tuneStressShockBase = oaTuneStressShock args
-                              tuneStressWeightBase = max 0 (oaTuneStressWeight args)
-                              (tuneStressVolMultRange, tuneStressShockRange, tuneStressWeightRange) =
-                                resolveStressRanges
-                                  tuneStressVolMultBase
-                                  tuneStressShockBase
-                                  tuneStressWeightBase
-                                  (oaTuneStressVolMultMin args, oaTuneStressVolMultMax args)
-                                  (oaTuneStressShockMin args, oaTuneStressShockMax args)
-                                  (oaTuneStressWeightMin args, oaTuneStressWeightMax args)
-                              stopRange = (oaStopMin args, oaStopMax args)
-                              takeRange = (oaTpMin args, oaTpMax args)
-                              trailRange = (oaTrailMin args, oaTrailMax args)
-                              stopVolMultRange = (max 0 (oaStopVolMultMin args), max 0 (oaStopVolMultMax args))
-                              takeVolMultRange = (max 0 (oaTpVolMultMin args), max 0 (oaTpVolMultMax args))
-                              trailVolMultRange = (max 0 (oaTrailVolMultMin args), max 0 (oaTrailVolMultMax args))
-                              feeMin = max 0 (oaFeeMin args)
-                              feeMax = max feeMin (oaFeeMax args)
-                              fundingRateMin = oaFundingRateMin args
-                              fundingRateMax = oaFundingRateMax args
-                              fundingRateRange = (fundingRateMin, fundingRateMax)
-                              pFundingBySide = clamp (oaPFundingBySide args) 0 1
-                              pFundingOnOpen = clamp (oaPFundingOnOpen args) 0 1
-                              rebalanceBarsMin = max 0 (oaRebalanceBarsMin args)
-                              rebalanceBarsMax = max rebalanceBarsMin (oaRebalanceBarsMax args)
-                              rebalanceBarsRange = (rebalanceBarsMin, rebalanceBarsMax)
-                              rebalanceThresholdMin = max 0 (oaRebalanceThresholdMin args)
-                              rebalanceThresholdMax = max rebalanceThresholdMin (oaRebalanceThresholdMax args)
-                              rebalanceThresholdRange = (rebalanceThresholdMin, rebalanceThresholdMax)
-                              rebalanceCostMultMin = max 0 (oaRebalanceCostMultMin args)
-                              rebalanceCostMultMax = max rebalanceCostMultMin (oaRebalanceCostMultMax args)
-                              rebalanceCostMultRange = (rebalanceCostMultMin, rebalanceCostMultMax)
-                              pRebalanceGlobal = clamp (oaPRebalanceGlobal args) 0 1
-                              pRebalanceResetOnSignal = clamp (oaPRebalanceResetOnSignal args) 0 1
-                              openThresholdMin = max 1e-12 (oaOpenThresholdMin args)
-                              openThresholdMax = max openThresholdMin (oaOpenThresholdMax args)
-                              closeThresholdMin = max 1e-12 (oaCloseThresholdMin args)
-                              closeThresholdMax = max closeThresholdMin (oaCloseThresholdMax args)
-                              minHoldMin = max 0 (oaMinHoldBarsMin args)
-                              minHoldMax = max minHoldMin (oaMinHoldBarsMax args)
-                              cooldownMin = max 0 (oaCooldownBarsMin args)
-                              cooldownMax = max cooldownMin (oaCooldownBarsMax args)
-                              maxHoldMin = max 0 (oaMaxHoldBarsMin args)
-                              maxHoldMax = max maxHoldMin (oaMaxHoldBarsMax args)
-                              minEdgeMin = max 0 (oaMinEdgeMin args)
-                              minEdgeMax = max minEdgeMin (oaMinEdgeMax args)
-                              minSnMin = max 0 (oaMinSignalToNoiseMin args)
-                              minSnMax = max minSnMin (oaMinSignalToNoiseMax args)
-                              snrSizeWeightMin = clamp (oaSnrSizeWeightMin args) 0 1
-                              snrSizeWeightMax = clamp (oaSnrSizeWeightMax args) 0 1
-                              snrSizeWeightRange = (snrSizeWeightMin, snrSizeWeightMax)
-                              pThresholdFactor = clamp (oaPThresholdFactor args) 0 1
-                              thresholdFactorAlphaMin = clamp (oaThresholdFactorAlphaMin args) 0 1
-                              thresholdFactorAlphaMax = clamp (oaThresholdFactorAlphaMax args) 0 1
-                              thresholdFactorAlphaRange = (thresholdFactorAlphaMin, thresholdFactorAlphaMax)
-                              thresholdFactorMinMin = max 0 (oaThresholdFactorMinMin args)
-                              thresholdFactorMinMax = max thresholdFactorMinMin (oaThresholdFactorMinMax args)
-                              thresholdFactorMinRange = (thresholdFactorMinMin, thresholdFactorMinMax)
-                              thresholdFactorMaxMin = max 0 (oaThresholdFactorMaxMin args)
-                              thresholdFactorMaxMax = max thresholdFactorMaxMin (oaThresholdFactorMaxMax args)
-                              thresholdFactorMaxRange = (thresholdFactorMaxMin, thresholdFactorMaxMax)
-                              thresholdFactorFloorMin = max 0 (oaThresholdFactorFloorMin args)
-                              thresholdFactorFloorMax = max thresholdFactorFloorMin (oaThresholdFactorFloorMax args)
-                              thresholdFactorFloorRange = (thresholdFactorFloorMin, thresholdFactorFloorMax)
-                              thresholdFactorWeightRange = (oaThresholdFactorWeightMin args, oaThresholdFactorWeightMax args)
-                              edgeBufferMin = max 0 (oaEdgeBufferMin args)
-                              edgeBufferMax = max edgeBufferMin (oaEdgeBufferMax args)
-                              trendLookbackMin = max 0 (oaTrendLookbackMin args)
-                              trendLookbackMax = max trendLookbackMin (oaTrendLookbackMax args)
-                              pLongShort = clamp (oaPLongShort args) 0 1
-                              pIntrabarTakeProfitFirst = clamp (oaPIntrabarTakeProfitFirst args) 0 1
-                              pTriLayer = clamp (oaPTriLayer args) 0 1
-                              triLayerFastMin = max 1e-6 (oaTriLayerFastMultMin args)
-                              triLayerFastMax = max triLayerFastMin (oaTriLayerFastMultMax args)
-                              triLayerFastRange = (triLayerFastMin, triLayerFastMax)
-                              triLayerSlowMin = max 1e-6 (oaTriLayerSlowMultMin args)
-                              triLayerSlowMax = max triLayerSlowMin (oaTriLayerSlowMultMax args)
-                              triLayerSlowRange = (triLayerSlowMin, triLayerSlowMax)
-                              pTriLayerPriceAction = clamp (oaPTriLayerPriceAction args) 0 1
-                              triLayerCloudPaddingMin = max 0 (oaTriLayerCloudPaddingMin args)
-                              triLayerCloudPaddingMax = max triLayerCloudPaddingMin (oaTriLayerCloudPaddingMax args)
-                              triLayerCloudPaddingRange = (triLayerCloudPaddingMin, triLayerCloudPaddingMax)
-                              triLayerCloudSlopeMin = max 0 (oaTriLayerCloudSlopeMin args)
-                              triLayerCloudSlopeMax = max triLayerCloudSlopeMin (oaTriLayerCloudSlopeMax args)
-                              triLayerCloudSlopeRange = (triLayerCloudSlopeMin, triLayerCloudSlopeMax)
-                              triLayerCloudWidthMin = max 0 (oaTriLayerCloudWidthMin args)
-                              triLayerCloudWidthMax = max triLayerCloudWidthMin (oaTriLayerCloudWidthMax args)
-                              triLayerCloudWidthRange = (triLayerCloudWidthMin, triLayerCloudWidthMax)
-                              triLayerTouchLookbackMin = max 1 (oaTriLayerTouchLookbackMin args)
-                              triLayerTouchLookbackMax = max triLayerTouchLookbackMin (oaTriLayerTouchLookbackMax args)
-                              triLayerTouchLookbackRange = (triLayerTouchLookbackMin, triLayerTouchLookbackMax)
-                              triLayerPriceActionBodyMin = max 0 (oaTriLayerPriceActionBodyMin args)
-                              triLayerPriceActionBodyMax = max triLayerPriceActionBodyMin (oaTriLayerPriceActionBodyMax args)
-                              triLayerPriceActionBodyRange = (triLayerPriceActionBodyMin, triLayerPriceActionBodyMax)
-                              kalmanBandLookbackMin = max 0 (oaKalmanBandLookbackMin args)
-                              kalmanBandLookbackMax = max kalmanBandLookbackMin (oaKalmanBandLookbackMax args)
-                              kalmanBandLookbackRange = (kalmanBandLookbackMin, kalmanBandLookbackMax)
-                              kalmanBandStdMultMin = max 0 (oaKalmanBandStdMultMin args)
-                              kalmanBandStdMultMax = max kalmanBandStdMultMin (oaKalmanBandStdMultMax args)
-                              kalmanBandStdMultRange = (kalmanBandStdMultMin, kalmanBandStdMultMax)
-                              lstmExitFlipBarsMin = max 0 (oaLstmExitFlipBarsMin args)
-                              lstmExitFlipBarsMax = max lstmExitFlipBarsMin (oaLstmExitFlipBarsMax args)
-                              lstmExitFlipBarsRange = (lstmExitFlipBarsMin, lstmExitFlipBarsMax)
-                              lstmExitFlipGraceBarsMin = max 0 (oaLstmExitFlipGraceBarsMin args)
-                              lstmExitFlipGraceBarsMax = max lstmExitFlipGraceBarsMin (oaLstmExitFlipGraceBarsMax args)
-                              lstmExitFlipGraceBarsRange = (lstmExitFlipGraceBarsMin, lstmExitFlipGraceBarsMax)
-                              lstmConfidenceSoftMin = max 0 (oaLstmConfidenceSoftMin args)
-                              lstmConfidenceSoftMax = max lstmConfidenceSoftMin (oaLstmConfidenceSoftMax args)
-                              lstmConfidenceSoftRange = (lstmConfidenceSoftMin, lstmConfidenceSoftMax)
-                              lstmConfidenceHardMin = max 0 (oaLstmConfidenceHardMin args)
-                              lstmConfidenceHardMax = max lstmConfidenceHardMin (oaLstmConfidenceHardMax args)
-                              lstmConfidenceHardRange = (lstmConfidenceHardMin, lstmConfidenceHardMax)
-                              kalmanDtMin = max 1e-12 (oaKalmanDtMin args)
-                              kalmanDtMax = max kalmanDtMin (oaKalmanDtMax args)
-                              kalmanProcessVarMin = max 1e-12 (oaKalmanProcessVarMin args)
-                              kalmanProcessVarMax = max kalmanProcessVarMin (oaKalmanProcessVarMax args)
-                              kalmanMeasurementVarMin = max 1e-12 (oaKalmanMeasurementVarMin args)
-                              kalmanMeasurementVarMax = max kalmanMeasurementVarMin (oaKalmanMeasurementVarMax args)
-                              kalmanZMinMin = max 0 (oaKalmanZMinMin args)
-                              kalmanZMinMax = max kalmanZMinMin (oaKalmanZMinMax args)
-                              kalmanZMaxMin = max 0 (oaKalmanZMaxMin args)
-                              kalmanZMaxMax = max kalmanZMaxMin (oaKalmanZMaxMax args)
-                              kalmanMarketTopNMin = max 0 (oaKalmanMarketTopNMin args)
-                              kalmanMarketTopNMax = max kalmanMarketTopNMin (oaKalmanMarketTopNMax args)
-                              pDisableMaxHighVolProb = clamp (oaPDisableMaxHighVolProb args) 0 1
-                              maxHighVolProbRange = (oaMaxHighVolProbMin args, oaMaxHighVolProbMax args)
-                              pDisableMaxConformalWidth = clamp (oaPDisableMaxConformalWidth args) 0 1
-                              maxConformalWidthRange = (oaMaxConformalWidthMin args, oaMaxConformalWidthMax args)
-                              pDisableMaxQuantileWidth = clamp (oaPDisableMaxQuantileWidth args) 0 1
-                              maxQuantileWidthRange = (oaMaxQuantileWidthMin args, oaMaxQuantileWidthMax args)
-                              pConfirmConformal = clamp (oaPConfirmConformal args) 0 1
-                              pConfirmQuantiles = clamp (oaPConfirmQuantiles args) 0 1
-                              pConfidenceSizing = clamp (oaPConfidenceSizing args) 0 1
-                              minPositionSizeRange = (oaMinPositionSizeMin args, oaMinPositionSizeMax args)
-                              maxPositionSizeMin = max 0 (oaMaxPositionSizeMin args)
-                              maxPositionSizeMax = max maxPositionSizeMin (oaMaxPositionSizeMax args)
-                              maxPositionSizeRange = (maxPositionSizeMin, maxPositionSizeMax)
-                              volTargetMin = max 0 (oaVolTargetMin args)
-                              volTargetMax = max volTargetMin (oaVolTargetMax args)
-                              volTargetRange = (volTargetMin, volTargetMax)
-                              pDisableVolTarget = clamp (oaPDisableVolTarget args) 0 1
-                              volLookbackMin = max 0 (oaVolLookbackMin args)
-                              volLookbackMax = max volLookbackMin (oaVolLookbackMax args)
-                              volLookbackRange = (volLookbackMin, volLookbackMax)
-                              volEwmaAlphaMin = max 0 (oaVolEwmaAlphaMin args)
-                              volEwmaAlphaMax = max volEwmaAlphaMin (oaVolEwmaAlphaMax args)
-                              volEwmaAlphaRange = (volEwmaAlphaMin, volEwmaAlphaMax)
-                              pDisableVolEwmaAlpha = clamp (oaPDisableVolEwmaAlpha args) 0 1
-                              volFloorMin = max 0 (oaVolFloorMin args)
-                              volFloorMax = max volFloorMin (oaVolFloorMax args)
-                              volFloorRange = (volFloorMin, volFloorMax)
-                              volScaleMaxMin = max 0 (oaVolScaleMaxMin args)
-                              volScaleMaxMax = max volScaleMaxMin (oaVolScaleMaxMax args)
-                              volScaleMaxRange = (volScaleMaxMin, volScaleMaxMax)
-                              maxVolatilityMin = max 0 (oaMaxVolatilityMin args)
-                              maxVolatilityMax = max maxVolatilityMin (oaMaxVolatilityMax args)
-                              maxVolatilityRange = (maxVolatilityMin, maxVolatilityMax)
-                              pDisableMaxVolatility = clamp (oaPDisableMaxVolatility args) 0 1
-                              periodsPerYearMin = max 0 (oaPeriodsPerYearMin args)
-                              periodsPerYearMax = max periodsPerYearMin (oaPeriodsPerYearMax args)
-                              periodsPerYearRange = (periodsPerYearMin, periodsPerYearMax)
-                              methodWeights =
-                                ( oaMethodWeight11 args
-                                , oaMethodWeight10 args
-                                , oaMethodWeight01 args
-                                , oaMethodWeightBlend args
-                                )
-                              blendWeightRange =
-                                let lo = clamp (oaBlendWeightMin args) 0 1
-                                    hi = clamp (oaBlendWeightMax args) 0 1
-                                 in (lo, hi)
-                              routerScorePnlWeightRange =
-                                let lo = clamp (oaRouterScorePnlWeightMin args) 0 1
-                                    hi = clamp (oaRouterScorePnlWeightMax args) 0 1
-                                 in (lo, hi)
-                              normalizationChoices =
-                                [trim s | s <- splitCsv (oaNormalizations args), not (null (trim s))]
-                          if null normalizationChoices
-                            then do
-                              hPutStrLn stderr "No normalizations provided."
-                              pure 2
-                            else do
-                              baseArgsResult <- buildBaseArgs args csvCols
-                              case baseArgsResult of
+                    hPutStrLn stderr err
+                    pure 2
+                Right intervalsRaw -> do
+                    maxBarsCap <- resolveOptimizerMaxPoints
+                    csvInfo <-
+                        case oaData args of
+                            Nothing -> pure (Nothing, maxBarsCap, Nothing)
+                            Just raw -> do
+                                p0 <- expandUser raw
+                                exists <- doesFileExist p0
+                                if not exists
+                                    then do
+                                        hPutStrLn stderr ("--data not found: " ++ p0)
+                                        pure (Just (Left "missing"), 0, Nothing)
+                                    else do
+                                        p <- canonicalizePath p0
+                                        let autoDetect = oaAutoHighLow args && null (oaHighColumn args) && null (oaLowColumn args)
+                                        (highCol, lowCol) <-
+                                            if autoDetect
+                                                then do
+                                                    (h, l) <- detectHighLowColumns p
+                                                    case (h, l) of
+                                                        (Just hc, Just lc) -> do
+                                                            hPutStrLn stderr ("Auto-detected high/low columns: " ++ hc ++ "/" ++ lc)
+                                                            pure (Just hc, Just lc)
+                                                        _ -> pure (Nothing, Nothing)
+                                                else pure (Nothing, Nothing)
+                                        rows <- countCsvRows p
+                                        let barsCap = max 2 (max 0 (rows - 1))
+                                            cols =
+                                                if autoDetect
+                                                    then (highCol, lowCol)
+                                                    else
+                                                        let hCol = trim (oaHighColumn args)
+                                                            lCol = trim (oaLowColumn args)
+                                                         in (if null hCol then Nothing else Just hCol, if null lCol then Nothing else Just lCol)
+                                        pure (Nothing, barsCap, Just (p, cols))
+                    case csvInfo of
+                        (Just (Left _), _, _) -> pure 2
+                        (_, maxBarsCap, csvCols) -> do
+                            let (platforms, platformIntervalsMap, intervalsResolved) =
+                                    if oaBinanceSymbol args == Nothing
+                                        then ([], [], Right (pickIntervals intervalsRaw (oaLookbackWindow args) maxBarsCap))
+                                        else
+                                            let rawPlatforms =
+                                                    case oaPlatform args of
+                                                        Just v | not (null (trim v)) -> v
+                                                        _ ->
+                                                            case oaPlatforms args of
+                                                                Just v | not (null (trim v)) -> v
+                                                                _ -> "binance"
+                                             in case parsePlatforms rawPlatforms of
+                                                    Left e -> ([], [], Left e)
+                                                    Right ps ->
+                                                        case resolvePlatformIntervals ps intervalsRaw (oaLookbackWindow args) maxBarsCap of
+                                                            Left e -> ([], [], Left e)
+                                                            Right platformIntervalsMap' ->
+                                                                let allIntervals = sort (unique (concatMap snd platformIntervalsMap'))
+                                                                 in (ps, platformIntervalsMap', Right allIntervals)
+                            case intervalsResolved of
                                 Left err -> do
-                                  hPutStrLn stderr err
-                                  pure 2
-                                Right baseArgs -> do
-                                  let rngStart = seedRng (oaSeed args)
-                                      dataSource = if oaData args == Nothing then "binance" else "csv"
-                                      sourceOverride = map toLower (trim (oaSourceLabel args))
-                                      symbolLabel = normalizeSymbol (Just (oaSymbolLabel args))
-                                      symbolFallback = normalizeSymbol (oaBinanceSymbol args)
-                                      symbolFromData =
-                                        case oaData args of
-                                          Just path -> normalizeSymbol (Just (takeBaseName path))
-                                          Nothing -> Nothing
-                                      symbolFinal =
-                                        case symbolLabel of
-                                          Just _ -> symbolLabel
-                                          Nothing ->
-                                            case symbolFallback of
-                                              Just _ -> symbolFallback
-                                              Nothing -> symbolFromData
-                                      trials = max 1 (oaTrials args)
-                                      seedTrialsOverride = oaSeedTrials args
-                                      seedRatioOverride = oaSeedRatio args
-                                      survivorFraction = clamp (oaSurvivorFraction args) 0 1
-                                      perturbScaleDouble = max 0 (oaPerturbScaleDouble args)
-                                      perturbScaleInt = max 0 (oaPerturbScaleInt args)
-                                      earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
-                                      minRoundTrips = max 0 (oaMinRoundTrips args)
-                                      minWinRate = max 0 (oaMinWinRate args)
-                                      minProfitFactor = max 0 (oaMinProfitFactor args)
-                                      minExposure = max 0 (oaMinExposure args)
-                                      minSharpe = max 0 (oaMinSharpe args)
-                                      minAnnualizedReturn = max 0 (oaMinAnnualizedReturn args)
-                                      minCalmar = max 0 (oaMinCalmar args)
-                                      maxTurnover = max 0 (oaMaxTurnover args)
-                                      minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
-                                      maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
-                                  outHandle <-
-                                    if null (trim (oaOutput args))
-                                      then pure Nothing
-                                      else do
-                                        p <- expandUser (oaOutput args)
-                                        createDirectoryIfMissing True (takeDirectory p)
-                                        h <- openFile p (if oaAppend args then AppendMode else WriteMode)
-                                        hSetEncoding h utf8
-                                        pure (Just h)
-                                  let techniqueSummaryBase =
-                                        emptyTechniqueSummary {otsAppliedWalkForward = walkForwardFoldsMax > 1 || walkForwardFoldsMin > 1}
-                                      seedTrialsDefault = max 1 (min trials (max 3 (trials `div` 2)))
-                                      seedTrials =
-                                        case seedTrialsOverride of
-                                          Just n -> max 0 (min trials n)
-                                          Nothing ->
-                                            case seedRatioOverride of
-                                              Just r ->
-                                                let ratio = clamp r 0 1
-                                                    count = floor (fromIntegral trials * ratio)
-                                                 in max 0 (min trials count)
-                                              Nothing -> seedTrialsDefault
-                                      survivorCount =
-                                        if seedTrials <= 0
-                                          then 0
-                                          else max 1 (floor (fromIntegral seedTrials * survivorFraction))
-                                      sobolRngs = map seedRng (sobolSeeds (oaSeed args) seedTrials)
-                                      remainingTrials = max 0 (trials - seedTrials)
-                                      exploitationRngs = map (\i -> seedRng (oaSeed args + 10000 + i)) [1 .. remainingTrials]
-                                      sampleParamsWithRng rng =
-                                        sampleParams
-                                          rng
-                                          platforms
-                                          platformIntervalsMap
-                                          intervals
-                                          barsAutoProb
-                                          barsMin
-                                          barsMax
-                                          barsDistribution
-                                          openThresholdMin
-                                          openThresholdMax
-                                          closeThresholdMin
-                                          closeThresholdMax
-                                          (minHoldMin, minHoldMax)
-                                          (cooldownMin, cooldownMax)
-                                          (maxHoldMin, maxHoldMax)
-                                          (minEdgeMin, minEdgeMax)
-                                          (minSnMin, minSnMax)
-                                          snrSizeWeightRange
-                                          pThresholdFactor
-                                          thresholdFactorAlphaRange
-                                          thresholdFactorMinRange
-                                          thresholdFactorMaxRange
-                                          thresholdFactorFloorRange
-                                          thresholdFactorWeightRange
-                                          (edgeBufferMin, edgeBufferMax)
-                                          (trendLookbackMin, trendLookbackMax)
-                                          maxPositionSizeRange
-                                          volTargetRange
-                                          volLookbackRange
-                                          volEwmaAlphaRange
-                                          pDisableVolEwmaAlpha
-                                          volFloorRange
-                                          volScaleMaxRange
-                                          maxVolatilityRange
-                                          periodsPerYearRange
-                                          (kalmanMarketTopNMin, kalmanMarketTopNMax)
-                                          (oaPCostAwareEdge args)
-                                          feeMin
-                                          feeMax
-                                          fundingRateRange
-                                          pFundingBySide
-                                          pFundingOnOpen
-                                          rebalanceBarsRange
-                                          rebalanceThresholdRange
-                                          rebalanceCostMultRange
-                                          pRebalanceGlobal
-                                          pRebalanceResetOnSignal
-                                          pLongShort
-                                          pIntrabarTakeProfitFirst
-                                          pTriLayer
-                                          triLayerFastRange
-                                          triLayerSlowRange
-                                          pTriLayerPriceAction
-                                          triLayerCloudPaddingRange
-                                          triLayerCloudSlopeRange
-                                          triLayerCloudWidthRange
-                                          triLayerTouchLookbackRange
-                                          triLayerPriceActionBodyRange
-                                          (oaTriLayerExitOnSlow args)
-                                          (oaKalmanBandLookbackMin args, oaKalmanBandLookbackMax args)
-                                          (oaKalmanBandStdMultMin args, oaKalmanBandStdMultMax args)
-                                          lstmExitFlipBarsRange
-                                          lstmExitFlipGraceBarsRange
-                                          (oaLstmExitFlipStrong args)
-                                          lstmConfidenceSoftRange
-                                          lstmConfidenceHardRange
-                                          epochsMin
-                                          epochsMax
-                                          hiddenMin
-                                          hiddenMax
-                                          lrMin
-                                          lrMax
-                                          valMin
-                                          valMax
-                                          patienceMax
-                                          (walkForwardFoldsMin, walkForwardFoldsMax)
-                                          walkForwardEmbargoBarsRange
-                                          tuneStressVolMultRange
-                                          tuneStressShockRange
-                                          tuneStressWeightRange
-                                          gradClipMin
-                                          gradClipMax
-                                          (oaSlippageMax args)
-                                          (oaSpreadMax args)
-                                          kalmanDtMin
-                                          kalmanDtMax
-                                          kalmanProcessVarMin
-                                          kalmanProcessVarMax
-                                          kalmanMeasurementVarMin
-                                          kalmanMeasurementVarMax
-                                          kalmanZMinMin
-                                          kalmanZMinMax
-                                          kalmanZMaxMin
-                                          kalmanZMaxMax
-                                          pDisableMaxHighVolProb
-                                          maxHighVolProbRange
-                                          pDisableMaxConformalWidth
-                                          maxConformalWidthRange
-                                          pDisableMaxQuantileWidth
-                                          maxQuantileWidthRange
-                                          pConfirmConformal
-                                          pConfirmQuantiles
-                                          pConfidenceSizing
-                                          minPositionSizeRange
-                                          stopRange
-                                          takeRange
-                                          trailRange
-                                          stopVolMultRange
-                                          takeVolMultRange
-                                          trailVolMultRange
-                                          methodWeights
-                                          normalizationChoices
-                                          blendWeightRange
-                                          routerScorePnlWeightRange
-                                          (clamp (oaPDisableStop args) 0 1)
-                                          (clamp (oaPDisableTp args) 0 1)
-                                          (clamp (oaPDisableTrail args) 0 1)
-                                          (clamp (oaPDisableStopVolMult args) 0 1)
-                                          (clamp (oaPDisableTpVolMult args) 0 1)
-                                          (clamp (oaPDisableTrailVolMult args) 0 1)
-                                          (clamp (oaPDisableMaxDd args) 0 1)
-                                          (clamp (oaPDisableMaxDl args) 0 1)
-                                          (clamp (oaPDisableMaxOe args) 0 1)
-                                          (clamp (oaPDisableGradClip args) 0 1)
-                                          pDisableVolTarget
-                                          pDisableMaxVolatility
-                                          (oaMaxDdMin args, oaMaxDdMax args)
-                                          (oaMaxDlMin args, oaMaxDlMax args)
-                                          (oaMaxOeMin args, oaMaxOeMax args)
-                                      runTrialWith idx rng mBase mParents best recordsRev = do
-                                        let (params, _) =
-                                              case mBase of
-                                                Nothing -> sampleParamsWithRng rng
-                                                Just base ->
-                                                  case mParents of
-                                                    Just parents | length parents >= 2 ->
-                                                      let ((p1, p2), rng1) = pickParentPair parents rng
-                                                          (child, rng2) = crossoverTrialParams p1 p2 rng1
-                                                       in perturbTrialParams perturbScaleDouble perturbScaleInt child rng2
-                                                    _ -> perturbTrialParams perturbScaleDouble perturbScaleInt base rng
-                                        tr0 <-
-                                          runTrial
-                                            traderBinPath
-                                            baseArgs
-                                            params
-                                            (oaTuneRatio args)
-                                            useSweepThreshold
-                                            (oaTimeoutSec args)
-                                            (oaDisableLstmPersistence args)
-                                        let objective = oaObjective args
-                                            (eligible, filterReason, score) =
-                                              case (trOk tr0, trFinalEquity tr0, trMetrics tr0) of
-                                                (True, Just _, Just metrics) ->
-                                                  let rts = metricInt (trMetrics tr0) "roundTrips" 0
-                                                   in if minRoundTrips > 0 && rts < minRoundTrips
-                                                        then (False, Just ("roundTrips<" ++ show minRoundTrips), Nothing)
-                                                        else
-                                                          let winRate = metricFloat (trMetrics tr0) "winRate" 0
-                                                           in if minWinRate > 0 && winRate < minWinRate
-                                                                then (False, Just (printf "winRate<%.3f" minWinRate), Nothing)
-                                                                else
-                                                                  let profitFactor = metricProfitFactor (trMetrics tr0)
-                                                                      pfOk =
-                                                                        case profitFactor of
-                                                                          Nothing -> True
-                                                                          Just pf -> pf >= minProfitFactor
-                                                                   in if minProfitFactor > 0 && not pfOk
-                                                                        then (False, Just (printf "profitFactor<%.3f" minProfitFactor), Nothing)
-                                                                        else
-                                                                          let exposure = metricFloat (trMetrics tr0) "exposure" 0
-                                                                           in if minExposure > 0 && exposure < minExposure
-                                                                                then (False, Just (printf "exposure<%.3f" minExposure), Nothing)
-                                                                                else
-                                                                                  let sharpe = metricFloat (trMetrics tr0) "sharpe" 0
-                                                                                   in if minSharpe > 0 && sharpe < minSharpe
-                                                                                        then (False, Just (printf "sharpe<%.3f" minSharpe), Nothing)
-                                                                                        else
-                                                                                          let annRet = metricFloat (trMetrics tr0) "annualizedReturn" 0
-                                                                                              maxDd = metricFloat (trMetrics tr0) "maxDrawdown" 0
-                                                                                              calmar = annRet / max 1e-12 maxDd
-                                                                                           in if minAnnualizedReturn > 0 && annRet < minAnnualizedReturn
-                                                                                                then (False, Just (printf "annualizedReturn<%.3f" minAnnualizedReturn), Nothing)
-                                                                                                else if minCalmar > 0 && calmar < minCalmar
-                                                                                                  then (False, Just (printf "calmar<%.3f" minCalmar), Nothing)
-                                                                                                  else
-                                                                                                    let turnover = metricFloat (trMetrics tr0) "turnover" 0
-                                                                                                     in if maxTurnover > 0 && turnover > maxTurnover
-                                                                                                          then (False, Just (printf "turnover>%.3f" maxTurnover), Nothing)
-                                                                                                          else
-                                                                                                            if minWfSharpeMean > 0 || maxWfSharpeStd > 0
-                                                                                                              then
-                                                                                                                case extractWalkForwardSummary (trStdoutJson tr0) of
-                                                                                                                  Nothing -> (False, Just "walkForwardMissing", Nothing)
-                                                                                                                  Just wfSummary ->
-                                                                                                                    let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
-                                                                                                                        wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
-                                                                                                                     in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
-                                                                                                                          then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
-                                                                                                                          else if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
-                                                                                                                            then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
+                                    hPutStrLn stderr err
+                                    pure 2
+                                Right intervals ->
+                                    if null intervals
+                                        then do
+                                            hPutStrLn
+                                                stderr
+                                                ( "No feasible intervals for lookback-window="
+                                                    ++ show (oaLookbackWindow args)
+                                                    ++ " and max bars="
+                                                    ++ show maxBarsCap
+                                                    ++ "."
+                                                )
+                                            pure 2
+                                        else do
+                                            let useSweepThreshold = not (oaNoSweepThreshold args)
+                                            barsResult <- resolveBars args intervals maxBarsCap useSweepThreshold
+                                            case barsResult of
+                                                Left err -> do
+                                                    hPutStrLn stderr err
+                                                    pure 2
+                                                Right (barsMin, barsMax) -> do
+                                                    let barsAutoProb = clamp (oaBarsAutoProb args) 0 1
+                                                        barsDistribution = map toLower (trim (oaBarsDistribution args))
+                                                        epochsMin = max 0 (oaEpochsMin args)
+                                                        epochsMax = max epochsMin (oaEpochsMax args)
+                                                        hiddenMin = max 1 (oaHiddenSizeMin args)
+                                                        hiddenMax = max hiddenMin (oaHiddenSizeMax args)
+                                                        lrMin = max 1e-9 (oaLrMin args)
+                                                        lrMax = max lrMin (oaLrMax args)
+                                                        valMin = clamp (oaValRatioMin args) 0 0.9
+                                                        valMax = max valMin (oaValRatioMax args)
+                                                        patienceMax = max 0 (oaPatienceMax args)
+                                                        gradClipMin = max 1e-9 (oaGradClipMin args)
+                                                        gradClipMax = max gradClipMin (oaGradClipMax args)
+                                                        walkForwardFoldsMin = max 1 (oaWalkForwardFoldsMin args)
+                                                        walkForwardFoldsMax = max walkForwardFoldsMin (oaWalkForwardFoldsMax args)
+                                                        walkForwardEmbargoBarsMin = max 0 (oaWalkForwardEmbargoBarsMin args)
+                                                        walkForwardEmbargoBarsMax = max walkForwardEmbargoBarsMin (oaWalkForwardEmbargoBarsMax args)
+                                                        walkForwardEmbargoBarsRange = (walkForwardEmbargoBarsMin, walkForwardEmbargoBarsMax)
+                                                        tuneStressVolMultBase = max 1e-12 (oaTuneStressVolMult args)
+                                                        tuneStressShockBase = oaTuneStressShock args
+                                                        tuneStressWeightBase = max 0 (oaTuneStressWeight args)
+                                                        (tuneStressVolMultRange, tuneStressShockRange, tuneStressWeightRange) =
+                                                            resolveStressRanges
+                                                                tuneStressVolMultBase
+                                                                tuneStressShockBase
+                                                                tuneStressWeightBase
+                                                                (oaTuneStressVolMultMin args, oaTuneStressVolMultMax args)
+                                                                (oaTuneStressShockMin args, oaTuneStressShockMax args)
+                                                                (oaTuneStressWeightMin args, oaTuneStressWeightMax args)
+                                                        stopRange = (oaStopMin args, oaStopMax args)
+                                                        takeRange = (oaTpMin args, oaTpMax args)
+                                                        trailRange = (oaTrailMin args, oaTrailMax args)
+                                                        stopVolMultRange = (max 0 (oaStopVolMultMin args), max 0 (oaStopVolMultMax args))
+                                                        takeVolMultRange = (max 0 (oaTpVolMultMin args), max 0 (oaTpVolMultMax args))
+                                                        trailVolMultRange = (max 0 (oaTrailVolMultMin args), max 0 (oaTrailVolMultMax args))
+                                                        feeMin = max 0 (oaFeeMin args)
+                                                        feeMax = max feeMin (oaFeeMax args)
+                                                        fundingRateMin = oaFundingRateMin args
+                                                        fundingRateMax = oaFundingRateMax args
+                                                        fundingRateRange = (fundingRateMin, fundingRateMax)
+                                                        pFundingBySide = clamp (oaPFundingBySide args) 0 1
+                                                        pFundingOnOpen = clamp (oaPFundingOnOpen args) 0 1
+                                                        rebalanceBarsMin = max 0 (oaRebalanceBarsMin args)
+                                                        rebalanceBarsMax = max rebalanceBarsMin (oaRebalanceBarsMax args)
+                                                        rebalanceBarsRange = (rebalanceBarsMin, rebalanceBarsMax)
+                                                        rebalanceThresholdMin = max 0 (oaRebalanceThresholdMin args)
+                                                        rebalanceThresholdMax = max rebalanceThresholdMin (oaRebalanceThresholdMax args)
+                                                        rebalanceThresholdRange = (rebalanceThresholdMin, rebalanceThresholdMax)
+                                                        rebalanceCostMultMin = max 0 (oaRebalanceCostMultMin args)
+                                                        rebalanceCostMultMax = max rebalanceCostMultMin (oaRebalanceCostMultMax args)
+                                                        rebalanceCostMultRange = (rebalanceCostMultMin, rebalanceCostMultMax)
+                                                        pRebalanceGlobal = clamp (oaPRebalanceGlobal args) 0 1
+                                                        pRebalanceResetOnSignal = clamp (oaPRebalanceResetOnSignal args) 0 1
+                                                        openThresholdMin = max 1e-12 (oaOpenThresholdMin args)
+                                                        openThresholdMax = max openThresholdMin (oaOpenThresholdMax args)
+                                                        closeThresholdMin = max 1e-12 (oaCloseThresholdMin args)
+                                                        closeThresholdMax = max closeThresholdMin (oaCloseThresholdMax args)
+                                                        minHoldMin = max 0 (oaMinHoldBarsMin args)
+                                                        minHoldMax = max minHoldMin (oaMinHoldBarsMax args)
+                                                        cooldownMin = max 0 (oaCooldownBarsMin args)
+                                                        cooldownMax = max cooldownMin (oaCooldownBarsMax args)
+                                                        maxHoldMin = max 0 (oaMaxHoldBarsMin args)
+                                                        maxHoldMax = max maxHoldMin (oaMaxHoldBarsMax args)
+                                                        minEdgeMin = max 0 (oaMinEdgeMin args)
+                                                        minEdgeMax = max minEdgeMin (oaMinEdgeMax args)
+                                                        minSnMin = max 0 (oaMinSignalToNoiseMin args)
+                                                        minSnMax = max minSnMin (oaMinSignalToNoiseMax args)
+                                                        snrSizeWeightMin = clamp (oaSnrSizeWeightMin args) 0 1
+                                                        snrSizeWeightMax = clamp (oaSnrSizeWeightMax args) 0 1
+                                                        snrSizeWeightRange = (snrSizeWeightMin, snrSizeWeightMax)
+                                                        pThresholdFactor = clamp (oaPThresholdFactor args) 0 1
+                                                        thresholdFactorAlphaMin = clamp (oaThresholdFactorAlphaMin args) 0 1
+                                                        thresholdFactorAlphaMax = clamp (oaThresholdFactorAlphaMax args) 0 1
+                                                        thresholdFactorAlphaRange = (thresholdFactorAlphaMin, thresholdFactorAlphaMax)
+                                                        thresholdFactorMinMin = max 0 (oaThresholdFactorMinMin args)
+                                                        thresholdFactorMinMax = max thresholdFactorMinMin (oaThresholdFactorMinMax args)
+                                                        thresholdFactorMinRange = (thresholdFactorMinMin, thresholdFactorMinMax)
+                                                        thresholdFactorMaxMin = max 0 (oaThresholdFactorMaxMin args)
+                                                        thresholdFactorMaxMax = max thresholdFactorMaxMin (oaThresholdFactorMaxMax args)
+                                                        thresholdFactorMaxRange = (thresholdFactorMaxMin, thresholdFactorMaxMax)
+                                                        thresholdFactorFloorMin = max 0 (oaThresholdFactorFloorMin args)
+                                                        thresholdFactorFloorMax = max thresholdFactorFloorMin (oaThresholdFactorFloorMax args)
+                                                        thresholdFactorFloorRange = (thresholdFactorFloorMin, thresholdFactorFloorMax)
+                                                        thresholdFactorWeightRange = (oaThresholdFactorWeightMin args, oaThresholdFactorWeightMax args)
+                                                        edgeBufferMin = max 0 (oaEdgeBufferMin args)
+                                                        edgeBufferMax = max edgeBufferMin (oaEdgeBufferMax args)
+                                                        trendLookbackMin = max 0 (oaTrendLookbackMin args)
+                                                        trendLookbackMax = max trendLookbackMin (oaTrendLookbackMax args)
+                                                        pLongShort = clamp (oaPLongShort args) 0 1
+                                                        pIntrabarTakeProfitFirst = clamp (oaPIntrabarTakeProfitFirst args) 0 1
+                                                        pTriLayer = clamp (oaPTriLayer args) 0 1
+                                                        triLayerFastMin = max 1e-6 (oaTriLayerFastMultMin args)
+                                                        triLayerFastMax = max triLayerFastMin (oaTriLayerFastMultMax args)
+                                                        triLayerFastRange = (triLayerFastMin, triLayerFastMax)
+                                                        triLayerSlowMin = max 1e-6 (oaTriLayerSlowMultMin args)
+                                                        triLayerSlowMax = max triLayerSlowMin (oaTriLayerSlowMultMax args)
+                                                        triLayerSlowRange = (triLayerSlowMin, triLayerSlowMax)
+                                                        pTriLayerPriceAction = clamp (oaPTriLayerPriceAction args) 0 1
+                                                        triLayerCloudPaddingMin = max 0 (oaTriLayerCloudPaddingMin args)
+                                                        triLayerCloudPaddingMax = max triLayerCloudPaddingMin (oaTriLayerCloudPaddingMax args)
+                                                        triLayerCloudPaddingRange = (triLayerCloudPaddingMin, triLayerCloudPaddingMax)
+                                                        triLayerCloudSlopeMin = max 0 (oaTriLayerCloudSlopeMin args)
+                                                        triLayerCloudSlopeMax = max triLayerCloudSlopeMin (oaTriLayerCloudSlopeMax args)
+                                                        triLayerCloudSlopeRange = (triLayerCloudSlopeMin, triLayerCloudSlopeMax)
+                                                        triLayerCloudWidthMin = max 0 (oaTriLayerCloudWidthMin args)
+                                                        triLayerCloudWidthMax = max triLayerCloudWidthMin (oaTriLayerCloudWidthMax args)
+                                                        triLayerCloudWidthRange = (triLayerCloudWidthMin, triLayerCloudWidthMax)
+                                                        triLayerTouchLookbackMin = max 1 (oaTriLayerTouchLookbackMin args)
+                                                        triLayerTouchLookbackMax = max triLayerTouchLookbackMin (oaTriLayerTouchLookbackMax args)
+                                                        triLayerTouchLookbackRange = (triLayerTouchLookbackMin, triLayerTouchLookbackMax)
+                                                        triLayerPriceActionBodyMin = max 0 (oaTriLayerPriceActionBodyMin args)
+                                                        triLayerPriceActionBodyMax = max triLayerPriceActionBodyMin (oaTriLayerPriceActionBodyMax args)
+                                                        triLayerPriceActionBodyRange = (triLayerPriceActionBodyMin, triLayerPriceActionBodyMax)
+                                                        kalmanBandLookbackMin = max 0 (oaKalmanBandLookbackMin args)
+                                                        kalmanBandLookbackMax = max kalmanBandLookbackMin (oaKalmanBandLookbackMax args)
+                                                        kalmanBandLookbackRange = (kalmanBandLookbackMin, kalmanBandLookbackMax)
+                                                        kalmanBandStdMultMin = max 0 (oaKalmanBandStdMultMin args)
+                                                        kalmanBandStdMultMax = max kalmanBandStdMultMin (oaKalmanBandStdMultMax args)
+                                                        kalmanBandStdMultRange = (kalmanBandStdMultMin, kalmanBandStdMultMax)
+                                                        lstmExitFlipBarsMin = max 0 (oaLstmExitFlipBarsMin args)
+                                                        lstmExitFlipBarsMax = max lstmExitFlipBarsMin (oaLstmExitFlipBarsMax args)
+                                                        lstmExitFlipBarsRange = (lstmExitFlipBarsMin, lstmExitFlipBarsMax)
+                                                        lstmExitFlipGraceBarsMin = max 0 (oaLstmExitFlipGraceBarsMin args)
+                                                        lstmExitFlipGraceBarsMax = max lstmExitFlipGraceBarsMin (oaLstmExitFlipGraceBarsMax args)
+                                                        lstmExitFlipGraceBarsRange = (lstmExitFlipGraceBarsMin, lstmExitFlipGraceBarsMax)
+                                                        lstmConfidenceSoftMin = max 0 (oaLstmConfidenceSoftMin args)
+                                                        lstmConfidenceSoftMax = max lstmConfidenceSoftMin (oaLstmConfidenceSoftMax args)
+                                                        lstmConfidenceSoftRange = (lstmConfidenceSoftMin, lstmConfidenceSoftMax)
+                                                        lstmConfidenceHardMin = max 0 (oaLstmConfidenceHardMin args)
+                                                        lstmConfidenceHardMax = max lstmConfidenceHardMin (oaLstmConfidenceHardMax args)
+                                                        lstmConfidenceHardRange = (lstmConfidenceHardMin, lstmConfidenceHardMax)
+                                                        kalmanDtMin = max 1e-12 (oaKalmanDtMin args)
+                                                        kalmanDtMax = max kalmanDtMin (oaKalmanDtMax args)
+                                                        kalmanProcessVarMin = max 1e-12 (oaKalmanProcessVarMin args)
+                                                        kalmanProcessVarMax = max kalmanProcessVarMin (oaKalmanProcessVarMax args)
+                                                        kalmanMeasurementVarMin = max 1e-12 (oaKalmanMeasurementVarMin args)
+                                                        kalmanMeasurementVarMax = max kalmanMeasurementVarMin (oaKalmanMeasurementVarMax args)
+                                                        kalmanZMinMin = max 0 (oaKalmanZMinMin args)
+                                                        kalmanZMinMax = max kalmanZMinMin (oaKalmanZMinMax args)
+                                                        kalmanZMaxMin = max 0 (oaKalmanZMaxMin args)
+                                                        kalmanZMaxMax = max kalmanZMaxMin (oaKalmanZMaxMax args)
+                                                        kalmanMarketTopNMin = max 0 (oaKalmanMarketTopNMin args)
+                                                        kalmanMarketTopNMax = max kalmanMarketTopNMin (oaKalmanMarketTopNMax args)
+                                                        pDisableMaxHighVolProb = clamp (oaPDisableMaxHighVolProb args) 0 1
+                                                        maxHighVolProbRange = (oaMaxHighVolProbMin args, oaMaxHighVolProbMax args)
+                                                        pDisableMaxConformalWidth = clamp (oaPDisableMaxConformalWidth args) 0 1
+                                                        maxConformalWidthRange = (oaMaxConformalWidthMin args, oaMaxConformalWidthMax args)
+                                                        pDisableMaxQuantileWidth = clamp (oaPDisableMaxQuantileWidth args) 0 1
+                                                        maxQuantileWidthRange = (oaMaxQuantileWidthMin args, oaMaxQuantileWidthMax args)
+                                                        pConfirmConformal = clamp (oaPConfirmConformal args) 0 1
+                                                        pConfirmQuantiles = clamp (oaPConfirmQuantiles args) 0 1
+                                                        pConfidenceSizing = clamp (oaPConfidenceSizing args) 0 1
+                                                        minPositionSizeRange = (oaMinPositionSizeMin args, oaMinPositionSizeMax args)
+                                                        maxPositionSizeMin = max 0 (oaMaxPositionSizeMin args)
+                                                        maxPositionSizeMax = max maxPositionSizeMin (oaMaxPositionSizeMax args)
+                                                        maxPositionSizeRange = (maxPositionSizeMin, maxPositionSizeMax)
+                                                        volTargetMin = max 0 (oaVolTargetMin args)
+                                                        volTargetMax = max volTargetMin (oaVolTargetMax args)
+                                                        volTargetRange = (volTargetMin, volTargetMax)
+                                                        pDisableVolTarget = clamp (oaPDisableVolTarget args) 0 1
+                                                        volLookbackMin = max 0 (oaVolLookbackMin args)
+                                                        volLookbackMax = max volLookbackMin (oaVolLookbackMax args)
+                                                        volLookbackRange = (volLookbackMin, volLookbackMax)
+                                                        volEwmaAlphaMin = max 0 (oaVolEwmaAlphaMin args)
+                                                        volEwmaAlphaMax = max volEwmaAlphaMin (oaVolEwmaAlphaMax args)
+                                                        volEwmaAlphaRange = (volEwmaAlphaMin, volEwmaAlphaMax)
+                                                        pDisableVolEwmaAlpha = clamp (oaPDisableVolEwmaAlpha args) 0 1
+                                                        volFloorMin = max 0 (oaVolFloorMin args)
+                                                        volFloorMax = max volFloorMin (oaVolFloorMax args)
+                                                        volFloorRange = (volFloorMin, volFloorMax)
+                                                        volScaleMaxMin = max 0 (oaVolScaleMaxMin args)
+                                                        volScaleMaxMax = max volScaleMaxMin (oaVolScaleMaxMax args)
+                                                        volScaleMaxRange = (volScaleMaxMin, volScaleMaxMax)
+                                                        maxVolatilityMin = max 0 (oaMaxVolatilityMin args)
+                                                        maxVolatilityMax = max maxVolatilityMin (oaMaxVolatilityMax args)
+                                                        maxVolatilityRange = (maxVolatilityMin, maxVolatilityMax)
+                                                        pDisableMaxVolatility = clamp (oaPDisableMaxVolatility args) 0 1
+                                                        periodsPerYearMin = max 0 (oaPeriodsPerYearMin args)
+                                                        periodsPerYearMax = max periodsPerYearMin (oaPeriodsPerYearMax args)
+                                                        periodsPerYearRange = (periodsPerYearMin, periodsPerYearMax)
+                                                        methodWeights =
+                                                            ( oaMethodWeight11 args
+                                                            , oaMethodWeight10 args
+                                                            , oaMethodWeight01 args
+                                                            , oaMethodWeightBlend args
+                                                            )
+                                                        blendWeightRange =
+                                                            let lo = clamp (oaBlendWeightMin args) 0 1
+                                                                hi = clamp (oaBlendWeightMax args) 0 1
+                                                             in (lo, hi)
+                                                        routerScorePnlWeightRange =
+                                                            let lo = clamp (oaRouterScorePnlWeightMin args) 0 1
+                                                                hi = clamp (oaRouterScorePnlWeightMax args) 0 1
+                                                             in (lo, hi)
+                                                        normalizationChoices =
+                                                            [trim s | s <- splitCsv (oaNormalizations args), not (null (trim s))]
+                                                    if null normalizationChoices
+                                                        then do
+                                                            hPutStrLn stderr "No normalizations provided."
+                                                            pure 2
+                                                        else do
+                                                            baseArgsResult <- buildBaseArgs args csvCols
+                                                            case baseArgsResult of
+                                                                Left err -> do
+                                                                    hPutStrLn stderr err
+                                                                    pure 2
+                                                                Right baseArgs -> do
+                                                                    let rngStart = seedRng (oaSeed args)
+                                                                        dataSource = if oaData args == Nothing then "binance" else "csv"
+                                                                        sourceOverride = map toLower (trim (oaSourceLabel args))
+                                                                        symbolLabel = normalizeSymbol (Just (oaSymbolLabel args))
+                                                                        symbolFallback = normalizeSymbol (oaBinanceSymbol args)
+                                                                        symbolFromData =
+                                                                            case oaData args of
+                                                                                Just path -> normalizeSymbol (Just (takeBaseName path))
+                                                                                Nothing -> Nothing
+                                                                        symbolFinal =
+                                                                            case symbolLabel of
+                                                                                Just _ -> symbolLabel
+                                                                                Nothing ->
+                                                                                    case symbolFallback of
+                                                                                        Just _ -> symbolFallback
+                                                                                        Nothing -> symbolFromData
+                                                                        trials = max 1 (oaTrials args)
+                                                                        seedTrialsOverride = oaSeedTrials args
+                                                                        seedRatioOverride = oaSeedRatio args
+                                                                        survivorFraction = clamp (oaSurvivorFraction args) 0 1
+                                                                        perturbScaleDouble = max 0 (oaPerturbScaleDouble args)
+                                                                        perturbScaleInt = max 0 (oaPerturbScaleInt args)
+                                                                        earlyStopNoImprove = max 0 (oaEarlyStopNoImprove args)
+                                                                        minRoundTrips = max 0 (oaMinRoundTrips args)
+                                                                        minWinRate = max 0 (oaMinWinRate args)
+                                                                        minProfitFactor = max 0 (oaMinProfitFactor args)
+                                                                        minExposure = max 0 (oaMinExposure args)
+                                                                        minSharpe = max 0 (oaMinSharpe args)
+                                                                        minAnnualizedReturn = max 0 (oaMinAnnualizedReturn args)
+                                                                        minCalmar = max 0 (oaMinCalmar args)
+                                                                        maxTurnover = max 0 (oaMaxTurnover args)
+                                                                        minWfSharpeMean = max 0 (oaMinWfSharpeMean args)
+                                                                        maxWfSharpeStd = max 0 (oaMaxWfSharpeStd args)
+                                                                    outHandle <-
+                                                                        if null (trim (oaOutput args))
+                                                                            then pure Nothing
+                                                                            else do
+                                                                                p <- expandUser (oaOutput args)
+                                                                                createDirectoryIfMissing True (takeDirectory p)
+                                                                                h <- openFile p (if oaAppend args then AppendMode else WriteMode)
+                                                                                hSetEncoding h utf8
+                                                                                pure (Just h)
+                                                                    let techniqueSummaryBase =
+                                                                            emptyTechniqueSummary{otsAppliedWalkForward = walkForwardFoldsMax > 1 || walkForwardFoldsMin > 1}
+                                                                        seedTrialsDefault = max 1 (min trials (max 3 (trials `div` 2)))
+                                                                        seedTrials =
+                                                                            case seedTrialsOverride of
+                                                                                Just n -> max 0 (min trials n)
+                                                                                Nothing ->
+                                                                                    case seedRatioOverride of
+                                                                                        Just r ->
+                                                                                            let ratio = clamp r 0 1
+                                                                                                count = floor (fromIntegral trials * ratio)
+                                                                                             in max 0 (min trials count)
+                                                                                        Nothing -> seedTrialsDefault
+                                                                        survivorCount =
+                                                                            if seedTrials <= 0
+                                                                                then 0
+                                                                                else max 1 (floor (fromIntegral seedTrials * survivorFraction))
+                                                                        sobolRngs = map seedRng (sobolSeeds (oaSeed args) seedTrials)
+                                                                        remainingTrials = max 0 (trials - seedTrials)
+                                                                        exploitationRngs = map (\i -> seedRng (oaSeed args + 10000 + i)) [1 .. remainingTrials]
+                                                                        sampleParamsWithRng rng =
+                                                                            sampleParams
+                                                                                rng
+                                                                                platforms
+                                                                                platformIntervalsMap
+                                                                                intervals
+                                                                                barsAutoProb
+                                                                                barsMin
+                                                                                barsMax
+                                                                                barsDistribution
+                                                                                openThresholdMin
+                                                                                openThresholdMax
+                                                                                closeThresholdMin
+                                                                                closeThresholdMax
+                                                                                (minHoldMin, minHoldMax)
+                                                                                (cooldownMin, cooldownMax)
+                                                                                (maxHoldMin, maxHoldMax)
+                                                                                (minEdgeMin, minEdgeMax)
+                                                                                (minSnMin, minSnMax)
+                                                                                snrSizeWeightRange
+                                                                                pThresholdFactor
+                                                                                thresholdFactorAlphaRange
+                                                                                thresholdFactorMinRange
+                                                                                thresholdFactorMaxRange
+                                                                                thresholdFactorFloorRange
+                                                                                thresholdFactorWeightRange
+                                                                                (edgeBufferMin, edgeBufferMax)
+                                                                                (trendLookbackMin, trendLookbackMax)
+                                                                                maxPositionSizeRange
+                                                                                volTargetRange
+                                                                                volLookbackRange
+                                                                                volEwmaAlphaRange
+                                                                                pDisableVolEwmaAlpha
+                                                                                volFloorRange
+                                                                                volScaleMaxRange
+                                                                                maxVolatilityRange
+                                                                                periodsPerYearRange
+                                                                                (kalmanMarketTopNMin, kalmanMarketTopNMax)
+                                                                                (oaPCostAwareEdge args)
+                                                                                feeMin
+                                                                                feeMax
+                                                                                fundingRateRange
+                                                                                pFundingBySide
+                                                                                pFundingOnOpen
+                                                                                rebalanceBarsRange
+                                                                                rebalanceThresholdRange
+                                                                                rebalanceCostMultRange
+                                                                                pRebalanceGlobal
+                                                                                pRebalanceResetOnSignal
+                                                                                pLongShort
+                                                                                pIntrabarTakeProfitFirst
+                                                                                pTriLayer
+                                                                                triLayerFastRange
+                                                                                triLayerSlowRange
+                                                                                pTriLayerPriceAction
+                                                                                triLayerCloudPaddingRange
+                                                                                triLayerCloudSlopeRange
+                                                                                triLayerCloudWidthRange
+                                                                                triLayerTouchLookbackRange
+                                                                                triLayerPriceActionBodyRange
+                                                                                (oaTriLayerExitOnSlow args)
+                                                                                (oaKalmanBandLookbackMin args, oaKalmanBandLookbackMax args)
+                                                                                (oaKalmanBandStdMultMin args, oaKalmanBandStdMultMax args)
+                                                                                lstmExitFlipBarsRange
+                                                                                lstmExitFlipGraceBarsRange
+                                                                                (oaLstmExitFlipStrong args)
+                                                                                lstmConfidenceSoftRange
+                                                                                lstmConfidenceHardRange
+                                                                                epochsMin
+                                                                                epochsMax
+                                                                                hiddenMin
+                                                                                hiddenMax
+                                                                                lrMin
+                                                                                lrMax
+                                                                                valMin
+                                                                                valMax
+                                                                                patienceMax
+                                                                                (walkForwardFoldsMin, walkForwardFoldsMax)
+                                                                                walkForwardEmbargoBarsRange
+                                                                                tuneStressVolMultRange
+                                                                                tuneStressShockRange
+                                                                                tuneStressWeightRange
+                                                                                gradClipMin
+                                                                                gradClipMax
+                                                                                (oaSlippageMax args)
+                                                                                (oaSpreadMax args)
+                                                                                kalmanDtMin
+                                                                                kalmanDtMax
+                                                                                kalmanProcessVarMin
+                                                                                kalmanProcessVarMax
+                                                                                kalmanMeasurementVarMin
+                                                                                kalmanMeasurementVarMax
+                                                                                kalmanZMinMin
+                                                                                kalmanZMinMax
+                                                                                kalmanZMaxMin
+                                                                                kalmanZMaxMax
+                                                                                pDisableMaxHighVolProb
+                                                                                maxHighVolProbRange
+                                                                                pDisableMaxConformalWidth
+                                                                                maxConformalWidthRange
+                                                                                pDisableMaxQuantileWidth
+                                                                                maxQuantileWidthRange
+                                                                                pConfirmConformal
+                                                                                pConfirmQuantiles
+                                                                                pConfidenceSizing
+                                                                                minPositionSizeRange
+                                                                                stopRange
+                                                                                takeRange
+                                                                                trailRange
+                                                                                stopVolMultRange
+                                                                                takeVolMultRange
+                                                                                trailVolMultRange
+                                                                                methodWeights
+                                                                                normalizationChoices
+                                                                                blendWeightRange
+                                                                                routerScorePnlWeightRange
+                                                                                (clamp (oaPDisableStop args) 0 1)
+                                                                                (clamp (oaPDisableTp args) 0 1)
+                                                                                (clamp (oaPDisableTrail args) 0 1)
+                                                                                (clamp (oaPDisableStopVolMult args) 0 1)
+                                                                                (clamp (oaPDisableTpVolMult args) 0 1)
+                                                                                (clamp (oaPDisableTrailVolMult args) 0 1)
+                                                                                (clamp (oaPDisableMaxDd args) 0 1)
+                                                                                (clamp (oaPDisableMaxDl args) 0 1)
+                                                                                (clamp (oaPDisableMaxOe args) 0 1)
+                                                                                (clamp (oaPDisableGradClip args) 0 1)
+                                                                                pDisableVolTarget
+                                                                                pDisableMaxVolatility
+                                                                                (oaMaxDdMin args, oaMaxDdMax args)
+                                                                                (oaMaxDlMin args, oaMaxDlMax args)
+                                                                                (oaMaxOeMin args, oaMaxOeMax args)
+                                                                        runTrialWith idx rng mBase mParents best recordsRev = do
+                                                                            let (params, _) =
+                                                                                    case mBase of
+                                                                                        Nothing -> sampleParamsWithRng rng
+                                                                                        Just base ->
+                                                                                            case mParents of
+                                                                                                Just parents
+                                                                                                    | length parents >= 2 ->
+                                                                                                        let ((p1, p2), rng1) = pickParentPair parents rng
+                                                                                                            (child, rng2) = crossoverTrialParams p1 p2 rng1
+                                                                                                         in perturbTrialParams perturbScaleDouble perturbScaleInt child rng2
+                                                                                                _ -> perturbTrialParams perturbScaleDouble perturbScaleInt base rng
+                                                                            tr0 <-
+                                                                                runTrial
+                                                                                    traderBinPath
+                                                                                    baseArgs
+                                                                                    params
+                                                                                    (oaTuneRatio args)
+                                                                                    useSweepThreshold
+                                                                                    (oaTimeoutSec args)
+                                                                                    (oaDisableLstmPersistence args)
+                                                                            let objective = oaObjective args
+                                                                                (eligible, filterReason, score) =
+                                                                                    case (trOk tr0, trFinalEquity tr0, trMetrics tr0) of
+                                                                                        (True, Just _, Just metrics) ->
+                                                                                            let rts = metricInt (trMetrics tr0) "roundTrips" 0
+                                                                                             in if minRoundTrips > 0 && rts < minRoundTrips
+                                                                                                    then (False, Just ("roundTrips<" ++ show minRoundTrips), Nothing)
+                                                                                                    else
+                                                                                                        let winRate = metricFloat (trMetrics tr0) "winRate" 0
+                                                                                                         in if minWinRate > 0 && winRate < minWinRate
+                                                                                                                then (False, Just (printf "winRate<%.3f" minWinRate), Nothing)
+                                                                                                                else
+                                                                                                                    let profitFactor = metricProfitFactor (trMetrics tr0)
+                                                                                                                        pfOk =
+                                                                                                                            case profitFactor of
+                                                                                                                                Nothing -> True
+                                                                                                                                Just pf -> pf >= minProfitFactor
+                                                                                                                     in if minProfitFactor > 0 && not pfOk
+                                                                                                                            then (False, Just (printf "profitFactor<%.3f" minProfitFactor), Nothing)
                                                                                                                             else
-                                                                                                                              ( True
-                                                                                                                              , Nothing
-                                                                                                                              , Just
-                                                                                                                                  ( objectiveScore
-                                                                                                                                      metrics
-                                                                                                                                      objective
-                                                                                                                                      (oaPenaltyMaxDrawdown args)
-                                                                                                                                      (oaPenaltyTurnover args)
-                                                                                                                                  )
-                                                                                                                              )
-                                                                                                              else
-                                                                                                                ( True
-                                                                                                                , Nothing
-                                                                                                                , Just
-                                                                                                                    ( objectiveScore
-                                                                                                                        metrics
-                                                                                                                        objective
-                                                                                                                        (oaPenaltyMaxDrawdown args)
-                                                                                                                        (oaPenaltyTurnover args)
-                                                                                                                    )
-                                                                                                                )
-                                                _ -> (False, Nothing, Nothing)
-                                            tr =
-                                              tr0
-                                                { trEligible = eligible
-                                                , trFilterReason = filterReason
-                                                , trObjective = objective
-                                                , trScore = score
-                                                }
-                                        case outHandle of
-                                          Nothing -> pure ()
-                                          Just h -> do
-                                            let rec0 = trialToRecord tr symbolFinal
-                                                source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
-                                                rec = addField "source" (String (T.pack source)) rec0
-                                            BL.hPutStr h (Aeson.encode rec)
-                                            hPutStrLn h ""
-                                            hFlush h
-                                        let best' =
-                                              case (trEligible tr, trScore tr, best) of
-                                                (True, Just sc, Nothing) -> Just tr
-                                                (True, Just sc, Just b) ->
-                                                  let bScore = fromMaybe (-1e18) (trScore b)
-                                                   in if sc > bScore then Just tr else Just b
-                                                _ -> best
-                                        printTrialStatus idx trials tr
-                                        pure (best', tr : recordsRev, tr)
-                                  (bestSeed, seedRecordsRev, seedResultsRev) <-
-                                    foldM
-                                      ( \(b, recs, res) (idx, rng) -> do
-                                          (b', recs', tr) <- runTrialWith idx rng Nothing Nothing b recs
-                                          pure (b', recs', tr : res)
-                                      )
-                                      (Nothing, [], [])
-                                      (zip [1 .. seedTrials] sobolRngs)
-                                  let seedResults = reverse seedResultsRev
-                                      scored =
-                                        sortBy
-                                          (flip (comparing (fromMaybe (-1e18) . trScore)))
-                                          (filter (isJust . trScore) seedResults)
-                                      survivorsRaw = take survivorCount (filter trEligible scored ++ scored)
-                                      techniqueSummarySeed =
-                                        techniqueSummaryBase
-                                          { otsAppliedSobolSeeding = seedTrials > 0
-                                          , otsAppliedSuccessiveHalving = length survivorsRaw < length seedResults
-                                          }
-                                      survivorParams = map trParams survivorsRaw
-                                      gaParents =
-                                        [ trParams tr
-                                        | tr <- survivorsRaw
-                                        , trEligible tr
-                                        , let opCount =
-                                                max
-                                                  (metricInt (trMetrics tr) "operationCount" 0)
-                                                  (metricInt (trMetrics tr) "tradeCount" 0)
-                                        , opCount > 5
-                                        , metricFloat (trMetrics tr) "annualizedReturn" 0 > 1
-                                        ]
-                                      gaParentPool =
-                                        if length gaParents >= 2
-                                          then Just gaParents
-                                          else Nothing
-                                      bestScore b = fromMaybe (-1e18) (trScore =<< b)
-                                      runTrialsWithEarlyStop best recs survivorsIx stagnant trialsList =
-                                        case trialsList of
-                                          [] -> pure (best, recs, survivorsIx)
-                                          (idx, rng) : rest -> do
-                                            let baseParam =
-                                                  case survivorParams of
-                                                    [] -> Nothing
-                                                    _ ->
-                                                      let ix = survivorsIx `mod` length survivorParams
-                                                       in Just (survivorParams !! ix)
-                                                prevScore = bestScore best
-                                            (best', recs', _tr) <- runTrialWith idx rng baseParam gaParentPool best recs
-                                            let survivorsIx' = survivorsIx + 1
-                                                bestScore' = bestScore best'
-                                                stagnant' = if bestScore' > prevScore then 0 else stagnant + 1
-                                            if earlyStopNoImprove > 0 && stagnant' >= earlyStopNoImprove
-                                              then pure (best', recs', survivorsIx')
-                                              else runTrialsWithEarlyStop best' recs' survivorsIx' stagnant' rest
-                                  (bestFinal, allRecordsRev, _) <-
-                                    runTrialsWithEarlyStop
-                                      bestSeed
-                                      seedRecordsRev
-                                      0
-                                      0
-                                      (zip [seedTrials + 1 .. seedTrials + remainingTrials] exploitationRngs)
-                                  let records = reverse allRecordsRev
-                                      best = bestFinal
-                                      techniqueSummaryFinal =
-                                        techniqueSummarySeed
-                                          { otsAppliedBayesianEi = remainingTrials > 0 && not (null survivorParams)
-                                          , otsAppliedEnsemble = length records >= 2
-                                          }
-                                  case outHandle of
-                                    Nothing -> pure ()
-                                    Just h -> hClose h
-                                  case best of
-                                    Nothing -> do
-                                      printNoEligible
-                                        minRoundTrips
-                                        minWinRate
-                                        minProfitFactor
-                                        minExposure
-                                        minSharpe
-                                        minAnnualizedReturn
-                                        minCalmar
-                                        maxTurnover
-                                        minWfSharpeMean
-                                        maxWfSharpeStd
-                                      pure 1
-                                    Just b -> do
-                                      printBest b
-                                      printRepro traderBinPath baseArgs b (oaTuneRatio args) useSweepThreshold (oaDisableLstmPersistence args)
-                                      when (not (null (trim (oaTopJson args)))) $ do
-                                        writeTopJson
-                                          (oaTopJson args)
-                                          dataSource
-                                          sourceOverride
-                                          symbolFinal
-                                          records
-                                          techniqueSummaryFinal
-                                      pure 0
+                                                                                                                                let exposure = metricFloat (trMetrics tr0) "exposure" 0
+                                                                                                                                 in if minExposure > 0 && exposure < minExposure
+                                                                                                                                        then (False, Just (printf "exposure<%.3f" minExposure), Nothing)
+                                                                                                                                        else
+                                                                                                                                            let sharpe = metricFloat (trMetrics tr0) "sharpe" 0
+                                                                                                                                             in if minSharpe > 0 && sharpe < minSharpe
+                                                                                                                                                    then (False, Just (printf "sharpe<%.3f" minSharpe), Nothing)
+                                                                                                                                                    else
+                                                                                                                                                        let annRet = metricFloat (trMetrics tr0) "annualizedReturn" 0
+                                                                                                                                                            maxDd = metricFloat (trMetrics tr0) "maxDrawdown" 0
+                                                                                                                                                            calmar = annRet / max 1e-12 maxDd
+                                                                                                                                                         in if minAnnualizedReturn > 0 && annRet < minAnnualizedReturn
+                                                                                                                                                                then (False, Just (printf "annualizedReturn<%.3f" minAnnualizedReturn), Nothing)
+                                                                                                                                                                else
+                                                                                                                                                                    if minCalmar > 0 && calmar < minCalmar
+                                                                                                                                                                        then (False, Just (printf "calmar<%.3f" minCalmar), Nothing)
+                                                                                                                                                                        else
+                                                                                                                                                                            let turnover = metricFloat (trMetrics tr0) "turnover" 0
+                                                                                                                                                                             in if maxTurnover > 0 && turnover > maxTurnover
+                                                                                                                                                                                    then (False, Just (printf "turnover>%.3f" maxTurnover), Nothing)
+                                                                                                                                                                                    else
+                                                                                                                                                                                        if minWfSharpeMean > 0 || maxWfSharpeStd > 0
+                                                                                                                                                                                            then case extractWalkForwardSummary (trStdoutJson tr0) of
+                                                                                                                                                                                                Nothing -> (False, Just "walkForwardMissing", Nothing)
+                                                                                                                                                                                                Just wfSummary ->
+                                                                                                                                                                                                    let wfSharpeMean = metricFloat (Just wfSummary) "sharpeMean" 0
+                                                                                                                                                                                                        wfSharpeStd = metricFloat (Just wfSummary) "sharpeStd" 0
+                                                                                                                                                                                                     in if minWfSharpeMean > 0 && wfSharpeMean < minWfSharpeMean
+                                                                                                                                                                                                            then (False, Just (printf "wfSharpeMean<%.3f" minWfSharpeMean), Nothing)
+                                                                                                                                                                                                            else
+                                                                                                                                                                                                                if maxWfSharpeStd > 0 && wfSharpeStd > maxWfSharpeStd
+                                                                                                                                                                                                                    then (False, Just (printf "wfSharpeStd>%.3f" maxWfSharpeStd), Nothing)
+                                                                                                                                                                                                                    else
+                                                                                                                                                                                                                        ( True
+                                                                                                                                                                                                                        , Nothing
+                                                                                                                                                                                                                        , Just
+                                                                                                                                                                                                                            ( objectiveScore
+                                                                                                                                                                                                                                metrics
+                                                                                                                                                                                                                                objective
+                                                                                                                                                                                                                                (oaPenaltyMaxDrawdown args)
+                                                                                                                                                                                                                                (oaPenaltyTurnover args)
+                                                                                                                                                                                                                            )
+                                                                                                                                                                                                                        )
+                                                                                                                                                                                            else
+                                                                                                                                                                                                ( True
+                                                                                                                                                                                                , Nothing
+                                                                                                                                                                                                , Just
+                                                                                                                                                                                                    ( objectiveScore
+                                                                                                                                                                                                        metrics
+                                                                                                                                                                                                        objective
+                                                                                                                                                                                                        (oaPenaltyMaxDrawdown args)
+                                                                                                                                                                                                        (oaPenaltyTurnover args)
+                                                                                                                                                                                                    )
+                                                                                                                                                                                                )
+                                                                                        _ -> (False, Nothing, Nothing)
+                                                                                tr =
+                                                                                    tr0
+                                                                                        { trEligible = eligible
+                                                                                        , trFilterReason = filterReason
+                                                                                        , trObjective = objective
+                                                                                        , trScore = score
+                                                                                        }
+                                                                            case outHandle of
+                                                                                Nothing -> pure ()
+                                                                                Just h -> do
+                                                                                    let rec0 = trialToRecord tr symbolFinal
+                                                                                        source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
+                                                                                        rec = addField "source" (String (T.pack source)) rec0
+                                                                                    BL.hPutStr h (Aeson.encode rec)
+                                                                                    hPutStrLn h ""
+                                                                                    hFlush h
+                                                                            let best' =
+                                                                                    case (trEligible tr, trScore tr, best) of
+                                                                                        (True, Just sc, Nothing) -> Just tr
+                                                                                        (True, Just sc, Just b) ->
+                                                                                            let bScore = fromMaybe (-1e18) (trScore b)
+                                                                                             in if sc > bScore then Just tr else Just b
+                                                                                        _ -> best
+                                                                            printTrialStatus idx trials tr
+                                                                            pure (best', tr : recordsRev, tr)
+                                                                    (bestSeed, seedRecordsRev, seedResultsRev) <-
+                                                                        foldM
+                                                                            ( \(b, recs, res) (idx, rng) -> do
+                                                                                (b', recs', tr) <- runTrialWith idx rng Nothing Nothing b recs
+                                                                                pure (b', recs', tr : res)
+                                                                            )
+                                                                            (Nothing, [], [])
+                                                                            (zip [1 .. seedTrials] sobolRngs)
+                                                                    let seedResults = reverse seedResultsRev
+                                                                        scored =
+                                                                            sortBy
+                                                                                (flip (comparing (fromMaybe (-1e18) . trScore)))
+                                                                                (filter (isJust . trScore) seedResults)
+                                                                        survivorsRaw = take survivorCount (filter trEligible scored ++ scored)
+                                                                        techniqueSummarySeed =
+                                                                            techniqueSummaryBase
+                                                                                { otsAppliedSobolSeeding = seedTrials > 0
+                                                                                , otsAppliedSuccessiveHalving = length survivorsRaw < length seedResults
+                                                                                }
+                                                                        survivorParams = map trParams survivorsRaw
+                                                                        gaParents =
+                                                                            [ trParams tr
+                                                                            | tr <- survivorsRaw
+                                                                            , trEligible tr
+                                                                            , let opCount =
+                                                                                    max
+                                                                                        (metricInt (trMetrics tr) "operationCount" 0)
+                                                                                        (metricInt (trMetrics tr) "tradeCount" 0)
+                                                                            , opCount > 5
+                                                                            , metricFloat (trMetrics tr) "annualizedReturn" 0 > 1
+                                                                            ]
+                                                                        gaParentPool =
+                                                                            if length gaParents >= 2
+                                                                                then Just gaParents
+                                                                                else Nothing
+                                                                        bestScore b = fromMaybe (-1e18) (trScore =<< b)
+                                                                        runTrialsWithEarlyStop best recs survivorsIx stagnant trialsList =
+                                                                            case trialsList of
+                                                                                [] -> pure (best, recs, survivorsIx)
+                                                                                (idx, rng) : rest -> do
+                                                                                    let baseParam =
+                                                                                            case survivorParams of
+                                                                                                [] -> Nothing
+                                                                                                _ ->
+                                                                                                    let ix = survivorsIx `mod` length survivorParams
+                                                                                                     in Just (survivorParams !! ix)
+                                                                                        prevScore = bestScore best
+                                                                                    (best', recs', _tr) <- runTrialWith idx rng baseParam gaParentPool best recs
+                                                                                    let survivorsIx' = survivorsIx + 1
+                                                                                        bestScore' = bestScore best'
+                                                                                        stagnant' = if bestScore' > prevScore then 0 else stagnant + 1
+                                                                                    if earlyStopNoImprove > 0 && stagnant' >= earlyStopNoImprove
+                                                                                        then pure (best', recs', survivorsIx')
+                                                                                        else runTrialsWithEarlyStop best' recs' survivorsIx' stagnant' rest
+                                                                    (bestFinal, allRecordsRev, _) <-
+                                                                        runTrialsWithEarlyStop
+                                                                            bestSeed
+                                                                            seedRecordsRev
+                                                                            0
+                                                                            0
+                                                                            (zip [seedTrials + 1 .. seedTrials + remainingTrials] exploitationRngs)
+                                                                    let records = reverse allRecordsRev
+                                                                        best = bestFinal
+                                                                        techniqueSummaryFinal =
+                                                                            techniqueSummarySeed
+                                                                                { otsAppliedBayesianEi = remainingTrials > 0 && not (null survivorParams)
+                                                                                , otsAppliedEnsemble = length records >= 2
+                                                                                }
+                                                                    case outHandle of
+                                                                        Nothing -> pure ()
+                                                                        Just h -> hClose h
+                                                                    case best of
+                                                                        Nothing -> do
+                                                                            printNoEligible
+                                                                                minRoundTrips
+                                                                                minWinRate
+                                                                                minProfitFactor
+                                                                                minExposure
+                                                                                minSharpe
+                                                                                minAnnualizedReturn
+                                                                                minCalmar
+                                                                                maxTurnover
+                                                                                minWfSharpeMean
+                                                                                maxWfSharpeStd
+                                                                            pure 1
+                                                                        Just b -> do
+                                                                            printBest b
+                                                                            printRepro traderBinPath baseArgs b (oaTuneRatio args) useSweepThreshold (oaDisableLstmPersistence args)
+                                                                            when (not (null (trim (oaTopJson args)))) $ do
+                                                                                writeTopJson
+                                                                                    (oaTopJson args)
+                                                                                    dataSource
+                                                                                    sourceOverride
+                                                                                    symbolFinal
+                                                                                    records
+                                                                                    techniqueSummaryFinal
+                                                                            pure 0
   where
     resolveStressRanges baseVol baseShock baseWeight volRange shockRange weightRange =
-      let (vMin0, vMax0) = fillRange baseVol volRange
-          vMin = max 1e-12 vMin0
-          vMax = max 1e-12 vMax0
-          (sMin, sMax) = fillRange baseShock shockRange
-          (wMin0, wMax0) = fillRange baseWeight weightRange
-          wMin = max 0 wMin0
-          wMax = max 0 wMax0
-       in ((min vMin vMax, max vMin vMax), (min sMin sMax, max sMin sMax), (min wMin wMax, max wMin wMax))
+        let (vMin0, vMax0) = fillRange baseVol volRange
+            vMin = max 1e-12 vMin0
+            vMax = max 1e-12 vMax0
+            (sMin, sMax) = fillRange baseShock shockRange
+            (wMin0, wMax0) = fillRange baseWeight weightRange
+            wMin = max 0 wMin0
+            wMax = max 0 wMax0
+         in ((min vMin vMax, max vMin vMax), (min sMin sMax, max sMin sMax), (min wMin wMax, max wMin wMax))
     fillRange base (mn, mx) =
-      case (mn, mx) of
-        (Nothing, Nothing) -> (base, base)
-        (Just a, Nothing) -> (a, a)
-        (Nothing, Just b) -> (b, b)
-        (Just a, Just b) -> (a, b)
+        case (mn, mx) of
+            (Nothing, Nothing) -> (base, base)
+            (Just a, Nothing) -> (a, a)
+            (Nothing, Just b) -> (b, b)
+            (Just a, Just b) -> (a, b)
     unique = Set.toList . Set.fromList
 
 resolveTraderBin :: OptimizerArgs -> IO (Either String FilePath)
 resolveTraderBin args =
-  if not (null (trim (oaBinary args)))
-    then do
-      p <- expandUser (oaBinary args)
-      pure (Right p)
-    else do
-      mPath <- findExecutable "trader-hs"
-      case mPath of
-        Just p -> pure (Right p)
-        Nothing -> do
-          cwd <- getCurrentDirectory
-          let cabalDirCandidates = [cwd, cwd </> "haskell"]
-          cabalDir <- firstExistingCabalDir cabalDirCandidates
-          case cabalDir of
-            Nothing ->
-              pure (Left "failed to discover trader-hs binary via cabal: trader.cabal not found")
-            Just dir -> do
-              let procSpec =
-                    (proc "cabal" ["list-bin", "trader-hs"])
-                      { cwd = Just dir
-                      , std_out = CreatePipe
-                      , std_err = CreatePipe
-                      }
-              r <- try (readProcessOutput procSpec) :: IO (Either SomeException (ExitCode, String, String))
-              case r of
-                Left e -> pure (Left ("failed to discover trader-hs binary via cabal: " ++ show e))
-                Right (ExitFailure _, out, err) ->
-                  pure (Left ("failed to discover trader-hs binary via cabal: " ++ trim (if null err then out else err)))
-                Right (ExitSuccess, out, _) ->
-                  let p = trim out
-                   in if null p
-                        then pure (Left "cabal returned empty binary path")
-                        else do
-                          exists <- doesFileExist p
-                          if exists
-                            then pure (Right p)
-                            else pure (Left ("cabal returned non-existent binary path: " ++ p))
+    if not (null (trim (oaBinary args)))
+        then do
+            p <- expandUser (oaBinary args)
+            pure (Right p)
+        else do
+            mPath <- findExecutable "trader-hs"
+            case mPath of
+                Just p -> pure (Right p)
+                Nothing -> do
+                    cwd <- getCurrentDirectory
+                    let cabalDirCandidates = [cwd, cwd </> "haskell"]
+                    cabalDir <- firstExistingCabalDir cabalDirCandidates
+                    case cabalDir of
+                        Nothing ->
+                            pure (Left "failed to discover trader-hs binary via cabal: trader.cabal not found")
+                        Just dir -> do
+                            let procSpec =
+                                    (proc "cabal" ["list-bin", "trader-hs"])
+                                        { cwd = Just dir
+                                        , std_out = CreatePipe
+                                        , std_err = CreatePipe
+                                        }
+                            r <- try (readProcessOutput procSpec) :: IO (Either SomeException (ExitCode, String, String))
+                            case r of
+                                Left e -> pure (Left ("failed to discover trader-hs binary via cabal: " ++ show e))
+                                Right (ExitFailure _, out, err) ->
+                                    pure (Left ("failed to discover trader-hs binary via cabal: " ++ trim (if null err then out else err)))
+                                Right (ExitSuccess, out, _) ->
+                                    let p = trim out
+                                     in if null p
+                                            then pure (Left "cabal returned empty binary path")
+                                            else do
+                                                exists <- doesFileExist p
+                                                if exists
+                                                    then pure (Right p)
+                                                    else pure (Left ("cabal returned non-existent binary path: " ++ p))
   where
     firstExistingCabalDir [] = pure Nothing
     firstExistingCabalDir (dir : rest) = do
-      exists <- doesFileExist (dir </> "trader.cabal")
-      if exists
-        then pure (Just dir)
-        else firstExistingCabalDir rest
+        exists <- doesFileExist (dir </> "trader.cabal")
+        if exists
+            then pure (Just dir)
+            else firstExistingCabalDir rest
 
 resolveOptimizerMaxPoints :: IO Int
 resolveOptimizerMaxPoints = do
-  env <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
-  let defaultMax = 1000
-      maxCap = 5000
-  pure $
-    case env >>= readMaybe of
-      Just n | n >= 2 -> min maxCap n
-      _ -> defaultMax
+    env <- lookupEnv "TRADER_OPTIMIZER_MAX_POINTS"
+    let defaultMax = 1000
+        maxCap = 5000
+    pure $
+        case env >>= readMaybe of
+            Just n | n >= 2 -> min maxCap n
+            _ -> defaultMax
 
 readProcessOutput :: CreateProcess -> IO (ExitCode, String, String)
 readProcessOutput procSpec = do
-  (_, Just hout, Just herr, ph) <- createProcess procSpec
-  hSetEncoding hout utf8
-  hSetEncoding herr utf8
-  out <- hGetContents hout
-  err <- hGetContents herr
-  _ <- evaluate (length out + length err)
-  code <- waitForProcess ph
-  pure (code, out, err)
+    (_, Just hout, Just herr, ph) <- createProcess procSpec
+    hSetEncoding hout utf8
+    hSetEncoding herr utf8
+    out <- hGetContents hout
+    err <- hGetContents herr
+    _ <- evaluate (length out + length err)
+    code <- waitForProcess ph
+    pure (code, out, err)
 
 resolveIntervals :: OptimizerArgs -> IO (Either String [String])
 resolveIntervals args =
-  let intervalsIn =
-        case oaInterval args of
-          Just v | not (null (trim v)) -> [trim v]
-          _ ->
-            let raw = fromMaybe binanceIntervalsCsv (oaIntervals args)
-             in [trim s | s <- splitCsv raw, not (null (trim s))]
-   in if null intervalsIn then pure (Left "No intervals provided.") else pure (Right intervalsIn)
+    let intervalsIn =
+            case oaInterval args of
+                Just v | not (null (trim v)) -> [trim v]
+                _ ->
+                    let raw = fromMaybe binanceIntervalsCsv (oaIntervals args)
+                     in [trim s | s <- splitCsv raw, not (null (trim s))]
+     in if null intervalsIn then pure (Left "No intervals provided.") else pure (Right intervalsIn)
 
 splitCsv :: String -> [String]
 splitCsv raw =
-  case raw of
-    [] -> []
-    _ ->
-      let go acc current [] = reverse (reverse current : acc)
-          go acc current (c : cs)
-            | c == ',' = go (reverse current : acc) [] cs
-            | otherwise = go acc (c : current) cs
-       in map trim (go [] [] raw)
+    case raw of
+        [] -> []
+        _ ->
+            let go acc current [] = reverse (reverse current : acc)
+                go acc current (c : cs)
+                    | c == ',' = go (reverse current : acc) [] cs
+                    | otherwise = go acc (c : current) cs
+             in map trim (go [] [] raw)
 
 resolveBars :: OptimizerArgs -> [String] -> Int -> Bool -> IO (Either String (Int, Int))
 resolveBars args intervals maxBarsCap useSweepThreshold = do
-  let barsMax0 = oaBarsMax args
-      barsMax = if barsMax0 <= 0 then maxBarsCap else barsMax0
-      barsMin0 = oaBarsMin args
-  if barsMin0 > 0
-    then do
-      let barsMin = max 2 (min barsMin0 barsMax)
-      pure (Right (barsMin, barsMax))
-    else do
-      let worstLb = maximum (map (either (const 0) id . lookbackBarsFrom' (oaLookbackWindow args)) intervals)
-          minRequired0 = worstLb + 3
-      if useSweepThreshold
+    let barsMax0 = oaBarsMax args
+        barsMax = if barsMax0 <= 0 then maxBarsCap else barsMax0
+        barsMin0 = oaBarsMin args
+    if barsMin0 > 0
         then do
-          let br = oaBacktestRatio args
-              tr = oaTuneRatio args
-          if br <= 0 || br >= 1
-            then pure (Left "--backtest-ratio must be between 0 and 1.")
-            else
-              if tr <= 0 || tr >= 1
-                then pure (Left "--tune-ratio must be between 0 and 1 when sweep-threshold is enabled.")
-                else do
-                  let denom = max 1e-12 ((1 - br) * (1 - tr))
-                      minRequired1 = max minRequired0 (ceiling ((fromIntegral worstLb + 1) / denom) + 2)
-                      minTrain = ceiling (2 / tr)
-                      minRequired2 =
-                        max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - br)) + 2)
-                      autoBars = if oaBinanceSymbol args == Nothing then maxBarsCap else 500
-                  if minRequired2 > max barsMax autoBars
-                    then
-                      pure
-                        ( Left
-                            ( "Not enough bars for lookback="
-                                ++ show worstLb
-                                ++ " with backtest-ratio="
-                                ++ show br
-                                ++ " and tune-ratio="
-                                ++ show tr
-                                ++ ". Need bars >= "
-                                ++ show minRequired2
-                                ++ ". Increase --bars-max, reduce --tune-ratio/--backtest-ratio, reduce --lookback-window, or pass --no-sweep-threshold."
-                            )
-                        )
-                    else do
-                      let barsMin = min barsMax (max 10 minRequired2)
-                      pure (Right (max 2 (min barsMin barsMax), barsMax))
+            let barsMin = max 2 (min barsMin0 barsMax)
+            pure (Right (barsMin, barsMax))
         else do
-          let barsMin = min barsMax (max 10 minRequired0)
-          pure (Right (max 2 (min barsMin barsMax), barsMax))
+            let worstLb = maximum (map (either (const 0) id . lookbackBarsFrom' (oaLookbackWindow args)) intervals)
+                minRequired0 = worstLb + 3
+            if useSweepThreshold
+                then do
+                    let br = oaBacktestRatio args
+                        tr = oaTuneRatio args
+                    if br <= 0 || br >= 1
+                        then pure (Left "--backtest-ratio must be between 0 and 1.")
+                        else
+                            if tr <= 0 || tr >= 1
+                                then pure (Left "--tune-ratio must be between 0 and 1 when sweep-threshold is enabled.")
+                                else do
+                                    let denom = max 1e-12 ((1 - br) * (1 - tr))
+                                        minRequired1 = max minRequired0 (ceiling ((fromIntegral worstLb + 1) / denom) + 2)
+                                        minTrain = ceiling (2 / tr)
+                                        minRequired2 =
+                                            max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - br)) + 2)
+                                        autoBars = if oaBinanceSymbol args == Nothing then maxBarsCap else 500
+                                    if minRequired2 > max barsMax autoBars
+                                        then
+                                            pure
+                                                ( Left
+                                                    ( "Not enough bars for lookback="
+                                                        ++ show worstLb
+                                                        ++ " with backtest-ratio="
+                                                        ++ show br
+                                                        ++ " and tune-ratio="
+                                                        ++ show tr
+                                                        ++ ". Need bars >= "
+                                                        ++ show minRequired2
+                                                        ++ ". Increase --bars-max, reduce --tune-ratio/--backtest-ratio, reduce --lookback-window, or pass --no-sweep-threshold."
+                                                    )
+                                                )
+                                        else do
+                                            let barsMin = min barsMax (max 10 minRequired2)
+                                            pure (Right (max 2 (min barsMin barsMax), barsMax))
+                else do
+                    let barsMin = min barsMax (max 10 minRequired0)
+                    pure (Right (max 2 (min barsMin barsMax), barsMax))
   where
     lookbackBarsFrom' lookbackWindow itv =
-      case lookbackBarsFrom itv lookbackWindow of
-        Left _ -> Left "invalid"
-        Right lb -> Right lb
+        case lookbackBarsFrom itv lookbackWindow of
+            Left _ -> Left "invalid"
+            Right lb -> Right lb
 
 buildBaseArgs :: OptimizerArgs -> Maybe (FilePath, (Maybe String, Maybe String)) -> IO (Either String [String])
 buildBaseArgs args csvCols = do
-  let base0 = []
-  base1 <-
-    case oaData args of
-      Just _ ->
-        case csvCols of
-          Nothing -> pure (Left "CSV path not resolved")
-          Just (csvPath, (mHigh, mLow)) -> do
-            let base = base0 ++ ["--data", csvPath, "--price-column", oaPriceColumn args]
-            case (mHigh, mLow) of
-              (Nothing, Nothing) -> pure (Right base)
-              (Just h, Just l) -> pure (Right (base ++ ["--high-column", h, "--low-column", l]))
-              _ -> pure (Left "When using --high-column/--low-column, you must provide both.")
-      Nothing ->
-        case oaBinanceSymbol args of
-          Just sym -> pure (Right (base0 ++ ["--binance-symbol", sym]))
-          Nothing -> pure (Left "--symbol/--data is required")
-  case base1 of
-    Left err -> pure (Left err)
-    Right baseArgs -> do
-      let baseArgs' =
-            baseArgs
-              ++ [ "--lookback-window"
-                 , oaLookbackWindow args
-                 , "--backtest-ratio"
-                 , printf "%.6f" (oaBacktestRatio args)
-                 , "--tune-objective"
-                 , oaTuneObjective args
-                 , "--tune-penalty-max-drawdown"
-                 , printf "%.6f" (max 0 (oaTunePenaltyMaxDrawdown args))
-                 , "--tune-penalty-turnover"
-                 , printf "%.6f" (max 0 (oaTunePenaltyTurnover args))
-                 , "--seed"
-                 , show (oaSeed args)
-                 ]
-      pure (Right baseArgs')
+    let base0 = []
+    base1 <-
+        case oaData args of
+            Just _ ->
+                case csvCols of
+                    Nothing -> pure (Left "CSV path not resolved")
+                    Just (csvPath, (mHigh, mLow)) -> do
+                        let base = base0 ++ ["--data", csvPath, "--price-column", oaPriceColumn args]
+                        case (mHigh, mLow) of
+                            (Nothing, Nothing) -> pure (Right base)
+                            (Just h, Just l) -> pure (Right (base ++ ["--high-column", h, "--low-column", l]))
+                            _ -> pure (Left "When using --high-column/--low-column, you must provide both.")
+            Nothing ->
+                case oaBinanceSymbol args of
+                    Just sym -> pure (Right (base0 ++ ["--binance-symbol", sym]))
+                    Nothing -> pure (Left "--symbol/--data is required")
+    case base1 of
+        Left err -> pure (Left err)
+        Right baseArgs -> do
+            let baseArgs' =
+                    baseArgs
+                        ++ [ "--lookback-window"
+                           , oaLookbackWindow args
+                           , "--backtest-ratio"
+                           , printf "%.6f" (oaBacktestRatio args)
+                           , "--tune-objective"
+                           , oaTuneObjective args
+                           , "--tune-penalty-max-drawdown"
+                           , printf "%.6f" (max 0 (oaTunePenaltyMaxDrawdown args))
+                           , "--tune-penalty-turnover"
+                           , printf "%.6f" (max 0 (oaTunePenaltyTurnover args))
+                           , "--seed"
+                           , show (oaSeed args)
+                           ]
+            pure (Right baseArgs')
 
 printTrialStatus :: Int -> Int -> TrialResult -> IO ()
 printTrialStatus i trials tr = do
-  let status :: String
-      status = if trEligible tr then "OK" else if trOk tr then "SKIP" else "FAIL"
-      eq :: String
-      eq = maybe "-" (\v -> printf "%.6fx" v) (trFinalEquity tr)
-      scoreLabel :: String
-      scoreLabel = maybe "-" (\v -> printf "%.6f" v) (trScore tr)
-      params = trParams tr
-      msg =
-        printf
-          "[%4d/%d] %s score=%s eq=%s t=%.2fs interval=%s bars=%d method=%s norm=%s epochs=%d slip=%.6f spr=%.6f sl=%s tp=%s trail=%s maxDD=%s maxDL=%s maxOE=%s"
-          i
-          trials
-          status
-          scoreLabel
-          eq
-          (trElapsedSec tr)
-          (tpInterval params)
-          (tpBars params)
-          (tpMethod params)
-          (tpNormalization params)
-          (tpEpochs params)
-          (tpSlippage params)
-          (tpSpread params)
-          (fmtOptFloat (tpStopLoss params))
-          (fmtOptFloat (tpTakeProfit params))
-          (fmtOptFloat (tpTrailingStop params))
-          (fmtOptFloat (tpMaxDrawdown params))
-          (fmtOptFloat (tpMaxDailyLoss params))
-          (fmtOptInt (tpMaxOrderErrors params))
-      suffix =
-        case (trFilterReason tr, trReason tr) of
-          (Just reason, _) -> " (filter: " ++ reason ++ ")"
-          (Nothing, Just reason) -> " (" ++ reason ++ ")"
-          _ -> ""
-  putStrLn (msg ++ suffix)
-  hFlush stdout
+    let status :: String
+        status = if trEligible tr then "OK" else if trOk tr then "SKIP" else "FAIL"
+        eq :: String
+        eq = maybe "-" (\v -> printf "%.6fx" v) (trFinalEquity tr)
+        scoreLabel :: String
+        scoreLabel = maybe "-" (\v -> printf "%.6f" v) (trScore tr)
+        params = trParams tr
+        msg =
+            printf
+                "[%4d/%d] %s score=%s eq=%s t=%.2fs interval=%s bars=%d method=%s norm=%s epochs=%d slip=%.6f spr=%.6f sl=%s tp=%s trail=%s maxDD=%s maxDL=%s maxOE=%s"
+                i
+                trials
+                status
+                scoreLabel
+                eq
+                (trElapsedSec tr)
+                (tpInterval params)
+                (tpBars params)
+                (tpMethod params)
+                (tpNormalization params)
+                (tpEpochs params)
+                (tpSlippage params)
+                (tpSpread params)
+                (fmtOptFloat (tpStopLoss params))
+                (fmtOptFloat (tpTakeProfit params))
+                (fmtOptFloat (tpTrailingStop params))
+                (fmtOptFloat (tpMaxDrawdown params))
+                (fmtOptFloat (tpMaxDailyLoss params))
+                (fmtOptInt (tpMaxOrderErrors params))
+        suffix =
+            case (trFilterReason tr, trReason tr) of
+                (Just reason, _) -> " (filter: " ++ reason ++ ")"
+                (Nothing, Just reason) -> " (" ++ reason ++ ")"
+                _ -> ""
+    putStrLn (msg ++ suffix)
+    hFlush stdout
 
 printNoEligible :: Int -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> IO ()
 printNoEligible minRoundTrips minWinRate minProfitFactor minExposure minSharpe minAnnualizedReturn minCalmar maxTurnover minWfSharpeMean maxWfSharpeStd = do
-  let hints =
-        [ "--min-round-trips" | minRoundTrips > 0 ]
-          ++ [ "--min-win-rate" | minWinRate > 0 ]
-          ++ [ "--min-profit-factor" | minProfitFactor > 0 ]
-          ++ [ "--min-exposure" | minExposure > 0 ]
-          ++ [ "--min-sharpe" | minSharpe > 0 ]
-          ++ [ "--min-annualized-return" | minAnnualizedReturn > 0 ]
-          ++ [ "--min-calmar" | minCalmar > 0 ]
-          ++ [ "--max-turnover" | maxTurnover > 0 ]
-          ++ [ "--min-wf-sharpe-mean" | minWfSharpeMean > 0 ]
-          ++ [ "--max-wf-sharpe-std" | maxWfSharpeStd > 0 ]
-      msg =
-        if null hints
-          then "No eligible trials."
-          else "No eligible trials. (Try lowering " ++ intercalate ", " hints ++ ".)"
-  hPutStrLn stderr msg
+    let hints =
+            ["--min-round-trips" | minRoundTrips > 0]
+                ++ ["--min-win-rate" | minWinRate > 0]
+                ++ ["--min-profit-factor" | minProfitFactor > 0]
+                ++ ["--min-exposure" | minExposure > 0]
+                ++ ["--min-sharpe" | minSharpe > 0]
+                ++ ["--min-annualized-return" | minAnnualizedReturn > 0]
+                ++ ["--min-calmar" | minCalmar > 0]
+                ++ ["--max-turnover" | maxTurnover > 0]
+                ++ ["--min-wf-sharpe-mean" | minWfSharpeMean > 0]
+                ++ ["--max-wf-sharpe-std" | maxWfSharpeStd > 0]
+        msg =
+            if null hints
+                then "No eligible trials."
+                else "No eligible trials. (Try lowering " ++ intercalate ", " hints ++ ".)"
+    hPutStrLn stderr msg
 
 printBest :: TrialResult -> IO ()
 printBest tr = do
-  let p = trParams tr
-  putStrLn "\nBest:"
-  case trScore tr of
-    Just sc -> putStrLn ("  objective:   " ++ trObjective tr ++ " (score=" ++ printf "%.8f" sc ++ ")")
-    Nothing -> pure ()
-  putStrLn ("  finalEquity: " ++ printf "%.8f" (fromMaybe 0 (trFinalEquity tr)) ++ "x")
-  case tpPlatform p of
-    Just platform -> putStrLn ("  platform:    " ++ platform)
-    Nothing -> pure ()
-  putStrLn ("  interval:    " ++ tpInterval p)
-  putStrLn ("  bars:        " ++ show (tpBars p))
-  putStrLn ("  method:      " ++ tpMethod p)
-  putStrLn ("  positioning: " ++ tpPositioning p)
-  putStrLn ("  thresholds:  open=" ++ showMaybe (trOpenThreshold tr) ++ " close=" ++ showMaybe (trCloseThreshold tr) ++ " (from sweep)")
-  putStrLn ("  base thresholds: open=" ++ show (tpBaseOpenThreshold p) ++ " close=" ++ show (tpBaseCloseThreshold p))
-  putStrLn ("  blendWeight:  " ++ show (tpBlendWeight p))
-  putStrLn ("  routerScorePnlWeight: " ++ show (tpRouterScorePnlWeight p))
-  putStrLn ("  minHoldBars:  " ++ show (tpMinHoldBars p))
-  putStrLn ("  cooldownBars: " ++ show (tpCooldownBars p))
-  putStrLn ("  maxHoldBars:  " ++ showMaybe (tpMaxHoldBars p))
-  putStrLn ("  minEdge:      " ++ show (tpMinEdge p))
-  putStrLn ("  minSignalToNoise: " ++ show (tpMinSignalToNoise p))
-  putStrLn ("  snrSizeWeight: " ++ show (tpSnrSizeWeight p))
-  putStrLn ("  thresholdFactorEnabled: " ++ show (tpThresholdFactorEnabled p))
-  putStrLn ("  thresholdFactorAlpha: " ++ show (tpThresholdFactorAlpha p))
-  putStrLn ("  thresholdFactorBounds: " ++ show (tpThresholdFactorMin p) ++ ".." ++ show (tpThresholdFactorMax p))
-  putStrLn ("  thresholdFactorFloor: " ++ show (tpThresholdFactorFloor p))
-  putStrLn
-    ( "  thresholdFactorWeights:"
-        ++ " edgeKal="
-        ++ show (tpThresholdFactorEdgeKalWeight p)
-        ++ " edgeLstm="
-        ++ show (tpThresholdFactorEdgeLstmWeight p)
-        ++ " kalmanZ="
-        ++ show (tpThresholdFactorKalmanZWeight p)
-        ++ " highVol="
-        ++ show (tpThresholdFactorHighVolWeight p)
-        ++ " conformal="
-        ++ show (tpThresholdFactorConformalWeight p)
-        ++ " quantile="
-        ++ show (tpThresholdFactorQuantileWeight p)
-        ++ " lstmConf="
-        ++ show (tpThresholdFactorLstmConfWeight p)
-        ++ " lstmHealth="
-        ++ show (tpThresholdFactorLstmHealthWeight p)
-    )
-  putStrLn ("  edgeBuffer:   " ++ show (tpEdgeBuffer p))
-  putStrLn ("  costAwareEdge:" ++ show (tpCostAwareEdge p))
-  putStrLn ("  trendLookback:" ++ show (tpTrendLookback p))
-  putStrLn ("  maxPositionSize:" ++ show (tpMaxPositionSize p))
-  putStrLn ("  volTarget:    " ++ showMaybe (tpVolTarget p))
-  putStrLn ("  volLookback:  " ++ show (tpVolLookback p))
-  putStrLn ("  volEwmaAlpha: " ++ showMaybe (tpVolEwmaAlpha p))
-  putStrLn ("  volFloor:     " ++ show (tpVolFloor p))
-  putStrLn ("  volScaleMax:  " ++ show (tpVolScaleMax p))
-  putStrLn ("  maxVolatility: " ++ showMaybe (tpMaxVolatility p))
-  putStrLn ("  periodsPerYear:" ++ showMaybe (tpPeriodsPerYear p))
-  putStrLn ("  kalmanMarketTopN:" ++ show (tpKalmanMarketTopN p))
-  putStrLn ("  normalization: " ++ show (tpNormalization p))
-  putStrLn ("  epochs:        " ++ show (tpEpochs p))
-  putStrLn ("  hiddenSize:    " ++ show (tpHiddenSize p))
-  putStrLn ("  lr:            " ++ show (tpLearningRate p))
-  putStrLn ("  valRatio:      " ++ show (tpValRatio p))
-  putStrLn ("  patience:      " ++ show (tpPatience p))
-  putStrLn ("  walkForwardFolds:" ++ show (tpWalkForwardFolds p))
-  putStrLn ("  walkForwardEmbargoBars:" ++ show (tpWalkForwardEmbargoBars p))
-  putStrLn ("  tuneStressVolMult:" ++ show (tpTuneStressVolMult p))
-  putStrLn ("  tuneStressShock: " ++ show (tpTuneStressShock p))
-  putStrLn ("  tuneStressWeight:" ++ show (tpTuneStressWeight p))
-  putStrLn ("  gradClip:      " ++ showMaybe (tpGradClip p))
-  putStrLn ("  fee:           " ++ show (tpFee p))
-  putStrLn ("  fundingRate:   " ++ show (tpFundingRate p))
-  putStrLn ("  fundingBySide: " ++ show (tpFundingBySide p))
-  putStrLn ("  fundingOnOpen: " ++ show (tpFundingOnOpen p))
-  putStrLn ("  rebalanceBars: " ++ show (tpRebalanceBars p))
-  putStrLn ("  rebalanceThreshold:" ++ show (tpRebalanceThreshold p))
-  putStrLn ("  rebalanceCostMult:" ++ show (tpRebalanceCostMult p))
-  putStrLn ("  rebalanceGlobal: " ++ show (tpRebalanceGlobal p))
-  putStrLn ("  rebalanceResetOnSignal:" ++ show (tpRebalanceResetOnSignal p))
-  putStrLn ("  slippage:      " ++ show (tpSlippage p))
-  putStrLn ("  spread:        " ++ show (tpSpread p))
-  putStrLn ("  intrabarFill:  " ++ show (tpIntrabarFill p))
-  putStrLn ("  triLayer:      " ++ show (tpTriLayer p))
-  putStrLn ("  triLayerFastMult: " ++ show (tpTriLayerFastMult p))
-  putStrLn ("  triLayerSlowMult: " ++ show (tpTriLayerSlowMult p))
-  putStrLn ("  triLayerCloudPadding: " ++ show (tpTriLayerCloudPadding p))
-  putStrLn ("  triLayerCloudSlope: " ++ show (tpTriLayerCloudSlope p))
-  putStrLn ("  triLayerCloudWidth: " ++ show (tpTriLayerCloudWidth p))
-  putStrLn ("  triLayerTouchLookback: " ++ show (tpTriLayerTouchLookback p))
-  putStrLn ("  triLayerPriceAction: " ++ show (tpTriLayerPriceAction p))
-  putStrLn ("  triLayerPriceActionBody: " ++ show (tpTriLayerPriceActionBody p))
-  putStrLn ("  triLayerExitOnSlow: " ++ show (tpTriLayerExitOnSlow p))
-  putStrLn ("  kalmanBandLookback: " ++ show (tpKalmanBandLookback p))
-  putStrLn ("  kalmanBandStdMult: " ++ show (tpKalmanBandStdMult p))
-  putStrLn ("  lstmExitFlipBars: " ++ show (tpLstmExitFlipBars p))
-  putStrLn ("  lstmExitFlipGraceBars: " ++ show (tpLstmExitFlipGraceBars p))
-  putStrLn ("  lstmExitFlipStrong: " ++ show (tpLstmExitFlipStrong p))
-  putStrLn ("  lstmConfidenceSoft: " ++ show (tpLstmConfidenceSoft p))
-  putStrLn ("  lstmConfidenceHard: " ++ show (tpLstmConfidenceHard p))
-  putStrLn ("  stopLoss:      " ++ showMaybe (tpStopLoss p))
-  putStrLn ("  takeProfit:    " ++ showMaybe (tpTakeProfit p))
-  putStrLn ("  trailingStop:  " ++ showMaybe (tpTrailingStop p))
-  putStrLn ("  stopLossVolMult:    " ++ showMaybe (tpStopLossVolMult p))
-  putStrLn ("  takeProfitVolMult:  " ++ showMaybe (tpTakeProfitVolMult p))
-  putStrLn ("  trailingStopVolMult:" ++ showMaybe (tpTrailingStopVolMult p))
-  putStrLn ("  maxDrawdown:   " ++ showMaybe (tpMaxDrawdown p))
-  putStrLn ("  maxDailyLoss:  " ++ showMaybe (tpMaxDailyLoss p))
-  putStrLn ("  maxOrderErrors:" ++ showMaybe (tpMaxOrderErrors p))
-  putStrLn ("  kalmanDt:            " ++ show (tpKalmanDt p))
-  putStrLn ("  kalmanProcessVar:    " ++ show (tpKalmanProcessVar p))
-  putStrLn ("  kalmanMeasurementVar:" ++ show (tpKalmanMeasurementVar p))
-  putStrLn ("  kalmanZMin:          " ++ show (tpKalmanZMin p))
-  putStrLn ("  kalmanZMax:          " ++ show (tpKalmanZMax p))
-  putStrLn ("  maxHighVolProb:      " ++ showMaybe (tpMaxHighVolProb p))
-  putStrLn ("  maxConformalWidth:   " ++ showMaybe (tpMaxConformalWidth p))
-  putStrLn ("  maxQuantileWidth:    " ++ showMaybe (tpMaxQuantileWidth p))
-  putStrLn ("  confirmConformal:    " ++ show (tpConfirmConformal p))
-  putStrLn ("  confirmQuantiles:    " ++ show (tpConfirmQuantiles p))
-  putStrLn ("  confidenceSizing:    " ++ show (tpConfidenceSizing p))
-  putStrLn ("  minPositionSize:     " ++ show (tpMinPositionSize p))
+    let p = trParams tr
+    putStrLn "\nBest:"
+    case trScore tr of
+        Just sc -> putStrLn ("  objective:   " ++ trObjective tr ++ " (score=" ++ printf "%.8f" sc ++ ")")
+        Nothing -> pure ()
+    putStrLn ("  finalEquity: " ++ printf "%.8f" (fromMaybe 0 (trFinalEquity tr)) ++ "x")
+    case tpPlatform p of
+        Just platform -> putStrLn ("  platform:    " ++ platform)
+        Nothing -> pure ()
+    putStrLn ("  interval:    " ++ tpInterval p)
+    putStrLn ("  bars:        " ++ show (tpBars p))
+    putStrLn ("  method:      " ++ tpMethod p)
+    putStrLn ("  positioning: " ++ tpPositioning p)
+    putStrLn ("  thresholds:  open=" ++ showMaybe (trOpenThreshold tr) ++ " close=" ++ showMaybe (trCloseThreshold tr) ++ " (from sweep)")
+    putStrLn ("  base thresholds: open=" ++ show (tpBaseOpenThreshold p) ++ " close=" ++ show (tpBaseCloseThreshold p))
+    putStrLn ("  blendWeight:  " ++ show (tpBlendWeight p))
+    putStrLn ("  routerScorePnlWeight: " ++ show (tpRouterScorePnlWeight p))
+    putStrLn ("  minHoldBars:  " ++ show (tpMinHoldBars p))
+    putStrLn ("  cooldownBars: " ++ show (tpCooldownBars p))
+    putStrLn ("  maxHoldBars:  " ++ showMaybe (tpMaxHoldBars p))
+    putStrLn ("  minEdge:      " ++ show (tpMinEdge p))
+    putStrLn ("  minSignalToNoise: " ++ show (tpMinSignalToNoise p))
+    putStrLn ("  snrSizeWeight: " ++ show (tpSnrSizeWeight p))
+    putStrLn ("  thresholdFactorEnabled: " ++ show (tpThresholdFactorEnabled p))
+    putStrLn ("  thresholdFactorAlpha: " ++ show (tpThresholdFactorAlpha p))
+    putStrLn ("  thresholdFactorBounds: " ++ show (tpThresholdFactorMin p) ++ ".." ++ show (tpThresholdFactorMax p))
+    putStrLn ("  thresholdFactorFloor: " ++ show (tpThresholdFactorFloor p))
+    putStrLn
+        ( "  thresholdFactorWeights:"
+            ++ " edgeKal="
+            ++ show (tpThresholdFactorEdgeKalWeight p)
+            ++ " edgeLstm="
+            ++ show (tpThresholdFactorEdgeLstmWeight p)
+            ++ " kalmanZ="
+            ++ show (tpThresholdFactorKalmanZWeight p)
+            ++ " highVol="
+            ++ show (tpThresholdFactorHighVolWeight p)
+            ++ " conformal="
+            ++ show (tpThresholdFactorConformalWeight p)
+            ++ " quantile="
+            ++ show (tpThresholdFactorQuantileWeight p)
+            ++ " lstmConf="
+            ++ show (tpThresholdFactorLstmConfWeight p)
+            ++ " lstmHealth="
+            ++ show (tpThresholdFactorLstmHealthWeight p)
+        )
+    putStrLn ("  edgeBuffer:   " ++ show (tpEdgeBuffer p))
+    putStrLn ("  costAwareEdge:" ++ show (tpCostAwareEdge p))
+    putStrLn ("  trendLookback:" ++ show (tpTrendLookback p))
+    putStrLn ("  maxPositionSize:" ++ show (tpMaxPositionSize p))
+    putStrLn ("  volTarget:    " ++ showMaybe (tpVolTarget p))
+    putStrLn ("  volLookback:  " ++ show (tpVolLookback p))
+    putStrLn ("  volEwmaAlpha: " ++ showMaybe (tpVolEwmaAlpha p))
+    putStrLn ("  volFloor:     " ++ show (tpVolFloor p))
+    putStrLn ("  volScaleMax:  " ++ show (tpVolScaleMax p))
+    putStrLn ("  maxVolatility: " ++ showMaybe (tpMaxVolatility p))
+    putStrLn ("  periodsPerYear:" ++ showMaybe (tpPeriodsPerYear p))
+    putStrLn ("  kalmanMarketTopN:" ++ show (tpKalmanMarketTopN p))
+    putStrLn ("  normalization: " ++ show (tpNormalization p))
+    putStrLn ("  epochs:        " ++ show (tpEpochs p))
+    putStrLn ("  hiddenSize:    " ++ show (tpHiddenSize p))
+    putStrLn ("  lr:            " ++ show (tpLearningRate p))
+    putStrLn ("  valRatio:      " ++ show (tpValRatio p))
+    putStrLn ("  patience:      " ++ show (tpPatience p))
+    putStrLn ("  walkForwardFolds:" ++ show (tpWalkForwardFolds p))
+    putStrLn ("  walkForwardEmbargoBars:" ++ show (tpWalkForwardEmbargoBars p))
+    putStrLn ("  tuneStressVolMult:" ++ show (tpTuneStressVolMult p))
+    putStrLn ("  tuneStressShock: " ++ show (tpTuneStressShock p))
+    putStrLn ("  tuneStressWeight:" ++ show (tpTuneStressWeight p))
+    putStrLn ("  gradClip:      " ++ showMaybe (tpGradClip p))
+    putStrLn ("  fee:           " ++ show (tpFee p))
+    putStrLn ("  fundingRate:   " ++ show (tpFundingRate p))
+    putStrLn ("  fundingBySide: " ++ show (tpFundingBySide p))
+    putStrLn ("  fundingOnOpen: " ++ show (tpFundingOnOpen p))
+    putStrLn ("  rebalanceBars: " ++ show (tpRebalanceBars p))
+    putStrLn ("  rebalanceThreshold:" ++ show (tpRebalanceThreshold p))
+    putStrLn ("  rebalanceCostMult:" ++ show (tpRebalanceCostMult p))
+    putStrLn ("  rebalanceGlobal: " ++ show (tpRebalanceGlobal p))
+    putStrLn ("  rebalanceResetOnSignal:" ++ show (tpRebalanceResetOnSignal p))
+    putStrLn ("  slippage:      " ++ show (tpSlippage p))
+    putStrLn ("  spread:        " ++ show (tpSpread p))
+    putStrLn ("  intrabarFill:  " ++ show (tpIntrabarFill p))
+    putStrLn ("  triLayer:      " ++ show (tpTriLayer p))
+    putStrLn ("  triLayerFastMult: " ++ show (tpTriLayerFastMult p))
+    putStrLn ("  triLayerSlowMult: " ++ show (tpTriLayerSlowMult p))
+    putStrLn ("  triLayerCloudPadding: " ++ show (tpTriLayerCloudPadding p))
+    putStrLn ("  triLayerCloudSlope: " ++ show (tpTriLayerCloudSlope p))
+    putStrLn ("  triLayerCloudWidth: " ++ show (tpTriLayerCloudWidth p))
+    putStrLn ("  triLayerTouchLookback: " ++ show (tpTriLayerTouchLookback p))
+    putStrLn ("  triLayerPriceAction: " ++ show (tpTriLayerPriceAction p))
+    putStrLn ("  triLayerPriceActionBody: " ++ show (tpTriLayerPriceActionBody p))
+    putStrLn ("  triLayerExitOnSlow: " ++ show (tpTriLayerExitOnSlow p))
+    putStrLn ("  kalmanBandLookback: " ++ show (tpKalmanBandLookback p))
+    putStrLn ("  kalmanBandStdMult: " ++ show (tpKalmanBandStdMult p))
+    putStrLn ("  lstmExitFlipBars: " ++ show (tpLstmExitFlipBars p))
+    putStrLn ("  lstmExitFlipGraceBars: " ++ show (tpLstmExitFlipGraceBars p))
+    putStrLn ("  lstmExitFlipStrong: " ++ show (tpLstmExitFlipStrong p))
+    putStrLn ("  lstmConfidenceSoft: " ++ show (tpLstmConfidenceSoft p))
+    putStrLn ("  lstmConfidenceHard: " ++ show (tpLstmConfidenceHard p))
+    putStrLn ("  stopLoss:      " ++ showMaybe (tpStopLoss p))
+    putStrLn ("  takeProfit:    " ++ showMaybe (tpTakeProfit p))
+    putStrLn ("  trailingStop:  " ++ showMaybe (tpTrailingStop p))
+    putStrLn ("  stopLossVolMult:    " ++ showMaybe (tpStopLossVolMult p))
+    putStrLn ("  takeProfitVolMult:  " ++ showMaybe (tpTakeProfitVolMult p))
+    putStrLn ("  trailingStopVolMult:" ++ showMaybe (tpTrailingStopVolMult p))
+    putStrLn ("  maxDrawdown:   " ++ showMaybe (tpMaxDrawdown p))
+    putStrLn ("  maxDailyLoss:  " ++ showMaybe (tpMaxDailyLoss p))
+    putStrLn ("  maxOrderErrors:" ++ showMaybe (tpMaxOrderErrors p))
+    putStrLn ("  kalmanDt:            " ++ show (tpKalmanDt p))
+    putStrLn ("  kalmanProcessVar:    " ++ show (tpKalmanProcessVar p))
+    putStrLn ("  kalmanMeasurementVar:" ++ show (tpKalmanMeasurementVar p))
+    putStrLn ("  kalmanZMin:          " ++ show (tpKalmanZMin p))
+    putStrLn ("  kalmanZMax:          " ++ show (tpKalmanZMax p))
+    putStrLn ("  maxHighVolProb:      " ++ showMaybe (tpMaxHighVolProb p))
+    putStrLn ("  maxConformalWidth:   " ++ showMaybe (tpMaxConformalWidth p))
+    putStrLn ("  maxQuantileWidth:    " ++ showMaybe (tpMaxQuantileWidth p))
+    putStrLn ("  confirmConformal:    " ++ show (tpConfirmConformal p))
+    putStrLn ("  confirmQuantiles:    " ++ show (tpConfirmQuantiles p))
+    putStrLn ("  confidenceSizing:    " ++ show (tpConfidenceSizing p))
+    putStrLn ("  minPositionSize:     " ++ show (tpMinPositionSize p))
 
-showMaybe :: Show a => Maybe a -> String
+showMaybe :: (Show a) => Maybe a -> String
 showMaybe v =
-  case v of
-    Nothing -> "None"
-    Just x -> show x
+    case v of
+        Nothing -> "None"
+        Just x -> show x
 
 printRepro :: FilePath -> [String] -> TrialResult -> Double -> Bool -> Bool -> IO ()
 printRepro traderBin baseArgs tr tuneRatio useSweepThreshold disableLstm = do
-  putStrLn "\nRepro command:"
-  let envPrefix = if disableLstm then "TRADER_LSTM_WEIGHTS_DIR='' " else ""
-      cmd = buildCommand traderBin baseArgs (trParams tr) tuneRatio useSweepThreshold
-  putStrLn ("  " ++ envPrefix ++ unwords cmd)
+    putStrLn "\nRepro command:"
+    let envPrefix = if disableLstm then "TRADER_LSTM_WEIGHTS_DIR='' " else ""
+        cmd = buildCommand traderBin baseArgs (trParams tr) tuneRatio useSweepThreshold
+    putStrLn ("  " ++ envPrefix ++ unwords cmd)
 
 data OptimizationTechnique = OptimizationTechnique
-  { otName :: !String
-  , otSummary :: !String
-  , otWhyItHelps :: !String
-  }
-  deriving (Eq, Show)
+    { otName :: !String
+    , otSummary :: !String
+    , otWhyItHelps :: !String
+    }
+    deriving (Eq, Show)
 
 data OptimizationTechniqueSummary = OptimizationTechniqueSummary
-  { otsAppliedSobolSeeding :: !Bool
-  , otsAppliedSuccessiveHalving :: !Bool
-  , otsAppliedBayesianEi :: !Bool
-  , otsAppliedWalkForward :: !Bool
-  , otsAppliedEnsemble :: !Bool
-  }
-  deriving (Eq, Show)
+    { otsAppliedSobolSeeding :: !Bool
+    , otsAppliedSuccessiveHalving :: !Bool
+    , otsAppliedBayesianEi :: !Bool
+    , otsAppliedWalkForward :: !Bool
+    , otsAppliedEnsemble :: !Bool
+    }
+    deriving (Eq, Show)
 
 emptyTechniqueSummary :: OptimizationTechniqueSummary
 emptyTechniqueSummary =
-  OptimizationTechniqueSummary
-    { otsAppliedSobolSeeding = False
-    , otsAppliedSuccessiveHalving = False
-    , otsAppliedBayesianEi = False
-    , otsAppliedWalkForward = False
-    , otsAppliedEnsemble = False
-    }
+    OptimizationTechniqueSummary
+        { otsAppliedSobolSeeding = False
+        , otsAppliedSuccessiveHalving = False
+        , otsAppliedBayesianEi = False
+        , otsAppliedWalkForward = False
+        , otsAppliedEnsemble = False
+        }
 
 bestOptimizationTechniques :: [OptimizationTechnique]
 bestOptimizationTechniques =
-  [ OptimizationTechnique
-      { otName = "Bayesian optimization (expected improvement)"
-      , otSummary = "Model the objective surface and pick trials that maximize expected improvement over the best result."
-      , otWhyItHelps = "Improves sample efficiency versus uniform random search when trials are expensive or noisy."
-      }
-  , OptimizationTechnique
-      { otName = "Successive halving / ASHA"
-      , otSummary = "Run many cheap partial trainings, pruning low performers early while allocating budget to promising candidates."
-      , otWhyItHelps = "Cuts wasted computation on weak trials and converges faster to strong configurations."
-      }
-  , OptimizationTechnique
-      { otName = "Sobol / Latin hypercube seeding"
-      , otSummary = "Start the search with low-discrepancy samples that cover the space more uniformly than pure random draws."
-      , otWhyItHelps = "Reduces blind spots and gives later exploitation steps better anchor points."
-      }
-  , OptimizationTechnique
-      { otName = "Walk-forward / blocked cross-validation"
-      , otSummary = "Score candidates across rolling, non-overlapping time blocks to avoid leakage and stress-test stability."
-      , otWhyItHelps = "Rewards configurations that generalize across regimes instead of overfitting a single window."
-      }
-  , OptimizationTechnique
-      { otName = "Ensemble the top performers"
-      , otSummary = "Blend the strongest, diverse configurations into a composite strategy instead of picking a single winner."
-      , otWhyItHelps = "Smooths variance and reduces the risk of relying on one brittle optimum."
-      }
-  ]
+    [ OptimizationTechnique
+        { otName = "Bayesian optimization (expected improvement)"
+        , otSummary = "Model the objective surface and pick trials that maximize expected improvement over the best result."
+        , otWhyItHelps = "Improves sample efficiency versus uniform random search when trials are expensive or noisy."
+        }
+    , OptimizationTechnique
+        { otName = "Successive halving / ASHA"
+        , otSummary = "Run many cheap partial trainings, pruning low performers early while allocating budget to promising candidates."
+        , otWhyItHelps = "Cuts wasted computation on weak trials and converges faster to strong configurations."
+        }
+    , OptimizationTechnique
+        { otName = "Sobol / Latin hypercube seeding"
+        , otSummary = "Start the search with low-discrepancy samples that cover the space more uniformly than pure random draws."
+        , otWhyItHelps = "Reduces blind spots and gives later exploitation steps better anchor points."
+        }
+    , OptimizationTechnique
+        { otName = "Walk-forward / blocked cross-validation"
+        , otSummary = "Score candidates across rolling, non-overlapping time blocks to avoid leakage and stress-test stability."
+        , otWhyItHelps = "Rewards configurations that generalize across regimes instead of overfitting a single window."
+        }
+    , OptimizationTechnique
+        { otName = "Ensemble the top performers"
+        , otSummary = "Blend the strongest, diverse configurations into a composite strategy instead of picking a single winner."
+        , otWhyItHelps = "Smooths variance and reduces the risk of relying on one brittle optimum."
+        }
+    ]
 
 optimizationTechniqueToJson :: OptimizationTechnique -> Value
 optimizationTechniqueToJson t =
-  object
-    [ "name" .= otName t
-    , "summary" .= otSummary t
-    , "whyItHelps" .= otWhyItHelps t
-    ]
+    object
+        [ "name" .= otName t
+        , "summary" .= otSummary t
+        , "whyItHelps" .= otWhyItHelps t
+        ]
 
 perturbDouble :: Double -> Double -> Rng -> (Double, Rng)
 perturbDouble v scale rng =
-  let s = max 0 scale
-      (factor, rng1) = nextUniform (1 - s) (1 + s) rng
-   in (max 0 (v * factor), rng1)
+    let s = max 0 scale
+        (factor, rng1) = nextUniform (1 - s) (1 + s) rng
+     in (max 0 (v * factor), rng1)
 
 perturbDoubleSigned :: Double -> Double -> Rng -> (Double, Rng)
 perturbDoubleSigned v scale rng =
-  let s = max 0 scale
-      (factor, rng1) = nextUniform (1 - s) (1 + s) rng
-   in (v * factor, rng1)
+    let s = max 0 scale
+        (factor, rng1) = nextUniform (1 - s) (1 + s) rng
+     in (v * factor, rng1)
 
 perturbMaybeDouble :: Maybe Double -> Double -> Rng -> (Maybe Double, Rng)
 perturbMaybeDouble v scale rng =
-  case v of
-    Nothing -> (Nothing, rng)
-    Just x ->
-      let (x', rng1) = perturbDouble x scale rng
-       in (Just x', rng1)
+    case v of
+        Nothing -> (Nothing, rng)
+        Just x ->
+            let (x', rng1) = perturbDouble x scale rng
+             in (Just x', rng1)
 
 perturbInt :: Int -> Int -> Rng -> (Int, Rng)
 perturbInt v maxDelta rng =
-  let deltaMax = max 0 maxDelta
-      (delta, rng1) = nextIntRange (-deltaMax) deltaMax rng
-   in (max 1 (v + delta), rng1)
+    let deltaMax = max 0 maxDelta
+        (delta, rng1) = nextIntRange (-deltaMax) deltaMax rng
+     in (max 1 (v + delta), rng1)
 
 perturbMaybeInt :: Maybe Int -> Int -> Rng -> (Maybe Int, Rng)
 perturbMaybeInt v maxDelta rng =
-  case v of
-    Nothing -> (Nothing, rng)
-    Just x ->
-      let (x', rng1) = perturbInt x maxDelta rng
-       in (Just x', rng1)
+    case v of
+        Nothing -> (Nothing, rng)
+        Just x ->
+            let (x', rng1) = perturbInt x maxDelta rng
+             in (Just x', rng1)
 
 pickValue :: a -> a -> Rng -> (a, Rng)
 pickValue a b rng =
-  let (r, rng1) = nextDouble rng
-   in (if r < 0.5 then a else b, rng1)
+    let (r, rng1) = nextDouble rng
+     in (if r < 0.5 then a else b, rng1)
 
 pickParentPair :: [TrialParams] -> Rng -> ((TrialParams, TrialParams), Rng)
 pickParentPair parents rng0 =
-  let n = length parents
-      (i, rng1) = nextIntRange 0 (n - 1) rng0
-      (j, rng2) = nextIntRange 0 (n - 1) rng1
-      j' = if j == i then (j + 1) `mod` n else j
-   in ((parents !! i, parents !! j'), rng2)
+    let n = length parents
+        (i, rng1) = nextIntRange 0 (n - 1) rng0
+        (j, rng2) = nextIntRange 0 (n - 1) rng1
+        j' = if j == i then (j + 1) `mod` n else j
+     in ((parents !! i, parents !! j'), rng2)
 
 crossoverTrialParams :: TrialParams -> TrialParams -> Rng -> (TrialParams, Rng)
 crossoverTrialParams a b rng0 =
-  let (tpPlatform', rng1) = pickValue (tpPlatform a) (tpPlatform b) rng0
-      (tpInterval', rng2) = pickValue (tpInterval a) (tpInterval b) rng1
-      (tpBars', rng3) = pickValue (tpBars a) (tpBars b) rng2
-      (tpMethod', rng4) = pickValue (tpMethod a) (tpMethod b) rng3
-      (tpBlendWeight', rng5) = pickValue (tpBlendWeight a) (tpBlendWeight b) rng4
-      (tpRouterScorePnlWeight', rng5a) = pickValue (tpRouterScorePnlWeight a) (tpRouterScorePnlWeight b) rng5
-      (tpPositioning', rng6) = pickValue (tpPositioning a) (tpPositioning b) rng5a
-      (tpNormalization', rng7) = pickValue (tpNormalization a) (tpNormalization b) rng6
-      (tpBaseOpenThreshold', rng8) = pickValue (tpBaseOpenThreshold a) (tpBaseOpenThreshold b) rng7
-      (tpBaseCloseThreshold', rng9) = pickValue (tpBaseCloseThreshold a) (tpBaseCloseThreshold b) rng8
-      (tpMinHoldBars', rng10) = pickValue (tpMinHoldBars a) (tpMinHoldBars b) rng9
-      (tpCooldownBars', rng11) = pickValue (tpCooldownBars a) (tpCooldownBars b) rng10
-      (tpMaxHoldBars', rng12) = pickValue (tpMaxHoldBars a) (tpMaxHoldBars b) rng11
-      (tpMinEdge', rng13) = pickValue (tpMinEdge a) (tpMinEdge b) rng12
-      (tpMinSignalToNoise', rng14) = pickValue (tpMinSignalToNoise a) (tpMinSignalToNoise b) rng13
-      (tpSnrSizeWeight', rng14a) = pickValue (tpSnrSizeWeight a) (tpSnrSizeWeight b) rng14
-      (tpThresholdFactorEnabled', rng15) = pickValue (tpThresholdFactorEnabled a) (tpThresholdFactorEnabled b) rng14a
-      (tpThresholdFactorAlpha', rng16) = pickValue (tpThresholdFactorAlpha a) (tpThresholdFactorAlpha b) rng15
-      (tpThresholdFactorMin', rng17) = pickValue (tpThresholdFactorMin a) (tpThresholdFactorMin b) rng16
-      (tpThresholdFactorMax', rng18) = pickValue (tpThresholdFactorMax a) (tpThresholdFactorMax b) rng17
-      (tpThresholdFactorFloor', rng19) = pickValue (tpThresholdFactorFloor a) (tpThresholdFactorFloor b) rng18
-      (tpThresholdFactorEdgeKalWeight', rng20) = pickValue (tpThresholdFactorEdgeKalWeight a) (tpThresholdFactorEdgeKalWeight b) rng19
-      (tpThresholdFactorEdgeLstmWeight', rng21) = pickValue (tpThresholdFactorEdgeLstmWeight a) (tpThresholdFactorEdgeLstmWeight b) rng20
-      (tpThresholdFactorKalmanZWeight', rng22) = pickValue (tpThresholdFactorKalmanZWeight a) (tpThresholdFactorKalmanZWeight b) rng21
-      (tpThresholdFactorHighVolWeight', rng23) = pickValue (tpThresholdFactorHighVolWeight a) (tpThresholdFactorHighVolWeight b) rng22
-      (tpThresholdFactorConformalWeight', rng24) = pickValue (tpThresholdFactorConformalWeight a) (tpThresholdFactorConformalWeight b) rng23
-      (tpThresholdFactorQuantileWeight', rng25) = pickValue (tpThresholdFactorQuantileWeight a) (tpThresholdFactorQuantileWeight b) rng24
-      (tpThresholdFactorLstmConfWeight', rng26) = pickValue (tpThresholdFactorLstmConfWeight a) (tpThresholdFactorLstmConfWeight b) rng25
-      (tpThresholdFactorLstmHealthWeight', rng27) = pickValue (tpThresholdFactorLstmHealthWeight a) (tpThresholdFactorLstmHealthWeight b) rng26
-      (tpEdgeBuffer', rng28) = pickValue (tpEdgeBuffer a) (tpEdgeBuffer b) rng27
-      (tpCostAwareEdge', rng29) = pickValue (tpCostAwareEdge a) (tpCostAwareEdge b) rng28
-      (tpTrendLookback', rng30) = pickValue (tpTrendLookback a) (tpTrendLookback b) rng29
-      (tpMaxPositionSize', rng31) = pickValue (tpMaxPositionSize a) (tpMaxPositionSize b) rng30
-      (tpVolTarget', rng32) = pickValue (tpVolTarget a) (tpVolTarget b) rng31
-      (tpVolLookback', rng33) = pickValue (tpVolLookback a) (tpVolLookback b) rng32
-      (tpVolEwmaAlpha', rng34) = pickValue (tpVolEwmaAlpha a) (tpVolEwmaAlpha b) rng33
-      (tpVolFloor', rng35) = pickValue (tpVolFloor a) (tpVolFloor b) rng34
-      (tpVolScaleMax', rng36) = pickValue (tpVolScaleMax a) (tpVolScaleMax b) rng35
-      (tpMaxVolatility', rng37) = pickValue (tpMaxVolatility a) (tpMaxVolatility b) rng36
-      (tpPeriodsPerYear', rng38) = pickValue (tpPeriodsPerYear a) (tpPeriodsPerYear b) rng37
-      (tpKalmanMarketTopN', rng39) = pickValue (tpKalmanMarketTopN a) (tpKalmanMarketTopN b) rng38
-      (tpFee', rng40) = pickValue (tpFee a) (tpFee b) rng39
-      (tpFundingRate', rng41) = pickValue (tpFundingRate a) (tpFundingRate b) rng40
-      (tpFundingBySide', rng42) = pickValue (tpFundingBySide a) (tpFundingBySide b) rng41
-      (tpFundingOnOpen', rng43) = pickValue (tpFundingOnOpen a) (tpFundingOnOpen b) rng42
-      (tpRebalanceBars', rng44) = pickValue (tpRebalanceBars a) (tpRebalanceBars b) rng43
-      (tpRebalanceThreshold', rng45) = pickValue (tpRebalanceThreshold a) (tpRebalanceThreshold b) rng44
-      (tpRebalanceCostMult', rng45a) = pickValue (tpRebalanceCostMult a) (tpRebalanceCostMult b) rng45
-      (tpRebalanceGlobal', rng46) = pickValue (tpRebalanceGlobal a) (tpRebalanceGlobal b) rng45a
-      (tpRebalanceResetOnSignal', rng47) = pickValue (tpRebalanceResetOnSignal a) (tpRebalanceResetOnSignal b) rng46
-      (tpEpochs', rng48) = pickValue (tpEpochs a) (tpEpochs b) rng47
-      (tpHiddenSize', rng49) = pickValue (tpHiddenSize a) (tpHiddenSize b) rng48
-      (tpLearningRate', rng50) = pickValue (tpLearningRate a) (tpLearningRate b) rng49
-      (tpValRatio', rng51) = pickValue (tpValRatio a) (tpValRatio b) rng50
-      (tpPatience', rng52) = pickValue (tpPatience a) (tpPatience b) rng51
-      (tpWalkForwardFolds', rng53) = pickValue (tpWalkForwardFolds a) (tpWalkForwardFolds b) rng52
-      (tpWalkForwardEmbargoBars', rng53a) = pickValue (tpWalkForwardEmbargoBars a) (tpWalkForwardEmbargoBars b) rng53
-      (tpTuneStressVolMult', rng54) = pickValue (tpTuneStressVolMult a) (tpTuneStressVolMult b) rng53a
-      (tpTuneStressShock', rng55) = pickValue (tpTuneStressShock a) (tpTuneStressShock b) rng54
-      (tpTuneStressWeight', rng56) = pickValue (tpTuneStressWeight a) (tpTuneStressWeight b) rng55
-      (tpGradClip', rng57) = pickValue (tpGradClip a) (tpGradClip b) rng56
-      (tpSlippage', rng58) = pickValue (tpSlippage a) (tpSlippage b) rng57
-      (tpSpread', rng59) = pickValue (tpSpread a) (tpSpread b) rng58
-      (tpIntrabarFill', rng60) = pickValue (tpIntrabarFill a) (tpIntrabarFill b) rng59
-      (tpTriLayer', rng61) = pickValue (tpTriLayer a) (tpTriLayer b) rng60
-      (tpTriLayerFastMult', rng62) = pickValue (tpTriLayerFastMult a) (tpTriLayerFastMult b) rng61
-      (tpTriLayerSlowMult', rng63) = pickValue (tpTriLayerSlowMult a) (tpTriLayerSlowMult b) rng62
-      (tpTriLayerCloudPadding', rng64) = pickValue (tpTriLayerCloudPadding a) (tpTriLayerCloudPadding b) rng63
-      (tpTriLayerCloudSlope', rng65) = pickValue (tpTriLayerCloudSlope a) (tpTriLayerCloudSlope b) rng64
-      (tpTriLayerCloudWidth', rng66) = pickValue (tpTriLayerCloudWidth a) (tpTriLayerCloudWidth b) rng65
-      (tpTriLayerTouchLookback', rng67) = pickValue (tpTriLayerTouchLookback a) (tpTriLayerTouchLookback b) rng66
-      (tpTriLayerPriceAction', rng68) = pickValue (tpTriLayerPriceAction a) (tpTriLayerPriceAction b) rng67
-      (tpTriLayerPriceActionBody', rng69) = pickValue (tpTriLayerPriceActionBody a) (tpTriLayerPriceActionBody b) rng68
-      (tpTriLayerExitOnSlow', rng70) = pickValue (tpTriLayerExitOnSlow a) (tpTriLayerExitOnSlow b) rng69
-      (tpKalmanBandLookback', rng71) = pickValue (tpKalmanBandLookback a) (tpKalmanBandLookback b) rng70
-      (tpKalmanBandStdMult', rng72) = pickValue (tpKalmanBandStdMult a) (tpKalmanBandStdMult b) rng71
-      (tpLstmExitFlipBars', rng73) = pickValue (tpLstmExitFlipBars a) (tpLstmExitFlipBars b) rng72
-      (tpLstmExitFlipGraceBars', rng74) = pickValue (tpLstmExitFlipGraceBars a) (tpLstmExitFlipGraceBars b) rng73
-      (tpLstmExitFlipStrong', rng75) = pickValue (tpLstmExitFlipStrong a) (tpLstmExitFlipStrong b) rng74
-      (tpLstmConfidenceSoft', rng76) = pickValue (tpLstmConfidenceSoft a) (tpLstmConfidenceSoft b) rng75
-      (tpLstmConfidenceHard', rng77) = pickValue (tpLstmConfidenceHard a) (tpLstmConfidenceHard b) rng76
-      (tpStopLoss', rng78) = pickValue (tpStopLoss a) (tpStopLoss b) rng77
-      (tpTakeProfit', rng79) = pickValue (tpTakeProfit a) (tpTakeProfit b) rng78
-      (tpTrailingStop', rng80) = pickValue (tpTrailingStop a) (tpTrailingStop b) rng79
-      (tpStopLossVolMult', rng81) = pickValue (tpStopLossVolMult a) (tpStopLossVolMult b) rng80
-      (tpTakeProfitVolMult', rng82) = pickValue (tpTakeProfitVolMult a) (tpTakeProfitVolMult b) rng81
-      (tpTrailingStopVolMult', rng83) = pickValue (tpTrailingStopVolMult a) (tpTrailingStopVolMult b) rng82
-      (tpMaxDrawdown', rng84) = pickValue (tpMaxDrawdown a) (tpMaxDrawdown b) rng83
-      (tpMaxDailyLoss', rng85) = pickValue (tpMaxDailyLoss a) (tpMaxDailyLoss b) rng84
-      (tpMaxOrderErrors', rng86) = pickValue (tpMaxOrderErrors a) (tpMaxOrderErrors b) rng85
-      (tpKalmanDt', rng87) = pickValue (tpKalmanDt a) (tpKalmanDt b) rng86
-      (tpKalmanProcessVar', rng88) = pickValue (tpKalmanProcessVar a) (tpKalmanProcessVar b) rng87
-      (tpKalmanMeasurementVar', rng89) = pickValue (tpKalmanMeasurementVar a) (tpKalmanMeasurementVar b) rng88
-      (tpKalmanZMin', rng90) = pickValue (tpKalmanZMin a) (tpKalmanZMin b) rng89
-      (tpKalmanZMax', rng91) = pickValue (tpKalmanZMax a) (tpKalmanZMax b) rng90
-      (tpMaxHighVolProb', rng92) = pickValue (tpMaxHighVolProb a) (tpMaxHighVolProb b) rng91
-      (tpMaxConformalWidth', rng93) = pickValue (tpMaxConformalWidth a) (tpMaxConformalWidth b) rng92
-      (tpMaxQuantileWidth', rng94) = pickValue (tpMaxQuantileWidth a) (tpMaxQuantileWidth b) rng93
-      (tpConfirmConformal', rng95) = pickValue (tpConfirmConformal a) (tpConfirmConformal b) rng94
-      (tpConfirmQuantiles', rng96) = pickValue (tpConfirmQuantiles a) (tpConfirmQuantiles b) rng95
-      (tpConfidenceSizing', rng97) = pickValue (tpConfidenceSizing a) (tpConfidenceSizing b) rng96
-      (tpMinPositionSize', rng98) = pickValue (tpMinPositionSize a) (tpMinPositionSize b) rng97
-   in ( TrialParams
-          { tpPlatform = tpPlatform'
-          , tpInterval = tpInterval'
-          , tpBars = tpBars'
-          , tpMethod = tpMethod'
-          , tpBlendWeight = tpBlendWeight'
-          , tpRouterScorePnlWeight = tpRouterScorePnlWeight'
-          , tpPositioning = tpPositioning'
-          , tpNormalization = tpNormalization'
-          , tpBaseOpenThreshold = tpBaseOpenThreshold'
-          , tpBaseCloseThreshold = tpBaseCloseThreshold'
-          , tpMinHoldBars = tpMinHoldBars'
-          , tpCooldownBars = tpCooldownBars'
-          , tpMaxHoldBars = tpMaxHoldBars'
-          , tpMinEdge = tpMinEdge'
-          , tpMinSignalToNoise = tpMinSignalToNoise'
-          , tpSnrSizeWeight = tpSnrSizeWeight'
-          , tpThresholdFactorEnabled = tpThresholdFactorEnabled'
-          , tpThresholdFactorAlpha = tpThresholdFactorAlpha'
-          , tpThresholdFactorMin = tpThresholdFactorMin'
-          , tpThresholdFactorMax = tpThresholdFactorMax'
-          , tpThresholdFactorFloor = tpThresholdFactorFloor'
-          , tpThresholdFactorEdgeKalWeight = tpThresholdFactorEdgeKalWeight'
-          , tpThresholdFactorEdgeLstmWeight = tpThresholdFactorEdgeLstmWeight'
-          , tpThresholdFactorKalmanZWeight = tpThresholdFactorKalmanZWeight'
-          , tpThresholdFactorHighVolWeight = tpThresholdFactorHighVolWeight'
-          , tpThresholdFactorConformalWeight = tpThresholdFactorConformalWeight'
-          , tpThresholdFactorQuantileWeight = tpThresholdFactorQuantileWeight'
-          , tpThresholdFactorLstmConfWeight = tpThresholdFactorLstmConfWeight'
-          , tpThresholdFactorLstmHealthWeight = tpThresholdFactorLstmHealthWeight'
-          , tpEdgeBuffer = tpEdgeBuffer'
-          , tpCostAwareEdge = tpCostAwareEdge'
-          , tpTrendLookback = tpTrendLookback'
-          , tpMaxPositionSize = tpMaxPositionSize'
-          , tpVolTarget = tpVolTarget'
-          , tpVolLookback = tpVolLookback'
-          , tpVolEwmaAlpha = tpVolEwmaAlpha'
-          , tpVolFloor = tpVolFloor'
-          , tpVolScaleMax = tpVolScaleMax'
-          , tpMaxVolatility = tpMaxVolatility'
-          , tpPeriodsPerYear = tpPeriodsPerYear'
-          , tpKalmanMarketTopN = tpKalmanMarketTopN'
-          , tpFee = tpFee'
-          , tpFundingRate = tpFundingRate'
-          , tpFundingBySide = tpFundingBySide'
-          , tpFundingOnOpen = tpFundingOnOpen'
-          , tpRebalanceBars = tpRebalanceBars'
-          , tpRebalanceThreshold = tpRebalanceThreshold'
-          , tpRebalanceCostMult = tpRebalanceCostMult'
-          , tpRebalanceGlobal = tpRebalanceGlobal'
-          , tpRebalanceResetOnSignal = tpRebalanceResetOnSignal'
-          , tpEpochs = tpEpochs'
-          , tpHiddenSize = tpHiddenSize'
-          , tpLearningRate = tpLearningRate'
-          , tpValRatio = tpValRatio'
-          , tpPatience = tpPatience'
-          , tpWalkForwardFolds = tpWalkForwardFolds'
-          , tpWalkForwardEmbargoBars = tpWalkForwardEmbargoBars'
-          , tpTuneStressVolMult = tpTuneStressVolMult'
-          , tpTuneStressShock = tpTuneStressShock'
-          , tpTuneStressWeight = tpTuneStressWeight'
-          , tpGradClip = tpGradClip'
-          , tpSlippage = tpSlippage'
-          , tpSpread = tpSpread'
-          , tpIntrabarFill = tpIntrabarFill'
-          , tpTriLayer = tpTriLayer'
-          , tpTriLayerFastMult = tpTriLayerFastMult'
-          , tpTriLayerSlowMult = tpTriLayerSlowMult'
-          , tpTriLayerCloudPadding = tpTriLayerCloudPadding'
-          , tpTriLayerCloudSlope = tpTriLayerCloudSlope'
-          , tpTriLayerCloudWidth = tpTriLayerCloudWidth'
-          , tpTriLayerTouchLookback = tpTriLayerTouchLookback'
-          , tpTriLayerPriceAction = tpTriLayerPriceAction'
-          , tpTriLayerPriceActionBody = tpTriLayerPriceActionBody'
-          , tpTriLayerExitOnSlow = tpTriLayerExitOnSlow'
-          , tpKalmanBandLookback = tpKalmanBandLookback'
-          , tpKalmanBandStdMult = tpKalmanBandStdMult'
-          , tpLstmExitFlipBars = tpLstmExitFlipBars'
-          , tpLstmExitFlipGraceBars = tpLstmExitFlipGraceBars'
-          , tpLstmExitFlipStrong = tpLstmExitFlipStrong'
-          , tpLstmConfidenceSoft = tpLstmConfidenceSoft'
-          , tpLstmConfidenceHard = tpLstmConfidenceHard'
-          , tpStopLoss = tpStopLoss'
-          , tpTakeProfit = tpTakeProfit'
-          , tpTrailingStop = tpTrailingStop'
-          , tpStopLossVolMult = tpStopLossVolMult'
-          , tpTakeProfitVolMult = tpTakeProfitVolMult'
-          , tpTrailingStopVolMult = tpTrailingStopVolMult'
-          , tpMaxDrawdown = tpMaxDrawdown'
-          , tpMaxDailyLoss = tpMaxDailyLoss'
-          , tpMaxOrderErrors = tpMaxOrderErrors'
-          , tpKalmanDt = tpKalmanDt'
-          , tpKalmanProcessVar = tpKalmanProcessVar'
-          , tpKalmanMeasurementVar = tpKalmanMeasurementVar'
-          , tpKalmanZMin = tpKalmanZMin'
-          , tpKalmanZMax = tpKalmanZMax'
-          , tpMaxHighVolProb = tpMaxHighVolProb'
-          , tpMaxConformalWidth = tpMaxConformalWidth'
-          , tpMaxQuantileWidth = tpMaxQuantileWidth'
-          , tpConfirmConformal = tpConfirmConformal'
-          , tpConfirmQuantiles = tpConfirmQuantiles'
-          , tpConfidenceSizing = tpConfidenceSizing'
-          , tpMinPositionSize = tpMinPositionSize'
-          }
-      , rng98
-      )
+    let (tpPlatform', rng1) = pickValue (tpPlatform a) (tpPlatform b) rng0
+        (tpInterval', rng2) = pickValue (tpInterval a) (tpInterval b) rng1
+        (tpBars', rng3) = pickValue (tpBars a) (tpBars b) rng2
+        (tpMethod', rng4) = pickValue (tpMethod a) (tpMethod b) rng3
+        (tpBlendWeight', rng5) = pickValue (tpBlendWeight a) (tpBlendWeight b) rng4
+        (tpRouterScorePnlWeight', rng5a) = pickValue (tpRouterScorePnlWeight a) (tpRouterScorePnlWeight b) rng5
+        (tpPositioning', rng6) = pickValue (tpPositioning a) (tpPositioning b) rng5a
+        (tpNormalization', rng7) = pickValue (tpNormalization a) (tpNormalization b) rng6
+        (tpBaseOpenThreshold', rng8) = pickValue (tpBaseOpenThreshold a) (tpBaseOpenThreshold b) rng7
+        (tpBaseCloseThreshold', rng9) = pickValue (tpBaseCloseThreshold a) (tpBaseCloseThreshold b) rng8
+        (tpMinHoldBars', rng10) = pickValue (tpMinHoldBars a) (tpMinHoldBars b) rng9
+        (tpCooldownBars', rng11) = pickValue (tpCooldownBars a) (tpCooldownBars b) rng10
+        (tpMaxHoldBars', rng12) = pickValue (tpMaxHoldBars a) (tpMaxHoldBars b) rng11
+        (tpMinEdge', rng13) = pickValue (tpMinEdge a) (tpMinEdge b) rng12
+        (tpMinSignalToNoise', rng14) = pickValue (tpMinSignalToNoise a) (tpMinSignalToNoise b) rng13
+        (tpSnrSizeWeight', rng14a) = pickValue (tpSnrSizeWeight a) (tpSnrSizeWeight b) rng14
+        (tpThresholdFactorEnabled', rng15) = pickValue (tpThresholdFactorEnabled a) (tpThresholdFactorEnabled b) rng14a
+        (tpThresholdFactorAlpha', rng16) = pickValue (tpThresholdFactorAlpha a) (tpThresholdFactorAlpha b) rng15
+        (tpThresholdFactorMin', rng17) = pickValue (tpThresholdFactorMin a) (tpThresholdFactorMin b) rng16
+        (tpThresholdFactorMax', rng18) = pickValue (tpThresholdFactorMax a) (tpThresholdFactorMax b) rng17
+        (tpThresholdFactorFloor', rng19) = pickValue (tpThresholdFactorFloor a) (tpThresholdFactorFloor b) rng18
+        (tpThresholdFactorEdgeKalWeight', rng20) = pickValue (tpThresholdFactorEdgeKalWeight a) (tpThresholdFactorEdgeKalWeight b) rng19
+        (tpThresholdFactorEdgeLstmWeight', rng21) = pickValue (tpThresholdFactorEdgeLstmWeight a) (tpThresholdFactorEdgeLstmWeight b) rng20
+        (tpThresholdFactorKalmanZWeight', rng22) = pickValue (tpThresholdFactorKalmanZWeight a) (tpThresholdFactorKalmanZWeight b) rng21
+        (tpThresholdFactorHighVolWeight', rng23) = pickValue (tpThresholdFactorHighVolWeight a) (tpThresholdFactorHighVolWeight b) rng22
+        (tpThresholdFactorConformalWeight', rng24) = pickValue (tpThresholdFactorConformalWeight a) (tpThresholdFactorConformalWeight b) rng23
+        (tpThresholdFactorQuantileWeight', rng25) = pickValue (tpThresholdFactorQuantileWeight a) (tpThresholdFactorQuantileWeight b) rng24
+        (tpThresholdFactorLstmConfWeight', rng26) = pickValue (tpThresholdFactorLstmConfWeight a) (tpThresholdFactorLstmConfWeight b) rng25
+        (tpThresholdFactorLstmHealthWeight', rng27) = pickValue (tpThresholdFactorLstmHealthWeight a) (tpThresholdFactorLstmHealthWeight b) rng26
+        (tpEdgeBuffer', rng28) = pickValue (tpEdgeBuffer a) (tpEdgeBuffer b) rng27
+        (tpCostAwareEdge', rng29) = pickValue (tpCostAwareEdge a) (tpCostAwareEdge b) rng28
+        (tpTrendLookback', rng30) = pickValue (tpTrendLookback a) (tpTrendLookback b) rng29
+        (tpMaxPositionSize', rng31) = pickValue (tpMaxPositionSize a) (tpMaxPositionSize b) rng30
+        (tpVolTarget', rng32) = pickValue (tpVolTarget a) (tpVolTarget b) rng31
+        (tpVolLookback', rng33) = pickValue (tpVolLookback a) (tpVolLookback b) rng32
+        (tpVolEwmaAlpha', rng34) = pickValue (tpVolEwmaAlpha a) (tpVolEwmaAlpha b) rng33
+        (tpVolFloor', rng35) = pickValue (tpVolFloor a) (tpVolFloor b) rng34
+        (tpVolScaleMax', rng36) = pickValue (tpVolScaleMax a) (tpVolScaleMax b) rng35
+        (tpMaxVolatility', rng37) = pickValue (tpMaxVolatility a) (tpMaxVolatility b) rng36
+        (tpPeriodsPerYear', rng38) = pickValue (tpPeriodsPerYear a) (tpPeriodsPerYear b) rng37
+        (tpKalmanMarketTopN', rng39) = pickValue (tpKalmanMarketTopN a) (tpKalmanMarketTopN b) rng38
+        (tpFee', rng40) = pickValue (tpFee a) (tpFee b) rng39
+        (tpFundingRate', rng41) = pickValue (tpFundingRate a) (tpFundingRate b) rng40
+        (tpFundingBySide', rng42) = pickValue (tpFundingBySide a) (tpFundingBySide b) rng41
+        (tpFundingOnOpen', rng43) = pickValue (tpFundingOnOpen a) (tpFundingOnOpen b) rng42
+        (tpRebalanceBars', rng44) = pickValue (tpRebalanceBars a) (tpRebalanceBars b) rng43
+        (tpRebalanceThreshold', rng45) = pickValue (tpRebalanceThreshold a) (tpRebalanceThreshold b) rng44
+        (tpRebalanceCostMult', rng45a) = pickValue (tpRebalanceCostMult a) (tpRebalanceCostMult b) rng45
+        (tpRebalanceGlobal', rng46) = pickValue (tpRebalanceGlobal a) (tpRebalanceGlobal b) rng45a
+        (tpRebalanceResetOnSignal', rng47) = pickValue (tpRebalanceResetOnSignal a) (tpRebalanceResetOnSignal b) rng46
+        (tpEpochs', rng48) = pickValue (tpEpochs a) (tpEpochs b) rng47
+        (tpHiddenSize', rng49) = pickValue (tpHiddenSize a) (tpHiddenSize b) rng48
+        (tpLearningRate', rng50) = pickValue (tpLearningRate a) (tpLearningRate b) rng49
+        (tpValRatio', rng51) = pickValue (tpValRatio a) (tpValRatio b) rng50
+        (tpPatience', rng52) = pickValue (tpPatience a) (tpPatience b) rng51
+        (tpWalkForwardFolds', rng53) = pickValue (tpWalkForwardFolds a) (tpWalkForwardFolds b) rng52
+        (tpWalkForwardEmbargoBars', rng53a) = pickValue (tpWalkForwardEmbargoBars a) (tpWalkForwardEmbargoBars b) rng53
+        (tpTuneStressVolMult', rng54) = pickValue (tpTuneStressVolMult a) (tpTuneStressVolMult b) rng53a
+        (tpTuneStressShock', rng55) = pickValue (tpTuneStressShock a) (tpTuneStressShock b) rng54
+        (tpTuneStressWeight', rng56) = pickValue (tpTuneStressWeight a) (tpTuneStressWeight b) rng55
+        (tpGradClip', rng57) = pickValue (tpGradClip a) (tpGradClip b) rng56
+        (tpSlippage', rng58) = pickValue (tpSlippage a) (tpSlippage b) rng57
+        (tpSpread', rng59) = pickValue (tpSpread a) (tpSpread b) rng58
+        (tpIntrabarFill', rng60) = pickValue (tpIntrabarFill a) (tpIntrabarFill b) rng59
+        (tpTriLayer', rng61) = pickValue (tpTriLayer a) (tpTriLayer b) rng60
+        (tpTriLayerFastMult', rng62) = pickValue (tpTriLayerFastMult a) (tpTriLayerFastMult b) rng61
+        (tpTriLayerSlowMult', rng63) = pickValue (tpTriLayerSlowMult a) (tpTriLayerSlowMult b) rng62
+        (tpTriLayerCloudPadding', rng64) = pickValue (tpTriLayerCloudPadding a) (tpTriLayerCloudPadding b) rng63
+        (tpTriLayerCloudSlope', rng65) = pickValue (tpTriLayerCloudSlope a) (tpTriLayerCloudSlope b) rng64
+        (tpTriLayerCloudWidth', rng66) = pickValue (tpTriLayerCloudWidth a) (tpTriLayerCloudWidth b) rng65
+        (tpTriLayerTouchLookback', rng67) = pickValue (tpTriLayerTouchLookback a) (tpTriLayerTouchLookback b) rng66
+        (tpTriLayerPriceAction', rng68) = pickValue (tpTriLayerPriceAction a) (tpTriLayerPriceAction b) rng67
+        (tpTriLayerPriceActionBody', rng69) = pickValue (tpTriLayerPriceActionBody a) (tpTriLayerPriceActionBody b) rng68
+        (tpTriLayerExitOnSlow', rng70) = pickValue (tpTriLayerExitOnSlow a) (tpTriLayerExitOnSlow b) rng69
+        (tpKalmanBandLookback', rng71) = pickValue (tpKalmanBandLookback a) (tpKalmanBandLookback b) rng70
+        (tpKalmanBandStdMult', rng72) = pickValue (tpKalmanBandStdMult a) (tpKalmanBandStdMult b) rng71
+        (tpLstmExitFlipBars', rng73) = pickValue (tpLstmExitFlipBars a) (tpLstmExitFlipBars b) rng72
+        (tpLstmExitFlipGraceBars', rng74) = pickValue (tpLstmExitFlipGraceBars a) (tpLstmExitFlipGraceBars b) rng73
+        (tpLstmExitFlipStrong', rng75) = pickValue (tpLstmExitFlipStrong a) (tpLstmExitFlipStrong b) rng74
+        (tpLstmConfidenceSoft', rng76) = pickValue (tpLstmConfidenceSoft a) (tpLstmConfidenceSoft b) rng75
+        (tpLstmConfidenceHard', rng77) = pickValue (tpLstmConfidenceHard a) (tpLstmConfidenceHard b) rng76
+        (tpStopLoss', rng78) = pickValue (tpStopLoss a) (tpStopLoss b) rng77
+        (tpTakeProfit', rng79) = pickValue (tpTakeProfit a) (tpTakeProfit b) rng78
+        (tpTrailingStop', rng80) = pickValue (tpTrailingStop a) (tpTrailingStop b) rng79
+        (tpStopLossVolMult', rng81) = pickValue (tpStopLossVolMult a) (tpStopLossVolMult b) rng80
+        (tpTakeProfitVolMult', rng82) = pickValue (tpTakeProfitVolMult a) (tpTakeProfitVolMult b) rng81
+        (tpTrailingStopVolMult', rng83) = pickValue (tpTrailingStopVolMult a) (tpTrailingStopVolMult b) rng82
+        (tpMaxDrawdown', rng84) = pickValue (tpMaxDrawdown a) (tpMaxDrawdown b) rng83
+        (tpMaxDailyLoss', rng85) = pickValue (tpMaxDailyLoss a) (tpMaxDailyLoss b) rng84
+        (tpMaxOrderErrors', rng86) = pickValue (tpMaxOrderErrors a) (tpMaxOrderErrors b) rng85
+        (tpKalmanDt', rng87) = pickValue (tpKalmanDt a) (tpKalmanDt b) rng86
+        (tpKalmanProcessVar', rng88) = pickValue (tpKalmanProcessVar a) (tpKalmanProcessVar b) rng87
+        (tpKalmanMeasurementVar', rng89) = pickValue (tpKalmanMeasurementVar a) (tpKalmanMeasurementVar b) rng88
+        (tpKalmanZMin', rng90) = pickValue (tpKalmanZMin a) (tpKalmanZMin b) rng89
+        (tpKalmanZMax', rng91) = pickValue (tpKalmanZMax a) (tpKalmanZMax b) rng90
+        (tpMaxHighVolProb', rng92) = pickValue (tpMaxHighVolProb a) (tpMaxHighVolProb b) rng91
+        (tpMaxConformalWidth', rng93) = pickValue (tpMaxConformalWidth a) (tpMaxConformalWidth b) rng92
+        (tpMaxQuantileWidth', rng94) = pickValue (tpMaxQuantileWidth a) (tpMaxQuantileWidth b) rng93
+        (tpConfirmConformal', rng95) = pickValue (tpConfirmConformal a) (tpConfirmConformal b) rng94
+        (tpConfirmQuantiles', rng96) = pickValue (tpConfirmQuantiles a) (tpConfirmQuantiles b) rng95
+        (tpConfidenceSizing', rng97) = pickValue (tpConfidenceSizing a) (tpConfidenceSizing b) rng96
+        (tpMinPositionSize', rng98) = pickValue (tpMinPositionSize a) (tpMinPositionSize b) rng97
+     in ( TrialParams
+            { tpPlatform = tpPlatform'
+            , tpInterval = tpInterval'
+            , tpBars = tpBars'
+            , tpMethod = tpMethod'
+            , tpBlendWeight = tpBlendWeight'
+            , tpRouterScorePnlWeight = tpRouterScorePnlWeight'
+            , tpPositioning = tpPositioning'
+            , tpNormalization = tpNormalization'
+            , tpBaseOpenThreshold = tpBaseOpenThreshold'
+            , tpBaseCloseThreshold = tpBaseCloseThreshold'
+            , tpMinHoldBars = tpMinHoldBars'
+            , tpCooldownBars = tpCooldownBars'
+            , tpMaxHoldBars = tpMaxHoldBars'
+            , tpMinEdge = tpMinEdge'
+            , tpMinSignalToNoise = tpMinSignalToNoise'
+            , tpSnrSizeWeight = tpSnrSizeWeight'
+            , tpThresholdFactorEnabled = tpThresholdFactorEnabled'
+            , tpThresholdFactorAlpha = tpThresholdFactorAlpha'
+            , tpThresholdFactorMin = tpThresholdFactorMin'
+            , tpThresholdFactorMax = tpThresholdFactorMax'
+            , tpThresholdFactorFloor = tpThresholdFactorFloor'
+            , tpThresholdFactorEdgeKalWeight = tpThresholdFactorEdgeKalWeight'
+            , tpThresholdFactorEdgeLstmWeight = tpThresholdFactorEdgeLstmWeight'
+            , tpThresholdFactorKalmanZWeight = tpThresholdFactorKalmanZWeight'
+            , tpThresholdFactorHighVolWeight = tpThresholdFactorHighVolWeight'
+            , tpThresholdFactorConformalWeight = tpThresholdFactorConformalWeight'
+            , tpThresholdFactorQuantileWeight = tpThresholdFactorQuantileWeight'
+            , tpThresholdFactorLstmConfWeight = tpThresholdFactorLstmConfWeight'
+            , tpThresholdFactorLstmHealthWeight = tpThresholdFactorLstmHealthWeight'
+            , tpEdgeBuffer = tpEdgeBuffer'
+            , tpCostAwareEdge = tpCostAwareEdge'
+            , tpTrendLookback = tpTrendLookback'
+            , tpMaxPositionSize = tpMaxPositionSize'
+            , tpVolTarget = tpVolTarget'
+            , tpVolLookback = tpVolLookback'
+            , tpVolEwmaAlpha = tpVolEwmaAlpha'
+            , tpVolFloor = tpVolFloor'
+            , tpVolScaleMax = tpVolScaleMax'
+            , tpMaxVolatility = tpMaxVolatility'
+            , tpPeriodsPerYear = tpPeriodsPerYear'
+            , tpKalmanMarketTopN = tpKalmanMarketTopN'
+            , tpFee = tpFee'
+            , tpFundingRate = tpFundingRate'
+            , tpFundingBySide = tpFundingBySide'
+            , tpFundingOnOpen = tpFundingOnOpen'
+            , tpRebalanceBars = tpRebalanceBars'
+            , tpRebalanceThreshold = tpRebalanceThreshold'
+            , tpRebalanceCostMult = tpRebalanceCostMult'
+            , tpRebalanceGlobal = tpRebalanceGlobal'
+            , tpRebalanceResetOnSignal = tpRebalanceResetOnSignal'
+            , tpEpochs = tpEpochs'
+            , tpHiddenSize = tpHiddenSize'
+            , tpLearningRate = tpLearningRate'
+            , tpValRatio = tpValRatio'
+            , tpPatience = tpPatience'
+            , tpWalkForwardFolds = tpWalkForwardFolds'
+            , tpWalkForwardEmbargoBars = tpWalkForwardEmbargoBars'
+            , tpTuneStressVolMult = tpTuneStressVolMult'
+            , tpTuneStressShock = tpTuneStressShock'
+            , tpTuneStressWeight = tpTuneStressWeight'
+            , tpGradClip = tpGradClip'
+            , tpSlippage = tpSlippage'
+            , tpSpread = tpSpread'
+            , tpIntrabarFill = tpIntrabarFill'
+            , tpTriLayer = tpTriLayer'
+            , tpTriLayerFastMult = tpTriLayerFastMult'
+            , tpTriLayerSlowMult = tpTriLayerSlowMult'
+            , tpTriLayerCloudPadding = tpTriLayerCloudPadding'
+            , tpTriLayerCloudSlope = tpTriLayerCloudSlope'
+            , tpTriLayerCloudWidth = tpTriLayerCloudWidth'
+            , tpTriLayerTouchLookback = tpTriLayerTouchLookback'
+            , tpTriLayerPriceAction = tpTriLayerPriceAction'
+            , tpTriLayerPriceActionBody = tpTriLayerPriceActionBody'
+            , tpTriLayerExitOnSlow = tpTriLayerExitOnSlow'
+            , tpKalmanBandLookback = tpKalmanBandLookback'
+            , tpKalmanBandStdMult = tpKalmanBandStdMult'
+            , tpLstmExitFlipBars = tpLstmExitFlipBars'
+            , tpLstmExitFlipGraceBars = tpLstmExitFlipGraceBars'
+            , tpLstmExitFlipStrong = tpLstmExitFlipStrong'
+            , tpLstmConfidenceSoft = tpLstmConfidenceSoft'
+            , tpLstmConfidenceHard = tpLstmConfidenceHard'
+            , tpStopLoss = tpStopLoss'
+            , tpTakeProfit = tpTakeProfit'
+            , tpTrailingStop = tpTrailingStop'
+            , tpStopLossVolMult = tpStopLossVolMult'
+            , tpTakeProfitVolMult = tpTakeProfitVolMult'
+            , tpTrailingStopVolMult = tpTrailingStopVolMult'
+            , tpMaxDrawdown = tpMaxDrawdown'
+            , tpMaxDailyLoss = tpMaxDailyLoss'
+            , tpMaxOrderErrors = tpMaxOrderErrors'
+            , tpKalmanDt = tpKalmanDt'
+            , tpKalmanProcessVar = tpKalmanProcessVar'
+            , tpKalmanMeasurementVar = tpKalmanMeasurementVar'
+            , tpKalmanZMin = tpKalmanZMin'
+            , tpKalmanZMax = tpKalmanZMax'
+            , tpMaxHighVolProb = tpMaxHighVolProb'
+            , tpMaxConformalWidth = tpMaxConformalWidth'
+            , tpMaxQuantileWidth = tpMaxQuantileWidth'
+            , tpConfirmConformal = tpConfirmConformal'
+            , tpConfirmQuantiles = tpConfirmQuantiles'
+            , tpConfidenceSizing = tpConfidenceSizing'
+            , tpMinPositionSize = tpMinPositionSize'
+            }
+        , rng98
+        )
 
 perturbTrialParams :: Double -> Int -> TrialParams -> Rng -> (TrialParams, Rng)
 perturbTrialParams scaleDouble scaleInt p rng0 =
-  let (bars', rng1) = perturbInt (tpBars p) scaleInt rng0
-      (blendWeight', rng2) = perturbDouble (tpBlendWeight p) scaleDouble rng1
-      (routerScorePnlWeight', rng2a) = perturbDouble (tpRouterScorePnlWeight p) scaleDouble rng2
-      (openThreshold', rng3) = perturbDouble (tpBaseOpenThreshold p) scaleDouble rng2a
-      (closeThreshold', rng4) = perturbDouble (tpBaseCloseThreshold p) scaleDouble rng3
-      (minEdge', rng5) = perturbDouble (tpMinEdge p) scaleDouble rng4
-      (minSn', rng6) = perturbDouble (tpMinSignalToNoise p) scaleDouble rng5
-      (snrSizeWeight', rng6a) = perturbDouble (tpSnrSizeWeight p) scaleDouble rng6
-      (edgeBuffer', rng7) = perturbDouble (tpEdgeBuffer p) scaleDouble rng6a
-      (trendLookback', rng8) = perturbInt (tpTrendLookback p) scaleInt rng7
-      (maxPositionSize', rng9) = perturbDouble (tpMaxPositionSize p) scaleDouble rng8
-      (volTarget', rng10) = perturbMaybeDouble (tpVolTarget p) scaleDouble rng9
-      (volLookback', rng11) = perturbInt (tpVolLookback p) scaleInt rng10
-      (volEwma', rng12) = perturbMaybeDouble (tpVolEwmaAlpha p) scaleDouble rng11
-      (volFloor', rng13) = perturbDouble (tpVolFloor p) scaleDouble rng12
-      (volScaleMax', rng14) = perturbDouble (tpVolScaleMax p) scaleDouble rng13
-      (maxVolatility', rng15) = perturbMaybeDouble (tpMaxVolatility p) scaleDouble rng14
-      (kalmanBandLookback', rng16) = perturbInt (tpKalmanBandLookback p) scaleInt rng15
-      (kalmanBandStd', rng17) = perturbDouble (tpKalmanBandStdMult p) scaleDouble rng16
-      (stopLoss', rng18) = perturbMaybeDouble (tpStopLoss p) scaleDouble rng17
-      (takeProfit', rng19) = perturbMaybeDouble (tpTakeProfit p) scaleDouble rng18
-      (trailingStop', rng20) = perturbMaybeDouble (tpTrailingStop p) scaleDouble rng19
-      (stopLossVolMult', rng21) = perturbMaybeDouble (tpStopLossVolMult p) scaleDouble rng20
-      (takeProfitVolMult', rng22) = perturbMaybeDouble (tpTakeProfitVolMult p) scaleDouble rng21
-      (trailingStopVolMult', rng23) = perturbMaybeDouble (tpTrailingStopVolMult p) scaleDouble rng22
-      (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23
-      (kalmanProcessVar', rng25) = perturbDouble (tpKalmanProcessVar p) scaleDouble rng24
-      (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) scaleDouble rng25
-      (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26
-      (kalmanZMax', rng28) = perturbDouble (tpKalmanZMax p) scaleDouble rng27
-      (fundingRate', rng29) = perturbDoubleSigned (tpFundingRate p) scaleDouble rng28
-      (rebalanceBars', rng30) = perturbInt (tpRebalanceBars p) scaleInt rng29
-      (rebalanceThreshold', rng31) = perturbDouble (tpRebalanceThreshold p) scaleDouble rng30
-      (rebalanceCostMult', rng31a) = perturbDouble (tpRebalanceCostMult p) scaleDouble rng31
-      (learningRate', rng32) = perturbDouble (tpLearningRate p) scaleDouble rng31a
-      (thresholdFactorAlpha', rng33) = perturbDouble (tpThresholdFactorAlpha p) scaleDouble rng32
-      (thresholdFactorMin', rng34) = perturbDouble (tpThresholdFactorMin p) scaleDouble rng33
-      (thresholdFactorMax', rng35) = perturbDouble (tpThresholdFactorMax p) scaleDouble rng34
-      (thresholdFactorFloor', rng36) = perturbDouble (tpThresholdFactorFloor p) scaleDouble rng35
-      (thresholdFactorEdgeKalWeight', rng37) = perturbDoubleSigned (tpThresholdFactorEdgeKalWeight p) scaleDouble rng36
-      (thresholdFactorEdgeLstmWeight', rng38) = perturbDoubleSigned (tpThresholdFactorEdgeLstmWeight p) scaleDouble rng37
-      (thresholdFactorKalmanZWeight', rng39) = perturbDoubleSigned (tpThresholdFactorKalmanZWeight p) scaleDouble rng38
-      (thresholdFactorHighVolWeight', rng40) = perturbDoubleSigned (tpThresholdFactorHighVolWeight p) scaleDouble rng39
-      (thresholdFactorConformalWeight', rng41) = perturbDoubleSigned (tpThresholdFactorConformalWeight p) scaleDouble rng40
-      (thresholdFactorQuantileWeight', rng42) = perturbDoubleSigned (tpThresholdFactorQuantileWeight p) scaleDouble rng41
-      (thresholdFactorLstmConfWeight', rng43) = perturbDoubleSigned (tpThresholdFactorLstmConfWeight p) scaleDouble rng42
-      (thresholdFactorLstmHealthWeight', rng44) = perturbDoubleSigned (tpThresholdFactorLstmHealthWeight p) scaleDouble rng43
-   in ( p
-          { tpBars = bars'
-          , tpBlendWeight = clamp blendWeight' 0 1
-          , tpRouterScorePnlWeight = clamp routerScorePnlWeight' 0 1
-          , tpBaseOpenThreshold = openThreshold'
-          , tpBaseCloseThreshold = closeThreshold'
-          , tpMinEdge = minEdge'
-          , tpMinSignalToNoise = minSn'
-          , tpSnrSizeWeight = clamp snrSizeWeight' 0 1
-          , tpThresholdFactorAlpha = thresholdFactorAlpha'
-          , tpThresholdFactorMin = thresholdFactorMin'
-          , tpThresholdFactorMax = thresholdFactorMax'
-          , tpThresholdFactorFloor = thresholdFactorFloor'
-          , tpThresholdFactorEdgeKalWeight = thresholdFactorEdgeKalWeight'
-          , tpThresholdFactorEdgeLstmWeight = thresholdFactorEdgeLstmWeight'
-          , tpThresholdFactorKalmanZWeight = thresholdFactorKalmanZWeight'
-          , tpThresholdFactorHighVolWeight = thresholdFactorHighVolWeight'
-          , tpThresholdFactorConformalWeight = thresholdFactorConformalWeight'
-          , tpThresholdFactorQuantileWeight = thresholdFactorQuantileWeight'
-          , tpThresholdFactorLstmConfWeight = thresholdFactorLstmConfWeight'
-          , tpThresholdFactorLstmHealthWeight = thresholdFactorLstmHealthWeight'
-          , tpEdgeBuffer = edgeBuffer'
-          , tpTrendLookback = trendLookback'
-          , tpMaxPositionSize = maxPositionSize'
-          , tpVolTarget = volTarget'
-          , tpVolLookback = volLookback'
-          , tpVolEwmaAlpha = volEwma'
-          , tpVolFloor = volFloor'
-          , tpVolScaleMax = volScaleMax'
-          , tpMaxVolatility = maxVolatility'
-          , tpKalmanBandLookback = kalmanBandLookback'
-          , tpKalmanBandStdMult = kalmanBandStd'
-          , tpStopLoss = stopLoss'
-          , tpTakeProfit = takeProfit'
-          , tpTrailingStop = trailingStop'
-          , tpStopLossVolMult = stopLossVolMult'
-          , tpTakeProfitVolMult = takeProfitVolMult'
-          , tpTrailingStopVolMult = trailingStopVolMult'
-          , tpKalmanDt = kalmanDt'
-          , tpKalmanProcessVar = kalmanProcessVar'
-          , tpKalmanMeasurementVar = kalmanMeasurementVar'
-          , tpKalmanZMin = kalmanZMin'
-          , tpKalmanZMax = kalmanZMax'
-          , tpFundingRate = fundingRate'
-          , tpRebalanceBars = rebalanceBars'
-          , tpRebalanceThreshold = rebalanceThreshold'
-          , tpRebalanceCostMult = rebalanceCostMult'
-          , tpLearningRate = learningRate'
-          }
-      , rng44
-      )
+    let (bars', rng1) = perturbInt (tpBars p) scaleInt rng0
+        (blendWeight', rng2) = perturbDouble (tpBlendWeight p) scaleDouble rng1
+        (routerScorePnlWeight', rng2a) = perturbDouble (tpRouterScorePnlWeight p) scaleDouble rng2
+        (openThreshold', rng3) = perturbDouble (tpBaseOpenThreshold p) scaleDouble rng2a
+        (closeThreshold', rng4) = perturbDouble (tpBaseCloseThreshold p) scaleDouble rng3
+        (minEdge', rng5) = perturbDouble (tpMinEdge p) scaleDouble rng4
+        (minSn', rng6) = perturbDouble (tpMinSignalToNoise p) scaleDouble rng5
+        (snrSizeWeight', rng6a) = perturbDouble (tpSnrSizeWeight p) scaleDouble rng6
+        (edgeBuffer', rng7) = perturbDouble (tpEdgeBuffer p) scaleDouble rng6a
+        (trendLookback', rng8) = perturbInt (tpTrendLookback p) scaleInt rng7
+        (maxPositionSize', rng9) = perturbDouble (tpMaxPositionSize p) scaleDouble rng8
+        (volTarget', rng10) = perturbMaybeDouble (tpVolTarget p) scaleDouble rng9
+        (volLookback', rng11) = perturbInt (tpVolLookback p) scaleInt rng10
+        (volEwma', rng12) = perturbMaybeDouble (tpVolEwmaAlpha p) scaleDouble rng11
+        (volFloor', rng13) = perturbDouble (tpVolFloor p) scaleDouble rng12
+        (volScaleMax', rng14) = perturbDouble (tpVolScaleMax p) scaleDouble rng13
+        (maxVolatility', rng15) = perturbMaybeDouble (tpMaxVolatility p) scaleDouble rng14
+        (kalmanBandLookback', rng16) = perturbInt (tpKalmanBandLookback p) scaleInt rng15
+        (kalmanBandStd', rng17) = perturbDouble (tpKalmanBandStdMult p) scaleDouble rng16
+        (stopLoss', rng18) = perturbMaybeDouble (tpStopLoss p) scaleDouble rng17
+        (takeProfit', rng19) = perturbMaybeDouble (tpTakeProfit p) scaleDouble rng18
+        (trailingStop', rng20) = perturbMaybeDouble (tpTrailingStop p) scaleDouble rng19
+        (stopLossVolMult', rng21) = perturbMaybeDouble (tpStopLossVolMult p) scaleDouble rng20
+        (takeProfitVolMult', rng22) = perturbMaybeDouble (tpTakeProfitVolMult p) scaleDouble rng21
+        (trailingStopVolMult', rng23) = perturbMaybeDouble (tpTrailingStopVolMult p) scaleDouble rng22
+        (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23
+        (kalmanProcessVar', rng25) = perturbDouble (tpKalmanProcessVar p) scaleDouble rng24
+        (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) scaleDouble rng25
+        (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26
+        (kalmanZMax', rng28) = perturbDouble (tpKalmanZMax p) scaleDouble rng27
+        (fundingRate', rng29) = perturbDoubleSigned (tpFundingRate p) scaleDouble rng28
+        (rebalanceBars', rng30) = perturbInt (tpRebalanceBars p) scaleInt rng29
+        (rebalanceThreshold', rng31) = perturbDouble (tpRebalanceThreshold p) scaleDouble rng30
+        (rebalanceCostMult', rng31a) = perturbDouble (tpRebalanceCostMult p) scaleDouble rng31
+        (learningRate', rng32) = perturbDouble (tpLearningRate p) scaleDouble rng31a
+        (thresholdFactorAlpha', rng33) = perturbDouble (tpThresholdFactorAlpha p) scaleDouble rng32
+        (thresholdFactorMin', rng34) = perturbDouble (tpThresholdFactorMin p) scaleDouble rng33
+        (thresholdFactorMax', rng35) = perturbDouble (tpThresholdFactorMax p) scaleDouble rng34
+        (thresholdFactorFloor', rng36) = perturbDouble (tpThresholdFactorFloor p) scaleDouble rng35
+        (thresholdFactorEdgeKalWeight', rng37) = perturbDoubleSigned (tpThresholdFactorEdgeKalWeight p) scaleDouble rng36
+        (thresholdFactorEdgeLstmWeight', rng38) = perturbDoubleSigned (tpThresholdFactorEdgeLstmWeight p) scaleDouble rng37
+        (thresholdFactorKalmanZWeight', rng39) = perturbDoubleSigned (tpThresholdFactorKalmanZWeight p) scaleDouble rng38
+        (thresholdFactorHighVolWeight', rng40) = perturbDoubleSigned (tpThresholdFactorHighVolWeight p) scaleDouble rng39
+        (thresholdFactorConformalWeight', rng41) = perturbDoubleSigned (tpThresholdFactorConformalWeight p) scaleDouble rng40
+        (thresholdFactorQuantileWeight', rng42) = perturbDoubleSigned (tpThresholdFactorQuantileWeight p) scaleDouble rng41
+        (thresholdFactorLstmConfWeight', rng43) = perturbDoubleSigned (tpThresholdFactorLstmConfWeight p) scaleDouble rng42
+        (thresholdFactorLstmHealthWeight', rng44) = perturbDoubleSigned (tpThresholdFactorLstmHealthWeight p) scaleDouble rng43
+     in ( p
+            { tpBars = bars'
+            , tpBlendWeight = clamp blendWeight' 0 1
+            , tpRouterScorePnlWeight = clamp routerScorePnlWeight' 0 1
+            , tpBaseOpenThreshold = openThreshold'
+            , tpBaseCloseThreshold = closeThreshold'
+            , tpMinEdge = minEdge'
+            , tpMinSignalToNoise = minSn'
+            , tpSnrSizeWeight = clamp snrSizeWeight' 0 1
+            , tpThresholdFactorAlpha = thresholdFactorAlpha'
+            , tpThresholdFactorMin = thresholdFactorMin'
+            , tpThresholdFactorMax = thresholdFactorMax'
+            , tpThresholdFactorFloor = thresholdFactorFloor'
+            , tpThresholdFactorEdgeKalWeight = thresholdFactorEdgeKalWeight'
+            , tpThresholdFactorEdgeLstmWeight = thresholdFactorEdgeLstmWeight'
+            , tpThresholdFactorKalmanZWeight = thresholdFactorKalmanZWeight'
+            , tpThresholdFactorHighVolWeight = thresholdFactorHighVolWeight'
+            , tpThresholdFactorConformalWeight = thresholdFactorConformalWeight'
+            , tpThresholdFactorQuantileWeight = thresholdFactorQuantileWeight'
+            , tpThresholdFactorLstmConfWeight = thresholdFactorLstmConfWeight'
+            , tpThresholdFactorLstmHealthWeight = thresholdFactorLstmHealthWeight'
+            , tpEdgeBuffer = edgeBuffer'
+            , tpTrendLookback = trendLookback'
+            , tpMaxPositionSize = maxPositionSize'
+            , tpVolTarget = volTarget'
+            , tpVolLookback = volLookback'
+            , tpVolEwmaAlpha = volEwma'
+            , tpVolFloor = volFloor'
+            , tpVolScaleMax = volScaleMax'
+            , tpMaxVolatility = maxVolatility'
+            , tpKalmanBandLookback = kalmanBandLookback'
+            , tpKalmanBandStdMult = kalmanBandStd'
+            , tpStopLoss = stopLoss'
+            , tpTakeProfit = takeProfit'
+            , tpTrailingStop = trailingStop'
+            , tpStopLossVolMult = stopLossVolMult'
+            , tpTakeProfitVolMult = takeProfitVolMult'
+            , tpTrailingStopVolMult = trailingStopVolMult'
+            , tpKalmanDt = kalmanDt'
+            , tpKalmanProcessVar = kalmanProcessVar'
+            , tpKalmanMeasurementVar = kalmanMeasurementVar'
+            , tpKalmanZMin = kalmanZMin'
+            , tpKalmanZMax = kalmanZMax'
+            , tpFundingRate = fundingRate'
+            , tpRebalanceBars = rebalanceBars'
+            , tpRebalanceThreshold = rebalanceThreshold'
+            , tpRebalanceCostMult = rebalanceCostMult'
+            , tpLearningRate = learningRate'
+            }
+        , rng44
+        )
 
 techniqueSummaryToJson :: OptimizationTechniqueSummary -> Value
 techniqueSummaryToJson t =
-  object
-    [ "sobolSeeding" .= otsAppliedSobolSeeding t
-    , "successiveHalving" .= otsAppliedSuccessiveHalving t
-    , "bayesianExpectedImprovement" .= otsAppliedBayesianEi t
-    , "walkForwardCrossValidation" .= otsAppliedWalkForward t
-    , "ensembleTopPerformers" .= otsAppliedEnsemble t
-    ]
+    object
+        [ "sobolSeeding" .= otsAppliedSobolSeeding t
+        , "successiveHalving" .= otsAppliedSuccessiveHalving t
+        , "bayesianExpectedImprovement" .= otsAppliedBayesianEi t
+        , "walkForwardCrossValidation" .= otsAppliedWalkForward t
+        , "ensembleTopPerformers" .= otsAppliedEnsemble t
+        ]
 
 writeTopJson ::
-  String ->
-  String ->
-  String ->
-  Maybe String ->
-  [TrialResult] ->
-  OptimizationTechniqueSummary ->
-  IO ()
+    String ->
+    String ->
+    String ->
+    Maybe String ->
+    [TrialResult] ->
+    OptimizationTechniqueSummary ->
+    IO ()
 writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
-  nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
-  let successful =
-        [ tr
-        | tr <- records
-        , trEligible tr
-        , Just eq <- [trFinalEquity tr]
-        , eq > 1
-        , not (isInfinite eq)
-        , trScore tr /= Nothing
-        ]
-      sortKey tr =
-        let ann = metricFloat (trMetrics tr) "annualizedReturn" (-1 / 0)
-            ann' = if isNaN ann || isInfinite ann then -1 / 0 else ann
-            score = fromMaybe (-1 / 0) (trScore tr)
-            score' = if isNaN score || isInfinite score then -1 / 0 else score
-            eq = fromMaybe 0 (trFinalEquity tr)
-            eq' = if isNaN eq || isInfinite eq then 0 else eq
-         in (ann', score', eq')
-      sorted = sortBy (flip (comparing sortKey)) successful
-      combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
-      topMetrics =
-        let topN = take 5 sorted
-            extract f = [f tr | tr <- topN, trEligible tr, trScore tr /= Nothing]
-            avg xs = if null xs then Nothing else Just (sum xs / fromIntegral (length xs))
-         in object
-              [ "avgScore" .= avg (map (fromMaybe 0 . trScore) topN)
-              , "avgSharpe" .= avg (map (\tr -> metricFloat (trMetrics tr) "sharpe" 0) topN)
-              , "avgMaxDrawdown" .= avg (map (\tr -> metricFloat (trMetrics tr) "maxDrawdown" 0) topN)
-              ]
-      ensemble =
-        object
-          [ "members" .= map (\tr -> object ["objective" .= trObjective tr, "score" .= trScore tr]) (take 3 sorted)
-          , "metrics" .= topMetrics
-          ]
-  path <- expandUser topPath
-  createDirectoryIfMissing True (takeDirectory path)
-  let export' =
-        object
-          [ "generatedAtMs" .= nowMs
-          , "source" .= ("optimize_equity.py" :: String)
-          , "combos" .= combos
-          , "ensemble" .= ensemble
-          , "bestOptimizationTechniques" .= map optimizationTechniqueToJson bestOptimizationTechniques
-          , "optimizationTechniquesApplied" .= techniqueSummaryToJson summary
-          ]
-  BL.writeFile path (encodePretty export')
-  putStrLn ("Wrote top combos JSON: " ++ path)
+    nowMs <- fmap (floor . (* 1000) :: POSIXTime -> Int) getPOSIXTime
+    let successful =
+            [ tr
+            | tr <- records
+            , trEligible tr
+            , Just eq <- [trFinalEquity tr]
+            , eq > 1
+            , not (isInfinite eq)
+            , trScore tr /= Nothing
+            ]
+        sortKey tr =
+            let ann = metricFloat (trMetrics tr) "annualizedReturn" (-1 / 0)
+                ann' = if isNaN ann || isInfinite ann then -1 / 0 else ann
+                score = fromMaybe (-1 / 0) (trScore tr)
+                score' = if isNaN score || isInfinite score then -1 / 0 else score
+                eq = fromMaybe 0 (trFinalEquity tr)
+                eq' = if isNaN eq || isInfinite eq then 0 else eq
+             in (ann', score', eq')
+        sorted = sortBy (flip (comparing sortKey)) successful
+        combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
+        topMetrics =
+            let topN = take 5 sorted
+                extract f = [f tr | tr <- topN, trEligible tr, trScore tr /= Nothing]
+                avg xs = if null xs then Nothing else Just (sum xs / fromIntegral (length xs))
+             in object
+                    [ "avgScore" .= avg (map (fromMaybe 0 . trScore) topN)
+                    , "avgSharpe" .= avg (map (\tr -> metricFloat (trMetrics tr) "sharpe" 0) topN)
+                    , "avgMaxDrawdown" .= avg (map (\tr -> metricFloat (trMetrics tr) "maxDrawdown" 0) topN)
+                    ]
+        ensemble =
+            object
+                [ "members" .= map (\tr -> object ["objective" .= trObjective tr, "score" .= trScore tr]) (take 3 sorted)
+                , "metrics" .= topMetrics
+                ]
+    path <- expandUser topPath
+    createDirectoryIfMissing True (takeDirectory path)
+    let export' =
+            object
+                [ "generatedAtMs" .= nowMs
+                , "source" .= ("optimize_equity.py" :: String)
+                , "combos" .= combos
+                , "ensemble" .= ensemble
+                , "bestOptimizationTechniques" .= map optimizationTechniqueToJson bestOptimizationTechniques
+                , "optimizationTechniquesApplied" .= techniqueSummaryToJson summary
+                ]
+    BL.writeFile path (encodePretty export')
+    putStrLn ("Wrote top combos JSON: " ++ path)
 
 comboFromTrial :: Int -> String -> String -> Maybe String -> Int -> TrialResult -> Value
 comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
-  let metricsRaw = trMetrics tr
-      params = trParams tr
-      finalEq = fromMaybe 0 (trFinalEquity tr)
-      periodsPerYear = fromMaybe (inferPeriodsPerYear (tpInterval params)) (tpPeriodsPerYear params)
-      metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear (tpBars params)
-      metricsVal =
-        case metrics of
-          Just m -> Object m
-          Nothing -> Null
-      symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform params)
-      source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
-      paramsValue =
-        object
-          [ "platform" .= tpPlatform params
-          , "interval" .= tpInterval params
-          , "bars" .= tpBars params
-          , "method" .= tpMethod params
-          , "blendWeight" .= tpBlendWeight params
-          , "routerScorePnlWeight" .= tpRouterScorePnlWeight params
-          , "positioning" .= tpPositioning params
-          , "normalization" .= tpNormalization params
-          , "baseOpenThreshold" .= tpBaseOpenThreshold params
-          , "baseCloseThreshold" .= tpBaseCloseThreshold params
-          , "minHoldBars" .= tpMinHoldBars params
-          , "cooldownBars" .= tpCooldownBars params
-          , "maxHoldBars" .= tpMaxHoldBars params
-          , "minEdge" .= tpMinEdge params
-          , "minSignalToNoise" .= tpMinSignalToNoise params
-          , "snrSizeWeight" .= tpSnrSizeWeight params
-          , "edgeBuffer" .= tpEdgeBuffer params
-          , "costAwareEdge" .= tpCostAwareEdge params
-          , "trendLookback" .= tpTrendLookback params
-          , "maxPositionSize" .= tpMaxPositionSize params
-          , "volTarget" .= tpVolTarget params
-          , "volLookback" .= tpVolLookback params
-          , "volEwmaAlpha" .= tpVolEwmaAlpha params
-          , "volFloor" .= tpVolFloor params
-          , "volScaleMax" .= tpVolScaleMax params
-          , "maxVolatility" .= tpMaxVolatility params
-          , "periodsPerYear" .= periodsPerYear
-          , "kalmanMarketTopN" .= tpKalmanMarketTopN params
-          , "fee" .= tpFee params
-          , "fundingRate" .= tpFundingRate params
-          , "fundingBySide" .= tpFundingBySide params
-          , "fundingOnOpen" .= tpFundingOnOpen params
-          , "rebalanceBars" .= tpRebalanceBars params
-          , "rebalanceThreshold" .= tpRebalanceThreshold params
-          , "rebalanceCostMult" .= tpRebalanceCostMult params
-          , "rebalanceGlobal" .= tpRebalanceGlobal params
-          , "rebalanceResetOnSignal" .= tpRebalanceResetOnSignal params
-          , "epochs" .= tpEpochs params
-          , "hiddenSize" .= tpHiddenSize params
-          , "learningRate" .= tpLearningRate params
-          , "valRatio" .= tpValRatio params
-          , "patience" .= tpPatience params
-          , "walkForwardFolds" .= tpWalkForwardFolds params
-          , "walkForwardEmbargoBars" .= tpWalkForwardEmbargoBars params
-          , "tuneStressVolMult" .= tpTuneStressVolMult params
-          , "tuneStressShock" .= tpTuneStressShock params
-          , "tuneStressWeight" .= tpTuneStressWeight params
-          , "gradClip" .= tpGradClip params
-          , "slippage" .= tpSlippage params
-          , "spread" .= tpSpread params
-          , "intrabarFill" .= tpIntrabarFill params
-          , "triLayer" .= tpTriLayer params
-          , "triLayerFastMult" .= tpTriLayerFastMult params
-          , "triLayerSlowMult" .= tpTriLayerSlowMult params
-          , "triLayerCloudPadding" .= tpTriLayerCloudPadding params
-          , "triLayerCloudSlope" .= tpTriLayerCloudSlope params
-          , "triLayerCloudWidth" .= tpTriLayerCloudWidth params
-          , "triLayerTouchLookback" .= tpTriLayerTouchLookback params
-          , "triLayerPriceAction" .= tpTriLayerPriceAction params
-          , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody params
-          , "triLayerExitOnSlow" .= tpTriLayerExitOnSlow params
-          , "kalmanBandLookback" .= tpKalmanBandLookback params
-          , "kalmanBandStdMult" .= tpKalmanBandStdMult params
-          , "lstmExitFlipBars" .= tpLstmExitFlipBars params
-          , "lstmExitFlipGraceBars" .= tpLstmExitFlipGraceBars params
-          , "lstmExitFlipStrong" .= tpLstmExitFlipStrong params
-          , "lstmConfidenceSoft" .= tpLstmConfidenceSoft params
-          , "lstmConfidenceHard" .= tpLstmConfidenceHard params
-          , "stopLoss" .= tpStopLoss params
-          , "takeProfit" .= tpTakeProfit params
-          , "trailingStop" .= tpTrailingStop params
-          , "stopLossVolMult" .= tpStopLossVolMult params
-          , "takeProfitVolMult" .= tpTakeProfitVolMult params
-          , "trailingStopVolMult" .= tpTrailingStopVolMult params
-          , "maxDrawdown" .= tpMaxDrawdown params
-          , "maxDailyLoss" .= tpMaxDailyLoss params
-          , "maxOrderErrors" .= tpMaxOrderErrors params
-          , "kalmanDt" .= tpKalmanDt params
-          , "kalmanProcessVar" .= tpKalmanProcessVar params
-          , "kalmanMeasurementVar" .= tpKalmanMeasurementVar params
-          , "kalmanZMin" .= tpKalmanZMin params
-          , "kalmanZMax" .= tpKalmanZMax params
-          , "maxHighVolProb" .= tpMaxHighVolProb params
-          , "maxConformalWidth" .= tpMaxConformalWidth params
-          , "maxQuantileWidth" .= tpMaxQuantileWidth params
-          , "confirmConformal" .= tpConfirmConformal params
-          , "confirmQuantiles" .= tpConfirmQuantiles params
-          , "confidenceSizing" .= tpConfidenceSizing params
-          , "minPositionSize" .= tpMinPositionSize params
-          , "binanceSymbol" .= symbol
-          ]
-      identity =
-        object
-          [ "params" .= paramsValue
-          , "openThreshold" .= trOpenThreshold tr
-          , "closeThreshold" .= trCloseThreshold tr
-          , "objective" .= trObjective tr
-          ]
-      comboUuid = comboUuidFromValue identity
-      combo =
-        object
-          [ "uuid" .= comboUuid
-          , "rank" .= rank
-          , "createdAtMs" .= createdAtMs
-          , "finalEquity" .= trFinalEquity tr
-          , "objective" .= trObjective tr
-          , "score" .= trScore tr
-          , "openThreshold" .= trOpenThreshold tr
-          , "closeThreshold" .= trCloseThreshold tr
-          , "source" .= source
-          , "metrics" .= metricsVal
-          , "params" .= paramsValue
-          ]
-   in case extractOperations (trStdoutJson tr) of
-        Just ops -> addField "operations" (Array (V.fromList ops)) combo
-        Nothing -> combo
+    let metricsRaw = trMetrics tr
+        params = trParams tr
+        finalEq = fromMaybe 0 (trFinalEquity tr)
+        periodsPerYear = fromMaybe (inferPeriodsPerYear (tpInterval params)) (tpPeriodsPerYear params)
+        metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear (tpBars params)
+        metricsVal =
+            case metrics of
+                Just m -> Object m
+                Nothing -> Null
+        symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform params)
+        source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
+        paramsValue =
+            object
+                [ "platform" .= tpPlatform params
+                , "interval" .= tpInterval params
+                , "bars" .= tpBars params
+                , "method" .= tpMethod params
+                , "blendWeight" .= tpBlendWeight params
+                , "routerScorePnlWeight" .= tpRouterScorePnlWeight params
+                , "positioning" .= tpPositioning params
+                , "normalization" .= tpNormalization params
+                , "baseOpenThreshold" .= tpBaseOpenThreshold params
+                , "baseCloseThreshold" .= tpBaseCloseThreshold params
+                , "minHoldBars" .= tpMinHoldBars params
+                , "cooldownBars" .= tpCooldownBars params
+                , "maxHoldBars" .= tpMaxHoldBars params
+                , "minEdge" .= tpMinEdge params
+                , "minSignalToNoise" .= tpMinSignalToNoise params
+                , "snrSizeWeight" .= tpSnrSizeWeight params
+                , "edgeBuffer" .= tpEdgeBuffer params
+                , "costAwareEdge" .= tpCostAwareEdge params
+                , "trendLookback" .= tpTrendLookback params
+                , "maxPositionSize" .= tpMaxPositionSize params
+                , "volTarget" .= tpVolTarget params
+                , "volLookback" .= tpVolLookback params
+                , "volEwmaAlpha" .= tpVolEwmaAlpha params
+                , "volFloor" .= tpVolFloor params
+                , "volScaleMax" .= tpVolScaleMax params
+                , "maxVolatility" .= tpMaxVolatility params
+                , "periodsPerYear" .= periodsPerYear
+                , "kalmanMarketTopN" .= tpKalmanMarketTopN params
+                , "fee" .= tpFee params
+                , "fundingRate" .= tpFundingRate params
+                , "fundingBySide" .= tpFundingBySide params
+                , "fundingOnOpen" .= tpFundingOnOpen params
+                , "rebalanceBars" .= tpRebalanceBars params
+                , "rebalanceThreshold" .= tpRebalanceThreshold params
+                , "rebalanceCostMult" .= tpRebalanceCostMult params
+                , "rebalanceGlobal" .= tpRebalanceGlobal params
+                , "rebalanceResetOnSignal" .= tpRebalanceResetOnSignal params
+                , "epochs" .= tpEpochs params
+                , "hiddenSize" .= tpHiddenSize params
+                , "learningRate" .= tpLearningRate params
+                , "valRatio" .= tpValRatio params
+                , "patience" .= tpPatience params
+                , "walkForwardFolds" .= tpWalkForwardFolds params
+                , "walkForwardEmbargoBars" .= tpWalkForwardEmbargoBars params
+                , "tuneStressVolMult" .= tpTuneStressVolMult params
+                , "tuneStressShock" .= tpTuneStressShock params
+                , "tuneStressWeight" .= tpTuneStressWeight params
+                , "gradClip" .= tpGradClip params
+                , "slippage" .= tpSlippage params
+                , "spread" .= tpSpread params
+                , "intrabarFill" .= tpIntrabarFill params
+                , "triLayer" .= tpTriLayer params
+                , "triLayerFastMult" .= tpTriLayerFastMult params
+                , "triLayerSlowMult" .= tpTriLayerSlowMult params
+                , "triLayerCloudPadding" .= tpTriLayerCloudPadding params
+                , "triLayerCloudSlope" .= tpTriLayerCloudSlope params
+                , "triLayerCloudWidth" .= tpTriLayerCloudWidth params
+                , "triLayerTouchLookback" .= tpTriLayerTouchLookback params
+                , "triLayerPriceAction" .= tpTriLayerPriceAction params
+                , "triLayerPriceActionBody" .= tpTriLayerPriceActionBody params
+                , "triLayerExitOnSlow" .= tpTriLayerExitOnSlow params
+                , "kalmanBandLookback" .= tpKalmanBandLookback params
+                , "kalmanBandStdMult" .= tpKalmanBandStdMult params
+                , "lstmExitFlipBars" .= tpLstmExitFlipBars params
+                , "lstmExitFlipGraceBars" .= tpLstmExitFlipGraceBars params
+                , "lstmExitFlipStrong" .= tpLstmExitFlipStrong params
+                , "lstmConfidenceSoft" .= tpLstmConfidenceSoft params
+                , "lstmConfidenceHard" .= tpLstmConfidenceHard params
+                , "stopLoss" .= tpStopLoss params
+                , "takeProfit" .= tpTakeProfit params
+                , "trailingStop" .= tpTrailingStop params
+                , "stopLossVolMult" .= tpStopLossVolMult params
+                , "takeProfitVolMult" .= tpTakeProfitVolMult params
+                , "trailingStopVolMult" .= tpTrailingStopVolMult params
+                , "maxDrawdown" .= tpMaxDrawdown params
+                , "maxDailyLoss" .= tpMaxDailyLoss params
+                , "maxOrderErrors" .= tpMaxOrderErrors params
+                , "kalmanDt" .= tpKalmanDt params
+                , "kalmanProcessVar" .= tpKalmanProcessVar params
+                , "kalmanMeasurementVar" .= tpKalmanMeasurementVar params
+                , "kalmanZMin" .= tpKalmanZMin params
+                , "kalmanZMax" .= tpKalmanZMax params
+                , "maxHighVolProb" .= tpMaxHighVolProb params
+                , "maxConformalWidth" .= tpMaxConformalWidth params
+                , "maxQuantileWidth" .= tpMaxQuantileWidth params
+                , "confirmConformal" .= tpConfirmConformal params
+                , "confirmQuantiles" .= tpConfirmQuantiles params
+                , "confidenceSizing" .= tpConfidenceSizing params
+                , "minPositionSize" .= tpMinPositionSize params
+                , "binanceSymbol" .= symbol
+                ]
+        identity =
+            object
+                [ "params" .= paramsValue
+                , "openThreshold" .= trOpenThreshold tr
+                , "closeThreshold" .= trCloseThreshold tr
+                , "objective" .= trObjective tr
+                ]
+        comboUuid = comboUuidFromValue identity
+        combo =
+            object
+                [ "uuid" .= comboUuid
+                , "rank" .= rank
+                , "createdAtMs" .= createdAtMs
+                , "finalEquity" .= trFinalEquity tr
+                , "objective" .= trObjective tr
+                , "score" .= trScore tr
+                , "openThreshold" .= trOpenThreshold tr
+                , "closeThreshold" .= trCloseThreshold tr
+                , "source" .= source
+                , "metrics" .= metricsVal
+                , "params" .= paramsValue
+                ]
+     in case extractOperations (trStdoutJson tr) of
+            Just ops -> addField "operations" (Array (V.fromList ops)) combo
+            Nothing -> combo
 
 addField :: String -> Value -> Value -> Value
 addField key value val =
-  case val of
-    Object obj -> Object (KM.insert (Key.fromString key) value obj)
-    _ -> val
+    case val of
+        Object obj -> Object (KM.insert (Key.fromString key) value obj)
+        _ -> val
 
 comboUuidFromValue :: Value -> String
 comboUuidFromValue val =
-  formatUuidFromHex (hashBytesHex (encodePretty val))
+    formatUuidFromHex (hashBytesHex (encodePretty val))
 
 formatUuidFromHex :: String -> String
 formatUuidFromHex hex =
-  let h = take 32 hex
-      seg1 = take 8 h
-      seg2 = take 4 (drop 8 h)
-      seg3 = take 4 (drop 12 h)
-      seg4 = take 4 (drop 16 h)
-      seg5 = take 12 (drop 20 h)
-   in intercalate "-" [seg1, seg2, seg3, seg4, seg5]
+    let h = take 32 hex
+        seg1 = take 8 h
+        seg2 = take 4 (drop 8 h)
+        seg3 = take 4 (drop 12 h)
+        seg4 = take 4 (drop 16 h)
+        seg5 = take 12 (drop 20 h)
+     in intercalate "-" [seg1, seg2, seg3, seg4, seg5]
 
 hashBytesHex :: BL.ByteString -> String
 hashBytesHex bs =
-  let digest :: Digest SHA256
-      digest = hash (BL.toStrict bs)
-   in BS8.unpack (B16.encode (convert digest))
+    let digest :: Digest SHA256
+        digest = hash (BL.toStrict bs)
+     in BS8.unpack (B16.encode (convert digest))

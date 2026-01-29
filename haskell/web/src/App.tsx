@@ -123,6 +123,7 @@ import {
   STORAGE_PROFILES_KEY,
   STORAGE_STATE_SYNC_TARGET_KEY,
   STORAGE_STATE_SYNC_TOKEN_KEY,
+  STORAGE_TOP_COMBOS_KEY,
   TRADE_TIMEOUT_MS,
   TUNE_OBJECTIVES,
 } from "./app/constants";
@@ -213,6 +214,7 @@ import {
   formatDirectionLabel,
   formatDurationSeconds,
   formatSignalDirection,
+  inferBinancePositionOpenTime,
   inferPeriodsPerYear,
   invalidSymbolsForPlatform,
   isBinanceKeysStatus,
@@ -316,6 +318,7 @@ const OptimizerCombosPanel = lazy(() =>
 const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
+const BINANCE_POSITIONS_OPEN_TIME_LIMIT = 200;
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
@@ -405,6 +408,466 @@ const parseTopCombosJson = (rawText: string): ComboImportParseResult => {
     const msg = err instanceof Error ? err.message : "Invalid JSON.";
     return { payload: null, summary: null, error: `Invalid JSON: ${msg}` };
   }
+};
+
+type SanitizedTopCombosPayload = {
+  combos: OptimizationCombo[];
+  payload: Record<string, unknown>;
+  comboCount: number;
+  generatedAtMs: number | null;
+  payloadSource: string | null;
+  payloadSources: string[] | null;
+};
+
+const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload | null => {
+  if (!payload || typeof payload !== "object") return null;
+  const payloadObj = payload as Record<string, unknown>;
+  if (!Array.isArray(payloadObj.combos)) return null;
+  const payloadRec = payloadObj;
+  const rawCombos: unknown[] = payloadObj.combos as unknown[];
+  const generatedAtMsRaw = payloadRec.generatedAtMs;
+  const generatedAtMs =
+    typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
+  const methods: Method[] = ["11", "10", "01", "blend", "router"];
+  const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
+  const positionings: Positioning[] = ["long-flat", "long-short"];
+  const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
+  const sanitized: OptimizationCombo[] = rawCombos.map((raw, index) => {
+    const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
+    const params = (rawRec.params as Record<string, unknown> | null | undefined) ?? {};
+    const method =
+      typeof params.method === "string" && methods.includes(params.method as Method)
+        ? (params.method as Method)
+        : defaultForm.method;
+    const normalization =
+      typeof params.normalization === "string" && normalizations.includes(params.normalization as Normalization)
+        ? (params.normalization as Normalization)
+        : defaultForm.normalization;
+    const rawPlatform = typeof params.platform === "string" ? params.platform : null;
+    const platform =
+      rawPlatform && PLATFORMS.includes(rawPlatform as Platform)
+        ? (rawPlatform as Platform)
+        : null;
+    const interval = typeof params.interval === "string" && params.interval ? params.interval : defaultForm.interval;
+    const bars = typeof params.bars === "number" && Number.isFinite(params.bars) ? Math.trunc(params.bars) : Math.trunc(defaultForm.bars);
+    const positioning =
+      typeof params.positioning === "string" && positionings.includes(params.positioning as Positioning)
+        ? (params.positioning as Positioning)
+        : null;
+    const rawSymbol =
+      typeof params.binanceSymbol === "string"
+        ? params.binanceSymbol
+        : typeof params.symbol === "string"
+          ? params.symbol
+          : "";
+    const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
+    const source: OptimizationCombo["source"] =
+      rawSource === "binance" || rawSource === "coinbase" || rawSource === "kraken" || rawSource === "poloniex" || rawSource === "csv"
+        ? rawSource
+        : null;
+    const resolvedPlatform =
+      platform ?? (source && source !== "csv" ? (source as Platform) : null);
+    const binanceSymbol = normalizeComboSymbol(rawSymbol, resolvedPlatform);
+    const baseOpenThreshold =
+      typeof params.baseOpenThreshold === "number" && Number.isFinite(params.baseOpenThreshold)
+        ? Math.max(0, params.baseOpenThreshold)
+        : null;
+    const baseCloseThreshold =
+      typeof params.baseCloseThreshold === "number" && Number.isFinite(params.baseCloseThreshold)
+        ? Math.max(0, params.baseCloseThreshold)
+        : null;
+    const fee = typeof params.fee === "number" && Number.isFinite(params.fee) ? Math.max(0, params.fee) : defaultForm.fee;
+    const hiddenSize =
+      typeof params.hiddenSize === "number" && Number.isFinite(params.hiddenSize) ? Math.max(1, Math.trunc(params.hiddenSize)) : Math.trunc(defaultForm.hiddenSize);
+    const learningRate =
+      typeof params.learningRate === "number" && Number.isFinite(params.learningRate) ? params.learningRate : 0.001;
+    const valRatio =
+      typeof params.valRatio === "number" && Number.isFinite(params.valRatio)
+        ? clamp(params.valRatio, 0, 1)
+        : defaultForm.valRatio;
+    const patience =
+      typeof params.patience === "number" && Number.isFinite(params.patience) ? Math.max(0, Math.trunc(params.patience)) : Math.trunc(defaultForm.patience);
+    const gradClip =
+      typeof params.gradClip === "number" && Number.isFinite(params.gradClip) ? Math.max(0, params.gradClip) : null;
+    const epochs = typeof params.epochs === "number" && Number.isFinite(params.epochs) ? Math.max(0, Math.trunc(params.epochs)) : Math.trunc(defaultForm.epochs);
+    const slippage = typeof params.slippage === "number" && Number.isFinite(params.slippage) ? params.slippage : defaultForm.slippage;
+    const spread = typeof params.spread === "number" && Number.isFinite(params.spread) ? params.spread : defaultForm.spread;
+    const intrabarFill =
+      typeof params.intrabarFill === "string" && intrabarFills.includes(params.intrabarFill as IntrabarFill)
+        ? (params.intrabarFill as IntrabarFill)
+        : defaultForm.intrabarFill;
+    const minHoldBars =
+      typeof params.minHoldBars === "number" && Number.isFinite(params.minHoldBars)
+        ? Math.max(0, Math.trunc(params.minHoldBars))
+        : null;
+    const maxHoldBars =
+      typeof params.maxHoldBars === "number" && Number.isFinite(params.maxHoldBars)
+        ? Math.max(0, Math.trunc(params.maxHoldBars))
+        : null;
+    const cooldownBars =
+      typeof params.cooldownBars === "number" && Number.isFinite(params.cooldownBars)
+        ? Math.max(0, Math.trunc(params.cooldownBars))
+        : null;
+    const minEdge =
+      typeof params.minEdge === "number" && Number.isFinite(params.minEdge) ? Math.max(0, params.minEdge) : null;
+    const costAwareEdge = typeof params.costAwareEdge === "boolean" ? params.costAwareEdge : null;
+    const edgeBuffer =
+      typeof params.edgeBuffer === "number" && Number.isFinite(params.edgeBuffer) ? Math.max(0, params.edgeBuffer) : null;
+    const trendLookback =
+      typeof params.trendLookback === "number" && Number.isFinite(params.trendLookback)
+        ? Math.max(0, Math.trunc(params.trendLookback))
+        : null;
+    const maxPositionSize =
+      typeof params.maxPositionSize === "number" && Number.isFinite(params.maxPositionSize)
+        ? Math.max(0, params.maxPositionSize)
+        : null;
+    const volTarget =
+      typeof params.volTarget === "number" && Number.isFinite(params.volTarget) ? Math.max(0, params.volTarget) : null;
+    const volLookback =
+      typeof params.volLookback === "number" && Number.isFinite(params.volLookback)
+        ? Math.max(0, Math.trunc(params.volLookback))
+        : null;
+    const volEwmaAlphaRaw =
+      typeof params.volEwmaAlpha === "number" && Number.isFinite(params.volEwmaAlpha) ? params.volEwmaAlpha : null;
+    const volEwmaAlpha = volEwmaAlphaRaw != null && volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : null;
+    const volFloor =
+      typeof params.volFloor === "number" && Number.isFinite(params.volFloor) ? Math.max(0, params.volFloor) : null;
+    const volScaleMax =
+      typeof params.volScaleMax === "number" && Number.isFinite(params.volScaleMax) ? Math.max(0, params.volScaleMax) : null;
+    const maxVolatility =
+      typeof params.maxVolatility === "number" && Number.isFinite(params.maxVolatility)
+        ? Math.max(0, params.maxVolatility)
+        : null;
+    const rebalanceBars =
+      typeof params.rebalanceBars === "number" && Number.isFinite(params.rebalanceBars)
+        ? Math.max(0, Math.trunc(params.rebalanceBars))
+        : null;
+    const rebalanceThreshold =
+      typeof params.rebalanceThreshold === "number" && Number.isFinite(params.rebalanceThreshold)
+        ? Math.max(0, params.rebalanceThreshold)
+        : null;
+    const rebalanceCostMult =
+      typeof params.rebalanceCostMult === "number" && Number.isFinite(params.rebalanceCostMult)
+        ? Math.max(0, params.rebalanceCostMult)
+        : null;
+    const rebalanceGlobal = typeof params.rebalanceGlobal === "boolean" ? params.rebalanceGlobal : null;
+    const rebalanceResetOnSignal = typeof params.rebalanceResetOnSignal === "boolean" ? params.rebalanceResetOnSignal : null;
+    const fundingRate =
+      typeof params.fundingRate === "number" && Number.isFinite(params.fundingRate) ? params.fundingRate : null;
+    const fundingBySide = typeof params.fundingBySide === "boolean" ? params.fundingBySide : null;
+    const fundingOnOpen = typeof params.fundingOnOpen === "boolean" ? params.fundingOnOpen : null;
+    const periodsPerYear =
+      typeof params.periodsPerYear === "number" && Number.isFinite(params.periodsPerYear)
+        ? Math.max(0, params.periodsPerYear)
+        : null;
+    const kalmanMarketTopN =
+      typeof params.kalmanMarketTopN === "number" && Number.isFinite(params.kalmanMarketTopN)
+        ? Math.max(0, Math.trunc(params.kalmanMarketTopN))
+        : null;
+    const walkForwardFolds =
+      typeof params.walkForwardFolds === "number" && Number.isFinite(params.walkForwardFolds)
+        ? Math.max(1, Math.trunc(params.walkForwardFolds))
+        : null;
+    const walkForwardEmbargoBars =
+      typeof params.walkForwardEmbargoBars === "number" && Number.isFinite(params.walkForwardEmbargoBars)
+        ? Math.max(0, Math.trunc(params.walkForwardEmbargoBars))
+        : null;
+    const blendWeightRaw =
+      typeof params.blendWeight === "number" && Number.isFinite(params.blendWeight) ? params.blendWeight : null;
+    const blendWeight = blendWeightRaw != null ? clamp(blendWeightRaw, 0, 1) : null;
+    const tuneStressVolMult =
+      typeof params.tuneStressVolMult === "number" && Number.isFinite(params.tuneStressVolMult)
+        ? params.tuneStressVolMult
+        : null;
+    const tuneStressShock =
+      typeof params.tuneStressShock === "number" && Number.isFinite(params.tuneStressShock)
+        ? params.tuneStressShock
+        : null;
+    const tuneStressWeight =
+      typeof params.tuneStressWeight === "number" && Number.isFinite(params.tuneStressWeight)
+        ? params.tuneStressWeight
+        : null;
+    const kalmanZMin =
+      typeof params.kalmanZMin === "number" && Number.isFinite(params.kalmanZMin) ? Math.max(0, params.kalmanZMin) : defaultForm.kalmanZMin;
+    const kalmanZMaxRaw =
+      typeof params.kalmanZMax === "number" && Number.isFinite(params.kalmanZMax) ? Math.max(0, params.kalmanZMax) : defaultForm.kalmanZMax;
+    const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
+    const maxHighVolProbRaw =
+      typeof params.maxHighVolProb === "number" && Number.isFinite(params.maxHighVolProb) ? clamp(params.maxHighVolProb, 0, 1) : null;
+    const maxConformalWidthRaw =
+      typeof params.maxConformalWidth === "number" && Number.isFinite(params.maxConformalWidth) ? Math.max(0, params.maxConformalWidth) : null;
+    const maxQuantileWidthRaw =
+      typeof params.maxQuantileWidth === "number" && Number.isFinite(params.maxQuantileWidth) ? Math.max(0, params.maxQuantileWidth) : null;
+    const maxHighVolProb = maxHighVolProbRaw != null && maxHighVolProbRaw > 0 ? maxHighVolProbRaw : null;
+    const maxConformalWidth = maxConformalWidthRaw != null && maxConformalWidthRaw > 0 ? maxConformalWidthRaw : null;
+    const maxQuantileWidth = maxQuantileWidthRaw != null && maxQuantileWidthRaw > 0 ? maxQuantileWidthRaw : null;
+    const confirmConformal = typeof params.confirmConformal === "boolean" ? params.confirmConformal : defaultForm.confirmConformal;
+    const confirmQuantiles = typeof params.confirmQuantiles === "boolean" ? params.confirmQuantiles : defaultForm.confirmQuantiles;
+    const confidenceSizing = typeof params.confidenceSizing === "boolean" ? params.confidenceSizing : defaultForm.confidenceSizing;
+    const minPositionSizeRaw =
+      typeof params.minPositionSize === "number" && Number.isFinite(params.minPositionSize) ? clamp(params.minPositionSize, 0, 1) : null;
+    const minPositionSize = minPositionSizeRaw != null && minPositionSizeRaw > 0 ? minPositionSizeRaw : null;
+    const orderQuoteRaw =
+      typeof params.orderQuote === "number" && Number.isFinite(params.orderQuote) ? params.orderQuote : null;
+    const orderQuote = orderQuoteRaw != null && orderQuoteRaw > 0 ? Math.max(0, orderQuoteRaw) : null;
+    const orderQuantityRaw =
+      typeof params.orderQuantity === "number" && Number.isFinite(params.orderQuantity) ? params.orderQuantity : null;
+    const orderQuantity = orderQuantityRaw != null && orderQuantityRaw > 0 ? Math.max(0, orderQuantityRaw) : null;
+    const orderQuoteFractionRaw =
+      typeof params.orderQuoteFraction === "number" && Number.isFinite(params.orderQuoteFraction) ? params.orderQuoteFraction : null;
+    const orderQuoteFraction =
+      orderQuoteFractionRaw != null && orderQuoteFractionRaw > 0 ? clamp(orderQuoteFractionRaw, 0, 1) : null;
+    const maxOrderQuoteRaw =
+      typeof params.maxOrderQuote === "number" && Number.isFinite(params.maxOrderQuote) ? params.maxOrderQuote : null;
+    const maxOrderQuote = maxOrderQuoteRaw != null && maxOrderQuoteRaw > 0 ? Math.max(0, maxOrderQuoteRaw) : null;
+    const createdAtMsRaw = rawRec.createdAtMs;
+    const createdAtMs =
+      typeof createdAtMsRaw === "number" && Number.isFinite(createdAtMsRaw) ? Math.trunc(createdAtMsRaw) : null;
+    const createdAtMsFinal = createdAtMs ?? generatedAtMs;
+    const rankRaw = typeof rawRec.rank === "number" && Number.isFinite(rawRec.rank) ? Math.trunc(rawRec.rank) : null;
+    const rank = rankRaw != null && rankRaw >= 1 ? rankRaw : null;
+    const objective = typeof rawRec.objective === "string" && rawRec.objective ? rawRec.objective : null;
+    const score = typeof rawRec.score === "number" && Number.isFinite(rawRec.score) ? rawRec.score : null;
+    const metricsRec = (rawRec.metrics as Record<string, unknown> | null | undefined) ?? {};
+    const sharpe =
+      typeof metricsRec["sharpe"] === "number" && Number.isFinite(metricsRec["sharpe"]) ? (metricsRec["sharpe"] as number) : null;
+    const maxDrawdown =
+      typeof metricsRec["maxDrawdown"] === "number" && Number.isFinite(metricsRec["maxDrawdown"])
+        ? (metricsRec["maxDrawdown"] as number)
+        : null;
+    const turnover =
+      typeof metricsRec["turnover"] === "number" && Number.isFinite(metricsRec["turnover"]) ? (metricsRec["turnover"] as number) : null;
+    const roundTrips =
+      typeof metricsRec["roundTrips"] === "number" && Number.isFinite(metricsRec["roundTrips"])
+        ? Math.trunc(metricsRec["roundTrips"] as number)
+        : null;
+    const annualizedReturn =
+      typeof metricsRec["annualizedReturn"] === "number" && Number.isFinite(metricsRec["annualizedReturn"])
+        ? (metricsRec["annualizedReturn"] as number)
+        : null;
+    const metrics =
+      sharpe != null || maxDrawdown != null || turnover != null || roundTrips != null || annualizedReturn != null
+        ? { sharpe, maxDrawdown, turnover, roundTrips, annualizedReturn }
+        : null;
+    const operationsRaw = Array.isArray(rawRec.operations) ? rawRec.operations : [];
+    const operations = operationsRaw
+      .map((rawOp) => {
+        const opRec = (rawOp as Record<string, unknown> | null | undefined) ?? {};
+        const entryIndex =
+          typeof opRec.entryIndex === "number" && Number.isFinite(opRec.entryIndex) ? Math.trunc(opRec.entryIndex) : null;
+        const exitIndex =
+          typeof opRec.exitIndex === "number" && Number.isFinite(opRec.exitIndex) ? Math.trunc(opRec.exitIndex) : null;
+        if (entryIndex == null || exitIndex == null) return null;
+        const entryEquity =
+          typeof opRec.entryEquity === "number" && Number.isFinite(opRec.entryEquity) ? (opRec.entryEquity as number) : null;
+        const exitEquity =
+          typeof opRec.exitEquity === "number" && Number.isFinite(opRec.exitEquity) ? (opRec.exitEquity as number) : null;
+        const retValue = typeof opRec.return === "number" && Number.isFinite(opRec.return) ? (opRec.return as number) : null;
+        const holdingPeriods =
+          typeof opRec.holdingPeriods === "number" && Number.isFinite(opRec.holdingPeriods)
+            ? Math.trunc(opRec.holdingPeriods as number)
+            : null;
+        const exitReason =
+          typeof opRec.exitReason === "string" && opRec.exitReason.trim() ? opRec.exitReason.trim() : null;
+        const op: OptimizationComboOperation = {
+          entryIndex,
+          exitIndex,
+          entryEquity,
+          exitEquity,
+          return: retValue,
+          holdingPeriods,
+          exitReason,
+        };
+        return op;
+      })
+      .filter((op): op is OptimizationComboOperation => op !== null);
+    const operationsOut = operations.length > 0 ? operations : null;
+    return {
+      id: rank ?? index + 1,
+      rank,
+      createdAtMs: createdAtMsFinal,
+      objective,
+      score,
+      metrics,
+      finalEquity: typeof rawRec.finalEquity === "number" && Number.isFinite(rawRec.finalEquity) ? rawRec.finalEquity : 0,
+      openThreshold: typeof rawRec.openThreshold === "number" ? rawRec.openThreshold : null,
+      closeThreshold: typeof rawRec.closeThreshold === "number" ? rawRec.closeThreshold : null,
+      source,
+      operations: operationsOut,
+      params: {
+        ...params,
+        platform: resolvedPlatform,
+        interval,
+        bars,
+        method,
+        positioning,
+        normalization,
+        binanceSymbol: binanceSymbol ? binanceSymbol : null,
+        baseOpenThreshold,
+        baseCloseThreshold,
+        fee,
+        epochs,
+        hiddenSize,
+        learningRate,
+        valRatio,
+        patience,
+        gradClip,
+        slippage,
+        spread,
+        intrabarFill,
+        minHoldBars,
+        maxHoldBars,
+        cooldownBars,
+        minEdge,
+        minSignalToNoise:
+          typeof params.minSignalToNoise === "number" && Number.isFinite(params.minSignalToNoise)
+            ? Math.max(0, params.minSignalToNoise)
+            : null,
+        costAwareEdge,
+        edgeBuffer,
+        trendLookback,
+        maxPositionSize,
+        volTarget,
+        volLookback,
+        volEwmaAlpha,
+        volFloor,
+        volScaleMax,
+        maxVolatility,
+        rebalanceBars,
+        rebalanceThreshold,
+        rebalanceCostMult,
+        rebalanceGlobal,
+        fundingRate,
+        fundingBySide,
+        rebalanceResetOnSignal,
+        fundingOnOpen,
+        periodsPerYear,
+        blendWeight,
+        walkForwardFolds,
+        walkForwardEmbargoBars,
+        tuneStressVolMult,
+        tuneStressShock,
+        tuneStressWeight,
+        stopLoss: typeof params.stopLoss === "number" && Number.isFinite(params.stopLoss) ? params.stopLoss : null,
+        takeProfit: typeof params.takeProfit === "number" && Number.isFinite(params.takeProfit) ? params.takeProfit : null,
+        trailingStop: typeof params.trailingStop === "number" && Number.isFinite(params.trailingStop) ? params.trailingStop : null,
+        stopLossVolMult:
+          typeof params.stopLossVolMult === "number" && Number.isFinite(params.stopLossVolMult)
+            ? Math.max(0, params.stopLossVolMult)
+            : null,
+        takeProfitVolMult:
+          typeof params.takeProfitVolMult === "number" && Number.isFinite(params.takeProfitVolMult)
+            ? Math.max(0, params.takeProfitVolMult)
+            : null,
+        trailingStopVolMult:
+          typeof params.trailingStopVolMult === "number" && Number.isFinite(params.trailingStopVolMult)
+            ? Math.max(0, params.trailingStopVolMult)
+            : null,
+        maxDrawdown: typeof params.maxDrawdown === "number" && Number.isFinite(params.maxDrawdown) ? params.maxDrawdown : null,
+        maxDailyLoss: typeof params.maxDailyLoss === "number" && Number.isFinite(params.maxDailyLoss) ? params.maxDailyLoss : null,
+        maxOrderErrors:
+          typeof params.maxOrderErrors === "number" && Number.isFinite(params.maxOrderErrors) ? Math.max(1, Math.trunc(params.maxOrderErrors)) : null,
+        orderQuote,
+        orderQuantity,
+        orderQuoteFraction,
+        maxOrderQuote,
+        kalmanZMin,
+        kalmanZMax,
+        kalmanMarketTopN,
+        maxHighVolProb,
+        maxConformalWidth,
+        maxQuantileWidth,
+        confirmConformal,
+        confirmQuantiles,
+        confidenceSizing,
+        minPositionSize,
+      },
+    };
+  });
+  sanitized.sort((a, b) => {
+    const aAnnEq = comboAnnualizedEquity(a);
+    const bAnnEq = comboAnnualizedEquity(b);
+    if (aAnnEq != null || bAnnEq != null) {
+      const diff = (bAnnEq ?? Number.NEGATIVE_INFINITY) - (aAnnEq ?? Number.NEGATIVE_INFINITY);
+      if (diff !== 0) return diff;
+    }
+
+    const ar = typeof a.rank === "number" && Number.isFinite(a.rank) ? a.rank : null;
+    const br = typeof b.rank === "number" && Number.isFinite(b.rank) ? b.rank : null;
+    if (ar != null && br != null) return ar - br;
+    if (ar != null) return -1;
+    if (br != null) return 1;
+
+    const sa = typeof a.score === "number" && Number.isFinite(a.score) ? a.score : null;
+    const sb = typeof b.score === "number" && Number.isFinite(b.score) ? b.score : null;
+    if (sa != null || sb != null) {
+      const diff = (sb ?? Number.NEGATIVE_INFINITY) - (sa ?? Number.NEGATIVE_INFINITY);
+      if (diff !== 0) return diff;
+    }
+
+    const eq = b.finalEquity - a.finalEquity;
+    if (eq !== 0) return eq;
+    return a.id - b.id;
+  });
+  const comboCount = rawCombos.length;
+  const payloadSourceRaw =
+    typeof payloadRec.payloadSource === "string" && payloadRec.payloadSource.trim()
+      ? payloadRec.payloadSource.trim()
+      : typeof payloadRec.source === "string" && payloadRec.source.trim()
+        ? payloadRec.source.trim()
+        : null;
+  const payloadSourcesRaw = Array.isArray(payloadRec.payloadSources) ? payloadRec.payloadSources : [];
+  const payloadSources = payloadSourcesRaw
+    .map((src) => (typeof src === "string" ? src.trim() : ""))
+    .filter((src) => src.length > 0);
+  const payloadSourcesFinal = payloadSources.length > 0 ? payloadSources : payloadSourceRaw ? [payloadSourceRaw] : null;
+  return {
+    combos: sanitized,
+    payload: payloadObj,
+    comboCount,
+    generatedAtMs,
+    payloadSource: payloadSourceRaw,
+    payloadSources: payloadSourcesFinal,
+  };
+};
+
+const resolveRepoTopCombosUrl = (): string => {
+  if (typeof window === "undefined") return "/top-combos.json";
+  const base = import.meta.env.BASE_URL;
+  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
+  return new URL("top-combos.json", `${window.location.origin}${normalizedBase}`).toString();
+};
+
+const fetchRepoTopCombos = async (signal?: AbortSignal): Promise<SanitizedTopCombosPayload | null> => {
+  if (typeof fetch === "undefined") return null;
+  try {
+    const res = await fetch(resolveRepoTopCombosUrl(), { method: "GET", cache: "no-store", signal });
+    if (!res.ok) return null;
+    const json = (await res.json()) as unknown;
+    return sanitizeTopCombosPayload(json);
+  } catch {
+    return null;
+  }
+};
+
+const readCachedTopCombos = (): SanitizedTopCombosPayload | null => {
+  const cached = readJson<unknown>(STORAGE_TOP_COMBOS_KEY);
+  return sanitizeTopCombosPayload(cached);
+};
+
+const selectTopCombosFallback = (
+  repo: SanitizedTopCombosPayload | null,
+  cache: SanitizedTopCombosPayload | null,
+): { parsed: SanitizedTopCombosPayload; source: TopCombosSource } | null => {
+  if (repo && cache) {
+    const repoMs = repo.generatedAtMs ?? 0;
+    const cacheMs = cache.generatedAtMs ?? 0;
+    if (cacheMs > repoMs) return { parsed: cache, source: "cache" };
+    return { parsed: repo, source: "repo" };
+  }
+  if (repo) return { parsed: repo, source: "repo" };
+  if (cache) return { parsed: cache, source: "cache" };
+  return null;
 };
 const pruneStateSyncPayload = (
   payload: StateSyncPayload,
@@ -877,6 +1340,11 @@ export function App() {
     error: null,
     response: null,
   });
+  const [binancePositionTradesUi, setBinancePositionTradesUi] = useState<BinanceTradesUiState>({
+    loading: false,
+    error: null,
+    response: null,
+  });
   const [binancePositionsBars, setBinancePositionsBars] = useState(200);
   const binancePositionsAutoKeyRef = useRef<string | null>(null);
 
@@ -1235,6 +1703,7 @@ export function App() {
   const topCombosAbortRef = useRef<AbortController | null>(null);
   const binanceTradesAbortRef = useRef<AbortController | null>(null);
   const binancePositionsAbortRef = useRef<AbortController | null>(null);
+  const binancePositionTradesAbortRef = useRef<AbortController | null>(null);
   const botStatusOpsInFlightRef = useRef(false);
   const requestSeqRef = useRef(0);
   const botRequestSeqRef = useRef(0);
@@ -4913,6 +5382,67 @@ export function App() {
     withBinanceKeys,
   ]);
 
+  const fetchBinancePositionTrades = useCallback(
+    async (positions: ApiBinancePositionsResponse["positions"], opts?: { retrying?: boolean }) => {
+      binancePositionTradesAbortRef.current?.abort();
+      const controller = new AbortController();
+      binancePositionTradesAbortRef.current = controller;
+      if (positions.length === 0) {
+        setBinancePositionTradesUi({ loading: false, error: null, response: null });
+        if (binancePositionTradesAbortRef.current === controller) binancePositionTradesAbortRef.current = null;
+        return;
+      }
+      setBinancePositionTradesUi({ loading: true, error: null, response: null });
+      try {
+        const symbols = Array.from(
+          new Set(
+            positions
+              .map((pos) => pos.symbol.trim())
+              .filter((sym) => sym.length > 0),
+          ),
+        );
+        if (symbols.length === 0) {
+          setBinancePositionTradesUi({ loading: false, error: null, response: null });
+          return;
+        }
+        const params: ApiBinanceTradesRequest = {
+          market: form.market,
+          binanceTestnet: form.binanceTestnet,
+          ...(symbols.length === 1 ? { symbol: symbols[0] } : { symbols }),
+          limit: BINANCE_POSITIONS_OPEN_TIME_LIMIT,
+        };
+        const out = await binanceTrades(apiBase, withBinanceKeys(params), {
+          headers: authHeaders,
+          timeoutMs: 30_000,
+          signal: controller.signal,
+        });
+        setBinancePositionTradesUi({ loading: false, error: null, response: out });
+      } catch (e) {
+        if (isAbortError(e)) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        const isTimestampError = isBinanceTimestampErrorMessage(msg);
+        if (isTimestampError && !opts?.retrying) {
+          setBinancePositionTradesUi((s) => ({
+            ...s,
+            loading: true,
+            error: "Binance timestamp out of sync (code -1021). Retrying after time sync…",
+          }));
+          window.setTimeout(() => {
+            void fetchBinancePositionTrades(positions, { retrying: true });
+          }, 750);
+          return;
+        }
+        const finalMsg = isTimestampError
+          ? "Binance timestamp out of sync (code -1021). Ensure system time is synced and the Binance time endpoint is reachable, then retry."
+          : msg;
+        setBinancePositionTradesUi((s) => ({ ...s, loading: false, error: finalMsg }));
+      } finally {
+        if (binancePositionTradesAbortRef.current === controller) binancePositionTradesAbortRef.current = null;
+      }
+    },
+    [apiBase, authHeaders, form.binanceTestnet, form.market, withBinanceKeys],
+  );
+
   const fetchBinancePositions = useCallback(async (opts?: { retrying?: boolean }) => {
     binancePositionsAbortRef.current?.abort();
     const controller = new AbortController();
@@ -4936,6 +5466,7 @@ export function App() {
         signal: controller.signal,
       });
       setBinancePositionsUi({ loading: false, error: null, response: out });
+      void fetchBinancePositionTrades(out.positions);
     } catch (e) {
       if (isAbortError(e)) return;
       const msg = e instanceof Error ? e.message : String(e);
@@ -4963,6 +5494,7 @@ export function App() {
     authHeaders,
     binancePositionsInputError,
     binancePositionsLimitSafe,
+    fetchBinancePositionTrades,
     form.binanceTestnet,
     form.interval,
     form.market,
@@ -4979,6 +5511,18 @@ export function App() {
     for (const chart of charts) map.set(chart.symbol, chart);
     return map;
   }, [binancePositionsUi.response?.charts]);
+  const binancePositionOpenTimesByKey = useMemo(() => {
+    const trades = binancePositionTradesUi.response?.trades ?? [];
+    const map = new Map<string, { openedAtMs: number; isLowerBound: boolean }>();
+    if (trades.length === 0) return map;
+    for (const pos of binancePositionsList) {
+      const estimate = inferBinancePositionOpenTime(pos, trades);
+      if (!estimate || estimate.openedAtMs == null) continue;
+      const sideKey = positionSideInfo(pos.positionAmt, pos.positionSide).key;
+      map.set(`${normalizeSymbolKey(pos.symbol)}:${sideKey}`, estimate);
+    }
+    return map;
+  }, [binancePositionTradesUi.response?.trades, binancePositionsList]);
   const orphanPositions = useMemo(
     () =>
       buildOrphanedPositions(binancePositionsList, botEntriesWithSymbol, {
@@ -5064,7 +5608,69 @@ export function App() {
       topCombosAbortRef.current = controller;
       const silent = opts?.silent ?? false;
       if (!silent) setTopCombosLoading(true);
+      let combosApplied = topCombosRef.current.length > 0;
+      let fallbackSelection: { parsed: SanitizedTopCombosPayload; source: TopCombosSource } | null | undefined;
+      const applyTopCombos = (
+        parsed: SanitizedTopCombosPayload,
+        source: TopCombosSource,
+        fallbackReason: string | null,
+      ) => {
+        combosApplied = true;
+        setTopCombosAll(parsed.combos);
+        setTopCombosPayload(parsed.payload);
+        setTopCombosMeta({
+          source,
+          generatedAtMs: parsed.generatedAtMs,
+          payloadSource: parsed.payloadSource,
+          payloadSources: parsed.payloadSources,
+          fallbackReason,
+          comboCount: parsed.comboCount,
+        });
+        writeJson(STORAGE_TOP_COMBOS_KEY, parsed.payload);
+      };
+      const maybeAutoApplyTopCombo = (combos: OptimizationCombo[]) => {
+        const topCombo = combos[0];
+        if (!topCombo || !autoApplyTopCombo) return;
+        const currentForm = formRef.current;
+        const topSig = comboApplySignature(
+          topCombo,
+          apiComputeLimitsRef.current,
+          currentForm,
+          manualOverridesRef.current,
+          true,
+        );
+        const formSig = formApplySignature(currentForm);
+        if (topSig !== formSig) {
+          if (!pendingComboStartRef.current) {
+            applyCombo(topCombo, { silent: true, respectManual: true, allowPositioning: true });
+            const now = Date.now();
+            setAutoAppliedCombo({ id: topCombo.id, atMs: now });
+            const prev = autoAppliedComboRef.current;
+            const shouldToast = !prev.atMs || prev.id !== topCombo.id || now - prev.atMs > 120_000;
+            autoAppliedComboRef.current = { id: topCombo.id, atMs: now };
+            if (shouldToast) {
+              showToast(`Auto-applied top combo #${topCombo.id} (manual overrides respected)`);
+            }
+          }
+        }
+      };
+      const loadFallback = async () => {
+        if (fallbackSelection !== undefined) return fallbackSelection;
+        const cache = readCachedTopCombos();
+        const repo = await fetchRepoTopCombos(controller.signal);
+        fallbackSelection = selectTopCombosFallback(repo, cache);
+        return fallbackSelection;
+      };
+      const seedFallback = async () => {
+        if (combosApplied) return;
+        const fallback = await loadFallback();
+        if (!fallback || isCancelled) return;
+        applyTopCombos(fallback.parsed, fallback.source, null);
+        setTopCombosError(null);
+        maybeAutoApplyTopCombo(fallback.parsed.combos);
+      };
       try {
+        await seedFallback();
         if (apiOk !== "ok") {
           const fallbackReason =
             apiOk === "auth"
@@ -5077,450 +5683,25 @@ export function App() {
           throw new Error(fallbackReason);
         }
         const payload = await optimizerCombos(apiBase, { headers: authHeaders, signal: controller.signal });
-        const source: TopCombosSource = "api";
-        const fallbackReason: string | null = null;
         if (isCancelled) return;
-        const payloadObj = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
-        const payloadRec = payloadObj ?? {};
-        const rawCombos: unknown[] = Array.isArray(payloadRec.combos) ? (payloadRec.combos as unknown[]) : [];
-        const generatedAtMsRaw = payloadRec.generatedAtMs;
-        const generatedAtMs =
-          typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
-        const methods: Method[] = ["11", "10", "01", "blend", "router"];
-        const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
-        const positionings: Positioning[] = ["long-flat", "long-short"];
-        const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
-        const sanitized: OptimizationCombo[] = rawCombos.map((raw, index) => {
-          const rawRec = (raw as Record<string, unknown> | null | undefined) ?? {};
-          const params = (rawRec.params as Record<string, unknown> | null | undefined) ?? {};
-          const method =
-            typeof params.method === "string" && methods.includes(params.method as Method)
-              ? (params.method as Method)
-              : defaultForm.method;
-          const normalization =
-            typeof params.normalization === "string" && normalizations.includes(params.normalization as Normalization)
-              ? (params.normalization as Normalization)
-              : defaultForm.normalization;
-          const rawPlatform = typeof params.platform === "string" ? params.platform : null;
-          const platform =
-            rawPlatform && PLATFORMS.includes(rawPlatform as Platform)
-              ? (rawPlatform as Platform)
-              : null;
-          const interval = typeof params.interval === "string" && params.interval ? params.interval : defaultForm.interval;
-          const bars = typeof params.bars === "number" && Number.isFinite(params.bars) ? Math.trunc(params.bars) : Math.trunc(defaultForm.bars);
-          const positioning =
-            typeof params.positioning === "string" && positionings.includes(params.positioning as Positioning)
-              ? (params.positioning as Positioning)
-              : null;
-          const rawSymbol =
-            typeof params.binanceSymbol === "string"
-              ? params.binanceSymbol
-              : typeof params.symbol === "string"
-                ? params.symbol
-                : "";
-          const rawSource = typeof rawRec.source === "string" ? rawRec.source : null;
-          const source: OptimizationCombo["source"] =
-            rawSource === "binance" || rawSource === "coinbase" || rawSource === "kraken" || rawSource === "poloniex" || rawSource === "csv"
-              ? rawSource
-              : null;
-          const resolvedPlatform =
-            platform ?? (source && source !== "csv" ? (source as Platform) : null);
-          const binanceSymbol = normalizeComboSymbol(rawSymbol, resolvedPlatform);
-          const baseOpenThreshold =
-            typeof params.baseOpenThreshold === "number" && Number.isFinite(params.baseOpenThreshold)
-              ? Math.max(0, params.baseOpenThreshold)
-              : null;
-          const baseCloseThreshold =
-            typeof params.baseCloseThreshold === "number" && Number.isFinite(params.baseCloseThreshold)
-              ? Math.max(0, params.baseCloseThreshold)
-              : null;
-          const fee = typeof params.fee === "number" && Number.isFinite(params.fee) ? Math.max(0, params.fee) : defaultForm.fee;
-          const hiddenSize =
-            typeof params.hiddenSize === "number" && Number.isFinite(params.hiddenSize) ? Math.max(1, Math.trunc(params.hiddenSize)) : Math.trunc(defaultForm.hiddenSize);
-          const learningRate =
-            typeof params.learningRate === "number" && Number.isFinite(params.learningRate) ? params.learningRate : 0.001;
-          const valRatio =
-            typeof params.valRatio === "number" && Number.isFinite(params.valRatio)
-              ? clamp(params.valRatio, 0, 1)
-              : defaultForm.valRatio;
-          const patience =
-            typeof params.patience === "number" && Number.isFinite(params.patience) ? Math.max(0, Math.trunc(params.patience)) : Math.trunc(defaultForm.patience);
-          const gradClip =
-            typeof params.gradClip === "number" && Number.isFinite(params.gradClip) ? Math.max(0, params.gradClip) : null;
-          const epochs = typeof params.epochs === "number" && Number.isFinite(params.epochs) ? Math.max(0, Math.trunc(params.epochs)) : Math.trunc(defaultForm.epochs);
-          const slippage = typeof params.slippage === "number" && Number.isFinite(params.slippage) ? params.slippage : defaultForm.slippage;
-          const spread = typeof params.spread === "number" && Number.isFinite(params.spread) ? params.spread : defaultForm.spread;
-          const intrabarFill =
-            typeof params.intrabarFill === "string" && intrabarFills.includes(params.intrabarFill as IntrabarFill)
-              ? (params.intrabarFill as IntrabarFill)
-              : defaultForm.intrabarFill;
-          const minHoldBars =
-            typeof params.minHoldBars === "number" && Number.isFinite(params.minHoldBars)
-              ? Math.max(0, Math.trunc(params.minHoldBars))
-              : null;
-          const maxHoldBars =
-            typeof params.maxHoldBars === "number" && Number.isFinite(params.maxHoldBars)
-              ? Math.max(0, Math.trunc(params.maxHoldBars))
-              : null;
-          const cooldownBars =
-            typeof params.cooldownBars === "number" && Number.isFinite(params.cooldownBars)
-              ? Math.max(0, Math.trunc(params.cooldownBars))
-              : null;
-          const minEdge =
-            typeof params.minEdge === "number" && Number.isFinite(params.minEdge) ? Math.max(0, params.minEdge) : null;
-          const costAwareEdge = typeof params.costAwareEdge === "boolean" ? params.costAwareEdge : null;
-          const edgeBuffer =
-            typeof params.edgeBuffer === "number" && Number.isFinite(params.edgeBuffer) ? Math.max(0, params.edgeBuffer) : null;
-          const trendLookback =
-            typeof params.trendLookback === "number" && Number.isFinite(params.trendLookback)
-              ? Math.max(0, Math.trunc(params.trendLookback))
-              : null;
-          const maxPositionSize =
-            typeof params.maxPositionSize === "number" && Number.isFinite(params.maxPositionSize)
-              ? Math.max(0, params.maxPositionSize)
-              : null;
-          const volTarget =
-            typeof params.volTarget === "number" && Number.isFinite(params.volTarget) ? Math.max(0, params.volTarget) : null;
-          const volLookback =
-            typeof params.volLookback === "number" && Number.isFinite(params.volLookback)
-              ? Math.max(0, Math.trunc(params.volLookback))
-              : null;
-          const volEwmaAlphaRaw =
-            typeof params.volEwmaAlpha === "number" && Number.isFinite(params.volEwmaAlpha) ? params.volEwmaAlpha : null;
-          const volEwmaAlpha = volEwmaAlphaRaw != null && volEwmaAlphaRaw > 0 && volEwmaAlphaRaw < 1 ? volEwmaAlphaRaw : null;
-          const volFloor =
-            typeof params.volFloor === "number" && Number.isFinite(params.volFloor) ? Math.max(0, params.volFloor) : null;
-          const volScaleMax =
-            typeof params.volScaleMax === "number" && Number.isFinite(params.volScaleMax) ? Math.max(0, params.volScaleMax) : null;
-          const maxVolatility =
-            typeof params.maxVolatility === "number" && Number.isFinite(params.maxVolatility)
-              ? Math.max(0, params.maxVolatility)
-              : null;
-          const rebalanceBars =
-            typeof params.rebalanceBars === "number" && Number.isFinite(params.rebalanceBars)
-              ? Math.max(0, Math.trunc(params.rebalanceBars))
-              : null;
-          const rebalanceThreshold =
-            typeof params.rebalanceThreshold === "number" && Number.isFinite(params.rebalanceThreshold)
-              ? Math.max(0, params.rebalanceThreshold)
-              : null;
-          const rebalanceCostMult =
-            typeof params.rebalanceCostMult === "number" && Number.isFinite(params.rebalanceCostMult)
-              ? Math.max(0, params.rebalanceCostMult)
-              : null;
-          const rebalanceGlobal = typeof params.rebalanceGlobal === "boolean" ? params.rebalanceGlobal : null;
-          const rebalanceResetOnSignal = typeof params.rebalanceResetOnSignal === "boolean" ? params.rebalanceResetOnSignal : null;
-          const fundingRate =
-            typeof params.fundingRate === "number" && Number.isFinite(params.fundingRate) ? params.fundingRate : null;
-          const fundingBySide = typeof params.fundingBySide === "boolean" ? params.fundingBySide : null;
-          const fundingOnOpen = typeof params.fundingOnOpen === "boolean" ? params.fundingOnOpen : null;
-          const periodsPerYear =
-            typeof params.periodsPerYear === "number" && Number.isFinite(params.periodsPerYear)
-              ? Math.max(0, params.periodsPerYear)
-              : null;
-          const kalmanMarketTopN =
-            typeof params.kalmanMarketTopN === "number" && Number.isFinite(params.kalmanMarketTopN)
-              ? Math.max(0, Math.trunc(params.kalmanMarketTopN))
-              : null;
-          const walkForwardFolds =
-            typeof params.walkForwardFolds === "number" && Number.isFinite(params.walkForwardFolds)
-              ? Math.max(1, Math.trunc(params.walkForwardFolds))
-              : null;
-          const walkForwardEmbargoBars =
-            typeof params.walkForwardEmbargoBars === "number" && Number.isFinite(params.walkForwardEmbargoBars)
-              ? Math.max(0, Math.trunc(params.walkForwardEmbargoBars))
-              : null;
-          const blendWeightRaw =
-            typeof params.blendWeight === "number" && Number.isFinite(params.blendWeight) ? params.blendWeight : null;
-          const blendWeight = blendWeightRaw != null ? clamp(blendWeightRaw, 0, 1) : null;
-          const tuneStressVolMult =
-            typeof params.tuneStressVolMult === "number" && Number.isFinite(params.tuneStressVolMult)
-              ? params.tuneStressVolMult
-              : null;
-          const tuneStressShock =
-            typeof params.tuneStressShock === "number" && Number.isFinite(params.tuneStressShock)
-              ? params.tuneStressShock
-              : null;
-          const tuneStressWeight =
-            typeof params.tuneStressWeight === "number" && Number.isFinite(params.tuneStressWeight)
-              ? params.tuneStressWeight
-              : null;
-          const kalmanZMin =
-            typeof params.kalmanZMin === "number" && Number.isFinite(params.kalmanZMin) ? Math.max(0, params.kalmanZMin) : defaultForm.kalmanZMin;
-          const kalmanZMaxRaw =
-            typeof params.kalmanZMax === "number" && Number.isFinite(params.kalmanZMax) ? Math.max(0, params.kalmanZMax) : defaultForm.kalmanZMax;
-          const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
-          const maxHighVolProbRaw =
-            typeof params.maxHighVolProb === "number" && Number.isFinite(params.maxHighVolProb) ? clamp(params.maxHighVolProb, 0, 1) : null;
-          const maxConformalWidthRaw =
-            typeof params.maxConformalWidth === "number" && Number.isFinite(params.maxConformalWidth) ? Math.max(0, params.maxConformalWidth) : null;
-          const maxQuantileWidthRaw =
-            typeof params.maxQuantileWidth === "number" && Number.isFinite(params.maxQuantileWidth) ? Math.max(0, params.maxQuantileWidth) : null;
-          const maxHighVolProb = maxHighVolProbRaw != null && maxHighVolProbRaw > 0 ? maxHighVolProbRaw : null;
-          const maxConformalWidth = maxConformalWidthRaw != null && maxConformalWidthRaw > 0 ? maxConformalWidthRaw : null;
-          const maxQuantileWidth = maxQuantileWidthRaw != null && maxQuantileWidthRaw > 0 ? maxQuantileWidthRaw : null;
-          const confirmConformal = typeof params.confirmConformal === "boolean" ? params.confirmConformal : defaultForm.confirmConformal;
-          const confirmQuantiles = typeof params.confirmQuantiles === "boolean" ? params.confirmQuantiles : defaultForm.confirmQuantiles;
-          const confidenceSizing = typeof params.confidenceSizing === "boolean" ? params.confidenceSizing : defaultForm.confidenceSizing;
-          const minPositionSizeRaw =
-            typeof params.minPositionSize === "number" && Number.isFinite(params.minPositionSize) ? clamp(params.minPositionSize, 0, 1) : null;
-          const minPositionSize = minPositionSizeRaw != null && minPositionSizeRaw > 0 ? minPositionSizeRaw : null;
-          const orderQuoteRaw =
-            typeof params.orderQuote === "number" && Number.isFinite(params.orderQuote) ? params.orderQuote : null;
-          const orderQuote = orderQuoteRaw != null && orderQuoteRaw > 0 ? Math.max(0, orderQuoteRaw) : null;
-          const orderQuantityRaw =
-            typeof params.orderQuantity === "number" && Number.isFinite(params.orderQuantity) ? params.orderQuantity : null;
-          const orderQuantity = orderQuantityRaw != null && orderQuantityRaw > 0 ? Math.max(0, orderQuantityRaw) : null;
-          const orderQuoteFractionRaw =
-            typeof params.orderQuoteFraction === "number" && Number.isFinite(params.orderQuoteFraction) ? params.orderQuoteFraction : null;
-          const orderQuoteFraction =
-            orderQuoteFractionRaw != null && orderQuoteFractionRaw > 0 ? clamp(orderQuoteFractionRaw, 0, 1) : null;
-          const maxOrderQuoteRaw =
-            typeof params.maxOrderQuote === "number" && Number.isFinite(params.maxOrderQuote) ? params.maxOrderQuote : null;
-          const maxOrderQuote = maxOrderQuoteRaw != null && maxOrderQuoteRaw > 0 ? Math.max(0, maxOrderQuoteRaw) : null;
-          const createdAtMsRaw = rawRec.createdAtMs;
-          const createdAtMs =
-            typeof createdAtMsRaw === "number" && Number.isFinite(createdAtMsRaw) ? Math.trunc(createdAtMsRaw) : null;
-          const createdAtMsFinal = createdAtMs ?? generatedAtMs;
-          const rankRaw = typeof rawRec.rank === "number" && Number.isFinite(rawRec.rank) ? Math.trunc(rawRec.rank) : null;
-          const rank = rankRaw != null && rankRaw >= 1 ? rankRaw : null;
-          const objective = typeof rawRec.objective === "string" && rawRec.objective ? rawRec.objective : null;
-          const score = typeof rawRec.score === "number" && Number.isFinite(rawRec.score) ? rawRec.score : null;
-          const metricsRec = (rawRec.metrics as Record<string, unknown> | null | undefined) ?? {};
-          const sharpe =
-            typeof metricsRec["sharpe"] === "number" && Number.isFinite(metricsRec["sharpe"]) ? (metricsRec["sharpe"] as number) : null;
-          const maxDrawdown =
-            typeof metricsRec["maxDrawdown"] === "number" && Number.isFinite(metricsRec["maxDrawdown"])
-              ? (metricsRec["maxDrawdown"] as number)
-              : null;
-          const turnover =
-            typeof metricsRec["turnover"] === "number" && Number.isFinite(metricsRec["turnover"]) ? (metricsRec["turnover"] as number) : null;
-          const roundTrips =
-            typeof metricsRec["roundTrips"] === "number" && Number.isFinite(metricsRec["roundTrips"])
-              ? Math.trunc(metricsRec["roundTrips"] as number)
-              : null;
-          const annualizedReturn =
-            typeof metricsRec["annualizedReturn"] === "number" && Number.isFinite(metricsRec["annualizedReturn"])
-              ? (metricsRec["annualizedReturn"] as number)
-              : null;
-          const metrics =
-            sharpe != null || maxDrawdown != null || turnover != null || roundTrips != null || annualizedReturn != null
-              ? { sharpe, maxDrawdown, turnover, roundTrips, annualizedReturn }
-              : null;
-          const operationsRaw = Array.isArray(rawRec.operations) ? rawRec.operations : [];
-          const operations = operationsRaw
-            .map((rawOp) => {
-              const opRec = (rawOp as Record<string, unknown> | null | undefined) ?? {};
-              const entryIndex =
-                typeof opRec.entryIndex === "number" && Number.isFinite(opRec.entryIndex) ? Math.trunc(opRec.entryIndex) : null;
-              const exitIndex =
-                typeof opRec.exitIndex === "number" && Number.isFinite(opRec.exitIndex) ? Math.trunc(opRec.exitIndex) : null;
-              if (entryIndex == null || exitIndex == null) return null;
-              const entryEquity =
-                typeof opRec.entryEquity === "number" && Number.isFinite(opRec.entryEquity) ? (opRec.entryEquity as number) : null;
-              const exitEquity =
-                typeof opRec.exitEquity === "number" && Number.isFinite(opRec.exitEquity) ? (opRec.exitEquity as number) : null;
-              const retValue = typeof opRec.return === "number" && Number.isFinite(opRec.return) ? (opRec.return as number) : null;
-              const holdingPeriods =
-                typeof opRec.holdingPeriods === "number" && Number.isFinite(opRec.holdingPeriods)
-                  ? Math.trunc(opRec.holdingPeriods as number)
-                  : null;
-              const exitReason =
-                typeof opRec.exitReason === "string" && opRec.exitReason.trim() ? opRec.exitReason.trim() : null;
-              const op: OptimizationComboOperation = {
-                entryIndex,
-                exitIndex,
-                entryEquity,
-                exitEquity,
-                return: retValue,
-                holdingPeriods,
-                exitReason,
-              };
-              return op;
-            })
-            .filter((op): op is OptimizationComboOperation => op !== null);
-          const operationsOut = operations.length > 0 ? operations : null;
-          return {
-            id: rank ?? index + 1,
-            rank,
-            createdAtMs: createdAtMsFinal,
-            objective,
-            score,
-            metrics,
-            finalEquity: typeof rawRec.finalEquity === "number" && Number.isFinite(rawRec.finalEquity) ? rawRec.finalEquity : 0,
-            openThreshold: typeof rawRec.openThreshold === "number" ? rawRec.openThreshold : null,
-            closeThreshold: typeof rawRec.closeThreshold === "number" ? rawRec.closeThreshold : null,
-            source,
-            operations: operationsOut,
-            params: {
-              ...params,
-              platform: resolvedPlatform,
-              interval,
-              bars,
-              method,
-              positioning,
-              normalization,
-              binanceSymbol: binanceSymbol ? binanceSymbol : null,
-              baseOpenThreshold,
-              baseCloseThreshold,
-              fee,
-              epochs,
-              hiddenSize,
-              learningRate,
-              valRatio,
-              patience,
-              gradClip,
-              slippage,
-              spread,
-              intrabarFill,
-              minHoldBars,
-              maxHoldBars,
-              cooldownBars,
-              minEdge,
-              minSignalToNoise:
-                typeof params.minSignalToNoise === "number" && Number.isFinite(params.minSignalToNoise)
-                  ? Math.max(0, params.minSignalToNoise)
-                  : null,
-              costAwareEdge,
-              edgeBuffer,
-              trendLookback,
-              maxPositionSize,
-              volTarget,
-              volLookback,
-              volEwmaAlpha,
-              volFloor,
-              volScaleMax,
-              maxVolatility,
-              rebalanceBars,
-              rebalanceThreshold,
-              rebalanceCostMult,
-              rebalanceGlobal,
-              fundingRate,
-              fundingBySide,
-              rebalanceResetOnSignal,
-              fundingOnOpen,
-              periodsPerYear,
-              blendWeight,
-              walkForwardFolds,
-              walkForwardEmbargoBars,
-              tuneStressVolMult,
-              tuneStressShock,
-              tuneStressWeight,
-              stopLoss: typeof params.stopLoss === "number" && Number.isFinite(params.stopLoss) ? params.stopLoss : null,
-              takeProfit: typeof params.takeProfit === "number" && Number.isFinite(params.takeProfit) ? params.takeProfit : null,
-              trailingStop: typeof params.trailingStop === "number" && Number.isFinite(params.trailingStop) ? params.trailingStop : null,
-              stopLossVolMult:
-                typeof params.stopLossVolMult === "number" && Number.isFinite(params.stopLossVolMult)
-                  ? Math.max(0, params.stopLossVolMult)
-                  : null,
-              takeProfitVolMult:
-                typeof params.takeProfitVolMult === "number" && Number.isFinite(params.takeProfitVolMult)
-                  ? Math.max(0, params.takeProfitVolMult)
-                  : null,
-              trailingStopVolMult:
-                typeof params.trailingStopVolMult === "number" && Number.isFinite(params.trailingStopVolMult)
-                  ? Math.max(0, params.trailingStopVolMult)
-                  : null,
-              maxDrawdown: typeof params.maxDrawdown === "number" && Number.isFinite(params.maxDrawdown) ? params.maxDrawdown : null,
-              maxDailyLoss: typeof params.maxDailyLoss === "number" && Number.isFinite(params.maxDailyLoss) ? params.maxDailyLoss : null,
-              maxOrderErrors:
-                typeof params.maxOrderErrors === "number" && Number.isFinite(params.maxOrderErrors) ? Math.max(1, Math.trunc(params.maxOrderErrors)) : null,
-              orderQuote,
-              orderQuantity,
-              orderQuoteFraction,
-              maxOrderQuote,
-              kalmanZMin,
-              kalmanZMax,
-              kalmanMarketTopN,
-              maxHighVolProb,
-              maxConformalWidth,
-              maxQuantileWidth,
-              confirmConformal,
-              confirmQuantiles,
-              confidenceSizing,
-              minPositionSize,
-            },
-          };
-        });
-        sanitized.sort((a, b) => {
-          const aAnnEq = comboAnnualizedEquity(a);
-          const bAnnEq = comboAnnualizedEquity(b);
-          if (aAnnEq != null || bAnnEq != null) {
-            const diff = (bAnnEq ?? Number.NEGATIVE_INFINITY) - (aAnnEq ?? Number.NEGATIVE_INFINITY);
-            if (diff !== 0) return diff;
-          }
-
-          const ar = typeof a.rank === "number" && Number.isFinite(a.rank) ? a.rank : null;
-          const br = typeof b.rank === "number" && Number.isFinite(b.rank) ? b.rank : null;
-          if (ar != null && br != null) return ar - br;
-          if (ar != null) return -1;
-          if (br != null) return 1;
-
-          const sa = typeof a.score === "number" && Number.isFinite(a.score) ? a.score : null;
-          const sb = typeof b.score === "number" && Number.isFinite(b.score) ? b.score : null;
-          if (sa != null || sb != null) {
-            const diff = (sb ?? Number.NEGATIVE_INFINITY) - (sa ?? Number.NEGATIVE_INFINITY);
-            if (diff !== 0) return diff;
-          }
-
-          const eq = b.finalEquity - a.finalEquity;
-          if (eq !== 0) return eq;
-          return a.id - b.id;
-        });
-        if (payloadObj && Array.isArray(payloadObj.combos)) {
-          setTopCombosPayload(payloadObj);
+        const parsed = sanitizeTopCombosPayload(payload);
+        if (!parsed) {
+          throw new Error("Invalid optimizer combos payload.");
         }
-        setTopCombosAll(sanitized);
-        const comboCount = rawCombos.length;
-        const payloadSourceRaw =
-          typeof payloadRec.payloadSource === "string" && payloadRec.payloadSource.trim()
-            ? payloadRec.payloadSource.trim()
-            : typeof payloadRec.source === "string" && payloadRec.source.trim()
-              ? payloadRec.source.trim()
-              : null;
-        const payloadSourcesRaw = Array.isArray(payloadRec.payloadSources) ? payloadRec.payloadSources : [];
-        const payloadSources = payloadSourcesRaw
-          .map((src) => (typeof src === "string" ? src.trim() : ""))
-          .filter((src) => src.length > 0);
-        const payloadSourcesFinal = payloadSources.length > 0 ? payloadSources : payloadSourceRaw ? [payloadSourceRaw] : null;
-        setTopCombosMeta({
-          source,
-          generatedAtMs,
-          payloadSource: payloadSourceRaw,
-          payloadSources: payloadSourcesFinal,
-          fallbackReason,
-          comboCount,
-        });
+        applyTopCombos(parsed, "api", null);
         setTopCombosError(null);
-        const topCombo = sanitized[0];
-        if (topCombo && autoApplyTopCombo) {
-          const currentForm = formRef.current;
-          const topSig = comboApplySignature(
-            topCombo,
-            apiComputeLimitsRef.current,
-            currentForm,
-            manualOverridesRef.current,
-            true,
-          );
-          const formSig = formApplySignature(currentForm);
-          if (topSig !== formSig) {
-            if (!pendingComboStartRef.current) {
-              applyCombo(topCombo, { silent: true, respectManual: true, allowPositioning: true });
-              const now = Date.now();
-              setAutoAppliedCombo({ id: topCombo.id, atMs: now });
-              const prev = autoAppliedComboRef.current;
-              const shouldToast = !prev.atMs || prev.id !== topCombo.id || now - prev.atMs > 120_000;
-              autoAppliedComboRef.current = { id: topCombo.id, atMs: now };
-              if (shouldToast) {
-                showToast(`Auto-applied top combo #${topCombo.id} (manual overrides respected)`);
-              }
-            }
-          }
-        }
+        maybeAutoApplyTopCombo(parsed.combos);
       } catch (err) {
         if (isCancelled || isAbortError(err)) return;
         const msg = err instanceof Error ? err.message : "Failed to load optimizer combos.";
-        if (!silent || topCombosRef.current.length === 0) {
+        if (!combosApplied) {
+          const fallback = await loadFallback();
+          if (fallback && !isCancelled) {
+            applyTopCombos(fallback.parsed, fallback.source, msg);
+            maybeAutoApplyTopCombo(fallback.parsed.combos);
+          }
+        }
+        if (!silent || !combosApplied) {
           setTopCombosError(msg);
         }
       } finally {
@@ -8966,6 +9147,11 @@ export function App() {
                       const posDir = sideInfo.dir;
                       const sideLabel = sideInfo.label;
                       const sideKey = sideInfo.key;
+                      const openTimeInfo = binancePositionOpenTimesByKey.get(`${normalizeSymbolKey(pos.symbol)}:${sideKey}`) ?? null;
+                      const openTimeLabel =
+                        openTimeInfo && Number.isFinite(openTimeInfo.openedAtMs)
+                          ? `${openTimeInfo.isLowerBound ? "opened before" : "opened"} ${fmtTimeMs(openTimeInfo.openedAtMs)}`
+                          : null;
                       const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
                       const positionsSeries = buildPositionSeries(prices, posDir, pos.entryPrice);
                       const equityCurve = buildEquityCurve(prices, posDir);
@@ -8978,6 +9164,7 @@ export function App() {
                             <span className="badge">entry {fmtNum(pos.entryPrice, 6)}</span>
                             <span className="badge">mark {fmtNum(pos.markPrice, 6)}</span>
                             <span className={pnlClass}>PNL {fmtMoney(pos.unrealizedPnl, 4)}</span>
+                            {openTimeLabel ? <span className="badge">{openTimeLabel}</span> : null}
                             {typeof pos.breakEvenPrice === "number" && Number.isFinite(pos.breakEvenPrice) && pos.breakEvenPrice > 0 ? (
                               <span className="badge">break-even {fmtNum(pos.breakEvenPrice, 6)}</span>
                             ) : null}
@@ -8998,6 +9185,11 @@ export function App() {
                                 positions={positionsSeries}
                                 trades={[]}
                                 height={CHART_HEIGHT}
+                                positionOpenedAt={
+                                  openTimeInfo && Number.isFinite(openTimeInfo.openedAtMs)
+                                    ? { atMs: openTimeInfo.openedAtMs, isLowerBound: openTimeInfo.isLowerBound }
+                                    : null
+                                }
                               />
                             </ChartSuspense>
                           ) : (
@@ -9060,6 +9252,11 @@ export function App() {
                       const posDir = sideInfo.dir;
                       const sideLabel = sideInfo.label;
                       const sideKey = sideInfo.key;
+                      const openTimeInfo = binancePositionOpenTimesByKey.get(`${normalizeSymbolKey(pos.symbol)}:${sideKey}`) ?? null;
+                      const openTimeLabel =
+                        openTimeInfo && Number.isFinite(openTimeInfo.openedAtMs)
+                          ? `${openTimeInfo.isLowerBound ? "opened before" : "opened"} ${fmtTimeMs(openTimeInfo.openedAtMs)}`
+                          : null;
                       const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
                       const positionsSeries = buildPositionSeries(prices, posDir, pos.entryPrice);
                       const equityCurve = buildEquityCurve(prices, posDir);
@@ -9088,6 +9285,7 @@ export function App() {
                             <span className="badge">entry {fmtNum(pos.entryPrice, 6)}</span>
                             <span className="badge">mark {fmtNum(pos.markPrice, 6)}</span>
                             <span className={pnlClass}>PNL {fmtMoney(pos.unrealizedPnl, 4)}</span>
+                            {openTimeLabel ? <span className="badge">{openTimeLabel}</span> : null}
                             {typeof pos.breakEvenPrice === "number" && Number.isFinite(pos.breakEvenPrice) && pos.breakEvenPrice > 0 ? (
                               <span className="badge">break-even {fmtNum(pos.breakEvenPrice, 6)}</span>
                             ) : null}
@@ -9108,6 +9306,11 @@ export function App() {
                                 positions={positionsSeries}
                                 trades={[]}
                                 height={CHART_HEIGHT}
+                                positionOpenedAt={
+                                  openTimeInfo && Number.isFinite(openTimeInfo.openedAtMs)
+                                    ? { atMs: openTimeInfo.openedAtMs, isLowerBound: openTimeInfo.isLowerBound }
+                                    : null
+                                }
                               />
                             </ChartSuspense>
                           ) : (

@@ -1,0 +1,31 @@
+Configuring library for socks-0.6.1...
+Preprocessing library for socks-0.6.1...
+Building library for socks-0.6.1...
+[1 of 7] Compiling Network.Socks5.Parse ( Network/Socks5/Parse.hs, dist/build/Network/Socks5/Parse.o, dist/build/Network/Socks5/Parse.dyn_o )
+
+Network/Socks5/Parse.hs:75:5: warning: [-Wnoncanonical-monad-instances]
+    Noncanonical ‘return’ definition detected
+    in the instance declaration for ‘Monad Parser’.
+    ‘return’ will eventually be removed in favour of ‘pure’
+    Either remove definition for ‘return’ (recommended) or define as ‘return = pure’
+    See also: https://gitlab.haskell.org/ghc/ghc/-/wikis/proposal/monad-of-no-return
+   |
+75 |     return v = Parser $ \buf _ ok -> ok buf v
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Network/Socks5/Parse.hs:91:5: warning: [-Wnoncanonical-monad-instances]
+    Noncanonical ‘pure = return’ definition detected
+    in the instance declaration for ‘Applicative Parser’.
+    Move definition from ‘return’ to ‘pure’
+    See also: https://gitlab.haskell.org/ghc/ghc/-/wikis/proposal/monad-of-no-return
+   |
+91 |     pure      = return
+   |     ^^^^^^^^^^^^^^^^^^
+[2 of 7] Compiling Network.Socks5.Types ( Network/Socks5/Types.hs, dist/build/Network/Socks5/Types.o, dist/build/Network/Socks5/Types.dyn_o )
+[3 of 7] Compiling Network.Socks5.Conf ( Network/Socks5/Conf.hs, dist/build/Network/Socks5/Conf.o, dist/build/Network/Socks5/Conf.dyn_o )
+[4 of 7] Compiling Network.Socks5.Wire ( Network/Socks5/Wire.hs, dist/build/Network/Socks5/Wire.o, dist/build/Network/Socks5/Wire.dyn_o )
+[5 of 7] Compiling Network.Socks5.Command ( Network/Socks5/Command.hs, dist/build/Network/Socks5/Command.o, dist/build/Network/Socks5/Command.dyn_o )
+[6 of 7] Compiling Network.Socks5.Lowlevel ( Network/Socks5/Lowlevel.hs, dist/build/Network/Socks5/Lowlevel.o, dist/build/Network/Socks5/Lowlevel.dyn_o )
+[7 of 7] Compiling Network.Socks5   ( Network/Socks5.hs, dist/build/Network/Socks5.o, dist/build/Network/Socks5.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67506/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/scks-0.6.1-0c1b682a/lib

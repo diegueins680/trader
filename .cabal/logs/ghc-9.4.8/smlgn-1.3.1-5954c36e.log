@@ -1,0 +1,11 @@
+Configuring library for semialign-1.3.1...
+Preprocessing library for semialign-1.3.1...
+Building library for semialign-1.3.1...
+[1 of 6] Compiling Data.Semialign.Internal ( src/Data/Semialign/Internal.hs, dist/build/Data/Semialign/Internal.o, dist/build/Data/Semialign/Internal.dyn_o )
+[2 of 6] Compiling Data.Semialign.Indexed ( src/Data/Semialign/Indexed.hs, dist/build/Data/Semialign/Indexed.o, dist/build/Data/Semialign/Indexed.dyn_o )
+[3 of 6] Compiling Data.Semialign   ( src/Data/Semialign.hs, dist/build/Data/Semialign.o, dist/build/Data/Semialign.dyn_o )
+[4 of 6] Compiling Data.Align       ( src/Data/Align.hs, dist/build/Data/Align.o, dist/build/Data/Align.dyn_o )
+[5 of 6] Compiling Data.Crosswalk   ( src/Data/Crosswalk.hs, dist/build/Data/Crosswalk.o, dist/build/Data/Crosswalk.dyn_o )
+[6 of 6] Compiling Data.Zip         ( src/Data/Zip.hs, dist/build/Data/Zip.o, dist/build/Data/Zip.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67506/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/smlgn-1.3.1-5954c36e/lib

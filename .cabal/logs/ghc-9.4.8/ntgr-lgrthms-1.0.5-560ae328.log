@@ -1,0 +1,9 @@
+Configuring library for integer-logarithms-1.0.5...
+Preprocessing library for integer-logarithms-1.0.5...
+Building library for integer-logarithms-1.0.5...
+[1 of 4] Compiling GHC.Integer.Logarithms.Compat ( src/GHC/Integer/Logarithms/Compat.hs, dist/build/GHC/Integer/Logarithms/Compat.o, dist/build/GHC/Integer/Logarithms/Compat.dyn_o )
+[2 of 4] Compiling Math.NumberTheory.Logarithms ( src/Math/NumberTheory/Logarithms.hs, dist/build/Math/NumberTheory/Logarithms.o, dist/build/Math/NumberTheory/Logarithms.dyn_o )
+[3 of 4] Compiling Math.NumberTheory.Powers.Integer ( src/Math/NumberTheory/Powers/Integer.hs, dist/build/Math/NumberTheory/Powers/Integer.o, dist/build/Math/NumberTheory/Powers/Integer.dyn_o )
+[4 of 4] Compiling Math.NumberTheory.Powers.Natural ( src/Math/NumberTheory/Powers/Natural.hs, dist/build/Math/NumberTheory/Powers/Natural.o, dist/build/Math/NumberTheory/Powers/Natural.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67507/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ntgr-lgrthms-1.0.5-560ae328/lib

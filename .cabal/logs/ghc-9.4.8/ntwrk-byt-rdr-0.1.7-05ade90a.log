@@ -1,0 +1,54 @@
+Configuring library for network-byte-order-0.1.7...
+Preprocessing library for network-byte-order-0.1.7...
+Building library for network-byte-order-0.1.7...
+[1 of 1] Compiling Network.ByteOrder ( Network/ByteOrder.hs, dist/build/Network/ByteOrder.o, dist/build/Network/ByteOrder.dyn_o )
+
+Network/ByteOrder.hs:266:47: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+266 | peekByteString src len = create len $ \dst -> memcpy dst src len
+    |                                               ^^^^^^
+
+Network/ByteOrder.hs:363:5: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+363 |     memcpy ptr (p `plusPtr` o) (fromIntegral l)
+    |     ^^^^^^
+
+Network/ByteOrder.hs:518:5: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+518 |     memcpy dst src len
+    |     ^^^^^^
+
+Network/ByteOrder.hs:542:24: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+542 |     create len $ \p -> memcpy p start len
+    |                        ^^^^^^
+
+Network/ByteOrder.hs:698:30: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+698 |         create len $ \dst -> memcpy dst src len
+    |                              ^^^^^^
+
+Network/ByteOrder.hs:704:29: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+704 |       create len' $ \dst -> memcpy dst src len'
+    |                             ^^^^^^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ntwrk-byt-rdr-0.1.7-05ade90a/lib

@@ -1,0 +1,29 @@
+Configuring library for serialise-0.2.6.1...
+Preprocessing library for serialise-0.2.6.1...
+Building library for serialise-0.2.6.1...
+[1 of 8] Compiling Codec.Serialise.Decoding ( src/Codec/Serialise/Decoding.hs, dist/build/Codec/Serialise/Decoding.o, dist/build/Codec/Serialise/Decoding.dyn_o )
+[2 of 8] Compiling Codec.Serialise.Encoding ( src/Codec/Serialise/Encoding.hs, dist/build/Codec/Serialise/Encoding.o, dist/build/Codec/Serialise/Encoding.dyn_o )
+[3 of 8] Compiling Codec.Serialise.Internal.GeneralisedUTF8 ( src/Codec/Serialise/Internal/GeneralisedUTF8.hs, dist/build/Codec/Serialise/Internal/GeneralisedUTF8.o, dist/build/Codec/Serialise/Internal/GeneralisedUTF8.dyn_o )
+
+src/Codec/Serialise/Internal/GeneralisedUTF8.hs:78:15: warning: [-Wdeprecations]
+    In the use of ‘sizeofMutableByteArray’
+    (imported from Data.Primitive.ByteArray):
+    Deprecated: "use getSizeofMutableByteArray instead"
+   |
+78 |         cap = sizeofMutableByteArray ba
+   |               ^^^^^^^^^^^^^^^^^^^^^^
+[4 of 8] Compiling Codec.Serialise.Class ( src/Codec/Serialise/Class.hs, dist/build/Codec/Serialise/Class.o, dist/build/Codec/Serialise/Class.dyn_o )
+
+src/Codec/Serialise/Class.hs:1370:1: warning: [-Woverlapping-patterns]
+    Pattern match is redundant
+    In an equation for ‘encodeTypeRep’:
+        encodeTypeRep (Fun arg res) = ...
+     |
+1370 | encodeTypeRep (Fun arg res)
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^...
+[5 of 8] Compiling Codec.Serialise  ( src/Codec/Serialise.hs, dist/build/Codec/Serialise.o, dist/build/Codec/Serialise.dyn_o )
+[6 of 8] Compiling Codec.Serialise.IO ( src/Codec/Serialise/IO.hs, dist/build/Codec/Serialise/IO.o, dist/build/Codec/Serialise/IO.dyn_o )
+[7 of 8] Compiling Codec.Serialise.Properties ( src/Codec/Serialise/Properties.hs, dist/build/Codec/Serialise/Properties.o, dist/build/Codec/Serialise/Properties.dyn_o )
+[8 of 8] Compiling Codec.Serialise.Tutorial ( src/Codec/Serialise/Tutorial.hs, dist/build/Codec/Serialise/Tutorial.o, dist/build/Codec/Serialise/Tutorial.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/srls-0.2.6.1-199f0b80/lib

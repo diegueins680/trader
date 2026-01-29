@@ -1,0 +1,94 @@
+Configuring network-3.2.8.0...
+configure: WARNING: unrecognized options: --with-compiler
+checking build system type... x86_64-apple-darwin23.6.0
+checking host system type... x86_64-apple-darwin23.6.0
+checking for gcc... /usr/bin/gcc
+checking whether the C compiler works... yes
+checking for C compiler default output file name... a.out
+checking for suffix of executables... 
+checking whether we are cross compiling... no
+checking for suffix of object files... o
+checking whether the compiler supports GNU C... yes
+checking whether /usr/bin/gcc accepts -g... yes
+checking for /usr/bin/gcc option to enable C11 features... none needed
+checking for an ANSI C-conforming const... yes
+checking for stdio.h... yes
+checking for stdlib.h... yes
+checking for string.h... yes
+checking for inttypes.h... yes
+checking for stdint.h... yes
+checking for strings.h... yes
+checking for sys/stat.h... yes
+checking for sys/types.h... yes
+checking for unistd.h... yes
+checking for limits.h... yes
+checking for stdlib.h... (cached) yes
+checking for unistd.h... (cached) yes
+checking for sys/types.h... (cached) yes
+checking for fcntl.h... yes
+checking for sys/uio.h... yes
+checking for sys/socket.h... yes
+checking for netinet/in.h... yes
+checking for netinet/tcp.h... yes
+checking for sys/un.h... yes
+checking for arpa/inet.h... yes
+checking for netdb.h... yes
+checking for net/if.h... yes
+checking for netioapi.h... no
+checking for struct ucred... no
+checking for gai_strerror... yes
+checking for gethostent... yes
+checking for accept4... no
+checking for getpeereid... yes
+checking for /usr/bin/gcc options needed to detect all undeclared functions... none needed
+checking whether AI_ADDRCONFIG is declared... yes
+checking whether AI_ALL is declared... yes
+checking whether AI_NUMERICSERV is declared... yes
+checking whether AI_V4MAPPED is declared... yes
+checking whether IPV6_V6ONLY is declared... yes
+checking whether IPPROTO_IP is declared... yes
+checking whether IPPROTO_TCP is declared... yes
+checking whether IPPROTO_IPV6 is declared... yes
+checking whether SO_PEERCRED is declared... no
+checking whether IP_DONTFRAG is declared... yes
+checking whether IP_MTU_DISCOVER is declared... no
+checking for struct msghdr.msg_control... yes
+checking for struct msghdr.msg_accrights... no
+checking for struct sockaddr.sa_len... yes
+configure: creating ./network.buildinfo
+configure: creating ./config.status
+config.status: creating include/HsNetworkConfig.h
+configure: WARNING: unrecognized options: --with-compiler
+Preprocessing library for network-3.2.8.0...
+Building library for network-3.2.8.0...
+[ 1 of 29] Compiling Network.Socket.Imports ( Network/Socket/Imports.hs, dist/build/Network/Socket/Imports.o, dist/build/Network/Socket/Imports.dyn_o )
+[ 2 of 29] Compiling Network.Socket.If ( Network/Socket/If.hs, dist/build/Network/Socket/If.o, dist/build/Network/Socket/If.dyn_o )
+[ 3 of 29] Compiling Network.Socket.Flag ( dist/build/Network/Socket/Flag.hs, dist/build/Network/Socket/Flag.o, dist/build/Network/Socket/Flag.dyn_o )
+[ 4 of 29] Compiling Network.Socket.Cbits ( dist/build/Network/Socket/Cbits.hs, dist/build/Network/Socket/Cbits.o, dist/build/Network/Socket/Cbits.dyn_o )
+[ 5 of 29] Compiling Network.Socket.Fcntl ( Network/Socket/Fcntl.hs, dist/build/Network/Socket/Fcntl.o, dist/build/Network/Socket/Fcntl.dyn_o )
+[ 6 of 29] Compiling Network.Socket.Posix.IOVec ( dist/build/Network/Socket/Posix/IOVec.hs, dist/build/Network/Socket/Posix/IOVec.o, dist/build/Network/Socket/Posix/IOVec.dyn_o )
+[ 7 of 29] Compiling Network.Socket.ReadShow ( Network/Socket/ReadShow.hs, dist/build/Network/Socket/ReadShow.o, dist/build/Network/Socket/ReadShow.dyn_o )
+[ 8 of 29] Compiling Network.Socket.Types ( dist/build/Network/Socket/Types.hs, dist/build/Network/Socket/Types.o, dist/build/Network/Socket/Types.dyn_o )
+[ 9 of 29] Compiling Network.Socket.STM ( Network/Socket/STM.hs, dist/build/Network/Socket/STM.o, dist/build/Network/Socket/STM.dyn_o )
+[10 of 29] Compiling Network.Socket.Posix.Cmsg ( dist/build/Network/Socket/Posix/Cmsg.hs, dist/build/Network/Socket/Posix/Cmsg.o, dist/build/Network/Socket/Posix/Cmsg.dyn_o )
+[11 of 29] Compiling Network.Socket.Internal ( Network/Socket/Internal.hs, dist/build/Network/Socket/Internal.o, dist/build/Network/Socket/Internal.dyn_o )
+[12 of 29] Compiling Network.Socket.Posix.MsgHdr ( dist/build/Network/Socket/Posix/MsgHdr.hs, dist/build/Network/Socket/Posix/MsgHdr.o, dist/build/Network/Socket/Posix/MsgHdr.dyn_o )
+[13 of 29] Compiling Network.Socket.Posix.CmsgHdr ( dist/build/Network/Socket/Posix/CmsgHdr.hs, dist/build/Network/Socket/Posix/CmsgHdr.o, dist/build/Network/Socket/Posix/CmsgHdr.dyn_o )
+[14 of 29] Compiling Network.Socket.Options ( dist/build/Network/Socket/Options.hs, dist/build/Network/Socket/Options.o, dist/build/Network/Socket/Options.dyn_o )
+[15 of 29] Compiling Network.Socket.Syscall ( Network/Socket/Syscall.hs, dist/build/Network/Socket/Syscall.o, dist/build/Network/Socket/Syscall.dyn_o )
+[16 of 29] Compiling Network.Socket.Name ( Network/Socket/Name.hs, dist/build/Network/Socket/Name.o, dist/build/Network/Socket/Name.dyn_o )
+[17 of 29] Compiling Network.Socket.Info ( dist/build/Network/Socket/Info.hs, dist/build/Network/Socket/Info.o, dist/build/Network/Socket/Info.dyn_o )
+[18 of 29] Compiling Network.Socket.Handle ( Network/Socket/Handle.hs, dist/build/Network/Socket/Handle.o, dist/build/Network/Socket/Handle.dyn_o )
+[19 of 29] Compiling Network.Socket.ByteString.Internal ( Network/Socket/ByteString/Internal.hs, dist/build/Network/Socket/ByteString/Internal.o, dist/build/Network/Socket/ByteString/Internal.dyn_o )
+[20 of 29] Compiling Network.Socket.Buffer ( dist/build/Network/Socket/Buffer.hs, dist/build/Network/Socket/Buffer.o, dist/build/Network/Socket/Buffer.dyn_o )
+[21 of 29] Compiling Network.Socket.SockAddr ( Network/Socket/SockAddr.hs, dist/build/Network/Socket/SockAddr.o, dist/build/Network/Socket/SockAddr.dyn_o )
+[22 of 29] Compiling Network.Socket.Shutdown ( Network/Socket/Shutdown.hs, dist/build/Network/Socket/Shutdown.o, dist/build/Network/Socket/Shutdown.dyn_o )
+[23 of 29] Compiling Network.Socket.ByteString.IO ( dist/build/Network/Socket/ByteString/IO.hs, dist/build/Network/Socket/ByteString/IO.o, dist/build/Network/Socket/ByteString/IO.dyn_o )
+[24 of 29] Compiling Network.Socket.ByteString.Lazy.Posix ( Network/Socket/ByteString/Lazy/Posix.hs, dist/build/Network/Socket/ByteString/Lazy/Posix.o, dist/build/Network/Socket/ByteString/Lazy/Posix.dyn_o )
+[25 of 29] Compiling Network.Socket.ByteString ( Network/Socket/ByteString.hs, dist/build/Network/Socket/ByteString.o, dist/build/Network/Socket/ByteString.dyn_o )
+[26 of 29] Compiling Network.Socket.Address ( Network/Socket/Address.hs, dist/build/Network/Socket/Address.o, dist/build/Network/Socket/Address.dyn_o )
+[27 of 29] Compiling Network.Socket.Unix ( dist/build/Network/Socket/Unix.hs, dist/build/Network/Socket/Unix.o, dist/build/Network/Socket/Unix.dyn_o )
+[28 of 29] Compiling Network.Socket   ( Network/Socket.hs, dist/build/Network/Socket.o, dist/build/Network/Socket.dyn_o )
+[29 of 29] Compiling Network.Socket.ByteString.Lazy ( Network/Socket/ByteString/Lazy.hs, dist/build/Network/Socket/ByteString/Lazy.o, dist/build/Network/Socket/ByteString/Lazy.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ntwrk-3.2.8.0-948adf32/lib

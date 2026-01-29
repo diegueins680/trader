@@ -1,0 +1,19 @@
+Configuring library for primitive-0.9.1.0...
+Preprocessing library for primitive-0.9.1.0...
+Building library for primitive-0.9.1.0...
+[ 1 of 14] Compiling Data.Primitive.Internal.Read ( Data/Primitive/Internal/Read.hs, dist/build/Data/Primitive/Internal/Read.o, dist/build/Data/Primitive/Internal/Read.dyn_o )
+[ 2 of 14] Compiling Data.Primitive.MachDeps ( Data/Primitive/MachDeps.hs, dist/build/Data/Primitive/MachDeps.o, dist/build/Data/Primitive/MachDeps.dyn_o )
+[ 3 of 14] Compiling Data.Primitive.Internal.Operations ( Data/Primitive/Internal/Operations.hs, dist/build/Data/Primitive/Internal/Operations.o, dist/build/Data/Primitive/Internal/Operations.dyn_o )
+[ 4 of 14] Compiling Control.Monad.Primitive ( Control/Monad/Primitive.hs, dist/build/Control/Monad/Primitive.o, dist/build/Control/Monad/Primitive.dyn_o )
+[ 5 of 14] Compiling Data.Primitive.MVar ( Data/Primitive/MVar.hs, dist/build/Data/Primitive/MVar.o, dist/build/Data/Primitive/MVar.dyn_o )
+[ 6 of 14] Compiling Data.Primitive.Array ( Data/Primitive/Array.hs, dist/build/Data/Primitive/Array.o, dist/build/Data/Primitive/Array.dyn_o )
+[ 7 of 14] Compiling Data.Primitive.MutVar ( Data/Primitive/MutVar.hs, dist/build/Data/Primitive/MutVar.o, dist/build/Data/Primitive/MutVar.dyn_o )
+[ 8 of 14] Compiling Data.Primitive.SmallArray ( Data/Primitive/SmallArray.hs, dist/build/Data/Primitive/SmallArray.o, dist/build/Data/Primitive/SmallArray.dyn_o )
+[ 9 of 14] Compiling Data.Primitive.Types ( Data/Primitive/Types.hs, dist/build/Data/Primitive/Types.o, dist/build/Data/Primitive/Types.dyn_o )
+[10 of 14] Compiling Data.Primitive.ByteArray ( Data/Primitive/ByteArray.hs, dist/build/Data/Primitive/ByteArray.o, dist/build/Data/Primitive/ByteArray.dyn_o )
+[11 of 14] Compiling Data.Primitive.PrimArray ( Data/Primitive/PrimArray.hs, dist/build/Data/Primitive/PrimArray.o, dist/build/Data/Primitive/PrimArray.dyn_o )
+[12 of 14] Compiling Data.Primitive.Ptr ( Data/Primitive/Ptr.hs, dist/build/Data/Primitive/Ptr.o, dist/build/Data/Primitive/Ptr.dyn_o )
+[13 of 14] Compiling Data.Primitive   ( Data/Primitive.hs, dist/build/Data/Primitive.o, dist/build/Data/Primitive.dyn_o )
+[14 of 14] Compiling Data.Primitive.PrimVar ( Data/Primitive/PrimVar.hs, dist/build/Data/Primitive/PrimVar.o, dist/build/Data/Primitive/PrimVar.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/prmtv-0.9.1.0-20c46843/lib

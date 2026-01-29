@@ -20,6 +20,7 @@ Features
 - Predictor outputs omit transformer/GBDT/quantile/conformal when the feature dataset is empty or features do not match the trained dimensions.
 - Quantile outputs clamp the reported median inside the q10/q90 bounds and omit sigma when the interval is invalid; the sensor mean uses the clamped median.
 - Predictor training uses a train/calibration split so held-out calibration data is excluded from model training.
+- Feature engineering includes psychological round-number proximity (big figures/halves/quarters/tenths) based on current price magnitude.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
 - Optional tri-layer entry gating: Kalman cloud trend + price-action reversal triggers (`haskell/app/Trader/Trading.hs`).
@@ -203,7 +204,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 - Normalization
   - `--normalization standard` one of `none|minmax|standard|log`
   - If the fit window is empty or only has non-finite values, `minmax`/`standard` fall back to no-op normalization.
-  - `log` normalization falls back to no-op when the fit window is empty or contains non-finite/non-positive values.
+  - `log` normalization falls back to no-op when the fit window is empty or contains no positive finite values (non-finite values are ignored for the fit check).
 
 - LSTM
   - Lookback bars come from `--lookback-window`/`--lookback-bars`
@@ -228,7 +229,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 - Strategy / costs
   - `--open-threshold 0.002` (or legacy `--threshold`) entry/open direction threshold (fractional deadband)
   - `--close-threshold 0.002` close-direction threshold (fractional deadband; defaults to open-threshold when omitted)
-    - Live order placement exits when the open-threshold signal no longer agrees with the current position (mirrors backtest logic; `--min-hold-bars` still applies).
+    - Live order placement and backtests hold a position while the close-threshold direction still agrees with it; exits when it does not (with `--min-hold-bars` still applied).
   - `--min-edge F` minimum predicted return magnitude required to enter (`0` disables)
   - `--min-signal-to-noise F` require edge / per-bar sigma >= `F` (`0` disables; default: `0.8`)
     - `--cost-aware-edge` raises min-edge to cover estimated fees/slippage/spread (default on; disable with `--no-cost-aware-edge`)
@@ -675,8 +676,8 @@ Live safety (startup position):
 - When `botTrade=true`, `/bot/start` adopts any existing position or open exchange orders for the symbol (long or short, subject to positioning).
 - Adopted positions now estimate size from current balances/positions so partial exits and fee modeling stay aligned with the live account.
 - Live bots cache the Binance API key/secret in memory for the life of the bot so order operations do not depend on the UI sending keys (not persisted across restarts).
-- Adopted positions are kept only if the open-threshold signal still agrees with the position.
-- Live bot exit decisions during the run loop close positions when the open-threshold signal no longer agrees (subject to `--min-hold-bars`).
+- Adopted positions are kept only if the close-threshold direction still agrees with the position.
+- Live bot exit decisions during the run loop close positions when the close-threshold direction no longer agrees (subject to `--min-hold-bars`).
 - When `botTrade=true`, `/bot/start` also auto-starts bots for orphan open futures positions (even if not listed in `botSymbols`).
 - Set `botProtectionOrders=true` to place exchange-managed `STOP_MARKET` / `TAKE_PROFIT_MARKET` orders on Binance futures (requires stop-loss or take-profit; trailing stops remain internal).
 - `botAdoptExistingPosition` is now implied and ignored if provided.
@@ -743,7 +744,7 @@ Realtime telemetry and feed history are tracked per running bot so switching bot
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API LSTM compute limits reported by `/health`.
 Optimizer combos only override Positioning when they include it; otherwise the current selection is preserved.
-The UI reads combos from the API, shows their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
+The UI reads combos from the API and falls back to the repo-tracked `haskell/web/public/top-combos.json` (plus the local cache) when the API is unavailable; it shows their last update time, and how many combos are displayed; you can choose the combo count (default 5, up to the available combos).
 Live-bot status polling skips overlapping `/bot/status` requests and runs at a modest cadence to avoid client aborts while keeping the dashboard responsive.
 Optimizer combos show when each combo was obtained, include annualized equity (default ordering), support ordering by date, display full combo parameters inline, and can be filtered by symbol/market/interval/method plus minimum final equity.
 Optimizer run forms (including the Optimizer combos panel) launch `/optimizer/run` with constraints, accept advanced JSON overrides for `source`/`binanceSymbol`/`data` and `timeoutSec`, validate backtest/tune ratios, include an annualized-equity preset button, and surface equity-focused info popovers; complex parameters (method/thresholds/splits/LSTM/optimization) include info buttons.
@@ -751,7 +752,7 @@ Optimization defaults in the UI bias toward annualized equity: tune objective is
 Manual edits to Method/open/close thresholds are preserved when optimizer combos or optimization results apply.
 The UI sends explicit zero/false values for default-on risk settings (e.g., min-hold/cooldown/max-hold, min SNR, vol target/max-vol, rebalancing, cost-aware edge, confidence gates) so disable toggles take effect.
 Combos can be previewed without applying; Apply (or Apply top combo) loads values and auto-starts a live bot for the combo symbol (Binance only), selecting the existing bot if it is already running; top-combo auto-apply pauses while a manual Apply is starting a bot, and Refresh combos resyncs.
-If a refresh fails, the last known combos remain visible with a warning banner.
+If a refresh fails, the last known combos (repo/cache) remain visible with a warning banner.
 The Optimizer combos panel includes import/export controls for top-combos JSON (download/copy and upload via `/state/sync`).
 The UI includes a “Binance account trades” panel that surfaces full exchange history via `/binance/trades`.
 The Binance account trades panel stays scrollable when maximized so long histories remain accessible.
@@ -759,11 +760,11 @@ The Binance account trades panel supports symbol/side/date filters and shows tot
 The Binance account trades panel includes a trade P&L breakdown (realizedPnl, win/loss totals, top winners/losers) when Binance returns realized P&L (futures only).
 The Binance account trades panel shows timestamps with millisecond precision to distinguish fills within the same second.
 The Binance trade P&L breakdown also reports total filled quantity and quote volume for the analyzed fills.
-The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes). It also shows the Binance account UID when available so you can confirm which account is queried.
+The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes). It also shows the Binance account UID when available so you can confirm which account is queried, plus inferred position open times based on recent Binance trades.
 The UI includes an “Orphaned operations” panel that highlights open futures positions not currently adopted by a running/starting bot; matching is per-market and per-hedge side, starting bots count as adopted while they initialize, and bots with `tradeEnabled=false` do not count as adopted (labeled as trade-off).
 The UI includes a “State sync” panel to export bot snapshots and optimizer combos and push them to another API via `/state/sync`, with controls to limit per-request payload size.
 The bot state timeline shows the hovered timestamp.
-Chart tooltips show the hovered bar timestamp when available.
+Chart tooltips show the hovered bar timestamp when available; open-position charts also show inferred position open times when available.
 Charts surface range and change badges in the chart headers and group the main backtest view with compact side charts for prediction and telemetry analysis.
 The Backtest summary includes a trade P&L analysis with win/loss breakdown and top winners/losers.
 Charts scale to use most of the viewport height for easier inspection.

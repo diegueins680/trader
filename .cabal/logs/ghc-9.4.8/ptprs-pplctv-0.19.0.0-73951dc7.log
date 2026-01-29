@@ -1,0 +1,42 @@
+Configuring library for optparse-applicative-0.19.0.0...
+Preprocessing library for optparse-applicative-0.19.0.0...
+Building library for optparse-applicative-0.19.0.0...
+[ 1 of 17] Compiling Options.Applicative.Help.Levenshtein ( src/Options/Applicative/Help/Levenshtein.hs, dist/build/Options/Applicative/Help/Levenshtein.o, dist/build/Options/Applicative/Help/Levenshtein.dyn_o )
+[ 2 of 17] Compiling Options.Applicative.Help.Pretty ( src/Options/Applicative/Help/Pretty.hs, dist/build/Options/Applicative/Help/Pretty.o, dist/build/Options/Applicative/Help/Pretty.dyn_o )
+[ 3 of 17] Compiling Options.Applicative.Help.Chunk ( src/Options/Applicative/Help/Chunk.hs, dist/build/Options/Applicative/Help/Chunk.o, dist/build/Options/Applicative/Help/Chunk.dyn_o )
+[ 4 of 17] Compiling Options.Applicative.Help.Types ( src/Options/Applicative/Help/Types.hs, dist/build/Options/Applicative/Help/Types.o, dist/build/Options/Applicative/Help/Types.dyn_o )
+[ 5 of 17] Compiling Options.Applicative.Types ( src/Options/Applicative/Types.hs, dist/build/Options/Applicative/Types.o, dist/build/Options/Applicative/Types.dyn_o )
+
+src/Options/Applicative/Types.hs:59:1: warning: [-Wdodgy-imports]
+    Module ‘Data.Semigroup’ does not export ‘Option’
+   |
+59 | import Data.Semigroup hiding (Option)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[ 6 of 17] Compiling Options.Applicative.NonEmpty ( src/Options/Applicative/NonEmpty.hs, dist/build/Options/Applicative/NonEmpty.o, dist/build/Options/Applicative/NonEmpty.dyn_o )
+[ 7 of 17] Compiling Options.Applicative.Internal ( src/Options/Applicative/Internal.hs, dist/build/Options/Applicative/Internal.o, dist/build/Options/Applicative/Internal.dyn_o )
+[ 8 of 17] Compiling Options.Applicative.Common ( src/Options/Applicative/Common.hs, dist/build/Options/Applicative/Common.o, dist/build/Options/Applicative/Common.dyn_o )
+[ 9 of 17] Compiling Options.Applicative.Help.Core ( src/Options/Applicative/Help/Core.hs, dist/build/Options/Applicative/Help/Core.o, dist/build/Options/Applicative/Help/Core.dyn_o )
+[10 of 17] Compiling Options.Applicative.Help ( src/Options/Applicative/Help.hs, dist/build/Options/Applicative/Help.o, dist/build/Options/Applicative/Help.dyn_o )
+[11 of 17] Compiling Options.Applicative.Builder.Internal ( src/Options/Applicative/Builder/Internal.hs, dist/build/Options/Applicative/Builder/Internal.o, dist/build/Options/Applicative/Builder/Internal.dyn_o )
+
+src/Options/Applicative/Builder/Internal.hs:29:1: warning: [-Wdodgy-imports]
+    Module ‘Data.Semigroup’ does not export ‘Option’
+   |
+29 | import Data.Semigroup hiding (Option)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[12 of 17] Compiling Options.Applicative.Builder.Completer ( src/Options/Applicative/Builder/Completer.hs, dist/build/Options/Applicative/Builder/Completer.o, dist/build/Options/Applicative/Builder/Completer.dyn_o )
+[13 of 17] Compiling Options.Applicative.Builder ( src/Options/Applicative/Builder.hs, dist/build/Options/Applicative/Builder.o, dist/build/Options/Applicative/Builder.dyn_o )
+[14 of 17] Compiling Options.Applicative.BashCompletion ( src/Options/Applicative/BashCompletion.hs, dist/build/Options/Applicative/BashCompletion.o, dist/build/Options/Applicative/BashCompletion.dyn_o )
+
+src/Options/Applicative/BashCompletion.hs:16:1: warning: [-Wunused-imports]
+    The import of ‘Data.Foldable’ is redundant
+      except perhaps to import instances from ‘Data.Foldable’
+    To import instances alone, use: import Data.Foldable()
+   |
+16 | import Data.Foldable ( asum )
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[15 of 17] Compiling Options.Applicative.Extra ( src/Options/Applicative/Extra.hs, dist/build/Options/Applicative/Extra.o, dist/build/Options/Applicative/Extra.dyn_o )
+[16 of 17] Compiling Options.Applicative ( src/Options/Applicative.hs, dist/build/Options/Applicative.o, dist/build/Options/Applicative.dyn_o )
+[17 of 17] Compiling Options.Applicative.Arrows ( src/Options/Applicative/Arrows.hs, dist/build/Options/Applicative/Arrows.o, dist/build/Options/Applicative/Arrows.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ptprs-pplctv-0.19.0.0-73951dc7/lib

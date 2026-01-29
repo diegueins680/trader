@@ -1,0 +1,10 @@
+Configuring library for vault-0.3.1.6...
+Preprocessing library for vault-0.3.1.6...
+Building library for vault-0.3.1.6...
+[1 of 5] Compiling Data.Unique.Really ( src/Data/Unique/Really.hs, dist/build/Data/Unique/Really.o, dist/build/Data/Unique/Really.dyn_o )
+[2 of 5] Compiling Data.Vault.ST.Lazy ( src/Data/Vault/ST/Lazy.hs, dist/build/Data/Vault/ST/Lazy.o, dist/build/Data/Vault/ST/Lazy.dyn_o )
+[3 of 5] Compiling Data.Vault.Lazy  ( src/Data/Vault/Lazy.hs, dist/build/Data/Vault/Lazy.o, dist/build/Data/Vault/Lazy.dyn_o )
+[4 of 5] Compiling Data.Vault.ST.Strict ( src/Data/Vault/ST/Strict.hs, dist/build/Data/Vault/ST/Strict.o, dist/build/Data/Vault/ST/Strict.dyn_o )
+[5 of 5] Compiling Data.Vault.Strict ( src/Data/Vault/Strict.hs, dist/build/Data/Vault/Strict.o, dist/build/Data/Vault/Strict.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41763/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/vlt-0.3.1.6-47242241/lib

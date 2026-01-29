@@ -121,7 +121,7 @@ type Props = {
 };
 
 export const TopCombosChart = React.memo(function TopCombosChart({ combos, loading, error, selectedId, onSelect, onApply }: Props) {
-  if (loading) {
+  if (loading && combos.length === 0) {
     return <div className="hint">Looking for optimizer combos…</div>;
   }
   if (combos.length === 0) {

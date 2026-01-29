@@ -1,0 +1,10 @@
+Configuring library for utf8-string-1.0.2...
+Preprocessing library for utf8-string-1.0.2...
+Building library for utf8-string-1.0.2...
+[1 of 5] Compiling Codec.Binary.UTF8.String ( Codec/Binary/UTF8/String.hs, dist/build/Codec/Binary/UTF8/String.o, dist/build/Codec/Binary/UTF8/String.dyn_o )
+[2 of 5] Compiling Codec.Binary.UTF8.Generic ( Codec/Binary/UTF8/Generic.hs, dist/build/Codec/Binary/UTF8/Generic.o, dist/build/Codec/Binary/UTF8/Generic.dyn_o )
+[3 of 5] Compiling Data.ByteString.Lazy.UTF8 ( Data/ByteString/Lazy/UTF8.hs, dist/build/Data/ByteString/Lazy/UTF8.o, dist/build/Data/ByteString/Lazy/UTF8.dyn_o )
+[4 of 5] Compiling Data.ByteString.UTF8 ( Data/ByteString/UTF8.hs, dist/build/Data/ByteString/UTF8.o, dist/build/Data/ByteString/UTF8.dyn_o )
+[5 of 5] Compiling Data.String.UTF8 ( Data/String/UTF8.hs, dist/build/Data/String/UTF8.o, dist/build/Data/String/UTF8.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/tf8-strng-1.0.2-ffdc6b52/lib

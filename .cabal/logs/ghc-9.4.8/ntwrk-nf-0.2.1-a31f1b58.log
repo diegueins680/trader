@@ -1,0 +1,14 @@
+Configuring library for network-info-0.2.1...
+Preprocessing library for network-info-0.2.1...
+Building library for network-info-0.2.1...
+[1 of 1] Compiling Network.Info     ( dist/build/Network/Info.hs, dist/build/Network/Info.o, dist/build/Network/Info.dyn_o )
+
+src/Network/Info.hsc:46:10: warning: [-Wmissing-methods]
+    • No explicit implementation for
+        either ‘poke’ or ‘pokeElemOff’ or ‘pokeByteOff’
+    • In the instance declaration for ‘Storable NetworkInterface’
+   |
+46 | instance Storable NetworkInterface where
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ntwrk-nf-0.2.1-a31f1b58/lib

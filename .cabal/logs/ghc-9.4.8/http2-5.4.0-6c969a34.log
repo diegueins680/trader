@@ -1,0 +1,60 @@
+Configuring library for http2-5.4.0...
+Preprocessing library for http2-5.4.0...
+Building library for http2-5.4.0...
+[ 1 of 48] Compiling Imports          ( Imports.hs, dist/build/Imports.o, dist/build/Imports.dyn_o )
+[ 2 of 48] Compiling Network.HPACK.Builder ( Network/HPACK/Builder.hs, dist/build/Network/HPACK/Builder.o, dist/build/Network/HPACK/Builder.dyn_o )
+[ 3 of 48] Compiling Network.HPACK.HeaderBlock.Integer ( Network/HPACK/HeaderBlock/Integer.hs, dist/build/Network/HPACK/HeaderBlock/Integer.o, dist/build/Network/HPACK/HeaderBlock/Integer.dyn_o )
+[ 4 of 48] Compiling Network.HPACK.Huffman.Bit ( Network/HPACK/Huffman/Bit.hs, dist/build/Network/HPACK/Huffman/Bit.o, dist/build/Network/HPACK/Huffman/Bit.dyn_o )
+[ 5 of 48] Compiling Network.HPACK.Huffman.ByteString ( Network/HPACK/Huffman/ByteString.hs, dist/build/Network/HPACK/Huffman/ByteString.o, dist/build/Network/HPACK/Huffman/ByteString.dyn_o )
+[ 6 of 48] Compiling Network.HPACK.Huffman.Params ( Network/HPACK/Huffman/Params.hs, dist/build/Network/HPACK/Huffman/Params.o, dist/build/Network/HPACK/Huffman/Params.dyn_o )
+[ 7 of 48] Compiling Network.HPACK.Huffman.Table ( Network/HPACK/Huffman/Table.hs, dist/build/Network/HPACK/Huffman/Table.o, dist/build/Network/HPACK/Huffman/Table.dyn_o )
+[ 8 of 48] Compiling Network.HPACK.Huffman.Encode ( Network/HPACK/Huffman/Encode.hs, dist/build/Network/HPACK/Huffman/Encode.o, dist/build/Network/HPACK/Huffman/Encode.dyn_o )
+[ 9 of 48] Compiling Network.HPACK.Huffman.Tree ( Network/HPACK/Huffman/Tree.hs, dist/build/Network/HPACK/Huffman/Tree.o, dist/build/Network/HPACK/Huffman/Tree.dyn_o )
+[10 of 48] Compiling Network.HPACK.Token ( Network/HPACK/Token.hs, dist/build/Network/HPACK/Token.o, dist/build/Network/HPACK/Token.dyn_o )
+[11 of 48] Compiling Network.HPACK.Types ( Network/HPACK/Types.hs, dist/build/Network/HPACK/Types.o, dist/build/Network/HPACK/Types.dyn_o )
+[12 of 48] Compiling Network.HPACK.Table.Entry ( Network/HPACK/Table/Entry.hs, dist/build/Network/HPACK/Table/Entry.o, dist/build/Network/HPACK/Table/Entry.dyn_o )
+[13 of 48] Compiling Network.HPACK.Table.Static ( Network/HPACK/Table/Static.hs, dist/build/Network/HPACK/Table/Static.o, dist/build/Network/HPACK/Table/Static.dyn_o )
+[14 of 48] Compiling Network.HPACK.Table.RevIndex ( Network/HPACK/Table/RevIndex.hs, dist/build/Network/HPACK/Table/RevIndex.o, dist/build/Network/HPACK/Table/RevIndex.dyn_o )
+[15 of 48] Compiling Network.HPACK.Huffman.Decode ( Network/HPACK/Huffman/Decode.hs, dist/build/Network/HPACK/Huffman/Decode.o, dist/build/Network/HPACK/Huffman/Decode.dyn_o )
+[16 of 48] Compiling Network.HPACK.Huffman ( Network/HPACK/Huffman.hs, dist/build/Network/HPACK/Huffman.o, dist/build/Network/HPACK/Huffman.dyn_o )
+[17 of 48] Compiling Network.HPACK.Table.Dynamic ( Network/HPACK/Table/Dynamic.hs, dist/build/Network/HPACK/Table/Dynamic.o, dist/build/Network/HPACK/Table/Dynamic.dyn_o )
+[18 of 48] Compiling Network.HPACK.Table ( Network/HPACK/Table.hs, dist/build/Network/HPACK/Table.o, dist/build/Network/HPACK/Table.dyn_o )
+[19 of 48] Compiling Network.HPACK.HeaderBlock.Encode ( Network/HPACK/HeaderBlock/Encode.hs, dist/build/Network/HPACK/HeaderBlock/Encode.o, dist/build/Network/HPACK/HeaderBlock/Encode.dyn_o )
+[20 of 48] Compiling Network.HPACK.HeaderBlock.Decode ( Network/HPACK/HeaderBlock/Decode.hs, dist/build/Network/HPACK/HeaderBlock/Decode.o, dist/build/Network/HPACK/HeaderBlock/Decode.dyn_o )
+[21 of 48] Compiling Network.HPACK.Internal ( Network/HPACK/Internal.hs, dist/build/Network/HPACK/Internal.o, dist/build/Network/HPACK/Internal.dyn_o )
+[22 of 48] Compiling Network.HPACK.HeaderBlock ( Network/HPACK/HeaderBlock.hs, dist/build/Network/HPACK/HeaderBlock.o, dist/build/Network/HPACK/HeaderBlock.dyn_o )
+[23 of 48] Compiling Network.HPACK    ( Network/HPACK.hs, dist/build/Network/HPACK.o, dist/build/Network/HPACK.dyn_o )
+[24 of 48] Compiling Network.HTTP2.Frame.Types ( Network/HTTP2/Frame/Types.hs, dist/build/Network/HTTP2/Frame/Types.o, dist/build/Network/HTTP2/Frame/Types.dyn_o )
+[25 of 48] Compiling Network.HTTP2.Frame.Encode ( Network/HTTP2/Frame/Encode.hs, dist/build/Network/HTTP2/Frame/Encode.o, dist/build/Network/HTTP2/Frame/Encode.dyn_o )
+[26 of 48] Compiling Network.HTTP2.Frame.Decode ( Network/HTTP2/Frame/Decode.hs, dist/build/Network/HTTP2/Frame/Decode.o, dist/build/Network/HTTP2/Frame/Decode.dyn_o )
+[27 of 48] Compiling Network.HTTP2.Frame ( Network/HTTP2/Frame.hs, dist/build/Network/HTTP2/Frame.o, dist/build/Network/HTTP2/Frame.dyn_o )
+[28 of 48] Compiling Network.HTTP2.H2.EncodeFrame ( Network/HTTP2/H2/EncodeFrame.hs, dist/build/Network/HTTP2/H2/EncodeFrame.o, dist/build/Network/HTTP2/H2/EncodeFrame.dyn_o )
+[29 of 48] Compiling Network.HTTP2.H2.Settings ( Network/HTTP2/H2/Settings.hs, dist/build/Network/HTTP2/H2/Settings.o, dist/build/Network/HTTP2/H2/Settings.dyn_o )
+[30 of 48] Compiling Network.HTTP2.H2.Types ( Network/HTTP2/H2/Types.hs, dist/build/Network/HTTP2/H2/Types.o, dist/build/Network/HTTP2/H2/Types.dyn_o )
+[31 of 48] Compiling Network.HTTP2.H2.StreamTable ( Network/HTTP2/H2/StreamTable.hs, dist/build/Network/HTTP2/H2/StreamTable.o, dist/build/Network/HTTP2/H2/StreamTable.dyn_o )
+[32 of 48] Compiling Network.HTTP2.H2.Stream ( Network/HTTP2/H2/Stream.hs, dist/build/Network/HTTP2/H2/Stream.o, dist/build/Network/HTTP2/H2/Stream.dyn_o )
+[33 of 48] Compiling Network.HTTP2.H2.Queue ( Network/HTTP2/H2/Queue.hs, dist/build/Network/HTTP2/H2/Queue.o, dist/build/Network/HTTP2/H2/Queue.dyn_o )
+[34 of 48] Compiling Network.HTTP2.H2.Context ( Network/HTTP2/H2/Context.hs, dist/build/Network/HTTP2/H2/Context.o, dist/build/Network/HTTP2/H2/Context.dyn_o )
+[35 of 48] Compiling Network.HTTP2.H2.Sync ( Network/HTTP2/H2/Sync.hs, dist/build/Network/HTTP2/H2/Sync.o, dist/build/Network/HTTP2/H2/Sync.dyn_o )
+[36 of 48] Compiling Network.HTTP2.H2.HPACK ( Network/HTTP2/H2/HPACK.hs, dist/build/Network/HTTP2/H2/HPACK.o, dist/build/Network/HTTP2/H2/HPACK.dyn_o )
+[37 of 48] Compiling Network.HTTP2.H2.Config ( Network/HTTP2/H2/Config.hs, dist/build/Network/HTTP2/H2/Config.o, dist/build/Network/HTTP2/H2/Config.dyn_o )
+
+Network/HTTP2/H2/Config.hs:42:5: warning: [-Wdeprecations]
+    In the use of ‘killManager’ (imported from System.TimeManager):
+    Deprecated: "This function does nothing since version 0.3.0"
+   |
+42 |     T.killManager $ confTimeoutManager conf
+   |     ^^^^^^^^^^^^^
+[38 of 48] Compiling Network.HTTP2.H2.Window ( Network/HTTP2/H2/Window.hs, dist/build/Network/HTTP2/H2/Window.o, dist/build/Network/HTTP2/H2/Window.dyn_o )
+[39 of 48] Compiling Network.HTTP2.H2.Sender ( Network/HTTP2/H2/Sender.hs, dist/build/Network/HTTP2/H2/Sender.o, dist/build/Network/HTTP2/H2/Sender.dyn_o )
+[40 of 48] Compiling Network.HTTP2.H2.Receiver ( Network/HTTP2/H2/Receiver.hs, dist/build/Network/HTTP2/H2/Receiver.o, dist/build/Network/HTTP2/H2/Receiver.dyn_o )
+[41 of 48] Compiling Network.HTTP2.H2 ( Network/HTTP2/H2.hs, dist/build/Network/HTTP2/H2.o, dist/build/Network/HTTP2/H2.dyn_o )
+[42 of 48] Compiling Network.HTTP2.Client.Run ( Network/HTTP2/Client/Run.hs, dist/build/Network/HTTP2/Client/Run.o, dist/build/Network/HTTP2/Client/Run.dyn_o )
+[43 of 48] Compiling Network.HTTP2.Client.Internal ( Network/HTTP2/Client/Internal.hs, dist/build/Network/HTTP2/Client/Internal.o, dist/build/Network/HTTP2/Client/Internal.dyn_o )
+[44 of 48] Compiling Network.HTTP2.Client ( Network/HTTP2/Client.hs, dist/build/Network/HTTP2/Client.o, dist/build/Network/HTTP2/Client.dyn_o )
+[45 of 48] Compiling Network.HTTP2.Server.Worker ( Network/HTTP2/Server/Worker.hs, dist/build/Network/HTTP2/Server/Worker.o, dist/build/Network/HTTP2/Server/Worker.dyn_o )
+[46 of 48] Compiling Network.HTTP2.Server.Run ( Network/HTTP2/Server/Run.hs, dist/build/Network/HTTP2/Server/Run.o, dist/build/Network/HTTP2/Server/Run.dyn_o )
+[47 of 48] Compiling Network.HTTP2.Server.Internal ( Network/HTTP2/Server/Internal.hs, dist/build/Network/HTTP2/Server/Internal.o, dist/build/Network/HTTP2/Server/Internal.dyn_o )
+[48 of 48] Compiling Network.HTTP2.Server ( Network/HTTP2/Server.hs, dist/build/Network/HTTP2/Server.o, dist/build/Network/HTTP2/Server.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/http2-5.4.0-6c969a34/lib

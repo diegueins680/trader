@@ -1,0 +1,9 @@
+Configuring library for transformers-compat-0.8...
+Preprocessing library for transformers-compat-0.8...
+Building library for transformers-compat-0.8...
+[1 of 4] Compiling Control.Monad.Trans.Instances ( src/Control/Monad/Trans/Instances.hs, dist/build/Control/Monad/Trans/Instances.o, dist/build/Control/Monad/Trans/Instances.dyn_o )
+[2 of 4] Compiling Data.Functor.Classes.Generic.Internal ( generics/Data/Functor/Classes/Generic/Internal.hs, dist/build/Data/Functor/Classes/Generic/Internal.o, dist/build/Data/Functor/Classes/Generic/Internal.dyn_o )
+[3 of 4] Compiling Data.Functor.Classes.Generic ( generics/Data/Functor/Classes/Generic.hs, dist/build/Data/Functor/Classes/Generic.o, dist/build/Data/Functor/Classes/Generic.dyn_o )
+[4 of 4] Compiling Paths_transformers_compat ( dist/build/autogen/Paths_transformers_compat.hs, dist/build/Paths_transformers_compat.o, dist/build/Paths_transformers_compat.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/trnsfrmrs-cmpt-0.8-aabf3727/lib

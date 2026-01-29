@@ -1,0 +1,28 @@
+Warning: asn1-parse.cabal:17:34: version operators used. To use version
+operators the package needs to specify at least 'cabal-version: >= 1.8'.
+Warning: asn1-parse.cabal:19:42: version operators used. To use version
+operators the package needs to specify at least 'cabal-version: >= 1.8'.
+Configuring asn1-parse-0.9.5...
+Preprocessing library for asn1-parse-0.9.5...
+Building library for asn1-parse-0.9.5...
+[1 of 1] Compiling Data.ASN1.Parse  ( Data/ASN1/Parse.hs, dist/build/Data/ASN1/Parse.o, dist/build/Data/ASN1/Parse.dyn_o )
+
+Data/ASN1/Parse.hs:35:1: warning: [-Wunused-imports]
+    The import of ‘Control.Monad.Fail’ is redundant
+      except perhaps to import instances from ‘Control.Monad.Fail’
+    To import instances alone, use: import Control.Monad.Fail()
+   |
+35 | import Control.Monad.Fail
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Data/ASN1/Parse.hs:52:5: warning: [-Wnoncanonical-monad-instances]
+    Noncanonical ‘return’ definition detected
+    in the instance declaration for ‘Monad ParseASN1’.
+    ‘return’ will eventually be removed in favour of ‘pure’
+    Either remove definition for ‘return’ (recommended) or define as ‘return = pure’
+    See also: https://gitlab.haskell.org/ghc/ghc/-/wikis/proposal/monad-of-no-return
+   |
+52 |     return a    = pure a
+   |     ^^^^^^^^^^^^^^^^^^^^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/sn1-prs-0.9.5-bd5097df/lib

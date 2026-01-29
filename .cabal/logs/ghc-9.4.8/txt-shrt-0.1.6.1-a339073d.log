@@ -1,0 +1,10 @@
+Configuring library for text-short-0.1.6.1...
+Preprocessing library for text-short-0.1.6.1...
+Building library for text-short-0.1.6.1...
+[1 of 5] Compiling PrimOps          ( src-ghc804/PrimOps.hs, dist/build/PrimOps.o, dist/build/PrimOps.dyn_o )
+[2 of 5] Compiling Data.Text.Short.Internal ( src/Data/Text/Short/Internal.hs, dist/build/Data/Text/Short/Internal.o, dist/build/Data/Text/Short/Internal.dyn_o )
+[3 of 5] Compiling Data.Text.Short.Unsafe ( src/Data/Text/Short/Unsafe.hs, dist/build/Data/Text/Short/Unsafe.o, dist/build/Data/Text/Short/Unsafe.dyn_o )
+[4 of 5] Compiling Data.Text.Short  ( src/Data/Text/Short.hs, dist/build/Data/Text/Short.o, dist/build/Data/Text/Short.dyn_o )
+[5 of 5] Compiling Data.Text.Short.Partial ( src/Data/Text/Short/Partial.hs, dist/build/Data/Text/Short/Partial.o, dist/build/Data/Text/Short/Partial.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67507/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/txt-shrt-0.1.6.1-a339073d/lib

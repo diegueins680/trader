@@ -1,0 +1,19 @@
+Configuring library for http-semantics-0.4.0...
+Preprocessing library for http-semantics-0.4.0...
+Building library for http-semantics-0.4.0...
+[ 1 of 14] Compiling Network.HTTP.Semantics.ReadN ( Network/HTTP/Semantics/ReadN.hs, dist/build/Network/HTTP/Semantics/ReadN.o, dist/build/Network/HTTP/Semantics/ReadN.dyn_o )
+[ 2 of 14] Compiling Network.HTTP.Semantics.Token ( Network/HTTP/Semantics/Token.hs, dist/build/Network/HTTP/Semantics/Token.o, dist/build/Network/HTTP/Semantics/Token.dyn_o )
+[ 3 of 14] Compiling Network.HTTP.Semantics.Header ( Network/HTTP/Semantics/Header.hs, dist/build/Network/HTTP/Semantics/Header.o, dist/build/Network/HTTP/Semantics/Header.dyn_o )
+[ 4 of 14] Compiling Network.HTTP.Semantics.Trailer ( Network/HTTP/Semantics/Trailer.hs, dist/build/Network/HTTP/Semantics/Trailer.o, dist/build/Network/HTTP/Semantics/Trailer.dyn_o )
+[ 5 of 14] Compiling Network.HTTP.Semantics.Types ( Network/HTTP/Semantics/Types.hs, dist/build/Network/HTTP/Semantics/Types.o, dist/build/Network/HTTP/Semantics/Types.dyn_o )
+[ 6 of 14] Compiling Network.HTTP.Semantics.Server.Internal ( Network/HTTP/Semantics/Server/Internal.hs, dist/build/Network/HTTP/Semantics/Server/Internal.o, dist/build/Network/HTTP/Semantics/Server/Internal.dyn_o )
+[ 7 of 14] Compiling Network.HTTP.Semantics.Client.Internal ( Network/HTTP/Semantics/Client/Internal.hs, dist/build/Network/HTTP/Semantics/Client/Internal.o, dist/build/Network/HTTP/Semantics/Client/Internal.dyn_o )
+[ 8 of 14] Compiling Network.HTTP.Semantics ( Network/HTTP/Semantics.hs, dist/build/Network/HTTP/Semantics.o, dist/build/Network/HTTP/Semantics.dyn_o )
+[ 9 of 14] Compiling Network.HTTP.Semantics.Status ( Network/HTTP/Semantics/Status.hs, dist/build/Network/HTTP/Semantics/Status.o, dist/build/Network/HTTP/Semantics/Status.dyn_o )
+[10 of 14] Compiling Network.HTTP.Semantics.File ( Network/HTTP/Semantics/File.hs, dist/build/Network/HTTP/Semantics/File.o, dist/build/Network/HTTP/Semantics/File.dyn_o )
+[11 of 14] Compiling Network.HTTP.Semantics.Server ( Network/HTTP/Semantics/Server.hs, dist/build/Network/HTTP/Semantics/Server.o, dist/build/Network/HTTP/Semantics/Server.dyn_o )
+[12 of 14] Compiling Network.HTTP.Semantics.Client ( Network/HTTP/Semantics/Client.hs, dist/build/Network/HTTP/Semantics/Client.o, dist/build/Network/HTTP/Semantics/Client.dyn_o )
+[13 of 14] Compiling Network.HTTP.Semantics.FillBuf ( Network/HTTP/Semantics/FillBuf.hs, dist/build/Network/HTTP/Semantics/FillBuf.o, dist/build/Network/HTTP/Semantics/FillBuf.dyn_o )
+[14 of 14] Compiling Network.HTTP.Semantics.IO ( Network/HTTP/Semantics/IO.hs, dist/build/Network/HTTP/Semantics/IO.o, dist/build/Network/HTTP/Semantics/IO.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41763/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/http-smntcs-0.4.0-4b147780/lib

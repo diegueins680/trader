@@ -1,0 +1,11 @@
+pkgid: crypton-connection-0.3.2
+component: ComponentLib
+src: 208be23bc910f8e5f9431995b9c011ed376bb947d79f74c8f51a5e4ecd9e991e
+pkg-config-deps: 
+deps: base-4.17.2.1, bsmnt-0.0.16-62ea47ca, bytestring-0.11.5.3, containers-0.6.7, cryptn-x509-1.7.7-19626287, cryptn-x509-str-1.6.14-f2ed2d6d, cryptn-x509-systm-1.6.8-2f562daf, cryptn-x509-vldtn-1.6.14-f1a1eb23, dt-dflt-clss-0.2.0.0-8a8c5052, ntwrk-3.2.8.0-948adf32, scks-0.6.1-0c1b682a, tls-2.0.6-5d391ba5
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

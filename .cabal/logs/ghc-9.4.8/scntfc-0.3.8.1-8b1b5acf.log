@@ -1,0 +1,26 @@
+Configuring library for scientific-0.3.8.1...
+Preprocessing library for scientific-0.3.8.1...
+Building library for scientific-0.3.8.1...
+[1 of 5] Compiling GHC.Integer.Compat ( src/GHC/Integer/Compat.hs, dist/build/GHC/Integer/Compat.o, dist/build/GHC/Integer/Compat.dyn_o )
+[2 of 5] Compiling Utils            ( src/Utils.hs, dist/build/Utils.o, dist/build/Utils.dyn_o )
+[3 of 5] Compiling Data.Scientific  ( src/Data/Scientific.hs, dist/build/Data/Scientific.o, dist/build/Data/Scientific.dyn_o )
+[4 of 5] Compiling Data.Text.Lazy.Builder.Scientific ( src/Data/Text/Lazy/Builder/Scientific.hs, dist/build/Data/Text/Lazy/Builder/Scientific.o, dist/build/Data/Text/Lazy/Builder/Scientific.dyn_o )
+
+src/Data/Text/Lazy/Builder/Scientific.hs:19:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+19 | import Data.Monoid                  ((<>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[5 of 5] Compiling Data.ByteString.Builder.Scientific ( src/Data/ByteString/Builder/Scientific.hs, dist/build/Data/ByteString/Builder/Scientific.o, dist/build/Data/ByteString/Builder/Scientific.dyn_o )
+
+src/Data/ByteString/Builder/Scientific.hs:20:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+20 | import Data.Monoid                  ((<>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/scntfc-0.3.8.1-8b1b5acf/lib

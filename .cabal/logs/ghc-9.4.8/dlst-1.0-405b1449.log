@@ -1,0 +1,26 @@
+Configuring library for dlist-1.0...
+Preprocessing library for dlist-1.0...
+Building library for dlist-1.0...
+[1 of 5] Compiling Data.DList.Internal ( Data/DList/Internal.hs, dist/build/Data/DList/Internal.o, dist/build/Data/DList/Internal.dyn_o )
+
+Data/DList/Internal.hs:642:12: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+642 | instance a ~ Char => IsString (DList a) where
+    |            ^
+[2 of 5] Compiling Data.DList       ( Data/DList.hs, dist/build/Data/DList.o, dist/build/Data/DList.dyn_o )
+[3 of 5] Compiling Data.DList.DNonEmpty.Internal ( Data/DList/DNonEmpty/Internal.hs, dist/build/Data/DList/DNonEmpty/Internal.o, dist/build/Data/DList/DNonEmpty/Internal.dyn_o )
+
+Data/DList/DNonEmpty/Internal.hs:459:12: warning: [-Wtype-equality-requires-operators]
+    The use of ‘~’ without TypeOperators
+    will become an error in a future GHC release.
+    Suggested fix: Perhaps you intended to use TypeOperators
+    |
+459 | instance a ~ Char => IsString (DNonEmpty a) where
+    |            ^
+[4 of 5] Compiling Data.DList.DNonEmpty ( Data/DList/DNonEmpty.hs, dist/build/Data/DList/DNonEmpty.o, dist/build/Data/DList/DNonEmpty.dyn_o )
+[5 of 5] Compiling Data.DList.Unsafe ( Data/DList/Unsafe.hs, dist/build/Data/DList/Unsafe.o, dist/build/Data/DList/Unsafe.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67508/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/dlst-1.0-405b1449/lib

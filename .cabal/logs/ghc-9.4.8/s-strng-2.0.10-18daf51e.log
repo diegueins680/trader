@@ -1,0 +1,29 @@
+Configuring library for os-string-2.0.10...
+Preprocessing library for os-string-2.0.10...
+Building library for os-string-2.0.10...
+[ 1 of 11] Compiling System.OsString.Data.ByteString.Short.Internal ( System/OsString/Data/ByteString/Short/Internal.hs, dist/build/System/OsString/Data/ByteString/Short/Internal.o, dist/build/System/OsString/Data/ByteString/Short/Internal.dyn_o )
+[ 2 of 11] Compiling System.OsString.Data.ByteString.Short ( System/OsString/Data/ByteString/Short.hs, dist/build/System/OsString/Data/ByteString/Short.o, dist/build/System/OsString/Data/ByteString/Short.dyn_o )
+[ 3 of 11] Compiling System.OsString.Data.ByteString.Short.Word16 ( System/OsString/Data/ByteString/Short/Word16.hs, dist/build/System/OsString/Data/ByteString/Short/Word16.o, dist/build/System/OsString/Data/ByteString/Short/Word16.dyn_o )
+[ 4 of 11] Compiling System.OsString.Internal.Exception ( System/OsString/Internal/Exception.hs, dist/build/System/OsString/Internal/Exception.o, dist/build/System/OsString/Internal/Exception.dyn_o )
+[ 5 of 11] Compiling System.OsString.Encoding.Internal ( System/OsString/Encoding/Internal.hs, dist/build/System/OsString/Encoding/Internal.o, dist/build/System/OsString/Encoding/Internal.dyn_o )
+
+System/OsString/Encoding/Internal.hs:27:42: warning: [-Wunused-imports]
+    The import of ‘try’ from module ‘Control.Exception’ is redundant
+   |
+27 | import Control.Exception (SomeException, try, Exception (displayException), evaluate)
+   |                                          ^^^
+[ 6 of 11] Compiling System.OsString.Encoding ( System/OsString/Encoding.hs, dist/build/System/OsString/Encoding.o, dist/build/System/OsString/Encoding.dyn_o )
+[ 7 of 11] Compiling System.OsString.Internal.Types ( System/OsString/Internal/Types.hs, dist/build/System/OsString/Internal/Types.o, dist/build/System/OsString/Internal/Types.dyn_o )
+
+System/OsString/Internal/Types.hs:38:42: warning: [-Wunused-imports]
+    The import of ‘coerceWith’
+    from module ‘Data.Type.Coercion’ is redundant
+   |
+38 | import Data.Type.Coercion (Coercion(..), coerceWith)
+   |                                          ^^^^^^^^^^
+[ 8 of 11] Compiling System.OsString.Posix ( System/OsString/Posix.hs, dist/build/System/OsString/Posix.o, dist/build/System/OsString/Posix.dyn_o )
+[ 9 of 11] Compiling System.OsString.Internal ( System/OsString/Internal.hs, dist/build/System/OsString/Internal.o, dist/build/System/OsString/Internal.dyn_o )
+[10 of 11] Compiling System.OsString  ( System/OsString.hs, dist/build/System/OsString.o, dist/build/System/OsString.dyn_o )
+[11 of 11] Compiling System.OsString.Windows ( System/OsString/Windows.hs, dist/build/System/OsString/Windows.o, dist/build/System/OsString/Windows.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67506/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/s-strng-2.0.10-18daf51e/lib

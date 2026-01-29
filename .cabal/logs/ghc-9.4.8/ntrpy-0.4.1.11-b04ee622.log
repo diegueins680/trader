@@ -1,0 +1,53 @@
+[1 of 2] Compiling Main             ( /Users/diegosaa/GitHub/trader/haskell/dist-newstyle/tmp/src-41768/entropy-0.4.1.11/dist/setup/setup.hs, /Users/diegosaa/GitHub/trader/haskell/dist-newstyle/tmp/src-41768/entropy-0.4.1.11/dist/setup/Main.o )
+[2 of 2] Linking /Users/diegosaa/GitHub/trader/haskell/dist-newstyle/tmp/src-41768/entropy-0.4.1.11/dist/setup/setup
+Configuring entropy-0.4.1.11...
+ld: warning: ignoring duplicate libraries: '-lm'
+Result of RDRAND Test: True
+
+testLibcGetrandom-46435/testLibcGetrandom.c:7:12: error:
+     error: call to undeclared function 'getrandom'; ISO C99 and later do not support implicit function declarations [-Wimplicit-function-declaration]
+        7 |     return getrandom(&tmp, sizeof(tmp), GRND_NONBLOCK) != -1;
+          |            ^
+  |
+7 |     return getrandom(&tmp, sizeof(tmp), GRND_NONBLOCK) != -1;
+  |            ^
+
+testLibcGetrandom-46435/testLibcGetrandom.c:7:41: error:
+     error: use of undeclared identifier 'GRND_NONBLOCK'
+        7 |     return getrandom(&tmp, sizeof(tmp), GRND_NONBLOCK) != -1;
+          |                                         ^
+  |
+7 |     return getrandom(&tmp, sizeof(tmp), GRND_NONBLOCK) != -1;
+  |                                         ^
+2 errors generated.
+`gcc' failed in phase `C Compiler'. (Exit code: 1)
+Result of libc getrandom() Test: False
+
+testSyscallGetrandom-46435/testSyscallGetrandom.c:6:10: error:
+     fatal error: 'linux/random.h' file not found
+        6 | #include <linux/random.h>
+          |          ^~~~~~~~~~~~~~~~
+  |
+6 | #include <linux/random.h>
+  |          ^
+1 error generated.
+`gcc' failed in phase `C Compiler'. (Exit code: 1)
+Result of syscall getrandom() Test: False
+
+testGetentropy-46435/testGetentropy.c:6:12: error:
+     error: call to undeclared function 'getentropy'; ISO C99 and later do not support implicit function declarations [-Wimplicit-function-declaration]
+        6 |     return getentropy(&tmp, sizeof(tmp));
+          |            ^
+  |
+6 |     return getentropy(&tmp, sizeof(tmp));
+  |            ^
+1 error generated.
+`gcc' failed in phase `C Compiler'. (Exit code: 1)
+Result of getentropy() Test: False
+Preprocessing library for entropy-0.4.1.11..
+Building library for entropy-0.4.1.11..
+[1 of 2] Compiling System.EntropyNix ( System/EntropyNix.hs, dist/build/System/EntropyNix.o, dist/build/System/EntropyNix.dyn_o )
+[2 of 2] Compiling System.Entropy   ( System/Entropy.hs, dist/build/System/Entropy.o, dist/build/System/Entropy.dyn_o )
+/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ranlib: file: dist/build/objs-46435/libHSntrpy-0.4.1.11-b04ee622.a(getrandom.o) has no symbols
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ntrpy-0.4.1.11-b04ee622/lib

@@ -18,6 +18,7 @@ export const STORAGE_DATA_LOG_KEY = "trader.ui.dataLog.v1";
 export const STORAGE_DATA_LOG_PREFS_KEY = "trader.ui.dataLogPrefs.v1";
 export const STORAGE_STATE_SYNC_TARGET_KEY = "trader.ui.stateSyncTarget.v1";
 export const STORAGE_STATE_SYNC_TOKEN_KEY = "trader.ui.stateSyncToken.v1";
+export const STORAGE_TOP_COMBOS_KEY = "trader.ui.topCombos.v1";
 
 const DEFAULT_SIGNAL_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_BACKTEST_TIMEOUT_MS = 20 * 60_000;
@@ -211,6 +212,10 @@ export const TUNE_OBJECTIVES = [
   "equity-dd-turnover",
 ] as const;
 export const TUNE_OBJECTIVE_SET = new Set<string>(TUNE_OBJECTIVES);
+
+export const OPTIMIZER_UI_MAX_TRIALS = 30;
+export const OPTIMIZER_UI_MAX_TIMEOUT_SEC = 1200;
+export const OPTIMIZER_UI_MAX_BARS = 1500;
 
 export const DATA_LOG_COLLAPSED_MAX_LINES = 50;
 export const DATA_LOG_MAX_ENTRIES = 100;

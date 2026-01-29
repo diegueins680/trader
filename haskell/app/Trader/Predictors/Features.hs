@@ -1,200 +1,237 @@
-module Trader.Predictors.Features
-  ( FeatureSpec(..)
-  , mkFeatureSpec
-  , featuresAt
-  , forwardReturnAt
-  , buildDatasetWithIndex
-  , buildDataset
-  ) where
+module Trader.Predictors.Features (
+    FeatureSpec (..),
+    mkFeatureSpec,
+    featuresAt,
+    forwardReturnAt,
+    buildDatasetWithIndex,
+    buildDataset,
+) where
 
 import qualified Data.Vector as V
 
 data FeatureSpec = FeatureSpec
-  { fsLookbackBars :: !Int
-  , fsShortBars :: !Int
-  , fsMidBars :: !Int
-  } deriving (Eq, Show)
+    { fsLookbackBars :: !Int
+    , fsShortBars :: !Int
+    , fsMidBars :: !Int
+    }
+    deriving (Eq, Show)
 
 mkFeatureSpec :: Int -> FeatureSpec
 mkFeatureSpec lookbackBars
-  | lookbackBars <= 1 = error "lookbackBars must be >= 2"
-  | otherwise =
-      let lb = lookbackBars
-          shortB = max 1 (min 12 (lb - 1))
-          midB = max 1 (min 48 (lb - 1))
-       in FeatureSpec { fsLookbackBars = lb, fsShortBars = shortB, fsMidBars = midB }
+    | lookbackBars <= 1 = error "lookbackBars must be >= 2"
+    | otherwise =
+        let lb = lookbackBars
+            shortB = max 1 (min 12 (lb - 1))
+            midB = max 1 (min 48 (lb - 1))
+         in FeatureSpec{fsLookbackBars = lb, fsShortBars = shortB, fsMidBars = midB}
 
 -- | Forward return r_t = p_{t+1}/p_t - 1.
 forwardReturnAt :: V.Vector Double -> Int -> Maybe Double
 forwardReturnAt prices t =
-  if t < 0 || t + 1 >= V.length prices
-    then Nothing
-    else
-      let p0 = prices V.! t
-          p1 = prices V.! (t + 1)
-       in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+    if t < 0 || t + 1 >= V.length prices
+        then Nothing
+        else
+            let p0 = prices V.! t
+                p1 = prices V.! (t + 1)
+             in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
 
--- | Feature vector at bar t using only prices up to t.
--- Requires at least fsLookbackBars history (prices window ending at t).
+{- | Feature vector at bar t using only prices up to t.
+Requires at least fsLookbackBars history (prices window ending at t).
+-}
 featuresAt :: FeatureSpec -> V.Vector Double -> Int -> Maybe [Double]
 featuresAt fs prices t = do
-  let lb = fsLookbackBars fs
-      maxLag = max 1 (lb - 1)
-      shortB = min (fsShortBars fs) maxLag
-      midB = min (fsMidBars fs) maxLag
-      ret3Bars = min 3 maxLag
-  if t < lb - 1 || t >= V.length prices
-    then Nothing
-    else do
-      ret1 <- retOver prices t 1
-      ret3 <- retOver prices t ret3Bars
-      retShort <- retOver prices t shortB
-      retMid <- retOver prices t midB
-      retLb <- retOver prices t (lb - 1)
-      rsShort <- returnsEndingAt prices t shortB
-      rsMid <- returnsEndingAt prices t midB
-      let (muS, sigS) = meanStd rsShort
-          (muM, sigM) = meanStd rsMid
-      pure
-        [ ret1
-        , ret3
-        , retShort
-        , retMid
-        , retLb
-        , muS
-        , sigS
-        , muM
-        , sigM
-        ]
+    let lb = fsLookbackBars fs
+        maxLag = max 1 (lb - 1)
+        shortB = min (fsShortBars fs) maxLag
+        midB = min (fsMidBars fs) maxLag
+        ret3Bars = min 3 maxLag
+    if t < lb - 1 || t >= V.length prices
+        then Nothing
+        else do
+            ret1 <- retOver prices t 1
+            ret3 <- retOver prices t ret3Bars
+            retShort <- retOver prices t shortB
+            retMid <- retOver prices t midB
+            retLb <- retOver prices t (lb - 1)
+            rsShort <- returnsEndingAt prices t shortB
+            rsMid <- returnsEndingAt prices t midB
+            let (muS, sigS) = meanStd rsShort
+                (muM, sigM) = meanStd rsMid
+                priceT = prices V.! t
+                psych = psychologicalFeatures priceT
+            pure
+                ( [ ret1
+                  , ret3
+                  , retShort
+                  , retMid
+                  , retLb
+                  , muS
+                  , sigS
+                  , muM
+                  , sigM
+                  ]
+                    ++ psych
+                )
 
--- | Build a supervised dataset (features at t, target forward return at t) with bar indices.
--- Uses t in [lookbackBars-1 .. n-2].
+{- | Build a supervised dataset (features at t, target forward return at t) with bar indices.
+Uses t in [lookbackBars-1 .. n-2].
+-}
 buildDatasetWithIndex :: FeatureSpec -> V.Vector Double -> [(Int, [Double], Double)]
 buildDatasetWithIndex fs prices =
-  let n = V.length prices
-      startT = fsLookbackBars fs - 1
-      endT = n - 2
-      maxLag = max 1 (fsLookbackBars fs - 1)
-      shortB = min (fsShortBars fs) maxLag
-      midB = min (fsMidBars fs) maxLag
-      ret3Bars = min 3 maxLag
-      retLen = max 0 (n - 1)
-      returns =
-        V.generate retLen $ \i ->
-          let p0 = prices V.! i
-              p1 = prices V.! (i + 1)
-           in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
-      retVals = V.map (maybe 0 id) returns
-      retSqVals = V.map (maybe 0 (\r -> r * r)) returns
-      retInvalid = V.map (\m -> case m of Nothing -> 1; Just _ -> 0) returns
-      prefixSum = V.scanl' (+) 0 retVals
-      prefixSumSq = V.scanl' (+) 0 retSqVals
-      prefixInvalid = V.scanl' (+) 0 retInvalid
+    let n = V.length prices
+        startT = fsLookbackBars fs - 1
+        endT = n - 2
+        maxLag = max 1 (fsLookbackBars fs - 1)
+        shortB = min (fsShortBars fs) maxLag
+        midB = min (fsMidBars fs) maxLag
+        ret3Bars = min 3 maxLag
+        retLen = max 0 (n - 1)
+        returns =
+            V.generate retLen $ \i ->
+                let p0 = prices V.! i
+                    p1 = prices V.! (i + 1)
+                 in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+        retVals = V.map (maybe 0 id) returns
+        retSqVals = V.map (maybe 0 (\r -> r * r)) returns
+        retInvalid = V.map (\m -> case m of Nothing -> 1; Just _ -> 0) returns
+        prefixSum = V.scanl' (+) 0 retVals
+        prefixSumSq = V.scanl' (+) 0 retSqVals
+        prefixInvalid = V.scanl' (+) 0 retInvalid
 
-      windowStats t k =
-        if k <= 0 || t - k < 0 || t - 1 >= retLen
-          then Nothing
-          else
-            let i0 = t - k
-                i1 = t - 1
-                invalid = prefixInvalid V.! (i1 + 1) - prefixInvalid V.! i0
-             in if invalid > 0
-                  then Nothing
-                  else
-                    let s = prefixSum V.! (i1 + 1) - prefixSum V.! i0
-                        ss = prefixSumSq V.! (i1 + 1) - prefixSumSq V.! i0
-                        k' = fromIntegral k
-                        mu = s / k'
-                        var =
-                          if k < 2
-                            then 0
-                            else (ss - k' * mu * mu) / fromIntegral (k - 1)
-                     in Just (mu, sqrt (var + 1e-12))
+        windowStats t k =
+            if k <= 0 || t - k < 0 || t - 1 >= retLen
+                then Nothing
+                else
+                    let i0 = t - k
+                        i1 = t - 1
+                        invalid = prefixInvalid V.! (i1 + 1) - prefixInvalid V.! i0
+                     in if invalid > 0
+                            then Nothing
+                            else
+                                let s = prefixSum V.! (i1 + 1) - prefixSum V.! i0
+                                    ss = prefixSumSq V.! (i1 + 1) - prefixSumSq V.! i0
+                                    k' = fromIntegral k
+                                    mu = s / k'
+                                    var =
+                                        if k < 2
+                                            then 0
+                                            else (ss - k' * mu * mu) / fromIntegral (k - 1)
+                                 in Just (mu, sqrt (var + 1e-12))
 
-      retOverFast t bars =
-        if bars <= 0 || t - bars < 0
-          then Nothing
-          else
+        retOverFast t bars =
+            if bars <= 0 || t - bars < 0
+                then Nothing
+                else
+                    let p0 = prices V.! (t - bars)
+                        p1 = prices V.! t
+                     in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+
+        featuresAtFast t = do
+            if t < fsLookbackBars fs - 1 || t >= n
+                then Nothing
+                else do
+                    ret1 <- retOverFast t 1
+                    ret3 <- retOverFast t ret3Bars
+                    retShort <- retOverFast t shortB
+                    retMid <- retOverFast t midB
+                    retLb <- retOverFast t (fsLookbackBars fs - 1)
+                    (muS, sigS) <- windowStats t shortB
+                    (muM, sigM) <- windowStats t midB
+                    let priceT = prices V.! t
+                        psych = psychologicalFeatures priceT
+                    pure
+                        ( [ ret1
+                          , ret3
+                          , retShort
+                          , retMid
+                          , retLb
+                          , muS
+                          , sigS
+                          , muM
+                          , sigM
+                          ]
+                            ++ psych
+                        )
+
+        forwardReturnFast t =
+            if t < 0 || t >= retLen
+                then Nothing
+                else returns V.! t
+     in if startT > endT
+            then []
+            else
+                [ (t, f, y)
+                | t <- [startT .. endT]
+                , Just f <- [featuresAtFast t]
+                , Just y <- [forwardReturnFast t]
+                ]
+
+{- | Build a supervised dataset (features at t, target forward return at t).
+Uses t in [lookbackBars-1 .. n-2].
+-}
+buildDataset :: FeatureSpec -> V.Vector Double -> [([Double], Double)]
+buildDataset fs prices =
+    [(f, y) | (_, f, y) <- buildDatasetWithIndex fs prices]
+
+retOver :: V.Vector Double -> Int -> Int -> Maybe Double
+retOver prices t bars =
+    if bars <= 0 || t - bars < 0
+        then Nothing
+        else
             let p0 = prices V.! (t - bars)
                 p1 = prices V.! t
              in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
 
-      featuresAtFast t = do
-        if t < fsLookbackBars fs - 1 || t >= n
-          then Nothing
-          else do
-            ret1 <- retOverFast t 1
-            ret3 <- retOverFast t ret3Bars
-            retShort <- retOverFast t shortB
-            retMid <- retOverFast t midB
-            retLb <- retOverFast t (fsLookbackBars fs - 1)
-            (muS, sigS) <- windowStats t shortB
-            (muM, sigM) <- windowStats t midB
-            pure
-              [ ret1
-              , ret3
-              , retShort
-              , retMid
-              , retLb
-              , muS
-              , sigS
-              , muM
-              , sigM
-              ]
-
-      forwardReturnFast t =
-        if t < 0 || t >= retLen
-          then Nothing
-          else returns V.! t
-   in
-    if startT > endT
-      then []
-      else
-        [ (t, f, y)
-        | t <- [startT .. endT]
-        , Just f <- [featuresAtFast t]
-        , Just y <- [forwardReturnFast t]
-        ]
-
--- | Build a supervised dataset (features at t, target forward return at t).
--- Uses t in [lookbackBars-1 .. n-2].
-buildDataset :: FeatureSpec -> V.Vector Double -> [( [Double], Double )]
-buildDataset fs prices =
-  [ (f, y) | (_, f, y) <- buildDatasetWithIndex fs prices ]
-
-retOver :: V.Vector Double -> Int -> Int -> Maybe Double
-retOver prices t bars =
-  if bars <= 0 || t - bars < 0
-    then Nothing
-    else
-      let p0 = prices V.! (t - bars)
-          p1 = prices V.! t
-       in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
-
 returnsEndingAt :: V.Vector Double -> Int -> Int -> Maybe [Double]
 returnsEndingAt prices t k =
-  if k <= 0 || t - k < 0
-    then Nothing
-    else
-      let rs =
-            [ let p0 = prices V.! i
-                  p1 = prices V.! (i + 1)
-               in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
-            | i <- [t - k .. t - 1]
-            ]
-       in sequence rs
+    if k <= 0 || t - k < 0
+        then Nothing
+        else
+            let rs =
+                    [ let p0 = prices V.! i
+                          p1 = prices V.! (i + 1)
+                       in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
+                    | i <- [t - k .. t - 1]
+                    ]
+             in sequence rs
 
 meanStd :: [Double] -> (Double, Double)
 meanStd xs =
-  case xs of
-    [] -> (0, 0)
-    _ ->
-      let n = length xs
-          mu = sum xs / fromIntegral n
-          var =
-            if n < 2
-              then 0
-              else
-                let denom = fromIntegral (n - 1)
-                 in sum (map (\v -> (v - mu) * (v - mu)) xs) / denom
-       in (mu, sqrt (var + 1e-12))
+    case xs of
+        [] -> (0, 0)
+        _ ->
+            let n = length xs
+                mu = sum xs / fromIntegral n
+                var =
+                    if n < 2
+                        then 0
+                        else
+                            let denom = fromIntegral (n - 1)
+                             in sum (map (\v -> (v - mu) * (v - mu)) xs) / denom
+             in (mu, sqrt (var + 1e-12))
+
+psychologicalFeatures :: Double -> [Double]
+psychologicalFeatures price
+    | price <= 0 = replicate 12 0
+    | otherwise =
+        let base = 10 ** fromIntegral (floor (logBase 10 price) :: Int)
+            steps = [base, base / 2, base / 4, base / 10, base / 20, base / 100]
+         in concatMap (roundLevelFeatures price) steps
+
+roundLevelFeatures :: Double -> Double -> [Double]
+roundLevelFeatures price step =
+    let offset = roundOffset price step
+        roundness = clamp 0 1 (1 - 2 * abs offset)
+     in [offset, roundness]
+
+roundOffset :: Double -> Double -> Double
+roundOffset price step
+    | step <= 0 = 0
+    | otherwise =
+        let level = step * fromIntegral (floor (price / step + 0.5) :: Int)
+            off = (price - level) / step
+         in clamp (-0.5) 0.5 off
+
+clamp :: Double -> Double -> Double -> Double
+clamp lo hi x =
+    max lo (min hi x)

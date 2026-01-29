@@ -1,0 +1,10 @@
+pkgid: asn1-parse-0.9.5
+src: 8f1fe1344d30b39dc594d74df2c55209577722af1497204b4c2b6d6e8747f39e
+pkg-config-deps: 
+deps: base-4.17.2.1, bytestring-0.11.5.3, sn1-ncdng-0.9.6-88d69f0f, sn1-typs-0.3.4-76529e2a
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

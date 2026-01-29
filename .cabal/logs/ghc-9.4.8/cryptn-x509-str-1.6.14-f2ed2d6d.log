@@ -1,0 +1,54 @@
+Configuring library for crypton-x509-store-1.6.14...
+Preprocessing library for crypton-x509-store-1.6.14...
+Building library for crypton-x509-store-1.6.14...
+[1 of 3] Compiling Data.X509.CertificateStore ( Data/X509/CertificateStore.hs, dist/build/Data/X509/CertificateStore.o, dist/build/Data/X509/CertificateStore.dyn_o )
+
+Data/X509/CertificateStore.hs:19:1: warning: [-Wunused-imports]
+    The import of ‘Data.Semigroup’ is redundant
+      except perhaps to import instances from ‘Data.Semigroup’
+    To import instances alone, use: import Data.Semigroup()
+   |
+19 | import           Data.Semigroup
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Data/X509/CertificateStore.hs:23:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+23 | import Control.Applicative ((<$>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2 of 3] Compiling Data.X509.Memory ( Data/X509/Memory.hs, dist/build/Data/X509/Memory.o, dist/build/Data/X509/Memory.dyn_o )
+[3 of 3] Compiling Data.X509.File   ( Data/X509/File.hs, dist/build/Data/X509/File.o, dist/build/Data/X509/File.dyn_o )
+
+Data/X509/File.hs:13:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+13 | import Control.Applicative
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Data/X509/File.hs:15:1: warning: [-Wunused-imports]
+    The import of ‘Data.ASN1.BinaryEncoding’ is redundant
+      except perhaps to import instances from ‘Data.ASN1.BinaryEncoding’
+    To import instances alone, use: import Data.ASN1.BinaryEncoding()
+   |
+15 | import Data.ASN1.BinaryEncoding
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Data/X509/File.hs:16:1: warning: [-Wunused-imports]
+    The import of ‘Data.ASN1.Encoding’ is redundant
+      except perhaps to import instances from ‘Data.ASN1.Encoding’
+    To import instances alone, use: import Data.ASN1.Encoding()
+   |
+16 | import Data.ASN1.Encoding
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Data/X509/File.hs:20:35: warning: [-Wunused-imports]
+    The import of ‘PEM(pemName)’ from module ‘Data.PEM’ is redundant
+   |
+20 | import Data.PEM (PEM, pemContent, pemName, pemParseLBS)
+   |                                   ^^^^^^^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/cryptn-x509-str-1.6.14-f2ed2d6d/lib

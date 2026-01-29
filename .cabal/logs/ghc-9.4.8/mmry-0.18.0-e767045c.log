@@ -1,0 +1,39 @@
+Configuring library for memory-0.18.0...
+Preprocessing library for memory-0.18.0...
+Building library for memory-0.18.0...
+[ 1 of 28] Compiling Data.Memory.ExtendedWords ( Data/Memory/ExtendedWords.hs, dist/build/Data/Memory/ExtendedWords.o, dist/build/Data/Memory/ExtendedWords.dyn_o )
+[ 2 of 28] Compiling Data.Memory.Internal.Compat ( Data/Memory/Internal/Compat.hs, dist/build/Data/Memory/Internal/Compat.o, dist/build/Data/Memory/Internal/Compat.dyn_o )
+[ 3 of 28] Compiling Data.Memory.Endian ( Data/Memory/Endian.hs, dist/build/Data/Memory/Endian.o, dist/build/Data/Memory/Endian.dyn_o )
+[ 4 of 28] Compiling Data.Memory.Hash.SipHash ( Data/Memory/Hash/SipHash.hs, dist/build/Data/Memory/Hash/SipHash.o, dist/build/Data/Memory/Hash/SipHash.dyn_o )
+[ 5 of 28] Compiling Data.Memory.Encoding.Base32 ( Data/Memory/Encoding/Base32.hs, dist/build/Data/Memory/Encoding/Base32.o, dist/build/Data/Memory/Encoding/Base32.dyn_o )
+[ 6 of 28] Compiling Data.Memory.Encoding.Base16 ( Data/Memory/Encoding/Base16.hs, dist/build/Data/Memory/Encoding/Base16.o, dist/build/Data/Memory/Encoding/Base16.dyn_o )
+[ 7 of 28] Compiling Data.Memory.Internal.CompatPrim ( Data/Memory/Internal/CompatPrim.hs, dist/build/Data/Memory/Internal/CompatPrim.o, dist/build/Data/Memory/Internal/CompatPrim.dyn_o )
+[ 8 of 28] Compiling Data.Memory.Internal.CompatPrim64 ( Data/Memory/Internal/CompatPrim64.hs, dist/build/Data/Memory/Internal/CompatPrim64.o, dist/build/Data/Memory/Internal/CompatPrim64.dyn_o )
+
+Data/Memory/Internal/CompatPrim64.hs:58:1: warning: [-Wunused-top-binds]
+    Defined but not used: type constructor or class ‘OutBool’
+   |
+58 | type OutBool = Int#
+   | ^^^^^^^^^^^^^^^^^^^
+[ 9 of 28] Compiling Data.Memory.Internal.DeepSeq ( Data/Memory/Internal/DeepSeq.hs, dist/build/Data/Memory/Internal/DeepSeq.o, dist/build/Data/Memory/Internal/DeepSeq.dyn_o )
+[10 of 28] Compiling Data.Memory.Internal.Imports ( Data/Memory/Internal/Imports.hs, dist/build/Data/Memory/Internal/Imports.o, dist/build/Data/Memory/Internal/Imports.dyn_o )
+[11 of 28] Compiling Data.Memory.Hash.FNV ( Data/Memory/Hash/FNV.hs, dist/build/Data/Memory/Hash/FNV.o, dist/build/Data/Memory/Hash/FNV.dyn_o )
+[12 of 28] Compiling Data.Memory.Encoding.Base64 ( Data/Memory/Encoding/Base64.hs, dist/build/Data/Memory/Encoding/Base64.o, dist/build/Data/Memory/Encoding/Base64.dyn_o )
+[13 of 28] Compiling Data.Memory.MemMap.Posix ( dist/build/Data/Memory/MemMap/Posix.hs, dist/build/Data/Memory/MemMap/Posix.o, dist/build/Data/Memory/MemMap/Posix.dyn_o )
+[14 of 28] Compiling Data.Memory.PtrMethods ( Data/Memory/PtrMethods.hs, dist/build/Data/Memory/PtrMethods.o, dist/build/Data/Memory/PtrMethods.dyn_o )
+[15 of 28] Compiling Data.ByteArray.Types ( Data/ByteArray/Types.hs, dist/build/Data/ByteArray/Types.o, dist/build/Data/ByteArray/Types.dyn_o )
+[16 of 28] Compiling Data.ByteArray.MemView ( Data/ByteArray/MemView.hs, dist/build/Data/ByteArray/MemView.o, dist/build/Data/ByteArray/MemView.dyn_o )
+[17 of 28] Compiling Data.ByteArray.Pack.Internal ( Data/ByteArray/Pack/Internal.hs, dist/build/Data/ByteArray/Pack/Internal.o, dist/build/Data/ByteArray/Pack/Internal.dyn_o )
+[18 of 28] Compiling Data.ByteArray.Hash ( Data/ByteArray/Hash.hs, dist/build/Data/ByteArray/Hash.o, dist/build/Data/ByteArray/Hash.dyn_o )
+[19 of 28] Compiling Data.ByteArray.Sized ( Data/ByteArray/Sized.hs, dist/build/Data/ByteArray/Sized.o, dist/build/Data/ByteArray/Sized.dyn_o )
+[20 of 28] Compiling Data.ByteArray.ScrubbedBytes ( Data/ByteArray/ScrubbedBytes.hs, dist/build/Data/ByteArray/ScrubbedBytes.o, dist/build/Data/ByteArray/ScrubbedBytes.dyn_o )
+[21 of 28] Compiling Data.ByteArray.Methods ( Data/ByteArray/Methods.hs, dist/build/Data/ByteArray/Methods.o, dist/build/Data/ByteArray/Methods.dyn_o )
+[22 of 28] Compiling Data.ByteArray.View ( Data/ByteArray/View.hs, dist/build/Data/ByteArray/View.o, dist/build/Data/ByteArray/View.dyn_o )
+[23 of 28] Compiling Data.ByteArray.Parse ( Data/ByteArray/Parse.hs, dist/build/Data/ByteArray/Parse.o, dist/build/Data/ByteArray/Parse.dyn_o )
+[24 of 28] Compiling Data.ByteArray.Mapping ( Data/ByteArray/Mapping.hs, dist/build/Data/ByteArray/Mapping.o, dist/build/Data/ByteArray/Mapping.dyn_o )
+[25 of 28] Compiling Data.ByteArray.Encoding ( Data/ByteArray/Encoding.hs, dist/build/Data/ByteArray/Encoding.o, dist/build/Data/ByteArray/Encoding.dyn_o )
+[26 of 28] Compiling Data.ByteArray.Bytes ( Data/ByteArray/Bytes.hs, dist/build/Data/ByteArray/Bytes.o, dist/build/Data/ByteArray/Bytes.dyn_o )
+[27 of 28] Compiling Data.ByteArray   ( Data/ByteArray.hs, dist/build/Data/ByteArray.o, dist/build/Data/ByteArray.dyn_o )
+[28 of 28] Compiling Data.ByteArray.Pack ( Data/ByteArray/Pack.hs, dist/build/Data/ByteArray/Pack.o, dist/build/Data/ByteArray/Pack.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/mmry-0.18.0-e767045c/lib

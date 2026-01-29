@@ -1,0 +1,44 @@
+Configuring library for psqueues-0.2.8.3...
+Preprocessing library for psqueues-0.2.8.3...
+Building library for psqueues-0.2.8.3...
+[1 of 7] Compiling Data.BitUtil     ( src/Data/BitUtil.hs, dist/build/Data/BitUtil.o, dist/build/Data/BitUtil.dyn_o )
+[2 of 7] Compiling Data.IntPSQ.Internal ( src/Data/IntPSQ/Internal.hs, dist/build/Data/IntPSQ/Internal.o, dist/build/Data/IntPSQ/Internal.dyn_o )
+
+src/Data/IntPSQ/Internal.hs:66:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+66 | import           Control.Applicative ((<$>), (<*>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Data/IntPSQ/Internal.hs:70:1: warning: [-Wunused-imports]
+    The import of ‘Data.Foldable’ is redundant
+      except perhaps to import instances from ‘Data.Foldable’
+    To import instances alone, use: import Data.Foldable()
+   |
+70 | import           Data.Foldable       (Foldable)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Data/IntPSQ/Internal.hs:75:1: warning: [-Wunused-imports]
+    The import of ‘Data.Word’ is redundant
+      except perhaps to import instances from ‘Data.Word’
+    To import instances alone, use: import Data.Word()
+   |
+75 | import           Data.Word           (Word)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[3 of 7] Compiling Data.IntPSQ      ( src/Data/IntPSQ.hs, dist/build/Data/IntPSQ.o, dist/build/Data/IntPSQ.dyn_o )
+[4 of 7] Compiling Data.OrdPSQ.Internal ( src/Data/OrdPSQ/Internal.hs, dist/build/Data/OrdPSQ/Internal.o, dist/build/Data/OrdPSQ/Internal.dyn_o )
+[5 of 7] Compiling Data.OrdPSQ      ( src/Data/OrdPSQ.hs, dist/build/Data/OrdPSQ.o, dist/build/Data/OrdPSQ.dyn_o )
+[6 of 7] Compiling Data.HashPSQ.Internal ( src/Data/HashPSQ/Internal.hs, dist/build/Data/HashPSQ/Internal.o, dist/build/Data/HashPSQ/Internal.dyn_o )
+
+src/Data/HashPSQ/Internal.hs:59:1: warning: [-Wunused-imports]
+    The import of ‘Data.Foldable’ is redundant
+      except perhaps to import instances from ‘Data.Foldable’
+    To import instances alone, use: import Data.Foldable()
+   |
+59 | import           Data.Foldable        (Foldable)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[7 of 7] Compiling Data.HashPSQ     ( src/Data/HashPSQ.hs, dist/build/Data/HashPSQ.o, dist/build/Data/HashPSQ.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41764/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/psqs-0.2.8.3-4a42198c/lib

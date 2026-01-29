@@ -1,0 +1,11 @@
+pkgid: socks-0.6.1
+component: ComponentLib
+src: 734447558bb061ce768f53a0df1f2401902c6bee396cc96ce627edd986ef6a73
+pkg-config-deps: 
+deps: base-4.17.2.1, bsmnt-0.0.16-62ea47ca, bytestring-0.11.5.3, crl-0.5.8.3-cdc34e90, ntwrk-3.2.8.0-948adf32
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

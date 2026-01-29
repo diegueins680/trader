@@ -1,0 +1,47 @@
+Configuring library for crypton-x509-system-1.6.8...
+Preprocessing library for crypton-x509-system-1.6.8...
+Building library for crypton-x509-system-1.6.8...
+[1 of 4] Compiling System.X509.Common ( System/X509/Common.hs, dist/build/System/X509/Common.o, dist/build/System/X509/Common.dyn_o )
+
+System/X509/Common.hs:7:20: warning: [-Wunused-imports]
+    The import of ‘catMaybes’ from module ‘Data.Maybe’ is redundant
+  |
+7 | import Data.Maybe (catMaybes, fromMaybe)
+  |                    ^^^^^^^^^
+
+System/X509/Common.hs:8:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+  |
+8 | import Data.Monoid (mconcat)
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2 of 4] Compiling System.X509.MacOS ( System/X509/MacOS.hs, dist/build/System/X509/MacOS.o, dist/build/System/X509/MacOS.dyn_o )
+
+System/X509/MacOS.hs:5:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+  |
+5 | import Control.Applicative
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+[3 of 4] Compiling System.X509      ( System/X509.hs, dist/build/System/X509.o, dist/build/System/X509.dyn_o )
+[4 of 4] Compiling System.X509.Unix ( System/X509/Unix.hs, dist/build/System/X509/Unix.o, dist/build/System/X509/Unix.dyn_o )
+
+System/X509/Unix.hs:22:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+22 | import Control.Applicative ((<$>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+System/X509/Unix.hs:26:1: warning: [-Wunused-imports]
+    The import of ‘Data.Monoid’ is redundant
+      except perhaps to import instances from ‘Data.Monoid’
+    To import instances alone, use: import Data.Monoid()
+   |
+26 | import Data.Monoid (mconcat)
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/cryptn-x509-systm-1.6.8-2f562daf/lib

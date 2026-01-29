@@ -1,0 +1,11 @@
+pkgid: asn1-encoding-0.9.6
+component: ComponentLib
+src: d9f8deabd3b908e5cf83c0d813c08dc0143b3ec1c0d97f660d2cfa02c1c8da0a
+pkg-config-deps: 
+deps: base-4.17.2.1, bytestring-0.11.5.3, hrglss-0.2.12-dc3a30e2, sn1-typs-0.3.4-76529e2a
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

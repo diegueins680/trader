@@ -1,0 +1,11 @@
+pkgid: crypton-x509-system-1.6.8
+component: ComponentLib
+src: e80b133d708ffee6db6fd21b13a430e6b27a8ae2c47a848d0cdd5bd006a01b8e
+pkg-config-deps: 
+deps: base-4.17.2.1, bytestring-0.11.5.3, containers-0.6.7, cryptn-x509-1.7.7-19626287, cryptn-x509-str-1.6.14-f2ed2d6d, directory-1.3.7.1, filepath-1.4.2.2, mtl-2.2.2, pm-0.2.4-f1dbde61, process-1.6.18.0
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

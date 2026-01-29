@@ -1,0 +1,24 @@
+Configuring library for uuid-types-1.0.6...
+Preprocessing library for uuid-types-1.0.6...
+Building library for uuid-types-1.0.6...
+[1 of 3] Compiling Data.UUID.Types.Internal.Builder ( src/Data/UUID/Types/Internal/Builder.hs, dist/build/Data/UUID/Types/Internal/Builder.o, dist/build/Data/UUID/Types/Internal/Builder.dyn_o )
+[2 of 3] Compiling Data.UUID.Types.Internal ( src/Data/UUID/Types/Internal.hs, dist/build/Data/UUID/Types/Internal.o, dist/build/Data/UUID/Types/Internal.dyn_o )
+
+src/Data/UUID/Types/Internal.hs:49:1: warning: [-Wunused-imports]
+    The import of ‘Control.Applicative’ is redundant
+      except perhaps to import instances from ‘Control.Applicative’
+    To import instances alone, use: import Control.Applicative()
+   |
+49 | import           Control.Applicative              ((<*>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src/Data/UUID/Types/Internal.hs:55:1: warning: [-Wunused-imports]
+    The import of ‘Data.Functor’ is redundant
+      except perhaps to import instances from ‘Data.Functor’
+    To import instances alone, use: import Data.Functor()
+   |
+55 | import           Data.Functor                     ((<$>))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[3 of 3] Compiling Data.UUID.Types  ( src/Data/UUID/Types.hs, dist/build/Data/UUID/Types.o, dist/build/Data/UUID/Types.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/d-typs-1.0.6-948bb3eb/lib

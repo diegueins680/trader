@@ -1,0 +1,11 @@
+pkgid: hourglass-0.2.12
+component: ComponentLib
+src: 44335b5c402e80c60f1db6a74462be4ea29d1a9043aa994334ffee1164f1ca4a
+pkg-config-deps: 
+deps: base-4.17.2.1, deepseq-1.4.8.0
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

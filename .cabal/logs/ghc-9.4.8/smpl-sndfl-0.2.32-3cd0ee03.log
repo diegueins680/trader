@@ -1,0 +1,9 @@
+Configuring library for simple-sendfile-0.2.32...
+Preprocessing library for simple-sendfile-0.2.32...
+Building library for simple-sendfile-0.2.32...
+[1 of 4] Compiling Network.Sendfile.IOVec ( dist/build/Network/Sendfile/IOVec.hs, dist/build/Network/Sendfile/IOVec.o, dist/build/Network/Sendfile/IOVec.dyn_o )
+[2 of 4] Compiling Network.Sendfile.Types ( Network/Sendfile/Types.hs, dist/build/Network/Sendfile/Types.o, dist/build/Network/Sendfile/Types.dyn_o )
+[3 of 4] Compiling Network.Sendfile.BSD ( dist/build/Network/Sendfile/BSD.hs, dist/build/Network/Sendfile/BSD.o, dist/build/Network/Sendfile/BSD.dyn_o )
+[4 of 4] Compiling Network.Sendfile ( Network/Sendfile.hs, dist/build/Network/Sendfile.o, dist/build/Network/Sendfile.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/smpl-sndfl-0.2.32-3cd0ee03/lib

@@ -1,0 +1,13 @@
+Warning: asn1-types.cabal:17:34: version operators used. To use version
+operators the package needs to specify at least 'cabal-version: >= 1.8'.
+Configuring asn1-types-0.3.4...
+Preprocessing library for asn1-types-0.3.4...
+Building library for asn1-types-0.3.4...
+[1 of 6] Compiling Data.ASN1.BitArray ( Data/ASN1/BitArray.hs, dist/build/Data/ASN1/BitArray.o, dist/build/Data/ASN1/BitArray.dyn_o )
+[2 of 6] Compiling Data.ASN1.OID    ( Data/ASN1/OID.hs, dist/build/Data/ASN1/OID.o, dist/build/Data/ASN1/OID.dyn_o )
+[3 of 6] Compiling Data.ASN1.Types.Lowlevel ( Data/ASN1/Types/Lowlevel.hs, dist/build/Data/ASN1/Types/Lowlevel.o, dist/build/Data/ASN1/Types/Lowlevel.dyn_o )
+[4 of 6] Compiling Data.ASN1.Types.String ( Data/ASN1/Types/String.hs, dist/build/Data/ASN1/Types/String.o, dist/build/Data/ASN1/Types/String.dyn_o )
+[5 of 6] Compiling Data.ASN1.Types  ( Data/ASN1/Types.hs, dist/build/Data/ASN1/Types.o, dist/build/Data/ASN1/Types.dyn_o )
+[6 of 6] Compiling Data.ASN1.Pretty ( Data/ASN1/Pretty.hs, dist/build/Data/ASN1/Pretty.o, dist/build/Data/ASN1/Pretty.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/sn1-typs-0.3.4-76529e2a/lib

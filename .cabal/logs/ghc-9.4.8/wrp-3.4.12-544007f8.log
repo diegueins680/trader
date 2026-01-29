@@ -1,0 +1,103 @@
+Configuring library for warp-3.4.12...
+Preprocessing library for warp-3.4.12...
+Building library for warp-3.4.12...
+[ 1 of 34] Compiling Network.Wai.Handler.Warp.Date ( Network/Wai/Handler/Warp/Date.hs, dist/build/Network/Wai/Handler/Warp/Date.o, dist/build/Network/Wai/Handler/Warp/Date.dyn_o )
+[ 2 of 34] Compiling Network.Wai.Handler.Warp.HashMap ( Network/Wai/Handler/Warp/HashMap.hs, dist/build/Network/Wai/Handler/Warp/HashMap.o, dist/build/Network/Wai/Handler/Warp/HashMap.dyn_o )
+[ 3 of 34] Compiling Network.Wai.Handler.Warp.Imports ( Network/Wai/Handler/Warp/Imports.hs, dist/build/Network/Wai/Handler/Warp/Imports.o, dist/build/Network/Wai/Handler/Warp/Imports.dyn_o )
+[ 4 of 34] Compiling Network.Wai.Handler.Warp.FileInfoCache ( Network/Wai/Handler/Warp/FileInfoCache.hs, dist/build/Network/Wai/Handler/Warp/FileInfoCache.o, dist/build/Network/Wai/Handler/Warp/FileInfoCache.dyn_o )
+[ 5 of 34] Compiling Network.Wai.Handler.Warp.Counter ( Network/Wai/Handler/Warp/Counter.hs, dist/build/Network/Wai/Handler/Warp/Counter.o, dist/build/Network/Wai/Handler/Warp/Counter.dyn_o )
+[ 6 of 34] Compiling Network.Wai.Handler.Warp.MultiMap ( Network/Wai/Handler/Warp/MultiMap.hs, dist/build/Network/Wai/Handler/Warp/MultiMap.o, dist/build/Network/Wai/Handler/Warp/MultiMap.dyn_o )
+[ 7 of 34] Compiling Network.Wai.Handler.Warp.FdCache ( Network/Wai/Handler/Warp/FdCache.hs, dist/build/Network/Wai/Handler/Warp/FdCache.o, dist/build/Network/Wai/Handler/Warp/FdCache.dyn_o )
+[ 8 of 34] Compiling Network.Wai.Handler.Warp.PackInt ( Network/Wai/Handler/Warp/PackInt.hs, dist/build/Network/Wai/Handler/Warp/PackInt.o, dist/build/Network/Wai/Handler/Warp/PackInt.dyn_o )
+[ 9 of 34] Compiling Network.Wai.Handler.Warp.ReadInt ( Network/Wai/Handler/Warp/ReadInt.hs, dist/build/Network/Wai/Handler/Warp/ReadInt.o, dist/build/Network/Wai/Handler/Warp/ReadInt.dyn_o )
+[10 of 34] Compiling Network.Wai.Handler.Warp.ResponseHeader ( Network/Wai/Handler/Warp/ResponseHeader.hs, dist/build/Network/Wai/Handler/Warp/ResponseHeader.o, dist/build/Network/Wai/Handler/Warp/ResponseHeader.dyn_o )
+[11 of 34] Compiling Network.Wai.Handler.Warp.Types ( Network/Wai/Handler/Warp/Types.hs, dist/build/Network/Wai/Handler/Warp/Types.o, dist/build/Network/Wai/Handler/Warp/Types.dyn_o )
+[12 of 34] Compiling Network.Wai.Handler.Warp.RequestHeader ( Network/Wai/Handler/Warp/RequestHeader.hs, dist/build/Network/Wai/Handler/Warp/RequestHeader.o, dist/build/Network/Wai/Handler/Warp/RequestHeader.dyn_o )
+[13 of 34] Compiling Network.Wai.Handler.Warp.Header ( Network/Wai/Handler/Warp/Header.hs, dist/build/Network/Wai/Handler/Warp/Header.o, dist/build/Network/Wai/Handler/Warp/Header.dyn_o )
+[14 of 34] Compiling Network.Wai.Handler.Warp.File ( Network/Wai/Handler/Warp/File.hs, dist/build/Network/Wai/Handler/Warp/File.o, dist/build/Network/Wai/Handler/Warp/File.dyn_o )
+[15 of 34] Compiling Network.Wai.Handler.Warp.HTTP2.Types ( Network/Wai/Handler/Warp/HTTP2/Types.hs, dist/build/Network/Wai/Handler/Warp/HTTP2/Types.o, dist/build/Network/Wai/Handler/Warp/HTTP2/Types.dyn_o )
+[16 of 34] Compiling Network.Wai.Handler.Warp.Conduit ( Network/Wai/Handler/Warp/Conduit.hs, dist/build/Network/Wai/Handler/Warp/Conduit.o, dist/build/Network/Wai/Handler/Warp/Conduit.dyn_o )
+[17 of 34] Compiling Network.Wai.Handler.Warp.Buffer ( Network/Wai/Handler/Warp/Buffer.hs, dist/build/Network/Wai/Handler/Warp/Buffer.o, dist/build/Network/Wai/Handler/Warp/Buffer.dyn_o )
+[18 of 34] Compiling Network.Wai.Handler.Warp.SendFile ( Network/Wai/Handler/Warp/SendFile.hs, dist/build/Network/Wai/Handler/Warp/SendFile.o, dist/build/Network/Wai/Handler/Warp/SendFile.dyn_o )
+[19 of 34] Compiling Network.Wai.Handler.Warp.HTTP2.File ( Network/Wai/Handler/Warp/HTTP2/File.hs, dist/build/Network/Wai/Handler/Warp/HTTP2/File.o, dist/build/Network/Wai/Handler/Warp/HTTP2/File.dyn_o )
+[20 of 34] Compiling Network.Wai.Handler.Warp.IO ( Network/Wai/Handler/Warp/IO.hs, dist/build/Network/Wai/Handler/Warp/IO.o, dist/build/Network/Wai/Handler/Warp/IO.dyn_o )
+[21 of 34] Compiling Network.Wai.Handler.Warp.Windows ( Network/Wai/Handler/Warp/Windows.hs, dist/build/Network/Wai/Handler/Warp/Windows.o, dist/build/Network/Wai/Handler/Warp/Windows.dyn_o )
+[22 of 34] Compiling Paths_warp       ( dist/build/autogen/Paths_warp.hs, dist/build/Paths_warp.o, dist/build/Paths_warp.dyn_o )
+[23 of 34] Compiling Network.Wai.Handler.Warp.Settings ( Network/Wai/Handler/Warp/Settings.hs, dist/build/Network/Wai/Handler/Warp/Settings.o, dist/build/Network/Wai/Handler/Warp/Settings.dyn_o )
+[24 of 34] Compiling Network.Wai.Handler.Warp.Response ( Network/Wai/Handler/Warp/Response.hs, dist/build/Network/Wai/Handler/Warp/Response.o, dist/build/Network/Wai/Handler/Warp/Response.dyn_o )
+[25 of 34] Compiling Network.Wai.Handler.Warp.Request ( Network/Wai/Handler/Warp/Request.hs, dist/build/Network/Wai/Handler/Warp/Request.o, dist/build/Network/Wai/Handler/Warp/Request.dyn_o )
+[26 of 34] Compiling Network.Wai.Handler.Warp.HTTP2.Request ( Network/Wai/Handler/Warp/HTTP2/Request.hs, dist/build/Network/Wai/Handler/Warp/HTTP2/Request.o, dist/build/Network/Wai/Handler/Warp/HTTP2/Request.dyn_o )
+
+Network/Wai/Handler/Warp/HTTP2/Request.hs:88:14: warning: [-Wdeprecations]
+    In the use of ‘getHeaderValue’
+    (imported from Network.HPACK, but defined in http-semantics-0.4.0:Network.HTTP.Semantics.Header):
+    Deprecated: "use geFieldValue instead"
+   |
+88 |     !mPath = getHeaderValue tokenPath reqvt -- SHOULD
+   |              ^^^^^^^^^^^^^^
+
+Network/Wai/Handler/Warp/HTTP2/Request.hs:89:31: warning: [-Wdeprecations]
+    In the use of ‘getHeaderValue’
+    (imported from Network.HPACK, but defined in http-semantics-0.4.0:Network.HTTP.Semantics.Header):
+    Deprecated: "use geFieldValue instead"
+   |
+89 |     !colonMethod = fromJust $ getHeaderValue tokenMethod reqvt -- MUST
+   |                               ^^^^^^^^^^^^^^
+
+Network/Wai/Handler/Warp/HTTP2/Request.hs:90:14: warning: [-Wdeprecations]
+    In the use of ‘getHeaderValue’
+    (imported from Network.HPACK, but defined in http-semantics-0.4.0:Network.HTTP.Semantics.Header):
+    Deprecated: "use geFieldValue instead"
+   |
+90 |     !mAuth = getHeaderValue tokenAuthority reqvt -- SHOULD
+   |              ^^^^^^^^^^^^^^
+
+Network/Wai/Handler/Warp/HTTP2/Request.hs:91:14: warning: [-Wdeprecations]
+    In the use of ‘getHeaderValue’
+    (imported from Network.HPACK, but defined in http-semantics-0.4.0:Network.HTTP.Semantics.Header):
+    Deprecated: "use geFieldValue instead"
+   |
+91 |     !mHost = getHeaderValue tokenHost reqvt
+   |              ^^^^^^^^^^^^^^
+
+Network/Wai/Handler/Warp/HTTP2/Request.hs:92:15: warning: [-Wdeprecations]
+    In the use of ‘getHeaderValue’
+    (imported from Network.HPACK, but defined in http-semantics-0.4.0:Network.HTTP.Semantics.Header):
+    Deprecated: "use geFieldValue instead"
+   |
+92 |     !mRange = getHeaderValue tokenRange reqvt
+   |               ^^^^^^^^^^^^^^
+
+Network/Wai/Handler/Warp/HTTP2/Request.hs:93:17: warning: [-Wdeprecations]
+    In the use of ‘getHeaderValue’
+    (imported from Network.HPACK, but defined in http-semantics-0.4.0:Network.HTTP.Semantics.Header):
+    Deprecated: "use geFieldValue instead"
+   |
+93 |     !mReferer = getHeaderValue tokenReferer reqvt
+   |                 ^^^^^^^^^^^^^^
+
+Network/Wai/Handler/Warp/HTTP2/Request.hs:94:19: warning: [-Wdeprecations]
+    In the use of ‘getHeaderValue’
+    (imported from Network.HPACK, but defined in http-semantics-0.4.0:Network.HTTP.Semantics.Header):
+    Deprecated: "use geFieldValue instead"
+   |
+94 |     !mUserAgent = getHeaderValue tokenUserAgent reqvt
+   |                   ^^^^^^^^^^^^^^
+[27 of 34] Compiling Network.Wai.Handler.Warp.HTTP2.Response ( Network/Wai/Handler/Warp/HTTP2/Response.hs, dist/build/Network/Wai/Handler/Warp/HTTP2/Response.o, dist/build/Network/Wai/Handler/Warp/HTTP2/Response.dyn_o )
+[28 of 34] Compiling Network.Wai.Handler.Warp.HTTP2.PushPromise ( Network/Wai/Handler/Warp/HTTP2/PushPromise.hs, dist/build/Network/Wai/Handler/Warp/HTTP2/PushPromise.o, dist/build/Network/Wai/Handler/Warp/HTTP2/PushPromise.dyn_o )
+[29 of 34] Compiling Network.Wai.Handler.Warp.HTTP2 ( Network/Wai/Handler/Warp/HTTP2.hs, dist/build/Network/Wai/Handler/Warp/HTTP2.o, dist/build/Network/Wai/Handler/Warp/HTTP2.dyn_o )
+
+Network/Wai/Handler/Warp/HTTP2.hs:153:25: warning: [-Wdeprecations]
+    In the use of type constructor or class ‘ErrorCodeId’
+    (imported from Network.HTTP2.Frame, but defined in http2-5.4.0:Network.HTTP2.Frame.Types):
+    Deprecated: "Use ErrorCode instead"
+    |
+153 | goaway :: Connection -> H2.ErrorCodeId -> ByteString -> IO ()
+    |                         ^^^^^^^^^^^^^^
+[30 of 34] Compiling Network.Wai.Handler.Warp.HTTP1 ( Network/Wai/Handler/Warp/HTTP1.hs, dist/build/Network/Wai/Handler/Warp/HTTP1.o, dist/build/Network/Wai/Handler/Warp/HTTP1.dyn_o )
+[31 of 34] Compiling Network.Wai.Handler.Warp.Run ( Network/Wai/Handler/Warp/Run.hs, dist/build/Network/Wai/Handler/Warp/Run.o, dist/build/Network/Wai/Handler/Warp/Run.dyn_o )
+[32 of 34] Compiling Network.Wai.Handler.Warp.WithApplication ( Network/Wai/Handler/Warp/WithApplication.hs, dist/build/Network/Wai/Handler/Warp/WithApplication.o, dist/build/Network/Wai/Handler/Warp/WithApplication.dyn_o )
+[33 of 34] Compiling Network.Wai.Handler.Warp.Internal ( Network/Wai/Handler/Warp/Internal.hs, dist/build/Network/Wai/Handler/Warp/Internal.o, dist/build/Network/Wai/Handler/Warp/Internal.dyn_o )
+[34 of 34] Compiling Network.Wai.Handler.Warp ( Network/Wai/Handler/Warp.hs, dist/build/Network/Wai/Handler/Warp.o, dist/build/Network/Wai/Handler/Warp.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-41762/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/wrp-3.4.12-544007f8/lib

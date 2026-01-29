@@ -1,0 +1,12 @@
+Configuring library for indexed-traversable-0.1.4...
+Preprocessing library for indexed-traversable-0.1.4...
+Building library for indexed-traversable-0.1.4...
+[1 of 7] Compiling CoerceCompat     ( src/CoerceCompat.hs, dist/build/CoerceCompat.o, dist/build/CoerceCompat.dyn_o )
+[2 of 7] Compiling GhcList          ( src/GhcList.hs, dist/build/GhcList.o, dist/build/GhcList.dyn_o )
+[3 of 7] Compiling WithIndex        ( src/WithIndex.hs, dist/build/WithIndex.o, dist/build/WithIndex.dyn_o )
+[4 of 7] Compiling Data.Traversable.WithIndex ( src/Data/Traversable/WithIndex.hs, dist/build/Data/Traversable/WithIndex.o, dist/build/Data/Traversable/WithIndex.dyn_o )
+[5 of 7] Compiling Data.Functor.WithIndex ( src/Data/Functor/WithIndex.hs, dist/build/Data/Functor/WithIndex.o, dist/build/Data/Functor/WithIndex.dyn_o )
+[6 of 7] Compiling Data.Foldable1.WithIndex ( src/Data/Foldable1/WithIndex.hs, dist/build/Data/Foldable1/WithIndex.o, dist/build/Data/Foldable1/WithIndex.dyn_o )
+[7 of 7] Compiling Data.Foldable.WithIndex ( src/Data/Foldable/WithIndex.hs, dist/build/Data/Foldable/WithIndex.o, dist/build/Data/Foldable/WithIndex.dyn_o )
+ld: warning: -single_module is obsolete
+Installing library in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ndxd-trvrsbl-0.1.4-2ac1418a/lib

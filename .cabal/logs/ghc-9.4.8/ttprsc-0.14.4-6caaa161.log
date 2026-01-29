@@ -1,0 +1,59 @@
+Configuring library 'attoparsec-internal' for attoparsec-0.14.4...
+Preprocessing library 'attoparsec-internal' for attoparsec-0.14.4...
+Building library 'attoparsec-internal' for attoparsec-0.14.4...
+[1 of 6] Compiling Data.Attoparsec.ByteString.FastSet ( internal/Data/Attoparsec/ByteString/FastSet.hs, dist/build/attoparsec-internal/Data/Attoparsec/ByteString/FastSet.o, dist/build/attoparsec-internal/Data/Attoparsec/ByteString/FastSet.dyn_o )
+
+internal/Data/Attoparsec/ByteString/FastSet.hs:97:18: warning: [-Wdeprecations]
+    In the use of ‘memset’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.fillBytes instead"
+   |
+97 |             _ <- I.memset t 0 32
+   |                  ^^^^^^^^
+[2 of 6] Compiling Data.Attoparsec.Internal.Compat ( internal/Data/Attoparsec/Internal/Compat.hs, dist/build/attoparsec-internal/Data/Attoparsec/Internal/Compat.o, dist/build/attoparsec-internal/Data/Attoparsec/Internal/Compat.dyn_o )
+[3 of 6] Compiling Data.Attoparsec.Internal.Fhthagn ( internal/Data/Attoparsec/Internal/Fhthagn.hs, dist/build/attoparsec-internal/Data/Attoparsec/Internal/Fhthagn.o, dist/build/attoparsec-internal/Data/Attoparsec/Internal/Fhthagn.dyn_o )
+[4 of 6] Compiling Data.Attoparsec.ByteString.Buffer ( internal/Data/Attoparsec/ByteString/Buffer.hs, dist/build/attoparsec-internal/Data/Attoparsec/ByteString/Buffer.o, dist/build/attoparsec-internal/Data/Attoparsec/ByteString/Buffer.dyn_o )
+
+internal/Data/Attoparsec/ByteString/Buffer.hs:62:1: warning: [-Wunused-imports]
+    The import of ‘Data.Semigroup’ is redundant
+      except perhaps to import instances from ‘Data.Semigroup’
+    To import instances alone, use: import Data.Semigroup()
+   |
+62 | import Data.Semigroup (Semigroup(..))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+internal/Data/Attoparsec/ByteString/Buffer.hs:121:11: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+121 |           memcpy (ptr0 `plusPtr` (off0+len0))
+    |           ^^^^^^
+
+internal/Data/Attoparsec/ByteString/Buffer.hs:132:13: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+132 |             memcpy ptr (ptr0 `plusPtr` off0) (fromIntegral len0)
+    |             ^^^^^^
+
+internal/Data/Attoparsec/ByteString/Buffer.hs:133:13: warning: [-Wdeprecations]
+    In the use of ‘memcpy’
+    (imported from Data.ByteString.Internal, but defined in bytestring-0.11.5.3:Data.ByteString.Internal.Type):
+    Deprecated: "Use Foreign.Marshal.Utils.copyBytes instead"
+    |
+133 |             memcpy (ptr `plusPtr` len0) (ptr1 `plusPtr` off1)
+    |             ^^^^^^
+[5 of 6] Compiling Data.Attoparsec.Text.Buffer ( internal/Data/Attoparsec/Text/Buffer.hs, dist/build/attoparsec-internal/Data/Attoparsec/Text/Buffer.o, dist/build/attoparsec-internal/Data/Attoparsec/Text/Buffer.dyn_o )
+
+internal/Data/Attoparsec/Text/Buffer.hs:44:1: warning: [-Wunused-imports]
+    The import of ‘Data.Semigroup’ is redundant
+      except perhaps to import instances from ‘Data.Semigroup’
+    To import instances alone, use: import Data.Semigroup()
+   |
+44 | import Data.Semigroup (Semigroup(..))
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[6 of 6] Compiling Data.Attoparsec.Text.FastSet ( internal/Data/Attoparsec/Text/FastSet.hs, dist/build/attoparsec-internal/Data/Attoparsec/Text/FastSet.o, dist/build/attoparsec-internal/Data/Attoparsec/Text/FastSet.dyn_o )
+ld: warning: -single_module is obsolete
+Installing internal library attoparsec-internal in /Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/incoming/new-67505/Users/diegosaa/GitHub/trader/.cabal/store/ghc-9.4.8/ttprsc-0.14.4-6caaa161/lib

@@ -1,0 +1,11 @@
+pkgid: pem-0.2.4
+component: ComponentLib
+src: 770c4c1b9cd24b3db7f511f8a48404a0d098999e28573c3743a8a296bb96f8d4
+pkg-config-deps: 
+deps: base-4.17.2.1, bsmnt-0.0.16-62ea47ca, bytestring-0.11.5.3, mmry-0.18.0-e767045c
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+shared-lib: True
+stripped-exe: False
+debug-info: 0

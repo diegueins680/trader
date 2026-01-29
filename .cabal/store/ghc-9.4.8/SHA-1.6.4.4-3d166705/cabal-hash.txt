@@ -1,0 +1,12 @@
+pkgid: SHA-1.6.4.4
+component: ComponentLib
+src: 6bd950df6b11a3998bb1452d875d2da043ee43385459afc5f16d471d25178b44
+pkg-config-deps: 
+deps: array-0.5.4.0, base-4.17.2.1, binary-0.8.9.1, bytestring-0.11.5.3
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+flags: -exe
+shared-lib: True
+stripped-exe: False
+debug-info: 0

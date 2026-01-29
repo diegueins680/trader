@@ -189,7 +189,12 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
         const updatedAtMs = topCombosMeta.generatedAtMs;
         const updatedLabel = updatedAtMs ? fmtTimeMs(updatedAtMs) : "—";
         const ageLabel = updatedAtMs ? fmtDurationMs(Math.max(0, Date.now() - updatedAtMs)) : null;
-        const sourceLabel = "Source: API";
+        const sourceLabel =
+          topCombosMeta.source === "api"
+            ? "Source: API"
+            : topCombosMeta.source === "repo"
+              ? "Source: Repo"
+              : "Source: Cache";
         const payloadSources = topCombosMeta.payloadSources;
         const payloadSource = topCombosMeta.payloadSource;
         const payloadLabel =

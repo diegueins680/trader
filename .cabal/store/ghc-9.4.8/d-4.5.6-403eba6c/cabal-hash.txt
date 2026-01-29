@@ -1,0 +1,12 @@
+pkgid: ad-4.5.6
+component: ComponentLib
+src: 9d08af9ce72a7ac441f24b8acdd638b1853d7dbf7762c956605637056ae86aec
+pkg-config-deps: 
+deps: array-0.5.4.0, base-4.17.2.1, cmnd-5.0.10-640722d8, containers-0.6.7, djnctns-4.4.4-4009b1df, dt-rfy-0.6.4-889303a0, fr-5.2-37f64baa, nts-1.1.2-c9e28680, rf-2.0.0.0-fc51ebbc, rflctn-2.1.9-44cc812e, smgrps-0.20.1-a865a844, transformers-0.5.6.2
+compilerid: ghc-9.4.8
+compilerabi: 
+platform: x86_64-osx
+flags: -ffi -herbie
+shared-lib: True
+stripped-exe: False
+debug-info: 0
