@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
 - Optimizer: allow `--max-hold-bars 0` from optimize-equity sweeps to disable the max-hold gate.
 - Web UI: avoid scheme-relative API URLs when `apiBaseUrl` is empty by falling back to same-origin paths.
 - API/UI: add `/binance/positions/close` and a “Close position” button to send reduce-only futures close orders (includes `positionSide` in hedge mode).
+- Binance: retry signed requests on timestamp skew and treat existing protection orders as non-fatal to keep key checks and protection refreshes stable after idle/sleep.
+- Optimizer: avoid overwriting existing `top-combos.json` with fallback seeds when the primary file exists but fails to load.
+- API: allow overriding the bind host via `TRADER_API_BIND_HOST` (useful when `0.0.0.0` is not permitted).
+- Dev: `start_api_bg.sh` now runs the Postgres-aware helper and sets persistent state/combos dirs by default.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
 - Dev: add `haskell/scripts/run_api_with_db.sh` helper to start the API with local Postgres persistence.
 - Deploy: include `libpq` in the runtime image so Postgres ops persistence starts cleanly.

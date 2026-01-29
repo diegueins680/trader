@@ -8249,24 +8249,144 @@ runRestApi baseArgs mWebhook = do
             putStrLn "Increased GHC capabilities to 2 (to keep the API responsive during heavy compute)."
         else pure ()
 
-    let bindHostStr = "0.0.0.0" :: String
-        bindHost = ("0.0.0.0" :: Warp.HostPreference)
-        displayHost = "127.0.0.1" :: String
-        port = max 1 (argPort baseArgs)
-        settings =
-            Warp.setHost bindHost $
-                Warp.setTimeout timeoutSec $
-                    Warp.setPort port Warp.defaultSettings
-    putStrLn (printf "Build: %s%s" (biVersion buildInfo) (maybe "" (\c -> " (" ++ take 12 c ++ ")") (biCommit buildInfo)))
-    putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHostStr port)
-    putStrLn
-        ( printf
-            "API limits: maxAsyncRunning=%d, maxBacktestRunning=%d, maxBarsLstm=%d, maxEpochs=%d, maxHiddenSize=%d"
-            maxAsyncRunning
-            maxBacktestRunning
-            (aclMaxBarsLstm limits)
-            (aclMaxEpochs limits)
-            (aclMaxHiddenSize limits)
+  bindHostEnv <- lookupEnv "TRADER_API_BIND_HOST"
+  let bindHostStr =
+        case trim <$> bindHostEnv of
+          Just host | not (null host) -> host
+          _ -> "0.0.0.0"
+      bindHost = fromString bindHostStr :: Warp.HostPreference
+      displayHost = "127.0.0.1" :: String
+      port = max 1 (argPort baseArgs)
+      settings =
+        Warp.setHost bindHost $
+          Warp.setTimeout timeoutSec $
+          Warp.setPort port Warp.defaultSettings
+  putStrLn (printf "Build: %s%s" (biVersion buildInfo) (maybe "" (\c -> " (" ++ take 12 c ++ ")") (biCommit buildInfo)))
+  putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHostStr port)
+  putStrLn
+    ( printf
+        "API limits: maxAsyncRunning=%d, maxBacktestRunning=%d, maxBarsLstm=%d, maxEpochs=%d, maxHiddenSize=%d"
+        maxAsyncRunning
+        maxBacktestRunning
+        (aclMaxBarsLstm limits)
+        (aclMaxEpochs limits)
+        (aclMaxHiddenSize limits)
+    )
+  putStrLn
+    ( printf
+        "API backtest gate: maxRunning=%d timeoutSec=%d"
+        maxBacktestRunning
+        backtestTimeoutSec
+    )
+  putStrLn
+    ( printf
+        "API request limits: maxBodyBytes=%d, maxOptimizerOutputBytes=%d, botStatusTailMax=%d"
+        (arlMaxBodyBytes reqLimits)
+        (arlMaxOptimizerOutputBytes reqLimits)
+        (arlMaxBotStatusTail reqLimits)
+    )
+  if ccAllowAnyOrigin corsConfig
+    then putStrLn "CORS: allowed origin *"
+    else
+      case ccAllowedOrigins corsConfig of
+        [] ->
+          if ccAllowAuthOrigin corsConfig
+            then putStrLn "CORS: auth-origin allowed (Origin echoed when auth headers present)"
+            else putStrLn "CORS: disabled (set TRADER_CORS_ORIGIN to allow a specific origin)"
+        origins ->
+          putStrLn ("CORS: allowed origins " ++ intercalate ", " (map BS.unpack origins))
+  apiCache <- newApiCache cacheMaxEntries cacheTtlMs
+  putStrLn
+    ( printf
+        "API cache: ttlMs=%d maxEntries=%d"
+        cacheTtlMs
+        cacheMaxEntries
+    )
+  projectRoot <- getCurrentDirectory
+  mStateDir <- stateDirFromEnv
+  let tmpRoot = projectRoot </> ".tmp"
+  createDirectoryIfMissing True tmpRoot
+  let optimizerTmp = fromMaybe (tmpRoot </> "optimizer") (fmap (</> "optimizer") mStateDir)
+  createDirectoryIfMissing True optimizerTmp
+  metrics <- newMetrics
+  mJournal <- newJournalFromEnv
+  mOps <- newOpsStoreFromEnv
+  listenKeyManager <- newListenKeyManager
+  mBotStateDir <- resolveBotStateDir
+  backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
+  topCombosEnabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
+  let topCombosEnabled = readEnvBool topCombosEnabledEnv True
+  topCombosLock <- newMVar ()
+  topCombosCandleChan <- newChan
+  let topCombosCtx =
+        TopCombosBacktestCtx
+          { tcbcBaseArgs = baseArgs
+          , tcbcLimits = limits
+          , tcbcGate = backtestGate
+          , tcbcOps = mOps
+          , tcbcJournal = mJournal
+          , tcbcOptimizerTmp = optimizerTmp
+          , tcbcLock = topCombosLock
+          , tcbcCandleChan = topCombosCandleChan
+          , tcbcEnabled = topCombosEnabled
+          }
+  let defaultAsyncDir = fromMaybe (tmpRoot </> "async") (fmap (</> "async") mStateDir)
+  asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
+  let asyncDirTrimmed = trim <$> asyncDirEnv
+      mAsyncDir =
+        case asyncDirTrimmed of
+          Nothing -> Just defaultAsyncDir
+          Just dir | null dir -> Nothing
+          Just dir -> Just dir
+      asyncDirFromEnv =
+        case asyncDirTrimmed of
+          Nothing -> False
+          Just dir -> not (null dir)
+      asyncDirFromState = isNothing asyncDirTrimmed && isJust mStateDir
+  case mAsyncDir of
+    Nothing -> pure ()
+    Just dir -> do
+      let suffix :: String
+          suffix
+            | asyncDirFromEnv = ""
+            | asyncDirFromState = " (from TRADER_STATE_DIR; set TRADER_API_ASYNC_DIR to override)"
+            | otherwise = " (default; set TRADER_API_ASYNC_DIR to override)"
+      putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
+  now <- getTimestampMs
+  journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
+  opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
+  autoBotKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey baseArgs)
+  autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
+  let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
+  bot <- newBotController
+  case mAutoBotTenant of
+    Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
+    Just tenantKey -> do
+      _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot tenantKey)
+      pure ()
+  _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
+  _ <- forkIO (topCombosCandleWorker topCombosCtx)
+  _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
+  asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
+  asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
+  asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
+  hFlush stdout
+  res <-
+    ( try
+        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+        IO (Either IOException ())
+    )
+  case res of
+    Right () -> pure ()
+    Left e ->
+      ioError
+        ( userError
+            ( printf
+                "Failed to start REST API on %s:%d: %s\nTry a different --port (or check permissions / sandbox restrictions)."
+                bindHostStr
+                port
+                (show e)
+            )
         )
     putStrLn
         ( printf
@@ -11671,38 +11791,38 @@ handleOptimizerCombos ::
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
 handleOptimizerCombos projectRoot optimizerTmp respond = do
-    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-    let tmpPath = optimizerTmp </> optimizerCombosFileName
-        fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
-    topVal <- readTopCombosValue topJsonPath
-    let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
-    tmpVal <-
-        if tmpPath /= topJsonPath
-            then sanitizeVal <$> readTopCombosValueLocal tmpPath
-            else pure (Left "missing")
-    fallbackVal <-
-        if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
-            then sanitizeVal <$> readTopCombosValueLocal fallbackPath
-            else pure (Left "missing")
-    let seedVal = listToMaybe [v | Right v <- [tmpVal, fallbackVal]]
-    case (topVal, seedVal) of
-        (Left _, Just seed) -> do
-            _ <- writeTopCombosValue topJsonPath seed
-            persistTopCombosMaybe topJsonPath
-        _ -> pure ()
-    let allVals = [topVal, tmpVal, fallbackVal]
-    now <- getTimestampMs
-
-    let combosBySource =
-            map
-                (either (const ([], Nothing)) (\val -> (extractCombos val, extractPayloadSource val)))
-                allVals
-        combos = concatMap fst combosBySource
-        payloadSources =
-            concatMap
-                (\(cs, src) -> if null cs then [] else maybeToList src)
-                combosBySource
-        payloadSource = listToMaybe payloadSources
+  topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+  let tmpPath = optimizerTmp </> optimizerCombosFileName
+      fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
+  topExists <- doesFileExist topJsonPath
+  topVal <- readTopCombosValue topJsonPath
+  let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
+  tmpVal <-
+    if tmpPath /= topJsonPath
+      then sanitizeVal <$> readTopCombosValueLocal tmpPath
+      else pure (Left "missing")
+  fallbackVal <-
+    if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
+      then sanitizeVal <$> readTopCombosValueLocal fallbackPath
+      else pure (Left "missing")
+  let seedVal = listToMaybe [v | Right v <- [tmpVal, fallbackVal]]
+  case (topVal, seedVal, topExists) of
+    (Left _, Just seed, False) -> do
+      _ <- writeTopCombosValue topJsonPath seed
+      persistTopCombosMaybe topJsonPath
+    _ -> pure ()
+  let allVals = [topVal, tmpVal, fallbackVal]
+  now <- getTimestampMs
+  let combosBySource =
+        map
+          (either (const ([], Nothing)) (\val -> (extractCombos val, extractPayloadSource val)))
+          allVals
+      combos = concatMap fst combosBySource
+      payloadSources =
+        concatMap
+          (\(cs, src) -> if null cs then [] else maybeToList src)
+          combosBySource
+      payloadSource = listToMaybe payloadSources
     if null combos
         then respond (jsonError status404 "Optimizer combos not available yet.")
         else do
@@ -15085,29 +15205,225 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                 _ <- try (cancelFuturesOpenOrdersByClientPrefix env sym protectPrefix) :: IO (Either SomeException Int)
                                 pure ()
 
-                    placeProtectionOrders :: Int -> Double -> IO (Either String ())
-                    placeProtectionOrders protectDir entryPrice
-                        | not protectionEnabled = pure (Right ())
-                        | otherwise = do
-                            ts <- getTimestampMs
-                            let requiresAlgo msg =
-                                    "-4120" `isInfixOf` msg
-                                        || "Algo Order" `isInfixOf` msg
-                                        || "algo order" `isInfixOf` msg
-                            let mkCid suffix =
-                                    let raw = protectPrefix ++ show ts ++ "_" ++ suffix
-                                     in if length raw <= 36 then raw else take 36 raw
+              placeProtectionOrders :: Int -> Double -> IO (Either String ())
+              placeProtectionOrders protectDir entryPrice
+                | not protectionEnabled = pure (Right ())
+                | otherwise = do
+                    ts <- getTimestampMs
+                    let requiresAlgo msg =
+                          "-4120" `isInfixOf` msg
+                            || "Algo Order" `isInfixOf` msg
+                            || "algo order" `isInfixOf` msg
+                        isExistingProtection msg =
+                          let msgLower = map toLower msg
+                           in "-4130" `isInfixOf` msgLower
+                                || "open stop or take profit order" `isInfixOf` msgLower
+                                || "closeposition in the direction is existing" `isInfixOf` msgLower
+                    let mkCid suffix =
+                          let raw = protectPrefix ++ show ts ++ "_" ++ suffix
+                           in if length raw <= 36 then raw else take 36 raw
 
-                                place1 :: OrderSide -> String -> Double -> String -> IO (Either String ())
-                                place1 side orderType px suffix = do
-                                    let cid = mkCid suffix
-                                        px1 = normalizeStopPrice px
-                                    r <- try (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
-                                    case r of
-                                        Right _ -> pure (Right ())
-                                        Left ex -> do
-                                            let msg = take 240 (show ex)
-                                            if requiresAlgo msg
+                        place1 :: OrderSide -> String -> Double -> String -> IO (Either String ())
+                        place1 side orderType px suffix = do
+                          let cid = mkCid suffix
+                              px1 = normalizeStopPrice px
+                          r <- try (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
+                          case r of
+                            Right _ -> pure (Right ())
+                            Left ex -> do
+                              let msg = take 240 (show ex)
+                              if isExistingProtection msg
+                                then pure (Right ())
+                                else if requiresAlgo msg
+                                  then do
+                                    let hedgeSide =
+                                          if protectDir < 0
+                                            then Just "SHORT"
+                                            else Just "LONG"
+                                        shouldRetryWithSide errMsg =
+                                          "positionSide" `isInfixOf` errMsg || "Position side" `isInfixOf` errMsg
+                                    rAlgo <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) Nothing) :: IO (Either SomeException BL.ByteString)
+                                    case rAlgo of
+                                      Right _ -> pure (Right ())
+                                      Left exAlgo -> do
+                                        let msgAlgo = take 240 (show exAlgo)
+                                        if isExistingProtection msgAlgo
+                                          then pure (Right ())
+                                          else if shouldRetryWithSide msgAlgo
+                                            then do
+                                              rAlgo2 <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) hedgeSide) :: IO (Either SomeException BL.ByteString)
+                                              pure $
+                                                case rAlgo2 of
+                                                  Left exAlgo2 ->
+                                                    let msgAlgo2 = take 240 (show exAlgo2)
+                                                     in if isExistingProtection msgAlgo2 then Right () else Left msgAlgo2
+                                                  Right _ -> Right ()
+                                            else pure (Left msgAlgo)
+                                  else pure (Left msg)
+
+                        (slSide, mSlPx, tpSide, mTpPx) =
+                          if protectDir < 0
+                            then
+                              ( Buy
+                              , (\sl -> entryPrice * (1 + sl)) <$> stopLoss0
+                              , Buy
+                              , (\tp -> entryPrice * (1 - tp)) <$> takeProfit0
+                              )
+                            else
+                              ( Sell
+                              , (\sl -> entryPrice * (1 - sl)) <$> stopLoss0
+                              , Sell
+                              , (\tp -> entryPrice * (1 + tp)) <$> takeProfit0
+                              )
+
+                    rSl <-
+                      case mSlPx of
+                        Nothing -> pure (Right ())
+                        Just px -> place1 slSide "STOP_MARKET" px "sl"
+                    rTp <-
+                      case mTpPx of
+                        Nothing -> pure (Right ())
+                        Just px -> place1 tpSide "TAKE_PROFIT_MARKET" px "tp"
+                    pure $
+                      case (rSl, rTp) of
+                        (Left e, _) -> Left ("Protection order failed: " ++ e)
+                        (_, Left e) -> Left ("Protection order failed: " ++ e)
+                        _ -> Right ()
+
+          mQuoteFromFraction <-
+            case (argOrderQuantity args, argOrderQuote args, argOrderQuoteFraction args) of
+              (Nothing, Nothing, Just f) | f > 0 -> do
+                bal <- fetchFuturesAvailableBalance env quoteAsset
+                let q0 = bal * f * entryScale
+                    q1 =
+                      let mCap =
+                            case argMaxOrderQuote args of
+                              Just q | q > 0 -> Just q
+                              _ -> Nothing
+                       in maybe q0 (\capQ -> min capQ q0) mCap
+                pure (Just q1)
+              _ -> pure Nothing
+          let mDesiredQtyRaw =
+                case argOrderQuantity args of
+                  Just q | q > 0 -> Just (q * entryScale)
+                  Just _ -> Nothing
+                  Nothing ->
+                    case (fmap (* entryScale) (argOrderQuote args) <|> mQuoteFromFraction) of
+                      Just qq | qq > 0 && currentPrice > 0 -> Just (qq / currentPrice)
+                      _ -> Nothing
+    
+              normalizeFuturesQty qRaw =
+                case mSf of
+                  Nothing -> Right qRaw
+                  Just sf -> normalizeQty sf currentPrice qRaw
+
+              normalizeFuturesEntryQty qRaw =
+                case mSf of
+                  Nothing -> Right (qRaw, False)
+                  Just sf -> normalizeEntryQty sf currentPrice qRaw
+
+              closeOrder sideLabel side qtyRaw =
+                case normalizeFuturesQty qtyRaw of
+                  Left e ->
+                    case minTradeQtyMaybe mSf currentPrice of
+                      Just minQ | qtyRaw < minQ -> pure baseResult { aorMessage = "No order: position below exchange minimums (dust)." }
+                      _ -> pure baseResult { aorMessage = "No order: " ++ e }
+                  Right q ->
+                    if q <= 0
+                      then pure baseResult { aorMessage = "No order: quantity is 0." }
+                      else do
+                        out <- sendMarketOrder sideLabel side (Just q) Nothing (Just True)
+                        if not (aorSent out) || mode /= OrderLive
+                          then pure out
+                          else do
+                            let isLongClose = side == Sell
+                                wantSide = if isLongClose then Just "LONG" else Just "SHORT"
+                                normalizeSide = fmap normalizeKey
+                                matchesSide ps =
+                                  case (normalizeSide ps, normalizeSide wantSide) of
+                                    (Just "long", Just "long") -> True
+                                    (Just "short", Just "short") -> True
+                                    _ -> False
+                                isBotAlgo cid = "trader_prot_" `isPrefixOf` cid
+                            let waitMax = 12 :: Int
+                                waitDelayUs = 500000
+                                waitLoop n = do
+                                  amt <- fetchFuturesPositionAmt env sym
+                                  if abs amt <= 1e-12 || n <= 0
+                                    then pure ()
+                                    else threadDelay waitDelayUs >> waitLoop (n - 1)
+                            waitLoop waitMax
+                            algoOrdersOrErr <- try (fetchFuturesOpenAlgoOrders env sym) :: IO (Either SomeException [FuturesAlgoOpenOrder])
+                            case algoOrdersOrErr of
+                              Left _ -> pure out
+                              Right orders -> do
+                                let filtered =
+                                      [ o
+                                      | o <- orders
+                                      , let symOk = normalizeKey (faoSymbol o) == normalizeKey sym
+                                      , symOk
+                                      , let mCid = faoClientAlgoId o
+                                      , maybe False isBotAlgo mCid
+                                      , let ps = faoPositionSide o
+                                      , case normalizeSide ps of
+                                          Just "long" -> matchesSide ps
+                                          Just "short" -> matchesSide ps
+                                          _ -> True
+                                      ]
+                                forM_ filtered $ \o ->
+                                  case faoClientAlgoId o of
+                                    Nothing -> pure ()
+                                    Just cid -> do
+                                      _ <- try (cancelFuturesAlgoOrderByClientId env cid) :: IO (Either SomeException BL.ByteString)
+                                      pure ()
+                                pure out
+    
+              noFuturesSizingMsg =
+                if maybe False (> 0) (argOrderQuoteFraction args)
+                  then "No order: computed quote is 0 (check futures balance / orderQuoteFraction / maxOrderQuote)."
+                  else "No order: futures requires orderQuantity or orderQuote."
+    
+          case dir of
+                1 ->
+                  if posAmt > 0
+                    then
+                      if protectionEnabled
+                        then do
+                          cancelProtectionOrders
+                          r <- placeProtectionOrders 1 currentPrice
+                          pure $
+                            case r of
+                              Left e -> baseResult { aorMessage = "No market order: already long. " ++ e }
+                              Right () -> baseResult { aorMessage = "No market order: already long. Protection orders refreshed." }
+                        else pure baseResult { aorMessage = "No order: already long." }
+                    else
+                      case lstmBlockMsg of
+                        Just msg | posAmt == 0 -> pure baseResult { aorMessage = msg }
+                        _ ->
+                          case mDesiredQtyRaw of
+                            Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
+                            Just q0 -> do
+                              case normalizeFuturesEntryQty q0 of
+                                Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                                Right (qDesired, bumped) -> do
+                                  fundsCheck <- ensureFuturesFunds 1 qDesired
+                                  case fundsCheck of
+                                    Left msg -> pure baseResult { aorMessage = msg }
+                                    Right () -> do
+                                      cancelProtectionOrders
+                                      let qtyToBuyRaw = if posAmt < 0 then abs posAmt + qDesired else qDesired
+                                      case normalizeFuturesQty qtyToBuyRaw of
+                                        Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                                        Right q ->
+                                          if q <= 0
+                                            then pure baseResult { aorMessage = "No order: quantity is 0." }
+                                            else do
+                                              out0 <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
+                                              let out =
+                                                    if bumped && aorSent out0
+                                                      then out0 { aorMessage = aorMessage out0 ++ " (min size applied)." }
+                                                      else out0
+                                              if aorSent out && protectionEnabled
                                                 then do
                                                     let hedgeSide =
                                                             if protectDir < 0

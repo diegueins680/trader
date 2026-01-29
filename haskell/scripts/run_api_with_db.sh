@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+ENV_FILE="$ROOT_DIR/../.env"
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+
+DB_URL_DEFAULT="postgres://${USER}@127.0.0.1:5432/trader?sslmode=disable"
+export TRADER_DB_URL="${TRADER_DB_URL:-$DB_URL_DEFAULT}"
+
+# Basic local Postgres readiness checks to avoid silent persistence disable.
+check_pg_ready() {
+  if command -v pg_isready >/dev/null 2>&1; then
+    if pg_isready -q -h 127.0.0.1 -p 5432; then
+      return 0
+    fi
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    if lsof -nP -iTCP:5432 -sTCP:LISTEN >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  if command -v nc >/dev/null 2>&1; then
+    if nc -z 127.0.0.1 5432 >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+cleanup_stale_postmaster() {
+  if [ -f "/opt/homebrew/var/postgresql@16/postmaster.pid" ]; then
+    stale_pid="$(head -n 1 /opt/homebrew/var/postgresql@16/postmaster.pid 2>/dev/null || true)"
+    if [ -n "${stale_pid}" ]; then
+      if ! ps -p "${stale_pid}" -o comm= >/dev/null 2>&1; then
+        echo "Removing stale postmaster.pid (PID ${stale_pid} not running)..."
+        rm -f /opt/homebrew/var/postgresql@16/postmaster.pid >/dev/null 2>&1 || true
+      fi
+    fi
+  fi
+}
+
+if ! check_pg_ready; then
+  cleanup_stale_postmaster
+  if command -v brew >/dev/null 2>&1; then
+    echo "Postgres not ready; starting via Homebrew..."
+    brew services start postgresql >/dev/null 2>&1 || true
+    if ! check_pg_ready; then
+      # Try versioned formula if the default service isn't installed.
+      pg_formula="$(brew list --formula 2>/dev/null | rg -m1 '^postgresql@' || true)"
+      if [ -n "${pg_formula}" ]; then
+        echo "Postgres still not ready; starting via Homebrew formula ${pg_formula}..."
+        brew services start "${pg_formula}" >/dev/null 2>&1 || true
+      fi
+    fi
+  else
+    cat <<'EOF'
+ERROR: Cannot verify Postgres availability (pg_isready/lsof/nc not found).
+Install Postgres (Homebrew: brew install postgresql) and start it.
+EOF
+    exit 1
+  fi
+fi
+
+if ! check_pg_ready; then
+  cat <<'EOF'
+ERROR: Postgres is not running on 127.0.0.1:5432.
+Homebrew quickstart:
+  brew services start postgresql
+  createdb trader
+If Homebrew reports a launchctl error, try:
+  brew services stop postgresql@16
+  launchctl unload -w ~/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist
+  rm -f ~/Library/LaunchAgents/homebrew.mxcl.postgresql@16.plist
+  brew services start postgresql@16
+Or set TRADER_DB_URL to your Postgres instance.
+EOF
+  exit 1
+fi
+
+# Create the default database if possible (no-op if it already exists).
+if command -v createdb >/dev/null 2>&1; then
+  if ! createdb trader >/dev/null 2>&1; then
+    if command -v psql >/dev/null 2>&1; then
+      if ! psql -h 127.0.0.1 -lqt 2>/dev/null | awk '{print $1}' | rg -q '^trader$'; then
+        echo "WARN: failed to create database 'trader'. Continuing without verification."
+      fi
+    fi
+  fi
+fi
+
+if ! check_pg_ready; then
+  cat <<'EOF'
+ERROR: Postgres is still not reachable after attempted startup.
+Set TRADER_DB_URL to a reachable Postgres instance.
+EOF
+  exit 1
+fi
+
+cabal run -v0 trader-hs -- --serve --port "${TRADER_API_PORT:-8080}"

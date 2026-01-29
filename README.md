@@ -481,6 +481,7 @@ Always-on live bot (cron watchdog):
 Request limits:
 - `TRADER_API_MAX_BODY_BYTES` (default 26214400) caps JSON request payload size; larger requests return 413.
 - `TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES` (default 20000) truncates `/optimizer/run` stdout/stderr in responses.
+- `TRADER_API_BIND_HOST` (default `0.0.0.0`) sets the address the API binds to; use `127.0.0.1` if `0.0.0.0` is blocked on your system.
 - Truncated optimizer trial errors end with a `…` marker.
 - Optimizer JSON output uses stable key ordering for easier diffs.
 - When the backtest queue is busy, the API queues the request; the UI waits for the slot to clear and reports when the backtest finishes.
@@ -628,7 +629,7 @@ Examples:
 curl -s http://127.0.0.1:8080/health
 ```
 
-Start the API in the background (loads `.env`, writes logs to `/tmp/trader-api.log` by default):
+Start the API in the background (loads `.env`, ensures local Postgres is running, sets persistent state/combos dirs, writes logs to `/tmp/trader-api.log` by default):
 ```
 ./haskell/scripts/start_api_bg.sh
 ```
