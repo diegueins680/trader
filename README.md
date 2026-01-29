@@ -630,7 +630,7 @@ Examples:
 curl -s http://127.0.0.1:8080/health
 ```
 
-Start the API in the background (loads `.env`, ensures local Postgres is running, sets persistent state/combos dirs, writes logs to `/tmp/trader-api.log` by default):
+Start the API in the background (loads `.env`, ensures local Postgres is running, sets persistent state/combos dirs, binds to 127.0.0.1 by default, writes logs to `/tmp/trader-api.log` by default):
 ```
 ./haskell/scripts/start_api_bg.sh
 ```
@@ -805,7 +805,7 @@ Performance rollups (code vs trading):
 - The UI surfaces these rollups in the “Performance vs code” panel via the `/ops/performance` endpoint.
 - Schedule it via cron to keep commit-level metrics fresh (requires `TRADER_DB_URL`).
 
-Run it:
+Run it (local dev):
 ```
 # Terminal A (backend)
 cd haskell
@@ -814,7 +814,7 @@ cabal run -v0 trader-hs -- --serve --port 8080
 # Terminal B (frontend)
 cd haskell/web
 npm install
-npm run dev
+TRADER_API_TARGET=http://127.0.0.1:8080 TRADER_API_TOKEN=... npm run dev
 ```
 
 Or (backend with local Postgres ops persistence):
