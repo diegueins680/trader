@@ -2890,6 +2890,22 @@ export const ConfigDock = (props: ConfigDockProps) => {
               seconds.{!form.autoRefresh ? " Enable Auto-refresh to use this interval." : ""}{" "}
               {form.bypassCache ? "Bypass cache adds Cache-Control: no-cache." : ""}
             </div>
+            <div className="hint" style={{ marginTop: 6 }}>
+              Positions open-time cache{" "}
+              <input
+                className="input"
+                style={{ height: 32, width: 84, padding: "0 10px", margin: "0 8px" }}
+                type="number"
+                min={0}
+                max={86_400}
+                value={form.positionsOpenTimeCacheSec}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, positionsOpenTimeCacheSec: numFromInput(e.target.value, f.positionsOpenTimeCacheSec) }))
+                }
+                aria-label="Positions open-time cache in seconds"
+              />{" "}
+              seconds. 0 disables caching.
+            </div>
           </div>
         </div>
 

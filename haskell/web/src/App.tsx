@@ -319,7 +319,6 @@ const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
 const BINANCE_POSITIONS_OPEN_TIME_LIMIT = 200;
-const BINANCE_POSITIONS_OPEN_TIME_CACHE_MS = 60_000;
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
@@ -5404,9 +5403,17 @@ export function App() {
       }
 
       const now = Date.now();
+      const openTimeCacheMs = Number.isFinite(form.positionsOpenTimeCacheSec)
+        ? Math.max(0, Math.round(form.positionsOpenTimeCacheSec * 1000))
+        : 0;
       const symbolSet = new Set(symbols.map((sym) => normalizeSymbolKey(sym)));
       const isFresh = (resp: ApiBinanceTradesResponse | null) =>
-        Boolean(resp && Number.isFinite(resp.fetchedAtMs) && now - resp.fetchedAtMs <= BINANCE_POSITIONS_OPEN_TIME_CACHE_MS);
+        Boolean(
+          resp &&
+            openTimeCacheMs > 0 &&
+            Number.isFinite(resp.fetchedAtMs) &&
+            now - resp.fetchedAtMs <= openTimeCacheMs,
+        );
       const coversSymbols = (resp: ApiBinanceTradesResponse | null) => {
         if (!resp) return false;
         if (resp.market !== form.market || resp.testnet !== form.binanceTestnet) return false;
@@ -5475,6 +5482,7 @@ export function App() {
       binanceTradesUi.response,
       form.binanceTestnet,
       form.market,
+      form.positionsOpenTimeCacheSec,
       withBinanceKeys,
     ],
   );
@@ -9177,6 +9185,7 @@ export function App() {
                   ) : (
                     <div className="hint">{binanceSignedKeysHint ?? "Requires Binance API keys with futures access."}</div>
                   )}
+                  <div className="hint">Open time is inferred from recent trades; "opened before" means the position predates the fetched trade window.</div>
                 </div>
               </div>
 
@@ -9284,6 +9293,9 @@ export function App() {
                   {binancePositionsInputError}
                 </div>
               ) : null}
+              <div className="hint" style={{ marginBottom: 10 }}>
+                Open time is inferred from recent trades; "opened before" means the position predates the fetched trade window.
+              </div>
 
               {binancePositionsUi.error ? (
                 <pre className="code" style={{ borderColor: "rgba(239, 68, 68, 0.35)", marginBottom: 10 }}>

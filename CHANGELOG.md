@@ -30,8 +30,10 @@ All notable changes to this project will be documented in this file.
 - Web UI: try `apiBaseUrl` first and fail over to `apiFallbackUrl` after network/502/503/504 errors, remembering successful fallbacks for the session.
 - Web UI: retry `/bot/status` with a smaller tail on timeout errors to keep the dashboard responsive.
 - Web UI: seed optimizer combos from the repo-tracked `haskell/web/public/top-combos.json` (and local cache) when the API is unavailable.
+- Web UI: keep cached optimizer combos when the API returns no combos, falling back to the last known list.
 - Web UI: auto-retry Binance positions refresh once on `-1021` timestamp errors and show a clearer time-sync hint.
-- Web UI: show inferred open times on open-position charts based on recent Binance trades.
+- Web UI: show inferred open times on open-position charts based on recent Binance trades and allow configuring the open-time cache window.
+- Web UI: reuse recent Binance trade fetches when inferring open-position times to reduce redundant requests.
 - Web UI: fix optimizer combos list scrolling in docked/maximized modes so long lists remain reachable.
 - Web UI: keep optimizer combo controls fixed while the combos list scrolls in the docked/maximized panel.
 - Web UI: allow scrolling the full optimizer combos panel when maximized so long lists remain accessible.

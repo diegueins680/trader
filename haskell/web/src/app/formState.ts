@@ -94,6 +94,7 @@ export type FormState = {
   bypassCache: boolean;
   autoRefresh: boolean;
   autoRefreshSec: number;
+  positionsOpenTimeCacheSec: number;
 
   // Live bot (advanced)
   botPollSeconds: number;
@@ -196,6 +197,7 @@ export const defaultForm: FormState = {
   bypassCache: false,
   autoRefresh: false,
   autoRefreshSec: 20,
+  positionsOpenTimeCacheSec: 60,
 
   botPollSeconds: 0,
   botOnlineEpochs: 1,
@@ -461,6 +463,12 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     confirmQuantiles: normalizeBool(rawRec.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
     confidenceSizing: normalizeBool(rawRec.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
     bypassCache: normalizeBool(rawRec.bypassCache ?? merged.bypassCache, defaultForm.bypassCache),
+    positionsOpenTimeCacheSec: normalizeFiniteNumber(
+      rawRec.positionsOpenTimeCacheSec ?? merged.positionsOpenTimeCacheSec,
+      defaultForm.positionsOpenTimeCacheSec,
+      0,
+      86_400,
+    ),
     learningRate: normalizeFiniteNumber(rawRec.learningRate ?? merged.learningRate, defaultForm.learningRate, 0, 1),
     valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
     patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
