@@ -458,6 +458,7 @@ Endpoints:
 - `GET /binance/listenKey/stream` → server-sent events relay of listenKey status, keep-alives, and Binance user-data payloads (auto-reconnects the Binance WebSocket on disconnects)
 - `POST /binance/listenKey/keepAlive` → keep-alives a listenKey (required ~every 30 minutes)
 - `POST /binance/listenKey/close` → closes a listenKey
+- If Binance returns `-1125` (listenKey expired), the backend marks the stream as expired so you can restart it from the UI.
 - `POST /bot/start` → starts one or more live bot loops (Binance data only; use `botSymbols` for multi-symbol; errors include per-symbol details when all fail). When `botSymbols` is provided without `binanceSymbol`, the first symbol is used as the data source for validation.
 - `POST /bot/start` skips top-combo candidates that exceed API compute limits and falls back to the base args.
 - `POST /bot/stop` → stops the live bot loop (`?symbol=BTCUSDT` stops one; omit to stop all)
