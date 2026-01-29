@@ -78,6 +78,7 @@ All notable changes to this project will be documented in this file.
 - API: add `/optimizer/run` guardrails via `TRADER_OPTIMIZER_MAX_TRIALS`, `TRADER_OPTIMIZER_MAX_TIMEOUT_SEC`, and `TRADER_OPTIMIZER_MAX_BARS`.
 - Web UI: add optimizer run guardrails for trials/timeout/bars to prevent runaway runs.
 - Web UI: add a toggle to disable auto-applying the top combo so manual symbol changes persist.
+- Web UI: show the Binance futures account UID on the Open positions panel.
 - Dev: add `haskell/scripts/start_api_bg.sh` helper to run the API with `.env` in the background.
 - API: enforce `TRADER_API_MAX_BARS_LSTM` for CSV requests with `--bars auto`/`0` using the loaded row count.
 - API: include CSV file size/mtime in cache keys so updated CSVs invalidate cached signal/backtest results.

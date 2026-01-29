@@ -262,6 +262,7 @@ export type ApiBinancePositionsResponse = {
   positions: BinancePosition[];
   charts: BinancePositionChart[];
   fetchedAtMs: number;
+  accountUid?: number;
 };
 
 export type ApiBinanceTradesRequest = {

@@ -34,6 +34,7 @@ module Trader.Binance
   , fetchFuturesOpenAlgoOrders
   , cancelFuturesAlgoOrderByClientId
   , FuturesAlgoOpenOrder(..)
+  , fetchFuturesAccountUid
   , fetchOrderByClientId
   , fetchAccountTrades
   , fetchFreeBalance
@@ -1549,6 +1550,46 @@ instance FromJSON FuturesBalance where
     availTxt <- o .: "availableBalance"
     avail <- parseDoubleText availTxt
     pure FuturesBalance { fbAsset = sym, fbAvailableBalance = avail }
+
+data FuturesAccountInfo = FuturesAccountInfo
+  { faiUid :: !(Maybe Int64)
+  }
+
+instance FromJSON FuturesAccountInfo where
+  parseJSON = withObject "FuturesAccountInfo" $ \o -> do
+    uid <- o AT..:? "uid"
+    pure FuturesAccountInfo { faiUid = uid }
+
+fetchFuturesAccountUid :: BinanceEnv -> IO (Maybe Int64)
+fetchFuturesAccountUid env = do
+  if beMarket env /= MarketFutures
+    then throwIO (userError "fetchFuturesAccountUid requires MarketFutures")
+    else pure ()
+  apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
+  secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
+  ts <- getTimestampMs
+
+  let params =
+        [ ("timestamp", BS.pack (show ts))
+        , ("recvWindow", "5000")
+        ]
+      queryToSign = renderSimpleQuery False params
+      sig = signQuery secret queryToSign
+      paramsSigned = params ++ [("signature", sig)]
+      qs = renderSimpleQuery True paramsSigned
+
+  req0 <- parseRequest (beBaseUrl env ++ "/fapi/v2/account")
+  let req =
+        req0
+          { method = "GET"
+          , queryString = qs
+          , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
+          }
+  resp <- binanceHttp env "futures/account" req
+  ensure2xx "futures/account" resp
+  case eitherDecode (responseBody resp) of
+    Left e -> throwIO (userError ("Failed to decode futures account: " ++ e))
+    Right info -> pure (faiUid info)
 
 fetchFuturesPositionAmt :: BinanceEnv -> String -> IO Double
 fetchFuturesPositionAmt env symbol = do

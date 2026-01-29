@@ -108,6 +108,7 @@ import Trader.Binance
   , placeFuturesAlgoTriggerMarketOrder
   , fetchFuturesOpenAlgoOrders
   , cancelFuturesAlgoOrderByClientId
+  , fetchFuturesAccountUid
   , fetchOrderByClientId
   , fetchAccountTrades
   , createListenKey
@@ -1414,6 +1415,7 @@ data ApiBinancePositionsResponse = ApiBinancePositionsResponse
   , abprPositions :: ![ApiBinancePosition]
   , abprCharts :: ![ApiBinancePositionChart]
   , abprFetchedAtMs :: !Int64
+  , abprAccountUid :: !(Maybe Int64)
   } deriving (Eq, Show, Generic)
 
 instance ToJSON ApiBinancePositionsResponse where
@@ -12769,6 +12771,11 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
                       let baseUrl = selectBinanceBaseUrl urls testnet market
                       env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                       r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
+                      accountUidResult <- try (fetchFuturesAccountUid env) :: IO (Either SomeException (Maybe Int64))
+                      let accountUid =
+                            case accountUidResult of
+                              Right v -> v
+                              Left _ -> Nothing
                       case r of
                         Left ex ->
                           let (st, msg) = exceptionToHttp ex
@@ -12818,6 +12825,7 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
                                 , abprPositions = map toApiPosition openPositions
                                 , abprCharts = catMaybes chartsRaw
                                 , abprFetchedAtMs = now
+                                , abprAccountUid = accountUid
                                 }
 
 handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> TopCombosBacktestCtx -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived

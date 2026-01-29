@@ -8928,7 +8928,12 @@ export function App() {
                       {binancePositionsUi.loading ? "Refreshing…" : "Refresh positions"}
                     </button>
                     {binancePositionsUi.response ? (
-                      <span className="badge">Updated {fmtTimeMs(binancePositionsUi.response.fetchedAtMs)}</span>
+                      <>
+                        <span className="badge">Updated {fmtTimeMs(binancePositionsUi.response.fetchedAtMs)}</span>
+                        {typeof binancePositionsUi.response.accountUid === "number" ? (
+                          <span className="badge">UID {binancePositionsUi.response.accountUid}</span>
+                        ) : null}
+                      </>
                     ) : null}
                     <span className="badge">{binancePositionsList.length} positions</span>
                   </div>
