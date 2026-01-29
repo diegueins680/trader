@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  ApiBinanceClosePositionRequest,
   ApiBinancePositionsRequest,
   ApiBinancePositionsResponse,
   ApiBinanceTradesRequest,
@@ -35,6 +36,7 @@ import type {
 import {
   HttpError,
   backtest,
+  binanceClosePosition,
   binancePositions,
   binanceTrades,
   binanceKeysStatus,
@@ -1346,6 +1348,7 @@ export function App() {
     response: null,
   });
   const [binancePositionsBars, setBinancePositionsBars] = useState(200);
+  const [binanceClosePositionKey, setBinanceClosePositionKey] = useState<string | null>(null);
   const binancePositionsAutoKeyRef = useRef<string | null>(null);
 
   const [botRtByKey, setBotRtByKey] = useState<Record<string, BotRtUiState>>({});
@@ -5545,6 +5548,62 @@ export function App() {
     withBinanceKeys,
   ]);
 
+  const closeBinancePosition = useCallback(
+    async (pos: { symbol: string; positionSide?: string | null }) => {
+      if (apiOk !== "ok") {
+        showToast("API unreachable");
+        return;
+      }
+      if (binancePositionsInputError) {
+        showToast(binancePositionsInputError);
+        return;
+      }
+      if (!form.binanceLive) {
+        showToast("Enable Live orders to close positions.");
+        return;
+      }
+      const sideRaw = pos.positionSide?.trim();
+      const sideNorm = sideRaw ? sideRaw.toUpperCase() : "";
+      const positionSide = sideNorm && sideNorm !== "BOTH" ? sideNorm : undefined;
+      const key = `${pos.symbol}:${positionSide ?? "BOTH"}`;
+      if (binanceClosePositionKey === key) return;
+      setBinanceClosePositionKey(key);
+      try {
+        const params: ApiBinanceClosePositionRequest = {
+          market: form.market,
+          binanceTestnet: form.binanceTestnet,
+          binanceLive: form.binanceLive,
+          symbol: pos.symbol,
+          ...(positionSide ? { positionSide } : {}),
+        };
+        const out = await binanceClosePosition(apiBase, withBinanceKeys(params), {
+          headers: authHeaders,
+          timeoutMs: 30_000,
+        });
+        showToast(out.sent ? `Close order sent (${pos.symbol})` : out.message);
+        if (out.sent) void fetchBinancePositions();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        showToast(isTimeoutError(e) ? "Close position timed out" : msg);
+      } finally {
+        setBinanceClosePositionKey((current) => (current === key ? null : current));
+      }
+    },
+    [
+      apiBase,
+      apiOk,
+      authHeaders,
+      binanceClosePositionKey,
+      binancePositionsInputError,
+      fetchBinancePositions,
+      form.binanceLive,
+      form.binanceTestnet,
+      form.market,
+      showToast,
+      withBinanceKeys,
+    ],
+  );
+
   const binancePositionsList = useMemo(() => {
     const raw = binancePositionsUi.response?.positions ?? [];
     return [...raw].sort((a, b) => a.symbol.localeCompare(b.symbol));
@@ -9216,6 +9275,13 @@ export function App() {
                       const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
                       const positionsSeries = buildPositionSeries(prices, posDir, pos.entryPrice);
                       const equityCurve = buildEquityCurve(prices, posDir);
+                      const closeSideKey = `${pos.symbol}:${(pos.positionSide ? pos.positionSide.trim().toUpperCase() : "BOTH")}`;
+                      const closeDisabled =
+                        apiOk !== "ok" ||
+                        Boolean(binancePositionsInputError) ||
+                        binancePositionsUi.loading ||
+                        !form.binanceLive ||
+                        binanceClosePositionKey === closeSideKey;
                       return (
                         <div key={`${pos.symbol}:${sideKey}`}>
                           <div className="pillRow" style={{ marginBottom: 10 }}>
@@ -9236,6 +9302,15 @@ export function App() {
                               <span className="badge">lev {fmtNum(pos.leverage, 2)}x</span>
                             ) : null}
                             {pos.marginType ? <span className="badge">{pos.marginType}</span> : null}
+                            <button
+                              className="btnSmall btnDanger"
+                              type="button"
+                              onClick={() => void closeBinancePosition(pos)}
+                              disabled={closeDisabled}
+                              title={form.binanceLive ? "Close position (reduce-only market order)." : "Enable Live orders to close positions."}
+                            >
+                              {binanceClosePositionKey === closeSideKey ? "Closing…" : "Close position"}
+                            </button>
                           </div>
                           {prices.length > 1 ? (
                             <ChartSuspense height={CHART_HEIGHT}>
@@ -9324,6 +9399,13 @@ export function App() {
                       const pnlClass = pos.unrealizedPnl >= 0 ? "badge badgeLong" : "badge badgeFlat";
                       const positionsSeries = buildPositionSeries(prices, posDir, pos.entryPrice);
                       const equityCurve = buildEquityCurve(prices, posDir);
+                      const closeSideKey = `${pos.symbol}:${(pos.positionSide ? pos.positionSide.trim().toUpperCase() : "BOTH")}`;
+                      const closeDisabled =
+                        apiOk !== "ok" ||
+                        Boolean(binancePositionsInputError) ||
+                        binancePositionsUi.loading ||
+                        !form.binanceLive ||
+                        binanceClosePositionKey === closeSideKey;
                       const tradeEnabled = status?.running
                         ? status.settings?.tradeEnabled
                         : status?.snapshot?.settings?.tradeEnabled;
@@ -9360,6 +9442,15 @@ export function App() {
                               <span className="badge">lev {fmtNum(pos.leverage, 2)}x</span>
                             ) : null}
                             {pos.marginType ? <span className="badge">{pos.marginType}</span> : null}
+                            <button
+                              className="btnSmall btnDanger"
+                              type="button"
+                              onClick={() => void closeBinancePosition(pos)}
+                              disabled={closeDisabled}
+                              title={form.binanceLive ? "Close position (reduce-only market order)." : "Enable Live orders to close positions."}
+                            >
+                              {binanceClosePositionKey === closeSideKey ? "Closing…" : "Close position"}
+                            </button>
                           </div>
                           {prices.length > 1 ? (
                             <ChartSuspense height={CHART_HEIGHT}>

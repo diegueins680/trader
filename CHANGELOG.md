@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Trading: allow `--max-trades-per-day`, `--max-open-positions`, and `--max-open-per-base` to accept `0` to disable, matching CLI help.
 - Optimizer: allow `--max-hold-bars 0` from optimize-equity sweeps to disable the max-hold gate.
 - Web UI: avoid scheme-relative API URLs when `apiBaseUrl` is empty by falling back to same-origin paths.
+- API/UI: add `/binance/positions/close` and a “Close position” button to send reduce-only futures close orders (includes `positionSide` in hedge mode).
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
 - Dev: add `haskell/scripts/run_api_with_db.sh` helper to start the API with local Postgres persistence.
 - Deploy: include `libpq` in the runtime image so Postgres ops persistence starts cleanly.

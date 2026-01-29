@@ -254,6 +254,17 @@ export type ApiBinancePositionsRequest = {
   limit?: number;
 };
 
+export type ApiBinanceClosePositionRequest = {
+  market?: Market;
+  binanceTestnet?: boolean;
+  binanceLive?: boolean;
+  binanceApiKey?: string;
+  binanceApiSecret?: string;
+  tenantKey?: string;
+  symbol: string;
+  positionSide?: string;
+};
+
 export type ApiBinancePositionsResponse = {
   market: Market;
   testnet: boolean;

@@ -1,9 +1,11 @@
 import type {
   ApiError,
+  ApiBinanceClosePositionRequest,
   ApiBinancePositionsRequest,
   ApiBinancePositionsResponse,
   ApiBinanceTradesRequest,
   ApiBinanceTradesResponse,
+  ApiOrderResult,
   ApiParams,
   ApiTradeResponse,
   BacktestResponse,
@@ -851,6 +853,23 @@ export async function binancePositions(
   return fetchJson<ApiBinancePositionsResponse>(
     baseUrl,
     "/binance/positions",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    opts,
+  );
+}
+
+export async function binanceClosePosition(
+  baseUrl: string,
+  params: ApiBinanceClosePositionRequest,
+  opts?: FetchJsonOptions,
+): Promise<ApiOrderResult> {
+  return fetchJson<ApiOrderResult>(
+    baseUrl,
+    "/binance/positions/close",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -126,6 +126,7 @@ import Trader.Binance (
     keepAliveListenKey,
     newBinanceEnv,
     placeFuturesAlgoTriggerMarketOrder,
+    placeFuturesMarketOrderWithPositionSide,
     placeFuturesTriggerMarketOrder,
     placeMarketOrder,
     quantizeDown,
@@ -1402,6 +1403,20 @@ data ApiBinancePositionsRequest = ApiBinancePositionsRequest
 
 instance FromJSON ApiBinancePositionsRequest where
     parseJSON = Aeson.genericParseJSON (jsonOptions 3)
+
+data ApiBinanceClosePositionRequest = ApiBinanceClosePositionRequest
+  { abcpMarket :: !(Maybe String)
+  , abcpBinanceTestnet :: !(Maybe Bool)
+  , abcpBinanceLive :: !(Maybe Bool)
+  , abcpBinanceApiKey :: !(Maybe String)
+  , abcpBinanceApiSecret :: !(Maybe String)
+  , abcpTenantKey :: !(Maybe String)
+  , abcpSymbol :: !String
+  , abcpPositionSide :: !(Maybe String)
+  } deriving (Eq, Show, Generic)
+
+instance FromJSON ApiBinanceClosePositionRequest where
+  parseJSON = Aeson.genericParseJSON (jsonOptions 4)
 
 data ApiBinancePosition = ApiBinancePosition
     { abpSymbol :: !String
@@ -4335,6 +4350,10 @@ resolveTenantKeyFromBinanceTradesRequest p =
 resolveTenantKeyFromBinancePositionsRequest :: ApiBinancePositionsRequest -> Either String (Maybe TenantKey)
 resolveTenantKeyFromBinancePositionsRequest p =
     resolveTenantKeyFromParams (abpTenantKey p) (abpBinanceApiKey p) (abpBinanceApiSecret p) Nothing Nothing Nothing
+
+resolveTenantKeyFromBinanceClosePositionRequest :: ApiBinanceClosePositionRequest -> Either String (Maybe TenantKey)
+resolveTenantKeyFromBinanceClosePositionRequest p =
+  resolveTenantKeyFromParams (abcpTenantKey p) (abcpBinanceApiKey p) (abcpBinanceApiSecret p) Nothing Nothing Nothing
 
 requireTenantKey :: String -> Maybe TenantKey -> Either String TenantKey
 requireTenantKey label mTenant =
@@ -9616,29 +9635,263 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             _ -> respondCors (jsonError status404 "Not found")
 
-    let handleIoException :: IOException -> IO WaiInternal.ResponseReceived
-        handleIoException _ = pure WaiInternal.ResponseReceived
-        respondQuiet resp = respond resp `catch` handleIoException
-        respondCorsQuiet = respondQuiet . withCors corsConfig req
-    handleRequest `catch` \ex ->
-        case fromException ex :: Maybe AsyncException of
-            Just asyncEx -> throwIO asyncEx
-            Nothing -> do
-                let msg = displayException ex
-                    msgLower = map toLower msg
-                    disconnectIndicators =
-                        [ "client closed connection prematurely"
-                        , "connection closed by peer"
-                        , "connection reset by peer"
-                        , "broken pipe"
-                        , "resource vanished"
-                        ]
-                    isDisconnect = any (`isInfixOf` msgLower) disconnectIndicators
-                if isDisconnect
-                    then respondQuiet (Wai.responseLBS status204 [] "")
-                    else do
-                        putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
-                        respondCorsQuiet (jsonError status500 "Internal server error")
+  let handleRequest =
+        case Wai.requestMethod req of
+          "OPTIONS" -> respondLogged (Wai.responseLBS status204 (corsHeadersFor corsConfig req) "")
+          _ -> do
+            metricsIncEndpoint metrics label
+            if path /= ["health"] && not (authorized apiToken req)
+              then respondCors (jsonError status401 "Unauthorized (send Authorization: Bearer <token> or X-API-Key)")
+              else
+                case path of
+                  [] ->
+                    case Wai.requestMethod req of
+                      "GET" ->
+                        respondCors $
+                          jsonValue
+                            status200
+                            ( object
+                                ( [ "name" .= ("trader-hs" :: String)
+                                  , "version" .= biVersion buildInfo
+                                  ]
+                                    ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
+                                    ++ [ "endpoints"
+                                          .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/ops/performance" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/cache" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/cache/clear" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/signal/async/:jobId/cancel" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/trade/async/:jobId/cancel" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/trades" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/positions" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/positions/close" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/binance/proxy/health" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/coinbase/keys" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/binance/listenKey/stream" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/close" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/optimizer/run" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/optimizer/combos" :: String)]
+                                             , object ["method" .= ("GET" :: String), "path" .= ("/state/sync" :: String)]
+                                             , object ["method" .= ("POST" :: String), "path" .= ("/state/sync" :: String)]
+                                             ]
+                                       ]
+                                )
+                            )
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["health"] ->
+                    case Wai.requestMethod req of
+                      "GET" ->
+                        let authRequired = isJust apiToken
+                            authOk = authorized apiToken req
+                            asyncCfg = asBacktest asyncStores
+                            pairs =
+                              ["status" .= ("ok" :: String), "version" .= biVersion buildInfo, "authRequired" .= authRequired, "authOk" .= authOk]
+                                ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
+                                ++ [ "computeLimits"
+                                      .= object
+                                        [ "maxBarsLstm" .= aclMaxBarsLstm limits
+                                        , "maxEpochs" .= aclMaxEpochs limits
+                                        , "maxHiddenSize" .= aclMaxHiddenSize limits
+                                        ]
+                                   , "asyncJobs"
+                                      .= object
+                                        [ "maxRunning" .= jsMaxRunning asyncCfg
+                                        , "ttlMs" .= jsTtlMs asyncCfg
+                                        , "persistence" .= isJust (jsDir asyncCfg)
+                                        ]
+                                   , "cache"
+                                      .= object
+                                        [ "enabled" .= cacheEnabled apiCache
+                                        , "ttlMs" .= acTtlMs apiCache
+                                        , "maxEntries" .= acMaxEntries apiCache
+                                        ]
+                                   ]
+                         in respondCors (jsonValue status200 (object pairs))
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["metrics"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleMetrics metrics botCtrl respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["ops"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleOps mOps req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["ops", "performance"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleOpsPerformance mOps req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["cache"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> do
+                        v <- apiCacheStatsJson apiCache
+                        respondCors (jsonValue status200 v)
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["cache", "clear"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> do
+                        apiCacheClear apiCache
+                        now <- getTimestampMs
+                        respondCors (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["signal"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleSignal reqLimits apiCache mOps limits baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["signal", "async"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleSignalAsync reqLimits apiCache mOps limits (asSignal asyncStores) baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["signal", "async", jobId] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
+                      "POST" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["signal", "async", jobId, "cancel"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleAsyncCancel (asSignal asyncStores) jobId respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["trade"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["trade", "async"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleTradeAsync reqLimits mOps limits (asTrade asyncStores) metrics mJournal mWebhook baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["trade", "async", jobId] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
+                      "POST" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["trade", "async", jobId, "cancel"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleAsyncCancel (asTrade asyncStores) jobId respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["backtest"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["backtest", "async"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBacktestAsync reqLimits apiCache mOps limits backtestGate (asBacktest asyncStores) baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["backtest", "async", jobId] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
+                      "POST" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["backtest", "async", jobId, "cancel"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleAsyncCancel (asBacktest asyncStores) jobId respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "keys"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBinanceKeys reqLimits mOps baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "positions"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBinancePositions reqLimits mOps baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "positions", "close"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBinanceClosePosition reqLimits mOps baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "trades"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBinanceTrades reqLimits mOps baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "proxy", "health"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleBinanceProxyHealth respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["coinbase", "keys"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleCoinbaseKeys reqLimits baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "listenKey"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "listenKey", "stream"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleBinanceListenKeyStream listenKeyManager req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "listenKey", "keepAlive"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["binance", "listenKey", "close"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["bot", "start"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["bot", "stop"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["bot", "status"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleBotStatus reqLimits botCtrl mBotStateDir req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["optimizer", "run"] ->
+                    case Wai.requestMethod req of
+                      "POST" -> handleOptimizerRun reqLimits mOps projectRoot optimizerTmp req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["optimizer", "combos"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleOptimizerCombos projectRoot optimizerTmp respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  ["state", "sync"] ->
+                    case Wai.requestMethod req of
+                      "GET" -> handleStateSyncExport mBotStateDir optimizerTmp req respondCors
+                      "POST" -> handleStateSyncImport reqLimits mBotStateDir optimizerTmp req respondCors
+                      _ -> respondCors (jsonError status405 "Method not allowed")
+                  _ -> respondCors (jsonError status404 "Not found")
+
+  let handleIoException :: IOException -> IO WaiInternal.ResponseReceived
+      handleIoException _ = pure WaiInternal.ResponseReceived
+      respondQuiet resp = respond resp `catch` handleIoException
+      respondCorsQuiet = respondQuiet . withCors corsConfig req
+  handleRequest `catch` \ex ->
+    case fromException ex :: Maybe AsyncException of
+      Just asyncEx -> throwIO asyncEx
+      Nothing -> do
+        let msg = displayException ex
+            msgLower = map toLower msg
+            disconnectIndicators =
+              [ "client closed connection prematurely"
+              , "connection closed by peer"
+              , "connection reset by peer"
+              , "broken pipe"
+              , "resource vanished"
+              ]
+            isDisconnect = any (`isInfixOf` msgLower) disconnectIndicators
+        if isDisconnect
+          then respondQuiet (Wai.responseLBS status204 [] "")
+          else do
+            putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
+            respondCorsQuiet (jsonError status500 "Internal server error")
 
 authorized :: Maybe BS.ByteString -> Wai.Request -> Bool
 authorized mToken req =
@@ -12871,6 +13124,136 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
                                                                 , abprFetchedAtMs = now
                                                                 , abprAccountUid = accountUid
                                                                 }
+
+handleBinanceClosePosition :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
+  if argPlatform baseArgs /= PlatformBinance
+    then respond (jsonError status400 ("Binance close position requires platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
+    else do
+      payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
+      case payloadOrErr of
+        Left resp -> respond resp
+        Right params -> do
+          case resolveTenantKeyFromBinanceClosePositionRequest params of
+            Left e -> respond (jsonError status400 e)
+            Right _ -> do
+              let testnet = resolveTestnetForListenKey baseArgs (abcpBinanceTestnet params)
+              case parseMarketForListenKey baseArgs (abcpMarket params) of
+                Left e -> respond (jsonError status400 e)
+                Right market -> do
+                  if market /= MarketFutures
+                    then respond (jsonError status400 "binance close position requires market=futures")
+                    else do
+                      let live = fromMaybe (argBinanceLive baseArgs) (abcpBinanceLive params)
+                      if not live
+                        then respond (jsonError status400 "binanceLive must be enabled to close positions")
+                        else do
+                          let symbolRaw = trim (abcpSymbol params)
+                          if null symbolRaw
+                            then respond (jsonError status400 "symbol is required")
+                            else do
+                              apiKey <- resolveEnv "BINANCE_API_KEY" (abcpBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                              apiSecret <- resolveEnv "BINANCE_API_SECRET" (abcpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                              urls <- resolveBinanceBaseUrls
+                              let baseUrl = selectBinanceBaseUrl urls testnet market
+                              env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                              r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
+                              case r of
+                                Left ex ->
+                                  let (st, msg) = exceptionToHttp ex
+                                   in respond (jsonError st msg)
+                                Right positions -> do
+                                  let sym = normalizeSymbol symbolRaw
+                                      reqSideRaw = normalizePositionSideText (abcpPositionSide params)
+                                      reqSide =
+                                        case reqSideRaw of
+                                          Just "BOTH" -> Nothing
+                                          _ -> reqSideRaw
+                                      posSideNorm p = normalizePositionSideText (fprPositionSide p)
+                                      matchesSym p = normalizeSymbol (fprSymbol p) == sym
+                                      matchesSide p =
+                                        case reqSide of
+                                          Nothing -> True
+                                          Just reqSideLabel ->
+                                            case posSideNorm p of
+                                              Just posSideLabel | posSideLabel /= "BOTH" -> posSideLabel == reqSideLabel
+                                              _ -> True
+                                      openPositions =
+                                        filter (\p -> abs (fprPositionAmt p) > 1e-12) (filter matchesSym positions)
+                                      openMatches = filter matchesSide openPositions
+                                      sideSet = dedupeStable (map posSideNorm openPositions)
+                                      sideSetNonBoth = filter (/= Just "BOTH") sideSet
+
+                                      baseResult sideLabel qty =
+                                        ApiOrderResult
+                                          { aorSent = False
+                                          , aorMode = Just "live"
+                                          , aorSide = Just sideLabel
+                                          , aorSymbol = Just sym
+                                          , aorQuantity = Just qty
+                                          , aorQuoteQuantity = Nothing
+                                          , aorOrderId = Nothing
+                                          , aorClientOrderId = Nothing
+                                          , aorStatus = Nothing
+                                          , aorExecutedQty = Nothing
+                                          , aorCummulativeQuoteQty = Nothing
+                                          , aorResponse = Nothing
+                                          , aorMessage = ""
+                                          }
+
+                                      noPosition msg =
+                                        let base = baseResult "CLOSE" 0
+                                         in respond $
+                                              jsonValue
+                                                status200
+                                                ( base
+                                                    { aorMessage = msg
+                                                    }
+                                                )
+
+                                      closeSide posAmt =
+                                        if posAmt > 0 then ("SELL", Sell) else ("BUY", Buy)
+
+                                      shortErr ex = take 240 (show ex)
+
+                                  case openPositions of
+                                    [] -> noPosition ("No open position found for " ++ sym ++ ".")
+                                    _ ->
+                                      if isNothing reqSide && length sideSetNonBoth > 1
+                                        then respond (jsonError status400 "Multiple hedge positions are open; provide positionSide (LONG/SHORT).")
+                                        else
+                                          case openMatches of
+                                            [] -> noPosition ("No open position found for " ++ sym ++ " (matching positionSide).")
+                                            (pos:_) -> do
+                                              let posAmt = fprPositionAmt pos
+                                                  qty = abs posAmt
+                                                  (sideLabel, side) = closeSide posAmt
+                                                  posSideParam =
+                                                    case reqSide of
+                                                      Just s -> Just s
+                                                      Nothing ->
+                                                        case posSideNorm pos of
+                                                          Just s | s /= "BOTH" -> Just s
+                                                          _ -> Nothing
+                                                  baseOut = baseResult sideLabel qty
+                                              r2 <- try (placeFuturesMarketOrderWithPositionSide env OrderLive sym side qty (Just True) Nothing posSideParam) :: IO (Either SomeException BL.ByteString)
+                                              case r2 of
+                                                Left ex ->
+                                                  respond (jsonValue status200 baseOut { aorMessage = "Order failed: " ++ shortErr ex })
+                                                Right body -> do
+                                                  let out0 =
+                                                        baseOut
+                                                          { aorSent = True
+                                                          , aorResponse = Just (shortResp body)
+                                                          , aorMessage = "Close order sent."
+                                                          }
+                                                  respond (jsonValue status200 (maybe out0 (`applyOrderInfo` out0) (decodeOrderInfo body)))
+  where
+    normalizePositionSideText raw =
+      case fmap (map toUpper . trim) raw of
+        Nothing -> Nothing
+        Just "" -> Nothing
+        Just v -> Just v
 
 handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> TopCombosBacktestCtx -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
