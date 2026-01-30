@@ -12518,6 +12518,40 @@ isListenKeyMissingError msg =
   let msgLower = map toLower msg
    in "-1125" `isInfixOf` msgLower || "listenkey does not exist" `isInfixOf` msgLower
 
+isListenKeyRetryableError :: String -> Bool
+isListenKeyRetryableError msg =
+  let msgLower = map toLower msg
+      markers =
+        [ "timeout"
+        , "timed out"
+        , "connection reset"
+        , "connection closed"
+        , "connection refused"
+        , "econnreset"
+        , "econnrefused"
+        , "temporary"
+        , "temporarily"
+        , "network"
+        ]
+   in any (`isInfixOf` msgLower) markers
+
+retryListenKey :: String -> IO a -> IO (Either SomeException a)
+retryListenKey label action = go 0 500000
+  where
+    maxRetries = 3 :: Int
+    go n delayUs = do
+      result <- try action
+      case result of
+        Right v -> pure (Right v)
+        Left ex ->
+          let msg = displayException ex
+           in if n < maxRetries && isListenKeyRetryableError msg
+                then do
+                  putStrLn (printf "ListenKey %s failed (attempt %d/%d): %s; retrying..." label (n + 1) maxRetries msg)
+                  threadDelay delayUs
+                  go (n + 1) (min (delayUs * 2) 5000000)
+                else pure (Left ex)
+
 listenKeyStreamStopped :: ListenKeyStreamState -> IO Bool
 listenKeyStreamStopped st = isJust <$> tryReadMVar (lksStopSignal st)
 
@@ -12656,7 +12690,7 @@ listenKeyKeepAliveWorker manager tenantKey st = do
       loop = do
         stopped <- listenKeyStreamStopped st
         unless stopped $ do
-          result <- try (keepAliveListenKey (lksEnv st) (lksListenKey st)) :: IO (Either SomeException ())
+          result <- retryListenKey "keepAlive" (keepAliveListenKey (lksEnv st) (lksListenKey st))
           case result of
             Left ex -> do
               stopped' <- listenKeyStreamStopped st
@@ -12751,7 +12785,7 @@ handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respond = do
                                                     urls <- resolveBinanceBaseUrls
                                                     let baseUrl = selectBinanceBaseUrl urls testnet market
                                                     env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                                                    r <- try (createListenKey env) :: IO (Either SomeException String)
+                                                    r <- retryListenKey "create" (createListenKey env)
                                                     case r of
                                                         Left ex ->
                                                             let (st, msg) = exceptionToHttp ex
@@ -12797,7 +12831,7 @@ handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req res
                           case HM.lookup tenantKey streams of
                             Just stream | lksListenKey (lksState stream) == listenKey -> do
                               let st = lksState stream
-                              r <- try (keepAliveListenKey (lksEnv st) listenKey) :: IO (Either SomeException ())
+                              r <- retryListenKey "keepAlive" (keepAliveListenKey (lksEnv st) listenKey)
                               case r of
                                 Left ex -> do
                                   let msg = displayException ex
@@ -12817,7 +12851,7 @@ handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req res
                               urls <- resolveBinanceBaseUrls
                               let baseUrl = selectBinanceBaseUrl urls testnet market
                               env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
-                              r <- try (keepAliveListenKey env listenKey) :: IO (Either SomeException ())
+                              r <- retryListenKey "keepAlive" (keepAliveListenKey env listenKey)
                               case r of
                                 Left ex -> do
                                   let msg = displayException ex

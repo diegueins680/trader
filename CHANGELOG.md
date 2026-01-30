@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Dev: `start_api_bg.sh` now runs the Postgres-aware helper and sets persistent state/combos dirs by default.
 - Dev: `start_api_bg.sh` now auto-restarts the API on exit (configurable via `TRADER_API_RESTART_ON_EXIT` and `TRADER_API_RESTART_DELAY_SEC`).
 - Dev: add `haskell/scripts/start_ui_bg.sh` helper to wait for API health before starting the UI dev server.
+- ListenKey: add retry/backoff for listenKey create/keepAlive to reduce transient timeouts.
 - ListenKey: auto-expire user-data streams when Binance returns `-1125` so the UI can restart cleanly after idle/expired listen keys.
 - Dev: `start_api_bg.sh` now defaults `TRADER_API_BIND_HOST` to `127.0.0.1` for local stability.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.
