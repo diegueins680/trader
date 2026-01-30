@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import type { ApiParams, IntrabarFill, Market, Method, Normalization, OptimizerSource, Platform, Positioning } from "../lib/types";
 import type { ConfigPanelDragState, ConfigPanelId, ConfigPageId } from "../app/configTypes";
 import type {
@@ -473,6 +473,17 @@ export const ConfigDock = (props: ConfigDockProps) => {
     tradeDisabledReason,
     updateOptimizerRunForm,
   } = props;
+  const [confirmDeleteProfile, setConfirmDeleteProfile] = useState(false);
+  const [confirmDeleteProfileName, setConfirmDeleteProfileName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!confirmDeleteProfile) return;
+    const selected = profileSelected.trim();
+    if (!selected || (confirmDeleteProfileName && selected !== confirmDeleteProfileName)) {
+      setConfirmDeleteProfile(false);
+      setConfirmDeleteProfileName(null);
+    }
+  }, [confirmDeleteProfile, confirmDeleteProfileName, profileSelected]);
   const botProtectionNeedsStops =
     form.stopLoss <= 0 && form.takeProfit <= 0 && form.stopLossVolMult <= 0 && form.takeProfitVolMult <= 0;
   const keysSupported = isBinancePlatform || isCoinbasePlatform;
@@ -484,6 +495,8 @@ export const ConfigDock = (props: ConfigDockProps) => {
         : isBinancePlatform
           ? "Uses Binance signed endpoints + /order/test (no real order)."
           : "Uses Coinbase signed /accounts.";
+  const pctTag = (value: number, digits = 2) =>
+    Number.isFinite(value) ? <span className="labelTag">{fmtPct(value, digits)}</span> : null;
 
   return (
     <CollapsibleCard
@@ -557,6 +570,11 @@ export const ConfigDock = (props: ConfigDockProps) => {
               Cancel
             </button>
           </div>
+          {requestDisabledReason ? (
+            <div className="hint hintWarn" role="status" style={{ marginTop: 6 }}>
+              Actions disabled: {requestDisabledReason}
+            </div>
+          ) : null}
           {requestIssueDetails.length > 1 ? (
             <details className="details">
               <summary>Show all issues</summary>
@@ -895,9 +913,45 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <button className="btn" type="button" onClick={requestLoadProfile} disabled={!profileSelected.trim()}>
                 Load
               </button>
-              <button className="btn btnDanger" type="button" onClick={deleteProfile} disabled={!profileSelected.trim()}>
-                Delete
-              </button>
+              {confirmDeleteProfile && confirmDeleteProfileName === profileSelected.trim() ? (
+                <>
+                  <button
+                    className="btn btnDanger"
+                    type="button"
+                    onClick={() => {
+                      deleteProfile();
+                      setConfirmDeleteProfile(false);
+                      setConfirmDeleteProfileName(null);
+                    }}
+                    disabled={!profileSelected.trim()}
+                  >
+                    Confirm delete
+                  </button>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => {
+                      setConfirmDeleteProfile(false);
+                      setConfirmDeleteProfileName(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn btnDanger"
+                  type="button"
+                  onClick={() => {
+                    if (!profileSelected.trim()) return;
+                    setConfirmDeleteProfile(true);
+                    setConfirmDeleteProfileName(profileSelected.trim());
+                  }}
+                  disabled={!profileSelected.trim()}
+                >
+                  Delete
+                </button>
+              )}
             </div>
             <div className="hint">Save/load named config presets. Does not include API keys.</div>
 
@@ -1322,6 +1376,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <InfoPopover label="Threshold details">
                 <InfoList items={COMPLEX_TIPS.thresholds} />
               </InfoPopover>
+              {pctTag(form.openThreshold, 2)}
             </div>
             <input
               id="openThreshold"
@@ -1329,6 +1384,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               type="number"
               step="0.0001"
               min={0}
+              inputMode="decimal"
               value={form.openThreshold}
               onChange={(e) => {
                 markManualOverrides(["openThreshold"]);
@@ -1404,6 +1460,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <InfoPopover label="Threshold details">
                 <InfoList items={COMPLEX_TIPS.thresholds} />
               </InfoPopover>
+              {pctTag(form.closeThreshold, 2)}
             </div>
             <input
               id="closeThreshold"
@@ -1417,6 +1474,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               type="number"
               step="0.0001"
               min={0}
+              inputMode="decimal"
               value={form.closeThreshold}
               onChange={(e) => {
                 markManualOverrides(["closeThreshold"]);
@@ -1444,6 +1502,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <InfoPopover label="Edge filters">
                 <InfoList items={COMPLEX_TIPS.edge} />
               </InfoPopover>
+              {pctTag(form.minEdge, 2)}
             </div>
             <input
               id="minEdge"
@@ -1451,6 +1510,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               type="number"
               step="0.0001"
               min={0}
+              inputMode="decimal"
               value={form.minEdge}
               onChange={(e) => setForm((f) => ({ ...f, minEdge: numFromInput(e.target.value, f.minEdge) }))}
             />
@@ -1478,6 +1538,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <InfoPopover label="Edge filters">
                 <InfoList items={COMPLEX_TIPS.edge} />
               </InfoPopover>
+              {pctTag(form.edgeBuffer, 2)}
             </div>
             <input
               id="edgeBuffer"
@@ -1485,6 +1546,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               type="number"
               step="0.0001"
               min={0}
+              inputMode="decimal"
               value={form.edgeBuffer}
               onChange={(e) => setForm((f) => ({ ...f, edgeBuffer: numFromInput(e.target.value, f.edgeBuffer) }))}
             />
@@ -1521,6 +1583,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <InfoPopover label="Blend weight">
                 <InfoList items={COMPLEX_TIPS.blend} />
               </InfoPopover>
+              {pctTag(form.blendWeight, 0)}
             </div>
             <input
               id="blendWeight"
@@ -1529,6 +1592,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               step="0.05"
               min={0}
               max={1}
+              inputMode="decimal"
               value={form.blendWeight}
               onChange={(e) => setForm((f) => ({ ...f, blendWeight: numFromInput(e.target.value, f.blendWeight) }))}
               disabled={form.method !== "blend"}
@@ -1567,6 +1631,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <InfoPopover label="Router settings">
                 <InfoList items={COMPLEX_TIPS.router} />
               </InfoPopover>
+              {pctTag(form.routerMinScore, 0)}
             </div>
             <input
               id="routerMinScore"
@@ -1575,6 +1640,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               step="0.05"
               min={0}
               max={1}
+              inputMode="decimal"
               value={form.routerMinScore}
               onChange={(e) => setForm((f) => ({ ...f, routerMinScore: numFromInput(e.target.value, f.routerMinScore) }))}
               disabled={form.method !== "router"}
@@ -1592,6 +1658,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <InfoPopover label="Backtest and tune split">
                 <InfoList items={COMPLEX_TIPS.split} />
               </InfoPopover>
+              {pctTag(form.backtestRatio, 1)}
             </div>
             <input
               id="backtestRatio"
@@ -1600,6 +1667,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               step="0.01"
               min={0.01}
               max={0.99}
+              inputMode="decimal"
               value={form.backtestRatio}
               onChange={(e) => setForm((f) => ({ ...f, backtestRatio: numFromInput(e.target.value, f.backtestRatio) }))}
             />
@@ -1613,6 +1681,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <InfoPopover label="Backtest and tune split">
                 <InfoList items={COMPLEX_TIPS.split} />
               </InfoPopover>
+              {pctTag(form.tuneRatio, 1)}
             </div>
             <input
               id="tuneRatio"
@@ -1621,21 +1690,26 @@ export const ConfigDock = (props: ConfigDockProps) => {
               step="0.01"
               min={0}
               max={0.99}
+              inputMode="decimal"
               value={form.tuneRatio}
               onChange={(e) => setForm((f) => ({ ...f, tuneRatio: numFromInput(e.target.value, f.tuneRatio) }))}
             />
             <div className="hint">Used only when optimizing/sweeping: tunes thresholds/method on the last part of the train split.</div>
           </div>
           <div className="field">
-            <label className="label" htmlFor="fee">
-              Fee (fraction)
-            </label>
+            <div className="labelRow">
+              <label className="label" htmlFor="fee">
+                Fee (fraction)
+              </label>
+              {pctTag(form.fee, 2)}
+            </div>
             <input
               id="fee"
               className="input"
               type="number"
               step="0.0001"
               min={0}
+              inputMode="decimal"
               value={form.fee}
               onChange={(e) => setForm((f) => ({ ...f, fee: numFromInput(e.target.value, f.fee) }))}
             />
@@ -1656,30 +1730,38 @@ export const ConfigDock = (props: ConfigDockProps) => {
 
         <div className="row" style={{ marginTop: 12, gridTemplateColumns: "1fr 1fr" }}>
           <div className="field">
-            <label className="label" htmlFor="slippage">
-              Slippage (fraction per side)
-            </label>
+            <div className="labelRow">
+              <label className="label" htmlFor="slippage">
+                Slippage (fraction per side)
+              </label>
+              {pctTag(form.slippage, 2)}
+            </div>
             <input
               id="slippage"
               className="input"
               type="number"
               step="0.0001"
               min={0}
+              inputMode="decimal"
               value={form.slippage}
               onChange={(e) => setForm((f) => ({ ...f, slippage: numFromInput(e.target.value, f.slippage) }))}
             />
             <div className="hint">Approx market impact on entry/exit. 0 disables.</div>
           </div>
           <div className="field">
-            <label className="label" htmlFor="spread">
-              Spread (fraction total)
-            </label>
+            <div className="labelRow">
+              <label className="label" htmlFor="spread">
+                Spread (fraction total)
+              </label>
+              {pctTag(form.spread, 2)}
+            </div>
             <input
               id="spread"
               className="input"
               type="number"
               step="0.0001"
               min={0}
+              inputMode="decimal"
               value={form.spread}
               onChange={(e) => setForm((f) => ({ ...f, spread: numFromInput(e.target.value, f.spread) }))}
             />
@@ -1703,9 +1785,12 @@ export const ConfigDock = (props: ConfigDockProps) => {
           <div className="label">Bracket exits (fractions)</div>
             <div className="row" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
               <div className="field">
-                <label className="label" htmlFor="stopLoss">
-                  Stop-loss
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="stopLoss">
+                    Stop-loss
+                  </label>
+                  {pctTag(form.stopLoss, 2)}
+                </div>
                 <input
                   id="stopLoss"
                   className="input"
@@ -1713,6 +1798,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                   step="0.001"
                   min={0}
                   max={0.999}
+                  inputMode="decimal"
                   value={form.stopLoss}
                   onChange={(e) => setForm((f) => ({ ...f, stopLoss: numFromInput(e.target.value, f.stopLoss) }))}
                   placeholder="0.02 (2%)"
@@ -1720,9 +1806,12 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 <div className="hint">{form.stopLoss > 0 ? fmtPct(form.stopLoss, 2) : "0 disables"}</div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="takeProfit">
-                  Take-profit
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="takeProfit">
+                    Take-profit
+                  </label>
+                  {pctTag(form.takeProfit, 2)}
+                </div>
                 <input
                   id="takeProfit"
                   className="input"
@@ -1730,6 +1819,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                   step="0.001"
                   min={0}
                   max={0.999}
+                  inputMode="decimal"
                   value={form.takeProfit}
                   onChange={(e) => setForm((f) => ({ ...f, takeProfit: numFromInput(e.target.value, f.takeProfit) }))}
                   placeholder="0.03 (3%)"
@@ -1737,9 +1827,12 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 <div className="hint">{form.takeProfit > 0 ? fmtPct(form.takeProfit, 2) : "0 disables"}</div>
               </div>
               <div className="field">
-                <label className="label" htmlFor="trailingStop">
-                  Trailing stop
-                </label>
+                <div className="labelRow">
+                  <label className="label" htmlFor="trailingStop">
+                    Trailing stop
+                  </label>
+                  {pctTag(form.trailingStop, 2)}
+                </div>
                 <input
                   id="trailingStop"
                   className="input"
@@ -1747,6 +1840,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                   step="0.001"
                   min={0}
                   max={0.999}
+                  inputMode="decimal"
                   value={form.trailingStop}
                   onChange={(e) => setForm((f) => ({ ...f, trailingStop: numFromInput(e.target.value, f.trailingStop) }))}
                   placeholder="0.01 (1%)"
@@ -3319,9 +3413,12 @@ export const ConfigDock = (props: ConfigDockProps) => {
 
               <div className="row" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 10 }}>
                 <div className="field">
-                  <label className="label" htmlFor="orderQuoteFraction">
-                    Order quote fraction (0 &lt; F ≤ 1; 0 disables)
-                  </label>
+                  <div className="labelRow">
+                    <label className="label" htmlFor="orderQuoteFraction">
+                      Order quote fraction (0 &lt; F ≤ 1; 0 disables)
+                    </label>
+                    {pctTag(form.orderQuoteFraction, 1)}
+                  </div>
                   <input
                     id="orderQuoteFraction"
                     className={orderQuoteFractionError ? "input inputError" : "input"}
@@ -3329,6 +3426,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                     step="0.01"
                     min={0}
                     max={1}
+                    inputMode="decimal"
                     value={form.orderQuoteFraction}
                     onChange={(e) =>
                       setForm((f) => {

@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { BinancePnlAnalysis, BinanceTradesUiState, CommissionTotal, OrderSideFilter } from "../app/appHelpers";
-import { binanceTradeSideLabel, fmtTimeMs, fmtTimeMsWithMs, marketLabel, numFromInput, pnlBadgeClass } from "../app/utils";
+import { binanceTradeSideLabel, csvEscape, pnlBadgeClass } from "../app/appHelpers";
+import { fmtTimeMs, fmtTimeMsWithMs, marketLabel, numFromInput } from "../app/utils";
 import { fmtMoney, fmtNum, fmtPct } from "../lib/format";
 import type { BinanceTrade } from "../lib/types";
 
@@ -85,6 +86,55 @@ export function BinanceTradesPanel({
   binanceTradesFiltered,
   binanceTradesAnalysis,
 }: BinanceTradesPanelProps) {
+  const [clearedCache, setClearedCache] = useState<BinanceTradesUiState | null>(null);
+
+  useEffect(() => {
+    if (!clearedCache) return;
+    if (binanceTradesUi.response || binanceTradesUi.error || binanceTradesUi.loading) {
+      setClearedCache(null);
+    }
+  }, [binanceTradesUi.error, binanceTradesUi.loading, binanceTradesUi.response, clearedCache]);
+
+  const tradesCsv = useMemo(() => {
+    if (binanceTradesFiltered.length === 0) return "";
+    const header = [
+      "timeMs",
+      "timeIso",
+      "symbol",
+      "side",
+      "price",
+      "qty",
+      "quoteQty",
+      "realizedPnl",
+      "commission",
+      "commissionAsset",
+      "positionSide",
+      "orderId",
+      "tradeId",
+    ];
+    const rows = binanceTradesFiltered.map((trade) => {
+      const timeMs = trade.time ?? null;
+      const timeIso = Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : "";
+      const side = binanceTradeSideLabel(trade);
+      return [
+        timeMs ?? "",
+        timeIso,
+        trade.symbol ?? "",
+        side,
+        trade.price ?? "",
+        trade.qty ?? "",
+        trade.quoteQty ?? "",
+        trade.realizedPnl ?? "",
+        trade.commission ?? "",
+        trade.commissionAsset ?? "",
+        trade.positionSide ?? "",
+        trade.orderId ?? "",
+        trade.tradeId ?? "",
+      ];
+    });
+    return [header.map(csvEscape).join(","), ...rows.map((row) => row.map(csvEscape).join(","))].join("\n");
+  }, [binanceTradesFiltered]);
+
   return (
     <>
 <div className="row">
@@ -177,6 +227,17 @@ export function BinanceTradesPanel({
   <button
     className="btn"
     type="button"
+    disabled={binanceTradesFiltered.length === 0}
+    onClick={() => {
+      void copyText(tradesCsv);
+      showToast("Copied trades CSV");
+    }}
+  >
+    Copy CSV
+  </button>
+  <button
+    className="btn"
+    type="button"
     disabled={!binanceTradesJson}
     onClick={() => {
       void copyText(binanceTradesJson);
@@ -189,11 +250,35 @@ export function BinanceTradesPanel({
     className="btn"
     type="button"
     disabled={!binanceTradesUi.response && !binanceTradesUi.error}
-    onClick={() => setBinanceTradesUi({ loading: false, error: null, response: null })}
+    onClick={() => {
+      if (!binanceTradesUi.response && !binanceTradesUi.error) return;
+      setClearedCache(binanceTradesUi);
+      setBinanceTradesUi({ loading: false, error: null, response: null });
+      showToast("Trades cleared");
+    }}
   >
     Clear
   </button>
 </div>
+{clearedCache ? (
+  <div className="undoBar">
+    <span>Trades cleared.</span>
+    <button
+      className="btnSmall"
+      type="button"
+      onClick={() => {
+        setBinanceTradesUi(clearedCache);
+        setClearedCache(null);
+        showToast("Trades restored");
+      }}
+    >
+      Undo
+    </button>
+    <button className="btnSmall" type="button" onClick={() => setClearedCache(null)}>
+      Dismiss
+    </button>
+  </div>
+) : null}
 {binanceTradesInputError ? (
   <div className="hint" style={{ marginTop: 10, color: "rgba(239, 68, 68, 0.9)" }}>
     {binanceTradesInputError}

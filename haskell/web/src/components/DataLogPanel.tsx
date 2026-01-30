@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import type { DataLogEntry } from "../app/dataLog";
 import { DATA_LOG_COLLAPSED_MAX_LINES } from "../app/constants";
 import { indexTopLevelPrimitiveArrays } from "../app/utils";
@@ -56,15 +56,47 @@ export function DataLogPanel({
   dataLogRef,
   handleDataLogScroll,
 }: DataLogPanelProps) {
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearedCache, setClearedCache] = useState<DataLogEntry[] | null>(null);
+
+  useEffect(() => {
+    if (!confirmClear) return;
+    const t = window.setTimeout(() => setConfirmClear(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [confirmClear]);
+
+  useEffect(() => {
+    if (!clearedCache) return;
+    if (dataLog.length > 0) {
+      setClearedCache(null);
+    }
+  }, [clearedCache, dataLog.length]);
+
   return (
     <>
-	          <div className="actions dataLogActions">
-	            <button
-	              className="btn"
-	              onClick={() => setDataLog([])}
-	            >
-	              Clear Log
-	            </button>
+        <div className="actions dataLogActions">
+          <button
+            className="btn"
+            onClick={() => {
+              if (!confirmClear) {
+                setConfirmClear(true);
+                return;
+              }
+              if (dataLog.length === 0) return;
+              setClearedCache(dataLog);
+              setDataLog([]);
+              setConfirmClear(false);
+              showToast("Data log cleared");
+            }}
+            disabled={dataLog.length === 0}
+          >
+            {confirmClear ? "Confirm clear" : "Clear log"}
+          </button>
+          {confirmClear ? (
+            <button className="btnSmall" type="button" onClick={() => setConfirmClear(false)}>
+              Cancel
+            </button>
+          ) : null}
 	            <button
 	              className="btn"
                 disabled={dataLogShown.length === 0}
@@ -127,8 +159,27 @@ export function DataLogPanel({
                   Showing {dataLogFiltered.length} of {dataLog.length}
                 </span>
               ) : null}
-	          </div>
-          <div ref={dataLogRef} className="dataLogBox" onScroll={handleDataLogScroll}>
+        </div>
+        {clearedCache ? (
+          <div className="undoBar">
+            <span>Log cleared.</span>
+            <button
+              className="btnSmall"
+              type="button"
+              onClick={() => {
+                setDataLog(clearedCache);
+                setClearedCache(null);
+                showToast("Log restored");
+              }}
+            >
+              Undo
+            </button>
+            <button className="btnSmall" type="button" onClick={() => setClearedCache(null)}>
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+        <div ref={dataLogRef} className="dataLogBox" onScroll={handleDataLogScroll}>
             {dataLogShownDeferred.length === 0 ? (
               <div className="dataLogEmpty">
                 {dataLog.length === 0
@@ -141,7 +192,7 @@ export function DataLogPanel({
                   <div className="dataLogEntryHeader">
                     [{new Date(entry.timestamp).toLocaleTimeString()}] <span className="dataLogEntryLabel">{entry.label}</span>
                   </div>
-	                  <div className="dataLogEntryBody">
+                  <div className="dataLogEntryBody">
                       {(() => {
                         const data = dataLogIndexArrays ? indexTopLevelPrimitiveArrays(entry.data) : entry.data;
                         const json = JSON.stringify(data, null, 2);
@@ -150,9 +201,9 @@ export function DataLogPanel({
                         const head = lines.slice(0, DATA_LOG_COLLAPSED_MAX_LINES).join("\n");
                         return lines.length > DATA_LOG_COLLAPSED_MAX_LINES ? `${head}\n... (truncated)` : head;
                       })()}
-	                  </div>
-	                </div>
-	              ))
+                  </div>
+                </div>
+              ))
             )}
           </div>
     </>

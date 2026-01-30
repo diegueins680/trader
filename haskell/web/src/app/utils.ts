@@ -81,6 +81,20 @@ export function botPositionSide(status: BotStatusSingle): "LONG" | "SHORT" | nul
   return last > 0 ? "LONG" : "SHORT";
 }
 
+export function shortCommitHash(hash?: string | null, size = 8): string {
+  if (!hash) return "—";
+  const trimmed = hash.trim();
+  if (!trimmed) return "—";
+  return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
+}
+
+export function shortComboUuid(uuid?: string | null, size = 6): string {
+  if (!uuid) return "—";
+  const trimmed = uuid.trim();
+  if (!trimmed) return "—";
+  return trimmed.length > size ? `${trimmed.slice(0, size)}…` : trimmed;
+}
+
 export function botTradeEnabled(status: BotStatusSingle): boolean | null {
   if (status.running) return status.settings?.tradeEnabled ?? null;
   return status.snapshot?.settings?.tradeEnabled ?? null;

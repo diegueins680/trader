@@ -33,6 +33,7 @@ All notable changes to this project will be documented in this file.
 - Deploy/UI: quick AWS deploy no longer auto-sets a direct `apiFallbackUrl` when using `/api` proxy mode (avoids cross-origin fallback unless explicitly configured).
 - Web UI: Binance listenKey stream uses a direct fallback API base when configured to avoid CDN streaming errors.
 - Web UI: allow /api proxy requests to retry the configured direct fallback even if it was previously blocked.
+- Web UI: auto-reconnect Binance listenKey streams with backoff after unexpected disconnects.
 - Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.
 - Deploy/API: quick AWS deploy now reuses `TRADER_BOT_AUTOSTART` from the service and supports setting it on deploy.
 - Deploy/API: quick AWS deploy can clear `TRADER_BINANCE_PROXY_URL` via `--clear-binance-proxy` / `TRADER_BINANCE_PROXY_CLEAR`.
@@ -185,6 +186,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: let tables scroll horizontally within panels so trade lists (including Binance account trades) are fully visible without clipped columns.
 - Web UI: keep the Binance account trades panel scrollable when maximized so long histories stay reachable.
 - Web UI: add symbol/side/date filters plus total P&L/commission summaries for Binance account trades.
+- Web UI: add layout controls (expand/collapse all, reset layout), per-page issue badges with jump links, clearer disabled-action hints, empty-state CTAs, CSV exports for performance/trades, confirmation/undo for destructive clears, and click-away/ESC closing for info popovers.
 - Web UI: let open positions chart headers and position badges wrap so all stats remain visible in narrower panels.
 - Deploy: mark `trader-config.js` as no-cache in the quick AWS deploy so updated API tokens take effect immediately.
 - Deploy: add UI smoke checks (index/config plus `/api/health` when proxying) to the quick AWS deploy.

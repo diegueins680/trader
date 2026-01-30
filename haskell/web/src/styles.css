@@ -251,6 +251,10 @@ textarea {
   display: none;
 }
 
+.headerCard:not([open]) .headerTools {
+  display: none;
+}
+
 .dockLayout {
   position: relative;
   min-height: 100vh;
@@ -1061,9 +1065,25 @@ body.panelMaximized .cardMaximized {
   margin-top: 6px;
 }
 
+.headerTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.menuBarActions {
+  justify-content: center;
+}
+
 .menuItem {
   height: 28px;
   padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border-radius: 999px;
   border: 1px solid transparent;
   background: transparent;
@@ -1085,6 +1105,53 @@ body.panelMaximized .cardMaximized {
   background: rgba(var(--accent-rgb), 0.24);
   color: var(--text);
   box-shadow: 0 10px 24px rgba(var(--accent-rgb), 0.16);
+}
+
+.menuBadge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.18);
+  color: var(--text);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.menuIssues {
+  position: relative;
+}
+
+.menuIssueSummary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.menuIssueSummary::-webkit-details-marker {
+  display: none;
+}
+
+.menuIssueSummary::marker {
+  content: "";
+}
+
+.menuIssuePanel {
+  margin-top: 8px;
+  min-width: 260px;
+  max-width: min(420px, 90vw);
+  max-height: 240px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke2);
+  background: var(--card2);
+  box-shadow: var(--shadow);
+  z-index: 30;
+  overflow: auto;
 }
 
 .sectionHeading {
@@ -1200,6 +1267,20 @@ body.panelMaximized .cardMaximized {
   color: var(--text);
 }
 
+.undoBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  font-size: 12px;
+  color: var(--text);
+  margin: 8px 0;
+}
+
 .issueItem span {
   flex: 1;
 }
@@ -1249,6 +1330,17 @@ body.panelMaximized .cardMaximized {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.labelTag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
 }
 
 .infoPopover {
@@ -1398,6 +1490,10 @@ body.panelMaximized .cardMaximized {
   font-size: 12px;
   color: var(--faint);
   line-height: 1.35;
+}
+
+.hintWarn {
+  color: rgba(239, 68, 68, 0.9);
 }
 
 .details {

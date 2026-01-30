@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useMemo } from "react";
 import type { OpsPerformanceUiState } from "../app/appHelpers";
-import { clamp, fmtTimeMs, marketLabel, numFromInput, pnlBadgeClass, shortComboUuid, shortCommitHash } from "../app/utils";
+import { csvEscape, downloadTextFile, pnlBadgeClass } from "../app/appHelpers";
+import { clamp, fmtTimeMs, marketLabel, numFromInput, shortComboUuid, shortCommitHash } from "../app/utils";
 import { fmtPct } from "../lib/format";
 
 export type PerformancePanelProps = {
@@ -30,6 +31,78 @@ export function PerformancePanel({
   setOpsPerformanceComboOrder,
   fetchOpsPerformance,
 }: PerformancePanelProps) {
+  const commitsCsv = useMemo(() => {
+    if (opsPerformanceUi.commits.length === 0) return "";
+    const header = [
+      "commitHash",
+      "committedAtMs",
+      "committedAtIso",
+      "medianReturn",
+      "deltaMedianReturn",
+      "medianDrawdown",
+      "deltaMedianDrawdown",
+      "worstDrawdown",
+      "deltaWorstDrawdown",
+      "rollups",
+      "combos",
+      "symbols",
+    ];
+    const rows = opsPerformanceUi.commits.map((row) => {
+      const committedAtMs = row.committedAtMs ?? null;
+      const committedAtIso = Number.isFinite(committedAtMs) ? new Date(committedAtMs).toISOString() : "";
+      return [
+        row.commitHash ?? "",
+        committedAtMs ?? "",
+        committedAtIso,
+        row.medianReturn ?? "",
+        row.deltaMedianReturn ?? "",
+        row.medianDrawdown ?? "",
+        row.deltaMedianDrawdown ?? "",
+        row.worstDrawdown ?? "",
+        row.deltaWorstDrawdown ?? "",
+        row.rollups ?? "",
+        row.combos ?? "",
+        row.symbols ?? "",
+      ];
+    });
+    return [header.map(csvEscape).join(","), ...rows.map((row) => row.map(csvEscape).join(","))].join("\n");
+  }, [opsPerformanceUi.commits]);
+
+  const combosCsv = useMemo(() => {
+    if (opsPerformanceUi.combos.length === 0) return "";
+    const header = [
+      "symbol",
+      "market",
+      "interval",
+      "comboUuid",
+      "return",
+      "deltaReturn",
+      "maxDrawdown",
+      "deltaDrawdown",
+      "commitHash",
+      "committedAtMs",
+      "committedAtIso",
+    ];
+    const rows = opsPerformanceUi.combos.map((row) => {
+      const committedAtMs = row.committedAtMs ?? null;
+      const committedAtIso = Number.isFinite(committedAtMs) ? new Date(committedAtMs).toISOString() : "";
+      return [
+        row.symbol ?? "",
+        row.market ?? "",
+        row.interval ?? "",
+        row.comboUuid ?? "",
+        row.return ?? "",
+        row.deltaReturn ?? "",
+        row.maxDrawdown ?? "",
+        row.deltaDrawdown ?? "",
+        row.commitHash ?? "",
+        committedAtMs ?? "",
+        committedAtIso,
+      ];
+    });
+    return [header.map(csvEscape).join(","), ...rows.map((row) => row.map(csvEscape).join(","))].join("\n");
+  }, [opsPerformanceUi.combos]);
+
   return (
     <>
 <div className="row" style={{ marginBottom: 10, gridTemplateColumns: "repeat(4, minmax(0, 1fr)) auto", alignItems: "end" }}>
@@ -127,6 +200,30 @@ export function PerformancePanel({
   <span className="badge">Commits {opsPerformanceUi.commits.length}</span>
   <span className="badge">Combos {opsPerformanceUi.combos.length}</span>
   {opsPerformanceUi.lastFetchedAtMs ? <span className="badge">Synced {fmtTimeMs(opsPerformanceUi.lastFetchedAtMs)}</span> : null}
+</div>
+<div className="actions" style={{ marginBottom: 12 }}>
+  <button
+    className="btnSmall"
+    type="button"
+    disabled={!commitsCsv}
+    onClick={() => {
+      const stamp = Date.now();
+      downloadTextFile(`performance-commits-${stamp}.csv`, commitsCsv, "text/csv");
+    }}
+  >
+    Download commits CSV
+  </button>
+  <button
+    className="btnSmall"
+    type="button"
+    disabled={!combosCsv}
+    onClick={() => {
+      const stamp = Date.now();
+      downloadTextFile(`performance-combos-${stamp}.csv`, combosCsv, "text/csv");
+    }}
+  >
+    Download combos CSV
+  </button>
 </div>
 
 <div style={{ marginBottom: 12 }}>
