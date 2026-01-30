@@ -9686,6 +9686,7 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                             ["binance", "positions"] ->
                                 case Wai.requestMethod req of
                                     "POST" -> handleBinancePositions reqLimits mOps baseArgs req respondCors
+                                    "GET" -> handleBinancePositionsGet reqLimits mOps baseArgs req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["binance", "trades"] ->
                                 case Wai.requestMethod req of
@@ -13087,6 +13088,95 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
                                                                 , abprAccountUid = accountUid
                                                                 }
 
+handleBinancePositionsGet :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBinancePositionsGet reqLimits mOps baseArgs req respond = do
+    -- Reuse POST handler with defaults derived from base args.
+    let params =
+            ApiBinancePositionsRequest
+                { abpBinanceTestnet = Nothing
+                , abpMarket = Just (marketCode (argBinanceMarket baseArgs))
+                , abpInterval = Just (argInterval baseArgs)
+                , abpLimit = Nothing
+                , abpBinanceApiKey = Nothing
+                , abpBinanceApiSecret = Nothing
+                , abpTenantKey = Nothing
+                }
+    -- Inline the core of handleBinancePositions with the provided params.
+    if argPlatform baseArgs /= PlatformBinance
+        then respond (jsonError status400 ("Binance positions require platform=binance (got " ++ platformCode (argPlatform baseArgs) ++ ")."))
+        else do
+            case resolveTenantKeyFromBinancePositionsRequest params of
+                Left e -> respond (jsonError status400 e)
+                Right _ -> do
+                    let testnet = resolveTestnetForListenKey baseArgs (abpBinanceTestnet params)
+                    case parseMarketForListenKey baseArgs (abpMarket params) of
+                        Left e -> respond (jsonError status400 e)
+                        Right market -> do
+                            if market /= MarketFutures
+                                then respond (jsonError status400 "binance positions require market=futures")
+                                else do
+                                    apiKey <- resolveEnv "BINANCE_API_KEY" (abpBinanceApiKey params <|> argBinanceApiKey baseArgs)
+                                    apiSecret <- resolveEnv "BINANCE_API_SECRET" (abpBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
+                                    urls <- resolveBinanceBaseUrls
+                                    let baseUrl = selectBinanceBaseUrl urls testnet market
+                                    env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
+                                    r <- try (fetchFuturesPositionRisks env) :: IO (Either SomeException [FuturesPositionRisk])
+                                    accountUidResult <- try (fetchFuturesAccountUid env) :: IO (Either SomeException (Maybe Int64))
+                                    let accountUid =
+                                            case accountUidResult of
+                                                Right v -> v
+                                                Left _ -> Nothing
+                                    case r of
+                                        Left ex ->
+                                            let (st, msg) = exceptionToHttp ex
+                                             in respond (jsonError st msg)
+                                        Right positions -> do
+                                            let interval = fromMaybe (argInterval baseArgs) (abpInterval params)
+                                                limitRaw = fromMaybe 120 (abpLimit params)
+                                                limitSafe = max 10 (min 1000 limitRaw)
+                                                openPositions = filter (\p -> abs (fprPositionAmt p) > 1e-12) positions
+                                                toApiPosition p =
+                                                    ApiBinancePosition
+                                                        { abpSymbol = fprSymbol p
+                                                        , abpPositionAmt = fprPositionAmt p
+                                                        , abpEntryPrice = fprEntryPrice p
+                                                        , abpMarkPrice = fprMarkPrice p
+                                                        , abpUnrealizedPnl = fprUnrealizedProfit p
+                                                        , abpLiquidationPrice = fprLiquidationPrice p
+                                                        , abpBreakEvenPrice = fprBreakEvenPrice p
+                                                        , abpLeverage = fprLeverage p
+                                                        , abpMarginType = fprMarginType p
+                                                        , abpPositionSide = fprPositionSide p
+                                                        }
+                                            persistBinancePositionsMaybe mOps market openPositions
+                                            chartsRaw <-
+                                                forM openPositions $ \pos -> do
+                                                    let sym = fprSymbol pos
+                                                    kr <- try (fetchKlines env sym interval limitSafe) :: IO (Either SomeException [Kline])
+                                                    pure $
+                                                        case kr of
+                                                            Left _ -> Nothing
+                                                            Right ks ->
+                                                                Just
+                                                                    ApiBinancePositionChart
+                                                                        { abpcSymbol = sym
+                                                                        , abpcOpenTimes = map kOpenTime ks
+                                                                        , abpcPrices = map kClose ks
+                                                                        }
+                                            now <- getTimestampMs
+                                            respond $
+                                                jsonValue
+                                                    status200
+                                                    ApiBinancePositionsResponse
+                                                        { abprMarket = marketCode market
+                                                        , abprTestnet = testnet
+                                                        , abprInterval = interval
+                                                        , abprLimit = limitSafe
+                                                        , abprPositions = map toApiPosition openPositions
+                                                        , abprCharts = catMaybes chartsRaw
+                                                        , abprFetchedAtMs = now
+                                                        , abprAccountUid = accountUid
+                                                        }
 handleBinanceClosePosition :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
   if argPlatform baseArgs /= PlatformBinance

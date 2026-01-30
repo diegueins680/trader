@@ -864,6 +864,20 @@ export async function binancePositions(
   );
 }
 
+export async function binancePositionsAll(
+  baseUrl: string,
+  opts?: FetchJsonOptions,
+): Promise<ApiBinancePositionsResponse> {
+  return fetchJson<ApiBinancePositionsResponse>(
+    baseUrl,
+    "/binance/positions",
+    {
+      method: "GET",
+    },
+    opts,
+  );
+}
+
 export async function binanceClosePosition(
   baseUrl: string,
   params: ApiBinanceClosePositionRequest,

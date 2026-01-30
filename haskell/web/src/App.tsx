@@ -37,6 +37,7 @@ import {
   HttpError,
   backtest,
   binanceClosePosition,
+  binancePositionsAll,
   binancePositions,
   binanceTrades,
   binanceKeysStatus,
@@ -5785,6 +5786,32 @@ export function App() {
     withBinanceKeys,
   ]);
 
+  const fetchBinancePositionsAll = useCallback(async () => {
+    binancePositionsAbortRef.current?.abort();
+    const controller = new AbortController();
+    binancePositionsAbortRef.current = controller;
+    setBinancePositionsUi((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const out = await binancePositionsAll(apiBase, {
+        headers: authHeaders,
+        timeoutMs: 30_000,
+        signal: controller.signal,
+      });
+      setBinancePositionsUi({ loading: false, error: null, response: out });
+      void fetchBinancePositionTrades(out.positions);
+    } catch (e) {
+      if (isAbortError(e)) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      const isTimestampError = isBinanceTimestampErrorMessage(msg);
+      const finalMsg = isTimestampError
+        ? "Binance timestamp out of sync (code -1021). Ensure system time is synced and the Binance time endpoint is reachable, then retry."
+        : msg;
+      setBinancePositionsUi((s) => ({ ...s, loading: false, error: finalMsg }));
+    } finally {
+      if (binancePositionsAbortRef.current === controller) binancePositionsAbortRef.current = null;
+    }
+  }, [apiBase, authHeaders, fetchBinancePositionTrades]);
+
   const closeBinancePosition = useCallback(
     async (pos: { symbol: string; positionSide?: string | null }) => {
       if (apiOk !== "ok") {
@@ -9064,6 +9091,15 @@ export function App() {
                       disabled={binancePositionsUi.loading || apiOk !== "ok" || Boolean(binancePositionsInputError)}
                     >
                       {binancePositionsUi.loading ? "Refreshing…" : "Refresh positions"}
+                    </button>
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => void fetchBinancePositionsAll()}
+                      disabled={binancePositionsUi.loading || apiOk !== "ok"}
+                      title="Fetch all open futures positions via GET /binance/positions (all symbols)."
+                    >
+                      Fetch all (GET)
                     </button>
                     {binancePositionsUi.response ? (
                       <>
