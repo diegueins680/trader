@@ -1457,6 +1457,9 @@ export function App() {
   });
   const listenKeyStreamAbortRef = useRef<AbortController | null>(null);
   const listenKeyStreamSeqRef = useRef(0);
+  const listenKeyStreamRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listenKeyStreamRetryMsRef = useRef(0);
+  const listenKeyInfoRef = useRef<BinanceListenKeyResponse | null>(null);
 
   const [orderFilterText, setOrderFilterText] = useState(() => orderPrefsInit?.filterText ?? "");
   const [orderSentOnly, setOrderSentOnly] = useState(() => orderPrefsInit?.sentOnly ?? false);
@@ -2009,6 +2012,43 @@ export function App() {
     setDragOverConfigPanel(null);
     setDraggingConfigPanel(null);
   }, []);
+
+  const collectPanelIds = useCallback((): string[] => {
+    if (typeof document === "undefined") return [];
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>("details[data-panel]"));
+    const ids = nodes
+      .map((node) => node.getAttribute("data-panel"))
+      .filter((id): id is string => Boolean(id));
+    return Array.from(new Set(ids));
+  }, []);
+
+  const setAllPanelsOpen = useCallback(
+    (open: boolean) => {
+      const ids = collectPanelIds();
+      if (ids.length === 0) return;
+      setPanelPrefs((prev) => {
+        const next = { ...prev };
+        for (const id of ids) {
+          next[id] = open;
+        }
+        return next;
+      });
+      if (!open) setMaximizedPanelId(null);
+    },
+    [collectPanelIds],
+  );
+
+  const resetLayout = useCallback(() => {
+    removeLocalKey(STORAGE_PANEL_PREFS_KEY);
+    removeLocalKey(STORAGE_CONFIG_PANEL_ORDER_KEY);
+    removeLocalKey(STORAGE_CONFIG_PAGE_KEY);
+    removeLocalKey(STORAGE_CONFIG_TAB_KEY);
+    setPanelPrefs({});
+    setConfigPanelOrder(CONFIG_PANEL_IDS);
+    setConfigPage("section-api");
+    setMaximizedPanelId(null);
+    showToast("Layout reset");
+  }, [showToast]);
 
   const openPanelAncestors = useCallback(
     (el: HTMLElement) => {
@@ -4530,8 +4570,17 @@ export function App() {
     [apiBase, appendDataLog, authHeaders, buildDataLogError, isBinancePlatform, isCoinbasePlatform, keysParams, platform, showToast],
   );
 
+  useEffect(() => {
+    listenKeyInfoRef.current = listenKeyUi.info;
+  }, [listenKeyUi.info]);
+
   const stopListenKeyStream = useCallback(
     async (opts?: { close?: boolean; silent?: boolean }) => {
+      if (listenKeyStreamRetryRef.current) {
+        clearTimeout(listenKeyStreamRetryRef.current);
+        listenKeyStreamRetryRef.current = null;
+      }
+      listenKeyStreamRetryMsRef.current = 0;
       listenKeyStreamAbortRef.current?.abort();
       listenKeyStreamAbortRef.current = null;
       listenKeyStreamSeqRef.current += 1;
@@ -4565,6 +4614,7 @@ export function App() {
         keepAliveAtMs: null,
         keepAliveError: null,
       }));
+      listenKeyInfoRef.current = null;
     },
     [apiBase, authHeaders, listenKeyUi.info, showToast, withBinanceKeys],
   );
@@ -4596,12 +4646,30 @@ export function App() {
       const streamId = ++listenKeyStreamSeqRef.current;
       listenKeyStreamAbortRef.current?.abort();
       listenKeyStreamAbortRef.current = controller;
+      if (listenKeyStreamRetryRef.current) {
+        clearTimeout(listenKeyStreamRetryRef.current);
+        listenKeyStreamRetryRef.current = null;
+      }
 
       try {
         const tenantKey = binanceTenantKeyResolved?.trim();
         if (!tenantKey) {
           throw new Error("Tenant key required. Add Binance API keys (or check keys) to open the listen key stream.");
         }
+        const scheduleRetry = (reason: string | null) => {
+          if (listenKeyStreamRetryRef.current) return;
+          if (!listenKeyInfoRef.current) return;
+          const prevMs = listenKeyStreamRetryMsRef.current;
+          const nextMs = Math.min(60_000, prevMs > 0 ? Math.round(prevMs * 1.8) : 5_000);
+          listenKeyStreamRetryMsRef.current = nextMs;
+          listenKeyStreamRetryRef.current = window.setTimeout(() => {
+            listenKeyStreamRetryRef.current = null;
+            if (!listenKeyInfoRef.current) return;
+            void openListenKeyStream({ silent: true });
+          }, nextMs);
+          setListenKeyUi((s) => ({ ...s, wsStatus: "connecting", wsError: reason ?? s.wsError }));
+        };
+
         const requestHeaders = { ...(authHeaders ?? {}), Accept: "text/event-stream" };
         const url = `${listenKeyStreamBase}/binance/listenKey/stream?tenantKey=${encodeURIComponent(tenantKey)}`;
         const res = await fetch(url, {
@@ -4631,6 +4699,11 @@ export function App() {
               wsStatus: nextStatus,
               wsError: nextStatus === "connected" ? null : message ?? s.wsError,
             }));
+            if (nextStatus === "connected") {
+              listenKeyStreamRetryMsRef.current = 0;
+            } else if (nextStatus === "disconnected") {
+              scheduleRetry(message);
+            }
             return;
           }
           if (event === "keepalive") {
@@ -4666,6 +4739,7 @@ export function App() {
 
         if (listenKeyStreamSeqRef.current === streamId) {
           setListenKeyUi((s) => ({ ...s, wsStatus: "disconnected" }));
+          scheduleRetry(null);
         }
       } catch (e) {
         if (isAbortError(e)) return;
@@ -4673,6 +4747,7 @@ export function App() {
         const msg = e instanceof Error ? e.message : String(e);
         setListenKeyUi((s) => ({ ...s, wsError: msg, wsStatus: "disconnected" }));
         if (!opts?.silent) showToast("Listen key stream failed");
+        scheduleRetry(msg);
       } finally {
         if (listenKeyStreamAbortRef.current === controller) {
           listenKeyStreamAbortRef.current = null;
@@ -4699,6 +4774,7 @@ export function App() {
         const out = await binanceListenKey(apiBase, withBinanceKeys(base), { headers: authHeaders, timeoutMs: 30_000 });
 
         setListenKeyUi((s) => ({ ...s, loading: false, error: null, info: out, wsStatus: "connecting" }));
+        listenKeyInfoRef.current = out;
         void openListenKeyStream({ silent });
         if (!silent) showToast("Listen key started");
       } catch (e) {
@@ -7233,6 +7309,16 @@ export function App() {
     () => CONFIG_PAGE_IDS.map((pageId) => ({ id: pageId, label: CONFIG_PAGE_LABELS[pageId] })),
     [],
   );
+  const pageIssueCounts = useMemo(() => {
+    const counts: Partial<Record<ConfigPageId, number>> = {};
+    for (const issue of requestIssueDetails) {
+      if (!issue.targetId) continue;
+      const page = resolveConfigPageForTarget(issue.targetId);
+      if (!page) continue;
+      counts[page] = (counts[page] ?? 0) + 1;
+    }
+    return counts;
+  }, [requestIssueDetails]);
   const configPanelOrderIndex = useMemo(() => {
     const index = {} as Record<ConfigPanelId, number>;
     configPanelOrder.forEach((panelId, idx) => {
@@ -7612,9 +7698,49 @@ export function App() {
                     onClick={() => selectConfigPage(page.id)}
                   >
                     {page.label}
+                    {pageIssueCounts[page.id] ? (
+                      <span className="menuBadge" aria-label={`${pageIssueCounts[page.id]} issue${pageIssueCounts[page.id] === 1 ? "" : "s"}`}>
+                        {pageIssueCounts[page.id]}
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </nav>
+              <div className="headerTools">
+                <div className="menuBar menuBarHeader menuBarActions" aria-label="Layout actions">
+                  <span className="jumpLabel">Layout</span>
+                  <button className="menuItem" type="button" onClick={() => setAllPanelsOpen(true)}>
+                    Expand all
+                  </button>
+                  <button className="menuItem" type="button" onClick={() => setAllPanelsOpen(false)}>
+                    Collapse all
+                  </button>
+                  <button className="menuItem" type="button" onClick={resetLayout}>
+                    Reset layout
+                  </button>
+                </div>
+                {requestIssueDetails.length > 0 ? (
+                  <details className="menuIssues">
+                    <summary className="menuIssueSummary menuItem">
+                      Issues <span className="menuBadge">{requestIssueDetails.length}</span>
+                    </summary>
+                    <div className="menuIssuePanel">
+                      <div className="issueList">
+                        {requestIssueDetails.map((issue, idx) => (
+                          <div key={`${issue.message}-${idx}`} className="issueItem">
+                            <span>{issue.message}</span>
+                            {issue.targetId ? (
+                              <button className="btnSmall" type="button" onClick={() => scrollToSection(issue.targetId)}>
+                                Jump
+                              </button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </details>
+                ) : null}
+              </div>
             </summary>
           </details>
           <ConfigDock {...configDockProps} />
@@ -7701,7 +7827,12 @@ export function App() {
                         <span className="badge">{latestSignalSummary.method}</span>
                       </>
                     ) : (
-                      <span className="summaryEmpty">No signal yet</span>
+                      <>
+                        <span className="summaryEmpty">No signal yet</span>
+                        <button className="btnSmall" type="button" disabled={requestDisabled} onClick={() => run("signal")}>
+                          Get signal
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -7715,7 +7846,12 @@ export function App() {
                         <span className="badge">{backtestSummary.trades} trades</span>
                       </>
                     ) : (
-                      <span className="summaryEmpty">No backtest yet</span>
+                      <>
+                        <span className="summaryEmpty">No backtest yet</span>
+                        <button className="btnSmall" type="button" disabled={requestDisabled} onClick={() => run("backtest")}>
+                          Run backtest
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -7740,7 +7876,12 @@ export function App() {
                         ) : null}
                       </>
                     ) : (
-                      <span className="summaryEmpty">No trade yet</span>
+                      <>
+                        <span className="summaryEmpty">No trade yet</span>
+                        <button className="btnSmall" type="button" onClick={() => scrollToSection("section-trade")}>
+                          Open trade settings
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -8919,7 +9060,17 @@ export function App() {
                   })()}
                 </>
           ) : (
-            <div className="hint">No signal yet.</div>
+            <>
+              <div className="hint">No signal yet.</div>
+              <div className="actions" style={{ marginTop: 10 }}>
+                <button className="btnSmall" type="button" disabled={requestDisabled} onClick={() => run("signal")}>
+                  Get signal
+                </button>
+                <button className="btnSmall" type="button" disabled={requestDisabled} onClick={() => run("backtest")}>
+                  Run backtest
+                </button>
+              </div>
+            </>
           )}
           </CollapsibleCard>
 
@@ -9716,7 +9867,14 @@ export function App() {
                   ) : null}
                 </>
               ) : (
-                <div className="hint">No backtest yet.</div>
+                <>
+                  <div className="hint">No backtest yet.</div>
+                  <div className="actions" style={{ marginTop: 10 }}>
+                    <button className="btnSmall" type="button" disabled={requestDisabled} onClick={() => run("backtest")}>
+                      Run backtest
+                    </button>
+                  </div>
+                </>
               )}
           </CollapsibleCard>
 
@@ -9855,7 +10013,14 @@ export function App() {
                   <pre className="code">{JSON.stringify(state.trade, null, 2)}</pre>
                 </>
               ) : (
-                <div className="hint">No trade attempt yet.</div>
+                <>
+                  <div className="hint">No trade attempt yet.</div>
+                  <div className="actions" style={{ marginTop: 10 }}>
+                    <button className="btnSmall" type="button" onClick={() => scrollToSection("section-trade")}>
+                      Open trade settings
+                    </button>
+                  </div>
+                </>
               )}
           </CollapsibleCard>
 
