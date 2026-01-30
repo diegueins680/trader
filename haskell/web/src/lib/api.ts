@@ -121,7 +121,7 @@ function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
-const FALLBACK_STORAGE_KEY = "trader_api_fallback_v1";
+const FALLBACK_STORAGE_KEY = "trader_api_fallback_v2";
 const FALLBACK_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
 
 type FallbackStorage = {
@@ -213,7 +213,7 @@ function resolveFallbackBase(primaryBase: string): string | null {
   const primary = normalizeBaseUrl(primaryBase);
   const fallback = normalizeBaseUrl(fallbackRaw);
   if (!fallback || fallback === primary) return null;
-  if (blockedFallbackBases.has(fallback)) return null;
+  if (!primary.startsWith("/") && blockedFallbackBases.has(fallback)) return null;
   return fallback;
 }
 
@@ -222,7 +222,7 @@ function resolvePreferredFallback(primaryBase: string, fallbackBase: string | nu
   const preferred = preferredFallbackBases.get(primaryBase) ?? null;
   if (preferred) {
     if (preferred !== fallbackBase) return null;
-    if (blockedFallbackBases.has(preferred)) return null;
+    if (!primaryBase.startsWith("/") && blockedFallbackBases.has(preferred)) return null;
     return preferred;
   }
   return null;
@@ -935,13 +935,17 @@ export async function botStatus(
 
 export async function ops(
   baseUrl: string,
-  params?: { kind?: string; limit?: number; since?: number },
+  params?: { kind?: string; limit?: number; since?: number; symbol?: string; fromMs?: number; toMs?: number; bot?: boolean },
   opts?: FetchJsonOptions,
 ): Promise<OpsResponse> {
   const query = new URLSearchParams();
   if (params?.kind) query.set("kind", params.kind);
   if (typeof params?.limit === "number" && Number.isFinite(params.limit)) query.set("limit", String(Math.trunc(params.limit)));
   if (typeof params?.since === "number" && Number.isFinite(params.since)) query.set("since", String(Math.trunc(params.since)));
+  if (params?.symbol) query.set("symbol", params.symbol);
+  if (typeof params?.fromMs === "number" && Number.isFinite(params.fromMs)) query.set("fromMs", String(Math.trunc(params.fromMs)));
+  if (typeof params?.toMs === "number" && Number.isFinite(params.toMs)) query.set("toMs", String(Math.trunc(params.toMs)));
+  if (typeof params?.bot === "boolean") query.set("bot", params.bot ? "1" : "0");
   const path = query.size > 0 ? `/ops?${query.toString()}` : "/ops";
   return fetchJson<OpsResponse>(baseUrl, path, { method: "GET" }, opts);
 }

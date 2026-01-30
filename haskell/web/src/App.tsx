@@ -25,7 +25,6 @@ import type {
   Method,
   Normalization,
   OpsOperation,
-  OpsPerformanceResponse,
   OptimizerRunRequest,
   OptimizerRunResponse,
   OptimizerSource,
@@ -65,9 +64,12 @@ import { copyText } from "./lib/clipboard";
 import { TRADER_UI_CONFIG } from "./lib/deployConfig";
 import { readJson, readLocalString, readSessionString, removeLocalKey, removeSessionKey, writeJson, writeLocalString, writeSessionString } from "./lib/storage";
 import { fmtMoney, fmtNum, fmtPct, fmtRatio } from "./lib/format";
+import { BinanceTradesPanel } from "./components/BinanceTradesPanel";
 import { CollapsibleCard } from "./components/CollapsibleCard";
 import { ConfigDock, type ConfigDockProps } from "./components/ConfigDock";
+import { DataLogPanel } from "./components/DataLogPanel";
 import { InfoList, InfoPopover } from "./components/InfoPopover";
+import { PerformancePanel } from "./components/PerformancePanel";
 import { API_PORT, API_TARGET } from "./app/apiTarget";
 import {
   CONFIG_PAGE_IDS,
@@ -95,7 +97,6 @@ import {
   BOT_AUTOSTART_RETRY_MS,
   BOT_TELEMETRY_POINTS,
   DATA_LOG_AUTO_SCROLL_SLOP_PX,
-  DATA_LOG_COLLAPSED_MAX_LINES,
   DATA_LOG_MAX_ENTRIES,
   PLATFORM_DEFAULT_SYMBOL,
   PLATFORM_DEFAULT_BARS,
@@ -152,7 +153,6 @@ import {
   fmtTimeMs,
   fmtTimeMsWithMs,
   generateIdempotencyKey,
-  indexTopLevelPrimitiveArrays,
   isAbortError,
   isLikelyOrderError,
   isLocalHostname,
@@ -287,6 +287,7 @@ import {
   type ListenKeyUiState,
   type ManualOverrideKey,
   type OpsUiState,
+  type OpsPerformanceUiState,
   type OptimizerRunForm,
   type OptimizerRunUiState,
   type OrderLogPrefs,
@@ -1069,18 +1070,6 @@ const BACKTEST_TRADE_PNL_TIPS = {
     "Total win/loss = sum of per-trade returns (not compounded).",
     "Profit factor = gross wins / |gross losses|.",
   ],
-};
-type OpsPerformanceUiState = {
-  loading: boolean;
-  error: string | null;
-  enabled: boolean;
-  ready: boolean;
-  commitsReady: boolean;
-  combosReady: boolean;
-  hint: string | null;
-  commits: OpsPerformanceResponse["commits"];
-  combos: OpsPerformanceResponse["combos"];
-  lastFetchedAtMs: number | null;
 };
 type StateSyncUiState = {
   exporting: boolean;
@@ -8692,521 +8681,43 @@ export function App() {
             title="Binance account trades"
             subtitle="Full exchange history from your Binance account (API keys required)."
           >
-              <div className="row">
-                <div className="field" style={{ flex: "2 1 360px" }}>
-                  <label className="label" htmlFor="binanceTradesSymbols">
-                    Symbols (optional)
-                  </label>
-                  <input
-                    id="binanceTradesSymbols"
-                    className="input"
-                    value={binanceTradesSymbolsInput}
-                    onChange={(e) => setBinanceTradesSymbolsInput(e.target.value)}
-                    placeholder="BTCUSDT, ETHUSDT"
-                  />
-                  <div className="hint">Leave blank for all symbols (futures only). Spot/margin require a symbol.</div>
-                </div>
-                <div className="field" style={{ flex: "1 1 160px" }}>
-                  <label className="label" htmlFor="binanceTradesLimit">
-                    Limit
-                  </label>
-                  <input
-                    id="binanceTradesLimit"
-                    className="input"
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={binanceTradesLimit}
-                    onChange={(e) => setBinanceTradesLimit(numFromInput(e.target.value, binanceTradesLimit))}
-                  />
-                  <div className="hint">Max 1000 per request.</div>
-                </div>
-              </div>
-              <div className="row" style={{ marginTop: 10 }}>
-                <div className="field">
-                  <label className="label" htmlFor="binanceTradesStart">
-                    Start time (optional)
-                  </label>
-                  <input
-                    id="binanceTradesStart"
-                    className="input"
-                    value={binanceTradesStartInput}
-                    onChange={(e) => setBinanceTradesStartInput(e.target.value)}
-                    placeholder="2025-12-23T00:00:00Z or 1700000000000"
-                  />
-                </div>
-                <div className="field">
-                  <label className="label" htmlFor="binanceTradesEnd">
-                    End time (optional)
-                  </label>
-                  <input
-                    id="binanceTradesEnd"
-                    className="input"
-                    value={binanceTradesEndInput}
-                    onChange={(e) => setBinanceTradesEndInput(e.target.value)}
-                    placeholder="2025-12-23T23:59:59Z"
-                  />
-                </div>
-                <div className="field">
-                  <label className="label" htmlFor="binanceTradesFromId">
-                    From ID (optional)
-                  </label>
-                  <input
-                    id="binanceTradesFromId"
-                    className="input"
-                    value={binanceTradesFromIdInput}
-                    onChange={(e) => setBinanceTradesFromIdInput(e.target.value)}
-                    placeholder="Trade ID"
-                  />
-                </div>
-              </div>
-              <div className="actions" style={{ marginTop: 10 }}>
-                <button
-                  className="btn btnPrimary"
-                  disabled={binanceTradesUi.loading || Boolean(binanceTradesInputError)}
-                  onClick={() => void fetchBinanceTrades()}
-                >
-                  {binanceTradesUi.loading ? "Loading…" : "Fetch trades"}
-                </button>
-                <button
-                  className="btn"
-                  type="button"
-                  disabled={!binanceTradesUi.response}
-                  onClick={() => {
-                    void copyText(binanceTradesCopyText);
-                    showToast("Copied trade log");
-                  }}
-                >
-                  Copy
-                </button>
-                <button
-                  className="btn"
-                  type="button"
-                  disabled={!binanceTradesJson}
-                  onClick={() => {
-                    void copyText(binanceTradesJson);
-                    showToast("Copied trade log JSON");
-                  }}
-                >
-                  Copy JSON
-                </button>
-                <button
-                  className="btn"
-                  type="button"
-                  disabled={!binanceTradesUi.response && !binanceTradesUi.error}
-                  onClick={() => setBinanceTradesUi({ loading: false, error: null, response: null })}
-                >
-                  Clear
-                </button>
-              </div>
-              {binanceTradesInputError ? (
-                <div className="hint" style={{ marginTop: 10, color: "rgba(239, 68, 68, 0.9)" }}>
-                  {binanceTradesInputError}
-                </div>
-              ) : null}
-              {binanceTradesUi.error ? (
-                <div className="hint" style={{ marginTop: 10, color: "rgba(239, 68, 68, 0.9)", whiteSpace: "pre-wrap" }}>
-                  {binanceTradesUi.error}
-                </div>
-              ) : null}
-              {binanceTradesUi.response ? (
-                <>
-                  <div className="pillRow" style={{ marginTop: 12, marginBottom: 10 }}>
-                    <span className="badge">{marketLabel(binanceTradesUi.response.market)}</span>
-                    <span className="badge">{binanceTradesUi.response.testnet ? "TESTNET" : "LIVE"}</span>
-                    <span className="badge">{binanceTradesTotalCount} trades</span>
-                    {binanceTradesFilterActive ? <span className="badge">filtered {binanceTradesFilteredCount}</span> : null}
-                    <span className="badge">
-                      {binanceTradesUi.response.allSymbols
-                        ? "all symbols"
-                        : binanceTradesUi.response.symbols.length > 0
-                          ? binanceTradesUi.response.symbols.join(", ")
-                          : "symbol"}
-                    </span>
-                    <span className="badge">fetched {fmtTimeMs(binanceTradesUi.response.fetchedAtMs)}</span>
-                  </div>
-                  <div className="pillRow" style={{ marginBottom: 10 }}>
-                    <input
-                      className="input"
-                      style={{ flex: "1 1 220px" }}
-                      value={binanceTradesFilterSymbolsInput}
-                      onChange={(e) => setBinanceTradesFilterSymbolsInput(e.target.value)}
-                      placeholder="Filter symbols (BTCUSDT, ETHUSDT)"
-                      spellCheck={false}
-                      aria-label="Filter trade symbols"
-                    />
-                    <select
-                      className="select"
-                      style={{ width: 140 }}
-                      value={binanceTradesFilterSide}
-                      onChange={(e) => setBinanceTradesFilterSide(e.target.value as OrderSideFilter)}
-                      aria-label="Filter trade side"
-                    >
-                      <option value="ALL">All sides</option>
-                      <option value="BUY">BUY</option>
-                      <option value="SELL">SELL</option>
-                    </select>
-                    <input
-                      className="input"
-                      style={{ flex: "1 1 200px" }}
-                      value={binanceTradesFilterStartInput}
-                      onChange={(e) => setBinanceTradesFilterStartInput(e.target.value)}
-                      placeholder="Filter start date"
-                      aria-label="Filter start date"
-                    />
-                    <input
-                      className="input"
-                      style={{ flex: "1 1 200px" }}
-                      value={binanceTradesFilterEndInput}
-                      onChange={(e) => setBinanceTradesFilterEndInput(e.target.value)}
-                      placeholder="Filter end date"
-                      aria-label="Filter end date"
-                    />
-                    <button
-                      className="btn"
-                      type="button"
-                      disabled={!binanceTradesFilterActive && !binanceTradesFilterError}
-                      onClick={() => {
-                        setBinanceTradesFilterSymbolsInput("");
-                        setBinanceTradesFilterSide("ALL");
-                        setBinanceTradesFilterStartInput("");
-                        setBinanceTradesFilterEndInput("");
-                        showToast("Cleared trade filters");
-                      }}
-                    >
-                      Clear filters
-                    </button>
-                  </div>
-                  {binanceTradesFilterError ? (
-                    <div className="hint" style={{ marginTop: 6, color: "rgba(239, 68, 68, 0.9)" }}>
-                      {binanceTradesFilterError}
-                    </div>
-                  ) : (
-                    <div className="hint" style={{ marginTop: 6 }}>
-                      Filter dates accept unix ms timestamps or ISO dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
-                    </div>
-                  )}
-                  <div className="pillRow" style={{ marginTop: 8 }}>
-                    {binanceTradesFilterActive ? (
-                      <span className="badge">
-                        showing {binanceTradesFilteredCount} of {binanceTradesTotalCount}
-                      </span>
-                    ) : null}
-                    <span
-                      className={pnlBadgeClass(
-                        binanceTradesFilteredTotals.totalPnlCount > 0 ? binanceTradesFilteredTotals.totalPnl : null,
-                      )}
-                    >
-                      Total P&amp;L {binanceTradesFilteredPnlLabel}
-                    </span>
-                    <span className="badge">Total commission {binanceTradesFilteredCommissionLabel}</span>
-                  </div>
-                  {binanceTradesFilteredCount > 0 ? (
-                    binanceTradesAnalysis ? (
-                      <details className="details" style={{ marginTop: 12 }}>
-                        <summary>Trade P&amp;L analysis</summary>
-                        <div style={{ marginTop: 10 }}>
-                          {(() => {
-                            const stats = binanceTradesAnalysis;
-                            const response = binanceTradesUi.response;
-                            if (!response) return null;
-                            const winRateLabel = stats.winRate != null && Number.isFinite(stats.winRate) ? fmtPct(stats.winRate, 1) : "—";
-                            const avgWinLabel = stats.avgWin != null && Number.isFinite(stats.avgWin) ? fmtMoney(stats.avgWin, 4) : "—";
-                            const avgLossLabel = stats.avgLoss != null && Number.isFinite(stats.avgLoss) ? fmtMoney(stats.avgLoss, 4) : "—";
-                            const avgPnlLabel = stats.avgPnl != null && Number.isFinite(stats.avgPnl) ? fmtMoney(stats.avgPnl, 4) : "—";
-                            const maxWinLabel = stats.maxWin != null && Number.isFinite(stats.maxWin) ? fmtMoney(stats.maxWin, 4) : "—";
-                            const maxLossLabel = stats.maxLoss != null && Number.isFinite(stats.maxLoss) ? fmtMoney(stats.maxLoss, 4) : "—";
-                            const totalWinLabel = Number.isFinite(stats.totalWin) ? fmtMoney(stats.totalWin, 4) : "—";
-                            const totalLossLabel = Number.isFinite(stats.totalLoss) ? fmtMoney(stats.totalLoss, 4) : "—";
-                            const totalPnlLabel = Number.isFinite(stats.totalPnl) ? fmtMoney(stats.totalPnl, 4) : "—";
-                            const totalQtyLabel = Number.isFinite(stats.totalQty) ? fmtNum(stats.totalQty, 8) : "—";
-                            const totalQuoteLabel = Number.isFinite(stats.totalQuoteQty) ? fmtMoney(stats.totalQuoteQty, 2) : "—";
-                            const profitFactorLabel =
-                              stats.profitFactor == null
-                                ? "—"
-                                : Number.isFinite(stats.profitFactor)
-                                  ? fmtNum(stats.profitFactor, 3)
-                                  : "∞";
-                            const payoffRatioLabel =
-                              stats.payoffRatio == null
-                                ? "—"
-                                : Number.isFinite(stats.payoffRatio)
-                                  ? fmtNum(stats.payoffRatio, 3)
-                                  : "∞";
-                            const commissionLabel =
-                              stats.commissionTotals.length > 0
-                                ? stats.commissionTotals.map((c) => `${fmtNum(c.total, 6)} ${c.asset}`).join(" • ")
-                                : "—";
-                            const totalsScope = binanceTradesFilterActive
-                              ? "Totals across filtered trades."
-                              : response.allSymbols || response.symbols.length > 1
-                                ? response.allSymbols
-                                  ? "Totals across all symbols."
-                                  : `Totals across ${response.symbols.length} symbols.`
-                                : null;
-                            return (
-                              <>
-                                <div className="summaryGrid">
-                                  <div className="summaryItem">
-                                    <div className="labelRow">
-                                      <div className="summaryLabel">Outcomes</div>
-                                      <InfoPopover label="Outcomes">
-                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.outcomes} />
-                                      </InfoPopover>
-                                    </div>
-                                    <div className="summaryValue">
-                                      <span className="badge badgeStrong badgeLong">{stats.wins} wins</span>
-                                      <span className="badge badgeStrong badgeFlat">{stats.losses} losses</span>
-                                      <span className="badge">{stats.breakeven} flat</span>
-                                      <span className="summaryMeta">Win rate {winRateLabel} • trades {stats.count}</span>
-                                    </div>
-                                  </div>
-                                  <div className="summaryItem">
-                                    <div className="labelRow">
-                                      <div className="summaryLabel">Avg win / loss</div>
-                                      <InfoPopover label="Average win/loss">
-                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.avgWinLoss} />
-                                      </InfoPopover>
-                                    </div>
-                                    <div className="summaryValue">
-                                      <span className={pnlBadgeClass(stats.avgWin)}>{avgWinLabel}</span>
-                                      <span className={pnlBadgeClass(stats.avgLoss)}>{avgLossLabel}</span>
-                                      <span className="summaryMeta">Payoff ratio {payoffRatioLabel}</span>
-                                    </div>
-                                  </div>
-                                  <div className="summaryItem">
-                                    <div className="labelRow">
-                                      <div className="summaryLabel">Best / worst trade</div>
-                                      <InfoPopover label="Best/worst trade">
-                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.bestWorst} />
-                                      </InfoPopover>
-                                    </div>
-                                    <div className="summaryValue">
-                                      <span className={pnlBadgeClass(stats.maxWin)}>{maxWinLabel}</span>
-                                      <span className={pnlBadgeClass(stats.maxLoss)}>{maxLossLabel}</span>
-                                      <span className="summaryMeta">Avg P&amp;L {avgPnlLabel}</span>
-                                    </div>
-                                  </div>
-                                  <div className="summaryItem">
-                                    <div className="labelRow">
-                                      <div className="summaryLabel">Total P&amp;L</div>
-                                      <InfoPopover label="Total P&L" align="left">
-                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.totalPnl} />
-                                      </InfoPopover>
-                                    </div>
-                                    <div className="summaryValue">
-                                      <span className={pnlBadgeClass(stats.totalPnl)}>{totalPnlLabel}</span>
-                                      <span className={pnlBadgeClass(stats.totalWin)}>{totalWinLabel}</span>
-                                      <span className={pnlBadgeClass(stats.totalLoss)}>{totalLossLabel}</span>
-                                      <span className="summaryMeta">Profit factor {profitFactorLabel} • Fees {commissionLabel}</span>
-                                    </div>
-                                  </div>
-                                  <div className="summaryItem">
-                                    <div className="labelRow">
-                                      <div className="summaryLabel">Totals</div>
-                                      <InfoPopover label="Totals" align="left">
-                                        <InfoList items={ACCOUNT_TRADE_PNL_TIPS.totals} />
-                                      </InfoPopover>
-                                    </div>
-                                    <div className="summaryValue">
-                                      <span className="badge">Qty {totalQtyLabel}</span>
-                                      <span className="badge">Quote {totalQuoteLabel}</span>
-                                      {totalsScope ? <span className="summaryMeta">{totalsScope}</span> : null}
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="chartBlock" style={{ marginTop: 12 }}>
-                                  <div className="hint">Top winners</div>
-                                  {stats.topWins.length > 0 ? (
-                                    <div className="tableWrap" role="region" aria-label="Top winning account trades">
-                                      <table className="table">
-                                        <thead>
-                                          <tr>
-                                            <th>Time</th>
-                                            <th>Symbol</th>
-                                            <th>Side</th>
-                                            <th>Price</th>
-                                            <th>Qty</th>
-                                            <th>Pos</th>
-                                            <th>PNL</th>
-                                            <th>Commission</th>
-                                            <th>Order</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {stats.topWins.map((row) => {
-                                            const sideClass =
-                                              row.side === "BUY"
-                                                ? "badge badgeStrong badgeLong"
-                                                : row.side === "SELL"
-                                                  ? "badge badgeStrong badgeFlat"
-                                                  : "badge";
-                                            const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
-                                            const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
-                                            const commissionTxt =
-                                              row.commission != null && Number.isFinite(row.commission)
-                                                ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
-                                                : "—";
-                                            return (
-                                              <tr key={`binance-win-${row.tradeId}`}>
-                                                <td className="tdMono">{fmtTimeMsWithMs(row.time)}</td>
-                                                <td className="tdMono">{row.symbol}</td>
-                                                <td>
-                                                  <span className={sideClass}>{row.side}</span>
-                                                </td>
-                                                <td className="tdMono">{fmtMoney(row.price, 4)}</td>
-                                                <td className="tdMono">{qtyTxt}</td>
-                                                <td className="tdMono">{row.positionSide ?? "—"}</td>
-                                                <td>
-                                                  <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
-                                                </td>
-                                                <td className="tdMono">{commissionTxt}</td>
-                                                <td className="tdMono">{row.orderId ?? "—"}</td>
-                                              </tr>
-                                            );
-                                          })}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  ) : (
-                                    <div className="hint">No winning trades in this sample.</div>
-                                  )}
-                                </div>
-                                <div className="chartBlock" style={{ marginTop: 12 }}>
-                                  <div className="hint">Top losers</div>
-                                  {stats.topLosses.length > 0 ? (
-                                    <div className="tableWrap" role="region" aria-label="Top losing account trades">
-                                      <table className="table">
-                                        <thead>
-                                          <tr>
-                                            <th>Time</th>
-                                            <th>Symbol</th>
-                                            <th>Side</th>
-                                            <th>Price</th>
-                                            <th>Qty</th>
-                                            <th>Pos</th>
-                                            <th>PNL</th>
-                                            <th>Commission</th>
-                                            <th>Order</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {stats.topLosses.map((row) => {
-                                            const sideClass =
-                                              row.side === "BUY"
-                                                ? "badge badgeStrong badgeLong"
-                                                : row.side === "SELL"
-                                                  ? "badge badgeStrong badgeFlat"
-                                                  : "badge";
-                                            const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
-                                            const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
-                                            const commissionTxt =
-                                              row.commission != null && Number.isFinite(row.commission)
-                                                ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
-                                                : "—";
-                                            return (
-                                              <tr key={`binance-loss-${row.tradeId}`}>
-                                                <td className="tdMono">{fmtTimeMsWithMs(row.time)}</td>
-                                                <td className="tdMono">{row.symbol}</td>
-                                                <td>
-                                                  <span className={sideClass}>{row.side}</span>
-                                                </td>
-                                                <td className="tdMono">{fmtMoney(row.price, 4)}</td>
-                                                <td className="tdMono">{qtyTxt}</td>
-                                                <td className="tdMono">{row.positionSide ?? "—"}</td>
-                                                <td>
-                                                  <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
-                                                </td>
-                                                <td className="tdMono">{commissionTxt}</td>
-                                                <td className="tdMono">{row.orderId ?? "—"}</td>
-                                              </tr>
-                                            );
-                                          })}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  ) : (
-                                    <div className="hint">No losing trades in this sample.</div>
-                                  )}
-                                </div>
-                                <div className="hint" style={{ marginTop: 8 }}>
-                                  P&amp;L uses Binance realizedPnl per fill. Spot/margin trades typically omit realizedPnl.
-                                </div>
-                              </>
-                            );
-                          })()}
-                        </div>
-                      </details>
-                    ) : (
-                      <div className="hint" style={{ marginTop: 10 }}>
-                        Realized P&amp;L is unavailable for these trades. Binance only returns realizedPnl for futures fills.
-                      </div>
-                    )
-                  ) : null}
-                  {binanceTradesFilteredCount === 0 ? (
-                    <div className="hint">
-                      {binanceTradesTotalCount > 0 ? "No trades match the filters." : "No trades returned."}
-                    </div>
-                  ) : (
-                    <div className="tableWrap" role="region" aria-label="Binance account trades">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Time</th>
-                            <th>Symbol</th>
-                            <th>Side</th>
-                            <th>Price</th>
-                            <th>Qty</th>
-                            <th>Quote</th>
-                            <th>Pos</th>
-                            <th>Commission</th>
-                            <th>PNL</th>
-                            <th>Order</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {binanceTradesFiltered.map((trade) => {
-                            const side = binanceTradeSideLabel(trade);
-                            const qtyTxt = Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
-                            const quoteTxt = Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
-                            const commissionTxt =
-                              trade.commission != null && Number.isFinite(trade.commission)
-                                ? `${fmtNum(trade.commission, 8)}${trade.commissionAsset ? ` ${trade.commissionAsset}` : ""}`
-                                : "—";
-                            const pnlTxt =
-                              trade.realizedPnl != null && Number.isFinite(trade.realizedPnl) ? fmtMoney(trade.realizedPnl, 4) : "—";
-                            return (
-                              <tr key={`${trade.symbol}-${trade.tradeId}`}>
-                                <td className="tdMono">{fmtTimeMsWithMs(trade.time)}</td>
-                                <td className="tdMono">{trade.symbol}</td>
-                                <td>
-                                  <span className={side === "BUY" ? "badge badgeStrong badgeLong" : side === "SELL" ? "badge badgeStrong badgeFlat" : "badge"}>
-                                    {side}
-                                  </span>
-                                </td>
-                                <td className="tdMono">{fmtMoney(trade.price, 4)}</td>
-                                <td className="tdMono">{qtyTxt}</td>
-                                <td className="tdMono">{quoteTxt}</td>
-                                <td className="tdMono">{trade.positionSide ?? "—"}</td>
-                                <td className="tdMono">{commissionTxt}</td>
-                                <td className="tdMono">{pnlTxt}</td>
-                                <td className="tdMono">{trade.orderId ?? "—"}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                  <div className="hint" style={{ marginTop: 8 }}>
-                    Binance returns up to 1000 trades per request. Use start/end time or fromId to page deeper history.
-                  </div>
-                </>
-              ) : (
-                <div className="hint" style={{ marginTop: 10 }}>
-                  No trades loaded yet.
-                </div>
-              )}
+            <BinanceTradesPanel
+              binanceTradesSymbolsInput={binanceTradesSymbolsInput}
+              setBinanceTradesSymbolsInput={setBinanceTradesSymbolsInput}
+              binanceTradesLimit={binanceTradesLimit}
+              setBinanceTradesLimit={setBinanceTradesLimit}
+              binanceTradesStartInput={binanceTradesStartInput}
+              setBinanceTradesStartInput={setBinanceTradesStartInput}
+              binanceTradesEndInput={binanceTradesEndInput}
+              setBinanceTradesEndInput={setBinanceTradesEndInput}
+              binanceTradesFromIdInput={binanceTradesFromIdInput}
+              setBinanceTradesFromIdInput={setBinanceTradesFromIdInput}
+              binanceTradesUi={binanceTradesUi}
+              setBinanceTradesUi={setBinanceTradesUi}
+              binanceTradesInputError={binanceTradesInputError}
+              fetchBinanceTrades={fetchBinanceTrades}
+              copyText={copyText}
+              showToast={showToast}
+              binanceTradesCopyText={binanceTradesCopyText}
+              binanceTradesJson={binanceTradesJson}
+              binanceTradesTotalCount={binanceTradesTotalCount}
+              binanceTradesFilterActive={binanceTradesFilterActive}
+              binanceTradesFilteredCount={binanceTradesFilteredCount}
+              binanceTradesFilterSymbolsInput={binanceTradesFilterSymbolsInput}
+              setBinanceTradesFilterSymbolsInput={setBinanceTradesFilterSymbolsInput}
+              binanceTradesFilterSide={binanceTradesFilterSide}
+              setBinanceTradesFilterSide={setBinanceTradesFilterSide}
+              binanceTradesFilterStartInput={binanceTradesFilterStartInput}
+              setBinanceTradesFilterStartInput={setBinanceTradesFilterStartInput}
+              binanceTradesFilterEndInput={binanceTradesFilterEndInput}
+              setBinanceTradesFilterEndInput={setBinanceTradesFilterEndInput}
+              binanceTradesFilterError={binanceTradesFilterError}
+              binanceTradesFilteredTotals={binanceTradesFilteredTotals}
+              binanceTradesFilteredPnlLabel={binanceTradesFilteredPnlLabel}
+              binanceTradesFilteredCommissionLabel={binanceTradesFilteredCommissionLabel}
+              binanceTradesFiltered={binanceTradesFiltered}
+              binanceTradesAnalysis={binanceTradesAnalysis}
+            />
           </CollapsibleCard>
 
           <CollapsibleCard
@@ -10755,259 +10266,19 @@ export function App() {
             title="Performance vs code"
             subtitle="Per-commit rollups and deltas from the ops log (bot.status/bot.order)."
           >
-            <div className="row" style={{ marginBottom: 10, gridTemplateColumns: "repeat(4, minmax(0, 1fr)) auto", alignItems: "end" }}>
-              <div className="field">
-                <label className="label" htmlFor="opsPerfCommitLimit">
-                  Commit rows
-                </label>
-                <input
-                  id="opsPerfCommitLimit"
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={opsPerformanceCommitLimit}
-                  onChange={(e) =>
-                    setOpsPerformanceCommitLimit(
-                      clamp(Math.trunc(numFromInput(e.target.value, opsPerformanceCommitLimit)), 1, 200),
-                    )
-                  }
-                />
-              </div>
-              <div className="field">
-                <label className="label" htmlFor="opsPerfComboLimit">
-                  Combo rows
-                </label>
-                <input
-                  id="opsPerfComboLimit"
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={opsPerformanceComboLimit}
-                  onChange={(e) =>
-                    setOpsPerformanceComboLimit(
-                      clamp(Math.trunc(numFromInput(e.target.value, opsPerformanceComboLimit)), 1, 200),
-                    )
-                  }
-                />
-              </div>
-              <div className="field">
-                <label className="label" htmlFor="opsPerfComboScope">
-                  Combo scope
-                </label>
-                <select
-                  id="opsPerfComboScope"
-                  className="select"
-                  value={opsPerformanceComboScope}
-                  onChange={(e) => setOpsPerformanceComboScope(e.target.value === "all" ? "all" : "latest")}
-                >
-                  <option value="latest">Latest commit</option>
-                  <option value="all">All history</option>
-                </select>
-              </div>
-              <div className="field">
-                <label className="label" htmlFor="opsPerfComboOrder">
-                  Combo order
-                </label>
-                <select
-                  id="opsPerfComboOrder"
-                  className="select"
-                  value={opsPerformanceComboOrder}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === "recent" || value === "return" || value === "delta") setOpsPerformanceComboOrder(value);
-                  }}
-                >
-                  <option value="delta">Worst delta return</option>
-                  <option value="recent">Most recent</option>
-                  <option value="return">Highest return</option>
-                </select>
-              </div>
-              <button
-                className="btn"
-                type="button"
-                disabled={opsPerformanceUi.loading || apiOk !== "ok"}
-                onClick={() => void fetchOpsPerformance()}
-              >
-                {opsPerformanceUi.loading ? "Loading..." : "Refresh"}
-              </button>
-            </div>
-
-            {!opsPerformanceUi.enabled ? (
-              <div className="hint">{opsPerformanceUi.hint ?? "Enable TRADER_DB_URL to load performance rollups."}</div>
-            ) : opsPerformanceUi.hint ? (
-              <div className="hint">{opsPerformanceUi.hint}</div>
-            ) : null}
-
-            {opsPerformanceUi.error ? (
-              <div className="hint" style={{ color: "rgba(239, 68, 68, 0.9)", marginBottom: 6 }}>
-                {opsPerformanceUi.error}
-              </div>
-            ) : null}
-
-            <div className="pillRow" style={{ marginBottom: 10 }}>
-              <span className="badge">Commits {opsPerformanceUi.commits.length}</span>
-              <span className="badge">Combos {opsPerformanceUi.combos.length}</span>
-              {opsPerformanceUi.lastFetchedAtMs ? <span className="badge">Synced {fmtTimeMs(opsPerformanceUi.lastFetchedAtMs)}</span> : null}
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <div className="hint" style={{ marginBottom: 6 }}>
-                Commit deltas
-              </div>
-              {opsPerformanceUi.commits.length === 0 ? (
-                <div className="hint">No commit rollups yet.</div>
-              ) : (
-                <div className="tableWrap" role="region" aria-label="Commit performance rollups">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Commit</th>
-                        <th>Committed</th>
-                        <th>Median return</th>
-                        <th>Δ return</th>
-                        <th>Median DD</th>
-                        <th>Δ DD</th>
-                        <th>Worst DD</th>
-                        <th>Δ worst</th>
-                        <th>Samples</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {opsPerformanceUi.commits.map((row) => {
-                        const commitLabel = shortCommitHash(row.commitHash);
-                        const commitTitle = row.commitHash ?? "—";
-                        const committedLabel =
-                          typeof row.committedAtMs === "number" && Number.isFinite(row.committedAtMs)
-                            ? fmtTimeMs(row.committedAtMs)
-                            : "—";
-                        const medianReturn = typeof row.medianReturn === "number" && Number.isFinite(row.medianReturn)
-                          ? fmtPct(row.medianReturn, 2)
-                          : "—";
-                        const deltaReturn = typeof row.deltaMedianReturn === "number" && Number.isFinite(row.deltaMedianReturn)
-                          ? fmtPct(row.deltaMedianReturn, 2)
-                          : "—";
-                        const medianDd = typeof row.medianDrawdown === "number" && Number.isFinite(row.medianDrawdown)
-                          ? fmtPct(row.medianDrawdown, 2)
-                          : "—";
-                        const deltaDd = typeof row.deltaMedianDrawdown === "number" && Number.isFinite(row.deltaMedianDrawdown)
-                          ? fmtPct(row.deltaMedianDrawdown, 2)
-                          : "—";
-                        const worstDd = typeof row.worstDrawdown === "number" && Number.isFinite(row.worstDrawdown)
-                          ? fmtPct(row.worstDrawdown, 2)
-                          : "—";
-                        const deltaWorst = typeof row.deltaWorstDrawdown === "number" && Number.isFinite(row.deltaWorstDrawdown)
-                          ? fmtPct(row.deltaWorstDrawdown, 2)
-                          : "—";
-                        const samples = `${row.rollups ?? 0} rollups • ${row.combos ?? 0} combos • ${row.symbols ?? 0} symbols`;
-                        return (
-                          <tr key={`commit-${row.gitCommitId}`}>
-                            <td className="tdMono" title={commitTitle}>
-                              {commitLabel}
-                            </td>
-                            <td>{committedLabel}</td>
-                            <td>
-                              <span className={pnlBadgeClass(row.medianReturn)}>{medianReturn}</span>
-                            </td>
-                            <td>
-                              <span className={pnlBadgeClass(row.deltaMedianReturn)}>{deltaReturn}</span>
-                            </td>
-                            <td>
-                              <span className={pnlBadgeClass(row.medianDrawdown)}>{medianDd}</span>
-                            </td>
-                            <td>
-                              <span className={pnlBadgeClass(row.deltaMedianDrawdown)}>{deltaDd}</span>
-                            </td>
-                            <td>
-                              <span className={pnlBadgeClass(row.worstDrawdown)}>{worstDd}</span>
-                            </td>
-                            <td>
-                              <span className={pnlBadgeClass(row.deltaWorstDrawdown)}>{deltaWorst}</span>
-                            </td>
-                            <td>{samples}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <div className="hint" style={{ marginBottom: 6 }}>
-                Combo deltas
-              </div>
-              {!opsPerformanceUi.combosReady ? (
-                <div className="hint">Combo deltas are unavailable until rollups are built.</div>
-              ) : opsPerformanceUi.combos.length === 0 ? (
-                <div className="hint">No combo deltas available for the selected scope.</div>
-              ) : (
-                <div className="tableWrap" role="region" aria-label="Combo performance deltas">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Symbol</th>
-                        <th>Market</th>
-                        <th>Interval</th>
-                        <th>Combo</th>
-                        <th>Return</th>
-                        <th>Δ return</th>
-                        <th>Max DD</th>
-                        <th>Δ DD</th>
-                        <th>Commit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {opsPerformanceUi.combos.map((row, idx) => {
-                        const symbol = row.symbol ?? "—";
-                        const market = row.market ? marketLabel(row.market as Market) : "—";
-                        const interval = row.interval ?? "—";
-                        const combo = shortComboUuid(row.comboUuid);
-                        const commitLabel = shortCommitHash(row.commitHash, 7);
-                        const commitTitle = row.commitHash ?? "—";
-                        const ret = typeof row.return === "number" && Number.isFinite(row.return) ? fmtPct(row.return, 2) : "—";
-                        const deltaRet = typeof row.deltaReturn === "number" && Number.isFinite(row.deltaReturn)
-                          ? fmtPct(row.deltaReturn, 2)
-                          : "—";
-                        const dd = typeof row.maxDrawdown === "number" && Number.isFinite(row.maxDrawdown)
-                          ? fmtPct(row.maxDrawdown, 2)
-                          : "—";
-                        const deltaDd = typeof row.deltaDrawdown === "number" && Number.isFinite(row.deltaDrawdown)
-                          ? fmtPct(row.deltaDrawdown, 2)
-                          : "—";
-                        return (
-                          <tr key={`combo-${row.comboUuid ?? idx}-${row.gitCommitId}`}>
-                            <td className="tdMono">{symbol}</td>
-                            <td>{market}</td>
-                            <td>{interval}</td>
-                            <td className="tdMono" title={row.comboUuid ?? "—"}>
-                              {combo}
-                            </td>
-                            <td>
-                              <span className={pnlBadgeClass(row.return)}>{ret}</span>
-                            </td>
-                            <td>
-                              <span className={pnlBadgeClass(row.deltaReturn)}>{deltaRet}</span>
-                            </td>
-                            <td>
-                              <span className={pnlBadgeClass(row.maxDrawdown)}>{dd}</span>
-                            </td>
-                            <td>
-                              <span className={pnlBadgeClass(row.deltaDrawdown)}>{deltaDd}</span>
-                            </td>
-                            <td className="tdMono" title={commitTitle}>
-                              {commitLabel}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+            <PerformancePanel
+              apiOk={apiOk}
+              opsPerformanceUi={opsPerformanceUi}
+              opsPerformanceCommitLimit={opsPerformanceCommitLimit}
+              setOpsPerformanceCommitLimit={setOpsPerformanceCommitLimit}
+              opsPerformanceComboLimit={opsPerformanceComboLimit}
+              setOpsPerformanceComboLimit={setOpsPerformanceComboLimit}
+              opsPerformanceComboScope={opsPerformanceComboScope}
+              setOpsPerformanceComboScope={setOpsPerformanceComboScope}
+              opsPerformanceComboOrder={opsPerformanceComboOrder}
+              setOpsPerformanceComboOrder={setOpsPerformanceComboOrder}
+              fetchOpsPerformance={fetchOpsPerformance}
+            />
           </CollapsibleCard>
         </section>
 
@@ -11021,103 +10292,32 @@ export function App() {
           subtitle={`Recent API responses (last ${DATA_LOG_MAX_ENTRIES} entries)`}
           style={{ marginTop: "18px" }}
         >
-	          <div className="actions dataLogActions">
-	            <button
-	              className="btn"
-	              onClick={() => setDataLog([])}
-	            >
-	              Clear Log
-	            </button>
-	            <button
-	              className="btn"
-                disabled={dataLogShown.length === 0}
-	              onClick={() => {
-	                const logText = dataLogShown
-	                  .map((entry) => `[${new Date(entry.timestamp).toISOString()}] ${entry.label}:\n${JSON.stringify(entry.data, null, 2)}`)
-	                  .join("\n\n");
-	                copyText(logText);
-	                showToast("Copied log to clipboard");
-	              }}
-	            >
-	              {dataLogFilterText.trim() ? "Copy shown" : "Copy all"}
-	            </button>
-              <input
-                className="input dataLogFilter"
-                value={dataLogFilterText}
-                onChange={(e) => setDataLogFilterText(e.target.value)}
-                placeholder="Filter log…"
-                spellCheck={false}
-                aria-label="Filter data log"
-              />
-              {dataLogFilterText.trim() ? (
-                <button className="btnSmall" type="button" onClick={() => setDataLogFilterText("")}>
-                  Clear filter
-                </button>
-              ) : null}
-              <label className="pill" style={{ userSelect: "none" }}>
-                <input type="checkbox" checked={dataLogExpanded} onChange={(e) => setDataLogExpanded(e.target.checked)} />
-                Expand
-              </label>
-              <label className="pill" style={{ userSelect: "none" }}>
-                <input type="checkbox" checked={dataLogLogErrors} onChange={(e) => setDataLogLogErrors(e.target.checked)} />
-                Log errors
-              </label>
-              <label className="pill" style={{ userSelect: "none" }}>
-                <input
-                  type="checkbox"
-                  checked={dataLogLogBackground}
-                  onChange={(e) => setDataLogLogBackground(e.target.checked)}
-                />
-                Log auto-refresh
-              </label>
-              <label className="pill" style={{ userSelect: "none" }}>
-                <input type="checkbox" checked={dataLogIndexArrays} onChange={(e) => setDataLogIndexArrays(e.target.checked)} />
-                Index arrays
-              </label>
-              <label className="pill" style={{ userSelect: "none" }}>
-                <input type="checkbox" checked={dataLogAutoScroll} onChange={(e) => setDataLogAutoScroll(e.target.checked)} />
-                Auto-scroll
-              </label>
-              <label className="pill" style={{ userSelect: "none" }}>
-                <input type="checkbox" checked={dataLogPersist} onChange={(e) => setDataLogPersist(e.target.checked)} />
-                Remember
-              </label>
-              <button className="btnSmall" type="button" onClick={scrollDataLogToBottom} disabled={dataLog.length === 0}>
-                Jump to latest
-              </button>
-              {dataLogFilterText.trim() ? (
-                <span className="hint">
-                  Showing {dataLogFiltered.length} of {dataLog.length}
-                </span>
-              ) : null}
-	          </div>
-          <div ref={dataLogRef} className="dataLogBox" onScroll={handleDataLogScroll}>
-            {dataLogShownDeferred.length === 0 ? (
-              <div className="dataLogEmpty">
-                {dataLog.length === 0
-                  ? "No data logged yet. Run a signal, backtest, trade, or bot action to see incoming data."
-                  : "No entries match the current filter."}
-              </div>
-            ) : (
-              dataLogShownDeferred.map((entry, idx) => (
-                <div key={idx} className="dataLogEntry">
-                  <div className="dataLogEntryHeader">
-                    [{new Date(entry.timestamp).toLocaleTimeString()}] <span className="dataLogEntryLabel">{entry.label}</span>
-                  </div>
-	                  <div className="dataLogEntryBody">
-                      {(() => {
-                        const data = dataLogIndexArrays ? indexTopLevelPrimitiveArrays(entry.data) : entry.data;
-                        const json = JSON.stringify(data, null, 2);
-                        if (dataLogExpanded) return json;
-                        const lines = json.split("\n");
-                        const head = lines.slice(0, DATA_LOG_COLLAPSED_MAX_LINES).join("\n");
-                        return lines.length > DATA_LOG_COLLAPSED_MAX_LINES ? `${head}\n... (truncated)` : head;
-                      })()}
-	                  </div>
-	                </div>
-	              ))
-            )}
-          </div>
+          <DataLogPanel
+            dataLog={dataLog}
+            dataLogShown={dataLogShown}
+            dataLogShownDeferred={dataLogShownDeferred}
+            dataLogFiltered={dataLogFiltered}
+            dataLogFilterText={dataLogFilterText}
+            setDataLogFilterText={setDataLogFilterText}
+            dataLogExpanded={dataLogExpanded}
+            setDataLogExpanded={setDataLogExpanded}
+            dataLogLogErrors={dataLogLogErrors}
+            setDataLogLogErrors={setDataLogLogErrors}
+            dataLogLogBackground={dataLogLogBackground}
+            setDataLogLogBackground={setDataLogLogBackground}
+            dataLogIndexArrays={dataLogIndexArrays}
+            setDataLogIndexArrays={setDataLogIndexArrays}
+            dataLogAutoScroll={dataLogAutoScroll}
+            setDataLogAutoScroll={setDataLogAutoScroll}
+            dataLogPersist={dataLogPersist}
+            setDataLogPersist={setDataLogPersist}
+            setDataLog={setDataLog}
+            copyText={copyText}
+            showToast={showToast}
+            scrollDataLogToBottom={scrollDataLogToBottom}
+            dataLogRef={dataLogRef}
+            handleDataLogScroll={handleDataLogScroll}
+          />
         </CollapsibleCard>
       </main>
       <div className="dockBottom">

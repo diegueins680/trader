@@ -15,6 +15,7 @@ import type {
   Method,
   Normalization,
   OpsOperation,
+  OpsPerformanceResponse,
   OptimizerRunRequest,
   OptimizerRunResponse,
   OptimizerSource,
@@ -56,6 +57,19 @@ export type OpsUiState = {
   hint: string | null;
   ops: OpsOperation[];
   limit: number;
+  lastFetchedAtMs: number | null;
+};
+
+export type OpsPerformanceUiState = {
+  loading: boolean;
+  error: string | null;
+  enabled: boolean;
+  ready: boolean;
+  commitsReady: boolean;
+  combosReady: boolean;
+  hint: string | null;
+  commits: OpsPerformanceResponse["commits"];
+  combos: OpsPerformanceResponse["combos"];
   lastFetchedAtMs: number | null;
 };
 

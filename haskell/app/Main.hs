@@ -17018,7 +17018,7 @@ routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV start0 end0 =
                      in if next > up
                             then Just (1 :: Int)
                             else if next < down then Just (-1) else Nothing
-        step (correct, wrong, signals, netAcc) i =
+        step (correct, wrong, signals, netAcc, netAccSq) i =
             let prev = pricesV V.! i
                 next = pricesV V.! (i + 1)
                 pred = predsV V.! i
@@ -17026,19 +17026,20 @@ routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV start0 end0 =
                 actualDir = direction prev next
                 ret = if prev <= 0 || bad prev || bad next then 0 else next / prev - 1
              in case predDir of
-                    Nothing -> (correct, wrong, signals, netAcc)
+                    Nothing -> (correct, wrong, signals, netAcc, netAccSq)
                     Just dir ->
                         let signals' = signals + 1
                             net = fromIntegral dir * ret - roundTripCost
                             netAcc' = netAcc + if bad net then 0 else net
+                            netAccSq' = netAccSq + if bad net then 0 else net * net
                          in if actualDir == Just dir
-                                then (correct + 1, wrong, signals', netAcc')
-                                else (correct, wrong + 1, signals', netAcc')
+                                then (correct + 1, wrong, signals', netAcc', netAccSq')
+                                else (correct, wrong + 1, signals', netAcc', netAccSq')
      in if stepCount <= 0 || end < start
             then RouterStats{rsScore = 0, rsAccuracy = 0, rsCoverage = 0, rsSignals = 0}
             else
                 let windowLen = end - start + 1
-                    (correct, _wrong, signals, netAcc) = foldl' step (0, 0, 0, 0) [start .. end]
+                    (correct, _wrong, signals, netAcc, netAccSq) = foldl' step (0, 0, 0, 0, 0) [start .. end]
                     accuracy =
                         if signals <= 0
                             then 0
@@ -17051,8 +17052,21 @@ routerStatsWindow openThr roundTripCost pnlWeight pricesV predsV start0 end0 =
                         if signals <= 0
                             then 0
                             else netAcc / fromIntegral signals
+                    meanSq =
+                        if signals <= 0
+                            then 0
+                            else netAccSq / fromIntegral signals
+                    varNet = max 0 (meanSq - avgNet * avgNet)
+                    stdNet = sqrt varNet
                     denom = max 1e-12 (openThr + roundTripCost)
-                    pnlScore = clamp01 (0.5 + avgNet / denom)
+                    riskAdj =
+                        if signals <= 0
+                            then 0
+                            else avgNet / (stdNet + denom)
+                    pnlScore =
+                        if signals <= 0
+                            then 0
+                            else clamp01 (0.5 + 0.5 * riskAdj)
                     pnlWeight' = clamp01 pnlWeight
                     scoreAcc = accuracy * coverage
                     score = (1 - pnlWeight') * scoreAcc + pnlWeight' * pnlScore

@@ -59,6 +59,11 @@ featuresAt fs prices t = do
                 (muM, sigM) = meanStd rsMid
                 priceT = prices V.! t
                 psych = psychologicalFeatures priceT
+                eps = 1e-12
+                retSpread = retShort - retMid
+                retMeanReversion = ret1 - muS
+                volRatio = if abs sigM <= eps then 0 else sigS / sigM
+                trendSlope = muS - muM
             pure
                 ( [ ret1
                   , ret3
@@ -69,6 +74,10 @@ featuresAt fs prices t = do
                   , sigS
                   , muM
                   , sigM
+                  , retSpread
+                  , retMeanReversion
+                  , volRatio
+                  , trendSlope
                   ]
                     ++ psych
                 )
@@ -139,6 +148,11 @@ buildDatasetWithIndex fs prices =
                     (muM, sigM) <- windowStats t midB
                     let priceT = prices V.! t
                         psych = psychologicalFeatures priceT
+                        eps = 1e-12
+                        retSpread = retShort - retMid
+                        retMeanReversion = ret1 - muS
+                        volRatio = if abs sigM <= eps then 0 else sigS / sigM
+                        trendSlope = muS - muM
                     pure
                         ( [ ret1
                           , ret3
@@ -149,6 +163,10 @@ buildDatasetWithIndex fs prices =
                           , sigS
                           , muM
                           , sigM
+                          , retSpread
+                          , retMeanReversion
+                          , volRatio
+                          , trendSlope
                           ]
                             ++ psych
                         )
