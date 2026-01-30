@@ -140,6 +140,7 @@ import {
   type FormStateJson,
 } from "./app/formState";
 import { DEFAULT_DATA_LOG_PREFS, normalizeDataLog, type DataLogEntry, type DataLogPrefs } from "./app/dataLog";
+import { ACCOUNT_TRADE_PNL_TIPS, BACKTEST_TRADE_PNL_TIPS } from "./app/pnlTips";
 import {
   actionBadgeClass,
   buildOrphanedPositions,
@@ -182,7 +183,6 @@ import {
   TOP_COMBOS_DISPLAY_DEFAULT,
   TOP_COMBOS_DISPLAY_MIN,
   TOP_COMBOS_POLL_MS,
-  TRADE_PNL_EPS,
   TRADE_PNL_TOP_N,
   applyComboToForm,
   backtestTradePhase,
@@ -328,7 +328,6 @@ const BINANCE_POSITIONS_OPEN_TIME_LIMIT = 200;
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
-const TRADE_PNL_EPS_LABEL = fmtNum(TRADE_PNL_EPS, 9);
 const STATE_SYNC_CHUNK_DEFAULT_BYTES = 900_000;
 const STATE_SYNC_CHUNK_MAX_BYTES = 50_000_000;
 const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
@@ -360,7 +359,7 @@ function buildBotOrderOverlay(
   const openTimeIndex = new Map<number, number>();
   for (let i = 0; i < openTimes.length; i += 1) {
     const t = openTimes[i];
-    if (!Number.isFinite(t)) continue;
+    if (typeof t !== "number" || !Number.isFinite(t)) continue;
     openTimeIndex.set(t, i);
     chartStart = chartStart === null ? t : Math.min(chartStart, t);
     chartEnd = chartEnd === null ? t : Math.max(chartEnd, t);
@@ -374,7 +373,7 @@ function buildBotOrderOverlay(
   let endIdx: number | null = null;
   for (let i = 0; i < openTimes.length; i += 1) {
     const t = openTimes[i];
-    if (!Number.isFinite(t)) continue;
+    if (typeof t !== "number" || !Number.isFinite(t)) continue;
     if (startIdx === null && t >= startMs) startIdx = i;
     if (t <= endMs) endIdx = i;
   }
@@ -1023,53 +1022,6 @@ const buildStateSyncChunks = (payload: StateSyncPayload, maxBytes: number): Stat
     chunks.push(comboPayload);
   }
   return chunks;
-};
-const ACCOUNT_TRADE_PNL_TIPS = {
-  outcomes: [
-    "Counts trades by exchange realized P&L (realizedPnl).",
-    `Win/loss if |P&L| > ${TRADE_PNL_EPS_LABEL}; otherwise flat.`,
-    "Win rate = wins / total trades (after filters).",
-  ],
-  avgWinLoss: [
-    "Average realized P&L per winning/losing trade.",
-    "Payoff ratio = avg win / |avg loss|.",
-    "Fees are shown separately.",
-  ],
-  bestWorst: [
-    "Largest positive/negative realized P&L in this set.",
-    "Avg P&L = mean realized P&L across all trades.",
-  ],
-  totalPnl: [
-    "Total P&L = sum of realized P&L across trades.",
-    "Total win/loss = sum of positive/negative realized P&L.",
-    "Profit factor = gross wins / |gross losses|.",
-    "Fees are listed by asset (not subtracted from totals).",
-  ],
-  totals: [
-    "Qty = sum of trade quantities.",
-    "Quote = sum of quote quantities.",
-    "Scope follows the current filters/symbol selection.",
-  ],
-};
-const BACKTEST_TRADE_PNL_TIPS = {
-  outcomes: [
-    "Counts trades by per-trade return from the backtest engine.",
-    `Win/loss if |return| > ${TRADE_PNL_EPS_LABEL}; otherwise flat.`,
-    "Returns are shown as % of equity per trade.",
-  ],
-  avgWinLoss: [
-    "Average return per winning/losing trade.",
-    "Payoff ratio = avg win / |avg loss|.",
-    "Hold bars show average holding periods for wins/losses.",
-  ],
-  bestWorst: [
-    "Largest positive/negative per-trade return.",
-    "Avg return = mean return across all trades.",
-  ],
-  totals: [
-    "Total win/loss = sum of per-trade returns (not compounded).",
-    "Profit factor = gross wins / |gross losses|.",
-  ],
 };
 type StateSyncUiState = {
   exporting: boolean;
@@ -2038,6 +1990,13 @@ export function App() {
     [collectPanelIds],
   );
 
+  const toastTimerRef = useRef<number | null>(null);
+  const showToast = useCallback((msg: string) => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    setToast(msg);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
+  }, []);
+
   const resetLayout = useCallback(() => {
     removeLocalKey(STORAGE_PANEL_PREFS_KEY);
     removeLocalKey(STORAGE_CONFIG_PANEL_ORDER_KEY);
@@ -2203,13 +2162,6 @@ export function App() {
   useEffect(() => {
     writeJson(STORAGE_PERSIST_SECRETS_KEY, persistSecrets);
   }, [persistSecrets]);
-
-  const toastTimerRef = useRef<number | null>(null);
-  const showToast = useCallback((msg: string) => {
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    setToast(msg);
-    toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
-  }, []);
 
   const updateManualOverrides = useCallback((updater: (next: Set<ManualOverrideKey>) => void) => {
     setManualOverrides((prev) => {
@@ -3457,7 +3409,7 @@ export function App() {
   ]);
 
   const withBinanceKeys = useCallback(
-    (p: ApiParams): ApiParams => {
+    <T extends ApiParams>(p: T): T => {
       if (form.platform !== "binance") return p;
       const key = binanceApiKey.trim();
       const secret = binanceApiSecret.trim();
@@ -3468,7 +3420,7 @@ export function App() {
         ...(tenantKey ? { tenantKey } : {}),
         ...(key ? { binanceApiKey: key } : {}),
         ...(secret ? { binanceApiSecret: secret } : {}),
-      };
+      } as T;
     },
     [binanceApiKey, binanceApiSecret, binanceTenantKeyResolved, form.platform],
   );
@@ -4644,6 +4596,7 @@ export function App() {
     async (opts?: { silent?: boolean }) => {
       const controller = new AbortController();
       const streamId = ++listenKeyStreamSeqRef.current;
+      let scheduleRetry: ((reason: string | null) => void) | null = null;
       listenKeyStreamAbortRef.current?.abort();
       listenKeyStreamAbortRef.current = controller;
       if (listenKeyStreamRetryRef.current) {
@@ -4656,7 +4609,7 @@ export function App() {
         if (!tenantKey) {
           throw new Error("Tenant key required. Add Binance API keys (or check keys) to open the listen key stream.");
         }
-        const scheduleRetry = (reason: string | null) => {
+        scheduleRetry = (reason: string | null) => {
           if (listenKeyStreamRetryRef.current) return;
           if (!listenKeyInfoRef.current) return;
           const prevMs = listenKeyStreamRetryMsRef.current;
@@ -4702,7 +4655,7 @@ export function App() {
             if (nextStatus === "connected") {
               listenKeyStreamRetryMsRef.current = 0;
             } else if (nextStatus === "disconnected") {
-              scheduleRetry(message);
+              scheduleRetry?.(message);
             }
             return;
           }
@@ -4747,7 +4700,7 @@ export function App() {
         const msg = e instanceof Error ? e.message : String(e);
         setListenKeyUi((s) => ({ ...s, wsError: msg, wsStatus: "disconnected" }));
         if (!opts?.silent) showToast("Listen key stream failed");
-        scheduleRetry(msg);
+        scheduleRetry?.(msg);
       } finally {
         if (listenKeyStreamAbortRef.current === controller) {
           listenKeyStreamAbortRef.current = null;

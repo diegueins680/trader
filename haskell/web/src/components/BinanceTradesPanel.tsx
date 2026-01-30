@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { BinancePnlAnalysis, BinanceTradesUiState, CommissionTotal, OrderSideFilter } from "../app/appHelpers";
 import { binanceTradeSideLabel, csvEscape, pnlBadgeClass } from "../app/appHelpers";
+import { ACCOUNT_TRADE_PNL_TIPS } from "../app/pnlTips";
 import { fmtTimeMs, fmtTimeMsWithMs, marketLabel, numFromInput } from "../app/utils";
 import { fmtMoney, fmtNum, fmtPct } from "../lib/format";
 import type { BinanceTrade } from "../lib/types";
+import { InfoList, InfoPopover } from "./InfoPopover";
 
 type BinanceTradesFilteredTotals = {
   totalPnl: number;
@@ -240,6 +242,7 @@ export function BinanceTradesPanel({
     type="button"
     disabled={!binanceTradesJson}
     onClick={() => {
+      if (!binanceTradesJson) return;
       void copyText(binanceTradesJson);
       showToast("Copied trade log JSON");
     }}

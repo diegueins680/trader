@@ -26,7 +26,7 @@ export type DataLogPanelProps = {
   copyText: (value: string) => Promise<void> | void;
   showToast: (value: string) => void;
   scrollDataLogToBottom: () => void;
-  dataLogRef: React.RefObject<HTMLDivElement>;
+  dataLogRef: React.RefObject<HTMLDivElement | null>;
   handleDataLogScroll: () => void;
 };
 
