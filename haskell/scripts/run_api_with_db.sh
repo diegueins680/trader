@@ -108,7 +108,7 @@ EOF
 fi
 
 run_api_once() {
-  cabal run -v0 trader-hs -- --serve --port "${TRADER_API_PORT:-8080}"
+  cabal run -v0 trader-hs -- --serve --port "${TRADER_API_PORT:-8080}" --platform binance --futures
 }
 
 restart_on_exit="${TRADER_API_RESTART_ON_EXIT:-0}"
