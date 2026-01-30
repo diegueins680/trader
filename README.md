@@ -343,6 +343,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Trade-test quote sizing falls back to mark price, 24h last price, and the latest 1m close when ticker price is unavailable.
   - The UI auto-adjusts `bars` and `backtestRatio` on backtest/optimize requests when the split would be invalid (insufficient train/backtest/tune bars).
   - The UI error panel offers an Apply fix button for split errors that adjusts tune ratio, backtest ratio, bars, or lookback to restore a valid split.
+  - The UI layout reset action now triggers its toast without crashing on load.
   - Close-direction gating ignores `--min-position-size` so `closeDirection` is still reported even when size floors would block entries.
   - Conformal/quantile confirmations apply the open threshold for entries and in-position agreement checks; `closeDirection` still uses `closeThreshold` for diagnostics.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
