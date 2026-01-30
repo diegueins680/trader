@@ -13,6 +13,7 @@ import type {
   BinancePositionChart,
   BinanceTrade,
   BotOrderEvent,
+  BotOperation,
   BotStatus,
   BotStatusMulti,
   BotStatusRunning,
@@ -232,6 +233,7 @@ import {
   normalizeListenKeyStreamStatus,
   optimizerSourceForPlatform,
   parseActionReason,
+  parseBotOrderOp,
   parseBotStatusOp,
   parseDatetimeLocal,
   parseMaybeInt,
@@ -261,6 +263,7 @@ import {
   type BinancePnlRow,
   type BinancePositionsUiState,
   type BinanceTradesUiState,
+  type BotOrderOp,
   type BotRtEvent,
   type BotRtTracker,
   type BotRtUiState,
@@ -340,6 +343,83 @@ const jsonByteLength = (value: unknown): number => {
     return 0;
   }
 };
+type BotChartOverlay = {
+  operations: BotOperation[];
+  positions: number[];
+};
+
+function buildBotOrderOverlay(
+  openTimes: number[] | null | undefined,
+  ops: BotOrderOp[],
+  range?: { startMs: number; endMs: number } | null,
+): BotChartOverlay | null {
+  if (!openTimes || openTimes.length === 0 || ops.length === 0) return null;
+  let chartStart: number | null = null;
+  let chartEnd: number | null = null;
+  const openTimeIndex = new Map<number, number>();
+  for (let i = 0; i < openTimes.length; i += 1) {
+    const t = openTimes[i];
+    if (!Number.isFinite(t)) continue;
+    openTimeIndex.set(t, i);
+    chartStart = chartStart === null ? t : Math.min(chartStart, t);
+    chartEnd = chartEnd === null ? t : Math.max(chartEnd, t);
+  }
+  if (chartStart == null || chartEnd == null) return null;
+  const startMs = range ? Math.max(chartStart, range.startMs) : chartStart;
+  const endMs = range ? Math.min(chartEnd, range.endMs) : chartEnd;
+  if (startMs > endMs) return null;
+
+  let startIdx: number | null = null;
+  let endIdx: number | null = null;
+  for (let i = 0; i < openTimes.length; i += 1) {
+    const t = openTimes[i];
+    if (!Number.isFinite(t)) continue;
+    if (startIdx === null && t >= startMs) startIdx = i;
+    if (t <= endMs) endIdx = i;
+  }
+  if (startIdx == null || endIdx == null || startIdx > endIdx) return null;
+
+  const operations: BotOperation[] = [];
+  const updates: Array<{ idx: number; pos: number; atMs: number }> = [];
+
+  for (const op of ops) {
+    if (!op.sent) continue;
+    if (!Number.isFinite(op.openTime) || op.openTime < startMs || op.openTime > endMs) continue;
+    const idx = openTimeIndex.get(op.openTime);
+    if (idx == null || idx < startIdx || idx > endIdx) continue;
+    if (typeof op.price === "number" && Number.isFinite(op.price)) {
+      operations.push({ index: idx, side: op.side, price: op.price });
+    }
+    if (typeof op.position === "number" && Number.isFinite(op.position)) {
+      const pos = op.position > 0 ? 1 : op.position < 0 ? -1 : 0;
+      updates.push({ idx, pos, atMs: op.atMs });
+    }
+  }
+
+  if (operations.length === 0 && updates.length === 0) return null;
+
+  updates.sort((a, b) => (a.idx - b.idx) || (a.atMs - b.atMs));
+
+  const positions = Array.from({ length: openTimes.length }, () => 0);
+  let curPos = 0;
+  let lastIdx = startIdx;
+  for (const upd of updates) {
+    const idx = upd.idx;
+    if (idx >= lastIdx) {
+      const fillEnd = Math.min(idx - 1, endIdx);
+      for (let i = lastIdx; i <= fillEnd; i += 1) positions[i] = curPos;
+      curPos = upd.pos;
+      positions[idx] = curPos;
+      lastIdx = idx + 1;
+    } else {
+      curPos = upd.pos;
+      positions[idx] = curPos;
+    }
+  }
+  for (let i = lastIdx; i <= endIdx; i += 1) positions[i] = curPos;
+
+  return { operations, positions };
+}
 type ComboImportSummary = {
   comboCount: number;
   generatedAtMs: number | null;
@@ -1292,6 +1372,15 @@ export function App() {
     limit: BOT_STATUS_OPS_LIMIT,
     lastFetchedAtMs: null,
   });
+  const [botOrderOps, setBotOrderOps] = useState<OpsUiState>({
+    loading: false,
+    error: null,
+    enabled: true,
+    hint: null,
+    ops: [],
+    limit: BOT_STATUS_OPS_LIMIT,
+    lastFetchedAtMs: null,
+  });
   const [opsPerformanceUi, setOpsPerformanceUi] = useState<OpsPerformanceUiState>({
     loading: false,
     error: null,
@@ -1358,6 +1447,7 @@ export function App() {
   const botStatusTailRef = useRef(BOT_STATUS_TAIL_POINTS);
   const botStatusOpsLimitRef = useRef(BOT_STATUS_OPS_LIMIT);
   const botStatusOpsSinceRef = useRef<number | null>(null);
+  const botOrderOpsRangeRef = useRef<{ startMs: number; endMs: number } | null>(null);
   const opsPerformanceAbortRef = useRef<AbortController | null>(null);
   const opsPerformanceInFlightRef = useRef(false);
   const botAutoStartSuppressedRef = useRef(false);
@@ -1703,11 +1793,13 @@ export function App() {
   const keysAbortRef = useRef<AbortController | null>(null);
   const optimizerRunAbortRef = useRef<AbortController | null>(null);
   const botStatusOpsAbortRef = useRef<AbortController | null>(null);
+  const botOrderOpsAbortRef = useRef<AbortController | null>(null);
   const topCombosAbortRef = useRef<AbortController | null>(null);
   const binanceTradesAbortRef = useRef<AbortController | null>(null);
   const binancePositionsAbortRef = useRef<AbortController | null>(null);
   const binancePositionTradesAbortRef = useRef<AbortController | null>(null);
   const botStatusOpsInFlightRef = useRef(false);
+  const botOrderOpsInFlightRef = useRef(false);
   const requestSeqRef = useRef(0);
   const botRequestSeqRef = useRef(0);
   const keysRequestSeqRef = useRef(0);
@@ -2300,6 +2392,22 @@ export function App() {
     if (typeof window !== "undefined") return `${window.location.origin}${apiBase}`;
     return apiBase;
   }, [apiBase]);
+
+  const apiFallbackBase = useMemo(
+    () => normalizeApiBaseUrlInput(TRADER_UI_CONFIG.apiFallbackUrl?.trim() ?? ""),
+    [],
+  );
+
+  const listenKeyStreamBase = useMemo(() => {
+    const trimmedBase = apiBase.trim();
+    if (trimmedBase.startsWith("/")) {
+      const trimmedFallback = apiFallbackBase.trim();
+      if (/^https?:\/\//i.test(trimmedFallback)) {
+        return trimmedFallback.replace(/\/+$/, "");
+      }
+    }
+    return trimmedBase.replace(/\/+$/, "");
+  }, [apiBase, apiFallbackBase]);
 
   const apiHealthUrl = useMemo(() => {
     if (!apiBaseAbsolute) return "";
@@ -3539,11 +3647,71 @@ export function App() {
     if (startMs > endMs) return { startMs, endMs, error: "Start must be before end." };
     return { startMs, endMs, error: null };
   }, [botStatusEndInput, botStatusStartInput]);
+  const botChartTimeRange = useMemo(() => {
+    let startMs: number | null = null;
+    let endMs: number | null = null;
+    const consider = (times?: number[] | null) => {
+      if (!times || times.length === 0) return;
+      const first = times.find((t) => Number.isFinite(t));
+      const last = [...times].reverse().find((t) => Number.isFinite(t));
+      if (typeof first === "number" && Number.isFinite(first)) startMs = startMs == null ? first : Math.min(startMs, first);
+      if (typeof last === "number" && Number.isFinite(last)) endMs = endMs == null ? last : Math.max(endMs, last);
+    };
+    consider(botDisplay?.openTimes);
+    for (const entry of botRunningCharts) consider(entry.status.openTimes);
+    if (startMs == null || endMs == null || startMs > endMs) return null;
+    return { startMs, endMs };
+  }, [botDisplay?.openTimes, botRunningCharts]);
+  const botOrderOpsRange = useMemo(() => {
+    if (!botChartTimeRange) return null;
+    if (botStatusRange.error || botStatusRange.startMs == null || botStatusRange.endMs == null) return botChartTimeRange;
+    const startMs = Math.max(botChartTimeRange.startMs, botStatusRange.startMs);
+    const endMs = Math.min(botChartTimeRange.endMs, botStatusRange.endMs);
+    if (startMs > endMs) return null;
+    return { startMs, endMs };
+  }, [botChartTimeRange, botStatusRange]);
+  useEffect(() => {
+    botOrderOpsRangeRef.current = botOrderOpsRange;
+  }, [botOrderOpsRange]);
   const botStatusTargetSymbol = botSelectedSymbol ?? botDisplay?.symbol ?? null;
   const botStatusOpsAll = useMemo(() => {
     const parsed = botStatusOps.ops.map((op) => parseBotStatusOp(op)).filter((op): op is BotStatusOp => op !== null);
     return parsed.sort((a, b) => a.atMs - b.atMs);
   }, [botStatusOps.ops]);
+  const botOrderOpsAll = useMemo(() => {
+    const parsed = botOrderOps.ops.map((op) => parseBotOrderOp(op)).filter((op): op is BotOrderOp => op !== null);
+    return parsed.sort((a, b) => (a.openTime - b.openTime) || (a.atMs - b.atMs));
+  }, [botOrderOps.ops]);
+  const botOrderOpsByKey = useMemo(() => {
+    const map = new Map<string, BotOrderOp[]>();
+    for (const op of botOrderOpsAll) {
+      const key = botStatusKey({ market: op.market, symbol: op.symbol, interval: op.interval });
+      const list = map.get(key) ?? [];
+      list.push(op);
+      if (!map.has(key)) map.set(key, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => (a.openTime - b.openTime) || (a.atMs - b.atMs));
+    }
+    return map;
+  }, [botOrderOpsAll]);
+  const botChartOverlays = useMemo(() => {
+    const map = new Map<string, BotChartOverlay>();
+    const addOverlay = (status: BotStatusRunning | null) => {
+      if (!status) return;
+      const key = botStatusKey(status);
+      const ops = botOrderOpsByKey.get(key) ?? [];
+      const overlay = buildBotOrderOverlay(status.openTimes, ops, botOrderOpsRange);
+      if (overlay) map.set(key, overlay);
+    };
+    addOverlay(botDisplay);
+    for (const entry of botRunningCharts) addOverlay(entry.status);
+    return map;
+  }, [botDisplay, botOrderOpsByKey, botOrderOpsRange, botRunningCharts]);
+  const botDisplayOverlay = useMemo(
+    () => (botDisplayKey ? botChartOverlays.get(botDisplayKey) ?? null : null),
+    [botChartOverlays, botDisplayKey],
+  );
   const botStatusOpsParsed = useMemo(
     () => botStatusOpsAll.filter((op) => (botStatusTargetSymbol ? op.symbol === botStatusTargetSymbol : true)),
     [botStatusOpsAll, botStatusTargetSymbol],
@@ -4446,7 +4614,7 @@ export function App() {
           throw new Error("Tenant key required. Add Binance API keys (or check keys) to open the listen key stream.");
         }
         const requestHeaders = { ...(authHeaders ?? {}), Accept: "text/event-stream" };
-        const url = `${apiBase}/binance/listenKey/stream?tenantKey=${encodeURIComponent(tenantKey)}`;
+        const url = `${listenKeyStreamBase}/binance/listenKey/stream?tenantKey=${encodeURIComponent(tenantKey)}`;
         const res = await fetch(url, {
           method: "GET",
           headers: requestHeaders,
@@ -4522,7 +4690,7 @@ export function App() {
         }
       }
     },
-    [apiBase, authHeaders, binanceTenantKeyResolved, showToast],
+    [authHeaders, binanceTenantKeyResolved, listenKeyStreamBase, showToast],
   );
 
   const startListenKeyStream = useCallback(
@@ -5144,6 +5312,55 @@ export function App() {
     [apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
   );
 
+  const fetchBotOrderOps = useCallback(
+    async (opts?: RunOptions) => {
+      if (apiOk !== "ok") return;
+      const range = botOrderOpsRangeRef.current;
+      if (!range) return;
+      if (botOrderOpsInFlightRef.current) return;
+      botOrderOpsInFlightRef.current = true;
+      botOrderOpsAbortRef.current?.abort();
+      const controller = new AbortController();
+      botOrderOpsAbortRef.current = controller;
+
+      if (!opts?.silent) setBotOrderOps((s) => ({ ...s, loading: true, error: null }));
+
+      try {
+        const limit = botStatusOpsLimitRef.current;
+        const out = await ops(
+          apiBase,
+          { kind: "bot.order", limit, fromMs: range.startMs, toMs: range.endMs },
+          { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
+        );
+        const incoming = Array.isArray(out.ops) ? out.ops : [];
+        setBotOrderOps({
+          loading: false,
+          error: null,
+          enabled: out.enabled,
+          hint: out.hint ?? null,
+          ops: incoming,
+          limit,
+          lastFetchedAtMs: Date.now(),
+        });
+        appendDataLog(`Ops Response (bot.order)${opts?.silent ? " (auto)" : ""}`, out, {
+          background: Boolean(opts?.silent),
+        });
+      } catch (e) {
+        if (isAbortError(e)) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setBotOrderOps((s) => ({ ...s, loading: false, error: msg }));
+        appendDataLog(`Ops Error (bot.order)${opts?.silent ? " (auto)" : ""}`, buildDataLogError(e, msg), {
+          background: Boolean(opts?.silent),
+          error: true,
+        });
+      } finally {
+        if (botOrderOpsAbortRef.current === controller) botOrderOpsAbortRef.current = null;
+        botOrderOpsInFlightRef.current = false;
+      }
+    },
+    [apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
+  );
+
   const fetchOpsPerformance = useCallback(
     async (opts?: RunOptions) => {
       if (apiOk !== "ok") return;
@@ -5216,13 +5433,15 @@ export function App() {
     if (apiOk !== "ok") return;
     if (!pageVisible && !shouldPollBotStatusOps) return;
     void fetchBotStatusOps({ silent: true });
+    void fetchBotOrderOps({ silent: true });
     const pollMs = pageVisible ? 60_000 : 180_000;
     const t = window.setInterval(() => {
       if (!pageVisible && !shouldPollBotStatusOps) return;
       void fetchBotStatusOps({ silent: true });
+      void fetchBotOrderOps({ silent: true });
     }, pollMs);
     return () => window.clearInterval(t);
-  }, [apiOk, fetchBotStatusOps, pageVisible, shouldPollBotStatusOps]);
+  }, [apiOk, fetchBotOrderOps, fetchBotStatusOps, pageVisible, shouldPollBotStatusOps]);
 
   useEffect(() => {
     const tailTarget =
@@ -5855,6 +6074,7 @@ export function App() {
       optimizerRunAbortRef.current?.abort();
       listenKeyStreamAbortRef.current?.abort();
       botStatusOpsAbortRef.current?.abort();
+      botOrderOpsAbortRef.current?.abort();
       topCombosAbortRef.current?.abort();
       binanceTradesAbortRef.current?.abort();
       binancePositionsAbortRef.current?.abort();
@@ -7622,9 +7842,9 @@ export function App() {
                             equityCurve={botDisplay.equityCurve}
                             openTimes={botDisplay.openTimes}
                             kalmanPredNext={botDisplay.kalmanPredNext}
-                            positions={botDisplay.positions}
+                            positions={botDisplayOverlay?.positions ?? botDisplay.positions}
                             trades={botDisplay.trades}
-                            operations={botDisplay.operations}
+                            operations={botDisplayOverlay?.operations ?? botDisplay.operations}
                             backtestStartIndex={botDisplay.startIndex}
                             height={CHART_HEIGHT}
                           />
@@ -7688,7 +7908,10 @@ export function App() {
                         className="btn"
                         type="button"
                         disabled={botStatusOps.loading || apiOk !== "ok"}
-                        onClick={() => void fetchBotStatusOps()}
+                        onClick={() => {
+                          void fetchBotStatusOps();
+                          void fetchBotOrderOps();
+                        }}
                       >
                         {botStatusOps.loading ? "Loading..." : "Refresh"}
                       </button>
@@ -8429,9 +8652,9 @@ export function App() {
                     equityCurve={st.equityCurve}
                     openTimes={st.openTimes}
                     kalmanPredNext={st.kalmanPredNext}
-                    positions={st.positions}
+                    positions={botChartOverlays.get(botStatusKey(st))?.positions ?? st.positions}
                     trades={st.trades}
-                    operations={st.operations}
+                    operations={botChartOverlays.get(botStatusKey(st))?.operations ?? st.operations}
                     backtestStartIndex={st.startIndex}
                     height={CHART_HEIGHT}
                   />

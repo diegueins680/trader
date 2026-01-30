@@ -3,6 +3,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Predictors: add psychological price-level proximity features (round-number clustering) to the feature set.
+- Predictors: add short/mid momentum and volatility-spread features to improve signal quality.
+- Kalman: sensor variance now uses EWMA residuals so measurement weighting adapts faster to regime shifts.
+- Router: model scoring now uses risk-adjusted net returns (mean/vol) to avoid noisy switches.
 - Trading: use close-threshold direction to hold/exit positions when open signals are neutral (backtest + live).
 - Trading: accept lookback-aligned Kalman prediction vectors in backtests to match LSTM alignment.
 - Normalization: `log` fitting now ignores non-finite values and only falls back when no positive finite values remain.
@@ -27,6 +30,9 @@ All notable changes to this project will be documented in this file.
 - Deploy/UI: quick AWS deploy auto-fills `TRADER_CORS_ORIGIN` from the CloudFront domain when using direct UI API mode.
 - Deploy/UI: quick AWS deploy reuses existing `TRADER_CORS_ORIGIN` from App Runner updates so CORS settings persist.
 - Deploy/UI: quick AWS deploy defaults `apiFallbackUrl` to `/api` in direct mode to allow same-origin failover.
+- Deploy/UI: quick AWS deploy no longer auto-sets a direct `apiFallbackUrl` when using `/api` proxy mode (avoids cross-origin fallback unless explicitly configured).
+- Web UI: Binance listenKey stream uses a direct fallback API base when configured to avoid CDN streaming errors.
+- Web UI: allow /api proxy requests to retry the configured direct fallback even if it was previously blocked.
 - Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.
 - Deploy/API: quick AWS deploy now reuses `TRADER_BOT_AUTOSTART` from the service and supports setting it on deploy.
 - Deploy/API: quick AWS deploy can clear `TRADER_BINANCE_PROXY_URL` via `--clear-binance-proxy` / `TRADER_BINANCE_PROXY_CLEAR`.
@@ -41,6 +47,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: retry `/bot/status` with a smaller tail on timeout errors to keep the dashboard responsive.
 - Web UI: seed optimizer combos from the repo-tracked `haskell/web/public/top-combos.json` (and local cache) when the API is unavailable.
 - Web UI: keep cached optimizer combos when the API returns no combos, falling back to the last known list.
+- Web UI: overlay Binance-opened positions and order operations on bot charts within the selected chart time range.
 - Web UI: auto-retry Binance positions refresh once on `-1021` timestamp errors and show a clearer time-sync hint.
 - Web UI: show inferred open times on open-position charts based on recent Binance trades and allow configuring the open-time cache window.
 - Web UI: reuse recent Binance trade fetches when inferring open-position times to reduce redundant requests.

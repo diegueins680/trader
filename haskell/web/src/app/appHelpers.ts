@@ -65,6 +65,23 @@ export type BotStatusOp = {
   live: boolean;
   symbol: string | null;
 };
+
+export type BotOrderOp = {
+  atMs: number;
+  symbol: string;
+  market: Market;
+  interval: string;
+  openTime: number;
+  side: "BUY" | "SELL";
+  price: number | null;
+  position: number | null;
+  sent: boolean;
+};
+
+function parseMarket(raw: unknown): Market | null {
+  if (raw === "spot" || raw === "margin" || raw === "futures") return raw;
+  return null;
+}
 export function isCoinbaseKeysStatus(status: KeysStatus): status is CoinbaseKeysStatus {
   return "hasApiPassphrase" in status;
 }
@@ -119,6 +136,39 @@ export function parseBotStatusOp(op: OpsOperation): BotStatusOp | null {
   const live = typeof rec.live === "boolean" ? rec.live : false;
   const symbol = typeof rec.symbol === "string" ? rec.symbol : null;
   return { atMs: op.atMs, running, live, symbol };
+}
+
+export function parseBotOrderOp(op: OpsOperation): BotOrderOp | null {
+  if (!op || op.kind !== "bot.order") return null;
+  if (typeof op.atMs !== "number" || !Number.isFinite(op.atMs)) return null;
+  const rec = (op.result as Record<string, unknown> | null | undefined) ?? {};
+  const symbol = typeof rec.symbol === "string" ? rec.symbol : null;
+  const market = parseMarket(rec.market);
+  const interval = typeof rec.interval === "string" ? rec.interval : null;
+  const event = (rec.event as Record<string, unknown> | null | undefined) ?? null;
+  if (!symbol || !market || !interval || !event) return null;
+  const opSide = event.opSide;
+  if (opSide !== "BUY" && opSide !== "SELL") return null;
+  const index = typeof event.index === "number" && Number.isFinite(event.index) ? event.index : null;
+  const openTime = typeof event.openTime === "number" && Number.isFinite(event.openTime) ? event.openTime : null;
+  const atMs = typeof event.atMs === "number" && Number.isFinite(event.atMs) ? event.atMs : null;
+  const price = typeof event.price === "number" && Number.isFinite(event.price) ? event.price : null;
+  if (index == null || openTime == null || atMs == null) return null;
+  const order = (event.order as Record<string, unknown> | null | undefined) ?? null;
+  const sent = typeof order?.sent === "boolean" ? order.sent : false;
+  const position =
+    typeof rec.position === "number" && Number.isFinite(rec.position) ? rec.position : null;
+  return {
+    atMs,
+    symbol,
+    market,
+    interval,
+    openTime,
+    side: opSide,
+    price,
+    position,
+    sent,
+  };
 }
 
 export function parseSymbolsInput(raw: string): string[] {
