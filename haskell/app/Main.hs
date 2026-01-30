@@ -13693,7 +13693,7 @@ computeLatestSignalFromArgsWithLimits :: ApiComputeLimits -> Maybe OpsStore -> A
 computeLatestSignalFromArgsWithLimits limits mOps args = do
     (series, mBinanceEnv) <- loadPrices mOps args
     case validateApiComputeLimitsAfterLoad limits args series of
-        Left msg -> error msg
+        Left msg -> throwIO (userError msg)
         Right () -> pure ()
     computeLatestSignalFromSeries args series mBinanceEnv
 
@@ -13713,7 +13713,7 @@ computeTradeFromArgsWithLimits :: ApiComputeLimits -> Maybe OpsStore -> Args -> 
 computeTradeFromArgsWithLimits limits mOps args = do
     (series, mBinanceEnv) <- loadPrices mOps args
     case validateApiComputeLimitsAfterLoad limits args series of
-        Left msg -> error msg
+        Left msg -> throwIO (userError msg)
         Right () -> pure ()
     computeTradeFromSeries args series mBinanceEnv
 
@@ -15537,7 +15537,7 @@ computeBacktestFromArgsWithLimits :: ApiComputeLimits -> Maybe OpsStore -> Args 
 computeBacktestFromArgsWithLimits limits mOps args = do
     (series, mBinanceEnv) <- loadPrices mOps args
     case validateApiComputeLimitsAfterLoad limits args series of
-        Left msg -> error msg
+        Left msg -> throwIO (userError msg)
         Right () -> pure ()
     computeBacktestFromSeries args series mBinanceEnv
 
@@ -15911,12 +15911,12 @@ printJsonStdout v = BS.putStrLn (BL.toStrict (encode v))
 
 computeTradeOnlySignal :: Args -> Int -> PriceSeries -> Maybe BinanceEnv -> IO LatestSignal
 computeTradeOnlySignal args lookback series mBinanceEnv = do
-    if argSweepThreshold args
-        then error "Cannot use --sweep-threshold with --trade-only (sweep requires a backtest split)."
-        else pure ()
-    if argOptimizeOperations args
-        then error "Cannot use --optimize-operations with --trade-only (optimization requires a backtest split)."
-        else pure ()
+    when
+        (argSweepThreshold args)
+        (throwIO (userError "Cannot use --sweep-threshold with --trade-only (sweep requires a backtest split)."))
+    when
+        (argOptimizeOperations args)
+        (throwIO (userError "Cannot use --optimize-operations with --trade-only (optimization requires a backtest split)."))
 
     let prices = psClose series
         highsV = V.fromList <$> psHigh series
@@ -15926,11 +15926,18 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
         n = V.length pricesV
         stepCount = max 0 (n - 1)
         needsHistory = argThresholdFactorEnabled args || method == MethodRouter
-    if n <= lookback
-        then
-            error
-                (printf "Not enough data for lookback=%d (need >= %d prices, got %d). Reduce --lookback-bars/--lookback-window or increase --bars." lookback (lookback + 1) n)
-        else pure ()
+    when
+        (n <= lookback)
+        ( throwIO
+            ( userError
+                ( printf
+                    "Not enough data for lookback=%d (need >= %d prices, got %d). Reduce --lookback-bars/--lookback-window or increase --bars."
+                    lookback
+                    (lookback + 1)
+                    n
+                )
+            )
+        )
 
     mMarketModel <-
         case (method, mBinanceEnv, argBinanceSymbol args) of
@@ -18153,7 +18160,7 @@ ensureMinPriceRows args minRows prices =
                     " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header)."
                 _ -> ""
      in if n < minRows
-            then error ("Need at least " ++ show minRows ++ " price rows (got " ++ show n ++ ") from " ++ priceSourceLabel args ++ "." ++ hint)
+            then throwIO (userError ("Need at least " ++ show minRows ++ " price rows (got " ++ show n ++ ") from " ++ priceSourceLabel args ++ "." ++ hint))
             else pure ()
 
 loadPrices :: Maybe OpsStore -> Args -> IO (PriceSeries, Maybe BinanceEnv)

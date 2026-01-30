@@ -113,6 +113,7 @@ All notable changes to this project will be documented in this file.
 - API: treat `TRADER_CORS_ORIGIN=*` as a wildcard and allow auth-protected endpoints to answer preflights without relying on `Access-Control-Request-Headers`.
 - API: keep `/bot/status` responsive during bot starts by moving preflight work outside the runtime lock.
 - API: return JSON 500 responses with CORS headers when request handlers throw unexpected exceptions.
+- API: surface insufficient price rows / post-load compute-limit failures as user errors (400) instead of `error` crashes.
 - API: cap `/bot/status` tail defaults to 1000 points to prevent upstream 5xx responses.
 - Networking: add shared HTTP managers, retries with jitter (respecting `Retry-After`), per-host rate limiting, and cached stale fallbacks for exchange data; optional `TRADER_HTTP_LOG` for request tracing.
 - API: treat the first `botSymbols` entry as `binanceSymbol` for `/bot/start` validation when `binanceSymbol` is missing.

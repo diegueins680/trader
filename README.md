@@ -176,6 +176,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--lookback-window 7d` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
   - Lookback must be less than the total number of bars, otherwise the backtest errors.
+  - Signal/trade requests require at least `lookback + 1` prices; too-short datasets return a 400 with a clear message.
 
 - Trading (Binance + Coinbase spot)
   - Trading flags apply only when `--platform binance` or `--platform coinbase` (Coinbase is spot-only and has no test endpoint).
