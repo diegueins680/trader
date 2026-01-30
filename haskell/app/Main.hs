@@ -10580,7 +10580,7 @@ resolveOptimizerCombosHistoryDir topJsonPath = do
                     else pure (Just dir)
 
 defaultOptimizerMaxCombos :: Int
-defaultOptimizerMaxCombos = 200
+defaultOptimizerMaxCombos = 500
 
 optimizerMaxCombosFromEnv :: IO Int
 optimizerMaxCombosFromEnv = do
@@ -11548,7 +11548,16 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
     let tmpPath = optimizerTmp </> optimizerCombosFileName
         fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
     topExists <- doesFileExist topJsonPath
-    topVal <- readTopCombosValue topJsonPath
+    topVal0 <- readTopCombosValue topJsonPath
+    topVal <-
+        case topVal0 of
+            Right v -> pure (Right v)
+            Left err -> do
+                recovered <- recoverTopCombosFromHistory topJsonPath
+                pure $
+                    case recovered of
+                        Just val -> Right val
+                        Nothing -> Left err
     let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
     tmpVal <-
         if tmpPath /= topJsonPath
@@ -11622,6 +11631,32 @@ handleOptimizerCombos projectRoot optimizerTmp respond = do
     cleanPayloadSource raw =
         let s = trim raw
          in if null s then Nothing else Just s
+
+    recoverTopCombosFromHistory :: FilePath -> IO (Maybe Aeson.Value)
+    recoverTopCombosFromHistory topPath = do
+        mHistDir <- resolveOptimizerCombosHistoryDir topPath
+        case mHistDir of
+            Nothing -> pure Nothing
+            Just histDir -> do
+                exists <- doesDirectoryExist histDir
+                if not exists
+                    then pure Nothing
+                    else do
+                        entries <- listDirectory histDir
+                        let candidates =
+                                reverse
+                                    (sortOn id [histDir </> f | f <- entries, "top-combos-" `isPrefixOf` f, ".json" `isSuffixOf` f])
+                        restoreFirst candidates
+      where
+        restoreFirst [] = pure Nothing
+        restoreFirst (p : ps) = do
+            valOrErr <- readTopCombosValueLocal p
+            case valOrErr of
+                Right val -> do
+                    _ <- writeTopCombosValue topPath val
+                    persistTopCombosMaybe topPath
+                    pure (Just val)
+                Left _ -> restoreFirst ps
 
     comboKey :: Aeson.Value -> (Double, Double, Double, Int)
     comboKey = comboPerformanceKey

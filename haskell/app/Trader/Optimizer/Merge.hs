@@ -37,9 +37,10 @@ import System.Directory (
     doesFileExist,
     getHomeDirectory,
     listDirectory,
+    renameFile,
  )
 import System.FilePath (takeDirectory, (</>))
-import System.IO (hPutStrLn, stderr)
+import System.IO (hClose, hFlush, hPutStrLn, openBinaryTempFile, stderr)
 
 import Trader.Duration (inferPeriodsPerYear)
 import Trader.Optimizer.Json (encodePretty)
@@ -277,8 +278,14 @@ writeTopJson path combos maxItems = do
                 , "source" .= ("merge_top_combos.py" :: String)
                 , "combos" .= comboValues
                 ]
-    createDirectoryIfMissing True (takeDirectory path)
-    BL.writeFile path (encodePretty exportVal <> "\n")
+    let dir = takeDirectory path
+    createDirectoryIfMissing True dir
+    -- Atomic write: write to temp in same dir then rename.
+    (tmpPath, h) <- openBinaryTempFile dir "top-combos.tmp"
+    BL.hPutStr h (encodePretty exportVal <> "\n")
+    hFlush h
+    hClose h
+    renameFile tmpPath path
 
 compareCombos :: Combo -> Combo -> Ordering
 compareCombos a b =
