@@ -407,6 +407,7 @@ Optional CORS:
 - When `TRADER_CORS_ORIGIN=*`, the API always returns `Access-Control-Allow-Origin: *` (including preflight responses).
 - If `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, the API echoes the request Origin so direct UI calls can succeed without extra CORS config.
 - When `TRADER_CORS_ORIGIN` is unset and no auth headers are present, no `Access-Control-Allow-Origin` header is returned; keep using same-origin `/api/*` or let `deploy-aws-quick.sh` fill it for direct CloudFront UI deploys.
+- When `apiBaseUrl` is `/api`, the UI only uses a direct fallback after the proxy fails (it does not prefer the cross-origin fallback on load).
 
 Tenant isolation (multi-user UI):
 - The web UI hashes API keys in-browser into a `tenantKey` (SHA-256; `binance:<hex>` or `coinbase:<hex>`).
@@ -496,6 +497,7 @@ Backtest limits:
 Optimizer script tips:
 - `optimize-equity` defaults to `--objective annualized-equity` (annualized return).
 - `optimize-equity` now tunes stop-loss and take-profit by default for annualized-equity; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
+- `optimize-equity` accepts `--futures` to pull Binance USDT-M futures data (Binance only).
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - CSV runs derive `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename) and normalize it to a valid exchange symbol, trimming dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` -> `BNBUSDT`) before combos are persisted.

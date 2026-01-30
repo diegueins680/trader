@@ -542,6 +542,7 @@ data OptimizerArgs = OptimizerArgs
     , oaIntervals :: !(Maybe String)
     , oaPlatform :: !(Maybe String)
     , oaPlatforms :: !(Maybe String)
+    , oaBinanceFutures :: !Bool
     , oaBarsMin :: !Int
     , oaBarsMax :: !Int
     , oaBarsAutoProb :: !Double
@@ -3060,7 +3061,11 @@ buildBaseArgs args csvCols = do
                            , "--seed"
                            , show (oaSeed args)
                            ]
-            pure (Right baseArgs')
+            let baseArgs'' =
+                    if oaBinanceFutures args
+                        then baseArgs' ++ ["--futures"]
+                        else baseArgs'
+            pure (Right baseArgs'')
 
 printTrialStatus :: Int -> Int -> TrialResult -> IO ()
 printTrialStatus i trials tr = do

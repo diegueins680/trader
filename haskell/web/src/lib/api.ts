@@ -121,7 +121,7 @@ function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
-const FALLBACK_STORAGE_KEY = "trader_api_fallback_v2";
+const FALLBACK_STORAGE_KEY = "trader_api_fallback_v3";
 const FALLBACK_STORAGE_TTL_MS = 12 * 60 * 60 * 1000;
 
 type FallbackStorage = {
@@ -171,6 +171,7 @@ function persistFallbackStorage() {
 }
 
 function rememberPreferredFallback(primary: string, fallback: string) {
+  if (primary.startsWith("/")) return;
   if (!primary || !fallback || primary === fallback) return;
   if (blockedFallbackBases.has(fallback)) return;
   if (preferredFallbackBases.get(primary) === fallback) return;
@@ -218,6 +219,7 @@ function resolveFallbackBase(primaryBase: string): string | null {
 }
 
 function resolvePreferredFallback(primaryBase: string, fallbackBase: string | null): string | null {
+  if (primaryBase.startsWith("/")) return null;
   if (!fallbackBase) return null;
   const preferred = preferredFallbackBases.get(primaryBase) ?? null;
   if (preferred) {

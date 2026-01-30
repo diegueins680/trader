@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Control.Monad (when)
-import Data.Char (isSpace)
+import Data.Char (isSpace, toLower)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe, isJust)
 import Options.Applicative
@@ -107,6 +107,7 @@ optimizerArgsParser =
         <*> optional (strOption (long "intervals" <> metavar "LIST"))
         <*> optional (strOption (long "platform" <> metavar "NAME"))
         <*> optional (strOption (long "platforms" <> metavar "LIST"))
+        <*> switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data (Binance only)")
         <*> option auto (long "bars-min" <> value 0 <> metavar "INT")
         <*> option auto (long "bars-max" <> value 0 <> metavar "INT")
         <*> option auto (long "bars-auto-prob" <> value 0.25 <> metavar "FLOAT")
@@ -309,6 +310,8 @@ validateArgs args = do
         Left "Provide only one of --interval or --intervals."
     when (isJust platformVal && isJust platformsVal) $
         Left "Provide only one of --platform or --platforms."
+    when (oaBinanceFutures args' && maybe False (\p -> map toLower (trim p) /= "binance") platformVal) $
+        Left "--futures requires --platform binance (or omit --platform to use the default)."
     when (oaObjective args `notElem` objectiveChoices) $
         Left ("Invalid objective: " ++ show (oaObjective args) ++ " (expected one of: " ++ intercalate ", " objectiveChoices ++ ")")
     when (oaTuneObjective args `notElem` objectiveChoices) $
