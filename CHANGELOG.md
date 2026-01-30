@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 - Optimizer: avoid overwriting existing `top-combos.json` with fallback seeds when the primary file exists but fails to load.
 - API: allow overriding the bind host via `TRADER_API_BIND_HOST` (useful when `0.0.0.0` is not permitted).
 - Dev: `start_api_bg.sh` now runs the Postgres-aware helper and sets persistent state/combos dirs by default.
+- Dev: `start_api_bg.sh` now auto-restarts the API on exit (configurable via `TRADER_API_RESTART_ON_EXIT` and `TRADER_API_RESTART_DELAY_SEC`).
+- Dev: add `haskell/scripts/start_ui_bg.sh` helper to wait for API health before starting the UI dev server.
 - ListenKey: auto-expire user-data streams when Binance returns `-1125` so the UI can restart cleanly after idle/expired listen keys.
 - Dev: `start_api_bg.sh` now defaults `TRADER_API_BIND_HOST` to `127.0.0.1` for local stability.
 - Ops: move persistence to PostgreSQL (`TRADER_DB_URL`/`DATABASE_URL`), storing `symbol`, `orderId`, and `comboUuid` for each operation.

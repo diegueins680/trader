@@ -8249,144 +8249,28 @@ runRestApi baseArgs mWebhook = do
             putStrLn "Increased GHC capabilities to 2 (to keep the API responsive during heavy compute)."
         else pure ()
 
-  bindHostEnv <- lookupEnv "TRADER_API_BIND_HOST"
-  let bindHostStr =
-        case trim <$> bindHostEnv of
-          Just host | not (null host) -> host
-          _ -> "0.0.0.0"
-      bindHost = fromString bindHostStr :: Warp.HostPreference
-      displayHost = "127.0.0.1" :: String
-      port = max 1 (argPort baseArgs)
-      settings =
-        Warp.setHost bindHost $
-          Warp.setTimeout timeoutSec $
-          Warp.setPort port Warp.defaultSettings
-  putStrLn (printf "Build: %s%s" (biVersion buildInfo) (maybe "" (\c -> " (" ++ take 12 c ++ ")") (biCommit buildInfo)))
-  putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHostStr port)
-  putStrLn
-    ( printf
-        "API limits: maxAsyncRunning=%d, maxBacktestRunning=%d, maxBarsLstm=%d, maxEpochs=%d, maxHiddenSize=%d"
-        maxAsyncRunning
-        maxBacktestRunning
-        (aclMaxBarsLstm limits)
-        (aclMaxEpochs limits)
-        (aclMaxHiddenSize limits)
-    )
-  putStrLn
-    ( printf
-        "API backtest gate: maxRunning=%d timeoutSec=%d"
-        maxBacktestRunning
-        backtestTimeoutSec
-    )
-  putStrLn
-    ( printf
-        "API request limits: maxBodyBytes=%d, maxOptimizerOutputBytes=%d, botStatusTailMax=%d"
-        (arlMaxBodyBytes reqLimits)
-        (arlMaxOptimizerOutputBytes reqLimits)
-        (arlMaxBotStatusTail reqLimits)
-    )
-  if ccAllowAnyOrigin corsConfig
-    then putStrLn "CORS: allowed origin *"
-    else
-      case ccAllowedOrigins corsConfig of
-        [] ->
-          if ccAllowAuthOrigin corsConfig
-            then putStrLn "CORS: auth-origin allowed (Origin echoed when auth headers present)"
-            else putStrLn "CORS: disabled (set TRADER_CORS_ORIGIN to allow a specific origin)"
-        origins ->
-          putStrLn ("CORS: allowed origins " ++ intercalate ", " (map BS.unpack origins))
-  apiCache <- newApiCache cacheMaxEntries cacheTtlMs
-  putStrLn
-    ( printf
-        "API cache: ttlMs=%d maxEntries=%d"
-        cacheTtlMs
-        cacheMaxEntries
-    )
-  projectRoot <- getCurrentDirectory
-  mStateDir <- stateDirFromEnv
-  let tmpRoot = projectRoot </> ".tmp"
-  createDirectoryIfMissing True tmpRoot
-  let optimizerTmp = fromMaybe (tmpRoot </> "optimizer") (fmap (</> "optimizer") mStateDir)
-  createDirectoryIfMissing True optimizerTmp
-  metrics <- newMetrics
-  mJournal <- newJournalFromEnv
-  mOps <- newOpsStoreFromEnv
-  listenKeyManager <- newListenKeyManager
-  mBotStateDir <- resolveBotStateDir
-  backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
-  topCombosEnabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
-  let topCombosEnabled = readEnvBool topCombosEnabledEnv True
-  topCombosLock <- newMVar ()
-  topCombosCandleChan <- newChan
-  let topCombosCtx =
-        TopCombosBacktestCtx
-          { tcbcBaseArgs = baseArgs
-          , tcbcLimits = limits
-          , tcbcGate = backtestGate
-          , tcbcOps = mOps
-          , tcbcJournal = mJournal
-          , tcbcOptimizerTmp = optimizerTmp
-          , tcbcLock = topCombosLock
-          , tcbcCandleChan = topCombosCandleChan
-          , tcbcEnabled = topCombosEnabled
-          }
-  let defaultAsyncDir = fromMaybe (tmpRoot </> "async") (fmap (</> "async") mStateDir)
-  asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
-  let asyncDirTrimmed = trim <$> asyncDirEnv
-      mAsyncDir =
-        case asyncDirTrimmed of
-          Nothing -> Just defaultAsyncDir
-          Just dir | null dir -> Nothing
-          Just dir -> Just dir
-      asyncDirFromEnv =
-        case asyncDirTrimmed of
-          Nothing -> False
-          Just dir -> not (null dir)
-      asyncDirFromState = isNothing asyncDirTrimmed && isJust mStateDir
-  case mAsyncDir of
-    Nothing -> pure ()
-    Just dir -> do
-      let suffix :: String
-          suffix
-            | asyncDirFromEnv = ""
-            | asyncDirFromState = " (from TRADER_STATE_DIR; set TRADER_API_ASYNC_DIR to override)"
-            | otherwise = " (default; set TRADER_API_ASYNC_DIR to override)"
-      putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
-  now <- getTimestampMs
-  journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
-  opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
-  autoBotKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey baseArgs)
-  autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
-  let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
-  bot <- newBotController
-  case mAutoBotTenant of
-    Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
-    Just tenantKey -> do
-      _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot tenantKey)
-      pure ()
-  _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
-  _ <- forkIO (topCombosCandleWorker topCombosCtx)
-  _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
-  asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
-  asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
-  asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
-  hFlush stdout
-  res <-
-    ( try
-        (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
-        IO (Either IOException ())
-    )
-  case res of
-    Right () -> pure ()
-    Left e ->
-      ioError
-        ( userError
-            ( printf
-                "Failed to start REST API on %s:%d: %s\nTry a different --port (or check permissions / sandbox restrictions)."
-                bindHostStr
-                port
-                (show e)
-            )
+    bindHostEnv <- lookupEnv "TRADER_API_BIND_HOST"
+    let bindHostStr =
+            case trim <$> bindHostEnv of
+                Just host | not (null host) -> host
+                _ -> "0.0.0.0"
+        bindHost = fromString bindHostStr :: Warp.HostPreference
+        displayHost = "127.0.0.1" :: String
+        port = max 1 (argPort baseArgs)
+        settings =
+            Warp.setHost bindHost $
+                Warp.setTimeout timeoutSec $
+                    Warp.setPort port Warp.defaultSettings
+    putStrLn (printf "Build: %s%s" (biVersion buildInfo) (maybe "" (\c -> " (" ++ take 12 c ++ ")") (biCommit buildInfo)))
+    putStrLn (printf "Starting REST API on http://%s:%d (bind: %s:%d)" displayHost port bindHostStr port)
+    putStrLn
+        ( printf
+            "API limits: maxAsyncRunning=%d, maxBacktestRunning=%d, maxBarsLstm=%d, maxEpochs=%d, maxHiddenSize=%d"
+            maxAsyncRunning
+            maxBacktestRunning
+            (aclMaxBarsLstm limits)
+            (aclMaxEpochs limits)
+            (aclMaxHiddenSize limits)
         )
     putStrLn
         ( printf
@@ -8394,6 +8278,109 @@ runRestApi baseArgs mWebhook = do
             maxBacktestRunning
             backtestTimeoutSec
         )
+    if ccAllowAnyOrigin corsConfig
+        then putStrLn "CORS: allowed origin *"
+        else
+            case ccAllowedOrigins corsConfig of
+                [] ->
+                    if ccAllowAuthOrigin corsConfig
+                        then putStrLn "CORS: auth-origin allowed (Origin echoed when auth headers present)"
+                        else putStrLn "CORS: disabled (set TRADER_CORS_ORIGIN to allow a specific origin)"
+                origins ->
+                    putStrLn ("CORS: allowed origins " ++ intercalate ", " (map BS.unpack origins))
+    apiCache <- newApiCache cacheMaxEntries cacheTtlMs
+    putStrLn
+        ( printf
+            "API cache: ttlMs=%d maxEntries=%d"
+            cacheTtlMs
+            cacheMaxEntries
+        )
+    projectRoot <- getCurrentDirectory
+    mStateDir <- stateDirFromEnv
+    let tmpRoot = projectRoot </> ".tmp"
+    createDirectoryIfMissing True tmpRoot
+    let optimizerTmp = fromMaybe (tmpRoot </> "optimizer") (fmap (</> "optimizer") mStateDir)
+    createDirectoryIfMissing True optimizerTmp
+    metrics <- newMetrics
+    mJournal <- newJournalFromEnv
+    mOps <- newOpsStoreFromEnv
+    listenKeyManager <- newListenKeyManager
+    mBotStateDir <- resolveBotStateDir
+    backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
+    topCombosEnabledEnv <- lookupEnv "TRADER_TOP_COMBOS_BACKTEST_ENABLED"
+    let topCombosEnabled = readEnvBool topCombosEnabledEnv True
+    topCombosLock <- newMVar ()
+    topCombosCandleChan <- newChan
+    let topCombosCtx =
+            TopCombosBacktestCtx
+                { tcbcBaseArgs = baseArgs
+                , tcbcLimits = limits
+                , tcbcGate = backtestGate
+                , tcbcOps = mOps
+                , tcbcJournal = mJournal
+                , tcbcOptimizerTmp = optimizerTmp
+                , tcbcLock = topCombosLock
+                , tcbcCandleChan = topCombosCandleChan
+                , tcbcEnabled = topCombosEnabled
+                }
+    let defaultAsyncDir = fromMaybe (tmpRoot </> "async") (fmap (</> "async") mStateDir)
+    asyncDirEnv <- lookupEnv "TRADER_API_ASYNC_DIR"
+    let asyncDirTrimmed = trim <$> asyncDirEnv
+        mAsyncDir =
+            case asyncDirTrimmed of
+                Nothing -> Just defaultAsyncDir
+                Just dir | null dir -> Nothing
+                Just dir -> Just dir
+        asyncDirFromEnv =
+            case asyncDirTrimmed of
+                Nothing -> False
+                Just dir -> not (null dir)
+        asyncDirFromState = isNothing asyncDirTrimmed && isJust mStateDir
+    case mAsyncDir of
+        Nothing -> pure ()
+        Just dir -> do
+            let suffix :: String
+                suffix
+                    | asyncDirFromEnv = ""
+                    | asyncDirFromState = " (from TRADER_STATE_DIR; set TRADER_API_ASYNC_DIR to override)"
+                    | otherwise = " (default; set TRADER_API_ASYNC_DIR to override)"
+            putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
+    now <- getTimestampMs
+    journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
+    opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
+    autoBotKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey baseArgs)
+    autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
+    let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
+    bot <- newBotController
+    case mAutoBotTenant of
+        Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
+        Just tenantKey -> do
+            _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot tenantKey)
+            pure ()
+    _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
+    _ <- forkIO (topCombosCandleWorker topCombosCtx)
+    _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
+    asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
+    asyncBacktest <- newJobStore "backtest" maxAsyncRunning mAsyncDir
+    asyncTrade <- newJobStore "trade" maxAsyncRunning mAsyncDir
+    hFlush stdout
+    res <-
+        ( try
+            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+            IO (Either IOException ())
+        )
+    case res of
+        Right () -> pure ()
+        Left e ->
+            ioError
+                ( userError
+                    ( printf
+                        "Failed to start REST API on %s:%d: %s\nTry a different --port (or check permissions / sandbox restrictions)."
+                        bindHostStr
+                        port
+                        (show e)
+                    )
+                )
     putStrLn
         ( printf
             "API request limits: maxBodyBytes=%d, maxOptimizerOutputBytes=%d, botStatusTailMax=%d"
@@ -9755,263 +9742,29 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             _ -> respondCors (jsonError status404 "Not found")
 
-  let handleRequest =
-        case Wai.requestMethod req of
-          "OPTIONS" -> respondLogged (Wai.responseLBS status204 (corsHeadersFor corsConfig req) "")
-          _ -> do
-            metricsIncEndpoint metrics label
-            if path /= ["health"] && not (authorized apiToken req)
-              then respondCors (jsonError status401 "Unauthorized (send Authorization: Bearer <token> or X-API-Key)")
-              else
-                case path of
-                  [] ->
-                    case Wai.requestMethod req of
-                      "GET" ->
-                        respondCors $
-                          jsonValue
-                            status200
-                            ( object
-                                ( [ "name" .= ("trader-hs" :: String)
-                                  , "version" .= biVersion buildInfo
-                                  ]
-                                    ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
-                                    ++ [ "endpoints"
-                                          .= [ object ["method" .= ("GET" :: String), "path" .= ("/health" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/metrics" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/ops" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/ops/performance" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/cache" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/cache/clear" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/signal" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/signal/async" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/signal/async/:jobId" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/signal/async/:jobId/cancel" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/trade" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/trade/async" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/trade/async/:jobId" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/trade/async/:jobId/cancel" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/backtest" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/backtest/async/:jobId" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/backtest/async/:jobId/cancel" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/keys" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/trades" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/positions" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/positions/close" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/binance/proxy/health" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/coinbase/keys" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/binance/listenKey/stream" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/keepAlive" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/binance/listenKey/close" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/bot/start" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/bot/stop" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/bot/status" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/optimizer/run" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/optimizer/combos" :: String)]
-                                             , object ["method" .= ("GET" :: String), "path" .= ("/state/sync" :: String)]
-                                             , object ["method" .= ("POST" :: String), "path" .= ("/state/sync" :: String)]
-                                             ]
-                                       ]
-                                )
-                            )
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["health"] ->
-                    case Wai.requestMethod req of
-                      "GET" ->
-                        let authRequired = isJust apiToken
-                            authOk = authorized apiToken req
-                            asyncCfg = asBacktest asyncStores
-                            pairs =
-                              ["status" .= ("ok" :: String), "version" .= biVersion buildInfo, "authRequired" .= authRequired, "authOk" .= authOk]
-                                ++ maybe [] (\c -> ["commit" .= c]) (biCommit buildInfo)
-                                ++ [ "computeLimits"
-                                      .= object
-                                        [ "maxBarsLstm" .= aclMaxBarsLstm limits
-                                        , "maxEpochs" .= aclMaxEpochs limits
-                                        , "maxHiddenSize" .= aclMaxHiddenSize limits
-                                        ]
-                                   , "asyncJobs"
-                                      .= object
-                                        [ "maxRunning" .= jsMaxRunning asyncCfg
-                                        , "ttlMs" .= jsTtlMs asyncCfg
-                                        , "persistence" .= isJust (jsDir asyncCfg)
-                                        ]
-                                   , "cache"
-                                      .= object
-                                        [ "enabled" .= cacheEnabled apiCache
-                                        , "ttlMs" .= acTtlMs apiCache
-                                        , "maxEntries" .= acMaxEntries apiCache
-                                        ]
-                                   ]
-                         in respondCors (jsonValue status200 (object pairs))
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["metrics"] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleMetrics metrics botCtrl respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["ops"] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleOps mOps req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["ops", "performance"] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleOpsPerformance mOps req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["cache"] ->
-                    case Wai.requestMethod req of
-                      "GET" -> do
-                        v <- apiCacheStatsJson apiCache
-                        respondCors (jsonValue status200 v)
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["cache", "clear"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> do
-                        apiCacheClear apiCache
-                        now <- getTimestampMs
-                        respondCors (jsonValue status200 (object ["ok" .= True, "atMs" .= now]))
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["signal"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleSignal reqLimits apiCache mOps limits baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["signal", "async"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleSignalAsync reqLimits apiCache mOps limits (asSignal asyncStores) baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["signal", "async", jobId] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
-                      "POST" -> handleAsyncPoll (asSignal asyncStores) jobId respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["signal", "async", jobId, "cancel"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleAsyncCancel (asSignal asyncStores) jobId respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["trade"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["trade", "async"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleTradeAsync reqLimits mOps limits (asTrade asyncStores) metrics mJournal mWebhook baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["trade", "async", jobId] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
-                      "POST" -> handleAsyncPoll (asTrade asyncStores) jobId respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["trade", "async", jobId, "cancel"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleAsyncCancel (asTrade asyncStores) jobId respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["backtest"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["backtest", "async"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBacktestAsync reqLimits apiCache mOps limits backtestGate (asBacktest asyncStores) baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["backtest", "async", jobId] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
-                      "POST" -> handleAsyncPoll (asBacktest asyncStores) jobId respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["backtest", "async", jobId, "cancel"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleAsyncCancel (asBacktest asyncStores) jobId respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["binance", "keys"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBinanceKeys reqLimits mOps baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["binance", "positions"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBinancePositions reqLimits mOps baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["binance", "positions", "close"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBinanceClosePosition reqLimits mOps baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["binance", "trades"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBinanceTrades reqLimits mOps baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["binance", "proxy", "health"] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleBinanceProxyHealth respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["coinbase", "keys"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleCoinbaseKeys reqLimits baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["binance", "listenKey"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBinanceListenKey reqLimits mOps listenKeyManager baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["binance", "listenKey", "stream"] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleBinanceListenKeyStream listenKeyManager req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["binance", "listenKey", "keepAlive"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBinanceListenKeyKeepAlive reqLimits mOps listenKeyManager baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["binance", "listenKey", "close"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBinanceListenKeyClose reqLimits mOps listenKeyManager baseArgs req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["bot", "start"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["bot", "stop"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["bot", "status"] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleBotStatus reqLimits botCtrl mBotStateDir req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["optimizer", "run"] ->
-                    case Wai.requestMethod req of
-                      "POST" -> handleOptimizerRun reqLimits mOps projectRoot optimizerTmp req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["optimizer", "combos"] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleOptimizerCombos projectRoot optimizerTmp respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  ["state", "sync"] ->
-                    case Wai.requestMethod req of
-                      "GET" -> handleStateSyncExport mBotStateDir optimizerTmp req respondCors
-                      "POST" -> handleStateSyncImport reqLimits mBotStateDir optimizerTmp req respondCors
-                      _ -> respondCors (jsonError status405 "Method not allowed")
-                  _ -> respondCors (jsonError status404 "Not found")
-
-  let handleIoException :: IOException -> IO WaiInternal.ResponseReceived
-      handleIoException _ = pure WaiInternal.ResponseReceived
-      respondQuiet resp = respond resp `catch` handleIoException
-      respondCorsQuiet = respondQuiet . withCors corsConfig req
-  handleRequest `catch` \ex ->
-    case fromException ex :: Maybe AsyncException of
-      Just asyncEx -> throwIO asyncEx
-      Nothing -> do
-        let msg = displayException ex
-            msgLower = map toLower msg
-            disconnectIndicators =
-              [ "client closed connection prematurely"
-              , "connection closed by peer"
-              , "connection reset by peer"
-              , "broken pipe"
-              , "resource vanished"
-              ]
-            isDisconnect = any (`isInfixOf` msgLower) disconnectIndicators
-        if isDisconnect
-          then respondQuiet (Wai.responseLBS status204 [] "")
-          else do
-            putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
-            respondCorsQuiet (jsonError status500 "Internal server error")
+    let handleIoException :: IOException -> IO WaiInternal.ResponseReceived
+        handleIoException _ = pure WaiInternal.ResponseReceived
+        respondQuiet resp = respond resp `catch` handleIoException
+        respondCorsQuiet = respondQuiet . withCors corsConfig req
+    handleRequest `catch` \ex ->
+        case fromException ex :: Maybe AsyncException of
+            Just asyncEx -> throwIO asyncEx
+            Nothing -> do
+                let msg = displayException ex
+                    msgLower = map toLower msg
+                    disconnectIndicators =
+                        [ "client closed connection prematurely"
+                        , "connection closed by peer"
+                        , "connection reset by peer"
+                        , "broken pipe"
+                        , "resource vanished"
+                        ]
+                    isDisconnect = any (`isInfixOf` msgLower) disconnectIndicators
+                if isDisconnect
+                    then respondQuiet (Wai.responseLBS status204 [] "")
+                    else do
+                        putStrLn (printf "Request %s %s failed: %s" method pathLabel msg)
+                        respondCorsQuiet (jsonError status500 "Internal server error")
 
 authorized :: Maybe BS.ByteString -> Wai.Request -> Bool
 authorized mToken req =
@@ -11791,38 +11544,38 @@ handleOptimizerCombos ::
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
 handleOptimizerCombos projectRoot optimizerTmp respond = do
-  topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-  let tmpPath = optimizerTmp </> optimizerCombosFileName
-      fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
-  topExists <- doesFileExist topJsonPath
-  topVal <- readTopCombosValue topJsonPath
-  let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
-  tmpVal <-
-    if tmpPath /= topJsonPath
-      then sanitizeVal <$> readTopCombosValueLocal tmpPath
-      else pure (Left "missing")
-  fallbackVal <-
-    if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
-      then sanitizeVal <$> readTopCombosValueLocal fallbackPath
-      else pure (Left "missing")
-  let seedVal = listToMaybe [v | Right v <- [tmpVal, fallbackVal]]
-  case (topVal, seedVal, topExists) of
-    (Left _, Just seed, False) -> do
-      _ <- writeTopCombosValue topJsonPath seed
-      persistTopCombosMaybe topJsonPath
-    _ -> pure ()
-  let allVals = [topVal, tmpVal, fallbackVal]
-  now <- getTimestampMs
-  let combosBySource =
-        map
-          (either (const ([], Nothing)) (\val -> (extractCombos val, extractPayloadSource val)))
-          allVals
-      combos = concatMap fst combosBySource
-      payloadSources =
-        concatMap
-          (\(cs, src) -> if null cs then [] else maybeToList src)
-          combosBySource
-      payloadSource = listToMaybe payloadSources
+    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+    let tmpPath = optimizerTmp </> optimizerCombosFileName
+        fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
+    topExists <- doesFileExist topJsonPath
+    topVal <- readTopCombosValue topJsonPath
+    let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
+    tmpVal <-
+        if tmpPath /= topJsonPath
+            then sanitizeVal <$> readTopCombosValueLocal tmpPath
+            else pure (Left "missing")
+    fallbackVal <-
+        if fallbackPath /= topJsonPath && fallbackPath /= tmpPath
+            then sanitizeVal <$> readTopCombosValueLocal fallbackPath
+            else pure (Left "missing")
+    let seedVal = listToMaybe [v | Right v <- [tmpVal, fallbackVal]]
+    case (topVal, seedVal, topExists) of
+        (Left _, Just seed, False) -> do
+            _ <- writeTopCombosValue topJsonPath seed
+            persistTopCombosMaybe topJsonPath
+        _ -> pure ()
+    let allVals = [topVal, tmpVal, fallbackVal]
+    now <- getTimestampMs
+    let combosBySource =
+            map
+                (either (const ([], Nothing)) (\val -> (extractCombos val, extractPayloadSource val)))
+                allVals
+        combos = concatMap fst combosBySource
+        payloadSources =
+            concatMap
+                (\(cs, src) -> if null cs then [] else maybeToList src)
+                combosBySource
+        payloadSource = listToMaybe payloadSources
     if null combos
         then respond (jsonError status404 "Optimizer combos not available yet.")
         else do
@@ -15225,246 +14978,63 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                 _ <- try (cancelFuturesOpenOrdersByClientPrefix env sym protectPrefix) :: IO (Either SomeException Int)
                                 pure ()
 
-              placeProtectionOrders :: Int -> Double -> IO (Either String ())
-              placeProtectionOrders protectDir entryPrice
-                | not protectionEnabled = pure (Right ())
-                | otherwise = do
-                    ts <- getTimestampMs
-                    let requiresAlgo msg =
-                          "-4120" `isInfixOf` msg
-                            || "Algo Order" `isInfixOf` msg
-                            || "algo order" `isInfixOf` msg
-                        isExistingProtection msg =
-                          let msgLower = map toLower msg
-                           in "-4130" `isInfixOf` msgLower
-                                || "open stop or take profit order" `isInfixOf` msgLower
-                                || "closeposition in the direction is existing" `isInfixOf` msgLower
-                    let mkCid suffix =
-                          let raw = protectPrefix ++ show ts ++ "_" ++ suffix
-                           in if length raw <= 36 then raw else take 36 raw
+                    placeProtectionOrders :: Int -> Double -> IO (Either String ())
+                    placeProtectionOrders protectDir entryPrice
+                        | not protectionEnabled = pure (Right ())
+                        | otherwise = do
+                            ts <- getTimestampMs
+                            let requiresAlgo msg =
+                                    "-4120" `isInfixOf` msg
+                                        || "Algo Order" `isInfixOf` msg
+                                        || "algo order" `isInfixOf` msg
+                                isExistingProtection msg =
+                                    let msgLower = map toLower msg
+                                     in "-4130" `isInfixOf` msgLower
+                                            || "open stop or take profit order" `isInfixOf` msgLower
+                                            || "closeposition in the direction is existing" `isInfixOf` msgLower
+                                mkCid suffix =
+                                    let raw = protectPrefix ++ show ts ++ "_" ++ suffix
+                                     in if length raw <= 36 then raw else take 36 raw
 
-                        place1 :: OrderSide -> String -> Double -> String -> IO (Either String ())
-                        place1 side orderType px suffix = do
-                          let cid = mkCid suffix
-                              px1 = normalizeStopPrice px
-                          r <- try (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
-                          case r of
-                            Right _ -> pure (Right ())
-                            Left ex -> do
-                              let msg = take 240 (show ex)
-                              if isExistingProtection msg
-                                then pure (Right ())
-                                else if requiresAlgo msg
-                                  then do
-                                    let hedgeSide =
-                                          if protectDir < 0
-                                            then Just "SHORT"
-                                            else Just "LONG"
-                                        shouldRetryWithSide errMsg =
-                                          "positionSide" `isInfixOf` errMsg || "Position side" `isInfixOf` errMsg
-                                    rAlgo <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) Nothing) :: IO (Either SomeException BL.ByteString)
-                                    case rAlgo of
-                                      Right _ -> pure (Right ())
-                                      Left exAlgo -> do
-                                        let msgAlgo = take 240 (show exAlgo)
-                                        if isExistingProtection msgAlgo
-                                          then pure (Right ())
-                                          else if shouldRetryWithSide msgAlgo
-                                            then do
-                                              rAlgo2 <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) hedgeSide) :: IO (Either SomeException BL.ByteString)
-                                              pure $
-                                                case rAlgo2 of
-                                                  Left exAlgo2 ->
-                                                    let msgAlgo2 = take 240 (show exAlgo2)
-                                                     in if isExistingProtection msgAlgo2 then Right () else Left msgAlgo2
-                                                  Right _ -> Right ()
-                                            else pure (Left msgAlgo)
-                                  else pure (Left msg)
-
-                        (slSide, mSlPx, tpSide, mTpPx) =
-                          if protectDir < 0
-                            then
-                              ( Buy
-                              , (\sl -> entryPrice * (1 + sl)) <$> stopLoss0
-                              , Buy
-                              , (\tp -> entryPrice * (1 - tp)) <$> takeProfit0
-                              )
-                            else
-                              ( Sell
-                              , (\sl -> entryPrice * (1 - sl)) <$> stopLoss0
-                              , Sell
-                              , (\tp -> entryPrice * (1 + tp)) <$> takeProfit0
-                              )
-
-                    rSl <-
-                      case mSlPx of
-                        Nothing -> pure (Right ())
-                        Just px -> place1 slSide "STOP_MARKET" px "sl"
-                    rTp <-
-                      case mTpPx of
-                        Nothing -> pure (Right ())
-                        Just px -> place1 tpSide "TAKE_PROFIT_MARKET" px "tp"
-                    pure $
-                      case (rSl, rTp) of
-                        (Left e, _) -> Left ("Protection order failed: " ++ e)
-                        (_, Left e) -> Left ("Protection order failed: " ++ e)
-                        _ -> Right ()
-
-          mQuoteFromFraction <-
-            case (argOrderQuantity args, argOrderQuote args, argOrderQuoteFraction args) of
-              (Nothing, Nothing, Just f) | f > 0 -> do
-                bal <- fetchFuturesAvailableBalance env quoteAsset
-                let q0 = bal * f * entryScale
-                    q1 =
-                      let mCap =
-                            case argMaxOrderQuote args of
-                              Just q | q > 0 -> Just q
-                              _ -> Nothing
-                       in maybe q0 (\capQ -> min capQ q0) mCap
-                pure (Just q1)
-              _ -> pure Nothing
-          let mDesiredQtyRaw =
-                case argOrderQuantity args of
-                  Just q | q > 0 -> Just (q * entryScale)
-                  Just _ -> Nothing
-                  Nothing ->
-                    case (fmap (* entryScale) (argOrderQuote args) <|> mQuoteFromFraction) of
-                      Just qq | qq > 0 && currentPrice > 0 -> Just (qq / currentPrice)
-                      _ -> Nothing
-    
-              normalizeFuturesQty qRaw =
-                case mSf of
-                  Nothing -> Right qRaw
-                  Just sf -> normalizeQty sf currentPrice qRaw
-
-              normalizeFuturesEntryQty qRaw =
-                case mSf of
-                  Nothing -> Right (qRaw, False)
-                  Just sf -> normalizeEntryQty sf currentPrice qRaw
-
-              closeOrder sideLabel side qtyRaw =
-                case normalizeFuturesQty qtyRaw of
-                  Left e ->
-                    case minTradeQtyMaybe mSf currentPrice of
-                      Just minQ | qtyRaw < minQ -> pure baseResult { aorMessage = "No order: position below exchange minimums (dust)." }
-                      _ -> pure baseResult { aorMessage = "No order: " ++ e }
-                  Right q ->
-                    if q <= 0
-                      then pure baseResult { aorMessage = "No order: quantity is 0." }
-                      else do
-                        out <- sendMarketOrder sideLabel side (Just q) Nothing (Just True)
-                        if not (aorSent out) || mode /= OrderLive
-                          then pure out
-                          else do
-                            let isLongClose = side == Sell
-                                wantSide = if isLongClose then Just "LONG" else Just "SHORT"
-                                normalizeSide = fmap normalizeKey
-                                matchesSide ps =
-                                  case (normalizeSide ps, normalizeSide wantSide) of
-                                    (Just "long", Just "long") -> True
-                                    (Just "short", Just "short") -> True
-                                    _ -> False
-                                isBotAlgo cid = "trader_prot_" `isPrefixOf` cid
-                            let waitMax = 12 :: Int
-                                waitDelayUs = 500000
-                                waitLoop n = do
-                                  amt <- fetchFuturesPositionAmt env sym
-                                  if abs amt <= 1e-12 || n <= 0
-                                    then pure ()
-                                    else threadDelay waitDelayUs >> waitLoop (n - 1)
-                            waitLoop waitMax
-                            algoOrdersOrErr <- try (fetchFuturesOpenAlgoOrders env sym) :: IO (Either SomeException [FuturesAlgoOpenOrder])
-                            case algoOrdersOrErr of
-                              Left _ -> pure out
-                              Right orders -> do
-                                let filtered =
-                                      [ o
-                                      | o <- orders
-                                      , let symOk = normalizeKey (faoSymbol o) == normalizeKey sym
-                                      , symOk
-                                      , let mCid = faoClientAlgoId o
-                                      , maybe False isBotAlgo mCid
-                                      , let ps = faoPositionSide o
-                                      , case normalizeSide ps of
-                                          Just "long" -> matchesSide ps
-                                          Just "short" -> matchesSide ps
-                                          _ -> True
-                                      ]
-                                forM_ filtered $ \o ->
-                                  case faoClientAlgoId o of
-                                    Nothing -> pure ()
-                                    Just cid -> do
-                                      _ <- try (cancelFuturesAlgoOrderByClientId env cid) :: IO (Either SomeException BL.ByteString)
-                                      pure ()
-                                pure out
-    
-              noFuturesSizingMsg =
-                if maybe False (> 0) (argOrderQuoteFraction args)
-                  then "No order: computed quote is 0 (check futures balance / orderQuoteFraction / maxOrderQuote)."
-                  else "No order: futures requires orderQuantity or orderQuote."
-    
-          case dir of
-                1 ->
-                  if posAmt > 0
-                    then
-                      if protectionEnabled
-                        then do
-                          cancelProtectionOrders
-                          r <- placeProtectionOrders 1 currentPrice
-                          pure $
-                            case r of
-                              Left e -> baseResult { aorMessage = "No market order: already long. " ++ e }
-                              Right () -> baseResult { aorMessage = "No market order: already long. Protection orders refreshed." }
-                        else pure baseResult { aorMessage = "No order: already long." }
-                    else
-                      case lstmBlockMsg of
-                        Just msg | posAmt == 0 -> pure baseResult { aorMessage = msg }
-                        _ ->
-                          case mDesiredQtyRaw of
-                            Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
-                            Just q0 -> do
-                              case normalizeFuturesEntryQty q0 of
-                                Left e -> pure baseResult { aorMessage = "No order: " ++ e }
-                                Right (qDesired, bumped) -> do
-                                  fundsCheck <- ensureFuturesFunds 1 qDesired
-                                  case fundsCheck of
-                                    Left msg -> pure baseResult { aorMessage = msg }
-                                    Right () -> do
-                                      cancelProtectionOrders
-                                      let qtyToBuyRaw = if posAmt < 0 then abs posAmt + qDesired else qDesired
-                                      case normalizeFuturesQty qtyToBuyRaw of
-                                        Left e -> pure baseResult { aorMessage = "No order: " ++ e }
-                                        Right q ->
-                                          if q <= 0
-                                            then pure baseResult { aorMessage = "No order: quantity is 0." }
-                                            else do
-                                              out0 <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
-                                              let out =
-                                                    if bumped && aorSent out0
-                                                      then out0 { aorMessage = aorMessage out0 ++ " (min size applied)." }
-                                                      else out0
-                                              if aorSent out && protectionEnabled
-                                                then do
-                                                    let hedgeSide =
-                                                            if protectDir < 0
-                                                                then Just "SHORT"
-                                                                else Just "LONG"
-                                                        shouldRetryWithSide errMsg =
-                                                            "positionSide" `isInfixOf` errMsg || "Position side" `isInfixOf` errMsg
-                                                    rAlgo <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) Nothing) :: IO (Either SomeException BL.ByteString)
-                                                    case rAlgo of
-                                                        Right _ -> pure (Right ())
-                                                        Left exAlgo -> do
-                                                            let msgAlgo = take 240 (show exAlgo)
-                                                            if shouldRetryWithSide msgAlgo
-                                                                then do
-                                                                    rAlgo2 <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) hedgeSide) :: IO (Either SomeException BL.ByteString)
-                                                                    pure $
-                                                                        case rAlgo2 of
-                                                                            Left exAlgo2 -> Left (take 240 (show exAlgo2))
-                                                                            Right _ -> Right ()
-                                                                else pure (Left msgAlgo)
-                                                else pure (Left msg)
+                                place1 :: OrderSide -> String -> Double -> String -> IO (Either String ())
+                                place1 side orderType px suffix = do
+                                    let cid = mkCid suffix
+                                        px1 = normalizeStopPrice px
+                                    r <- try (placeFuturesTriggerMarketOrder env mode sym side orderType px1 (Just cid)) :: IO (Either SomeException BL.ByteString)
+                                    case r of
+                                        Right _ -> pure (Right ())
+                                        Left ex -> do
+                                            let msg = take 240 (show ex)
+                                            if isExistingProtection msg
+                                                then pure (Right ())
+                                                else
+                                                    if requiresAlgo msg
+                                                        then do
+                                                            let hedgeSide =
+                                                                    if protectDir < 0
+                                                                        then Just "SHORT"
+                                                                        else Just "LONG"
+                                                                shouldRetryWithSide errMsg =
+                                                                    "positionSide" `isInfixOf` errMsg || "Position side" `isInfixOf` errMsg
+                                                            rAlgo <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) Nothing) :: IO (Either SomeException BL.ByteString)
+                                                            case rAlgo of
+                                                                Right _ -> pure (Right ())
+                                                                Left exAlgo -> do
+                                                                    let msgAlgo = take 240 (show exAlgo)
+                                                                    if isExistingProtection msgAlgo
+                                                                        then pure (Right ())
+                                                                        else
+                                                                            if shouldRetryWithSide msgAlgo
+                                                                                then do
+                                                                                    rAlgo2 <- try (placeFuturesAlgoTriggerMarketOrder env mode sym side orderType px1 (Just cid) hedgeSide) :: IO (Either SomeException BL.ByteString)
+                                                                                    pure $
+                                                                                        case rAlgo2 of
+                                                                                            Left exAlgo2 ->
+                                                                                                let msgAlgo2 = take 240 (show exAlgo2)
+                                                                                                 in if isExistingProtection msgAlgo2 then Right () else Left msgAlgo2
+                                                                                            Right _ -> Right ()
+                                                                                else pure (Left msgAlgo)
+                                                        else pure (Left msg)
 
                                 (slSide, mSlPx, tpSide, mTpPx) =
                                     if protectDir < 0
@@ -15531,11 +15101,11 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         case normalizeFuturesQty qtyRaw of
                             Left e ->
                                 case minTradeQtyMaybe mSf currentPrice of
-                                    Just minQ | qtyRaw < minQ -> pure baseResult{aorMessage = "No order: position below exchange minimums (dust)."}
-                                    _ -> pure baseResult{aorMessage = "No order: " ++ e}
+                                    Just minQ | qtyRaw < minQ -> pure baseResult {aorMessage = "No order: position below exchange minimums (dust)."}
+                                    _ -> pure baseResult {aorMessage = "No order: " ++ e}
                             Right q ->
                                 if q <= 0
-                                    then pure baseResult{aorMessage = "No order: quantity is 0."}
+                                    then pure baseResult {aorMessage = "No order: quantity is 0."}
                                     else do
                                         out <- sendMarketOrder sideLabel side (Just q) Nothing (Just True)
                                         if not (aorSent out) || mode /= OrderLive
@@ -15587,6 +15157,59 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                         if maybe False (> 0) (argOrderQuoteFraction args)
                             then "No order: computed quote is 0 (check futures balance / orderQuoteFraction / maxOrderQuote)."
                             else "No order: futures requires orderQuantity or orderQuote."
+    
+                case dir of
+                      1 ->
+                        if posAmt > 0
+                          then
+                            if protectionEnabled
+                              then do
+                                cancelProtectionOrders
+                                r <- placeProtectionOrders 1 currentPrice
+                                pure $
+                                  case r of
+                                    Left e -> baseResult { aorMessage = "No market order: already long. " ++ e }
+                                    Right () -> baseResult { aorMessage = "No market order: already long. Protection orders refreshed." }
+                              else pure baseResult { aorMessage = "No order: already long." }
+                          else
+                            case lstmBlockMsg of
+                              Just msg | posAmt == 0 -> pure baseResult { aorMessage = msg }
+                              _ ->
+                                case mDesiredQtyRaw of
+                                  Nothing -> pure baseResult { aorMessage = noFuturesSizingMsg }
+                                  Just q0 -> do
+                                    case normalizeFuturesEntryQty q0 of
+                                      Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                                      Right (qDesired, bumped) -> do
+                                        fundsCheck <- ensureFuturesFunds 1 qDesired
+                                        case fundsCheck of
+                                          Left msg -> pure baseResult { aorMessage = msg }
+                                          Right () -> do
+                                            cancelProtectionOrders
+                                            let qtyToBuyRaw = if posAmt < 0 then abs posAmt + qDesired else qDesired
+                                            case normalizeFuturesQty qtyToBuyRaw of
+                                              Left e -> pure baseResult { aorMessage = "No order: " ++ e }
+                                              Right q ->
+                                                if q <= 0
+                                                  then pure baseResult { aorMessage = "No order: quantity is 0." }
+                                                  else do
+                                                    out0 <- sendMarketOrder "BUY" Buy (Just q) Nothing Nothing
+                                                    let out =
+                                                          if bumped && aorSent out0
+                                                            then out0 { aorMessage = aorMessage out0 ++ " (min size applied)." }
+                                                            else out0
+                                                    if aorSent out && protectionEnabled
+                                                        then do
+                                                            let fillPx =
+                                                                    case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                                                        (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                                                        _ -> currentPrice
+                                                            r <- placeProtectionOrders 1 fillPx
+                                                            pure $
+                                                                case r of
+                                                                    Left e -> out{aorMessage = aorMessage out ++ " " ++ e}
+                                                                    Right () -> out{aorMessage = aorMessage out ++ " Protection orders placed."}
+                                                        else pure out
 
                 case dir of
                     1 ->

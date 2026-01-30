@@ -1187,21 +1187,6 @@ placeFuturesTriggerMarketOrder env mode symbol side orderType stopPrice mClientO
                 }
         binanceHttp env label req
 
-      send ts = do
-        let params = baseParams ts ++ clientIdParam
-            queryToSign = renderSimpleQuery False params
-            sig = signQuery secret queryToSign
-            paramsSigned = params ++ [("signature", sig)]
-            qs = renderSimpleQuery True paramsSigned
-        req0 <- parseRequest (beBaseUrl env ++ path)
-        let req =
-              req0
-                { method = "POST"
-                , queryString = qs
-                , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                }
-        binanceHttp env label req
-
   resp <- withBinanceTimestampRetry env send
   ensure2xx label resp
   pure (responseBody resp)
@@ -1255,24 +1240,8 @@ placeFuturesAlgoTriggerMarketOrder env mode symbol side orderType triggerPrice m
           Nothing -> []
           Just cid | null (trim cid) -> []
           Just cid -> [("clientAlgoId", BS.pack (trim cid))]
-
-        path = "/fapi/v1/algoOrder"
-        label = "futures/algoOrder(trigger)"
-        send ts = do
-            let params = baseParams ts ++ positionSideParam ++ clientIdParam
-                queryToSign = renderSimpleQuery False params
-                sig = signQuery secret queryToSign
-                paramsSigned = params ++ [("signature", sig)]
-                qs = renderSimpleQuery True paramsSigned
-            req0 <- parseRequest (beBaseUrl env ++ path)
-            let req =
-                    req0
-                        { method = "POST"
-                        , queryString = qs
-                        , requestHeaders = ("X-MBX-APIKEY", apiKey) : requestHeaders req0
-                        }
-            binanceHttp env label req
-
+      path = "/fapi/v1/algoOrder"
+      label = "futures/algoOrder(trigger)"
       send ts = do
         let params = baseParams ts ++ positionSideParam ++ clientIdParam
             queryToSign = renderSimpleQuery False params

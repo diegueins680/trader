@@ -634,6 +634,12 @@ Start the API in the background (loads `.env`, ensures local Postgres is running
 ```
 ./haskell/scripts/start_api_bg.sh
 ```
+The API helper enables auto-restart by default; set `TRADER_API_RESTART_ON_EXIT=0` to disable. Use `TRADER_API_RESTART_DELAY_SEC` to adjust the delay between restarts.
+
+Start the UI in the background (waits briefly for `/health`, then runs Vite on `127.0.0.1:5173`, logs to `/tmp/trader-ui.log`):
+```
+./haskell/scripts/start_ui_bg.sh
+```
 
 ```
 curl -s -X POST http://127.0.0.1:8080/signal \

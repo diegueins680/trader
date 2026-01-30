@@ -107,4 +107,23 @@ EOF
   exit 1
 fi
 
-cabal run -v0 trader-hs -- --serve --port "${TRADER_API_PORT:-8080}"
+run_api_once() {
+  cabal run -v0 trader-hs -- --serve --port "${TRADER_API_PORT:-8080}"
+}
+
+restart_on_exit="${TRADER_API_RESTART_ON_EXIT:-0}"
+restart_delay_sec="${TRADER_API_RESTART_DELAY_SEC:-3}"
+
+if [ "${restart_on_exit}" = "1" ] || [ "${restart_on_exit}" = "true" ]; then
+  echo "API restart loop enabled (delay ${restart_delay_sec}s)."
+  while true; do
+    set +e
+    run_api_once
+    exit_code=$?
+    set -e
+    echo "API exited (code ${exit_code}). Restarting in ${restart_delay_sec}s..."
+    sleep "${restart_delay_sec}"
+  done
+else
+  run_api_once
+fi
