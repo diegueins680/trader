@@ -559,6 +559,7 @@ normalizeCombo value =
                                     , (Key.fromString "confirmConformal", Bool confirmConformal)
                                     , (Key.fromString "confirmQuantiles", Bool confirmQuantiles)
                                     , (Key.fromString "confidenceSizing", Bool confidenceSizing)
+                                    , (Key.fromString "protectionMinConfidence", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "protectionMinConfidence") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "minPositionSize", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "minPositionSize") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "binanceSymbol", maybe Null (String . T.pack) symbol)
                                     ]

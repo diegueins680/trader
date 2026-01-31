@@ -629,6 +629,8 @@ data OptimizerArgs = OptimizerArgs
     , oaLstmConfidenceSoftMax :: !Double
     , oaLstmConfidenceHardMin :: !Double
     , oaLstmConfidenceHardMax :: !Double
+    , oaProtectionMinConfidenceMin :: !Double
+    , oaProtectionMinConfidenceMax :: !Double
     , oaKalmanDtMin :: !Double
     , oaKalmanDtMax :: !Double
     , oaKalmanProcessVarMin :: !Double
@@ -870,6 +872,7 @@ data TrialParams = TrialParams
     , tpConfirmConformal :: !Bool
     , tpConfirmQuantiles :: !Bool
     , tpConfidenceSizing :: !Bool
+    , tpProtectionMinConfidence :: !Double
     , tpMinPositionSize :: !Double
     }
     deriving (Eq, Show)
@@ -1180,16 +1183,21 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
             if tpConfidenceSizing params
                 then cmd32 ++ ["--confidence-sizing"]
                 else cmd32 ++ ["--no-confidence-sizing"]
-        cmd34 = cmd33 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
-        cmd35 =
-            if useSweepThreshold
-                then cmd34 ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
-                else cmd34
+        cmd34 =
+            cmd33
+                ++ [ "--protection-min-confidence"
+                   , printf "%.4f" (clamp (tpProtectionMinConfidence params) 0 1)
+                   ]
+        cmd35 = cmd34 ++ ["--min-position-size", printf "%.12g" (clamp (tpMinPositionSize params) 0 1)]
         cmd36 =
-            if tpThresholdFactorEnabled params
-                then cmd35 ++ ["--tune-objective", "annualized-equity"]
+            if useSweepThreshold
+                then cmd35 ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
                 else cmd35
-     in cmd36 ++ ["--json"]
+        cmd37 =
+            if tpThresholdFactorEnabled params
+                then cmd36 ++ ["--tune-objective", "annualized-equity"]
+                else cmd36
+     in cmd37 ++ ["--json"]
 
 runTrial :: FilePath -> [String] -> TrialParams -> Double -> Bool -> Double -> Bool -> IO TrialResult
 runTrial traderBin baseArgs params tuneRatio useSweepThreshold timeoutSec disableLstm = do
@@ -1472,6 +1480,7 @@ trialToRecord tr symbolLabel =
             , "confirmConformal" .= tpConfirmConformal (trParams tr)
             , "confirmQuantiles" .= tpConfirmQuantiles (trParams tr)
             , "confidenceSizing" .= tpConfidenceSizing (trParams tr)
+            , "protectionMinConfidence" .= tpProtectionMinConfidence (trParams tr)
             , "minPositionSize" .= tpMinPositionSize (trParams tr)
             ]
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform (trParams tr))
@@ -1606,6 +1615,7 @@ sampleParams
     pConfirmConformal
     pConfirmQuantiles
     pConfidenceSizing
+    protectionMinConfidenceRange
     minPositionSizeRange
     stopRange
     takeRange
@@ -1925,13 +1935,18 @@ sampleParams
             (confidenceSizing, rng51) =
                 let (r, rng') = nextDouble rng50
                  in (r < clamp pConfidenceSizing 0 1, rng')
+            (protectionMinConfidence, rng51b) =
+                let (lo, hi) = ordered protectionMinConfidenceRange
+                    lo' = clamp lo 0 1
+                    hi' = max lo' (clamp hi 0 1)
+                 in nextUniform lo' hi' rng51
             (minPositionSize, rng52) =
                 if confidenceSizing
                     then
                         let (lo, hi) = ordered minPositionSizeRange
-                            (val, rng') = nextUniform lo hi rng51
+                            (val, rng') = nextUniform lo hi rng51b
                          in (clamp val 0 1, rng')
-                    else (0, rng51)
+                    else (0, rng51b)
             (stopLoss, rng53) = nextMaybe pDisableStop (nextLogUniform (fst stopRange) (snd stopRange)) rng52
             (takeProfit, rng54) = nextMaybe pDisableTp (nextLogUniform (fst takeRange) (snd takeRange)) rng53
             (trailingStop, rng55) = nextMaybe pDisableTrail (nextLogUniform (fst trailRange) (snd trailRange)) rng54
@@ -2114,6 +2129,7 @@ sampleParams
                 , tpConfirmConformal = confirmConformal
                 , tpConfirmQuantiles = confirmQuantiles
                 , tpConfidenceSizing = confidenceSizing
+                , tpProtectionMinConfidence = protectionMinConfidence
                 , tpMinPositionSize = minPositionSize
                 }
             , rng74
@@ -2398,6 +2414,9 @@ runOptimizer args0 = do
                                                         pConfirmConformal = clamp (oaPConfirmConformal args) 0 1
                                                         pConfirmQuantiles = clamp (oaPConfirmQuantiles args) 0 1
                                                         pConfidenceSizing = clamp (oaPConfidenceSizing args) 0 1
+                                                        protectionMinConfidenceMin = max 0 (oaProtectionMinConfidenceMin args)
+                                                        protectionMinConfidenceMax = max protectionMinConfidenceMin (oaProtectionMinConfidenceMax args)
+                                                        protectionMinConfidenceRange = (protectionMinConfidenceMin, protectionMinConfidenceMax)
                                                         minPositionSizeRange = (oaMinPositionSizeMin args, oaMinPositionSizeMax args)
                                                         maxPositionSizeMin = max 0 (oaMaxPositionSizeMin args)
                                                         maxPositionSizeMax = max maxPositionSizeMin (oaMaxPositionSizeMax args)
@@ -3246,6 +3265,7 @@ printBest tr = do
     putStrLn ("  confirmConformal:    " ++ show (tpConfirmConformal p))
     putStrLn ("  confirmQuantiles:    " ++ show (tpConfirmQuantiles p))
     putStrLn ("  confidenceSizing:    " ++ show (tpConfidenceSizing p))
+    putStrLn ("  protectionMinConf:   " ++ show (tpProtectionMinConfidence p))
     putStrLn ("  minPositionSize:     " ++ show (tpMinPositionSize p))
 
 showMaybe :: (Show a) => Maybe a -> String
@@ -3474,7 +3494,9 @@ crossoverTrialParams a b rng0 =
         (tpConfirmConformal', rng95) = pickValue (tpConfirmConformal a) (tpConfirmConformal b) rng94
         (tpConfirmQuantiles', rng96) = pickValue (tpConfirmQuantiles a) (tpConfirmQuantiles b) rng95
         (tpConfidenceSizing', rng97) = pickValue (tpConfidenceSizing a) (tpConfidenceSizing b) rng96
-        (tpMinPositionSize', rng98) = pickValue (tpMinPositionSize a) (tpMinPositionSize b) rng97
+        (tpProtectionMinConfidence', rng97a) =
+            pickValue (tpProtectionMinConfidence a) (tpProtectionMinConfidence b) rng97
+        (tpMinPositionSize', rng98) = pickValue (tpMinPositionSize a) (tpMinPositionSize b) rng97a
      in ( TrialParams
             { tpPlatform = tpPlatform'
             , tpInterval = tpInterval'
@@ -3577,6 +3599,7 @@ crossoverTrialParams a b rng0 =
             , tpConfirmConformal = tpConfirmConformal'
             , tpConfirmQuantiles = tpConfirmQuantiles'
             , tpConfidenceSizing = tpConfidenceSizing'
+            , tpProtectionMinConfidence = tpProtectionMinConfidence'
             , tpMinPositionSize = tpMinPositionSize'
             }
         , rng98
@@ -3853,6 +3876,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "confirmConformal" .= tpConfirmConformal params
                 , "confirmQuantiles" .= tpConfirmQuantiles params
                 , "confidenceSizing" .= tpConfidenceSizing params
+                , "protectionMinConfidence" .= tpProtectionMinConfidence params
                 , "minPositionSize" .= tpMinPositionSize params
                 , "binanceSymbol" .= symbol
                 ]

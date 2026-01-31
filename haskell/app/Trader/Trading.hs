@@ -247,7 +247,7 @@ data RiskState = RiskState
 
 data BacktestResult = BacktestResult
     { brEquityCurve :: [Double] -- length n
-    , brPositions :: [Double] -- length n-1 (signed position size at bar open for t->t+1, -1..1)
+    , brPositions :: [Double] -- length n-1 (signed position size after intrabar exits, -1..1)
     , brAgreementOk :: [Bool] -- length n-1 (True when both models emit a direction and agree)
     , brAgreementValid :: [Bool] -- length n-1 (True when both models emit a direction)
     , brPositionChanges :: !Int
@@ -2227,11 +2227,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , rsDayTrades = dayTradesNext
                                                 , rsHaltReason = haltReason2
                                                 }
+                                        posForBar =
+                                            case posFinal3 of
+                                                Nothing -> 0
+                                                Just side ->
+                                                    let s = posSizeFinal3
+                                                     in if isBad s then 0 else sideSign side * s
                                      in ( posFinal3
                                         , posSizeFinal3
                                         , equityFinal3
                                         , equityFinal3 : eqAcc
-                                        , (maybe 0 sideSign posAfterSwitch * posSizeAfterSwitch) : posAcc
+                                        , posForBar : posAcc
                                         , agreeOk : agreeAcc
                                         , agreeValid : agreeValidAcc
                                         , changesFinal3

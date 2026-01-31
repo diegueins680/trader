@@ -201,6 +201,7 @@ data Args = Args
     , argConfirmConformal :: Bool
     , argConfirmQuantiles :: Bool
     , argConfidenceSizing :: Bool
+    , argProtectionMinConfidence :: Double
     , argLstmConfidenceSoft :: Double
     , argLstmConfidenceHard :: Double
     , argMinPositionSize :: Double
@@ -639,6 +640,14 @@ opts = do
             "no-confidence-sizing"
             "Scale entries by confidence (Kalman z-score / interval widths); leaves exits unscaled (default on)."
             "Disable confidence sizing for entries."
+    argProtectionMinConfidence <-
+        option
+            auto
+            ( long "protection-min-confidence"
+                <> value 0
+                <> showDefault
+                <> help "Min confidence required to place exchange protection orders (stop-loss / take-profit) when enabled (0 disables)."
+            )
     argLstmConfidenceSoft <- option auto (long "lstm-confidence-soft" <> value 0.6 <> showDefault <> help "Soft LSTM confidence threshold for sizing (linear ramp to --lstm-confidence-hard; requires --confidence-sizing)")
     argLstmConfidenceHard <- option auto (long "lstm-confidence-hard" <> value 0.8 <> showDefault <> help "Hard LSTM confidence threshold for sizing (0 disables; requires --confidence-sizing)")
     argMinPositionSize <- option auto (long "min-position-size" <> value 0.15 <> help "Minimum entry size after sizing/vol scaling; skip if below this (0..1)")
@@ -935,6 +944,7 @@ validateArgs args0 = do
     ensure "--lstm-exit-flip-grace-bars must be >= 0" (argLstmExitFlipGraceBars args >= 0)
     ensure "--lstm-confidence-soft must be between 0 and 1" (argLstmConfidenceSoft args >= 0 && argLstmConfidenceSoft args <= 1)
     ensure "--lstm-confidence-hard must be between 0 and 1" (argLstmConfidenceHard args >= 0 && argLstmConfidenceHard args <= 1)
+    ensure "--protection-min-confidence must be between 0 and 1" (argProtectionMinConfidence args >= 0 && argProtectionMinConfidence args <= 1)
     ensure
         "--lstm-confidence-soft must be <= --lstm-confidence-hard (unless hard=0 to disable)"
         (argLstmConfidenceHard args <= 0 || argLstmConfidenceSoft args <= argLstmConfidenceHard args)

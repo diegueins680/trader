@@ -194,6 +194,8 @@ optimizerArgsParser =
         <*> option auto (long "lstm-confidence-soft-max" <> value 0.6 <> metavar "FLOAT")
         <*> option auto (long "lstm-confidence-hard-min" <> value 0.8 <> metavar "FLOAT")
         <*> option auto (long "lstm-confidence-hard-max" <> value 0.8 <> metavar "FLOAT")
+        <*> option auto (long "protection-min-confidence-min" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "protection-min-confidence-max" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-dt-min" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "kalman-dt-max" <> value 2.0 <> metavar "FLOAT")
         <*> option auto (long "kalman-process-var-min" <> value 1e-7 <> metavar "FLOAT")

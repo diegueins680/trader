@@ -913,6 +913,7 @@ data ApiParams = ApiParams
     , apBotMaxPoints :: Maybe Int
     , apBotTrade :: Maybe Bool
     , apBotProtectionOrders :: Maybe Bool
+    , apProtectionMinConfidence :: Maybe Double
     , apBotAdoptExistingPosition :: Maybe Bool
     , apKalmanZMin :: Maybe Double
     , apKalmanZMax :: Maybe Double
@@ -1095,6 +1096,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrLstmConfidenceSoftMax :: !(Maybe Double)
     , arrLstmConfidenceHardMin :: !(Maybe Double)
     , arrLstmConfidenceHardMax :: !(Maybe Double)
+    , arrProtectionMinConfidenceMin :: !(Maybe Double)
+    , arrProtectionMinConfidenceMax :: !(Maybe Double)
     , arrStopMin :: !(Maybe Double)
     , arrStopMax :: !(Maybe Double)
     , arrTpMin :: !(Maybe Double)
@@ -2090,6 +2093,7 @@ argsPublicJson args =
             , "lstmExitFlipStrong" .= argLstmExitFlipStrong args
             , "lstmConfidenceSoft" .= argLstmConfidenceSoft args
             , "lstmConfidenceHard" .= argLstmConfidenceHard args
+            , "protectionMinConfidence" .= argProtectionMinConfidence args
             , "tuneStressVolMult" .= argTuneStressVolMult args
             , "tuneStressShock" .= argTuneStressShock args
             , "tuneStressWeight" .= argTuneStressWeight args
@@ -7203,6 +7207,18 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
     let prevPrice = pricesPrev V.! (nPrev - 1)
         prevEq = botEquityCurve st V.! (nPrev - 1)
         prevPos = botPositions st V.! (nPrev - 1)
+        barHigh0 = kHigh k
+        barLow0 = kLow k
+        barHigh1 =
+            if isNaN barHigh0 || isInfinite barHigh0
+                then priceNew
+                else barHigh0
+        barLow1 =
+            if isNaN barLow0 || isInfinite barLow0
+                then priceNew
+                else barLow0
+        barHigh = max priceNew (max barHigh1 barLow1)
+        barLow = min priceNew (min barHigh1 barLow1)
         prevSize =
             case botOpenTrade st of
                 Just ot | prevPos /= 0 -> max 0 (botOpenSize ot)
@@ -7236,8 +7252,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             else
                                 let trail1 =
                                         case side of
-                                            SideLong -> max (botOpenTrail ot) priceNew
-                                            SideShort -> min (botOpenTrail ot) priceNew
+                                            SideLong -> max (botOpenTrail ot) barHigh
+                                            SideShort -> min (botOpenTrail ot) barLow
                                  in Just
                                         ot
                                             { botOpenHoldingPeriods = botOpenHoldingPeriods ot + 1
@@ -7463,59 +7479,87 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                         _ -> Nothing
 
         bracketExitReason side entryPx trail =
-            let (tpHit, stopHit, stopWhy) =
-                    case side of
-                        SideLong ->
-                            let mTp =
-                                    case takeProfit0 of
-                                        Just tp -> Just (entryPx * (1 + tp))
-                                        Nothing -> Nothing
-                                mSl =
-                                    case stopLoss0 of
-                                        Just sl -> Just (entryPx * (1 - sl))
-                                        Nothing -> Nothing
-                                mTs =
+            case side of
+                SideLong ->
+                    let mTp =
+                            case takeProfit0 of
+                                Just tp -> Just (entryPx * (1 + tp))
+                                Nothing -> Nothing
+                        mSl =
+                            case stopLoss0 of
+                                Just sl -> Just (entryPx * (1 - sl))
+                                Nothing -> Nothing
+                        stopPx trailHigh0 =
+                            let mTs =
                                     case trailingStop0 of
-                                        Just ts -> Just (trail * (1 - ts))
+                                        Just ts -> Just (trailHigh0 * (1 - ts))
                                         Nothing -> Nothing
-                                (mStop, why) =
-                                    case (mSl, mTs) of
-                                        (Nothing, Nothing) -> (Nothing, Nothing)
-                                        (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
-                                        (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
-                                        (Just slPx, Just tsPx) ->
-                                            if tsPx > slPx
-                                                then (Just tsPx, Just "TRAILING_STOP")
-                                                else (Just slPx, Just "STOP_LOSS")
-                                tpOk = maybe False (\tpPx -> priceNew >= tpPx) mTp
-                                stopOk = maybe False (\stPx -> priceNew <= stPx) mStop
-                             in (tpOk, stopOk, why)
-                        SideShort ->
-                            let mTp =
-                                    case takeProfit0 of
-                                        Just tp -> Just (entryPx * (1 - tp))
-                                        Nothing -> Nothing
-                                mSl =
-                                    case stopLoss0 of
-                                        Just sl -> Just (entryPx * (1 + sl))
-                                        Nothing -> Nothing
-                                mTs =
+                             in case (mSl, mTs) of
+                                    (Nothing, Nothing) -> (Nothing, Nothing)
+                                    (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                                    (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                                    (Just slPx, Just tsPx) ->
+                                        if tsPx > slPx
+                                            then (Just tsPx, Just "TRAILING_STOP")
+                                            else (Just slPx, Just "STOP_LOSS")
+                        tpHit = maybe False (\tpPx -> barHigh >= tpPx) mTp
+                     in case argIntrabarFill args of
+                            StopFirst ->
+                                let (mStop, stopWhy) = stopPx trail
+                                    stopHit = maybe False (\stPx -> barLow <= stPx) mStop
+                                 in if stopHit
+                                        then stopWhy
+                                        else if tpHit
+                                            then Just "TAKE_PROFIT"
+                                            else Nothing
+                            TakeProfitFirst ->
+                                if tpHit
+                                    then Just "TAKE_PROFIT"
+                                    else
+                                        let trailHigh1 = max trail barHigh
+                                            (mStop, stopWhy) = stopPx trailHigh1
+                                            stopHit = maybe False (\stPx -> barLow <= stPx) mStop
+                                         in if stopHit then stopWhy else Nothing
+                SideShort ->
+                    let mTp =
+                            case takeProfit0 of
+                                Just tp -> Just (entryPx * (1 - tp))
+                                Nothing -> Nothing
+                        mSl =
+                            case stopLoss0 of
+                                Just sl -> Just (entryPx * (1 + sl))
+                                Nothing -> Nothing
+                        stopPx trailLow0 =
+                            let mTs =
                                     case trailingStop0 of
-                                        Just ts -> Just (trail * (1 + ts))
+                                        Just ts -> Just (trailLow0 * (1 + ts))
                                         Nothing -> Nothing
-                                (mStop, why) =
-                                    case (mSl, mTs) of
-                                        (Nothing, Nothing) -> (Nothing, Nothing)
-                                        (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
-                                        (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
-                                        (Just slPx, Just tsPx) ->
-                                            if tsPx < slPx
-                                                then (Just tsPx, Just "TRAILING_STOP")
-                                                else (Just slPx, Just "STOP_LOSS")
-                                tpOk = maybe False (\tpPx -> priceNew <= tpPx) mTp
-                                stopOk = maybe False (\stPx -> priceNew >= stPx) mStop
-                             in (tpOk, stopOk, why)
-             in if tpHit then Just "TAKE_PROFIT" else if stopHit then stopWhy else Nothing
+                             in case (mSl, mTs) of
+                                    (Nothing, Nothing) -> (Nothing, Nothing)
+                                    (Just slPx, Nothing) -> (Just slPx, Just "STOP_LOSS")
+                                    (Nothing, Just tsPx) -> (Just tsPx, Just "TRAILING_STOP")
+                                    (Just slPx, Just tsPx) ->
+                                        if tsPx < slPx
+                                            then (Just tsPx, Just "TRAILING_STOP")
+                                            else (Just slPx, Just "STOP_LOSS")
+                        tpHit = maybe False (\tpPx -> barLow <= tpPx) mTp
+                     in case argIntrabarFill args of
+                            StopFirst ->
+                                let (mStop, stopWhy) = stopPx trail
+                                    stopHit = maybe False (\stPx -> barHigh >= stPx) mStop
+                                 in if stopHit
+                                        then stopWhy
+                                        else if tpHit
+                                            then Just "TAKE_PROFIT"
+                                            else Nothing
+                            TakeProfitFirst ->
+                                if tpHit
+                                    then Just "TAKE_PROFIT"
+                                    else
+                                        let trailLow1 = min trail barLow
+                                            (mStop, stopWhy) = stopPx trailLow1
+                                            stopHit = maybe False (\stPx -> barHigh >= stPx) mStop
+                                         in if stopHit then stopWhy else Nothing
 
         mBracketExit =
             case openTrade1 of
@@ -10412,6 +10456,9 @@ prepareOptimizerArgs outputPath req = do
                         ++ maybeDoubleArg "--p-confirm-quantiles" (fmap clamp01 (arrPConfirmQuantiles req))
                 confidenceSizingArgs =
                     maybeDoubleArg "--p-confidence-sizing" (fmap clamp01 (arrPConfidenceSizing req))
+                protectionMinConfidenceArgs =
+                    maybeDoubleArg "--protection-min-confidence-min" (fmap clamp01 (arrProtectionMinConfidenceMin req))
+                        ++ maybeDoubleArg "--protection-min-confidence-max" (fmap clamp01 (arrProtectionMinConfidenceMax req))
                 kalmanMarketTopNArgs =
                     maybeIntArg "--kalman-market-top-n-min" (fmap (max 0) (arrKalmanMarketTopNMin req))
                         ++ maybeIntArg "--kalman-market-top-n-max" (fmap (max 0) (arrKalmanMarketTopNMax req))
@@ -10538,6 +10585,7 @@ prepareOptimizerArgs outputPath req = do
                         ++ maxQuantileWidthArgs
                         ++ confirmArgs
                         ++ confidenceSizingArgs
+                        ++ protectionMinConfidenceArgs
                         ++ methodWeightBlendArgs
                         ++ blendWeightArgs
                         ++ routerScorePnlWeightArgs
@@ -13958,6 +14006,7 @@ argsFromApi baseArgs p = do
                 , argConfirmConformal = pick (apConfirmConformal p) (argConfirmConformal baseArgs)
                 , argConfirmQuantiles = pick (apConfirmQuantiles p) (argConfirmQuantiles baseArgs)
                 , argConfidenceSizing = pick (apConfidenceSizing p) (argConfidenceSizing baseArgs)
+                , argProtectionMinConfidence = pick (apProtectionMinConfidence p) (argProtectionMinConfidence baseArgs)
                 , argMinPositionSize = pick (apMinPositionSize p) (argMinPositionSize baseArgs)
                 , argTuneStressVolMult = pick (apTuneStressVolMult p) (argTuneStressVolMult baseArgs)
                 , argTuneStressShock = pick (apTuneStressShock p) (argTuneStressShock baseArgs)
@@ -14968,6 +15017,18 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
     lstmBlockMsg :: Maybe String
     lstmBlockMsg = snd (lstmConfidenceSizing args sig)
 
+    protectionMinConfidence :: Double
+    protectionMinConfidence = clamp01 (argProtectionMinConfidence args)
+
+    protectionConfidence :: Maybe Double
+    protectionConfidence =
+        let raw = lsConfidence sig <|> lstmConfidenceScore args sig
+            clean x =
+                if isNaN x || isInfinite x
+                    then Nothing
+                    else Just (clamp01 x)
+         in raw >>= clean
+
     tryFetchFilters :: IO (Maybe SymbolFilters)
     tryFetchFilters = do
         r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
@@ -15287,7 +15348,44 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                     Just v | v > 0 -> Just v
                                     _ -> Nothing
                     protectionManaged = enableProtectionOrders && mode == OrderLive
-                    protectionEnabled = protectionManaged && (isJust stopLoss0 || isJust takeProfit0)
+                    protectionWanted = protectionManaged && (isJust stopLoss0 || isJust takeProfit0)
+                    protectionConfidenceOk =
+                        protectionMinConfidence <= 0
+                            || case protectionConfidence of
+                                Just c -> c >= protectionMinConfidence
+                                Nothing -> False
+                    protectionBlockMsg =
+                        if protectionMinConfidence <= 0
+                            then Nothing
+                            else case protectionConfidence of
+                                Nothing ->
+                                    Just
+                                        ( printf
+                                            "Protection orders skipped: confidence unavailable (<%.1f%%)."
+                                            (protectionMinConfidence * 100)
+                                        )
+                                Just c | c < protectionMinConfidence ->
+                                    Just
+                                        ( printf
+                                            "Protection orders skipped: confidence %.1f%% (<%.1f%%)."
+                                            (c * 100)
+                                            (protectionMinConfidence * 100)
+                                        )
+                                _ -> Nothing
+                    protectionBlocked = protectionWanted && not protectionConfidenceOk
+                    protectionEnabled = protectionWanted && protectionConfidenceOk
+
+                    appendProtectionNote :: ApiOrderResult -> ApiOrderResult
+                    appendProtectionNote out =
+                        if protectionBlocked
+                            then
+                                case protectionBlockMsg of
+                                    Nothing -> out
+                                    Just msg ->
+                                        let baseMsg = aorMessage out
+                                            sep = if null baseMsg then "" else " "
+                                         in out{aorMessage = baseMsg ++ sep ++ msg}
+                            else out
                     normalizeStopPrice px =
                         case mSf >>= sfTickSize of
                             Nothing -> px
@@ -15493,7 +15591,12 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                             case r of
                                                 Left e -> baseResult{aorMessage = "No market order: already long. " ++ e}
                                                 Right () -> baseResult{aorMessage = "No market order: already long. Protection orders refreshed."}
-                                    else pure baseResult{aorMessage = "No order: already long."}
+                                    else
+                                        let baseMsg =
+                                                if protectionBlocked
+                                                    then "No market order: already long."
+                                                    else "No order: already long."
+                                         in pure (appendProtectionNote baseResult{aorMessage = baseMsg})
                             else case lstmBlockMsg of
                                 Just msg | posAmt == 0 -> pure baseResult{aorMessage = msg}
                                 _ ->
@@ -15520,17 +15623,20 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                                     if bumped && aorSent out0
                                                                                         then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
                                                                                         else out0
-                                                                            if aorSent out && protectionEnabled
-                                                                                then do
-                                                                                    let fillPx =
-                                                                                            case (aorExecutedQty out, aorCummulativeQuoteQty out) of
-                                                                                                (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
-                                                                                                _ -> currentPrice
-                                                                                    r <- placeProtectionOrders 1 fillPx
-                                                                                    pure $
-                                                                                        case r of
-                                                                                            Left e -> out{aorMessage = aorMessage out ++ " " ++ e}
-                                                                                            Right () -> out{aorMessage = aorMessage out ++ " Protection orders placed."}
+                                                                            if aorSent out
+                                                                                then
+                                                                                    if protectionEnabled
+                                                                                        then do
+                                                                                            let fillPx =
+                                                                                                    case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                                                                                        (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                                                                                        _ -> currentPrice
+                                                                                            r <- placeProtectionOrders 1 fillPx
+                                                                                            pure $
+                                                                                                case r of
+                                                                                                    Left e -> out{aorMessage = aorMessage out ++ " " ++ e}
+                                                                                                    Right () -> out{aorMessage = aorMessage out ++ " Protection orders placed."}
+                                                                                        else pure (appendProtectionNote out)
                                                                                 else pure out
                     (-1) ->
                         case argPositioning args of
@@ -15545,7 +15651,12 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                     case r of
                                                         Left e -> baseResult{aorMessage = "No market order: already short. " ++ e}
                                                         Right () -> baseResult{aorMessage = "No market order: already short. Protection orders refreshed."}
-                                            else pure baseResult{aorMessage = "No order: already short."}
+                                            else
+                                                let baseMsg =
+                                                        if protectionBlocked
+                                                            then "No market order: already short."
+                                                            else "No order: already short."
+                                                 in pure (appendProtectionNote baseResult{aorMessage = baseMsg})
                                     else case lstmBlockMsg of
                                         Just msg | posAmt == 0 -> pure baseResult{aorMessage = msg}
                                         _ ->
@@ -15572,17 +15683,20 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                                                                                             if bumped && aorSent out0
                                                                                                 then out0{aorMessage = aorMessage out0 ++ " (min size applied)."}
                                                                                                 else out0
-                                                                                    if aorSent out && protectionEnabled
-                                                                                        then do
-                                                                                            let fillPx =
-                                                                                                    case (aorExecutedQty out, aorCummulativeQuoteQty out) of
-                                                                                                        (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
-                                                                                                        _ -> currentPrice
-                                                                                            r <- placeProtectionOrders (-1) fillPx
-                                                                                            pure $
-                                                                                                case r of
-                                                                                                    Left e -> out{aorMessage = aorMessage out ++ " " ++ e}
-                                                                                                    Right () -> out{aorMessage = aorMessage out ++ " Protection orders placed."}
+                                                                                    if aorSent out
+                                                                                        then
+                                                                                            if protectionEnabled
+                                                                                                then do
+                                                                                                    let fillPx =
+                                                                                                            case (aorExecutedQty out, aorCummulativeQuoteQty out) of
+                                                                                                                (Just eq, Just qq) | eq > 0 && qq > 0 -> qq / eq
+                                                                                                                _ -> currentPrice
+                                                                                                    r <- placeProtectionOrders (-1) fillPx
+                                                                                                    pure $
+                                                                                                        case r of
+                                                                                                            Left e -> out{aorMessage = aorMessage out ++ " " ++ e}
+                                                                                                            Right () -> out{aorMessage = aorMessage out ++ " Protection orders placed."}
+                                                                                                else pure (appendProtectionNote out)
                                                                                         else pure out
                             LongFlat ->
                                 if posAmt == 0
@@ -17103,7 +17217,6 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsAgreementOk = brAgreementOk backtest
             , bsTrades = brTrades backtest
             }
-
 computeBaselines :: Double -> Double -> [Double] -> [Baseline]
 computeBaselines periodsPerYear perSideCost prices =
     let ppy = max 1e-12 periodsPerYear

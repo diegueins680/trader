@@ -9,10 +9,14 @@ All notable changes to this project will be documented in this file.
 - Optimizer: allow `optimize-equity` to pass `--futures` through for Binance futures data.
 - Trading: use close-threshold direction to hold/exit positions when open signals are neutral (backtest + live).
 - Trading: accept lookback-aligned Kalman prediction vectors in backtests to match LSTM alignment.
+- Trading: live-bot bracket exits now respect candle high/low with intrabar stop/TP ordering (per `--intrabar-fill`).
 - Normalization: `log` fitting now ignores non-finite values and only falls back when no positive finite values remain.
 - Trading: allow `--max-trades-per-day`, `--max-open-positions`, and `--max-open-per-base` to accept `0` to disable, matching CLI help.
 - Optimizer: allow `--max-hold-bars 0` from optimize-equity sweeps to disable the max-hold gate.
+- Optimizer: add `--protection-min-confidence-min/max` to sample exchange protection-order confidence gates in optimize-equity sweeps.
+- Trading: allow gating exchange protection orders (futures stop-loss/take-profit) by confidence via `--protection-min-confidence`.
 - Web UI: avoid scheme-relative API URLs when `apiBaseUrl` is empty by falling back to same-origin paths.
+- Web UI: add a floating “Bot activity” panel with live status, timing, and last-event context.
 - API/UI: add `/binance/positions/close` and a “Close position” button to send reduce-only futures close orders (includes `positionSide` in hedge mode).
 - Binance: retry signed requests on timestamp skew and treat existing protection orders as non-fatal to keep key checks and protection refreshes stable after idle/sleep.
 - Optimizer: avoid overwriting existing `top-combos.json` with fallback seeds when the primary file exists but fails to load.

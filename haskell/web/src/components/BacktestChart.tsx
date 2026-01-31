@@ -336,7 +336,6 @@ export const BacktestChart = React.memo(function BacktestChart({
       hasShort,
     };
   }, [agree, kalman, openTrade, operationsSample, pos, tradesSample.length]);
-
   const viewSummary = useMemo(() => {
     if (n < 2) return null;
     const start = clamp(view.start, 0, n - 1);

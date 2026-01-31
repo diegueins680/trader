@@ -1413,6 +1413,8 @@ export function App() {
   const listenKeyStreamRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listenKeyStreamRetryMsRef = useRef(0);
   const listenKeyInfoRef = useRef<BinanceListenKeyResponse | null>(null);
+  const listenKeyStreamAutoRestartAtRef = useRef(0);
+  const startListenKeyStreamRef = useRef<((opts?: { silent?: boolean }) => void) | null>(null);
 
   const [orderFilterText, setOrderFilterText] = useState(() => orderPrefsInit?.filterText ?? "");
   const [orderSentOnly, setOrderSentOnly] = useState(() => orderPrefsInit?.sentOnly ?? false);
@@ -4658,8 +4660,34 @@ export function App() {
           signal: controller.signal,
         });
         if (!res.ok) {
-          const msg = await res.text();
-          throw new Error(msg || `Listen key stream failed (${res.status}).`);
+          const body = await res.text();
+          const parsed = safeJsonParse<{ error?: string; message?: string }>(body);
+          const msg =
+            (parsed && typeof parsed.error === "string" && parsed.error.trim()) ||
+            (parsed && typeof parsed.message === "string" && parsed.message.trim()) ||
+            body.trim();
+          const fallbackMsg = `Listen key stream failed (${res.status}).`;
+          if (res.status === 404) {
+            const normalized = (msg || fallbackMsg).toLowerCase();
+            const notRunning =
+              normalized.includes("listen key stream not running") || normalized.includes("listenkey stream not running");
+            if (notRunning) {
+              const now = Date.now();
+              const lastRestartAt = listenKeyStreamAutoRestartAtRef.current;
+              const cooldownMs = 60_000;
+              if (now - lastRestartAt >= cooldownMs) {
+                listenKeyStreamAutoRestartAtRef.current = now;
+                setListenKeyUi((s) => ({
+                  ...s,
+                  wsStatus: "connecting",
+                  wsError: "Listen key stream not running; restarting.",
+                }));
+                void startListenKeyStreamRef.current?.({ silent: true });
+                return;
+              }
+            }
+          }
+          throw new Error(msg || fallbackMsg);
         }
         if (!res.body) {
           throw new Error("Listen key stream unavailable.");
@@ -4776,6 +4804,10 @@ export function App() {
       withBinanceKeys,
     ],
   );
+
+  useEffect(() => {
+    startListenKeyStreamRef.current = startListenKeyStream;
+  }, [startListenKeyStream]);
 
   useEffect(() => {
     if (autoKeysCheckRef.current) return;
@@ -6165,6 +6197,94 @@ export function App() {
         : apiOk === "down"
           ? "API unreachable"
           : "API status unknown";
+  const botPanel = (() => {
+    const st = bot.status;
+    const running = st.running;
+    const starting = !running && st.starting === true;
+    const halted = st.running ? st.halted : false;
+    const error = bot.error ?? st.error ?? null;
+
+    const dotClass = error || halted ? "dot dotBad" : running ? "dot dotOk" : starting ? "dot dotWarn" : "dot";
+    const statusLabel = error ? "Status error" : running ? (halted ? "Halted" : "Running") : starting ? "Starting" : "Stopped";
+
+    const badges: Array<{ key: string; label: string; className: string }> = [];
+    let symbol = "";
+    let interval = "";
+    let market: Market | null = null;
+    let method: Method | null = null;
+    let tradeEnabled: boolean | null = null;
+    let phaseLabel = starting ? "Starting (initializing model)" : "Stopped";
+    let actionLabel = "—";
+    let nextPollLabel = "—";
+    let lastOrderLabel: string | null = null;
+
+    if (st.running) {
+      symbol = st.symbol;
+      interval = st.interval;
+      market = st.market;
+      method = st.method;
+      tradeEnabled = typeof st.settings?.tradeEnabled === "boolean" ? st.settings.tradeEnabled : null;
+
+      if (st.latestSignal.action) {
+        badges.push({ key: "action", label: st.latestSignal.action, className: actionBadgeClass(st.latestSignal.action) });
+      }
+
+      phaseLabel = halted
+        ? `Halted${st.haltReason ? ` (${st.haltReason})` : ""}`
+        : typeof st.cooldownLeft === "number" && Number.isFinite(st.cooldownLeft) && st.cooldownLeft > 0
+          ? `Cooldown (${Math.max(0, Math.trunc(st.cooldownLeft))} bars)`
+          : "Active";
+      actionLabel = `${st.latestSignal.action} @ ${fmtMoney(st.latestSignal.currentPrice, 4)}`;
+      nextPollLabel = fmtEtaMs(botRealtime?.nextPollEtaMs);
+      lastOrderLabel = st.lastOrder?.message ?? null;
+    } else {
+      symbol = st.symbol ?? "";
+      interval = st.interval ?? "";
+      market = st.market ?? null;
+      method = st.method ?? null;
+    }
+
+    if (symbol) badges.push({ key: "symbol", label: symbol, className: "badge" });
+    if (interval) badges.push({ key: "interval", label: interval, className: "badge" });
+    if (market) badges.push({ key: "market", label: marketLabel(market), className: "badge" });
+    if (method) badges.push({ key: "method", label: methodLabel(method), className: "badge" });
+    if (typeof tradeEnabled === "boolean") {
+      badges.push({ key: "trade", label: `trade ${tradeEnabled ? "ON" : "OFF"}`, className: "badge" });
+    }
+
+    const statusAge = fmtDurationMs(botRealtime?.statusAgeMs);
+    const uiAge = fmtDurationMs(botRt.lastFetchDurationMs);
+    const updatedParts = [statusAge !== "—" ? `age ${statusAge}` : null, uiAge !== "—" ? `ui ${uiAge}` : null].filter(
+      Boolean,
+    ) as string[];
+    const updatedLabel = running
+      ? updatedParts.length > 0
+        ? updatedParts.join(" • ")
+        : "—"
+      : botRt.lastFetchAtMs
+        ? `checked ${fmtTimeMs(botRt.lastFetchAtMs)}`
+        : "—";
+
+    const lastEvent = botRt.feed[0] ?? null;
+    const lastEventLabel = lastEvent
+      ? `${fmtTimeMs(lastEvent.atMs)} | ${lastEvent.message}`
+      : running
+        ? "Awaiting realtime events."
+        : "No realtime events yet.";
+
+    return {
+      dotClass,
+      statusLabel,
+      badges,
+      phaseLabel,
+      actionLabel,
+      nextPollLabel,
+      updatedLabel,
+      lastEventLabel,
+      lastOrderLabel,
+      error,
+    };
+  })();
   const methodOverride = manualOverrides.has("method");
   const openThresholdOverride = manualOverrides.has("openThreshold");
   const closeThresholdOverride = manualOverrides.has("closeThreshold");
@@ -6310,6 +6430,48 @@ export function App() {
     form.sweepThreshold,
     lookbackState.bars,
     lookbackState.effectiveBars,
+  ]);
+  const backtestInputIssue = useMemo(() => {
+    if (lookbackState.error) return null;
+    const barsRaw = Math.trunc(form.bars);
+    if (!Number.isFinite(barsRaw) || barsRaw <= 0) return null;
+    const bars = lookbackState.bars;
+    const lookbackBars = lookbackState.effectiveBars;
+    if (!Number.isFinite(bars) || bars <= 0) return null;
+    if (!Number.isFinite(lookbackBars) || lookbackBars == null || lookbackBars < MIN_LOOKBACK_BARS) return null;
+
+    const backtestRatio =
+      typeof form.backtestRatio === "number" && Number.isFinite(form.backtestRatio)
+        ? clamp(form.backtestRatio, MIN_BACKTEST_RATIO, MAX_BACKTEST_RATIO)
+        : 0.2;
+    const tuneRatio =
+      typeof form.tuneRatio === "number" && Number.isFinite(form.tuneRatio) ? clamp(form.tuneRatio, 0, 0.99) : 0;
+    const tuningEnabled = form.optimizeOperations || form.sweepThreshold;
+    const stats = splitStats(bars, backtestRatio, lookbackBars, tuneRatio, tuningEnabled);
+    const minTrainBars = lookbackBars + 1;
+
+    if (!stats.trainOk) {
+      return `Backtest ratio leaves only ${stats.trainEndRaw} training bars; need at least ${minTrainBars} (lookback=${lookbackBars}).`;
+    }
+    if (!stats.backtestOk) {
+      return `Backtest ratio leaves only ${stats.backtestBars} backtest bars; need at least ${MIN_BACKTEST_BARS}.`;
+    }
+    if (tuningEnabled && !stats.tuneOk) {
+      return `Tune window too small (${stats.tuneBars}). Increase tune ratio, reduce backtest ratio, or increase bars.`;
+    }
+    if (tuningEnabled && !stats.fitOk) {
+      return `Fit window too small for lookback=${lookbackBars} (fit=${stats.fitBars}, tune=${stats.tuneBars}). Reduce tune ratio, reduce lookback, or increase bars.`;
+    }
+    return null;
+  }, [
+    form.backtestRatio,
+    form.bars,
+    form.optimizeOperations,
+    form.sweepThreshold,
+    form.tuneRatio,
+    lookbackState.bars,
+    lookbackState.effectiveBars,
+    lookbackState.error,
   ]);
   const errorFix = useMemo<ErrorFix | null>(() => {
     if (!state.error) return null;
@@ -6611,6 +6773,8 @@ export function App() {
   const extraIssueCount = Math.max(0, requestIssueDetails.length - 1);
   const requestDisabledReason = primaryIssue?.disabledMessage ?? primaryIssue?.message ?? null;
   const requestDisabled = state.loading || Boolean(requestDisabledReason);
+  const backtestDisabledReason = requestDisabledReason ?? backtestInputIssue;
+  const backtestDisabled = requestDisabled || Boolean(backtestInputIssue);
   const applyErrorFix = useCallback(() => {
     if (!errorFix) return;
     if (errorFix.action === "tuneRatio") {
@@ -7398,6 +7562,8 @@ export function App() {
     extraIssueCount,
     requestDisabled,
     requestDisabledReason,
+    backtestDisabled,
+    backtestDisabledReason,
     run,
     state,
     commonParams,
@@ -7752,6 +7918,53 @@ export function App() {
           </details>
           <ConfigDock {...configDockProps} />
       </div>
+      <aside className="botPanel card" aria-label="Bot activity">
+        <div className="botPanelHeader">
+          <div className="botPanelTitle">Bot activity</div>
+          <div className="botPanelStatus">
+            <span className={botPanel.dotClass} aria-hidden="true" />
+            {botPanel.statusLabel}
+          </div>
+        </div>
+        {botPanel.badges.length > 0 ? (
+          <div className="pillRow botPanelBadges">
+            {botPanel.badges.map((badge) => (
+              <span key={badge.key} className={badge.className}>
+                {badge.label}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <div className="botPanelBody">
+          <div className="kv">
+            <div className="k">Phase</div>
+            <div className="v">{botPanel.phaseLabel}</div>
+          </div>
+          <div className="kv">
+            <div className="k">Action</div>
+            <div className="v">{botPanel.actionLabel}</div>
+          </div>
+          <div className="kv">
+            <div className="k">Next poll</div>
+            <div className="v">{botPanel.nextPollLabel}</div>
+          </div>
+          <div className="kv">
+            <div className="k">Updated</div>
+            <div className="v">{botPanel.updatedLabel}</div>
+          </div>
+          <div className="kv">
+            <div className="k">Last event</div>
+            <div className="v botPanelEvent">{botPanel.lastEventLabel}</div>
+          </div>
+          {botPanel.lastOrderLabel ? (
+            <div className="kv">
+              <div className="k">Last order</div>
+              <div className="v">{botPanel.lastOrderLabel}</div>
+            </div>
+          ) : null}
+        </div>
+        {botPanel.error ? <div className="botPanelAlert">{botPanel.error}</div> : null}
+      </aside>
       <main className="dockMain">
         <section className="resultGrid">
           {state.error ? (
@@ -9438,10 +9651,10 @@ export function App() {
                       </div>
                     </div>
                   </div>
-			                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
-			                    {state.backtest.split.tune > 0 ? (
-			                      <>
-			                        <span className="badge">Fit: {state.backtest.split.fit}</span>
+                  <div className="pillRow" style={{ marginBottom: 10, marginTop: 12 }}>
+                    {state.backtest.split.tune > 0 ? (
+                      <>
+                        <span className="badge">Fit: {state.backtest.split.fit}</span>
 		                        <span className="badge">
 		                          Tune: {state.backtest.split.tune} ({fmtPct(state.backtest.split.tuneRatio, 1)})
 		                        </span>
