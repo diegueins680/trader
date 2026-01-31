@@ -224,7 +224,26 @@ import Trader.S3 (
  )
 import Trader.SensorVariance (SensorVar, emptySensorVar, updateResidual, varianceFor)
 import Trader.Split (Split (..), splitTrainBacktest)
-import Trader.Symbol (commonQuotes, sanitizeSymbolForPlatform, splitSymbol)
+import Trader.Symbol (sanitizeSymbolForPlatform, splitSymbol)
+import Trader.TopCombosStore (
+    ComboBacktestUpdate (..),
+    TopCombosStore (..),
+    applyComboUpdates,
+    comboIdentityKey,
+    comboMetricDouble,
+    comboPerformanceKey,
+    isBinancePlatformKey,
+    isTopCombosPayload,
+    mergeTopCombosPayloads,
+    newTopCombosStore,
+    normalizeComboPlatform,
+    readTopCombosValueLocal,
+    sanitizeComboSymbolForPlatform,
+    sanitizeTopCombosValue,
+    topCombosGeneratedAtMs,
+    withTopCombosLock,
+    writeTopCombosValue,
+ )
 import Trader.Text (dedupeStable, normalizeKey, trim)
 import Trader.Trading (
     BacktestResult (..),
@@ -1098,6 +1117,9 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrLstmConfidenceHardMax :: !(Maybe Double)
     , arrProtectionMinConfidenceMin :: !(Maybe Double)
     , arrProtectionMinConfidenceMax :: !(Maybe Double)
+    , arrRiskPerTradeMin :: !(Maybe Double)
+    , arrRiskPerTradeMax :: !(Maybe Double)
+    , arrPDisableRiskPerTrade :: !(Maybe Double)
     , arrStopMin :: !(Maybe Double)
     , arrStopMax :: !(Maybe Double)
     , arrTpMin :: !(Maybe Double)
@@ -2352,6 +2374,25 @@ persistedComboToValue row = do
             , "params" .= Aeson.Object paramsObj
             ]
         )
+
+coerceDoubleValue :: Aeson.Value -> Maybe Double
+coerceDoubleValue value =
+    case AT.parseMaybe Aeson.parseJSON value of
+        Just v
+            | isNaN v || isInfinite v -> Nothing
+            | otherwise -> Just v
+        Nothing ->
+            case value of
+                Aeson.String s ->
+                    let trimmed = trimString (T.unpack s)
+                     in case readMaybe trimmed of
+                            Just v | not (isNaN v || isInfinite v) -> Just v
+                            _ -> Nothing
+                Aeson.Bool v -> Just (if v then 1 else 0)
+                _ -> Nothing
+
+valueStringMaybe :: Aeson.Value -> Maybe String
+valueStringMaybe = AT.parseMaybe Aeson.parseJSON
 
 lookupJsonText :: Text -> Aeson.Value -> Maybe Text
 lookupJsonText key val =
@@ -4791,10 +4832,9 @@ selectCompatibleTopComboArgs limits sym args req export =
                         else pick rest
      in pick sortedCombos
 
-applyLatestTopCombo :: Maybe OpsStore -> FilePath -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO (Args, Maybe Text)
-applyLatestTopCombo mOps optimizerTmp limits sym args req = do
-    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-    combosOrErr <- readTopCombosExportWithDbFallback mOps topJsonPath
+applyLatestTopCombo :: Maybe OpsStore -> TopCombosStore -> ApiComputeLimits -> String -> Args -> AdoptRequirement -> IO (Args, Maybe Text)
+applyLatestTopCombo mOps topCombosStore limits sym args req = do
+    combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
     let baseArgs = applyAdoptRequirementArgs args req
     case combosOrErr of
         Left _ -> pure (baseArgs, Nothing)
@@ -4837,8 +4877,8 @@ topCombosTopTargets topN export =
             ]
      in take topN (dedupeTopComboTargets targets)
 
-resolveOrphanOpenPositionSymbols :: Maybe OpsStore -> ApiComputeLimits -> FilePath -> Args -> [String] -> IO [String]
-resolveOrphanOpenPositionSymbols mOps _limits _optimizerTmp args requested =
+resolveOrphanOpenPositionSymbols :: Maybe OpsStore -> ApiComputeLimits -> Args -> [String] -> IO [String]
+resolveOrphanOpenPositionSymbols mOps _limits args requested =
     if not (platformSupportsLiveBot (argPlatform args)) || argBinanceMarket args /= MarketFutures
         then pure []
         else do
@@ -4912,7 +4952,7 @@ botStartSymbol ::
     Maybe Journal ->
     Maybe Webhook ->
     Maybe FilePath ->
-    FilePath ->
+    TopCombosStore ->
     ApiComputeLimits ->
     TopCombosBacktestCtx ->
     AdoptRequirement ->
@@ -4923,7 +4963,7 @@ botStartSymbol ::
     ApiParams ->
     String ->
     IO (Either String BotStartOutcome)
-botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl tenantKey args mComboUuid p symRaw =
+botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey args mComboUuid p symRaw =
     case botSettingsFromApi args p of
         Left e -> pure (Left e)
         Right settings ->
@@ -4934,7 +4974,7 @@ botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimiz
                 mJournal
                 mWebhook
                 mBotStateDir
-                optimizerTmp
+                topCombosStore
                 limits
                 topCombosCtx
                 adoptReq
@@ -4952,7 +4992,7 @@ botStartSymbolWithSettings ::
     Maybe Journal ->
     Maybe Webhook ->
     Maybe FilePath ->
-    FilePath ->
+    TopCombosStore ->
     ApiComputeLimits ->
     TopCombosBacktestCtx ->
     AdoptRequirement ->
@@ -4963,7 +5003,7 @@ botStartSymbolWithSettings ::
     Maybe Text ->
     String ->
     IO (Either String BotStartOutcome)
-botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid symRaw =
+botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid symRaw =
     if not (platformSupportsLiveBot (argPlatform args))
         then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
         else case argData args of
@@ -5000,7 +5040,7 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                                                 BotStarting _ -> pure (mrt, Left "Bot is starting")
                                                     Nothing -> do
                                                         stopSig <- newEmptyMVar
-                                                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid sym stopSig)
+                                                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid sym stopSig)
                                                         now <- getTimestampMs
                                                         let rt =
                                                                 BotStartRuntime
@@ -5024,7 +5064,7 @@ botStartWorker ::
     Maybe Journal ->
     Maybe Webhook ->
     Maybe FilePath ->
-    FilePath ->
+    TopCombosStore ->
     ApiComputeLimits ->
     TopCombosBacktestCtx ->
     AdoptRequirement ->
@@ -5036,12 +5076,12 @@ botStartWorker ::
     String ->
     MVar () ->
     IO ()
-botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid sym stopSig = do
+botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid sym stopSig = do
     tid <- myThreadId
     let doStart baseArgs = do
             (argsFinal, comboUuidFinal) <-
                 if arActive adoptReq
-                    then applyLatestTopCombo mOps optimizerTmp limits sym baseArgs adoptReq
+                    then applyLatestTopCombo mOps topCombosStore limits sym baseArgs adoptReq
                     else pure (baseArgs, mComboUuid)
             preflight <- preflightBotStart mOps argsFinal settings sym
             case preflight of
@@ -5097,7 +5137,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits t
             persistBotStatusMaybe mBotStateDir st0
             optimizerStopSig <- newEmptyMVar
             optimizerPending <- newMVar Nothing
-            optimizerTid <- forkIO (botOptimizerLoop mOps metrics mJournal stVar optimizerStopSig optimizerPending)
+            optimizerTid <- forkIO (botOptimizerLoop mOps metrics mJournal topCombosStore stVar optimizerStopSig optimizerPending)
             let optimizerRt =
                     BotOptimizerRuntime
                         { borThreadId = optimizerTid
@@ -5127,14 +5167,14 @@ botAutoStartLoop ::
     Maybe Journal ->
     Maybe Webhook ->
     Maybe FilePath ->
-    FilePath ->
+    TopCombosStore ->
     ApiComputeLimits ->
     TopCombosBacktestCtx ->
     Args ->
     BotController ->
     TenantKey ->
     IO ()
-botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs botCtrl tenantKey = do
+botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs botCtrl tenantKey = do
     autostartEnv <- lookupEnv "TRADER_BOT_AUTOSTART"
     let autostartEnabled = readEnvBool autostartEnv True
     if not autostartEnabled
@@ -5163,7 +5203,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                         let argsBase = baseArgs{argTradeOnly = True}
                             settings = defaultBotSettings argsBase
                         pollSec <- comboPollSecondsFromEnv
-                        topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+                        let topJsonPath = tcsPath topCombosStore
                         errRef <- newIORef HM.empty
                         topErrRef <- newIORef Nothing
                         topTargetsRef <- newIORef []
@@ -5190,7 +5230,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                                         putStrLn ("Live bot auto-start failed for " ++ sym ++ ": " ++ msg)
                             clearError sym = modifyIORef' errRef (HM.delete sym)
                             loadTopTargets = do
-                                combosOrErr <- readTopCombosExportWithDbFallback mOps topJsonPath
+                                combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
                                 case combosOrErr of
                                     Left err -> do
                                         prev <- readIORef topErrRef
@@ -5233,12 +5273,12 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                                             if arActive adoptReq
                                                 then pure (argsSym, Nothing)
                                                 else case mCombo of
-                                                    Nothing -> applyLatestTopCombo mOps optimizerTmp limits sym argsSym adoptReq
+                                                    Nothing -> applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                     Just combo ->
                                                         case applyTopComboForStartWithUuid argsSym combo of
                                                             Left err -> do
                                                                 recordError sym ("Top combo parse failed: " ++ err)
-                                                                applyLatestTopCombo mOps optimizerTmp limits sym argsSym adoptReq
+                                                                applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                             Right (args', uuid) -> pure (args', uuid)
                                         case validateApiComputeLimits limits argsCombo of
                                             Left err -> recordError sym err
@@ -5251,7 +5291,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                                                         mJournal
                                                         mWebhook
                                                         mBotStateDir
-                                                        optimizerTmp
+                                                        topCombosStore
                                                         limits
                                                         topCombosCtx
                                                         adoptReq
@@ -5278,7 +5318,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits
                                     argsWithKeys = argsBase
                                     runningSymbols = HM.keys tenantMap
                                     orphanRequested = dedupeStable (targetSymbolsBase ++ runningSymbols)
-                                orphanSymbols <- resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsWithKeys orphanRequested
+                                orphanSymbols <- resolveOrphanOpenPositionSymbols mOps limits argsWithKeys orphanRequested
                                 let targetSymbols = dedupeStable (targetSymbolsBase ++ orphanSymbols)
                                 prevTargets <- readIORef targetsRef
                                 when (prevTargets /= targetSymbols) $ do
@@ -6395,14 +6435,9 @@ sanitizeFileComponent raw =
     let go c = if isAlphaNum c || c == '-' || c == '_' then c else '-'
      in map go raw
 
-botOptimizerLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> MVar BotState -> MVar () -> MVar (Maybe BotOptimizerUpdate) -> IO ()
-botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
-    projectRoot <- getCurrentDirectory
-    mStateDir <- stateDirFromEnv
-    let tmpRoot = projectRoot </> ".tmp"
-        optimizerTmp = fromMaybe (tmpRoot </> "optimizer") (fmap (</> "optimizer") mStateDir)
-    createDirectoryIfMissing True optimizerTmp
-    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+botOptimizerLoop :: Maybe OpsStore -> Metrics -> Maybe Journal -> TopCombosStore -> MVar BotState -> MVar () -> MVar (Maybe BotOptimizerUpdate) -> IO ()
+botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = do
+    let topJsonPath = tcsPath topCombosStore
     pollEnv <- lookupEnv "TRADER_BOT_COMBOS_POLL_SEC"
     let pollSec =
             case pollEnv >>= readMaybe of
@@ -6452,7 +6487,7 @@ botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
                     st <- readMVar stVar
                     let sym = botSymbol st
                         interval = argInterval (botArgs st)
-                    combosOrErr <- readTopCombosExportWithDbFallback mOps topJsonPath
+                    combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
                     case combosOrErr of
                         Left e -> recordError "bot.combo.sync_failed" e sym interval (botComboUuid st)
                         Right export ->
@@ -6497,8 +6532,8 @@ botOptimizerLoop mOps _metrics mJournal stVar stopSig pending = do
 
     loop
 
-autoOptimizerLoop :: Args -> Maybe OpsStore -> Maybe Journal -> FilePath -> IO ()
-autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
+autoOptimizerLoop :: Args -> Maybe OpsStore -> Maybe Journal -> FilePath -> TopCombosStore -> IO ()
+autoOptimizerLoop baseArgs mOps mJournal optimizerTmp topCombosStore = do
     enabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
     let enabled = readEnvBool enabledEnv True
     if not enabled
@@ -6530,7 +6565,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                         Nothing
                 else do
                     projectRoot <- getCurrentDirectory
-                    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+                    let topJsonPath = tcsPath topCombosStore
                     optimizerExe <- resolveOptimizerExecutable projectRoot "optimize-equity"
                     mergeExe <- resolveOptimizerExecutable projectRoot "merge-top-combos"
                     let missing = [(name, err) | (name, Left err) <- [("optimize-equity", optimizerExe), ("merge-top-combos", mergeExe)]]
@@ -6743,7 +6778,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                                                                             ]
                                                                                         )
                                                                                 Right _ -> do
-                                                                                    mergeResult <- runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos
+                                                                                    mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos)
                                                                                     case mergeResult of
                                                                                         Left (msg, out, err) -> do
                                                                                             now <- getTimestampMs
@@ -6758,7 +6793,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp = do
                                                                                                     ]
                                                                                                 )
                                                                                         Right _ -> do
-                                                                                            persistTopCombosDbMaybe mOps topJsonPath
+                                                                                            persistTopCombosDbMaybe mOps topCombosStore
                                                                                             now <- getTimestampMs
                                                                                             opsAppendMaybe
                                                                                                 mOps
@@ -6796,7 +6831,7 @@ data TopCombosBacktestCtx = TopCombosBacktestCtx
     , tcbcGate :: !BacktestGate
     , tcbcOps :: !(Maybe OpsStore)
     , tcbcJournal :: !(Maybe Journal)
-    , tcbcOptimizerTmp :: !FilePath
+    , tcbcStore :: !TopCombosStore
     , tcbcLock :: !(MVar ())
     , tcbcCandleChan :: !(Chan ())
     , tcbcEnabled :: !Bool
@@ -6814,7 +6849,8 @@ backtestTopCombosOnce topNRaw ctx = do
         backtestGate = tcbcGate ctx
         mOps = tcbcOps ctx
         mJournal = tcbcJournal ctx
-    topJsonPath <- resolveOptimizerCombosPath (tcbcOptimizerTmp ctx)
+    let store = tcbcStore ctx
+        topJsonPath = tcsPath store
     let recordEvent :: String -> [(AK.Key, Aeson.Value)] -> IO ()
         recordEvent kind details = do
             now <- getTimestampMs
@@ -6929,7 +6965,7 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                         )
                                                                     pure (Just (key, update))
 
-    baseValOrErr <- readTopCombosValueWithDbFallback (tcbcOps ctx) topJsonPath
+    baseValOrErr <- readTopCombosValueWithDbFallback (tcbcOps ctx) (tcbcStore ctx)
     case baseValOrErr of
         Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
         Right baseVal ->
@@ -6943,28 +6979,29 @@ backtestTopCombosOnce topNRaw ctx = do
                             if null updates
                                 then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no updates" :: String)]
                                 else do
-                                    latestValOrErr <- readTopCombosValueWithDbFallback (tcbcOps ctx) topJsonPath
-                                    now <- getTimestampMs
-                                    let latestVal = either (const baseVal) id latestValOrErr
-                                        updateMap = HM.fromList updates
-                                    case applyComboUpdates now updateMap latestVal of
-                                        Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                                        Right (updatedVal, updatedCount) ->
-                                            if updatedCount <= 0
-                                                then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
-                                                else do
-                                                    writeResult <- writeTopCombosValue topJsonPath updatedVal
-                                                    case writeResult of
-                                                        Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
-                                                        Right _ -> do
-                                                            persistTopCombosMaybe topJsonPath
-                                                            persistTopCombosDbMaybe mOps topJsonPath
-                                                            recordEvent
-                                                                "optimizer.combos.backtest_updated"
-                                                                [ "updated" .= updatedCount
-                                                                , "topN" .= topN
-                                                                , "path" .= topJsonPath
-                                                                ]
+                                    withTopCombosLock store $ do
+                                        latestValOrErr <- readTopCombosValueWithDbFallbackUnlocked (tcbcOps ctx) store
+                                        now <- getTimestampMs
+                                        let latestVal = either (const baseVal) id latestValOrErr
+                                            updateMap = HM.fromList updates
+                                        case applyComboUpdates now updateMap latestVal of
+                                            Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                                            Right (updatedVal, updatedCount) ->
+                                                        if updatedCount <= 0
+                                                            then recordEvent "optimizer.combos.backtest_skipped" ["reason" .= ("no matching combos" :: String)]
+                                                            else do
+                                                                writeResult <- writeTopCombosValue topJsonPath updatedVal
+                                                                case writeResult of
+                                                                    Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
+                                                                    Right _ -> do
+                                                                        persistTopCombosMaybe topJsonPath
+                                                                        persistTopCombosDbMaybeUnlocked mOps store
+                                                                        recordEvent
+                                                                            "optimizer.combos.backtest_updated"
+                                                                            [ "updated" .= updatedCount
+                                                                            , "topN" .= topN
+                                                                            , "path" .= topJsonPath
+                                                                            ]
                         _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON missing combos array." Nothing Nothing
                 _ -> recordError "optimizer.combos.backtest_failed" "Top combos JSON root must be an object." Nothing Nothing
 
@@ -7000,7 +7037,7 @@ autoTopCombosBacktestLoop ctx =
                     case everySecEnv >>= readMaybe of
                         Just n | n >= 60 -> n
                         _ -> 86400
-            topJsonPath <- resolveOptimizerCombosPath (tcbcOptimizerTmp ctx)
+            let topJsonPath = tcsPath (tcbcStore ctx)
             putStrLn (printf "Top combos backtest enabled: topN=%d everySec=%d path=%s" topN everySec topJsonPath)
             let sleepSec s = threadDelay (max 1 s * 1000000)
                 runOnce = withTopCombosBacktestLock ctx (backtestTopCombosOnce topN ctx)
@@ -8416,6 +8453,9 @@ runRestApi baseArgs mWebhook = do
     createDirectoryIfMissing True tmpRoot
     let optimizerTmp = fromMaybe (tmpRoot </> "optimizer") (fmap (</> "optimizer") mStateDir)
     createDirectoryIfMissing True optimizerTmp
+    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+    topCombosHistoryDir <- resolveOptimizerCombosHistoryDir topJsonPath
+    topCombosStore <- newTopCombosStore topJsonPath topCombosHistoryDir
     metrics <- newMetrics
     mJournal <- newJournalFromEnv
     mOps <- newOpsStoreFromEnv
@@ -8433,7 +8473,7 @@ runRestApi baseArgs mWebhook = do
                 , tcbcGate = backtestGate
                 , tcbcOps = mOps
                 , tcbcJournal = mJournal
-                , tcbcOptimizerTmp = optimizerTmp
+                , tcbcStore = topCombosStore
                 , tcbcLock = topCombosLock
                 , tcbcCandleChan = topCombosCandleChan
                 , tcbcEnabled = topCombosEnabled
@@ -8470,9 +8510,9 @@ runRestApi baseArgs mWebhook = do
     case mAutoBotTenant of
         Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
         Just tenantKey -> do
-            _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot tenantKey)
+            _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
             pure ()
-    _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
+    _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp topCombosStore)
     _ <- forkIO (topCombosCandleWorker topCombosCtx)
     _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
     asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
@@ -8481,7 +8521,7 @@ runRestApi baseArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
             IO (Either IOException ())
         )
     case res of
@@ -8525,6 +8565,9 @@ runRestApi baseArgs mWebhook = do
     createDirectoryIfMissing True tmpRoot
     let optimizerTmp = fromMaybe (tmpRoot </> "optimizer") (fmap (</> "optimizer") mStateDir)
     createDirectoryIfMissing True optimizerTmp
+    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+    topCombosHistoryDir <- resolveOptimizerCombosHistoryDir topJsonPath
+    topCombosStore <- newTopCombosStore topJsonPath topCombosHistoryDir
     metrics <- newMetrics
     mJournal <- newJournalFromEnv
     mOps <- newOpsStoreFromEnv
@@ -8542,7 +8585,7 @@ runRestApi baseArgs mWebhook = do
                 , tcbcGate = backtestGate
                 , tcbcOps = mOps
                 , tcbcJournal = mJournal
-                , tcbcOptimizerTmp = optimizerTmp
+                , tcbcStore = topCombosStore
                 , tcbcLock = topCombosLock
                 , tcbcCandleChan = topCombosCandleChan
                 , tcbcEnabled = topCombosEnabled
@@ -8579,9 +8622,9 @@ runRestApi baseArgs mWebhook = do
     case mAutoBotTenant of
         Nothing -> putStrLn "Live bot auto-start skipped: missing BINANCE_API_KEY/BINANCE_API_SECRET (tenant key unavailable)."
         Just tenantKey -> do
-            _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx baseArgs bot tenantKey)
+            _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
             pure ()
-    _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp)
+    _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp topCombosStore)
     _ <- forkIO (topCombosCandleWorker topCombosCtx)
     _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
     asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
@@ -8590,7 +8633,7 @@ runRestApi baseArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot optimizerTmp)) ::
+                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
                 IO (Either IOException ())
             )
     case res of
@@ -9586,9 +9629,10 @@ apiApp ::
     TopCombosBacktestCtx ->
     AsyncStores ->
     FilePath ->
+    TopCombosStore ->
     FilePath ->
     Wai.Application
-apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot topCombosStore optimizerTmp req respond = do
     startMs <- getTimestampMs
     let rawPath = Wai.pathInfo req
         path =
@@ -9837,7 +9881,7 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["bot", "start"] ->
                                 case Wai.requestMethod req of
-                                    "POST" -> handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respondCors
+                                    "POST" -> handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir topCombosStore baseArgs botCtrl req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["bot", "stop"] ->
                                 case Wai.requestMethod req of
@@ -9849,16 +9893,16 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["optimizer", "run"] ->
                                 case Wai.requestMethod req of
-                                    "POST" -> handleOptimizerRun reqLimits mOps projectRoot optimizerTmp req respondCors
+                                    "POST" -> handleOptimizerRun reqLimits mOps projectRoot topCombosStore optimizerTmp req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["optimizer", "combos"] ->
                                 case Wai.requestMethod req of
-                                    "GET" -> handleOptimizerCombos mOps projectRoot optimizerTmp respondCors
+                                    "GET" -> handleOptimizerCombos mOps projectRoot topCombosStore optimizerTmp respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["state", "sync"] ->
                                 case Wai.requestMethod req of
-                                    "GET" -> handleStateSyncExport mOps mBotStateDir optimizerTmp req respondCors
-                                    "POST" -> handleStateSyncImport reqLimits mOps mBotStateDir optimizerTmp req respondCors
+                                    "GET" -> handleStateSyncExport mOps mBotStateDir topCombosStore req respondCors
+                                    "POST" -> handleStateSyncImport reqLimits mOps mBotStateDir topCombosStore req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             _ -> respondCors (jsonError status404 "Not found")
 
@@ -10388,6 +10432,10 @@ prepareOptimizerArgs outputPath req = do
                         ++ maybeDoubleArg "--p-disable-stop-vol-mult" (fmap clamp01 (arrPDisableStopVolMult req))
                         ++ maybeDoubleArg "--p-disable-tp-vol-mult" (fmap clamp01 (arrPDisableTpVolMult req))
                         ++ maybeDoubleArg "--p-disable-trail-vol-mult" (fmap clamp01 (arrPDisableTrailVolMult req))
+                riskPerTradeArgs =
+                    maybeDoubleArg "--risk-per-trade-min" (fmap clamp01 (arrRiskPerTradeMin req))
+                        ++ maybeDoubleArg "--risk-per-trade-max" (fmap clamp01 (arrRiskPerTradeMax req))
+                        ++ maybeDoubleArg "--p-disable-risk-per-trade" (fmap clamp01 (arrPDisableRiskPerTrade req))
                 fundingRateArgs =
                     maybeDoubleArg "--funding-rate-min" (arrFundingRateMin req)
                         ++ maybeDoubleArg "--funding-rate-max" (arrFundingRateMax req)
@@ -10566,6 +10614,7 @@ prepareOptimizerArgs outputPath req = do
                         ++ triLayerArgs
                         ++ stopRangeArgs
                         ++ stopVolMultArgs
+                        ++ riskPerTradeArgs
                         ++ fundingRateArgs
                         ++ fundingModeArgs
                         ++ rebalanceBarsArgs
@@ -10942,9 +10991,9 @@ writeKlinesCsv path ks = do
         body = header ++ concatMap row ks
     writeFile path body
 
-readTopCombosExport :: FilePath -> IO (Either String TopCombosExport)
-readTopCombosExport path = do
-    valOrErr <- readTopCombosValue path
+readTopCombosExport :: TopCombosStore -> IO (Either String TopCombosExport)
+readTopCombosExport store = do
+    valOrErr <- readTopCombosValue (tcsPath store)
     case valOrErr of
         Left err -> pure (Left err)
         Right val ->
@@ -10952,9 +11001,9 @@ readTopCombosExport path = do
                 Aeson.Error err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
                 Aeson.Success out -> pure (Right out)
 
-readTopCombosExportWithDbFallback :: Maybe OpsStore -> FilePath -> IO (Either String TopCombosExport)
-readTopCombosExportWithDbFallback mOps path = do
-    valOrErr <- readTopCombosValueWithDbFallback mOps path
+readTopCombosExportWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String TopCombosExport)
+readTopCombosExportWithDbFallback mOps store = do
+    valOrErr <- readTopCombosValueWithDbFallback mOps store
     case valOrErr of
         Left err -> pure (Left err)
         Right val ->
@@ -10990,16 +11039,20 @@ strategyCodeFromMethod mMethod =
             Just "router" -> "router"
             _ -> "unknown"
 
-persistTopCombosDbMaybe :: Maybe OpsStore -> FilePath -> IO ()
-persistTopCombosDbMaybe mOps path =
+persistTopCombosDbMaybe :: Maybe OpsStore -> TopCombosStore -> IO ()
+persistTopCombosDbMaybe mOps store =
+    withTopCombosLock store (persistTopCombosDbMaybeUnlocked mOps store)
+
+persistTopCombosDbMaybeUnlocked :: Maybe OpsStore -> TopCombosStore -> IO ()
+persistTopCombosDbMaybeUnlocked mOps store =
     case mOps of
         Nothing -> pure ()
-        Just store -> do
-            combosOrErr <- readTopCombosExport path
+        Just opsStore -> do
+            combosOrErr <- readTopCombosExport store
             case combosOrErr of
                 Left err -> hPutStrLn stderr ("WARN: failed to persist top combos to DB (" ++ err ++ ")")
                 Right export -> do
-                    _ <- try (withMVar (osLock store) (\_ -> persistTopCombosToDb (osConn store) export)) :: IO (Either SomeException ())
+                    _ <- try (withMVar (osLock opsStore) (\_ -> persistTopCombosToDb (osConn opsStore) export)) :: IO (Either SomeException ())
                     pure ()
 
 persistTopCombosToDb :: Connection -> TopCombosExport -> IO ()
@@ -11131,44 +11184,23 @@ readTopCombosValueFromDb store = do
             Aeson.Object o -> Aeson.Object (KM.insert (AK.fromString "rank") (toJSON rank) o)
             other -> other
 
-readTopCombosValueWithDbFallback :: Maybe OpsStore -> FilePath -> IO (Either String Aeson.Value)
-readTopCombosValueWithDbFallback mOps path = do
+readTopCombosValueWithDbFallback :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
+readTopCombosValueWithDbFallback mOps store =
+    withTopCombosLock store (readTopCombosValueWithDbFallbackUnlocked mOps store)
+
+readTopCombosValueWithDbFallbackUnlocked :: Maybe OpsStore -> TopCombosStore -> IO (Either String Aeson.Value)
+readTopCombosValueWithDbFallbackUnlocked mOps store = do
+    let path = tcsPath store
     localResult <- readTopCombosValue path
     case localResult of
         Right val -> pure (Right val)
         Left localErr ->
             case mOps of
                 Nothing -> pure (Left localErr)
-                Just store -> do
-                    dbResult <- readTopCombosValueFromDb store
+                Just opsStore -> do
+                    dbResult <- readTopCombosValueFromDb opsStore
                     case dbResult of
                         Left dbErr -> pure (Left (localErr ++ " " ++ dbErr))
-                        Right val -> do
-                            writeResult <- writeTopCombosValue path val
-                            case writeResult of
-                                Right _ -> persistTopCombosMaybe path
-                                Left _ -> pure ()
-                            pure (Right val)
-
-data ComboBacktestUpdate = ComboBacktestUpdate
-    { cbuMetrics :: !Aeson.Value
-    , cbuFinalEquity :: !(Maybe Double)
-    , cbuScore :: !(Maybe Double)
-    , cbuOperations :: !(Maybe Aeson.Value)
-    }
-
-readTopCombosValueLocal :: FilePath -> IO (Either String Aeson.Value)
-readTopCombosValueLocal path = do
-    exists <- doesFileExist path
-    if not exists
-        then pure (Left "Top combos JSON not found.")
-        else do
-            contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
-            case contentsOrErr of
-                Left e -> pure (Left ("Failed to read top combos JSON: " ++ show e))
-                Right contents ->
-                    case Aeson.eitherDecode' contents of
-                        Left err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
                         Right val -> pure (Right val)
 
 readTopCombosValue :: FilePath -> IO (Either String Aeson.Value)
@@ -11176,10 +11208,7 @@ readTopCombosValue path = do
     localResult <- readTopCombosValueLocal path
     case localResult of
         Right val -> do
-            let (filteredVal, changed) = sanitizeTopCombosValue val
-            when (changed > 0) $ do
-                _ <- writeTopCombosValue path filteredVal
-                persistTopCombosMaybe path
+            let (filteredVal, _) = sanitizeTopCombosValue val
             pure (Right filteredVal)
         Left localErr -> do
             mS3 <- resolveS3State
@@ -11195,291 +11224,8 @@ readTopCombosValue path = do
                             case Aeson.eitherDecode' contents of
                                 Left err -> pure (Left ("Failed to parse top combos JSON from S3: " ++ err))
                                 Right val -> do
-                                    let (filteredVal, changed) = sanitizeTopCombosValue val
-                                    _ <- writeTopCombosValue path filteredVal
-                                    when (changed > 0) (persistTopCombosMaybe path)
+                                    let (filteredVal, _) = sanitizeTopCombosValue val
                                     pure (Right filteredVal)
-
-writeTopCombosValue :: FilePath -> Aeson.Value -> IO (Either String ())
-writeTopCombosValue path val = do
-    let (filteredVal, _) = sanitizeTopCombosValue val
-    let dir = takeDirectory path
-    dirResult <- try (createDirectoryIfMissing True dir) :: IO (Either SomeException ())
-    case dirResult of
-        Left e -> pure (Left ("Failed to create top combos directory: " ++ show e))
-        Right _ -> do
-            tempResult <- try (openTempFile dir "top-combos-backtest.json") :: IO (Either SomeException (FilePath, Handle))
-            case tempResult of
-                Left e -> pure (Left ("Failed to create temp top combos file: " ++ show e))
-                Right (tmpPath, handle) -> do
-                    _ <- try (BL.hPut handle (encodePretty filteredVal <> "\n")) :: IO (Either SomeException ())
-                    hClose handle
-                    renameResult <- try (renameFile tmpPath path) :: IO (Either SomeException ())
-                    case renameResult of
-                        Left e -> pure (Left ("Failed to write top combos JSON: " ++ show e))
-                        Right _ -> pure (Right ())
-
-comboMetricValue :: String -> Aeson.Value -> Maybe Aeson.Value
-comboMetricValue key val =
-    case val of
-        Aeson.Object o -> KM.lookup (AK.fromString key) o
-        _ -> Nothing
-
-coerceDoubleValue :: Aeson.Value -> Maybe Double
-coerceDoubleValue value =
-    case AT.parseMaybe parseJSON value of
-        Just v
-            | isNaN v || isInfinite v -> Nothing
-            | otherwise -> Just v
-        Nothing ->
-            case value of
-                Aeson.String s ->
-                    let trimmed = trim (T.unpack s)
-                     in case readMaybe trimmed of
-                            Just v | not (isNaN v || isInfinite v) -> Just v
-                            _ -> Nothing
-                Aeson.Bool v -> Just (if v then 1 else 0)
-                _ -> Nothing
-
-comboMetricDouble :: String -> Aeson.Value -> Maybe Double
-comboMetricDouble key val =
-    comboMetricValue key val >>= coerceDoubleValue
-
-comboMetricsDouble :: String -> Aeson.Value -> Maybe Double
-comboMetricsDouble key val = do
-    metrics <- comboMetricValue "metrics" val
-    comboMetricDouble key metrics
-
-comboFinalEquityValue :: Aeson.Value -> Maybe Double
-comboFinalEquityValue val =
-    comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val
-
-comboEquityAboveOne :: Aeson.Value -> Bool
-comboEquityAboveOne val =
-    case comboFinalEquityValue val of
-        Just eq -> eq > 1 && not (isInfinite eq)
-        Nothing -> False
-
-valueStringMaybe :: Aeson.Value -> Maybe String
-valueStringMaybe = AT.parseMaybe parseJSON
-
-normalizeComboPlatform :: Maybe String -> Maybe String
-normalizeComboPlatform raw =
-    case raw of
-        Nothing -> Nothing
-        Just v ->
-            let key = normalizeKey v
-             in if null key then Nothing else Just key
-
-isBinancePlatformKey :: String -> Bool
-isBinancePlatformKey key = key == "binance" || "binance" `isPrefixOf` key
-
-isCoinbasePlatformKey :: String -> Bool
-isCoinbasePlatformKey key = key == "coinbase" || "coinbase" `isPrefixOf` key
-
-isPoloniexPlatformKey :: String -> Bool
-isPoloniexPlatformKey key = key == "poloniex" || "poloniex" `isPrefixOf` key
-
-sanitizeComboSymbolForPlatform :: Maybe String -> String -> Maybe String
-sanitizeComboSymbolForPlatform platform raw =
-    case normalizeComboPlatform platform of
-        Just key | isCoinbasePlatformKey key -> sanitizeSymbolForPlatform (Just "coinbase") raw
-        Just key | isPoloniexPlatformKey key -> sanitizeSymbolForPlatform (Just "poloniex") raw
-        Just key
-            | isBinancePlatformKey key ->
-                sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform (Just "binance") raw
-        _ -> sanitizeBinanceComboSymbol raw <|> sanitizeSymbolForPlatform platform raw
-
-sanitizeBinanceComboSymbol :: String -> Maybe String
-sanitizeBinanceComboSymbol raw =
-    let s = normalizeSymbol raw
-        tokens = splitAlphaNumTokens s
-        isValid sym =
-            let n = length sym
-             in n >= 3 && n <= 30 && sym `notElem` commonQuotes && all isAsciiAlphaNum sym
-        isSuffixToken token = any isDigit token
-        pickTokenCandidate =
-            case tokens of
-                [] -> Nothing
-                [a] -> if isValid a then Just a else Nothing
-                a : b : _rest ->
-                    let joined = a ++ b
-                     in if isValid a && endsWithQuote a
-                            then Just a
-                            else
-                                if b `elem` commonQuotes && isValid joined
-                                    then Just joined
-                                    else
-                                        if isValid a && isSuffixToken b
-                                            then Just a
-                                            else Nothing
-        pickQuoteSuffix = trimBinanceComboSuffix s
-     in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
-
-splitAlphaNumTokens :: String -> [String]
-splitAlphaNumTokens =
-    filter (not . null) . foldr step [""]
-  where
-    step c acc@(w : ws)
-        | isAsciiAlphaNum c = (c : w) : ws
-        | otherwise = "" : acc
-    step _ [] = []
-
-endsWithQuote :: String -> Bool
-endsWithQuote token = any (`isSuffixOf` token) commonQuotes
-
-trimBinanceComboSuffix :: String -> Maybe String
-trimBinanceComboSuffix raw =
-    let compact = filter isAsciiAlphaNum (normalizeSymbol raw)
-        best = foldl' pickLongest Nothing (concatMap (trimQuoteCandidates compact) commonQuotes)
-     in best
-  where
-    pickLongest acc candidate =
-        case acc of
-            Nothing -> Just candidate
-            Just prev -> if length candidate > length prev then Just candidate else acc
-
-trimQuoteCandidates :: String -> String -> [String]
-trimQuoteCandidates compact quote =
-    let positions = findSubstrPositions quote compact
-        total = length compact
-        quoteLen = length quote
-     in [ candidate
-        | idx <- positions
-        , let end = idx + quoteLen
-        , end < total
-        , let suffix = drop end compact
-        , any isDigit suffix
-        , let candidate = take end compact
-        , isValidBinanceSymbol candidate
-        , notElem candidate commonQuotes
-        ]
-
-findSubstrPositions :: String -> String -> [Int]
-findSubstrPositions needle hay =
-    let go _ [] = []
-        go i xs@(_ : rest) =
-            if needle `isPrefixOf` xs
-                then i : go (i + 1) rest
-                else go (i + 1) rest
-     in if null needle then [] else go 0 hay
-
-isValidBinanceSymbol :: String -> Bool
-isValidBinanceSymbol s =
-    let n = length s
-     in n >= 3 && n <= 30 && all isAsciiAlphaNum s
-
-isAsciiAlphaNum :: Char -> Bool
-isAsciiAlphaNum c =
-    ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
-
-sanitizeComboSymbolValue :: Aeson.Value -> (Aeson.Value, Bool)
-sanitizeComboSymbolValue val =
-    case val of
-        Aeson.Object comboObj ->
-            case KM.lookup (AK.fromString "params") comboObj of
-                Just (Aeson.Object params) ->
-                    let platform =
-                            (KM.lookup (AK.fromString "platform") params >>= valueStringMaybe)
-                                <|> (KM.lookup (AK.fromString "source") comboObj >>= valueStringMaybe)
-                        symbolRaw =
-                            (KM.lookup (AK.fromString "binanceSymbol") params >>= valueStringMaybe)
-                                <|> (KM.lookup (AK.fromString "symbol") params >>= valueStringMaybe)
-                        hadBinance = KM.member (AK.fromString "binanceSymbol") params
-                        hadSymbol = KM.member (AK.fromString "symbol") params
-                        hasSymbolField = hadBinance || hadSymbol
-                        sanitized = symbolRaw >>= sanitizeComboSymbolForPlatform platform
-                        params' =
-                            case sanitized of
-                                Just sym ->
-                                    let params1 =
-                                            if hadBinance
-                                                then KM.insert (AK.fromString "binanceSymbol") (Aeson.String (T.pack sym)) params
-                                                else params
-                                        params2 =
-                                            if hadSymbol
-                                                then KM.insert (AK.fromString "symbol") (Aeson.String (T.pack sym)) params1
-                                                else params1
-                                     in params2
-                                Nothing ->
-                                    if hasSymbolField
-                                        then KM.delete (AK.fromString "symbol") (KM.delete (AK.fromString "binanceSymbol") params)
-                                        else params
-                        changed = params' /= params
-                        comboObj' =
-                            if changed
-                                then KM.insert (AK.fromString "params") (Aeson.Object params') comboObj
-                                else comboObj
-                     in (Aeson.Object comboObj', changed)
-                _ -> (val, False)
-        _ -> (val, False)
-
-sanitizeTopCombosValue :: Aeson.Value -> (Aeson.Value, Int)
-sanitizeTopCombosValue val =
-    case val of
-        Aeson.Object o ->
-            case KM.lookup (AK.fromString "combos") o of
-                Just (Aeson.Array combos) ->
-                    let combosList = V.toList combos
-                        (kept, changed) = foldl' apply ([], 0) combosList
-                        apply (acc, count) comboVal =
-                            if not (comboEquityAboveOne comboVal)
-                                then (acc, count + 1)
-                                else
-                                    let (comboVal', updated) = sanitizeComboSymbolValue comboVal
-                                     in (comboVal' : acc, count + if updated then 1 else 0)
-                        combosOut = Aeson.Array (V.fromList (reverse kept))
-                        o' = KM.insert (AK.fromString "combos") combosOut o
-                     in (Aeson.Object o', changed)
-                _ -> (val, 0)
-        _ -> (val, 0)
-
-topCombosGeneratedAtMs :: Aeson.Value -> Maybe Int64
-topCombosGeneratedAtMs val =
-    case val of
-        Aeson.Object o -> KM.lookup (AK.fromString "generatedAtMs") o >>= AT.parseMaybe parseJSON
-        _ -> Nothing
-
-isTopCombosPayload :: Aeson.Value -> Bool
-isTopCombosPayload val =
-    case val of
-        Aeson.Object o ->
-            case KM.lookup (AK.fromString "combos") o of
-                Just (Aeson.Array _) -> True
-                _ -> False
-        _ -> False
-
-comboIdentityKey :: Aeson.Value -> Maybe BS.ByteString
-comboIdentityKey val = do
-    params <- comboMetricValue "params" val
-    let openThr = comboMetricValue "openThreshold" val
-        closeThr = comboMetricValue "closeThreshold" val
-        objective = comboMetricValue "objective" val
-        identity =
-            object
-                [ "params" .= params
-                , "openThreshold" .= openThr
-                , "closeThreshold" .= closeThr
-                , "objective" .= objective
-                ]
-    pure (BL.toStrict (encodePretty identity))
-
-comboPerformanceKey :: Aeson.Value -> (Double, Double, Double, Int)
-comboPerformanceKey val =
-    let ann =
-            fromMaybe
-                (negate (1 / 0))
-                (comboMetricsDouble "annualizedReturn" val <|> comboMetricDouble "annualizedReturn" val)
-        eq = fromMaybe 0 (comboMetricDouble "finalEquity" val <|> comboMetricsDouble "finalEquity" val)
-        score = fromMaybe (negate (1 / 0)) (comboMetricDouble "score" val)
-        rank =
-            case val of
-                Aeson.Object o -> fromMaybe maxBound (KM.lookup (AK.fromString "rank") o >>= AT.parseMaybe parseJSON)
-                _ -> maxBound
-        ann' = if isNaN ann || isInfinite ann then negate (1 / 0) else ann
-        eq' = if isNaN eq || isInfinite eq then 0 else eq
-        score' = if isNaN score || isInfinite score then negate (1 / 0) else score
-     in (negate ann', negate eq', negate score', rank)
 
 extractBacktestMetrics :: Aeson.Value -> Maybe Aeson.Value
 extractBacktestMetrics val =
@@ -11553,44 +11299,6 @@ objectiveScoreFromMetrics args objective metricsVal =
                 then Nothing
                 else Just rawScore
      in score
-
-updateComboWithBacktest :: ComboBacktestUpdate -> Aeson.Value -> Aeson.Value
-updateComboWithBacktest update comboVal =
-    case comboVal of
-        Aeson.Object o ->
-            let o1 = KM.insert (AK.fromString "metrics") (cbuMetrics update) o
-                o2 =
-                    case cbuFinalEquity update of
-                        Nothing -> o1
-                        Just eq -> KM.insert (AK.fromString "finalEquity") (toJSON eq) o1
-                o3 =
-                    case cbuScore update of
-                        Nothing -> o2
-                        Just score -> KM.insert (AK.fromString "score") (toJSON score) o2
-                o4 =
-                    case cbuOperations update of
-                        Nothing -> o3
-                        Just ops -> KM.insert (AK.fromString "operations") ops o3
-             in Aeson.Object o4
-        _ -> comboVal
-
-applyComboUpdates :: Int64 -> HM.HashMap BS.ByteString ComboBacktestUpdate -> Aeson.Value -> Either String (Aeson.Value, Int)
-applyComboUpdates now updates val =
-    case val of
-        Aeson.Object o ->
-            case KM.lookup (AK.fromString "combos") o of
-                Just (Aeson.Array combos) -> do
-                    let combosList = V.toList combos
-                        (updatedCombos, updatedCount) = foldl' applyOne ([], 0 :: Int) combosList
-                        applyOne (acc, count) comboVal =
-                            case comboIdentityKey comboVal >>= (`HM.lookup` updates) of
-                                Nothing -> (comboVal : acc, count)
-                                Just upd -> (updateComboWithBacktest upd comboVal : acc, count + 1)
-                        combosOut = Aeson.Array (V.fromList (reverse updatedCombos))
-                        o' = KM.insert (AK.fromString "combos") combosOut (KM.insert (AK.fromString "generatedAtMs") (toJSON now) o)
-                    Right (Aeson.Object o', updatedCount)
-                _ -> Left "Top combos JSON missing combos array."
-        _ -> Left "Top combos JSON root must be an object."
 
 topComboParamString :: String -> TopCombo -> Maybe String
 topComboParamString key combo =
@@ -11693,18 +11401,19 @@ handleOptimizerRun ::
     ApiRequestLimits ->
     Maybe OpsStore ->
     FilePath ->
+    TopCombosStore ->
     FilePath ->
     Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerRun reqLimits mOps projectRoot optimizerTmp req respond = do
+handleOptimizerRun reqLimits mOps projectRoot topCombosStore optimizerTmp req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid optimizer payload: "
     case payloadOrErr of
         Left resp -> respond resp
         Right payload -> do
             ts <- fmap (floor . (* 1000)) getPOSIXTime
             randId <- randomIO :: IO Word64
-            topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+            let topJsonPath = tcsPath topCombosStore
             let recordsPath = optimizerTmp </> printf "optimizer-%d-%016x.jsonl" (ts :: Integer) randId
                 maxOutputBytes = arlMaxOptimizerOutputBytes reqLimits
                 truncateOut = truncateProcessOutput maxOutputBytes
@@ -11727,7 +11436,7 @@ handleOptimizerRun reqLimits mOps projectRoot optimizerTmp req respond = do
                                         , arrStderr = truncateOut (arrStderr resp)
                                         }
                             maxCombos <- optimizerMaxCombosFromEnv
-                            mergeResult <- runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos
+                            mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos)
                             case mergeResult of
                                 Left (msg, out, err) ->
                                     respond
@@ -11736,26 +11445,26 @@ handleOptimizerRun reqLimits mOps projectRoot optimizerTmp req respond = do
                                             (object ["error" .= msg, "stdout" .= truncateOut out, "stderr" .= truncateOut err])
                                         )
                                 Right _ -> do
-                                    persistTopCombosDbMaybe mOps topJsonPath
+                                    persistTopCombosDbMaybe mOps topCombosStore
                                     respond (jsonValue status200 resp')
 
 handleOptimizerCombos ::
     Maybe OpsStore ->
     FilePath ->
+    TopCombosStore ->
     FilePath ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerCombos mOps projectRoot optimizerTmp respond = do
-    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
+handleOptimizerCombos mOps projectRoot topCombosStore optimizerTmp respond = do
+    let topJsonPath = tcsPath topCombosStore
     let tmpPath = optimizerTmp </> optimizerCombosFileName
         fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
-    topExists <- doesFileExist topJsonPath
-    topVal0 <- readTopCombosValueWithDbFallback mOps topJsonPath
+    topVal0 <- readTopCombosValueWithDbFallback mOps topCombosStore
     topVal <-
         case topVal0 of
             Right v -> pure (Right v)
             Left err -> do
-                recovered <- recoverTopCombosFromHistory topJsonPath
+                recovered <- withTopCombosLock topCombosStore (recoverTopCombosFromHistory topJsonPath)
                 pure $
                     case recovered of
                         Just val -> Right val
@@ -11770,10 +11479,13 @@ handleOptimizerCombos mOps projectRoot optimizerTmp respond = do
             then sanitizeVal <$> readTopCombosValueLocal fallbackPath
             else pure (Left "missing")
     let seedVal = listToMaybe [v | Right v <- [tmpVal, fallbackVal]]
-    case (topVal, seedVal, topExists) of
-        (Left _, Just seed, False) -> do
-            _ <- writeTopCombosValue topJsonPath seed
-            persistTopCombosMaybe topJsonPath
+    case (topVal, seedVal) of
+        (Left _, Just seed) ->
+            withTopCombosLock topCombosStore $ do
+                existsNow <- doesFileExist topJsonPath
+                when (not existsNow) $ do
+                    _ <- writeTopCombosValue topJsonPath seed
+                    persistTopCombosMaybe topJsonPath
         _ -> pure ()
     let allVals = [topVal, tmpVal, fallbackVal]
     now <- getTimestampMs
@@ -11835,9 +11547,8 @@ handleOptimizerCombos mOps projectRoot optimizerTmp respond = do
          in if null s then Nothing else Just s
 
     recoverTopCombosFromHistory :: FilePath -> IO (Maybe Aeson.Value)
-    recoverTopCombosFromHistory topPath = do
-        mHistDir <- resolveOptimizerCombosHistoryDir topPath
-        case mHistDir of
+    recoverTopCombosFromHistory topPath =
+        case tcsHistoryDir topCombosStore of
             Nothing -> pure Nothing
             Just histDir -> do
                 exists <- doesDirectoryExist histDir
@@ -11872,18 +11583,17 @@ handleOptimizerCombos mOps projectRoot optimizerTmp respond = do
 handleStateSyncExport ::
     Maybe OpsStore ->
     Maybe FilePath ->
-    FilePath ->
+    TopCombosStore ->
     Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleStateSyncExport mOps mBotStateDir optimizerTmp req respond =
+handleStateSyncExport mOps mBotStateDir topCombosStore req respond =
     case requireTenantKey "state/sync" (tenantKeyFromRequest req) of
         Left e -> respond (jsonError status400 e)
         Right tenantKey -> do
             now <- getTimestampMs
             snaps <- readBotStatusSnapshotsMaybe mBotStateDir tenantKey
-            topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-            topVal <- readTopCombosValueWithDbFallback mOps topJsonPath
+            topVal <- readTopCombosValueWithDbFallback mOps topCombosStore
             let payload =
                     StateSyncPayload
                         { sspGeneratedAtMs = Just now
@@ -11899,11 +11609,11 @@ handleStateSyncImport ::
     ApiRequestLimits ->
     Maybe OpsStore ->
     Maybe FilePath ->
-    FilePath ->
+    TopCombosStore ->
     Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleStateSyncImport reqLimits mOps mBotStateDir optimizerTmp req respond = do
+handleStateSyncImport reqLimits mOps mBotStateDir topCombosStore req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid state sync payload: "
     case payloadOrErr of
         Left resp -> respond resp
@@ -11932,46 +11642,62 @@ handleStateSyncImport reqLimits mOps mBotStateDir optimizerTmp req respond = do
                     forM_ snapsWithSymbol $ \(sym, snap) ->
                         writeBotStatusSnapshotMaybe mBotStateDir tenantKey sym snap
 
-                    topJsonPath <- resolveOptimizerCombosPath optimizerTmp
-                    localTopValResult <- readTopCombosValueWithDbFallback mOps topJsonPath
-                    let localTopVal =
-                            case localTopValResult of
-                                Right val -> Just val
-                                Left _ -> Nothing
-                        localGeneratedAt = localTopVal >>= topCombosGeneratedAtMs
-                        mkTopStats :: String -> Maybe Int64 -> Aeson.Value
-                        mkTopStats action incoming =
+                    let topJsonPath = tcsPath topCombosStore
+                        mkTopStats :: String -> Maybe Int64 -> Maybe Int64 -> Aeson.Value
+                        mkTopStats action incoming local =
                             object
                                 ( ["action" .= (action :: String)]
                                     ++ maybe [] (\v -> ["incomingGeneratedAtMs" .= v]) incoming
-                                    ++ maybe [] (\v -> ["localGeneratedAtMs" .= v]) localGeneratedAt
+                                    ++ maybe [] (\v -> ["localGeneratedAtMs" .= v]) local
                                 )
 
                     topStatsOrErr <-
                         case sspTopCombos payload of
-                            Nothing -> pure (Right (mkTopStats "skipped" Nothing))
+                            Nothing -> do
+                                localTopValResult <- readTopCombosValueWithDbFallback mOps topCombosStore
+                                let localGeneratedAt =
+                                        case localTopValResult of
+                                            Right val -> topCombosGeneratedAtMs val
+                                            Left _ -> Nothing
+                                pure (Right (mkTopStats "skipped" Nothing localGeneratedAt))
                             Just raw ->
                                 if not (isTopCombosPayload raw)
                                     then pure (Left (jsonError status400 "Invalid topCombos payload (expected object with combos array)."))
-                                    else do
-                                        let (incomingSanitized, _) = sanitizeTopCombosValue raw
-                                            incomingGeneratedAt = topCombosGeneratedAtMs incomingSanitized
-                                            shouldReplace =
-                                                case (incomingGeneratedAt, localGeneratedAt) of
-                                                    (Just incomingTs, Just localTs) -> incomingTs >= localTs
-                                                    (Just _, Nothing) -> True
-                                                    (Nothing, Nothing) -> True
-                                                    (Nothing, Just _) -> False
-                                        if shouldReplace
-                                            then do
-                                                writeResult <- writeTopCombosValue topJsonPath incomingSanitized
-                                                case writeResult of
-                                                    Left err ->
-                                                        pure (Left (jsonError status500 ("Failed to write top combos: " ++ err)))
-                                                    Right _ -> do
-                                                        persistTopCombosMaybe topJsonPath
-                                                        pure (Right (mkTopStats "replaced" incomingGeneratedAt))
-                                            else pure (Right (mkTopStats "kept" incomingGeneratedAt))
+                                    else
+                                        withTopCombosLock topCombosStore $ do
+                                            localTopValResult <- readTopCombosValueWithDbFallbackUnlocked mOps topCombosStore
+                                            let localTopVal =
+                                                    case localTopValResult of
+                                                        Right val -> Just val
+                                                        Left _ -> Nothing
+                                                localGeneratedAt = localTopVal >>= topCombosGeneratedAtMs
+                                                (incomingSanitized, _) = sanitizeTopCombosValue raw
+                                                incomingGeneratedAt = topCombosGeneratedAtMs incomingSanitized
+                                                shouldReplace =
+                                                    case (incomingGeneratedAt, localGeneratedAt) of
+                                                        (Just incomingTs, Just localTs) -> incomingTs >= localTs
+                                                        (Just _, Nothing) -> True
+                                                        (Nothing, Nothing) -> True
+                                                        (Nothing, Just _) -> False
+                                            if shouldReplace
+                                                then do
+                                                    maxCombos <- optimizerMaxCombosFromEnv
+                                                    let mergedVal =
+                                                            case localTopVal of
+                                                                Just localVal -> mergeTopCombosPayloads maxCombos now [localVal, incomingSanitized]
+                                                                Nothing -> mergeTopCombosPayloads maxCombos now [incomingSanitized]
+                                                        action =
+                                                            case localTopVal of
+                                                                Just _ -> "merged"
+                                                                Nothing -> "replaced"
+                                                    writeResult <- writeTopCombosValue topJsonPath mergedVal
+                                                    case writeResult of
+                                                        Left err ->
+                                                            pure (Left (jsonError status500 ("Failed to write top combos: " ++ err)))
+                                                        Right _ -> do
+                                                            persistTopCombosMaybe topJsonPath
+                                                            pure (Right (mkTopStats action incomingGeneratedAt localGeneratedAt))
+                                                else pure (Right (mkTopStats "kept" incomingGeneratedAt localGeneratedAt))
 
                     case topStatsOrErr of
                         Left resp -> respond resp
@@ -13537,8 +13263,8 @@ handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
         Just "" -> Nothing
         Just v -> Just v
 
-handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> TopCombosBacktestCtx -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> FilePath -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir optimizerTmp baseArgs botCtrl req respond = do
+handleBotStart :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> TopCombosBacktestCtx -> Metrics -> Maybe Journal -> Maybe Webhook -> Maybe FilePath -> TopCombosStore -> Args -> BotController -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBotStateDir topCombosStore baseArgs botCtrl req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid JSON: "
     case payloadOrErr of
         Left resp -> respond resp
@@ -13562,7 +13288,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                     Right syms -> syms
                                         orphanSymbols <-
                                             if tradeEnabled && platformSupportsLiveBot (argPlatform argsBase)
-                                                then resolveOrphanOpenPositionSymbols mOps limits optimizerTmp argsBase requestedSymbols
+                                                then resolveOrphanOpenPositionSymbols mOps limits argsBase requestedSymbols
                                                 else pure []
                                         let symbols = dedupeStable (requestedSymbols ++ orphanSymbols)
                                             errorMsg =
@@ -13589,11 +13315,11 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                             (argsCombo, mComboUuid) <-
                                                                 if arActive adoptReq
                                                                     then pure (argsSym, Nothing)
-                                                                    else applyLatestTopCombo mOps optimizerTmp limits sym argsSym adoptReq
+                                                                    else applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                             case validateApiComputeLimits limits argsCombo of
                                                                 Left err -> pure (sym, Left err)
                                                                 Right argsOk -> do
-                                                                    r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir optimizerTmp limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid params sym
+                                                                    r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid params sym
                                                                     pure (sym, r)
 
                                                 let errors =

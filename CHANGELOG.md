@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Trading: allow `--max-trades-per-day`, `--max-open-positions`, and `--max-open-per-base` to accept `0` to disable, matching CLI help.
 - Optimizer: allow `--max-hold-bars 0` from optimize-equity sweeps to disable the max-hold gate.
 - Optimizer: add `--protection-min-confidence-min/max` to sample exchange protection-order confidence gates in optimize-equity sweeps.
+- Optimizer: add `--risk-per-trade-min/max` and `--p-disable-risk-per-trade` to tune risk sizing in optimize-equity sweeps.
 - Trading: allow gating exchange protection orders (futures stop-loss/take-profit) by confidence via `--protection-min-confidence`.
 - Web UI: avoid scheme-relative API URLs when `apiBaseUrl` is empty by falling back to same-origin paths.
 - Web UI: add a floating “Bot activity” panel with live status, timing, and last-event context.
@@ -38,6 +39,7 @@ All notable changes to this project will be documented in this file.
 - Deploy/UI: quick AWS deploy no longer auto-sets a direct `apiFallbackUrl` when using `/api` proxy mode (avoids cross-origin fallback unless explicitly configured).
 - Web UI: Binance listenKey stream uses a direct fallback API base when configured to avoid CDN streaming errors.
 - Web UI: allow /api proxy requests to retry the configured direct fallback even if it was previously blocked.
+- API/Combos: serialize top-combos writes and merge `/state/sync` imports to avoid overwriting newer or higher-performing combos.
 - Web UI: auto-reconnect Binance listenKey streams with backoff after unexpected disconnects.
 - Web UI: fix layout reset toast initialization order to avoid a startup crash.
 - Web UI: ignore cross-origin fallbacks when `apiBaseUrl` is `/api` so proxy mode does not loop into CORS errors (use direct API mode for cross-origin failover).

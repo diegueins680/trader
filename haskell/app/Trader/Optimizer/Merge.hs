@@ -545,6 +545,7 @@ normalizeCombo value =
                                     , (Key.fromString "stopLoss", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "stopLoss") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "takeProfit", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "takeProfit") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "trailingStop", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "trailingStop") paramsRaw >>= coerceFloatValue))
+                                    , (Key.fromString "riskPerTrade", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "riskPerTrade") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "maxDrawdown", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxDrawdown") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "maxDailyLoss", maybe Null (Number . fromFloatDigits) (KM.lookup (Key.fromString "maxDailyLoss") paramsRaw >>= coerceFloatValue))
                                     , (Key.fromString "maxOrderErrors", maybe Null (Number . fromIntegral) (KM.lookup (Key.fromString "maxOrderErrors") paramsRaw >>= coerceIntValue))

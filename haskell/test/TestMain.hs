@@ -513,7 +513,7 @@ testLiquidationClamp = do
         finalEq = last (brEquityCurve bt)
         trades = brTrades bt
     assertApprox "equity clamped at 0" 1e-12 finalEq 0.0
-    assert "positions cleared after liquidation" (brPositions bt == [-1])
+    assert "positions cleared after liquidation" (brPositions bt == [0])
     assert "liquidation trade recorded" (case trades of [t] -> trExitReason t == Just ExitLiquidation; _ -> False)
 
 testMetricsMaxDrawdown :: IO ()

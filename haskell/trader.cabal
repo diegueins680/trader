@@ -25,8 +25,8 @@ executable trader-hs
                      , Trader.MarketContext
                      , Trader.Normalization
                      , Trader.Optimization
-                     , Trader.OnlineStats
                      , Trader.Optimizer.Json
+                     , Trader.OnlineStats
                      , Trader.Poloniex
                      , Trader.Predictors
                      , Trader.Predictors.Types
@@ -41,6 +41,7 @@ executable trader-hs
                      , Trader.SensorVariance
                      , Trader.Split
                      , Trader.Symbol
+                     , Trader.TopCombosStore
                      , Trader.S3
                      , Trader.Text
                      , Trader.Trading
@@ -156,6 +157,7 @@ test-suite trader-tests
                      , Trader.MarketContext
                      , Trader.Normalization
                      , Trader.Optimization
+                     , Trader.Optimizer.Json
                      , Trader.OnlineStats
                      , Trader.Poloniex
                      , Trader.Predictors
@@ -171,6 +173,7 @@ test-suite trader-tests
                      , Trader.SensorVariance
                      , Trader.Split
                      , Trader.Symbol
+                     , Trader.TopCombosStore
                      , Trader.Text
                      , Trader.Trading
                      , Paths_trader
@@ -236,6 +239,7 @@ benchmark trader-bench
                      , Trader.SensorVariance
                      , Trader.Split
                      , Trader.Symbol
+                     , Trader.TopCombosStore
                      , Trader.Text
                      , Trader.Trading
                      , Paths_trader

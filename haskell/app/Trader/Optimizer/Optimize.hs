@@ -694,6 +694,9 @@ data OptimizerArgs = OptimizerArgs
     , oaPDisableStopVolMult :: !Double
     , oaPDisableTpVolMult :: !Double
     , oaPDisableTrailVolMult :: !Double
+    , oaRiskPerTradeMin :: !Double
+    , oaRiskPerTradeMax :: !Double
+    , oaPDisableRiskPerTrade :: !Double
     , oaPDisableMaxDd :: !Double
     , oaPDisableMaxDl :: !Double
     , oaPDisableMaxOe :: !Double
@@ -858,6 +861,7 @@ data TrialParams = TrialParams
     , tpStopLossVolMult :: !(Maybe Double)
     , tpTakeProfitVolMult :: !(Maybe Double)
     , tpTrailingStopVolMult :: !(Maybe Double)
+    , tpRiskPerTrade :: !(Maybe Double)
     , tpMaxDrawdown :: !(Maybe Double)
     , tpMaxDailyLoss :: !(Maybe Double)
     , tpMaxOrderErrors :: !(Maybe Int)
@@ -1132,10 +1136,14 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
             case tpTrailingStopVolMult params of
                 Just v -> cmd22 ++ ["--trailing-stop-vol-mult", printf "%.8f" v]
                 Nothing -> cmd22
+        cmd23b =
+            case tpRiskPerTrade params of
+                Just v -> cmd23 ++ ["--risk-per-trade", printf "%.8f" (clamp v 1e-6 0.999999)]
+                Nothing -> cmd23
         cmd24 =
             case tpMaxDrawdown params of
-                Just v -> cmd23 ++ ["--max-drawdown", printf "%.8f" v]
-                Nothing -> cmd23
+                Just v -> cmd23b ++ ["--max-drawdown", printf "%.8f" v]
+                Nothing -> cmd23b
         cmd25 =
             case tpMaxDailyLoss params of
                 Just v -> cmd24 ++ ["--max-daily-loss", printf "%.8f" v]
@@ -1466,6 +1474,7 @@ trialToRecord tr symbolLabel =
             , "stopLossVolMult" .= tpStopLossVolMult (trParams tr)
             , "takeProfitVolMult" .= tpTakeProfitVolMult (trParams tr)
             , "trailingStopVolMult" .= tpTrailingStopVolMult (trParams tr)
+            , "riskPerTrade" .= tpRiskPerTrade (trParams tr)
             , "maxDrawdown" .= tpMaxDrawdown (trParams tr)
             , "maxDailyLoss" .= tpMaxDailyLoss (trParams tr)
             , "maxOrderErrors" .= tpMaxOrderErrors (trParams tr)
@@ -1633,6 +1642,8 @@ sampleParams
     pDisableStopVolMult
     pDisableTpVolMult
     pDisableTrailVolMult
+    riskPerTradeRange
+    pDisableRiskPerTrade
     pDisableMaxDd
     pDisableMaxDl
     pDisableMaxOe
@@ -1971,7 +1982,17 @@ sampleParams
                             hi = max lo (max (fst trailVolMultRange) (snd trailVolMultRange))
                          in nextMaybe pDisableTrailVolMult (nextLogUniform lo hi) rng57
                     else (Nothing, rng57)
-            (maxDrawdown, rng59) = nextMaybe pDisableMaxDd (nextUniform (fst maxDdRange) (snd maxDdRange)) rng58
+            (riskPerTrade, rng58b) =
+                let hasStop = isJust stopLoss || isJust stopLossVolMult
+                    (lo, hi) = ordered riskPerTradeRange
+                    hi' = min 0.999999 (max 0 hi)
+                    lo' = min hi' (max 1e-6 lo)
+                 in if not hasStop || hi' <= 0
+                        then (Nothing, rng58)
+                        else
+                            let (val, rng') = nextMaybe pDisableRiskPerTrade (nextUniform lo' hi') rng58
+                             in (fmap (\v -> clamp v 1e-6 0.999999) val, rng')
+            (maxDrawdown, rng59) = nextMaybe pDisableMaxDd (nextUniform (fst maxDdRange) (snd maxDdRange)) rng58b
             (maxDailyLoss, rng60) = nextMaybe pDisableMaxDl (nextUniform (fst maxDlRange) (snd maxDlRange)) rng59
             (maxOrderErrors, rng61) =
                 nextMaybe
@@ -2115,6 +2136,7 @@ sampleParams
                 , tpStopLossVolMult = stopLossVolMult
                 , tpTakeProfitVolMult = takeProfitVolMult
                 , tpTrailingStopVolMult = trailingStopVolMult
+                , tpRiskPerTrade = riskPerTrade
                 , tpMaxDrawdown = maxDrawdown
                 , tpMaxDailyLoss = maxDailyLoss
                 , tpMaxOrderErrors = maxOrderErrors
@@ -2297,6 +2319,9 @@ runOptimizer args0 = do
                                                         stopVolMultRange = (max 0 (oaStopVolMultMin args), max 0 (oaStopVolMultMax args))
                                                         takeVolMultRange = (max 0 (oaTpVolMultMin args), max 0 (oaTpVolMultMax args))
                                                         trailVolMultRange = (max 0 (oaTrailVolMultMin args), max 0 (oaTrailVolMultMax args))
+                                                        riskPerTradeMin = max 0 (oaRiskPerTradeMin args)
+                                                        riskPerTradeMax = max riskPerTradeMin (oaRiskPerTradeMax args)
+                                                        riskPerTradeRange = (riskPerTradeMin, riskPerTradeMax)
                                                         feeMin = max 0 (oaFeeMin args)
                                                         feeMax = max feeMin (oaFeeMax args)
                                                         fundingRateMin = oaFundingRateMin args
@@ -2639,6 +2664,7 @@ runOptimizer args0 = do
                                                                                 pConfirmConformal
                                                                                 pConfirmQuantiles
                                                                                 pConfidenceSizing
+                                                                                protectionMinConfidenceRange
                                                                                 minPositionSizeRange
                                                                                 stopRange
                                                                                 takeRange
@@ -2656,6 +2682,8 @@ runOptimizer args0 = do
                                                                                 (clamp (oaPDisableStopVolMult args) 0 1)
                                                                                 (clamp (oaPDisableTpVolMult args) 0 1)
                                                                                 (clamp (oaPDisableTrailVolMult args) 0 1)
+                                                                                riskPerTradeRange
+                                                                                (clamp (oaPDisableRiskPerTrade args) 0 1)
                                                                                 (clamp (oaPDisableMaxDd args) 0 1)
                                                                                 (clamp (oaPDisableMaxDl args) 0 1)
                                                                                 (clamp (oaPDisableMaxOe args) 0 1)
@@ -3251,6 +3279,7 @@ printBest tr = do
     putStrLn ("  stopLossVolMult:    " ++ showMaybe (tpStopLossVolMult p))
     putStrLn ("  takeProfitVolMult:  " ++ showMaybe (tpTakeProfitVolMult p))
     putStrLn ("  trailingStopVolMult:" ++ showMaybe (tpTrailingStopVolMult p))
+    putStrLn ("  riskPerTrade:       " ++ showMaybe (tpRiskPerTrade p))
     putStrLn ("  maxDrawdown:   " ++ showMaybe (tpMaxDrawdown p))
     putStrLn ("  maxDailyLoss:  " ++ showMaybe (tpMaxDailyLoss p))
     putStrLn ("  maxOrderErrors:" ++ showMaybe (tpMaxOrderErrors p))
@@ -3480,7 +3509,8 @@ crossoverTrialParams a b rng0 =
         (tpStopLossVolMult', rng81) = pickValue (tpStopLossVolMult a) (tpStopLossVolMult b) rng80
         (tpTakeProfitVolMult', rng82) = pickValue (tpTakeProfitVolMult a) (tpTakeProfitVolMult b) rng81
         (tpTrailingStopVolMult', rng83) = pickValue (tpTrailingStopVolMult a) (tpTrailingStopVolMult b) rng82
-        (tpMaxDrawdown', rng84) = pickValue (tpMaxDrawdown a) (tpMaxDrawdown b) rng83
+        (tpRiskPerTrade', rng83a) = pickValue (tpRiskPerTrade a) (tpRiskPerTrade b) rng83
+        (tpMaxDrawdown', rng84) = pickValue (tpMaxDrawdown a) (tpMaxDrawdown b) rng83a
         (tpMaxDailyLoss', rng85) = pickValue (tpMaxDailyLoss a) (tpMaxDailyLoss b) rng84
         (tpMaxOrderErrors', rng86) = pickValue (tpMaxOrderErrors a) (tpMaxOrderErrors b) rng85
         (tpKalmanDt', rng87) = pickValue (tpKalmanDt a) (tpKalmanDt b) rng86
@@ -3585,6 +3615,7 @@ crossoverTrialParams a b rng0 =
             , tpStopLossVolMult = tpStopLossVolMult'
             , tpTakeProfitVolMult = tpTakeProfitVolMult'
             , tpTrailingStopVolMult = tpTrailingStopVolMult'
+            , tpRiskPerTrade = tpRiskPerTrade'
             , tpMaxDrawdown = tpMaxDrawdown'
             , tpMaxDailyLoss = tpMaxDailyLoss'
             , tpMaxOrderErrors = tpMaxOrderErrors'
@@ -3632,7 +3663,8 @@ perturbTrialParams scaleDouble scaleInt p rng0 =
         (stopLossVolMult', rng21) = perturbMaybeDouble (tpStopLossVolMult p) scaleDouble rng20
         (takeProfitVolMult', rng22) = perturbMaybeDouble (tpTakeProfitVolMult p) scaleDouble rng21
         (trailingStopVolMult', rng23) = perturbMaybeDouble (tpTrailingStopVolMult p) scaleDouble rng22
-        (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23
+        (riskPerTrade', rng23a) = perturbMaybeDouble (tpRiskPerTrade p) scaleDouble rng23
+        (kalmanDt', rng24) = perturbDouble (tpKalmanDt p) scaleDouble rng23a
         (kalmanProcessVar', rng25) = perturbDouble (tpKalmanProcessVar p) scaleDouble rng24
         (kalmanMeasurementVar', rng26) = perturbDouble (tpKalmanMeasurementVar p) scaleDouble rng25
         (kalmanZMin', rng27) = perturbDouble (tpKalmanZMin p) scaleDouble rng26
@@ -3692,6 +3724,7 @@ perturbTrialParams scaleDouble scaleInt p rng0 =
             , tpStopLossVolMult = stopLossVolMult'
             , tpTakeProfitVolMult = takeProfitVolMult'
             , tpTrailingStopVolMult = trailingStopVolMult'
+            , tpRiskPerTrade = riskPerTrade'
             , tpKalmanDt = kalmanDt'
             , tpKalmanProcessVar = kalmanProcessVar'
             , tpKalmanMeasurementVar = kalmanMeasurementVar'
@@ -3862,6 +3895,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
                 , "stopLossVolMult" .= tpStopLossVolMult params
                 , "takeProfitVolMult" .= tpTakeProfitVolMult params
                 , "trailingStopVolMult" .= tpTrailingStopVolMult params
+                , "riskPerTrade" .= tpRiskPerTrade params
                 , "maxDrawdown" .= tpMaxDrawdown params
                 , "maxDailyLoss" .= tpMaxDailyLoss params
                 , "maxOrderErrors" .= tpMaxOrderErrors params

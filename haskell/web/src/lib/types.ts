@@ -547,7 +547,7 @@ export type StateSyncImportResponse = {
     skipped: number;
   };
   topCombos?: {
-    action: "replaced" | "kept" | "skipped";
+    action: "replaced" | "kept" | "skipped" | "merged";
     incomingGeneratedAtMs?: number;
     localGeneratedAtMs?: number;
   };
