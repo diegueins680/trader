@@ -263,7 +263,7 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           Auto-apply top combo
         </label>
         <span className="hint" style={{ marginLeft: 4 }}>
-          When enabled, the top combo overwrites the form (including symbol) on refresh.
+          When enabled, the top combo overwrites the form (including symbol) on refresh until you edit combo-driven fields.
         </span>
         {manualOverrideLabels.length > 0 ? (
           <>

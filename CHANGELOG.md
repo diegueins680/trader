@@ -107,7 +107,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: cap in-flight stdout/stderr capture for `/optimizer/run` to prevent runaway memory usage.
 - API: add `/optimizer/run` guardrails via `TRADER_OPTIMIZER_MAX_TRIALS`, `TRADER_OPTIMIZER_MAX_TIMEOUT_SEC`, and `TRADER_OPTIMIZER_MAX_BARS`.
 - Web UI: add optimizer run guardrails for trials/timeout/bars to prevent runaway runs.
-- Web UI: add a toggle to disable auto-applying the top combo so manual symbol changes persist.
+- Web UI: default top-combo auto-apply on and auto-disable it after manual edits to combo-driven fields.
 - Web UI: show the Binance futures account UID on the Open positions panel.
 - Web UI: align open-position entry markers with the inferred entry bar instead of the first chart bar.
 - Dev: add `haskell/scripts/start_api_bg.sh` helper to run the API with `.env` in the background.

@@ -1715,7 +1715,9 @@ export function App() {
   }, [activeTenantKey, comboImportUi.parseError, comboImportUi.payload]);
   const [autoAppliedCombo, setAutoAppliedCombo] = useState<{ id: number; atMs: number } | null>(null);
   const autoAppliedComboRef = useRef<{ id: number | null; atMs: number | null }>({ id: null, atMs: null });
-  const [autoApplyTopCombo, setAutoApplyTopCombo] = useState(false);
+  const [autoApplyTopCombo, setAutoApplyTopCombo] = useState(true);
+  const autoApplyTopComboChangeRef = useRef(false);
+  const formApplySignatureRef = useRef<string | null>(null);
   const [selectedComboId, setSelectedComboId] = useState<number | null>(null);
   const [pendingComboStart, setPendingComboStart] = useState<{
     signature: string;
@@ -1757,6 +1759,22 @@ export function App() {
   useEffect(() => {
     writeJson(STORAGE_KEY, form);
   }, [form]);
+
+  useEffect(() => {
+    const nextSignature = formApplySignature(form);
+    const prevSignature = formApplySignatureRef.current;
+    formApplySignatureRef.current = nextSignature;
+    if (!autoApplyTopCombo) {
+      autoApplyTopComboChangeRef.current = false;
+      return;
+    }
+    if (!prevSignature || nextSignature === prevSignature) return;
+    if (autoApplyTopComboChangeRef.current) {
+      autoApplyTopComboChangeRef.current = false;
+      return;
+    }
+    setAutoApplyTopCombo(false);
+  }, [autoApplyTopCombo, form]);
 
   const syncOptimizerRunForm = useCallback(() => {
     setOptimizerRunForm((prev) => ({
@@ -6021,6 +6039,7 @@ export function App() {
         const formSig = formApplySignature(currentForm);
         if (topSig !== formSig) {
           if (!pendingComboStartRef.current) {
+            autoApplyTopComboChangeRef.current = true;
             applyCombo(topCombo, { silent: true, respectManual: true, allowPositioning: true });
             const now = Date.now();
             setAutoAppliedCombo({ id: topCombo.id, atMs: now });
