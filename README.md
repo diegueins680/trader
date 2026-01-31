@@ -414,7 +414,7 @@ Tenant isolation (multi-user UI):
 - The backend stores only the hash and uses it to isolate stateful resources (live bots, listenKey streams, state sync snapshots).
 - Pass `tenantKey` in JSON payloads; for GET endpoints use `X-Tenant-Key` or `?tenantKey=`.
 - `/binance/keys` and `/coinbase/keys` return `tenantKey` when keys are present.
-- Trades use backend env keys only when the request `tenantKey` matches the backend keys; otherwise requests must include the user's API keys.
+- Trades use backend env keys when they are set and the request tenant matches (or when no tenantKey is provided). If backend keys are missing or the request tenant differs, requests must include user API keys, which are used for order placement.
 
 Build info:
 - `GET /` and `GET /health` include `version` and optional `commit` (from env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA`).
@@ -597,6 +597,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
 - When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained, and history snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
+- When `TRADER_DB_URL` is set, the API can rebuild `top-combos.json` from Postgres if local/S3 state is missing, so combos persist across deploys.
 - `top-combos.json` drops combos with `finalEquity <= 1` on read/write (including numeric strings), sanitizes combo symbols, and persists the filtered file to S3 when configured.
 - The UI auto-sanitizes combo symbols when applying them to the form so exchange symbol validation stays clean.
 

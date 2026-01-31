@@ -47,6 +47,7 @@ All notable changes to this project will be documented in this file.
 - API: ignore malformed quoted `.env` values instead of crashing on parse.
 - API: add `/binance/proxy/health` to report Binance proxy connectivity.
 - API: when `TRADER_API_TOKEN` is set and `TRADER_CORS_ORIGIN` is unset, echo the request Origin so direct UI calls work without explicit CORS config.
+- API: rebuild optimizer `top-combos.json` from Postgres when local/S3 state is missing so combos persist across deploys.
 - Web UI: try `apiBaseUrl` first and fail over to `apiFallbackUrl` after network/502/503/504 errors, remembering successful fallbacks for the session.
 - Web UI: retry `/bot/status` with a smaller tail on timeout errors to keep the dashboard responsive.
 - Web UI: seed optimizer combos from the repo-tracked `haskell/web/public/top-combos.json` (and local cache) when the API is unavailable.
@@ -68,7 +69,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: state sync requests no longer fall back to `apiFallbackUrl`, avoiding accidental cross-environment writes.
 - Web UI: add import/export controls for optimizer combos (download/copy top-combos JSON and import via `/state/sync`).
 - API/UI: add `tenantKey` (SHA-256 hash of API keys) for per-tenant isolation; stateful endpoints require `tenantKey` and the backend only stores the hash (returned by `/binance/keys` and `/coinbase/keys`).
-- API: `/trade` and `/trade/async` use backend keys only when the request `tenantKey` matches; non-owner trades must include user keys.
+- API: `/trade` and `/trade/async` use backend env keys only when they are configured and the request tenant matches (or no tenantKey is provided); otherwise request keys are required and used for order placement.
 - Web UI: add “Performance vs code” panel to review commit-level and combo-level rollups.
 - Web UI: switch the configuration dock to a menu bar and show each section as its own page to reduce clutter.
 - Web UI: make the configuration panel a full-page scroll instead of a fixed-height docked panel.
