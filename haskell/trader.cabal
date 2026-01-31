@@ -224,6 +224,7 @@ benchmark trader-bench
                      , Trader.MarketContext
                      , Trader.Normalization
                      , Trader.Optimization
+                     , Trader.Optimizer.Json
                      , Trader.OnlineStats
                      , Trader.Poloniex
                      , Trader.Predictors
