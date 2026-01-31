@@ -1416,6 +1416,7 @@ data ApiBinanceClosePositionRequest = ApiBinanceClosePositionRequest
   , abcpTenantKey :: !(Maybe String)
   , abcpSymbol :: !String
   , abcpPositionSide :: !(Maybe String)
+  , abcpPositionAmt :: !(Maybe Double)
   } deriving (Eq, Show, Generic)
 
 instance FromJSON ApiBinanceClosePositionRequest where
@@ -9802,6 +9803,10 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                     "POST" -> handleBinancePositions reqLimits mOps baseArgs req respondCors
                                     "GET" -> handleBinancePositionsGet reqLimits mOps baseArgs req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
+                            ["binance", "positions", "close"] ->
+                                case Wai.requestMethod req of
+                                    "POST" -> handleBinanceClosePosition reqLimits mOps baseArgs req respondCors
+                                    _ -> respondCors (jsonError status405 "Method not allowed")
                             ["binance", "trades"] ->
                                 case Wai.requestMethod req of
                                     "POST" -> handleBinanceTrades reqLimits mOps baseArgs req respondCors
@@ -13480,38 +13485,51 @@ handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
 
                                       shortErr ex = take 240 (show ex)
 
+                                  let fallbackAmt = abcpPositionAmt params
+                                      tryPlace posAmt posSideForOrder = do
+                                          let qty = abs posAmt
+                                              (sideLabel, side) = closeSide posAmt
+                                              posSideParam =
+                                                case reqSide of
+                                                  Just s -> Just s
+                                                  Nothing ->
+                                                    case posSideForOrder of
+                                                      Just s | s /= "BOTH" -> Just s
+                                                      _ -> Nothing
+                                              baseOut = baseResult sideLabel qty
+                                          r2 <- try (placeFuturesMarketOrderWithPositionSide env OrderLive sym side qty (Just True) Nothing posSideParam) :: IO (Either SomeException BL.ByteString)
+                                          case r2 of
+                                            Left ex ->
+                                              respond (jsonValue status200 baseOut { aorMessage = "Order failed: " ++ shortErr ex })
+                                            Right body -> do
+                                              let out0 =
+                                                    baseOut
+                                                      { aorSent = True
+                                                      , aorResponse = Just (shortResp body)
+                                                      , aorMessage = "Close order sent."
+                                                      }
+                                              respond (jsonValue status200 (maybe out0 (`applyOrderInfo` out0) (decodeOrderInfo body)))
+
                                   case openPositions of
-                                    [] -> noPosition ("No open position found for " ++ sym ++ ".")
+                                    [] ->
+                                      case fallbackAmt of
+                                        Just amt | abs amt > 1e-12 ->
+                                          let sideLabel = if amt > 0 then "SELL" else "BUY"
+                                           in tryPlace amt Nothing
+                                        _ -> noPosition ("No open position found for " ++ sym ++ ".")
                                     _ ->
                                       if isNothing reqSide && length sideSetNonBoth > 1
                                         then respond (jsonError status400 "Multiple hedge positions are open; provide positionSide (LONG/SHORT).")
                                         else
                                           case openMatches of
-                                            [] -> noPosition ("No open position found for " ++ sym ++ " (matching positionSide).")
+                                            [] ->
+                                              case fallbackAmt of
+                                                Just amt | abs amt > 1e-12 ->
+                                                  tryPlace amt reqSide
+                                                _ -> noPosition ("No open position found for " ++ sym ++ " (matching positionSide).")
                                             (pos:_) -> do
                                               let posAmt = fprPositionAmt pos
-                                                  qty = abs posAmt
-                                                  (sideLabel, side) = closeSide posAmt
-                                                  posSideParam =
-                                                    case reqSide of
-                                                      Just s -> Just s
-                                                      Nothing ->
-                                                        case posSideNorm pos of
-                                                          Just s | s /= "BOTH" -> Just s
-                                                          _ -> Nothing
-                                                  baseOut = baseResult sideLabel qty
-                                              r2 <- try (placeFuturesMarketOrderWithPositionSide env OrderLive sym side qty (Just True) Nothing posSideParam) :: IO (Either SomeException BL.ByteString)
-                                              case r2 of
-                                                Left ex ->
-                                                  respond (jsonValue status200 baseOut { aorMessage = "Order failed: " ++ shortErr ex })
-                                                Right body -> do
-                                                  let out0 =
-                                                        baseOut
-                                                          { aorSent = True
-                                                          , aorResponse = Just (shortResp body)
-                                                          , aorMessage = "Close order sent."
-                                                          }
-                                                  respond (jsonValue status200 (maybe out0 (`applyOrderInfo` out0) (decodeOrderInfo body)))
+                                              tryPlace posAmt (posSideNorm pos)
   where
     normalizePositionSideText raw =
       case fmap (map toUpper . trim) raw of

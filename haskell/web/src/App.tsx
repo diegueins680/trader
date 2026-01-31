@@ -37,7 +37,6 @@ import {
   HttpError,
   backtest,
   binanceClosePosition,
-  binancePositionsAll,
   binancePositions,
   binanceTrades,
   binanceKeysStatus,
@@ -5622,6 +5621,15 @@ export function App() {
     () => clamp(Math.trunc(binancePositionsBars), 10, 1000),
     [binancePositionsBars],
   );
+
+  // Auto-refresh positions every 5 minutes when API is healthy.
+  useEffect(() => {
+    if (apiOk !== "ok") return;
+    const id = window.setInterval(() => {
+      void fetchBinancePositions();
+    }, 5 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, [apiOk, fetchBinancePositions]);
   const binancePositionsInputError = useMemo(
     () =>
       firstReason(
@@ -5844,32 +5852,6 @@ export function App() {
     withBinanceKeys,
   ]);
 
-  const fetchBinancePositionsAll = useCallback(async () => {
-    binancePositionsAbortRef.current?.abort();
-    const controller = new AbortController();
-    binancePositionsAbortRef.current = controller;
-    setBinancePositionsUi((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const out = await binancePositionsAll(apiBase, {
-        headers: authHeaders,
-        timeoutMs: 30_000,
-        signal: controller.signal,
-      });
-      setBinancePositionsUi({ loading: false, error: null, response: out });
-      void fetchBinancePositionTrades(out.positions);
-    } catch (e) {
-      if (isAbortError(e)) return;
-      const msg = e instanceof Error ? e.message : String(e);
-      const isTimestampError = isBinanceTimestampErrorMessage(msg);
-      const finalMsg = isTimestampError
-        ? "Binance timestamp out of sync (code -1021). Ensure system time is synced and the Binance time endpoint is reachable, then retry."
-        : msg;
-      setBinancePositionsUi((s) => ({ ...s, loading: false, error: finalMsg }));
-    } finally {
-      if (binancePositionsAbortRef.current === controller) binancePositionsAbortRef.current = null;
-    }
-  }, [apiBase, authHeaders, fetchBinancePositionTrades]);
-
   const closeBinancePosition = useCallback(
     async (pos: { symbol: string; positionSide?: string | null }) => {
       if (apiOk !== "ok") {
@@ -5896,6 +5878,7 @@ export function App() {
           binanceTestnet: form.binanceTestnet,
           binanceLive: form.binanceLive,
           symbol: pos.symbol,
+          positionAmt: pos.positionAmt,
           ...(positionSide ? { positionSide } : {}),
         };
         const out = await binanceClosePosition(apiBase, withBinanceKeys(params), {
@@ -9331,15 +9314,6 @@ export function App() {
                       disabled={binancePositionsUi.loading || apiOk !== "ok" || Boolean(binancePositionsInputError)}
                     >
                       {binancePositionsUi.loading ? "Refreshing…" : "Refresh positions"}
-                    </button>
-                    <button
-                      className="btn"
-                      type="button"
-                      onClick={() => void fetchBinancePositionsAll()}
-                      disabled={binancePositionsUi.loading || apiOk !== "ok"}
-                      title="Fetch all open futures positions via GET /binance/positions (all symbols)."
-                    >
-                      Fetch all (GET)
                     </button>
                     {binancePositionsUi.response ? (
                       <>

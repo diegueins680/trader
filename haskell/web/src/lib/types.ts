@@ -263,6 +263,7 @@ export type ApiBinanceClosePositionRequest = {
   tenantKey?: string;
   symbol: string;
   positionSide?: string;
+  positionAmt?: number;
 };
 
 export type ApiBinancePositionsResponse = {
