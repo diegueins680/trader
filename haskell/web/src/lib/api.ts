@@ -214,6 +214,7 @@ function resolveFallbackBase(primaryBase: string): string | null {
   const primary = normalizeBaseUrl(primaryBase);
   const fallback = normalizeBaseUrl(fallbackRaw);
   if (!fallback || fallback === primary) return null;
+  if (primary.startsWith("/") && isCrossOriginBase(fallback)) return null;
   if (!primary.startsWith("/") && blockedFallbackBases.has(fallback)) return null;
   return fallback;
 }

@@ -2381,14 +2381,22 @@ export function App() {
   );
 
   const listenKeyStreamBase = useMemo(() => {
-    const trimmedBase = apiBase.trim();
-    if (trimmedBase.startsWith("/")) {
-      const trimmedFallback = apiFallbackBase.trim();
-      if (/^https?:\/\//i.test(trimmedFallback)) {
-        return trimmedFallback.replace(/\/+$/, "");
+    const trimmedBase = apiBase.trim().replace(/\/+$/, "");
+    if (!trimmedBase.startsWith("/")) return trimmedBase;
+    const trimmedFallback = apiFallbackBase.trim();
+    if (!trimmedFallback) return trimmedBase;
+    if (/^https?:\/\//i.test(trimmedFallback)) {
+      if (typeof window === "undefined") return trimmedBase;
+      try {
+        if (new URL(trimmedFallback).origin === window.location.origin) {
+          return trimmedFallback.replace(/\/+$/, "");
+        }
+      } catch {
+        return trimmedBase;
       }
+      return trimmedBase;
     }
-    return trimmedBase.replace(/\/+$/, "");
+    return trimmedFallback.startsWith("/") ? trimmedFallback.replace(/\/+$/, "") : trimmedBase;
   }, [apiBase, apiFallbackBase]);
 
   const apiHealthUrl = useMemo(() => {

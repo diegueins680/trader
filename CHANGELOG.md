@@ -36,7 +36,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: allow /api proxy requests to retry the configured direct fallback even if it was previously blocked.
 - Web UI: auto-reconnect Binance listenKey streams with backoff after unexpected disconnects.
 - Web UI: fix layout reset toast initialization order to avoid a startup crash.
-- Web UI: avoid preferring cross-origin fallbacks when apiBaseUrl is `/api` to prevent CORS loops.
+- Web UI: ignore cross-origin fallbacks when `apiBaseUrl` is `/api` so proxy mode does not loop into CORS errors (use direct API mode for cross-origin failover).
 - Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.
 - Deploy/API: quick AWS deploy now reuses `TRADER_BOT_AUTOSTART` from the service and supports setting it on deploy.
 - Deploy/API: quick AWS deploy can clear `TRADER_BINANCE_PROXY_URL` via `--clear-binance-proxy` / `TRADER_BINANCE_PROXY_CLEAR`.
