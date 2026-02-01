@@ -25,5 +25,10 @@
 (() => {
   const existing = globalThis.__TRADER_CONFIG__;
   if (existing && typeof existing === "object") return;
-  globalThis.__TRADER_CONFIG__ = { apiBaseUrl: "/api", apiFallbackUrl: "", apiToken: "6c5808d0d2058d74f8f39584d8776f8227db04c42360378424d48b545854eea7", timeoutsMs: {} };
+  globalThis.__TRADER_CONFIG__ = {
+    apiBaseUrl: "/api",
+    apiFallbackUrl: "",
+    apiToken: "6c5808d0d2058d74f8f39584d8776f8227db04c42360378424d48b545854eea7",
+    timeoutsMs: { botStatusMs: 120000 },
+  };
 })();

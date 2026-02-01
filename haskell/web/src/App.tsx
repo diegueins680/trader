@@ -4820,7 +4820,9 @@ export function App() {
 
         setApiOk((prev) => {
           if (e instanceof HttpError && (e.status === 401 || e.status === 403)) return "auth";
-          const looksDown = msg.toLowerCase().includes("fetch") || (e instanceof HttpError && e.status >= 500) || isTimeoutError(e);
+          const msgLower = msg.toLowerCase();
+          const looksDown =
+            msgLower.includes("backend unreachable") || msgLower.includes("fetch") || (e instanceof HttpError && e.status >= 500);
           return looksDown ? "down" : prev;
         });
 
