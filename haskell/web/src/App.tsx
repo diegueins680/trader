@@ -2213,6 +2213,7 @@ export function App() {
       const panel = botPanelRef.current;
       if (!panel) return;
       const rect = panel.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
       let dx = 0;
       let dy = 0;
       if (rect.left < BOT_PANEL_DRAG_PADDING) {
@@ -2229,10 +2230,14 @@ export function App() {
         setBotPanelOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
       }
     };
-    clampPanelToViewport();
-    window.addEventListener("resize", clampPanelToViewport);
-    return () => window.removeEventListener("resize", clampPanelToViewport);
-  }, []);
+    const handleResize = () => {
+      if (!botPanelOpen) return;
+      clampPanelToViewport();
+    };
+    if (botPanelOpen) clampPanelToViewport();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [botPanelOpen]);
 
   const openPanelAncestors = useCallback(
     (el: HTMLElement) => {
