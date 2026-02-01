@@ -1078,6 +1078,40 @@ body.panelMaximized .cardMaximized {
   justify-content: center;
 }
 
+.menuHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px dashed var(--stroke);
+  cursor: default;
+}
+
+.menuHintClose {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.menuHintClose:hover {
+  color: var(--text);
+}
+
+.menuHintClose:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 999px;
+}
+
 .menuItem {
   height: 28px;
   padding: 0 12px;
@@ -2762,7 +2796,8 @@ body.panelMaximized .cardMaximized {
 
   .btn,
   .btnSmall,
-  .comboRow {
+  .comboRow,
+  .botPanelToggle {
     transition: none;
   }
 
@@ -2784,6 +2819,7 @@ body.panelMaximized .cardMaximized {
   flex-direction: column;
   gap: 10px;
   overflow: hidden;
+  will-change: transform;
 }
 
 .botPanelHeader {
@@ -2791,6 +2827,21 @@ body.panelMaximized .cardMaximized {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.botPanel.botPanelDragging .botPanelHeader {
+  cursor: grabbing;
+}
+
+.botPanelHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .botPanelTitle {
@@ -2807,9 +2858,50 @@ body.panelMaximized .cardMaximized {
   font-size: 12px;
 }
 
+.botPanelToggle {
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.botPanelToggle:hover {
+  transform: translateY(-1px);
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.3);
+}
+
+.botPanelToggle:active {
+  transform: translateY(0);
+}
+
+.botPanelToggle:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-color: rgba(var(--accent-rgb), 0.55);
+}
+
 .botPanelBadges {
   gap: 6px;
   margin-top: 2px;
+}
+
+.botPanelDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.botPanelDetails[hidden] {
+  display: none;
 }
 
 .botPanelBody {

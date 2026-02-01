@@ -4,9 +4,10 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 - Trading/CLI: enforce lookback+1 price-row minimum even when CSV uses `--bars auto/0` to avoid short-series failures.
 - Optimizer: respect the configured `--tune-objective` when `--threshold-factor` is enabled (no forced override).
-- Web UI: guard the Bot activity panel against multi-bot status payloads missing `latestSignal`.
+- Web UI: normalize bot status latestSignal to avoid crashes when payloads omit it (including older API versions).
 - Predictors: add psychological price-level proximity features (round-number clustering) to the feature set.
 - Predictors: add short/mid momentum and volatility-spread features to improve signal quality.
+- API/UI: include test-order sizing details in Binance key-check trade permission errors to debug precision rejections.
 - Kalman: sensor variance now uses EWMA residuals so measurement weighting adapts faster to regime shifts.
 - Router: model scoring now uses risk-adjusted net returns (mean/vol) to avoid noisy switches.
 - Optimizer: allow `optimize-equity` to pass `--futures` through for Binance futures data.
@@ -21,6 +22,10 @@ All notable changes to this project will be documented in this file.
 - Trading: allow gating exchange protection orders (futures stop-loss/take-profit) by confidence via `--protection-min-confidence`.
 - Web UI: avoid scheme-relative API URLs when `apiBaseUrl` is empty by falling back to same-origin paths.
 - Web UI: add a floating “Bot activity” panel with live status, timing, and last-event context.
+- Web UI: allow minimizing and dragging the floating “Bot activity” panel.
+- Web UI: expand/collapse all now includes the floating “Bot activity” panel.
+- Web UI: layout actions now show a dismissible hint that Bot activity is included.
+- Web UI: allow importing optimizer combos into State sync from exported state-sync/top-combos JSON files.
 - API/UI: add `/binance/positions/close` and a “Close position” button to send reduce-only futures close orders (includes `positionSide` in hedge mode).
 - Binance: retry signed requests on timestamp skew and treat existing protection orders as non-fatal to keep key checks and protection refreshes stable after idle/sleep.
 - Optimizer: avoid overwriting existing `top-combos.json` with fallback seeds when the primary file exists but fails to load.
@@ -53,6 +58,7 @@ All notable changes to this project will be documented in this file.
 - Deploy/API: quick AWS deploy now checks Binance proxy connectivity when a proxy is configured (optional strict failure).
 - Web UI: restore optimizer UI guardrail constants to unblock production builds.
 - API: add `TRADER_BOT_AUTOSTART` to disable live-bot auto-start on boot.
+- Web UI: fix Bot activity minimize toggle so collapsed state hides details.
 - API: load `.env` (or `TRADER_ENV_FILE`) on startup to populate environment variables like `TRADER_DB_URL`.
 - API: ignore malformed quoted `.env` values instead of crashing on parse.
 - API: add `/binance/proxy/health` to report Binance proxy connectivity.

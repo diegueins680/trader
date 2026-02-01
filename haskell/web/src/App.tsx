@@ -112,6 +112,7 @@ import {
   RATE_LIMIT_TOAST_MIN_MS,
   SESSION_BINANCE_KEY_KEY,
   SESSION_BINANCE_SECRET_KEY,
+  SESSION_BOT_PANEL_HINT_KEY,
   SESSION_COINBASE_KEY_KEY,
   SESSION_COINBASE_SECRET_KEY,
   SESSION_COINBASE_PASSPHRASE_KEY,
@@ -119,6 +120,7 @@ import {
   STORAGE_CONFIG_PANEL_ORDER_KEY,
   STORAGE_CONFIG_PAGE_KEY,
   STORAGE_CONFIG_TAB_KEY,
+  STORAGE_BOT_PANEL_POS_KEY,
   STORAGE_DATA_LOG_KEY,
   STORAGE_DATA_LOG_PREFS_KEY,
   STORAGE_KEY,
@@ -322,6 +324,15 @@ const OptimizerCombosPanel = lazy(() =>
   import("./components/OptimizerCombosPanel").then((mod) => ({ default: mod.OptimizerCombosPanel })),
 );
 
+type BotPanelOffset = { x: number; y: number };
+type BotPanelDragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startOffset: BotPanelOffset;
+  rect: DOMRect;
+};
+
 const BOT_DISPLAY_STALE_MS = 6_000;
 const BOT_DISPLAY_STARTING_STALE_MS = Number.POSITIVE_INFINITY;
 const BOT_STATUS_RETRYABLE_HTTP = new Set([502, 503, 504]);
@@ -329,6 +340,7 @@ const BINANCE_POSITIONS_OPEN_TIME_LIMIT = 200;
 const CHART_HEIGHT = "var(--chart-height)";
 const CHART_HEIGHT_SIDE = "var(--chart-height-side)";
 const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
+const BOT_PANEL_DRAG_PADDING = 12;
 const STATE_SYNC_CHUNK_DEFAULT_BYTES = 900_000;
 const STATE_SYNC_CHUNK_MAX_BYTES = 50_000_000;
 const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
@@ -421,6 +433,58 @@ function buildBotOrderOverlay(
 
   return { operations, positions };
 }
+
+// Backfill latestSignal when older bot status payloads omit it.
+const buildFallbackLatestSignal = (st: BotStatusRunning): LatestSignal => {
+  const lastPrice = st.prices[st.prices.length - 1];
+  const currentPrice = typeof lastPrice === "number" && Number.isFinite(lastPrice) ? lastPrice : Number.NaN;
+  return {
+    method: st.method,
+    currentPrice,
+    threshold: st.threshold,
+    openThreshold: st.openThreshold,
+    closeThreshold: st.closeThreshold,
+    kalmanNext: null,
+    kalmanReturn: null,
+    kalmanStd: null,
+    kalmanZ: null,
+    volatility: null,
+    regimes: null,
+    quantiles: null,
+    conformalInterval: null,
+    confidence: null,
+    positionSize: null,
+    kalmanDirection: null,
+    lstmNext: null,
+    lstmDirection: null,
+    chosenDirection: null,
+    closeDirection: null,
+    action: "—",
+  };
+};
+
+const normalizeBotStatusRunning = (status: BotStatusRunning): BotStatusRunning => {
+  const latestSignal = status.latestSignal ?? buildFallbackLatestSignal(status);
+  if (latestSignal === status.latestSignal) return status;
+  return { ...status, latestSignal };
+};
+
+const normalizeBotStatusSingle = (status: BotStatusSingle): BotStatusSingle => {
+  if (status.running) return normalizeBotStatusRunning(status);
+  if (status.snapshot) {
+    const snapshot = normalizeBotStatusRunning(status.snapshot);
+    if (snapshot !== status.snapshot) return { ...status, snapshot };
+  }
+  return status;
+};
+
+const normalizeBotStatus = (status: BotStatus): BotStatus => {
+  if (isBotStatusMulti(status)) {
+    const bots = status.bots.map(normalizeBotStatusSingle);
+    return { ...status, bots };
+  }
+  return normalizeBotStatusSingle(status);
+};
 type ComboImportSummary = {
   comboCount: number;
   generatedAtMs: number | null;
@@ -430,6 +494,11 @@ type ComboImportSummary = {
 type ComboImportParseResult = {
   payload: Record<string, unknown> | null;
   summary: ComboImportSummary | null;
+  error: string | null;
+};
+
+type StateSyncCombosImportResult = {
+  payload: StateSyncPayload | null;
   error: string | null;
 };
 
@@ -490,6 +559,36 @@ const parseTopCombosJson = (rawText: string): ComboImportParseResult => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Invalid JSON.";
     return { payload: null, summary: null, error: `Invalid JSON: ${msg}` };
+  }
+};
+
+const parseStateSyncCombosJson = (rawText: string): StateSyncCombosImportResult => {
+  const trimmed = rawText.trim();
+  if (!trimmed) {
+    return { payload: null, error: "Select combos JSON first." };
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const result = parseTopCombosPayload(parsed);
+    if (!result.payload) {
+      return { payload: null, error: result.error ?? "Invalid combos JSON." };
+    }
+    const payload: StateSyncPayload = { topCombos: result.payload };
+    if (parsed && typeof parsed === "object") {
+      const root = parsed as Record<string, unknown>;
+      const generatedAtMsRaw = root.generatedAtMs;
+      if (typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw)) {
+        payload.generatedAtMs = Math.trunc(generatedAtMsRaw);
+      } else if (result.summary?.generatedAtMs != null) {
+        payload.generatedAtMs = result.summary.generatedAtMs;
+      }
+    } else if (result.summary?.generatedAtMs != null) {
+      payload.generatedAtMs = result.summary.generatedAtMs;
+    }
+    return { payload, error: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid JSON.";
+    return { payload: null, error: `Invalid JSON: ${msg}` };
   }
 };
 
@@ -1029,6 +1128,8 @@ type StateSyncUiState = {
   exportError: string | null;
   payload: StateSyncPayload | null;
   exportedAtMs: number | null;
+  importError: string | null;
+  importedAtMs: number | null;
   pushing: boolean;
   pushError: string | null;
   pushResult: StateSyncImportResponse | null;
@@ -1281,6 +1382,20 @@ export function App() {
   const [draggingConfigPanel, setDraggingConfigPanel] = useState<ConfigPanelId | null>(null);
   const [dragOverConfigPanel, setDragOverConfigPanel] = useState<ConfigPanelId | null>(null);
   const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
+  const [botPanelOffset, setBotPanelOffset] = useState<BotPanelOffset>(() => {
+    const stored = readJson<BotPanelOffset>(STORAGE_BOT_PANEL_POS_KEY);
+    if (!stored || typeof stored.x !== "number" || typeof stored.y !== "number") {
+      return { x: 0, y: 0 };
+    }
+    if (!Number.isFinite(stored.x) || !Number.isFinite(stored.y)) {
+      return { x: 0, y: 0 };
+    }
+    return { x: stored.x, y: stored.y };
+  });
+  const [showBotPanelHint, setShowBotPanelHint] = useState(() => !readSessionString(SESSION_BOT_PANEL_HINT_KEY));
+  const [botPanelDragging, setBotPanelDragging] = useState(false);
+  const botPanelRef = useRef<HTMLElement | null>(null);
+  const botPanelDragRef = useRef<BotPanelDragState | null>(null);
   const [state, setState] = useState<UiState>({
     loading: false,
     error: null,
@@ -1340,6 +1455,8 @@ export function App() {
     exportError: null,
     payload: null,
     exportedAtMs: null,
+    importError: null,
+    importedAtMs: null,
     pushing: false,
     pushError: null,
     pushResult: null,
@@ -1857,6 +1974,11 @@ export function App() {
   }, [panelPrefs]);
 
   useEffect(() => {
+    if (!Number.isFinite(botPanelOffset.x) || !Number.isFinite(botPanelOffset.y)) return;
+    writeJson(STORAGE_BOT_PANEL_POS_KEY, botPanelOffset);
+  }, [botPanelOffset]);
+
+  useEffect(() => {
     if (typeof document === "undefined") return;
     document.body.classList.toggle("panelMaximized", Boolean(maximizedPanelId));
     return () => {
@@ -1988,7 +2110,7 @@ export function App() {
 
   const collectPanelIds = useCallback((): string[] => {
     if (typeof document === "undefined") return [];
-    const nodes = Array.from(document.querySelectorAll<HTMLElement>("details[data-panel]"));
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>("details[data-panel], aside[data-panel]"));
     const ids = nodes
       .map((node) => node.getAttribute("data-panel"))
       .filter((id): id is string => Boolean(id));
@@ -2023,12 +2145,94 @@ export function App() {
     removeLocalKey(STORAGE_CONFIG_PANEL_ORDER_KEY);
     removeLocalKey(STORAGE_CONFIG_PAGE_KEY);
     removeLocalKey(STORAGE_CONFIG_TAB_KEY);
+    removeLocalKey(STORAGE_BOT_PANEL_POS_KEY);
     setPanelPrefs({});
     setConfigPanelOrder(CONFIG_PANEL_IDS);
     setConfigPage("section-api");
     setMaximizedPanelId(null);
+    setBotPanelOffset({ x: 0, y: 0 });
     showToast("Layout reset");
   }, [showToast]);
+
+  const handleBotPanelPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-no-drag="true"]')) return;
+      const panel = botPanelRef.current;
+      if (!panel || typeof window === "undefined") return;
+      const rect = panel.getBoundingClientRect();
+      botPanelDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startOffset: botPanelOffset,
+        rect,
+      };
+      setBotPanelDragging(true);
+      event.preventDefault();
+    },
+    [botPanelOffset],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = botPanelDragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const dxRaw = event.clientX - drag.startX;
+      const dyRaw = event.clientY - drag.startY;
+      const minDx = BOT_PANEL_DRAG_PADDING - drag.rect.left;
+      const maxDx = window.innerWidth - BOT_PANEL_DRAG_PADDING - drag.rect.right;
+      const minDy = BOT_PANEL_DRAG_PADDING - drag.rect.top;
+      const maxDy = window.innerHeight - BOT_PANEL_DRAG_PADDING - drag.rect.bottom;
+      const dx = clamp(dxRaw, minDx, maxDx);
+      const dy = clamp(dyRaw, minDy, maxDy);
+      const next = { x: drag.startOffset.x + dx, y: drag.startOffset.y + dy };
+      setBotPanelOffset((prev) => (prev.x === next.x && prev.y === next.y ? prev : next));
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      const drag = botPanelDragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      botPanelDragRef.current = null;
+      setBotPanelDragging(false);
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const clampPanelToViewport = () => {
+      const panel = botPanelRef.current;
+      if (!panel) return;
+      const rect = panel.getBoundingClientRect();
+      let dx = 0;
+      let dy = 0;
+      if (rect.left < BOT_PANEL_DRAG_PADDING) {
+        dx = BOT_PANEL_DRAG_PADDING - rect.left;
+      } else if (rect.right > window.innerWidth - BOT_PANEL_DRAG_PADDING) {
+        dx = window.innerWidth - BOT_PANEL_DRAG_PADDING - rect.right;
+      }
+      if (rect.top < BOT_PANEL_DRAG_PADDING) {
+        dy = BOT_PANEL_DRAG_PADDING - rect.top;
+      } else if (rect.bottom > window.innerHeight - BOT_PANEL_DRAG_PADDING) {
+        dy = window.innerHeight - BOT_PANEL_DRAG_PADDING - rect.bottom;
+      }
+      if (dx !== 0 || dy !== 0) {
+        setBotPanelOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+      }
+    };
+    clampPanelToViewport();
+    window.addEventListener("resize", clampPanelToViewport);
+    return () => window.removeEventListener("resize", clampPanelToViewport);
+  }, []);
 
   const openPanelAncestors = useCallback(
     (el: HTMLElement) => {
@@ -2540,8 +2744,59 @@ export function App() {
     return data;
   }, []);
 
+  const handleStateSyncCombosFile = useCallback((file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === "string" ? reader.result : "";
+      const result = parseStateSyncCombosJson(text);
+      if (!result.payload) {
+        setStateSyncUi((prev) => ({
+          ...prev,
+          payload: null,
+          exportedAtMs: null,
+          exportError: null,
+          importError: result.error ?? "Invalid combos JSON.",
+          importedAtMs: null,
+          pushError: null,
+          pushResult: null,
+          pushChunkCount: null,
+          pushedAtMs: null,
+        }));
+        return;
+      }
+      setStateSyncUi((prev) => ({
+        ...prev,
+        payload: result.payload,
+        exportedAtMs: null,
+        exportError: null,
+        importError: null,
+        importedAtMs: Date.now(),
+        pushError: null,
+        pushResult: null,
+        pushChunkCount: null,
+        pushedAtMs: null,
+      }));
+    };
+    reader.onerror = () => {
+      setStateSyncUi((prev) => ({
+        ...prev,
+        payload: null,
+        exportedAtMs: null,
+        exportError: null,
+        importError: "Failed to read file.",
+        importedAtMs: null,
+        pushError: null,
+        pushResult: null,
+        pushChunkCount: null,
+        pushedAtMs: null,
+      }));
+    };
+    reader.readAsText(file);
+  }, []);
+
   const exportStateSync = useCallback(async (): Promise<StateSyncPayload | null> => {
-    setStateSyncUi((prev) => ({ ...prev, exporting: true, exportError: null }));
+    setStateSyncUi((prev) => ({ ...prev, exporting: true, exportError: null, importError: null, importedAtMs: null }));
     try {
       if (stateSyncSelectionEmpty) {
         const msg = "Select bot snapshots and/or combos to export.";
@@ -2557,7 +2812,15 @@ export function App() {
       const filtered = pruneStateSyncPayload(out, { includeBots: stateSyncIncludeBots, includeCombos: stateSyncIncludeCombos });
       if (isStateSyncPayloadEmpty(filtered)) {
         const msg = "Nothing to export for the selected payload options.";
-        setStateSyncUi((prev) => ({ ...prev, exporting: false, exportError: msg, payload: null, exportedAtMs: null }));
+        setStateSyncUi((prev) => ({
+          ...prev,
+          exporting: false,
+          exportError: msg,
+          payload: null,
+          exportedAtMs: null,
+          importError: null,
+          importedAtMs: null,
+        }));
         return null;
       }
       setStateSyncUi((prev) => ({
@@ -2566,6 +2829,8 @@ export function App() {
         exportError: null,
         payload: filtered,
         exportedAtMs: Date.now(),
+        importError: null,
+        importedAtMs: null,
         pushChunkCount: null,
       }));
       appendDataLog("State Sync Export", filtered);
@@ -4890,7 +5155,8 @@ export function App() {
         const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
         botStatusFetchedRef.current = true;
-        const botStatuses = isBotStatusMulti(out) ? out.bots : [out];
+        const normalized = normalizeBotStatus(out);
+        const botStatuses = isBotStatusMulti(normalized) ? normalized.bots : [normalized as BotStatusSingle];
         const runningStatuses = botStatuses.filter((status): status is BotStatusRunning => status.running);
         setBotRtByKey((prev) => {
           if (runningStatuses.length === 0) {
@@ -5049,7 +5315,7 @@ export function App() {
           botRtRef.current = nextRef;
           return next;
         });
-        setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+        setBot((s) => ({ ...s, loading: false, error: null, status: normalized }));
         setApiOk("ok");
       } catch (e) {
         if (requestId !== botRequestSeqRef.current) return;
@@ -5200,7 +5466,8 @@ export function App() {
         if (primarySymbol) payload.binanceSymbol = primarySymbol;
         if (startSymbols.length > 0) payload.botSymbols = startSymbols;
         const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
-        setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+        const normalized = normalizeBotStatus(out);
+        setBot((s) => ({ ...s, loading: false, error: null, status: normalized }));
         appendDataLog(`Bot Start Response${silent ? " (auto)" : ""}`, out, { background: silent });
         if (symbolsOverride.length > 0) {
           if (shouldSelectPrimary) setBotSelectedSymbol(primarySymbol || null);
@@ -5555,7 +5822,8 @@ export function App() {
         return;
       }
       const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 }, symbol, activeTenantKey);
-      setBot((s) => ({ ...s, loading: false, error: null, status: out }));
+      const normalized = normalizeBotStatus(out);
+      setBot((s) => ({ ...s, loading: false, error: null, status: normalized }));
       appendDataLog("Bot Stop Response", out);
       botAutoStartSuppressedRef.current = true;
       showToast(symbol ? `Bot stopped (${symbol})` : "Bot stopped");
@@ -6211,8 +6479,9 @@ export function App() {
       tradeEnabled = typeof st.settings?.tradeEnabled === "boolean" ? st.settings.tradeEnabled : null;
 
       const latestSignal = st.latestSignal ?? null;
-      if (latestSignal?.action) {
-        badges.push({ key: "action", label: latestSignal.action, className: actionBadgeClass(latestSignal.action) });
+      const latestAction = latestSignal?.action ?? "";
+      if (latestAction) {
+        badges.push({ key: "action", label: latestAction, className: actionBadgeClass(latestAction) });
       }
 
       phaseLabel = halted
@@ -6220,7 +6489,14 @@ export function App() {
         : typeof st.cooldownLeft === "number" && Number.isFinite(st.cooldownLeft) && st.cooldownLeft > 0
           ? `Cooldown (${Math.max(0, Math.trunc(st.cooldownLeft))} bars)`
           : "Active";
-      actionLabel = latestSignal ? `${latestSignal.action} @ ${fmtMoney(latestSignal.currentPrice, 4)}` : "—";
+      if (latestAction) {
+        if (latestAction === "—") {
+          actionLabel = latestAction;
+        } else {
+          const priceLabel = fmtMoney(latestSignal?.currentPrice ?? Number.NaN, 4);
+          actionLabel = `${latestAction} @ ${priceLabel}`;
+        }
+      }
       nextPollLabel = fmtEtaMs(botRealtime?.nextPollEtaMs);
       lastOrderLabel = st.lastOrder?.message ?? null;
     } else {
@@ -7533,6 +7809,15 @@ export function App() {
       }
     : null;
   const tradeOrder = state.trade?.order ?? null;
+  const botPanelOpen = isPanelOpen("panel-bot-activity", true);
+  const botPanelDetailsId = "bot-panel-details";
+  const botPanelStyle = useMemo(
+    () =>
+      ({
+        transform: `translate3d(${botPanelOffset.x}px, ${botPanelOffset.y}px, 0)`,
+      }) as React.CSSProperties,
+    [botPanelOffset],
+  );
   const combosOpen = isPanelOpen("panel-combos", true);
   const configOpen = isPanelOpen("panel-config", true);
   const dockLayoutClass = `dockLayout dockLayoutConfigPage${combosOpen ? "" : " dockLayoutCompactBottom"}${configOpen ? "" : " dockLayoutCompactTop"}`;
@@ -7875,6 +8160,22 @@ export function App() {
                   <button className="menuItem" type="button" onClick={resetLayout}>
                     Reset layout
                   </button>
+                  {showBotPanelHint ? (
+                    <span className="menuHint" title="Expand/Collapse all also affects the Bot activity panel.">
+                      Includes Bot activity
+                      <button
+                        className="menuHintClose"
+                        type="button"
+                        aria-label="Dismiss hint"
+                        onClick={() => {
+                          setShowBotPanelHint(false);
+                          writeSessionString(SESSION_BOT_PANEL_HINT_KEY, "1");
+                        }}
+                      >
+                        x
+                      </button>
+                    </span>
+                  ) : null}
                 </div>
                 {requestIssueDetails.length > 0 ? (
                   <details className="menuIssues">
@@ -7902,52 +8203,72 @@ export function App() {
           </details>
           <ConfigDock {...configDockProps} />
       </div>
-      <aside className="botPanel card" aria-label="Bot activity">
-        <div className="botPanelHeader">
+      <aside
+        className={`botPanel card${botPanelDragging ? " botPanelDragging" : ""}`}
+        aria-label="Bot activity"
+        data-panel="panel-bot-activity"
+        ref={botPanelRef}
+        style={botPanelStyle}
+      >
+        <div className="botPanelHeader" onPointerDown={handleBotPanelPointerDown}>
           <div className="botPanelTitle">Bot activity</div>
-          <div className="botPanelStatus">
-            <span className={botPanel.dotClass} aria-hidden="true" />
-            {botPanel.statusLabel}
+          <div className="botPanelHeaderActions">
+            <div className="botPanelStatus">
+              <span className={botPanel.dotClass} aria-hidden="true" />
+              {botPanel.statusLabel}
+            </div>
+            <button
+              className="botPanelToggle"
+              type="button"
+              aria-expanded={botPanelOpen}
+              aria-controls={botPanelDetailsId}
+              data-no-drag="true"
+              onClick={() => setPanelOpen("panel-bot-activity", !botPanelOpen)}
+            >
+              {botPanelOpen ? "Minimize" : "Expand"}
+            </button>
           </div>
         </div>
-        {botPanel.badges.length > 0 ? (
-          <div className="pillRow botPanelBadges">
-            {botPanel.badges.map((badge) => (
-              <span key={badge.key} className={badge.className}>
-                {badge.label}
-              </span>
-            ))}
-          </div>
-        ) : null}
-        <div className="botPanelBody">
-          <div className="kv">
-            <div className="k">Phase</div>
-            <div className="v">{botPanel.phaseLabel}</div>
-          </div>
-          <div className="kv">
-            <div className="k">Action</div>
-            <div className="v">{botPanel.actionLabel}</div>
-          </div>
-          <div className="kv">
-            <div className="k">Next poll</div>
-            <div className="v">{botPanel.nextPollLabel}</div>
-          </div>
-          <div className="kv">
-            <div className="k">Updated</div>
-            <div className="v">{botPanel.updatedLabel}</div>
-          </div>
-          <div className="kv">
-            <div className="k">Last event</div>
-            <div className="v botPanelEvent">{botPanel.lastEventLabel}</div>
-          </div>
-          {botPanel.lastOrderLabel ? (
-            <div className="kv">
-              <div className="k">Last order</div>
-              <div className="v">{botPanel.lastOrderLabel}</div>
+        <div className="botPanelDetails" id={botPanelDetailsId} hidden={!botPanelOpen}>
+          {botPanel.badges.length > 0 ? (
+            <div className="pillRow botPanelBadges">
+              {botPanel.badges.map((badge) => (
+                <span key={badge.key} className={badge.className}>
+                  {badge.label}
+                </span>
+              ))}
             </div>
           ) : null}
+          <div className="botPanelBody">
+            <div className="kv">
+              <div className="k">Phase</div>
+              <div className="v">{botPanel.phaseLabel}</div>
+            </div>
+            <div className="kv">
+              <div className="k">Action</div>
+              <div className="v">{botPanel.actionLabel}</div>
+            </div>
+            <div className="kv">
+              <div className="k">Next poll</div>
+              <div className="v">{botPanel.nextPollLabel}</div>
+            </div>
+            <div className="kv">
+              <div className="k">Updated</div>
+              <div className="v">{botPanel.updatedLabel}</div>
+            </div>
+            <div className="kv">
+              <div className="k">Last event</div>
+              <div className="v botPanelEvent">{botPanel.lastEventLabel}</div>
+            </div>
+            {botPanel.lastOrderLabel ? (
+              <div className="kv">
+                <div className="k">Last order</div>
+                <div className="v">{botPanel.lastOrderLabel}</div>
+              </div>
+            ) : null}
+          </div>
+          {botPanel.error ? <div className="botPanelAlert">{botPanel.error}</div> : null}
         </div>
-        {botPanel.error ? <div className="botPanelAlert">{botPanel.error}</div> : null}
       </aside>
       <main className="dockMain">
         <section className="resultGrid">
@@ -10469,6 +10790,8 @@ export function App() {
                       payload: null,
                       exportError: null,
                       exportedAtMs: null,
+                      importError: null,
+                      importedAtMs: null,
                       pushError: null,
                       pushResult: null,
                       pushChunkCount: null,
@@ -10478,6 +10801,26 @@ export function App() {
                 >
                   Clear
                 </button>
+              </div>
+
+              <div className="row" style={{ marginTop: 10, alignItems: "end" }}>
+                <div className="field" style={{ flex: "1 1 280px" }}>
+                  <label className="label" htmlFor="stateSyncCombosFile">
+                    Import combos JSON
+                  </label>
+                  <input
+                    id="stateSyncCombosFile"
+                    className="input"
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      handleStateSyncCombosFile(file);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <div className="hint">Accepts a /state/sync export or top-combos.json; only optimizer combos are used.</div>
+                </div>
               </div>
 
               <div className="pillRow" style={{ marginTop: 8 }}>
@@ -10533,6 +10876,11 @@ export function App() {
                   {stateSyncUi.pushError}
                 </div>
               ) : null}
+              {stateSyncUi.importError ? (
+                <div className="hint" style={{ marginTop: 8, color: "rgba(239, 68, 68, 0.9)" }}>
+                  {stateSyncUi.importError}
+                </div>
+              ) : null}
 
               {stateSyncPayloadSummary ? (
                 <div className="pillRow" style={{ marginTop: 10 }}>
@@ -10544,6 +10892,7 @@ export function App() {
                     <span className="badge">Generated {fmtTimeMs(stateSyncPayloadSummary.generatedAtMs)}</span>
                   ) : null}
                   {stateSyncUi.exportedAtMs ? <span className="badge">Exported {fmtTimeMs(stateSyncUi.exportedAtMs)}</span> : null}
+                  {stateSyncUi.importedAtMs ? <span className="badge">Imported {fmtTimeMs(stateSyncUi.importedAtMs)}</span> : null}
                 </div>
               ) : (
                 <div className="hint" style={{ marginTop: 10 }}>

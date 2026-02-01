@@ -3,11 +3,14 @@
 module Main where
 
 import Control.Exception (SomeException, evaluate, try)
+import qualified Control.Monad
 import Data.Aeson (eitherDecode)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.List (isInfixOf)
+import Data.Maybe (isNothing)
+import qualified Data.Maybe
 import qualified Data.Vector as V
 import Options.Applicative (ParserResult (..), defaultPrefs, execParserPure, fullDesc, helper, info, renderFailure, (<**>))
 import System.Exit (exitFailure, exitSuccess)

@@ -105,7 +105,7 @@ export function isBinanceKeysStatus(status: KeysStatus): status is BinanceKeysSt
 }
 
 export function isBotStatusMulti(status: BotStatus): status is BotStatusMulti {
-  return "multi" in status && status.multi === true;
+  return ("multi" in status && status.multi === true) || ("bots" in status && Array.isArray(status.bots));
 }
 
 export function botStatusSymbol(status: BotStatusSingle): string | null {
