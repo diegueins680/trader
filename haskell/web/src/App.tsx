@@ -386,7 +386,7 @@ function buildFallbackLatestSignal(status: BotStatusRunning): LatestSignal {
     lstmDirection: null,
     chosenDirection: null,
     closeDirection: null,
-    action: "",
+    action: "—",
   };
 }
 
@@ -489,57 +489,6 @@ function buildBotOrderOverlay(
   return { operations, positions };
 }
 
-// Backfill latestSignal when older bot status payloads omit it.
-const buildFallbackLatestSignal = (st: BotStatusRunning): LatestSignal => {
-  const lastPrice = st.prices[st.prices.length - 1];
-  const currentPrice = typeof lastPrice === "number" && Number.isFinite(lastPrice) ? lastPrice : Number.NaN;
-  return {
-    method: st.method,
-    currentPrice,
-    threshold: st.threshold,
-    openThreshold: st.openThreshold,
-    closeThreshold: st.closeThreshold,
-    kalmanNext: null,
-    kalmanReturn: null,
-    kalmanStd: null,
-    kalmanZ: null,
-    volatility: null,
-    regimes: null,
-    quantiles: null,
-    conformalInterval: null,
-    confidence: null,
-    positionSize: null,
-    kalmanDirection: null,
-    lstmNext: null,
-    lstmDirection: null,
-    chosenDirection: null,
-    closeDirection: null,
-    action: "—",
-  };
-};
-
-const normalizeBotStatusRunning = (status: BotStatusRunning): BotStatusRunning => {
-  const latestSignal = status.latestSignal ?? buildFallbackLatestSignal(status);
-  if (latestSignal === status.latestSignal) return status;
-  return { ...status, latestSignal };
-};
-
-const normalizeBotStatusSingle = (status: BotStatusSingle): BotStatusSingle => {
-  if (status.running) return normalizeBotStatusRunning(status);
-  if (status.snapshot) {
-    const snapshot = normalizeBotStatusRunning(status.snapshot);
-    if (snapshot !== status.snapshot) return { ...status, snapshot };
-  }
-  return status;
-};
-
-const normalizeBotStatus = (status: BotStatus): BotStatus => {
-  if (isBotStatusMulti(status)) {
-    const bots = status.bots.map(normalizeBotStatusSingle);
-    return { ...status, bots };
-  }
-  return normalizeBotStatusSingle(status);
-};
 type ComboImportSummary = {
   comboCount: number;
   generatedAtMs: number | null;
