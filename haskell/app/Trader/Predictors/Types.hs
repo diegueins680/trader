@@ -14,6 +14,7 @@ module Trader.Predictors.Types (
 ) where
 
 import Data.Char (isSpace, toLower)
+import Data.Either (rights)
 import Data.List (intercalate)
 import qualified Data.Set as Set
 

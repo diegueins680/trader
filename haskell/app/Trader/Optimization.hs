@@ -16,6 +16,8 @@ module Trader.Optimization (
     sweepThresholdWithHLWith,
 ) where
 
+import qualified Data.Char
+import qualified Data.Either
 import Data.List (foldl', intercalate, sort)
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
@@ -75,7 +77,7 @@ parseTuneObjective raw =
   where
     normalize = map (\c -> if c == '_' then '-' else c) . filter (/= ' ') . map toLower
     toLower c =
-        if isAsciiUpper c then toEnum (fromEnum c + 32) else c
+        if Data.Char.isAsciiUpper c then toEnum (fromEnum c + 32) else c
 
 data TuneConfig = TuneConfig
     { tcObjective :: !TuneObjective
@@ -269,8 +271,8 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                     Right (tsMeanScore stats, tsStdScore stats, m, openThr, closeThr, bt, stats)
         candidates = [MethodBoth, MethodRouter, MethodBlend, MethodKalmanOnly, MethodLstmOnly]
         results = map eval candidates
-        evaluated = rights results
-        errors = lefts results
+        evaluated = Data.Either.rights results
+        errors = Data.Either.lefts results
         pick (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats) (sc, std, m, openThr, closeThr, bt, stats)
           | sc > bestSc + eps = (sc, std, m, openThr, closeThr, bt, stats)
           | abs (sc - bestSc) <= eps = if std < bestStd - eps

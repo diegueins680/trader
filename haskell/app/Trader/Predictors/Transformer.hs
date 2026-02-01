@@ -5,6 +5,7 @@ module Trader.Predictors.Transformer (
 ) where
 
 import Data.List (foldl')
+import qualified Data.Maybe
 
 data TransformerModel = TransformerModel
     { trKeys :: [[Double]]

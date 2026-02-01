@@ -741,7 +741,9 @@ applyQualityPreset args =
                 Just v | not (null (trim v)) -> True
                 _ -> False
         intervals' = if intervalReset then Just binanceIntervalsCsv else oaIntervals args
+        maxIf :: Ord a => a -> a -> a
         maxIf = max
+        minIf :: Ord a => a -> a -> a
         minIf = min
      in args
             { oaTrials = maxIf (oaTrials args) 500

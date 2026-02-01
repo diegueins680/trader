@@ -7,6 +7,7 @@ module Trader.Predictors.Features (
     buildDataset,
 ) where
 
+import qualified Data.Maybe
 import qualified Data.Vector as V
 
 data FeatureSpec = FeatureSpec

@@ -10,6 +10,7 @@ import type {
   BacktestResponse,
   BinanceKeysStatus,
   BinanceListenKeyResponse,
+  BinancePosition,
   BinancePositionChart,
   BinanceTrade,
   BotOrderEvent,
@@ -5854,7 +5855,7 @@ export function App() {
   }, [apiOk, fetchBinancePositions]);
 
   const closeBinancePosition = useCallback(
-    async (pos: { symbol: string; positionSide?: string | null }) => {
+    async (pos: Pick<BinancePosition, "symbol" | "positionSide" | "positionAmt">) => {
       if (apiOk !== "ok") {
         showToast("API unreachable");
         return;
@@ -7547,8 +7548,6 @@ export function App() {
     extraIssueCount,
     requestDisabled,
     requestDisabledReason,
-    backtestDisabled,
-    backtestDisabledReason,
     run,
     state,
     commonParams,

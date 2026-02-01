@@ -7,6 +7,7 @@ module Trader.Kraken (
 ) where
 
 import Control.Exception (throwIO)
+import qualified Control.Monad
 import Data.Aeson (Value (..), eitherDecode, withArray, withObject, (.:))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM

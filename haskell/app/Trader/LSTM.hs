@@ -12,6 +12,7 @@ module Trader.LSTM (
 ) where
 
 import Data.List (foldl')
+import qualified Data.Bifunctor
 import qualified Data.Vector as V
 import Numeric.AD (grad)
 import System.Random (mkStdGen, randomRs)
