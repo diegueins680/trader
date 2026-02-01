@@ -35,12 +35,13 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isDigit, toUpper)
+import Data.Char (isAsciiUpper, isDigit, toUpper)
 import Data.Int (Int64)
 import Data.List (foldl', isPrefixOf, isSuffixOf, sortBy)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, listToMaybe, maybeToList)
+import qualified Data.Maybe
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 import qualified Data.Vector as V

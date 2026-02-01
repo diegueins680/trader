@@ -26,7 +26,8 @@ import Data.Aeson (FromJSON (..), ToJSON (..), withText)
 import qualified Data.Aeson as Aeson
 import Data.Int (Int64)
 import Data.List (foldl')
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
+import qualified Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Trader.Duration (TimeWindow, minuteOfDayFromMs, timeWindowContains)

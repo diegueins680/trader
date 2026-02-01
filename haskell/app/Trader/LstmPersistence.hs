@@ -3,6 +3,8 @@ module Trader.LstmPersistence (
 ) where
 
 import Control.Exception (SomeException, try)
+import Data.Either (fromRight)
+import Data.Either (fromRight)
 import Data.List (intercalate)
 import System.Directory (canonicalizePath)
 

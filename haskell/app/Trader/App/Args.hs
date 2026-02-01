@@ -17,8 +17,9 @@ module Trader.App.Args (
 ) where
 
 import Control.Applicative ((<|>))
+import Control.Monad (when)
 import Data.Char (isAlphaNum, toLower, toUpper)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Text.Read (readMaybe)
 
 import Options.Applicative
@@ -784,7 +785,7 @@ validateArgs args0 = do
             case argBinanceSymbol args of
                 Just _ -> barsPlatform
                 Nothing -> barsCsv
-    Control.Monad.when (hasDataSource && barsForLookback > 0) $ ensure
+    when (hasDataSource && barsForLookback > 0) $ ensure
                 ( "--bars must be >= lookback+1 (need at least "
                     ++ show (lookback + 1)
                     ++ " bars for lookback="

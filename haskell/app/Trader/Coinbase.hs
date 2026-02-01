@@ -13,6 +13,7 @@ module Trader.Coinbase (
 ) where
 
 import Control.Exception (throwIO)
+import qualified Control.Monad
 import Crypto.Hash (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (FromJSON (..), Value (..), eitherDecode, encode, object, withArray, withObject, (.:), (.=))
@@ -22,6 +23,7 @@ import qualified Data.ByteArray.Encoding as BAE
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
+import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Int (Int64)
 import Data.List (find, sortOn)
 import qualified Data.Set as Set

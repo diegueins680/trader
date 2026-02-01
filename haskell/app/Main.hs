@@ -26,11 +26,14 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.CaseInsensitive as CI
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower, toUpper)
 import qualified Data.Csv as Csv
-import Data.Foldable (toList)
+import Data.Either (fromRight, rights)
+import Data.Foldable (for_, toList)
+import qualified Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix)
+import qualified Data.Ord
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.String (fromString)
 import Data.Text (Text)
@@ -42,6 +45,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Data.Version (showVersion)
 import Data.Word (Word64)
+import qualified Data.Ord
 import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, executeMany, execute_, query, query_, withTransaction)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Database.PostgreSQL.Simple.ToField (Action, toField)
@@ -3534,8 +3538,8 @@ data BotOptimizerUpdate = BotOptimizerUpdate
     , bouScore :: !(Maybe Double)
     }
 
-newtype TopCombosExport = TopCombosExport
-    { tceCombos :: ![TopCombo]
+data TopCombosExport = TopCombosExport
+    { tceCombos :: [TopCombo]
     }
 
 data TopCombo = TopCombo

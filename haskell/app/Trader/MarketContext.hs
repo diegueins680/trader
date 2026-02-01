@@ -10,6 +10,8 @@ module Trader.MarketContext (
 import Control.Concurrent (QSem, forkIO, modifyMVar, newEmptyMVar, newMVar, newQSem, putMVar, signalQSem, takeMVar, threadDelay, waitQSem)
 import Control.Exception (SomeException, finally, try)
 import Control.Monad (forM)
+import Data.Char (isAsciiLower)
+import Data.Char (isAsciiLower)
 import Data.List (foldl')
 import Data.Maybe (catMaybes)
 import Data.Time.Clock.POSIX (getPOSIXTime)

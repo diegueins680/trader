@@ -53,6 +53,8 @@ module Trader.Binance
 
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, displayException, fromException, throwIO, try)
+import qualified Control.Monad
+import qualified Control.Monad
 import Crypto.Hash.Algorithms (SHA256)
 import Crypto.MAC.HMAC (HMAC, hmac, hmacGetDigest)
 import Data.Aeson (FromJSON (..), ToJSON (..), eitherDecode, object, withArray, withObject, (.:), (.=))
@@ -64,11 +66,13 @@ import Data.ByteArray.Encoding (Base (Base64), convertToBase)
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isSpace, toLower)
+import Data.Char (isAsciiLower, isSpace, toLower)
 import Data.Int (Int64)
 import Data.List (foldl', isInfixOf, isPrefixOf, isSuffixOf, sortBy)
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Ord (comparing)
+import qualified Data.Ord
+import qualified Data.Ord
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With)
@@ -1608,7 +1612,7 @@ instance FromJSON FuturesBalance where
         pure FuturesBalance{fbAsset = sym, fbAvailableBalance = avail}
 
 newtype FuturesAccountInfo = FuturesAccountInfo
-    { faiUid :: !(Maybe Int64)
+    { faiUid :: Maybe Int64
     }
 
 instance FromJSON FuturesAccountInfo where
