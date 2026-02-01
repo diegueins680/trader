@@ -100,9 +100,9 @@ buildDatasetWithIndex fs prices =
                 let p0 = prices V.! i
                     p1 = prices V.! (i + 1)
                  in if p0 == 0 then Nothing else Just (p1 / p0 - 1)
-        retVals = V.map (maybe 0 id) returns
+        retVals = V.map (Data.Maybe.fromMaybe 0) returns
         retSqVals = V.map (maybe 0 (\r -> r * r)) returns
-        retInvalid = V.map (\m -> case m of Nothing -> 1; Just _ -> 0) returns
+        retInvalid = V.map (maybe 1 (const 0)) returns
         prefixSum = V.scanl' (+) 0 retVals
         prefixSumSq = V.scanl' (+) 0 retSqVals
         prefixInvalid = V.scanl' (+) 0 retInvalid

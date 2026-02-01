@@ -77,13 +77,10 @@ computeMetrics periodsPerYear br =
                 trades
         winRate = if tradeCount == 0 then 0 else fromIntegral wins / fromIntegral tradeCount
         grossLosses = abs grossLossSum
-        profitFactor =
-            if grossLosses > 0
-                then Just (grossProfits / grossLosses)
-                else
-                    if grossProfits > 0
-                        then Nothing
-                        else Just 0
+        profitFactor
+          | grossLosses > 0 = Just (grossProfits / grossLosses)
+          | grossProfits > 0 = Nothing
+          | otherwise = Just 0
         avgTrade = if tradeCount == 0 then 0 else sumReturns / fromIntegral tradeCount
         avgHold = if tradeCount == 0 then 0 else fromIntegral totalHold / fromIntegral tradeCount
 

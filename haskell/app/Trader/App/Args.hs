@@ -216,9 +216,7 @@ defaultBinanceBars = 500
 
 resolveBarsForCsv :: Args -> Int
 resolveBarsForCsv args =
-    case argBars args of
-        Nothing -> 0
-        Just n -> n
+    fromMaybe 0 (argBars args)
 
 resolveBarsForBinance :: Args -> Int
 resolveBarsForBinance args =
@@ -318,7 +316,7 @@ opts = do
                 <> long "binance-limit"
                 <> metavar "N|auto"
                 <> value Nothing
-                <> showDefaultWith (\mb -> maybe "auto" show mb)
+                <> showDefaultWith (maybe "auto" show)
                 <> help "Number of bars/klines to use (auto/0=all CSV, exchange default=500; Binance supports 2..1000)"
             )
     argLookbackWindow <- strOption (long "lookback-window" <> value "7d" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
@@ -786,9 +784,7 @@ validateArgs args0 = do
             case argBinanceSymbol args of
                 Just _ -> barsPlatform
                 Nothing -> barsCsv
-    if hasDataSource && barsForLookback > 0
-        then
-            ensure
+    Control.Monad.when (hasDataSource && barsForLookback > 0) $ ensure
                 ( "--bars must be >= lookback+1 (need at least "
                     ++ show (lookback + 1)
                     ++ " bars for lookback="
@@ -796,7 +792,6 @@ validateArgs args0 = do
                     ++ ")"
                 )
                 (barsForLookback > lookback)
-        else pure ()
 
     ensure "--hidden-size must be >= 1" (argHiddenSize args >= 1)
     ensure "--epochs must be >= 0" (argEpochs args >= 0)
@@ -978,7 +973,7 @@ validateArgs args0 = do
         Just q | q > 0 -> ensure "--max-order-quote requires --order-quote-fraction" fracOn
         _ -> pure ()
 
-    ensure "--binance-trade requires --binance-symbol" (not (argBinanceTrade args && argBinanceSymbol args == Nothing))
+    ensure "--binance-trade requires --binance-symbol" (not (argBinanceTrade args && isNothing (argBinanceSymbol args)))
     let market = argBinanceMarket args
     ensure "--positioning long-short requires --futures when trading" (not (argBinanceTrade args && argPositioning args == LongShort && market /= MarketFutures))
     ensure

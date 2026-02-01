@@ -26,7 +26,7 @@ featureDimFromDataset dataset =
 trainTransformer :: Double -> Int -> [([Double], Double)] -> TransformerModel
 trainTransformer temperature maxExamples dataset =
     let ds = take (max 1 maxExamples) dataset
-        featureDim = maybe 0 id (featureDimFromDataset ds)
+        featureDim = Data.Maybe.fromMaybe 0 (featureDimFromDataset ds)
      in TransformerModel
             { trKeys = map fst ds
             , trTargets = map snd ds

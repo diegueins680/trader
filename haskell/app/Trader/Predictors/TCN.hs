@@ -79,7 +79,7 @@ trainTCN lookbackBars prices trainTargets
 ridgeFit :: Double -> [[Double]] -> [Double] -> [Double]
 ridgeFit lambda xs ys =
     let d = length (head xs)
-        xtx = foldl' (matAdd) (zeroMat d d) (map (\x -> outer x x) xs)
+        xtx = foldl' matAdd (zeroMat d d) (map (\x -> outer x x) xs)
         xty = foldl' (zipWith (+)) (replicate d 0) (zipWith (\x y -> map (* y) x) xs ys)
         xtxReg = addDiag lambda xtx
      in solveLinear xtxReg xty

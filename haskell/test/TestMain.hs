@@ -235,7 +235,7 @@ testKalmanFusionMulti :: IO ()
 testKalmanFusionMulti = do
     let k0 = initKalman1 0 1 0
         k1 = updateMulti [(0.01, 1e-4), (0.02, 1e-2)] k0
-        expected = (0 * 1 + 0.01 * 10000 + 0.02 * 100) / (1 + 10000 + 100)
+        expected = (0 + 0.01 * 10000 + 0.02 * 100) / (1 + 10000 + 100)
     assertApprox "posterior mean" 1e-6 (kMean k1) expected
     assert "posterior variance shrinks" (kVar k1 < 1)
 
@@ -566,7 +566,7 @@ testMetricsProfitFactorPnL = do
 
     assertApprox "gross profit (PnL)" 1e-12 (bmGrossProfit m) 1.0
     assertApprox "gross loss (PnL)" 1e-12 (bmGrossLoss m) 1.0
-    assertApprox "profit factor" 1e-12 (maybe 0 id (bmProfitFactor m)) 1.0
+    assertApprox "profit factor" 1e-12 (Data.Maybe.fromMaybe 0 (bmProfitFactor m)) 1.0
 
 testBinanceSignatureLength :: IO ()
 testBinanceSignatureLength = do
@@ -622,11 +622,11 @@ testPlatformIntervals = do
 testPlatformIntervalMapping :: IO ()
 testPlatformIntervalMapping = do
     assert "coinbase 1h -> 3600s" (coinbaseIntervalSeconds "1h" == Just 3600)
-    assert "coinbase rejects 30m" (coinbaseIntervalSeconds "30m" == Nothing)
+    assert "coinbase rejects 30m" (isNothing (coinbaseIntervalSeconds "30m"))
     assert "kraken 1h -> 60m" (krakenIntervalMinutes "1h" == Just 60)
     assert "poloniex 2h -> HOUR_2" (poloniexIntervalLabel "2h" == Just "HOUR_2")
     assert "poloniex 2h -> 7200s" (poloniexIntervalSeconds "2h" == Just 7200)
-    assert "poloniex rejects 1m" (poloniexIntervalSeconds "1m" == Nothing)
+    assert "poloniex rejects 1m" (isNothing (poloniexIntervalSeconds "1m"))
 
 testMethodSelection :: IO ()
 testMethodSelection = do
@@ -687,7 +687,7 @@ testOptimizeOperations = do
 
 assertThrowsContains :: String -> (() -> IO a) -> IO ()
 assertThrowsContains needle mkAction = do
-    r <- (try (mkAction () >> pure ()) :: IO (Either SomeException ()))
+    r <- (try (Control.Monad.void (mkAction ())) :: IO (Either SomeException ()))
     case r of
         Left e -> assert ("missing exception substring: " ++ needle) (needle `isInfixOf` show e)
         Right _ -> error ("expected exception containing: " ++ needle)

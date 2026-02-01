@@ -93,8 +93,7 @@ newCoinbaseEnv apiKey apiSecret apiPassphrase = do
     pure CoinbaseEnv{ceManager = mgr, ceBaseUrl = coinbaseBaseUrl, ceApiKey = apiKey, ceApiSecret = apiSecret, ceApiPassphrase = apiPassphrase}
 
 coinbaseHttp :: CoinbaseEnv -> String -> Request -> IO (Response BL.ByteString)
-coinbaseHttp env label req =
-    httpLbsWithRetry defaultRetryConfig (Just label) (ceManager env) req
+coinbaseHttp env label = httpLbsWithRetry defaultRetryConfig (Just label) (ceManager env)
 
 fetchCoinbaseAccounts :: CoinbaseEnv -> IO BL.ByteString
 fetchCoinbaseAccounts env = do
@@ -215,8 +214,7 @@ formatIso sec =
 
 parseCoinbaseResponse :: Value -> AT.Parser [CoinbaseCandle]
 parseCoinbaseResponse =
-    withArray "CoinbaseCandles" $ \arr ->
-        V.toList <$> V.mapM parseCandle arr
+    withArray "CoinbaseCandles" (fmap V.toList . V.mapM parseCandle)
 
 parseCandle :: Value -> AT.Parser CoinbaseCandle
 parseCandle =
@@ -275,7 +273,7 @@ normalizeTimestamp t =
         else t
 
 dedupByTime :: [CoinbaseCandle] -> [CoinbaseCandle]
-dedupByTime xs = go Set.empty xs
+dedupByTime = go Set.empty
   where
     go _ [] = []
     go seen (y : ys)
@@ -312,9 +310,7 @@ signCoinbaseRequest env method path body req0 = do
 ensure2xx :: String -> Response BL.ByteString -> IO ()
 ensure2xx label resp = do
     let code = statusCode (responseStatus resp)
-    if code < 200 || code >= 300
-        then throwIO (userError (label ++ " request failed (HTTP " ++ show code ++ ")"))
-        else pure ()
+    Control.Monad.when (code < 200 || code >= 300) $ throwIO (userError (label ++ " request failed (HTTP " ++ show code ++ ")"))
 
 renderDoubleText :: Double -> String
 renderDoubleText x =
@@ -331,12 +327,12 @@ trimTrailingZeros s =
 
 toUpperAscii :: Char -> Char
 toUpperAscii c =
-    if c >= 'a' && c <= 'z'
+    if isAsciiLower c
         then toEnum (fromEnum c - 32)
         else c
 
 toLowerAscii :: Char -> Char
 toLowerAscii c =
-    if c >= 'A' && c <= 'Z'
+    if isAsciiUpper c
         then toEnum (fromEnum c + 32)
         else c

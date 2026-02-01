@@ -116,10 +116,10 @@ data BinanceProxyHealth = BinanceProxyHealth
 
 instance ToJSON BinanceProxyHealth where
     toJSON h =
-        let status =
-                if not (bphConfigured h)
-                    then ("not_configured" :: String)
-                    else if bphOk h then "ok" else "error"
+        let status
+              | not (bphConfigured h) = ("not_configured" :: String)
+              | bphOk h = "ok"
+              | otherwise = "error"
          in object
                 [ "status" .= status
                 , "configured" .= bphConfigured h
@@ -615,7 +615,7 @@ emptySymbolFilters =
         , sfTickSize = Nothing
         }
 
-data ExchangeInfo = ExchangeInfo [ExchangeSymbol]
+newtype ExchangeInfo = ExchangeInfo [ExchangeSymbol]
 
 data ExchangeSymbol = ExchangeSymbol
     { esSymbol :: !String
@@ -655,8 +655,7 @@ fetchSymbolFilters env symbol = do
                     Just s -> pure (parseSymbolFilters (esFilters s))
 
 parseSymbolFilters :: [Aeson.Object] -> SymbolFilters
-parseSymbolFilters objs =
-    foldl' apply emptySymbolFilters objs
+parseSymbolFilters = foldl' apply emptySymbolFilters
   where
     apply acc o =
         case AT.parseMaybe (Aeson..: "filterType") o :: Maybe Text of
@@ -765,7 +764,7 @@ fetchCloses env symbol interval limit = do
     ks <- fetchKlines env symbol interval limit
     pure (map kClose ks)
 
-data TickerPrice = TickerPrice {tpPrice :: Double}
+newtype TickerPrice = TickerPrice {tpPrice :: Double}
 
 instance FromJSON TickerPrice where
     parseJSON = withObject "TickerPrice" $ \o -> do
@@ -789,7 +788,7 @@ fetchTickerPrice env symbol = do
         Left e -> throwIO (userError ("Failed to decode ticker price: " ++ e))
         Right (TickerPrice p) -> pure p
 
-data Ticker24hPrice = Ticker24hPrice {t24LastPrice :: Double}
+newtype Ticker24hPrice = Ticker24hPrice {t24LastPrice :: Double}
 
 instance FromJSON Ticker24hPrice where
     parseJSON = withObject "Ticker24hPrice" $ \o -> do
@@ -813,7 +812,7 @@ fetchTicker24hPrice env symbol = do
         Left e -> throwIO (userError ("Failed to decode ticker/24hr: " ++ e))
         Right (Ticker24hPrice p) -> pure p
 
-data FuturesMarkPrice = FuturesMarkPrice {fmpMarkPrice :: Double}
+newtype FuturesMarkPrice = FuturesMarkPrice {fmpMarkPrice :: Double}
 
 instance FromJSON FuturesMarkPrice where
     parseJSON = withObject "FuturesMarkPrice" $ \o -> do
@@ -823,9 +822,7 @@ instance FromJSON FuturesMarkPrice where
 
 fetchFuturesMarkPrice :: BinanceEnv -> String -> IO Double
 fetchFuturesMarkPrice env symbol = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesMarkPrice requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesMarkPrice requires MarketFutures")
     req0 <- parseRequest (beBaseUrl env ++ "/fapi/v1/premiumIndex")
     let qs = renderSimpleQuery True [("symbol", BS.pack (map toUpperAscii symbol))]
         req = req0{method = "GET", queryString = qs}
@@ -885,7 +882,7 @@ fetchTopSymbolsByQuoteVolume env quote topN = do
                                    isLeveraged = any (`isSuffixOf` base) leveragedSuffixes
                                 in not isStableStable && not isLeveraged
                 ranked =
-                    sortBy (flip (comparing snd)) $
+                    sortBy (comparing (Data.Ord.Down . snd)) $
                         [ (map toUpperAscii (t24Symbol t), max 0 (t24QuoteVolume t))
                         | t <- filter wanted tickers
                         ]
@@ -1074,12 +1071,8 @@ placeFuturesMarketOrderWithPositionSide
   -> Maybe String -- positionSide (optional; required in Hedge Mode)
   -> IO BL.ByteString
 placeFuturesMarketOrderWithPositionSide env mode symbol side quantity reduceOnly mClientOrderId mPositionSide = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "placeFuturesMarketOrderWithPositionSide requires MarketFutures")
-    else pure ()
-  if quantity <= 0
-    then throwIO (userError "Futures MARKET orders require quantity > 0")
-    else pure ()
+  Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesMarketOrderWithPositionSide requires MarketFutures")
+  Control.Monad.when (quantity <= 0) $ throwIO (userError "Futures MARKET orders require quantity > 0")
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
 
@@ -1139,16 +1132,10 @@ placeFuturesTriggerMarketOrder
   -> Maybe String -- newClientOrderId (optional; idempotency)
   -> IO BL.ByteString
 placeFuturesTriggerMarketOrder env mode symbol side orderType stopPrice mClientOrderId = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "placeFuturesTriggerMarketOrder requires MarketFutures")
-    else pure ()
-  if stopPrice <= 0
-    then throwIO (userError "stopPrice must be > 0")
-    else pure ()
+  Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesTriggerMarketOrder requires MarketFutures")
+  Control.Monad.when (stopPrice <= 0) $ throwIO (userError "stopPrice must be > 0")
   let orderType' = trim orderType
-  if null orderType'
-    then throwIO (userError "orderType must be non-empty")
-    else pure ()
+  Control.Monad.when (null orderType') $ throwIO (userError "orderType must be non-empty")
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
 
@@ -1202,19 +1189,11 @@ placeFuturesAlgoTriggerMarketOrder ::
     Maybe String -> -- positionSide (optional; required in Hedge Mode)
     IO BL.ByteString
 placeFuturesAlgoTriggerMarketOrder env mode symbol side orderType triggerPrice mClientAlgoId mPositionSide = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "placeFuturesAlgoTriggerMarketOrder requires MarketFutures")
-    else pure ()
-  if mode == OrderTest
-    then throwIO (userError "Algo orders are not supported in test mode")
-    else pure ()
-  if triggerPrice <= 0
-    then throwIO (userError "triggerPrice must be > 0")
-    else pure ()
+  Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "placeFuturesAlgoTriggerMarketOrder requires MarketFutures")
+  Control.Monad.when (mode == OrderTest) $ throwIO (userError "Algo orders are not supported in test mode")
+  Control.Monad.when (triggerPrice <= 0) $ throwIO (userError "triggerPrice must be > 0")
   let orderType' = trim orderType
-  if null orderType'
-    then throwIO (userError "orderType must be non-empty")
-    else pure ()
+  Control.Monad.when (null orderType') $ throwIO (userError "orderType must be non-empty")
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
 
@@ -1353,7 +1332,7 @@ fetchAccountTrades env mSymbol mLimit mStartTime mEndTime mFromId = do
     Left e -> throwIO (userError ("Failed to decode " ++ label ++ ": " ++ e))
     Right trades -> pure trades
 
-data FuturesOpenOrder = FuturesOpenOrder
+newtype FuturesOpenOrder = FuturesOpenOrder
     { fooClientOrderId :: String
     }
     deriving (Eq, Show)
@@ -1440,16 +1419,12 @@ fetchOpenOrders env symbol =
 
 fetchFuturesOpenOrders :: BinanceEnv -> String -> IO [FuturesOpenOrder]
 fetchFuturesOpenOrders env symbol = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesOpenOrders requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesOpenOrders requires MarketFutures")
     fetchOpenOrdersWith env "futures/openOrders" "/fapi/v1/openOrders" symbol
 
 cancelFuturesOrderByClientId :: BinanceEnv -> String -> String -> IO BL.ByteString
 cancelFuturesOrderByClientId env symbol clientOrderId = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "cancelFuturesOrderByClientId requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "cancelFuturesOrderByClientId requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     ts <- getBinanceTimestampMs env
@@ -1548,7 +1523,7 @@ fetchFreeBalance env asset = do
                 [] -> pure 0
     MarketFutures -> pure 0
 
-data Account = Account [Balance]
+newtype Account = Account [Balance]
 
 data Balance = Balance
     { baAsset :: String
@@ -1567,7 +1542,7 @@ instance FromJSON Balance where
         free <- parseDoubleText freeTxt
         pure Balance{baAsset = asset, baFree = free}
 
-data MarginAccount = MarginAccount [MarginBalance]
+newtype MarginAccount = MarginAccount [MarginBalance]
 
 data MarginBalance = MarginBalance
     { mbaAsset :: String
@@ -1588,9 +1563,7 @@ instance FromJSON MarginBalance where
 
 fetchFuturesAvailableBalance :: BinanceEnv -> String -> IO Double
 fetchFuturesAvailableBalance env asset = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "fetchFuturesAvailableBalance requires MarketFutures")
-    else pure ()
+  Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesAvailableBalance requires MarketFutures")
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
   let send ts = do
@@ -1634,7 +1607,7 @@ instance FromJSON FuturesBalance where
         avail <- parseDoubleText availTxt
         pure FuturesBalance{fbAsset = sym, fbAvailableBalance = avail}
 
-data FuturesAccountInfo = FuturesAccountInfo
+newtype FuturesAccountInfo = FuturesAccountInfo
     { faiUid :: !(Maybe Int64)
     }
 
@@ -1645,9 +1618,7 @@ instance FromJSON FuturesAccountInfo where
 
 fetchFuturesAccountUid :: BinanceEnv -> IO (Maybe Int64)
 fetchFuturesAccountUid env = do
-  if beMarket env /= MarketFutures
-    then throwIO (userError "fetchFuturesAccountUid requires MarketFutures")
-    else pure ()
+  Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesAccountUid requires MarketFutures")
   apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
   secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
   let send ts = do
@@ -1676,9 +1647,7 @@ fetchFuturesAccountUid env = do
 
 fetchFuturesPositionAmt :: BinanceEnv -> String -> IO Double
 fetchFuturesPositionAmt env symbol = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesPositionAmt requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesPositionAmt requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     let send ts = do
@@ -1756,9 +1725,7 @@ instance FromJSON FuturesPositionRisk where
 
 fetchFuturesPositionRisks :: BinanceEnv -> IO [FuturesPositionRisk]
 fetchFuturesPositionRisks env = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesPositionRisks requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesPositionRisks requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     let send ts = do
@@ -1808,9 +1775,7 @@ instance FromJSON FuturesAlgoOpenOrder where
 
 fetchFuturesOpenAlgoOrders :: BinanceEnv -> String -> IO [FuturesAlgoOpenOrder]
 fetchFuturesOpenAlgoOrders env symbol = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "fetchFuturesOpenAlgoOrders requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "fetchFuturesOpenAlgoOrders requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     ts <- getTimestampMs
@@ -1840,9 +1805,7 @@ fetchFuturesOpenAlgoOrders env symbol = do
 
 cancelFuturesAlgoOrderByClientId :: BinanceEnv -> String -> IO BL.ByteString
 cancelFuturesAlgoOrderByClientId env clientAlgoId = do
-    if beMarket env /= MarketFutures
-        then throwIO (userError "cancelFuturesAlgoOrderByClientId requires MarketFutures")
-        else pure ()
+    Control.Monad.when (beMarket env /= MarketFutures) $ throwIO (userError "cancelFuturesAlgoOrderByClientId requires MarketFutures")
     apiKey <- maybe (throwIO (userError "Missing BINANCE_API_KEY")) pure (beApiKey env)
     secret <- maybe (throwIO (userError "Missing BINANCE_API_SECRET")) pure (beApiSecret env)
     ts <- getTimestampMs
@@ -1884,7 +1847,7 @@ trimTrailingZeros s =
 
 toUpperAscii :: Char -> Char
 toUpperAscii c =
-    if 'a' <= c && c <= 'z'
+    if isAsciiLower c
         then toEnum (fromEnum c - 32)
         else c
 
@@ -1939,7 +1902,7 @@ instance FromJSON BinanceErrorBody where
         msg <- o Aeson..:? "msg"
         pure BinanceErrorBody{bebCode = code, bebMsg = msg}
 
-data ListenKeyResponse = ListenKeyResponse {lkrListenKey :: String}
+newtype ListenKeyResponse = ListenKeyResponse {lkrListenKey :: String}
 
 instance FromJSON ListenKeyResponse where
     parseJSON = withObject "ListenKeyResponse" $ \o -> do

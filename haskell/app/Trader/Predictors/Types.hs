@@ -57,8 +57,8 @@ predictorSetFromString :: String -> Either String PredictorSet
 predictorSetFromString raw =
     let tokens = splitTokens raw
         lowered = map normalizeToken tokens
-        hasAll = any (== "all") lowered || any (== "default") lowered
-        hasNone = any (== "none") lowered || any (== "off") lowered
+        hasAll = elem "all" lowered || elem "default" lowered
+        hasNone = elem "none" lowered || elem "off" lowered
         isSpecial tok = tok == "all" || tok == "default" || tok == "none" || tok == "off"
         parseOne tok =
             case tok of
@@ -103,7 +103,7 @@ predictorSetFromString raw =
                                                     else Left "Predictors list mixes 'none' with other entries."
                                             else
                                                 let parsed = map parseOne lowered
-                                                 in Right (Set.fromList [sid | Right sid <- parsed])
+                                                 in Right (Set.fromList (rights parsed))
   where
     splitTokens =
         filter (not . null) . words . map (\c -> if c == ',' then ' ' else c)

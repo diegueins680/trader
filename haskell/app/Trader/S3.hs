@@ -202,7 +202,7 @@ s3Request st reqMethod key body = do
         shortDate = formatShortDate now
         encodedPath = s3CanonicalPath key
         signedHeaders =
-            if awsSessionToken (s3Creds st) == Nothing
+            if isNothing (awsSessionToken (s3Creds st))
                 then "host;x-amz-content-sha256;x-amz-date"
                 else "host;x-amz-content-sha256;x-amz-date;x-amz-security-token"
         canonicalHeaders =
@@ -326,8 +326,6 @@ nonEmpty s =
 firstNonEmpty :: [Maybe String] -> Maybe String
 firstNonEmpty =
     foldr
-        ( \v acc -> case v >>= nonEmpty of
-            Just x -> Just x
-            Nothing -> acc
+        ( \v acc -> (v >>= nonEmpty) <|> acc
         )
         Nothing

@@ -57,9 +57,7 @@ fetchKrakenCandles pair intervalMin = do
                     req0
         resp <- httpLbsWithRetry defaultRetryConfig (Just "kraken.ohlc") mgr req
         let code = statusCode (responseStatus resp)
-        if code < 200 || code >= 300
-            then throwIO (userError ("Kraken OHLC request failed (HTTP " ++ show code ++ ")"))
-            else pure ()
+        Control.Monad.when (code < 200 || code >= 300) $ throwIO (userError ("Kraken OHLC request failed (HTTP " ++ show code ++ ")"))
         case eitherDecode (responseBody resp) of
             Left err -> throwIO (userError ("Failed to decode Kraken OHLC: " ++ err))
             Right v ->
@@ -94,8 +92,7 @@ parseResult pair =
 
 parseCandles :: Value -> AT.Parser [KrakenCandle]
 parseCandles =
-    withArray "KrakenCandles" $ \arr ->
-        V.toList <$> V.mapM parseCandle arr
+    withArray "KrakenCandles" (fmap V.toList . V.mapM parseCandle)
 
 parseCandle :: Value -> AT.Parser KrakenCandle
 parseCandle =

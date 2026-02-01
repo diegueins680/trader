@@ -62,16 +62,16 @@ isFinite x = not (isNaN x || isInfinite x)
 -- Approximation of the standard normal inverse CDF.
 normalInv :: Double -> Double
 normalInv p
-    | p <= 0 = -1 / 0
+    | p <= 0 = - (1 / 0)
     | p >= 1 = 1 / 0
     | p < plow =
-        let q = sqrt (-2 * log p)
+        let q = sqrt (- (2 * log p))
          in (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
                 / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1)
     | p > phigh =
-        let q = sqrt (-2 * log (1 - p))
-         in -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
-                / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1)
+        let q = sqrt (- (2 * log (1 - p)))
+         in - ((((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6)
+             / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1))
     | otherwise =
         let q = p - 0.5
             r = q * q

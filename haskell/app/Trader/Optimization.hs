@@ -75,7 +75,7 @@ parseTuneObjective raw =
   where
     normalize = map (\c -> if c == '_' then '-' else c) . filter (/= ' ') . map toLower
     toLower c =
-        if 'A' <= c && c <= 'Z' then toEnum (fromEnum c + 32) else c
+        if isAsciiUpper c then toEnum (fromEnum c + 32) else c
 
 data TuneConfig = TuneConfig
     { tcObjective :: !TuneObjective
@@ -250,8 +250,7 @@ optimizeOperationsWithHL baseCfg closes highs lows kalPred lstmPred mMeta =
         Right (m, openThr, closeThr, bt, _stats) -> Right (m, openThr, closeThr, bt)
 
 optimizeOperationsWith :: TuneConfig -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Method, Double, Double, BacktestResult, TuneStats)
-optimizeOperationsWith cfg baseCfg prices kalPred lstmPred mMeta =
-    optimizeOperationsWithHLWith cfg baseCfg prices prices prices kalPred lstmPred mMeta
+optimizeOperationsWith cfg baseCfg prices = optimizeOperationsWithHLWith cfg baseCfg prices prices prices
 
 optimizeOperationsWithHLWith :: TuneConfig -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Method, Double, Double, BacktestResult, TuneStats)
 optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMeta =
@@ -270,15 +269,11 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                     Right (tsMeanScore stats, tsStdScore stats, m, openThr, closeThr, bt, stats)
         candidates = [MethodBoth, MethodRouter, MethodBlend, MethodKalmanOnly, MethodLstmOnly]
         results = map eval candidates
-        evaluated = [v | Right v <- results]
-        errors = [e | Left e <- results]
-        pick (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats) (sc, std, m, openThr, closeThr, bt, stats) =
-            if sc > bestSc + eps
-                then (sc, std, m, openThr, closeThr, bt, stats)
-                else
-                    if abs (sc - bestSc) <= eps
-                        then
-                            if std < bestStd - eps
+        evaluated = rights results
+        errors = lefts results
+        pick (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats) (sc, std, m, openThr, closeThr, bt, stats)
+          | sc > bestSc + eps = (sc, std, m, openThr, closeThr, bt, stats)
+          | abs (sc - bestSc) <= eps = if std < bestStd - eps
                                 then (sc, std, m, openThr, closeThr, bt, stats)
                                 else
                                     if abs (std - bestStd) <= eps
@@ -289,7 +284,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                                                     then (sc, std, m, openThr, closeThr, bt, stats)
                                                     else (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats)
                                         else (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats)
-                        else (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats)
+          | otherwise = (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats)
      in case evaluated of
             [] ->
                 Left
@@ -315,8 +310,7 @@ sweepThresholdWithHL method baseCfg closes highs lows kalPred lstmPred mMeta =
         Right (openThr, closeThr, bt, _stats) -> Right (openThr, closeThr, bt)
 
 sweepThresholdWith :: TuneConfig -> Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Double, Double, BacktestResult, TuneStats)
-sweepThresholdWith cfg method baseCfg prices kalPred lstmPred mMeta =
-    sweepThresholdWithHLWith cfg method baseCfg prices prices prices kalPred lstmPred mMeta
+sweepThresholdWith cfg method baseCfg prices = sweepThresholdWithHLWith cfg method baseCfg prices prices prices
 
 sweepThresholdWithHLWith :: TuneConfig -> Method -> EnsembleConfig -> [Double] -> [Double] -> [Double] -> [Double] -> [Double] -> Maybe [StepMeta] -> Either String (Double, Double, BacktestResult, TuneStats)
 sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred mMeta =
@@ -377,16 +371,11 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodKalmanOnly -> (kalV, kalV)
                 MethodLstmOnly -> (lstmV, lstmV)
 
-        validationError =
-            if n < 2
-                then Just "sweepThreshold: need at least 2 prices"
-                else
-                    if V.length highsV /= n || V.length lowsV /= n
-                        then Just "sweepThreshold: high/low series must match closes length"
-                        else
-                            if maybe False (\mv -> V.length mv < stepCount) metaUsed
-                                then Just "sweepThreshold: meta vector too short"
-                                else case method of
+        validationError
+          | n < 2 = Just "sweepThreshold: need at least 2 prices"
+          | V.length highsV /= n || V.length lowsV /= n = Just "sweepThreshold: high/low series must match closes length"
+          | maybe False (\mv -> V.length mv < stepCount) metaUsed = Just "sweepThreshold: meta vector too short"
+          | otherwise = case method of
                                     MethodBoth
                                         | V.length kalV < stepCount ->
                                             Just
@@ -561,31 +550,25 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 Right btFull' ->
                                     let metrics' = computeMetrics ppy btFull'
                                         eligible' =
-                                            if minRoundTripsReq <= 0
-                                                then True
-                                                else bmRoundTrips metrics' >= minRoundTripsReq
+                                            ((minRoundTripsReq <= 0) || (bmRoundTrips metrics' >= minRoundTripsReq))
                                         eligible'' = eligible' && foldEvalOk
-                                        foldScores' =
-                                            if not eligible''
-                                                then [ineligibleScore]
-                                                else
-                                                    if foldSingle
-                                                        then [scoreBacktest cfg btFull']
-                                                        else
-                                                            [ let steps = t1 - t0 + 1
-                                                                  pricesF = V.slice t0 (steps + 1) pricesV
-                                                                  highsF = V.slice t0 (steps + 1) highsV
-                                                                  lowsF = V.slice t0 (steps + 1) lowsV
-                                                                  kalF = V.slice t0 steps kalUsedV
-                                                                  lstmF = V.slice t0 steps lstmUsedV
-                                                                  metaF = fmap (\mv -> V.slice t0 steps mv) metaUsed
-                                                                  openTimesF = fmap (\ot -> V.slice t0 (steps + 1) ot) (ecOpenTimes btCfg)
-                                                                  metaMaskF = fmap (\mask -> V.slice t0 steps mask) metaMask
-                                                                  btCfgFold = btCfg{ecOpenTimes = openTimesF, ecMetaMask = metaMaskF}
-                                                                  btFoldE = simulateEnsembleVWithHLChecked btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
-                                                               in case btFoldE of
-                                                                    Left _ -> ineligibleScore
-                                                                    Right btFold -> scoreBacktest cfg btFold
+                                        foldScores'
+                                          | not eligible'' = [ineligibleScore]
+                                          | foldSingle = [scoreBacktest cfg btFull']
+                                          | otherwise = [ let steps = t1 - t0 + 1
+                                                              pricesF = V.slice t0 (steps + 1) pricesV
+                                                              highsF = V.slice t0 (steps + 1) highsV
+                                                              lowsF = V.slice t0 (steps + 1) lowsV
+                                                              kalF = V.slice t0 steps kalUsedV
+                                                              lstmF = V.slice t0 steps lstmUsedV
+                                                              metaF = fmap (V.slice t0 steps) metaUsed
+                                                              openTimesF = fmap (V.slice t0 (steps + 1)) (ecOpenTimes btCfg)
+                                                              metaMaskF = fmap (V.slice t0 steps) metaMask
+                                                              btCfgFold = btCfg{ecOpenTimes = openTimesF, ecMetaMask = metaMaskF}
+                                                              btFoldE = simulateEnsembleVWithHLChecked btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
+                                                           in case btFoldE of
+                                                                Left _ -> ineligibleScore
+                                                                Right btFold -> scoreBacktest cfg btFold
                                                             | (t0, t1) <- foldRsEval
                                                             , t1 >= t0
                                                             ]
@@ -614,44 +597,26 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 bestRoundTrips = bmRoundTrips bestMetrics
                 inverted = closeThr > openThr + eqEps
                 bestInverted = bestClose > bestOpen + eqEps
-             in if eq > bestEq + eqEps
-                    then True
-                    else
-                        if abs (eq - bestEq) <= eqEps
-                            then
-                                if turnover < bestTurnover - eqEps
-                                    then True
-                                    else
-                                        if abs (turnover - bestTurnover) <= eqEps
-                                            then
-                                                if roundTrips > bestRoundTrips
-                                                    then True
-                                                    else
-                                                        if roundTrips == bestRoundTrips
-                                                            then
-                                                                if not inverted && bestInverted
-                                                                    then True
-                                                                    else inverted == bestInverted && (openThr, closeThr) > (bestOpen, bestClose)
-                                                            else False
-                                            else False
-                            else False
+             in (eq > bestEq + eqEps)
+                    || (abs (eq - bestEq) <= eqEps
+                            && (turnover < bestTurnover - eqEps
+                                    || (abs (turnover - bestTurnover) <= eqEps
+                                            && (roundTrips > bestRoundTrips
+                                                    || (roundTrips == bestRoundTrips
+                                                            && ((not inverted && bestInverted)
+                                                                    || (inverted == bestInverted && (openThr, closeThr) > (bestOpen, bestClose))))))))
         pickResult (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics) (eligible, m, s, openThr', closeThr', bt, stats, metrics) =
             case (bestEligible, eligible) of
                 (False, True) -> (True, m, s, openThr', closeThr', bt, stats, metrics)
                 (True, False) -> (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
-                _ ->
-                    if m > bestMean + eqEps
-                        then (eligible, m, s, openThr', closeThr', bt, stats, metrics)
-                        else
-                            if abs (m - bestMean) <= eqEps
-                                then
-                                    if s < bestStd - eqEps
-                                        then (eligible, m, s, openThr', closeThr', bt, stats, metrics)
-                                        else
-                                            if abs (s - bestStd) <= eqEps && preferTie metrics openThr' closeThr' bestMetrics bestOpenThr bestCloseThr
-                                                then (eligible, m, s, openThr', closeThr', bt, stats, metrics)
-                                                else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
-                                else (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
+                _
+                    | m > bestMean + eqEps -> (eligible, m, s, openThr', closeThr', bt, stats, metrics)
+                    | abs (m - bestMean) <= eqEps
+                    , s < bestStd - eqEps
+                        || (abs (s - bestStd) <= eqEps && preferTie metrics openThr' closeThr' bestMetrics bestOpenThr bestCloseThr)
+                        ->
+                        (eligible, m, s, openThr', closeThr', bt, stats, metrics)
+                    | otherwise -> (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
 
         foldClose acc openThr =
             let evalClose = evalForOpen openThr

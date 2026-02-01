@@ -21,10 +21,12 @@ module Trader.Trading (
     simulateEnsembleLongFlatVWithHL,
 ) where
 
+import Control.Applicative ((<|>))
 import Data.Aeson (FromJSON (..), ToJSON (..), withText)
 import qualified Data.Aeson as Aeson
 import Data.Int (Int64)
 import Data.List (foldl')
+import Data.Maybe (isJust)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Trader.Duration (TimeWindow, minuteOfDayFromMs, timeWindowContains)
@@ -290,8 +292,7 @@ simulateEnsembleWithHLChecked ::
     [Double] -> -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
     Maybe [StepMeta] -> -- optional per-step confidence meta (length n-1)
     Either String BacktestResult
-simulateEnsembleWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
-    simulateEnsembleLongFlatWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta
+simulateEnsembleWithHLChecked = simulateEnsembleLongFlatWithHLChecked
 
 simulateEnsembleV ::
     EnsembleConfig ->
@@ -328,8 +329,7 @@ simulateEnsembleVWithHLChecked ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) -> -- optional per-step confidence meta
     Either String BacktestResult
-simulateEnsembleVWithHLChecked cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV =
-    simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV
+simulateEnsembleVWithHLChecked = simulateEnsembleLongFlatVWithHLChecked
 
 {-# DEPRECATED simulateEnsembleLongFlat "Use simulateEnsemble" #-}
 {-# DEPRECATED simulateEnsembleLongFlatWithHL "Use simulateEnsembleWithHL" #-}
@@ -397,8 +397,7 @@ simulateEnsembleLongFlatV ::
     V.Vector Double ->
     Maybe (V.Vector StepMeta) -> -- optional per-step confidence meta
     BacktestResult
-simulateEnsembleLongFlatV cfg lookback pricesV kalPredNextV lstmPredNextV mMetaV =
-    simulateEnsembleLongFlatVWithHL cfg lookback pricesV pricesV pricesV kalPredNextV lstmPredNextV mMetaV
+simulateEnsembleLongFlatV cfg lookback pricesV = simulateEnsembleLongFlatVWithHL cfg lookback pricesV pricesV pricesV
 
 simulateEnsembleLongFlatVWithHL ::
     EnsembleConfig ->
@@ -498,7 +497,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
             | kalLen >= stepCount =
                 let dropCount = kalLen - stepCount
                     v = if dropCount == 0 then kalPredNextV else V.drop dropCount kalPredNextV
-                 in Right (\t -> v V.! t)
+                 in Right (v V.!)
             | kalLen >= kalNeed =
                 let dropCount = kalLen - kalNeed
                     v = if dropCount == 0 then kalPredNextV else V.drop dropCount kalPredNextV
@@ -518,7 +517,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
             | lstmLen >= stepCount =
                 let dropCount = lstmLen - stepCount
                     v = if dropCount == 0 then lstmPredNextV else V.drop dropCount lstmPredNextV
-                 in Right (\t -> v V.! t)
+                 in Right (v V.!)
             | lstmLen >= lstmNeed =
                 let dropCount = lstmLen - lstmNeed
                     v = if dropCount == 0 then lstmPredNextV else V.drop dropCount lstmPredNextV
@@ -532,24 +531,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         ++ " for full alignment), got "
                         ++ show lstmLen
                     )
-        validationError =
-            if n < 2
-                then Just "Need at least 2 prices to simulate"
-                else
-                    if V.length highsV /= n || V.length lowsV /= n
-                        then Just "high/low vectors must match closes length"
-                        else
-                            if lookback >= n
-                                then Just "lookback must be less than number of prices"
-                                else
-                                    if (dailyLossReq /= Nothing || weeklyLossReq /= Nothing || maxTradesPerDayReq /= Nothing || noTradeReq) && not hasDailyKey
-                                        then Just "--max-daily-loss/--max-weekly-loss/--max-trades-per-day/--no-trade-window require bar timestamps"
-                                        else
-                                            if minExpectancy /= Nothing && expectancyLookback <= 0
-                                                then Just "--min-expectancy requires --expectancy-lookback >= 1"
-                                                else case openTimesMismatch of
+        validationError
+          | n < 2 = Just "Need at least 2 prices to simulate"
+          | V.length highsV /= n || V.length lowsV /= n = Just "high/low vectors must match closes length"
+          | lookback >= n = Just "lookback must be less than number of prices"
+          | (isJust dailyLossReq || isJust weeklyLossReq || isJust maxTradesPerDayReq || noTradeReq) && not hasDailyKey = Just "--max-daily-loss/--max-weekly-loss/--max-trades-per-day/--no-trade-window require bar timestamps"
+          | isJust minExpectancy && expectancyLookback <= 0 = Just "--min-expectancy requires --expectancy-lookback >= 1"
+          | otherwise = case openTimesMismatch of
                                                     Just err
-                                                        | dailyLossReq /= Nothing || weeklyLossReq /= Nothing || maxTradesPerDayReq /= Nothing || noTradeReq -> Just err
+                                                        | isJust dailyLossReq || isJust weeklyLossReq || isJust maxTradesPerDayReq || noTradeReq -> Just err
                                                     _ ->
                                                         case metaMaskMismatch of
                                                             Just err -> Just err
@@ -1022,26 +1012,21 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                         signalToNoiseOkAt :: Int -> Double -> Double -> Bool
                         signalToNoiseOkAt t minSn edge =
-                            if minSn <= 0
-                                then True
-                                else case volPerBarAt t of
+                            ((minSn <= 0) || (case volPerBarAt t of
                                     Just vol | vol > 0 -> edge / vol >= minSn
-                                    _ -> False
+                                    _ -> False))
 
                         trendOkAt :: Int -> PositionSide -> Bool
                         trendOkAt t side =
-                            if trendLookback <= 1 || t < trendLookback - 1
-                                then True
-                                else
-                                    let start = t - trendLookback + 1
+                            (trendLookback <= 1 || t < trendLookback - 1)
+                                || (let start = t - trendLookback + 1
                                         v = V.slice start trendLookback pricesV
                                         sma = meanV v
                                         px = pricesV V.! t
-                                     in if isBad sma || isBad px
-                                            then True
-                                            else case side of
+                                     in (isBad sma || isBad px)
+                                            || case side of
                                                 SideLong -> px >= sma
-                                                SideShort -> px <= sma
+                                                SideShort -> px <= sma)
 
                         touchCloudAt :: Int -> Bool
                         touchCloudAt idx =
@@ -1070,54 +1055,44 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                         touchCloudInWindow :: Int -> Bool
                         touchCloudInWindow t =
-                            if not cloudReady
-                                then True
-                                else
-                                    let start = max 0 (t - touchLookback + 1)
-                                        end = min n (t + 1)
-                                     in (touchCloudPrefix V.! end) > (touchCloudPrefix V.! start)
+                            (not cloudReady || (let start = max 0 (t - touchLookback + 1)
+                                                    end = min n (t + 1)
+                                                 in (touchCloudPrefix V.! end) > (touchCloudPrefix V.! start)))
 
                         cloudOkAt :: Int -> PositionSide -> Bool
                         cloudOkAt t side =
-                            if not cloudReady || t <= 0
-                                then True
-                                else
-                                    let fast = cloudFastV V.! t
-                                        slow = cloudSlowV V.! t
-                                        slope = slow - cloudSlowV V.! (t - 1)
-                                        cloudTop = max fast slow
-                                        cloudBot = min fast slow
-                                        px = pricesV V.! t
-                                        slopeFrac =
-                                            if isBad px || px == 0
-                                                then 0
-                                                else slope / abs px
-                                        widthFrac =
-                                            if isBad px || px == 0
-                                                then 0
-                                                else (cloudTop - cloudBot) / abs px
-                                        widthOk = cloudWidthMax <= 0 || isBad widthFrac || widthFrac <= cloudWidthMax
-                                        touchCloud = touchCloudInWindow t
-                                        trendOk =
-                                            case side of
-                                                SideLong -> fast > slow && slopeFrac >= cloudSlopeMin
-                                                SideShort -> fast < slow && slopeFrac <= -cloudSlopeMin
-                                     in if isBad fast || isBad slow || isBad slope
-                                            then True
-                                            else touchCloud && trendOk && widthOk
+                            ((not cloudReady || t <= 0) || (let fast = cloudFastV V.! t
+                                                                slow = cloudSlowV V.! t
+                                                                slope = slow - cloudSlowV V.! (t - 1)
+                                                                cloudTop = max fast slow
+                                                                cloudBot = min fast slow
+                                                                px = pricesV V.! t
+                                                                slopeFrac =
+                                                                    if isBad px || px == 0
+                                                                        then 0
+                                                                        else slope / abs px
+                                                                widthFrac =
+                                                                    if isBad px || px == 0
+                                                                        then 0
+                                                                        else (cloudTop - cloudBot) / abs px
+                                                                widthOk = cloudWidthMax <= 0 || isBad widthFrac || widthFrac <= cloudWidthMax
+                                                                touchCloud = touchCloudInWindow t
+                                                                trendOk =
+                                                                    case side of
+                                                                        SideLong -> fast > slow && slopeFrac >= cloudSlopeMin
+                                                                        SideShort -> fast < slow && slopeFrac <= -cloudSlopeMin
+                                                             in (isBad fast || isBad slow || isBad slope)
+                                                                    || (touchCloud && trendOk && widthOk)))
 
                         priceActionOkAt :: Int -> PositionSide -> Bool
                         priceActionOkAt t side =
-                            if not triLayerEnabled || not requirePriceAction || t < 2
-                                then True
-                                else
-                                    let cur = candleAt t
-                                        prev = candleAt (t - 1)
-                                        bullish = hammer cur || bullishEngulf cur prev || railroadTracksLong cur prev
-                                        bearish = shootingStar cur || bearishEngulf cur prev || darkCloudCover cur prev
-                                     in case side of
-                                            SideLong -> bullish
-                                            SideShort -> bearish
+                            ((not triLayerEnabled || not requirePriceAction || t < 2) || (let cur = candleAt t
+                                                                                              prev = candleAt (t - 1)
+                                                                                              bullish = hammer cur || bullishEngulf cur prev || railroadTracksLong cur prev
+                                                                                              bearish = shootingStar cur || bearishEngulf cur prev || darkCloudCover cur prev
+                                                                                           in case side of
+                                                                                                  SideLong -> bullish
+                                                                                                  SideShort -> bearish))
 
                         clamp01 :: Double -> Double
                         clamp01 x = max 0 (min 1 x)
@@ -1170,13 +1145,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                             else case lstmConfidenceScore prev next of
                                                 Nothing -> 1
                                                 Just score ->
-                                                    let scaleRaw =
-                                                            if score <= soft
-                                                                then 0
-                                                                else
-                                                                    if score >= hard
-                                                                        then 1
-                                                                        else (score - soft) / denom
+                                                    let scaleRaw
+                                                          | score <= soft = 0
+                                                          | score >= hard = 1
+                                                          | otherwise = (score - soft) / denom
                                                      in clamp01 scaleRaw
 
                         clampFrac :: Double -> Double
@@ -1257,13 +1229,13 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         kalPredAt =
                             case kalPredAtE of
                                 Right f -> f
-                                Left _ -> \_ -> 0
+                                Left _ -> const 0
 
                         lstmPredAt :: Int -> Double
                         lstmPredAt =
                             case lstmPredAtE of
                                 Right f -> f
-                                Left _ -> \_ -> 0
+                                Left _ -> const 0
 
                         intervalWidth :: StepMeta -> Maybe Double
                         intervalWidth m =
@@ -1290,19 +1262,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                         confirmConformal :: Double -> StepMeta -> PositionSide -> Bool
                         confirmConformal thr m side =
-                            if not (ecConfirmConformal cfg)
-                                then True
-                                else case side of
+                            (not (ecConfirmConformal cfg) || (case side of
                                     SideLong -> maybe True (> thr) (smConformalLo m)
-                                    SideShort -> maybe True (< negate thr) (smConformalHi m)
+                                    SideShort -> maybe True (< negate thr) (smConformalHi m)))
 
                         confirmQuantiles :: Double -> StepMeta -> PositionSide -> Bool
                         confirmQuantiles thr m side =
-                            if not (ecConfirmQuantiles cfg)
-                                then True
-                                else case side of
+                            (not (ecConfirmQuantiles cfg) || (case side of
                                     SideLong -> maybe True (> thr) (smQuantile10 m)
-                                    SideShort -> maybe True (< negate thr) (smQuantile90 m)
+                                    SideShort -> maybe True (< negate thr) (smQuantile90 m)))
 
                         confidenceScoreKalman :: StepMeta -> Double
                         confidenceScoreKalman m =
@@ -1346,27 +1314,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 (Just _, Nothing) -> True
                                                 _ -> True
                                         size0 = if useSizing then confScore else 1
-                                     in if kalZ < zMin
+                                     in if (kalZ < zMin)
+                                            || not hvOk
+                                            || not confWidthOk
+                                            || not qWidthOk
+                                            || not (confirmConformal thr m side)
+                                            || not (confirmQuantiles thr m side)
+                                            || (useSizing && size0 <= 0)
                                             then (Nothing, 0)
-                                            else
-                                                if not hvOk
-                                                    then (Nothing, 0)
-                                                    else
-                                                        if not confWidthOk
-                                                            then (Nothing, 0)
-                                                            else
-                                                                if not qWidthOk
-                                                                    then (Nothing, 0)
-                                                                    else
-                                                                        if not (confirmConformal thr m side)
-                                                                            then (Nothing, 0)
-                                                                            else
-                                                                                if not (confirmQuantiles thr m side)
-                                                                                    then (Nothing, 0)
-                                                                                    else
-                                                                                        if useSizing && size0 <= 0
-                                                                                            then (Nothing, 0)
-                                                                                            else (Just side, size0)
+                                            else (Just side, size0)
 
                         stepFn (posSide, posSize, equity, eqAcc, posAcc, agreeAcc, agreeValidAcc, changes, openTrade, tradesAcc, dead, cooldownLeft, riskState0, factorOpenPrev, factorClosePrev) t =
                             if dead
@@ -1446,16 +1402,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 Nothing ->
                                                     case () of
                                                         _
-                                                            | maybe False (\lim -> dailyLoss >= lim) maxDailyLossLim -> Just ExitMaxDailyLoss
-                                                            | maybe False (\lim -> weeklyLoss >= lim) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
-                                                            | maybe False (\lim -> drawdown >= lim) maxDrawdownLim -> Just ExitMaxDrawdown
+                                                            | maybe False (dailyLoss >=) maxDailyLossLim -> Just ExitMaxDailyLoss
+                                                            | maybe False (weeklyLoss >=) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
+                                                            | maybe False (drawdown >=) maxDrawdownLim -> Just ExitMaxDrawdown
                                                             | maybe False (\lim -> maybe False (< lim) expectancy) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
                                                             | otherwise -> Nothing
                                         haltReason1 =
-                                            case haltReasonBase of
-                                                Just r -> Just r
-                                                Nothing -> riskHaltReason
-                                        halted = haltReason1 /= Nothing
+                                            haltReasonBase <|> riskHaltReason
+                                        halted = Data.Maybe.isJust haltReason1
 
                                         prev = pricesV V.! t
                                         nextClose = pricesV V.! (t + 1)
@@ -1488,11 +1442,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         posSideStart = posSide
                                         posSizeStart = posSize
                                         holdBars =
-                                            case openTrade0 of
-                                                Nothing -> 0
-                                                Just ot -> otHoldingPeriods ot
-                                        cooldownActive = posSide == Nothing && cooldownLeft > 0
-                                        cooldownNext0 = if posSide == Nothing then max 0 (cooldownLeft - 1) else 0
+                                            maybe 0 otHoldingPeriods openTrade0
+                                        cooldownActive = isNothing posSide && cooldownLeft > 0
+                                        cooldownNext0 = if isNothing posSide then max 0 (cooldownLeft - 1) else 0
                                         (agreeOk, agreeValid, desiredSideRaw, desiredSizeRaw, edgeRaw, edgeKal, edgeLstm, mOpenSignal, lstmCloseDir, lstmEntryScaleRaw, lstmConfScoreMaybe, metaNow) =
                                             if t < startT
                                                 then (False, False, posSide, posSize, 0, 0, 0, Nothing, Nothing, 1, Nothing, Nothing)
@@ -1516,7 +1468,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                 Nothing ->
                                                                     ( kalOpenDirRaw
                                                                     , kalCloseDirRaw
-                                                                    , if kalOpenDirRaw == Nothing then 0 else 1
+                                                                    , if isNothing kalOpenDirRaw then 0 else 1
                                                                     )
                                                                 Just m ->
                                                                     let confScore = confidenceScoreKalman m
@@ -1550,7 +1502,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                                         openBlockedByPositioning =
                                                             case openAgreeDir of
-                                                                Just _ -> openSignal == Nothing
+                                                                Just _ -> isNothing openSignal
                                                                 Nothing -> False
 
                                                         (desiredSide', desiredSize') =
@@ -1567,7 +1519,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                      in (agreeOk, agreeValid, desiredSide', desiredSize', edgeRaw, edgeKal, edgeLstm, openSignal, lstmCloseDir, lstmEntryScale, lstmScore, metaNow)
 
                                         pendingFactorUpdate =
-                                            factorEnabled && (posSide /= Nothing || mOpenSignal /= Nothing)
+                                            factorEnabled && (Data.Maybe.isJust posSide || Data.Maybe.isJust mOpenSignal)
 
                                         factorTarget thr =
                                             let edgeKalScore = edgeScore thr edgeKal
@@ -1638,11 +1590,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 else factorCloseBase
 
                                         lstmFlipStrongOk =
-                                            if not lstmFlipStrongOnly
-                                                then True
-                                                else case lstmConfScoreMaybe of
+                                            (not lstmFlipStrongOnly || (case lstmConfScoreMaybe of
                                                     Just score -> score >= max 0 (min 1 (ecLstmConfidenceHard cfg))
-                                                    Nothing -> False
+                                                    Nothing -> False))
 
                                         (openTradeFlip, lstmFlipExit) =
                                             if lstmFlipBars <= 0
@@ -1668,14 +1618,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     _ -> (openTrade0, False)
 
                                         desiredSize0 =
-                                            if desiredSideRaw == Nothing
+                                            if isNothing desiredSideRaw
                                                 then 0
                                                 else max 0 desiredSizeRaw
 
                                         desiredSide0 =
                                             if desiredSize0 <= 0 then Nothing else desiredSideRaw
 
-                                        needsEntry = desiredSide0 /= Nothing && desiredSide0 /= posSide
+                                        needsEntry = Data.Maybe.isJust desiredSide0 && desiredSide0 /= posSide
                                         lstmEntryScale = if needsEntry then lstmEntryScaleRaw else 1
 
                                         trendOk =
@@ -1683,13 +1633,13 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 Just side | needsEntry -> trendLookback <= 1 || trendOkAt t side
                                                 _ -> True
 
-                                        volOk = if needsEntry then volOkAt t else True
+                                        volOk = (not needsEntry || volOkAt t)
 
                                         snrScale =
                                             if minSignalToNoiseAdj <= 0
                                                 then 1
                                                 else case volPerBarAt t of
-                                                    Just vol | vol > 0 -> clamp01 ((max 0 edgeRaw) / vol / minSignalToNoiseAdj)
+                                                    Just vol | vol > 0 -> clamp01 (max 0 edgeRaw / vol / minSignalToNoiseAdj)
                                                     _ -> 0
 
                                         snrScaleWeighted =
@@ -1698,17 +1648,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 else (1 - snrSizeWeight) + snrSizeWeight * snrScale
 
                                         snrOk =
-                                            if needsEntry
-                                                then
-                                                    if snrSizeWeight <= 0
+                                            (not needsEntry || (if snrSizeWeight <= 0
                                                         then signalToNoiseOkAt t minSignalToNoiseAdj (max 0 edgeRaw)
-                                                        else snrScale > 0
-                                                else True
+                                                        else snrScale > 0))
 
                                         volTargetReady =
-                                            if needsEntry
-                                                then volTargetReadyAt t
-                                                else True
+                                            (not needsEntry || volTargetReadyAt t)
 
                                         triLayerOk =
                                             case (needsEntry, desiredSide0) of
@@ -1724,11 +1669,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                         && let slow = cloudSlowV V.! t
                                                                slowPrev = cloudSlowV V.! (t - 1)
                                                                priorClose = pricesV V.! (t - 1)
-                                                            in if any isBad [slow, slowPrev, prev, priorClose]
-                                                                then False
-                                                                else case side of
+                                                            in (not (any isBad [slow, slowPrev, prev, priorClose]) && (case side of
                                                                     SideLong -> priorClose >= slowPrev && prev < slow
-                                                                    SideShort -> priorClose <= slowPrev && prev > slow
+                                                                    SideShort -> priorClose <= slowPrev && prev > slow))
                                                 Nothing -> False
 
                                         kalmanBandExit =
@@ -1779,9 +1722,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                 Just ot | otSide ot == side -> max 0 (otBaseSize ot)
                                                                 _ -> max 0 desiredSizeRaw
 
-                                        entryScale = if desiredSide2 /= Nothing && desiredSide2 /= posSide then lstmEntryScale else 1
+                                        entryScale = if Data.Maybe.isJust desiredSide2 && desiredSide2 /= posSide then lstmEntryScale else 1
                                         sizeScale =
-                                            if desiredSide2 == Nothing
+                                            if isNothing desiredSide2
                                                 then 1
                                                 else volScaleAt t * riskScaleAt t * snrScaleWeighted
                                         sizeScaled = baseSizeTarget * entryScale * sizeScale
@@ -1796,7 +1739,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                         desiredSize = sizeFinal0
 
-                                        holdForced = posSide /= Nothing && desiredSide /= posSide && holdBars < minHoldBars
+                                        holdForced = Data.Maybe.isJust posSide && desiredSide /= posSide && holdBars < minHoldBars
 
                                         desiredSideHoldAdjusted =
                                             if holdForced
@@ -1823,13 +1766,10 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 Just side -> posSide /= Just side
                                                 Nothing -> False
 
-                                        entryBlockReason =
-                                            if entryAttempt && noTradeActive
-                                                then Just "NO_TRADE_WINDOW"
-                                                else
-                                                    if entryAttempt && tradeLimitReached
-                                                        then Just "MAX_TRADES_PER_DAY"
-                                                        else Nothing
+                                        entryBlockReason
+                                          | entryAttempt && noTradeActive = Just "NO_TRADE_WINDOW"
+                                          | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
+                                          | otherwise = Nothing
 
                                         (desiredSideFinal0, desiredSizeFinal0) =
                                             if cooldownActive
@@ -1844,7 +1784,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         holdTooLong =
                                             case maxHoldBars of
                                                 Nothing -> False
-                                                Just lim -> posSide /= Nothing && holdBars >= lim
+                                                Just lim -> Data.Maybe.isJust posSide && holdBars >= lim
 
                                         (desiredSideFinal1, desiredSizeFinal1) =
                                             if holdTooLong
@@ -1908,20 +1848,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 _ -> openTradeFlip
 
                                         rebalanceDelta = abs (desiredSizeFinal - posSize)
-                                        rebalanceDue =
-                                            if not rebalanceEnabled
-                                                then False
-                                                else
-                                                    if rebalanceGlobal
-                                                        then t `mod` rebalanceBars == 0
-                                                        else case openTradeUpdated of
+                                        rebalanceDue
+                                          | not rebalanceEnabled = False
+                                          | rebalanceGlobal = t `mod` rebalanceBars == 0
+                                          | otherwise = case openTradeUpdated of
                                                             Just ot ->
                                                                 let age = max 0 (t - otRebalanceAnchor ot)
                                                                  in age `mod` rebalanceBars == 0
                                                             Nothing -> t `mod` rebalanceBars == 0
                                         rebalanceOk =
                                             rebalanceEnabled
-                                                && posSide /= Nothing
+                                                && Data.Maybe.isJust posSide
                                                 && desiredSideFinal == posSide
                                                 && rebalanceDue
                                                 && rebalanceDelta > 0
@@ -2005,27 +1942,27 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                         if tsPx > slPx
                                                                             then (Just tsPx, Just ExitTrailingStop)
                                                                             else (Just slPx, Just ExitStopLoss)
-                                                        tpHit = maybe False (\tpPx -> hi >= tpPx) mTp
+                                                        tpHit = maybe False (hi >=) mTp
                                                         exitOrTrail =
                                                             case ecIntrabarFill cfg of
                                                                 StopFirst ->
                                                                     let (mStop, stopWhy) = stopPx trail0
-                                                                        stopHit = maybe False (\stPx -> lo <= stPx) mStop
+                                                                        stopHit = maybe False (lo <=) mStop
                                                                      in if stopHit
-                                                                            then (Just (maybe nextClose id mStop, stopWhy), trail0)
+                                                                            then (Just (Data.Maybe.fromMaybe nextClose mStop, stopWhy), trail0)
                                                                             else
                                                                                 if tpHit
-                                                                                    then (Just (maybe nextClose id mTp, Just ExitTakeProfit), trail0)
+                                                                                    then (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
                                                                                     else (Nothing, max trail0 hi)
                                                                 TakeProfitFirst ->
                                                                     if tpHit
-                                                                        then (Just (maybe nextClose id mTp, Just ExitTakeProfit), trail0)
+                                                                        then (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
                                                                         else
                                                                             let trail1 = max trail0 hi
                                                                                 (mStop, stopWhy) = stopPx trail1
-                                                                                stopHit = maybe False (\stPx -> lo <= stPx) mStop
+                                                                                stopHit = maybe False (lo <=) mStop
                                                                              in if stopHit
-                                                                                    then (Just (maybe nextClose id mStop, stopWhy), trail1)
+                                                                                    then (Just (Data.Maybe.fromMaybe nextClose mStop, stopWhy), trail1)
                                                                                     else (Nothing, trail1)
                                                      in case exitOrTrail of
                                                             (Just (exitPx, reason), _trailUsed) ->
@@ -2071,27 +2008,27 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                         if tsPx < slPx
                                                                             then (Just tsPx, Just ExitTrailingStop)
                                                                             else (Just slPx, Just ExitStopLoss)
-                                                        tpHit = maybe False (\tpPx -> lo <= tpPx) mTp
+                                                        tpHit = maybe False (lo <=) mTp
                                                         exitOrTrail =
                                                             case ecIntrabarFill cfg of
                                                                 StopFirst ->
                                                                     let (mStop, stopWhy) = stopPx trail0
-                                                                        stopHit = maybe False (\stPx -> hi >= stPx) mStop
+                                                                        stopHit = maybe False (hi >=) mStop
                                                                      in if stopHit
-                                                                            then (Just (maybe nextClose id mStop, stopWhy), trail0)
+                                                                            then (Just (Data.Maybe.fromMaybe nextClose mStop, stopWhy), trail0)
                                                                             else
                                                                                 if tpHit
-                                                                                    then (Just (maybe nextClose id mTp, Just ExitTakeProfit), trail0)
+                                                                                    then (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
                                                                                     else (Nothing, min trail0 lo)
                                                                 TakeProfitFirst ->
                                                                     if tpHit
-                                                                        then (Just (maybe nextClose id mTp, Just ExitTakeProfit), trail0)
+                                                                        then (Just (Data.Maybe.fromMaybe nextClose mTp, Just ExitTakeProfit), trail0)
                                                                         else
                                                                             let trail1 = min trail0 lo
                                                                                 (mStop, stopWhy) = stopPx trail1
-                                                                                stopHit = maybe False (\stPx -> hi >= stPx) mStop
+                                                                                stopHit = maybe False (hi >=) mStop
                                                                              in if stopHit
-                                                                                    then (Just (maybe nextClose id mStop, stopWhy), trail1)
+                                                                                    then (Just (Data.Maybe.fromMaybe nextClose mStop, stopWhy), trail1)
                                                                                     else (Nothing, trail1)
                                                      in case exitOrTrail of
                                                             (Just (exitPx, reason), _trailUsed) ->
@@ -2148,7 +2085,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                         -- Re-check risk after the bar and flatten at close if limits are breached.
                                         (posFinal3, posSizeFinal3, equityFinal3, changesFinal3, openTradeFinal3, tradesFinal3, haltReason2) =
-                                            if dead2 || haltReason1 /= Nothing
+                                            if dead2 || Data.Maybe.isJust haltReason1
                                                 then (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, haltReason1)
                                                 else
                                                     let peakEqAfter = max peakEq1 equityFinal2
@@ -2175,15 +2112,15 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                         riskHaltReason2 =
                                                             case () of
                                                                 _
-                                                                    | maybe False (\lim -> dailyLossAfter >= lim) maxDailyLossLim -> Just ExitMaxDailyLoss
-                                                                    | maybe False (\lim -> weeklyLossAfter >= lim) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
-                                                                    | maybe False (\lim -> drawdownAfter >= lim) maxDrawdownLim -> Just ExitMaxDrawdown
+                                                                    | maybe False (dailyLossAfter >=) maxDailyLossLim -> Just ExitMaxDailyLoss
+                                                                    | maybe False (weeklyLossAfter >=) maxWeeklyLossLim -> Just ExitMaxWeeklyLoss
+                                                                    | maybe False (drawdownAfter >=) maxDrawdownLim -> Just ExitMaxDrawdown
                                                                     | maybe False (\lim -> maybe False (< lim) expectancyAfter) minExpectancy -> Just (ExitOther "NEGATIVE_EXPECTANCY")
                                                                     | otherwise -> Nothing
                                                      in case riskHaltReason2 of
                                                             Nothing -> (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Nothing)
                                                             Just r ->
-                                                                if posFinal2 == Nothing
+                                                                if isNothing posFinal2
                                                                     then (posFinal2, posSizeFinal2, equityFinal2, changesFinal2, openTradeFinal2, tradesFinal2, Just r)
                                                                     else
                                                                         let eqExit = applyCost equityFinal2 posSizeFinal2
@@ -2195,7 +2132,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                          in (Nothing, 0, eqExit, changesOut, Nothing, tradesAcc1, Just r)
 
                                         exitedToFlat =
-                                            posFinal3 == Nothing && (posAfterSwitch /= Nothing || posSide /= Nothing)
+                                            isNothing posFinal3 && (Data.Maybe.isJust posAfterSwitch || Data.Maybe.isJust posSide)
 
                                         maxHoldCooldown =
                                             if holdTooLong
@@ -2205,7 +2142,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         cooldownAfterExit = max cooldownBars maxHoldCooldown
 
                                         cooldownNext =
-                                            if posFinal3 == Nothing
+                                            if isNothing posFinal3
                                                 then if exitedToFlat then cooldownAfterExit else cooldownNext0
                                                 else 0
                                         entryOccurred =

@@ -9,7 +9,7 @@ module Trader.Optimizer.Optimize (
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, evaluate, try)
-import Control.Monad (foldM, forM_, when)
+import Control.Monad (foldM, forM_, unless, when)
 import Crypto.Hash (Digest, hash)
 import Crypto.Hash.Algorithms (SHA256)
 import Data.Aeson (Value (..), object, (.=))
@@ -22,10 +22,13 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
+import Data.Foldable (for_)
 import Data.List (foldl', intercalate, sort, sortBy)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import Data.Either (fromRight)
 import Data.Ord (comparing)
+import qualified Data.Ord
 import Data.Scientific (Scientific, toRealFloat)
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -107,7 +110,7 @@ normalizeHeaderName raw =
      in [c | c <- s, isAlphaNum c]
 
 radicalInverse :: Int -> Int -> Double
-radicalInverse base n = go 0 1 n
+radicalInverse base = go 0 1
   where
     go acc f i
         | i <= 0 = acc
@@ -220,9 +223,7 @@ metricInt m key def =
             case KM.lookup (Key.fromString key) metrics of
                 Just (Bool v) -> if v then 1 else 0
                 Just (Number n) ->
-                    case scientificToDouble n of
-                        Just d -> truncate d
-                        Nothing -> def
+                    maybe def truncate (scientificToDouble n)
                 _ -> def
 
 metricProfitFactor :: Maybe (KM.KeyMap Value) -> Maybe Double
@@ -301,10 +302,10 @@ coerceFloatValueLenient value =
                                 "-nan" -> Just (0 / 0)
                                 "inf" -> Just (1 / 0)
                                 "+inf" -> Just (1 / 0)
-                                "-inf" -> Just (-1 / 0)
+                                "-inf" -> Just (- (1 / 0))
                                 "infinity" -> Just (1 / 0)
                                 "+infinity" -> Just (1 / 0)
-                                "-infinity" -> Just (-1 / 0)
+                                "-infinity" -> Just (- (1 / 0))
                                 _ -> Nothing
         _ -> Nothing
 
@@ -348,7 +349,7 @@ ensureAnnualizedReturnMetrics metrics finalEq periodsPerYear periods =
     let eq = sanitizeFinalEquity finalEq
         annRet = calcAnnualizedReturn eq periodsPerYear periods
         annVal = Aeson.toJSON annRet
-        addMetric m = KM.insert (Key.fromString "annualizedReturn") annVal m
+        addMetric = KM.insert (Key.fromString "annualizedReturn") annVal
      in case metrics of
             Just m ->
                 if metricsHasAnnualizedReturn m
@@ -730,9 +731,7 @@ data OptimizerArgs = OptimizerArgs
 
 applyQualityPreset :: OptimizerArgs -> OptimizerArgs
 applyQualityPreset args =
-    let maxIf field val = max field val
-        minIf field val = min field val
-        objective = map toLower (trim (oaObjective args))
+    let objective = map toLower (trim (oaObjective args))
         objective' =
             if objective `elem` ["final-equity", "final_equity", "finalequity"]
                 then "equity-dd-turnover"
@@ -742,6 +741,8 @@ applyQualityPreset args =
                 Just v | not (null (trim v)) -> True
                 _ -> False
         intervals' = if intervalReset then Just binanceIntervalsCsv else oaIntervals args
+        maxIf = max
+        minIf = min
      in args
             { oaTrials = maxIf (oaTrials args) 500
             , oaMinRoundTrips = maxIf (oaMinRoundTrips args) 5
@@ -765,7 +766,7 @@ applyQualityPreset args =
             , oaTuneRatio = minIf (oaTuneRatio args) 0.15
             , oaObjective = objective'
             , oaPenaltyTurnover = maxIf (oaPenaltyTurnover args) 0.1
-            , oaBarsMax = if oaBarsMax args > 0 then 0 else oaBarsMax args
+            , oaBarsMax = min (oaBarsMax args) 0
             , oaAutoHighLow = True
             , oaWalkForwardFoldsMin = maxIf (oaWalkForwardFoldsMin args) 3
             , oaWalkForwardFoldsMax = maxIf (oaWalkForwardFoldsMax args) (oaWalkForwardFoldsMin args)
@@ -905,14 +906,11 @@ fmtOptFloat v =
         Just x -> printf "%.8f" x
 
 fmtOptInt :: Maybe Int -> String
-fmtOptInt v =
-    case v of
-        Nothing -> "null"
-        Just x -> show x
+fmtOptInt = maybe "null" show
 
 buildCommand :: FilePath -> [String] -> TrialParams -> Double -> Bool -> [String]
 buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
-    let cmd0 = [traderBin] ++ baseArgs
+    let cmd0 = traderBin : baseArgs
         cmd1 =
             case tpPlatform params of
                 Just platform -> cmd0 ++ ["--platform", platform]
@@ -1059,10 +1057,10 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , "--tune-stress-weight"
                    , printf "%.6f" (max 0 (tpTuneStressWeight params))
                    ]
-                ++ (if tpFundingBySide params then ["--funding-by-side"] else [])
-                ++ (if tpFundingOnOpen params then ["--funding-on-open"] else [])
-                ++ (if tpRebalanceGlobal params then ["--rebalance-global"] else [])
-                ++ (if tpRebalanceResetOnSignal params then ["--rebalance-reset-on-signal"] else [])
+                ++ (["--funding-by-side" | tpFundingBySide params])
+                ++ (["--funding-on-open" | tpFundingOnOpen params])
+                ++ (["--rebalance-global" | tpRebalanceGlobal params])
+                ++ (["--rebalance-reset-on-signal" | tpRebalanceResetOnSignal params])
         cmd16 =
             case tpGradClip params of
                 Just v -> cmd15 ++ ["--grad-clip", printf "%.8f" v]
@@ -1076,7 +1074,7 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , "--intrabar-fill"
                    , tpIntrabarFill params
                    ]
-                ++ (if tpTriLayer params then ["--tri-layer"] else [])
+                ++ (["--tri-layer" | tpTriLayer params])
                 ++ [ "--tri-layer-fast-mult"
                    , printf "%.12g" (max 1e-6 (tpTriLayerFastMult params))
                    , "--tri-layer-slow-mult"
@@ -1092,11 +1090,9 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , "--tri-layer-price-action-body"
                    , printf "%.8f" (max 0 (tpTriLayerPriceActionBody params))
                    ]
-                ++ ( if tpTriLayer params && not (tpTriLayerPriceAction params)
-                        then ["--no-tri-layer-price-action"]
-                        else []
+                ++ ( ["--no-tri-layer-price-action" | tpTriLayer params && not (tpTriLayerPriceAction params)]
                    )
-                ++ (if tpTriLayerExitOnSlow params then ["--tri-layer-exit-on-slow"] else [])
+                ++ (["--tri-layer-exit-on-slow" | tpTriLayerExitOnSlow params])
                 ++ [ "--kalman-band-lookback"
                    , show (max 0 (tpKalmanBandLookback params))
                    , "--kalman-band-std-mult"
@@ -1106,7 +1102,7 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
                    , "--lstm-exit-flip-grace-bars"
                    , show (max 0 (tpLstmExitFlipGraceBars params))
                    ]
-                ++ (if tpLstmExitFlipStrong params then ["--lstm-exit-flip-strong"] else [])
+                ++ (["--lstm-exit-flip-strong" | tpLstmExitFlipStrong params])
                 ++ [ "--lstm-confidence-soft"
                    , printf "%.4f" (clamp (tpLstmConfidenceSoft params) 0 1)
                    , "--lstm-confidence-hard"
@@ -1679,15 +1675,15 @@ sampleParams
                 nextLogUniform (max 1e-12 openThresholdMin) (max 1e-12 openThresholdMax) rng6
             (baseCloseThreshold, rng8) =
                 nextLogUniform (max 1e-12 closeThresholdMin) (max 1e-12 closeThresholdMax) rng7
-            (minHoldBars, rng9) = nextIntRange (fst minHoldBarsRange) (snd minHoldBarsRange) rng8
-            (cooldownBars, rng10) = nextIntRange (fst cooldownBarsRange) (snd cooldownBarsRange) rng9
+            (minHoldBars, rng9) = uncurry nextIntRange minHoldBarsRange rng8
+            (cooldownBars, rng10) = uncurry nextIntRange cooldownBarsRange rng9
             (maxHoldBars, rng11) =
                 if snd maxHoldBarsRange > 0
                     then
-                        let (sample, rng') = nextIntRange (fst maxHoldBarsRange) (snd maxHoldBarsRange) rng10
+                        let (sample, rng') = uncurry nextIntRange maxHoldBarsRange rng10
                          in if sample > 0 then (Just sample, rng') else (Nothing, rng')
                     else (Nothing, rng10)
-            (minEdge, rng12) = nextUniform (fst minEdgeRange) (snd minEdgeRange) rng11
+            (minEdge, rng12) = uncurry nextUniform minEdgeRange rng11
             (minSignalToNoise, rng13) =
                 let (lo, hi) = ordered minSignalToNoiseRange
                  in nextUniform lo hi rng12
@@ -1695,7 +1691,7 @@ sampleParams
                 let (lo, hi) = ordered snrSizeWeightRange
                     (val, rng') = nextUniform lo hi rng13
                  in (clamp val 0 1, rng')
-            (edgeBuffer, rng14) = nextUniform (fst edgeBufferRange) (snd edgeBufferRange) rng13a
+            (edgeBuffer, rng14) = uncurry nextUniform edgeBufferRange rng13a
             (costAwareEdge, edgeBuffer', rng15) =
                 if pCostAwareEdge < 0
                     then (edgeBuffer > 0, edgeBuffer, rng14)
@@ -1705,30 +1701,30 @@ sampleParams
                          in if enabled
                                 then (True, edgeBuffer, rng')
                                 else (False, 0, rng')
-            (trendLookback, rng16) = nextIntRange (fst trendLookbackRange) (snd trendLookbackRange) rng15
+            (trendLookback, rng16) = uncurry nextIntRange trendLookbackRange rng15
             (maxPositionSize, rng17) =
-                let (val, rng') = nextUniform (fst maxPositionSizeRange) (snd maxPositionSizeRange) rng16
+                let (val, rng') = uncurry nextUniform maxPositionSizeRange rng16
                  in (max 0 val, rng')
             (volTarget, rng18) =
-                if max (fst volTargetRange) (snd volTargetRange) > 0
+                if uncurry max volTargetRange > 0
                     then
                         let (r, rng') = nextDouble rng17
                          in if r >= clamp pDisableVolTarget 0 1
                                 then
-                                    let vtLo = max 1e-12 (min (fst volTargetRange) (snd volTargetRange))
-                                        vtHi = max vtLo (max (fst volTargetRange) (snd volTargetRange))
+                                    let vtLo = max 1e-12 (uncurry min volTargetRange)
+                                        vtHi = max vtLo (uncurry max volTargetRange)
                                         (val, rng'') = nextUniform vtLo vtHi rng'
                                      in (Just val, rng'')
                                 else (Nothing, rng')
                     else (Nothing, rng17)
             (volEwmaAlpha, rng19) =
-                if max (fst volEwmaAlphaRange) (snd volEwmaAlphaRange) > 0
+                if uncurry max volEwmaAlphaRange > 0
                     then
                         let (r, rng') = nextDouble rng18
                          in if r >= clamp pDisableVolEwmaAlpha 0 1
                                 then
-                                    let vaLo = max 1e-6 (min (fst volEwmaAlphaRange) (snd volEwmaAlphaRange))
-                                        vaHi = min 0.999 (max (fst volEwmaAlphaRange) (snd volEwmaAlphaRange))
+                                    let vaLo = max 1e-6 (uncurry min volEwmaAlphaRange)
+                                        vaHi = min 0.999 (uncurry max volEwmaAlphaRange)
                                      in if vaHi >= vaLo
                                             then
                                                 let (val, rng'') = nextUniform vaLo vaHi rng'
@@ -1736,31 +1732,31 @@ sampleParams
                                             else (Nothing, rng')
                                 else (Nothing, rng')
                     else (Nothing, rng18)
-            (volLookback0, rng20) = nextIntRange (fst volLookbackRange) (snd volLookbackRange) rng19
-            volLookback = if volTarget /= Nothing && volEwmaAlpha == Nothing then max 2 volLookback0 else volLookback0
+            (volLookback0, rng20) = uncurry nextIntRange volLookbackRange rng19
+            volLookback = if isJust volTarget && isNothing volEwmaAlpha then max 2 volLookback0 else volLookback0
             (volFloor, rng21) =
-                let (val, rng') = nextUniform (fst volFloorRange) (snd volFloorRange) rng20
+                let (val, rng') = uncurry nextUniform volFloorRange rng20
                  in (max 0 val, rng')
             (volScaleMax, rng22) =
-                let (val, rng') = nextUniform (fst volScaleMaxRange) (snd volScaleMaxRange) rng21
+                let (val, rng') = uncurry nextUniform volScaleMaxRange rng21
                  in (max 0 val, rng')
             (periodsPerYear, rng23) =
-                if max (fst periodsPerYearRange) (snd periodsPerYearRange) > 0
+                if uncurry max periodsPerYearRange > 0
                     then
-                        let ppyMin = max 1e-12 (min (fst periodsPerYearRange) (snd periodsPerYearRange))
-                            ppyMax = max ppyMin (max (fst periodsPerYearRange) (snd periodsPerYearRange))
+                        let ppyMin = max 1e-12 (uncurry min periodsPerYearRange)
+                            ppyMax = max ppyMin (uncurry max periodsPerYearRange)
                             (val, rng') = nextUniform ppyMin ppyMax rng22
                          in (Just val, rng')
                     else (Nothing, rng22)
-            (kalmanMarketTopN, rng24) = nextIntRange (fst kalmanMarketTopNRange) (snd kalmanMarketTopNRange) rng23
+            (kalmanMarketTopN, rng24) = uncurry nextIntRange kalmanMarketTopNRange rng23
             (maxVolatility, rng25) =
-                if max (fst maxVolatilityRange) (snd maxVolatilityRange) > 0
+                if uncurry max maxVolatilityRange > 0
                     then
                         let (r, rng') = nextDouble rng24
                          in if r >= clamp pDisableMaxVolatility 0 1
                                 then
-                                    let mvLo = max 1e-12 (min (fst maxVolatilityRange) (snd maxVolatilityRange))
-                                        mvHi = max mvLo (max (fst maxVolatilityRange) (snd maxVolatilityRange))
+                                    let mvLo = max 1e-12 (uncurry min maxVolatilityRange)
+                                        mvHi = max mvLo (uncurry max maxVolatilityRange)
                                         (val, rng'') = nextUniform mvLo mvHi rng'
                                      in (Just val, rng'')
                                 else (Nothing, rng')
@@ -1776,7 +1772,7 @@ sampleParams
                 let (r, rng') = nextDouble rng26b
                  in (r < clamp pFundingOnOpen 0 1, rng')
             (rebalanceBarsRaw, rng26d) =
-                nextIntRange (fst rebalanceBarsRange) (snd rebalanceBarsRange) rng26c
+                uncurry nextIntRange rebalanceBarsRange rng26c
             rebalanceBars = max 0 rebalanceBarsRaw
             (rebalanceThreshold, rng26e) =
                 let (lo, hi) = ordered rebalanceThresholdRange
@@ -1801,7 +1797,7 @@ sampleParams
                 let (lo, hi) = ordered walkForwardFoldsRange
                  in nextIntRange (max 1 lo) (max 1 hi) rng31
             (walkForwardEmbargoBarsRaw, rng32a) =
-                nextIntRange (fst walkForwardEmbargoBarsRange) (snd walkForwardEmbargoBarsRange) rng32
+                uncurry nextIntRange walkForwardEmbargoBarsRange rng32
             walkForwardEmbargoBars = max 0 walkForwardEmbargoBarsRaw
             (tuneStressVolMult, rng33) =
                 let (lo, hi) = ordered tuneStressVolMultRange
@@ -1955,28 +1951,28 @@ sampleParams
                             (val, rng') = nextUniform lo hi rng51b
                          in (clamp val 0 1, rng')
                     else (0, rng51b)
-            (stopLoss, rng53) = nextMaybe pDisableStop (nextLogUniform (fst stopRange) (snd stopRange)) rng52
-            (takeProfit, rng54) = nextMaybe pDisableTp (nextLogUniform (fst takeRange) (snd takeRange)) rng53
-            (trailingStop, rng55) = nextMaybe pDisableTrail (nextLogUniform (fst trailRange) (snd trailRange)) rng54
+            (stopLoss, rng53) = nextMaybe pDisableStop (uncurry nextLogUniform stopRange) rng52
+            (takeProfit, rng54) = nextMaybe pDisableTp (uncurry nextLogUniform takeRange) rng53
+            (trailingStop, rng55) = nextMaybe pDisableTrail (uncurry nextLogUniform trailRange) rng54
             (stopLossVolMult, rng56) =
-                if max (fst stopVolMultRange) (snd stopVolMultRange) > 0
+                if uncurry max stopVolMultRange > 0
                     then
-                        let lo = max 1e-6 (min (fst stopVolMultRange) (snd stopVolMultRange))
-                            hi = max lo (max (fst stopVolMultRange) (snd stopVolMultRange))
+                        let lo = max 1e-6 (uncurry min stopVolMultRange)
+                            hi = max lo (uncurry max stopVolMultRange)
                          in nextMaybe pDisableStopVolMult (nextLogUniform lo hi) rng55
                     else (Nothing, rng55)
             (takeProfitVolMult, rng57) =
-                if max (fst takeVolMultRange) (snd takeVolMultRange) > 0
+                if uncurry max takeVolMultRange > 0
                     then
-                        let lo = max 1e-6 (min (fst takeVolMultRange) (snd takeVolMultRange))
-                            hi = max lo (max (fst takeVolMultRange) (snd takeVolMultRange))
+                        let lo = max 1e-6 (uncurry min takeVolMultRange)
+                            hi = max lo (uncurry max takeVolMultRange)
                          in nextMaybe pDisableTpVolMult (nextLogUniform lo hi) rng56
                     else (Nothing, rng56)
             (trailingStopVolMult, rng58) =
-                if max (fst trailVolMultRange) (snd trailVolMultRange) > 0
+                if uncurry max trailVolMultRange > 0
                     then
-                        let lo = max 1e-6 (min (fst trailVolMultRange) (snd trailVolMultRange))
-                            hi = max lo (max (fst trailVolMultRange) (snd trailVolMultRange))
+                        let lo = max 1e-6 (uncurry min trailVolMultRange)
+                            hi = max lo (uncurry max trailVolMultRange)
                          in nextMaybe pDisableTrailVolMult (nextLogUniform lo hi) rng57
                     else (Nothing, rng57)
             (riskPerTrade, rng58b) =
@@ -1989,13 +1985,13 @@ sampleParams
                         else
                             let (val, rng') = nextMaybe pDisableRiskPerTrade (nextUniform lo' hi') rng58
                              in (fmap (\v -> clamp v 1e-6 0.999999) val, rng')
-            (maxDrawdown, rng59) = nextMaybe pDisableMaxDd (nextUniform (fst maxDdRange) (snd maxDdRange)) rng58b
-            (maxDailyLoss, rng60) = nextMaybe pDisableMaxDl (nextUniform (fst maxDlRange) (snd maxDlRange)) rng59
+            (maxDrawdown, rng59) = nextMaybe pDisableMaxDd (uncurry nextUniform maxDdRange) rng58b
+            (maxDailyLoss, rng60) = nextMaybe pDisableMaxDl (uncurry nextUniform maxDlRange) rng59
             (maxOrderErrors, rng61) =
                 nextMaybe
                     pDisableMaxOe
                     ( \r ->
-                        let (val, r') = nextIntRange (fst maxOeRange) (snd maxOeRange) r
+                        let (val, r') = uncurry nextIntRange maxOeRange r
                          in (val, r')
                     )
                     rng60
@@ -2239,7 +2235,7 @@ runOptimizer args0 = do
                         (Just (Left _), _, _) -> pure 2
                         (_, maxBarsCap, csvCols) -> do
                             let (platforms, platformIntervalsMap, intervalsResolved) =
-                                    if oaBinanceSymbol args == Nothing
+                                    if isNothing (oaBinanceSymbol args)
                                         then ([], [], Right (pickIntervals intervalsRaw (oaLookbackWindow args) maxBarsCap))
                                         else
                                             let rawPlatforms =
@@ -2495,7 +2491,7 @@ runOptimizer args0 = do
                                                                     pure 2
                                                                 Right baseArgs -> do
                                                                     let rngStart = seedRng (oaSeed args)
-                                                                        dataSource = if oaData args == Nothing then "binance" else "csv"
+                                                                        dataSource = if isNothing (oaData args) then "binance" else "csv"
                                                                         sourceOverride = map toLower (trim (oaSourceLabel args))
                                                                         symbolLabel = normalizeSymbol (Just (oaSymbolLabel args))
                                                                         symbolFallback = normalizeSymbol (oaBinanceSymbol args)
@@ -2821,8 +2817,7 @@ runOptimizer args0 = do
                                                                             (zip [1 .. seedTrials] sobolRngs)
                                                                     let seedResults = reverse seedResultsRev
                                                                         scored =
-                                                                            sortBy
-                                                                                (flip (comparing (fromMaybe (-1e18) . trScore)))
+                                                                            sortBy (comparing (Data.Ord.Down . fromMaybe (-1e18) . trScore))
                                                                                 (filter (isJust . trScore) seedResults)
                                                                         survivorsRaw = take survivorCount (filter trEligible scored ++ scored)
                                                                         techniqueSummarySeed =
@@ -2879,9 +2874,7 @@ runOptimizer args0 = do
                                                                                 { otsAppliedBayesianEi = remainingTrials > 0 && not (null survivorParams)
                                                                                 , otsAppliedEnsemble = length records >= 2
                                                                                 }
-                                                                    case outHandle of
-                                                                        Nothing -> pure ()
-                                                                        Just h -> hClose h
+                                                                    Data.Foldable.for_ outHandle hClose
                                                                     case best of
                                                                         Nothing -> do
                                                                             printNoEligible
@@ -2899,7 +2892,7 @@ runOptimizer args0 = do
                                                                         Just b -> do
                                                                             printBest b
                                                                             printRepro traderBinPath baseArgs b (oaTuneRatio args) useSweepThreshold (oaDisableLstmPersistence args)
-                                                                            when (not (null (trim (oaTopJson args)))) $ do
+                                                                            unless (null (trim (oaTopJson args))) $ do
                                                                                 writeTopJson
                                                                                     (oaTopJson args)
                                                                                     dataSource
@@ -3024,7 +3017,7 @@ resolveBars args intervals maxBarsCap useSweepThreshold = do
             let barsMin = max 2 (min barsMin0 barsMax)
             pure (Right (barsMin, barsMax))
         else do
-            let worstLb = maximum (map (either (const 0) id . lookbackBarsFrom' (oaLookbackWindow args)) intervals)
+            let worstLb = maximum (map (fromRight 0 . lookbackBarsFrom' (oaLookbackWindow args)) intervals)
                 minRequired0 = worstLb + 3
             if useSweepThreshold
                 then do
@@ -3041,7 +3034,7 @@ resolveBars args intervals maxBarsCap useSweepThreshold = do
                                         minTrain = ceiling (2 / tr)
                                         minRequired2 =
                                             max minRequired1 (ceiling (fromIntegral minTrain / max 1e-12 (1 - br)) + 2)
-                                        autoBars = if oaBinanceSymbol args == Nothing then maxBarsCap else 500
+                                        autoBars = if isNothing (oaBinanceSymbol args) then maxBarsCap else 500
                                     if minRequired2 > max barsMax autoBars
                                         then
                                             pure
@@ -3114,11 +3107,14 @@ buildBaseArgs args csvCols = do
 printTrialStatus :: Int -> Int -> TrialResult -> IO ()
 printTrialStatus i trials tr = do
     let status :: String
-        status = if trEligible tr then "OK" else if trOk tr then "SKIP" else "FAIL"
+        status
+          | trEligible tr = "OK"
+          | trOk tr = "SKIP"
+          | otherwise = "FAIL"
         eq :: String
-        eq = maybe "-" (\v -> printf "%.6fx" v) (trFinalEquity tr)
+        eq = maybe "-" (printf "%.6fx") (trFinalEquity tr)
         scoreLabel :: String
-        scoreLabel = maybe "-" (\v -> printf "%.6f" v) (trScore tr)
+        scoreLabel = maybe "-" (printf "%.6f") (trScore tr)
         params = trParams tr
         msg =
             printf
@@ -3295,10 +3291,7 @@ printBest tr = do
     putStrLn ("  minPositionSize:     " ++ show (tpMinPositionSize p))
 
 showMaybe :: (Show a) => Maybe a -> String
-showMaybe v =
-    case v of
-        Nothing -> "None"
-        Just x -> show x
+showMaybe = maybe "None" show
 
 printRepro :: FilePath -> [String] -> TrialResult -> Double -> Bool -> Bool -> IO ()
 printRepro traderBin baseArgs tr tuneRatio useSweepThreshold disableLstm = do
@@ -3763,21 +3756,21 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
             , Just eq <- [trFinalEquity tr]
             , eq > 1
             , not (isInfinite eq)
-            , trScore tr /= Nothing
+            , isJust (trScore tr)
             ]
         sortKey tr =
-            let ann = metricFloat (trMetrics tr) "annualizedReturn" (-1 / 0)
-                ann' = if isNaN ann || isInfinite ann then -1 / 0 else ann
-                score = fromMaybe (-1 / 0) (trScore tr)
-                score' = if isNaN score || isInfinite score then -1 / 0 else score
+            let ann = metricFloat (trMetrics tr) "annualizedReturn" (- (1 / 0))
+                ann' = if isNaN ann || isInfinite ann then- (1 / 0) else ann
+                score = fromMaybe (- (1 / 0)) (trScore tr)
+                score' = if isNaN score || isInfinite score then- (1 / 0) else score
                 eq = fromMaybe 0 (trFinalEquity tr)
                 eq' = if isNaN eq || isInfinite eq then 0 else eq
              in (ann', score', eq')
-        sorted = sortBy (flip (comparing sortKey)) successful
+        sorted = sortBy (comparing (Data.Ord.Down . sortKey)) successful
         combos = zipWith (comboFromTrial nowMs dataSource sourceOverride symbolLabel) [1 ..] (take 10 sorted)
         topMetrics =
             let topN = take 5 sorted
-                extract f = [f tr | tr <- topN, trEligible tr, trScore tr /= Nothing]
+                extract f = [f tr | tr <- topN, trEligible tr, isJust (trScore tr)]
                 avg xs = if null xs then Nothing else Just (sum xs / fromIntegral (length xs))
              in object
                     [ "avgScore" .= avg (map (fromMaybe 0 . trScore) topN)
@@ -3811,9 +3804,7 @@ comboFromTrial createdAtMs dataSource sourceOverride symbolLabel rank tr =
         periodsPerYear = fromMaybe (inferPeriodsPerYear (tpInterval params)) (tpPeriodsPerYear params)
         metrics = ensureAnnualizedReturnMetrics metricsRaw finalEq periodsPerYear (tpBars params)
         metricsVal =
-            case metrics of
-                Just m -> Object m
-                Nothing -> Null
+            maybe Null Object metrics
         symbol = symbolLabel >>= sanitizeComboSymbolForPlatform (tpPlatform params)
         source = resolveSourceLabel (tpPlatform params) dataSource sourceOverride
         paramsValue =

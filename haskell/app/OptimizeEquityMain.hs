@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Data.Char (isSpace, toLower)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe, isJust)
@@ -317,9 +317,9 @@ validateArgs args = do
         Left "Provide only one of --platform or --platforms."
     when (oaBinanceFutures args' && maybe False (\p -> map toLower (trim p) /= "binance") platformVal) $
         Left "--futures requires --platform binance (or omit --platform to use the default)."
-    when (oaObjective args `notElem` objectiveChoices) $
+    unless (oaObjective args `elem` objectiveChoices) $
         Left ("Invalid objective: " ++ show (oaObjective args) ++ " (expected one of: " ++ intercalate ", " objectiveChoices ++ ")")
-    when (oaTuneObjective args `notElem` objectiveChoices) $
+    unless (oaTuneObjective args `elem` objectiveChoices) $
         Left ("Invalid tune objective: " ++ show (oaTuneObjective args) ++ " (expected one of: " ++ intercalate ", " objectiveChoices ++ ")")
     when (maybe False (< 0) (oaSeedTrials args)) $
         Left "--seed-trials must be >= 0."
@@ -333,7 +333,7 @@ validateArgs args = do
         Left "--perturb-scale-int must be >= 0."
     when (oaEarlyStopNoImprove args < 0) $
         Left "--early-stop-no-improve must be >= 0."
-    when (oaBarsDistribution args `notElem` barsDistributionChoices) $
+    unless (oaBarsDistribution args `elem` barsDistributionChoices) $
         Left
             ( "Invalid bars distribution: "
                 ++ show (oaBarsDistribution args)

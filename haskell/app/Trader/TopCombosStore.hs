@@ -69,7 +69,7 @@ newTopCombosStore path historyDir = do
 withTopCombosLock :: TopCombosStore -> IO a -> IO a
 withTopCombosLock store action =
     withTopCombosProcessLock (tcsPath store) $
-        withMVar (tcsLock store) (\_ -> action)
+        withMVar (tcsLock store) (const action)
 
 withTopCombosProcessLock :: FilePath -> IO a -> IO a
 withTopCombosProcessLock path action =
@@ -266,7 +266,6 @@ sanitizeBinanceComboSymbol raw =
         isValid sym =
             let n = length sym
              in n >= 3 && n <= 30 && sym `notElem` commonQuotes && all isAsciiAlphaNum sym
-        isSuffixToken token = any isDigit token
         pickTokenCandidate =
             case tokens of
                 [] -> Nothing
@@ -283,6 +282,7 @@ sanitizeBinanceComboSymbol raw =
                                             then Just a
                                             else Nothing
         pickQuoteSuffix = trimBinanceComboSuffix s
+        isSuffixToken = any isDigit
      in pickQuoteSuffix <|> pickTokenCandidate <|> if isValidBinanceSymbol s then Just s else Nothing
 
 splitAlphaNumTokens :: String -> [String]
@@ -321,7 +321,7 @@ trimQuoteCandidates compact quote =
         , any isDigit suffix
         , let candidate = take end compact
         , isValidBinanceSymbol candidate
-        , notElem candidate commonQuotes
+        , candidate `notElem` commonQuotes
         ]
 
 findSubstrPositions :: String -> String -> [Int]
@@ -340,7 +340,7 @@ isValidBinanceSymbol s =
 
 isAsciiAlphaNum :: Char -> Bool
 isAsciiAlphaNum c =
-    ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
+    isAsciiUpper c || isDigit c
 
 sanitizeComboSymbolValue :: Aeson.Value -> (Aeson.Value, Bool)
 sanitizeComboSymbolValue val =
@@ -467,7 +467,7 @@ mergeTopCombosPayloads :: Int -> Int64 -> [Aeson.Value] -> Aeson.Value
 mergeTopCombosPayloads maxItems now payloads =
     let sanitized = map (fst . sanitizeTopCombosValue) payloads
         combos = concatMap extractCombos sanitized
-        payloadSource = listToMaybe (concatMap (maybeToList . extractPayloadSource) sanitized)
+        payloadSource = listToMaybe (Data.Maybe.mapMaybe extractPayloadSource sanitized)
         mergedMap = foldl' mergeCombo M.empty combos
         merged = take (max 0 maxItems) (sortBy compareCombos (M.elems mergedMap))
         ranked = zipWith addRank [1 ..] merged

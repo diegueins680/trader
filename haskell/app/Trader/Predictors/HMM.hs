@@ -23,7 +23,7 @@ data HMM3 = HMM3
     }
     deriving (Eq, Show)
 
-data HMMFilter = HMMFilter
+newtype HMMFilter = HMMFilter
     { hfPosterior :: [Double] -- posterior over last observed state
     }
     deriving (Eq, Show)
@@ -222,7 +222,7 @@ normalPdf x mu var =
     let v = max 1e-12 var
         c = 1 / sqrt (2 * pi * v)
         z = (x - mu)
-     in c * exp (-(z * z) / (2 * v))
+     in c * exp (- ((z * z) / (2 * v)))
 
 vecMat :: [Double] -> [[Double]] -> [Double]
 vecMat v m =
@@ -257,7 +257,7 @@ argmax xs =
                     (zip [0 ..] xs)
 
 applyN :: Int -> (a -> a) -> a -> a
-applyN n f x0 = go n x0
+applyN n f = go n
   where
     go k x
         | k <= 0 = x

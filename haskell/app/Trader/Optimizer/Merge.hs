@@ -149,7 +149,7 @@ loadTopCombos path = do
                                 applyCreatedAt = applyCreatedAtMs generatedAtMs
                              in case KM.lookup (Key.fromString "combos") obj of
                                     Just (Array combos) ->
-                                        pure (Right (map applyCreatedAt [Object c | Object c <- V.toList combos]))
+                                        pure (Right ([applyCreatedAt (Object c) | Object c <- V.toList combos]))
                                     _ -> pure (Right [])
                         Right _ -> pure (Right [])
 
@@ -235,7 +235,6 @@ mergeCombos sources =
     let merged = foldl' mergeSource M.empty sources
      in M.elems merged
   where
-    mergeSource acc combos = foldl' mergeCombo acc combos
     mergeCombo acc comboVal =
         case normalizeCombo comboVal of
             Nothing -> acc
@@ -249,10 +248,11 @@ mergeCombos sources =
             objPrev = comboObjective prev
             scoreNew = comboScore newer
             scorePrev = comboScore prev
-            scoreVal = fromMaybe (-1 / 0)
+            scoreVal = fromMaybe (- (1 / 0))
          in if objNew == objPrev && (isJust scoreNew || isJust scorePrev)
                 then if scoreVal scoreNew > scoreVal scorePrev then newer else prev
                 else if comboFinalEquity newer > comboFinalEquity prev then newer else prev
+    mergeSource = foldl' mergeCombo
 
 signatureKey :: Combo -> BS.ByteString
 signatureKey combo =
@@ -291,8 +291,8 @@ compareCombos :: Combo -> Combo -> Ordering
 compareCombos a b =
     let annA = comboAnnualizedReturn a
         annB = comboAnnualizedReturn b
-        scoreA = sanitizeScore (fromMaybe (-1 / 0) (comboScore a))
-        scoreB = sanitizeScore (fromMaybe (-1 / 0) (comboScore b))
+        scoreA = sanitizeScore (fromMaybe (- (1 / 0)) (comboScore a))
+        scoreB = sanitizeScore (fromMaybe (- (1 / 0)) (comboScore b))
         eqA = sanitizeEq (comboFinalEquity a)
         eqB = sanitizeEq (comboFinalEquity b)
      in case compareDesc annA annB of
@@ -309,12 +309,12 @@ comboMetricDouble key combo = do
 
 comboAnnualizedReturn :: Combo -> Double
 comboAnnualizedReturn combo =
-    let ann = fromMaybe (-1 / 0) (comboMetricDouble "annualizedReturn" combo)
-     in if isNaN ann || isInfinite ann then -1 / 0 else ann
+    let ann = fromMaybe (- (1 / 0)) (comboMetricDouble "annualizedReturn" combo)
+     in if isNaN ann || isInfinite ann then - (1 / 0) else ann
 
 sanitizeScore :: Double -> Double
 sanitizeScore score
-    | isNaN score || isInfinite score = -1 / 0
+    | isNaN score || isInfinite score = - (1 / 0)
     | otherwise = score
 
 sanitizeEq :: Double -> Double
@@ -339,7 +339,7 @@ ensureAnnualizedReturnMetrics metrics finalEq periodsPerYear periods =
     let eq = max 0 (sanitizeEq finalEq)
         annRet = calcAnnualizedReturn eq periodsPerYear periods
         annVal = toJSON annRet
-        addMetric m = KM.insert (Key.fromString "annualizedReturn") annVal m
+        addMetric = KM.insert (Key.fromString "annualizedReturn") annVal
      in case metrics of
             Just m ->
                 if metricsHasAnnualizedReturn m
@@ -356,9 +356,7 @@ compareDesc a b
 comboToValue :: Int -> Combo -> Value
 comboToValue rank combo =
     let metricsVal =
-            case comboMetrics combo of
-                Just m -> Object m
-                Nothing -> Null
+            maybe Null Object (comboMetrics combo)
         uuidVal = comboUuid combo
         base =
             object
@@ -618,10 +616,7 @@ normalizeSymbolValue platform value =
     sanitizeComboSymbolForPlatform platform (valueToString value)
 
 valueToStringMaybe :: Maybe Value -> String
-valueToStringMaybe value =
-    case value of
-        Nothing -> ""
-        Just v -> valueToString v
+valueToStringMaybe = maybe "" valueToString
 
 valueToStringMaybeMaybe :: Maybe Value -> Maybe String
 valueToStringMaybeMaybe value =

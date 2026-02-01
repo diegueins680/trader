@@ -52,7 +52,7 @@ buildSequences lookback xs
     | length xs <= lookback = error "not enough data for lookback"
     | otherwise =
         let xsV = V.fromList xs
-         in map (\(w, y) -> (V.toList w, y)) (buildSequencesV lookback xsV)
+         in map (Data.Bifunctor.first V.toList) (buildSequencesV lookback xsV)
 
 buildSequencesV :: Int -> V.Vector Double -> [(V.Vector Double, Double)]
 buildSequencesV lookback xsV
@@ -66,7 +66,7 @@ buildSequencesV lookback xsV
 
 evaluateLoss :: Int -> Int -> [([Double], Double)] -> [Double] -> Double
 evaluateLoss lookback hidden dataset flat =
-    let datasetV = map (\(w, y) -> (V.fromList w, y)) dataset
+    let datasetV = map (Data.Bifunctor.first V.fromList) dataset
      in realToFrac (lossFromFlatV lookback hidden datasetV flat)
 
 evaluateLossV :: Int -> Int -> [(V.Vector Double, Double)] -> [Double] -> Double
