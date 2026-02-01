@@ -2175,6 +2175,8 @@ export function App() {
     [botPanelOffset],
   );
 
+  const botPanelOpen = isPanelOpen("panel-bot-activity", true);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handlePointerMove = (event: PointerEvent) => {
@@ -7814,7 +7816,6 @@ export function App() {
       }
     : null;
   const tradeOrder = state.trade?.order ?? null;
-  const botPanelOpen = isPanelOpen("panel-bot-activity", true);
   const botPanelDetailsId = "bot-panel-details";
   const botPanelStyle = useMemo(
     () =>
