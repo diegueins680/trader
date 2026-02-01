@@ -117,6 +117,7 @@ import {
   SESSION_COINBASE_SECRET_KEY,
   SESSION_COINBASE_PASSPHRASE_KEY,
   SIGNAL_TIMEOUT_MS,
+  STORAGE_BOT_PANEL_VISIBLE_KEY,
   STORAGE_CONFIG_PANEL_ORDER_KEY,
   STORAGE_CONFIG_PAGE_KEY,
   STORAGE_CONFIG_TAB_KEY,
@@ -360,6 +361,60 @@ type BotChartOverlay = {
   operations: BotOperation[];
   positions: number[];
 };
+
+function buildFallbackLatestSignal(status: BotStatusRunning): LatestSignal {
+  const lastPrice = status.prices[status.prices.length - 1];
+  const currentPrice = typeof lastPrice === "number" && Number.isFinite(lastPrice) ? lastPrice : 0;
+  return {
+    method: status.method,
+    currentPrice,
+    threshold: status.threshold,
+    openThreshold: status.openThreshold,
+    closeThreshold: status.closeThreshold,
+    kalmanNext: null,
+    kalmanReturn: null,
+    kalmanStd: null,
+    kalmanZ: null,
+    volatility: null,
+    regimes: null,
+    quantiles: null,
+    conformalInterval: null,
+    confidence: null,
+    positionSize: null,
+    kalmanDirection: null,
+    lstmNext: null,
+    lstmDirection: null,
+    chosenDirection: null,
+    closeDirection: null,
+    action: "",
+  };
+}
+
+function latestSignalOrFallback(status: BotStatusRunning): LatestSignal {
+  return status.latestSignal ?? buildFallbackLatestSignal(status);
+}
+
+function normalizeBotStatusRunning(status: BotStatusRunning): BotStatusRunning {
+  const latest = (status as { latestSignal?: LatestSignal | null }).latestSignal;
+  if (latest && typeof latest === "object") return status;
+  return { ...status, latestSignal: buildFallbackLatestSignal(status) };
+}
+
+function normalizeBotStatusSingle(status: BotStatusSingle): BotStatusSingle {
+  if (status.running) return normalizeBotStatusRunning(status);
+  if (!status.snapshot) return status;
+  const snapshot = normalizeBotStatusRunning(status.snapshot);
+  return snapshot === status.snapshot ? status : { ...status, snapshot };
+}
+
+function normalizeBotStatus(status: BotStatus): BotStatus {
+  if (isBotStatusMulti(status)) {
+    const bots = status.bots.map(normalizeBotStatusSingle);
+    const changed = bots.some((bot, i) => bot !== status.bots[i]);
+    return changed ? { ...status, bots } : status;
+  }
+  return normalizeBotStatusSingle(status);
+}
 
 function buildBotOrderOverlay(
   openTimes: number[] | null | undefined,
@@ -1419,6 +1474,11 @@ export function App() {
     error: null,
     status: { running: false },
   });
+  const [botPanelVisible, setBotPanelVisible] = useState(() => {
+    const stored = readLocalString(STORAGE_BOT_PANEL_VISIBLE_KEY);
+    if (!stored) return false;
+    return stored !== "false";
+  });
   const [botSelectedSymbol, setBotSelectedSymbol] = useState<string | null>(null);
   const [botStatusOps, setBotStatusOps] = useState<OpsUiState>({
     loading: false,
@@ -2140,17 +2200,27 @@ export function App() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
 
+  const toggleBotPanelVisible = useCallback(() => {
+    setBotPanelVisible((prev) => {
+      const next = !prev;
+      writeLocalString(STORAGE_BOT_PANEL_VISIBLE_KEY, next ? "true" : "false");
+      return next;
+    });
+  }, []);
+
   const resetLayout = useCallback(() => {
     removeLocalKey(STORAGE_PANEL_PREFS_KEY);
     removeLocalKey(STORAGE_CONFIG_PANEL_ORDER_KEY);
     removeLocalKey(STORAGE_CONFIG_PAGE_KEY);
     removeLocalKey(STORAGE_CONFIG_TAB_KEY);
     removeLocalKey(STORAGE_BOT_PANEL_POS_KEY);
+    removeLocalKey(STORAGE_BOT_PANEL_VISIBLE_KEY);
     setPanelPrefs({});
     setConfigPanelOrder(CONFIG_PANEL_IDS);
     setConfigPage("section-api");
     setMaximizedPanelId(null);
     setBotPanelOffset({ x: 0, y: 0 });
+    setBotPanelVisible(false);
     showToast("Layout reset");
   }, [showToast]);
 
@@ -3916,6 +3986,7 @@ export function App() {
   const botDisplayStale =
     botDisplayCandidate == null && botDisplayCacheAgeMs != null && botDisplayCacheAgeMs <= botDisplayStaleLimitMs;
   const botDisplay = botDisplayCandidate ?? (botDisplayStale && botDisplayCacheEntry ? botDisplayCacheEntry.data : null);
+  const botDisplayLatestSignal = botDisplay ? latestSignalOrFallback(botDisplay) : null;
   const botSnapshotAtMs = botSelectedStatus?.running ? null : botSelectedStatus?.snapshotAtMs ?? null;
   const botHasSnapshot = botSnapshot !== null;
   const botDisplayStaleLabel =
@@ -5162,8 +5233,8 @@ export function App() {
         const finishedAtMs = Date.now();
         if (requestId !== botRequestSeqRef.current) return;
         botStatusFetchedRef.current = true;
-        const normalized = normalizeBotStatus(out);
-        const botStatuses = isBotStatusMulti(normalized) ? normalized.bots : [normalized as BotStatusSingle];
+        const normalizedOut = normalizeBotStatus(out);
+        const botStatuses = isBotStatusMulti(normalizedOut) ? normalizedOut.bots : [normalizedOut];
         const runningStatuses = botStatuses.filter((status): status is BotStatusRunning => status.running);
         setBotRtByKey((prev) => {
           if (runningStatuses.length === 0) {
@@ -5204,7 +5275,7 @@ export function App() {
               const lastNew = newTimes[newTimes.length - 1]!;
               const idx = openTimes.lastIndexOf(lastNew);
               const closePx = idx >= 0 ? st.prices[idx] : null;
-              const action = st.latestSignal.action;
+              const action = latestSignalOrFallback(st).action;
               const pollMs =
                 typeof st.pollLatencyMs === "number" && Number.isFinite(st.pollLatencyMs) ? Math.max(0, Math.round(st.pollLatencyMs)) : null;
               const batchMs =
@@ -5322,7 +5393,7 @@ export function App() {
           botRtRef.current = nextRef;
           return next;
         });
-        setBot((s) => ({ ...s, loading: false, error: null, status: normalized }));
+        setBot((s) => ({ ...s, loading: false, error: null, status: normalizedOut }));
         setApiOk("ok");
       } catch (e) {
         if (requestId !== botRequestSeqRef.current) return;
@@ -5473,9 +5544,9 @@ export function App() {
         if (primarySymbol) payload.binanceSymbol = primarySymbol;
         if (startSymbols.length > 0) payload.botSymbols = startSymbols;
         const out = await botStart(apiBase, withPlatformKeys(payload), { headers: authHeaders, timeoutMs: BOT_START_TIMEOUT_MS });
-        const normalized = normalizeBotStatus(out);
-        setBot((s) => ({ ...s, loading: false, error: null, status: normalized }));
-        appendDataLog(`Bot Start Response${silent ? " (auto)" : ""}`, out, { background: silent });
+        const normalizedOut = normalizeBotStatus(out);
+        setBot((s) => ({ ...s, loading: false, error: null, status: normalizedOut }));
+        appendDataLog(`Bot Start Response${silent ? " (auto)" : ""}`, normalizedOut, { background: silent });
         if (symbolsOverride.length > 0) {
           if (shouldSelectPrimary) setBotSelectedSymbol(primarySymbol || null);
         }
@@ -5484,11 +5555,11 @@ export function App() {
         }
         if (!silent) {
           showToast(
-            out.running
+            normalizedOut.running
               ? form.tradeArmed
                 ? "Live bot started (trading armed)"
                 : "Live bot started (paper mode)"
-              : out.starting
+              : normalizedOut.starting
                 ? "Live bot starting…"
                 : "Bot not running",
           );
@@ -5829,9 +5900,9 @@ export function App() {
         return;
       }
       const out = await botStop(apiBase, { headers: authHeaders, timeoutMs: 30_000 }, symbol, activeTenantKey);
-      const normalized = normalizeBotStatus(out);
-      setBot((s) => ({ ...s, loading: false, error: null, status: normalized }));
-      appendDataLog("Bot Stop Response", out);
+      const normalizedOut = normalizeBotStatus(out);
+      setBot((s) => ({ ...s, loading: false, error: null, status: normalizedOut }));
+      appendDataLog("Bot Stop Response", normalizedOut);
       botAutoStartSuppressedRef.current = true;
       showToast(symbol ? `Bot stopped (${symbol})` : "Bot stopped");
     } catch (e) {
@@ -6458,11 +6529,13 @@ export function App() {
           ? "API unreachable"
           : "API status unknown";
   const botPanel = (() => {
-    const st = botSelectedStatus ?? (!isBotStatusMulti(bot.status) ? (bot.status as BotStatusSingle) : null);
-    const running = st?.running === true;
-    const starting = !running && st?.starting === true;
-    const halted = running ? st?.halted === true : false;
-    const error = bot.error ?? st?.error ?? null;
+    const fallbackStatus: BotStatusSingle = { running: false };
+    const st =
+      botSelectedStatus ?? (isBotStatusMulti(bot.status) ? bot.status.bots[0] : (bot.status as BotStatusSingle)) ?? fallbackStatus;
+    const running = st.running;
+    const starting = !running && st.starting === true;
+    const halted = st.running ? st.halted : false;
+    const error = bot.error ?? st.error ?? null;
 
     const dotClass = error || halted ? "dot dotBad" : running ? "dot dotOk" : starting ? "dot dotWarn" : "dot";
     const statusLabel = error ? "Status error" : running ? (halted ? "Halted" : "Running") : starting ? "Starting" : "Stopped";
@@ -6478,17 +6551,16 @@ export function App() {
     let nextPollLabel = "—";
     let lastOrderLabel: string | null = null;
 
-    if (st && st.running) {
+    if (st.running) {
+      const latestSignal = st.latestSignal ?? buildFallbackLatestSignal(st);
       symbol = st.symbol;
       interval = st.interval;
       market = st.market;
       method = st.method;
       tradeEnabled = typeof st.settings?.tradeEnabled === "boolean" ? st.settings.tradeEnabled : null;
 
-      const latestSignal = st.latestSignal ?? null;
-      const latestAction = latestSignal?.action ?? "";
-      if (latestAction) {
-        badges.push({ key: "action", label: latestAction, className: actionBadgeClass(latestAction) });
+      if (latestSignal.action) {
+        badges.push({ key: "action", label: latestSignal.action, className: actionBadgeClass(latestSignal.action) });
       }
 
       phaseLabel = halted
@@ -6496,21 +6568,20 @@ export function App() {
         : typeof st.cooldownLeft === "number" && Number.isFinite(st.cooldownLeft) && st.cooldownLeft > 0
           ? `Cooldown (${Math.max(0, Math.trunc(st.cooldownLeft))} bars)`
           : "Active";
-      if (latestAction) {
-        if (latestAction === "—") {
-          actionLabel = latestAction;
+      if (latestSignal.action) {
+        if (latestSignal.action === "—") {
+          actionLabel = "—";
         } else {
-          const priceLabel = fmtMoney(latestSignal?.currentPrice ?? Number.NaN, 4);
-          actionLabel = `${latestAction} @ ${priceLabel}`;
+          actionLabel = `${latestSignal.action} @ ${fmtMoney(latestSignal.currentPrice, 4)}`;
         }
       }
       nextPollLabel = fmtEtaMs(botRealtime?.nextPollEtaMs);
       lastOrderLabel = st.lastOrder?.message ?? null;
     } else {
-      symbol = st?.symbol ?? "";
-      interval = st?.interval ?? "";
-      market = st?.market ?? null;
-      method = st?.method ?? null;
+      symbol = st.symbol ?? "";
+      interval = st.interval ?? "";
+      market = st.market ?? null;
+      method = st.method ?? null;
     }
 
     if (symbol) badges.push({ key: "symbol", label: symbol, className: "badge" });
@@ -8166,7 +8237,10 @@ export function App() {
                   <button className="menuItem" type="button" onClick={resetLayout}>
                     Reset layout
                   </button>
-                  {showBotPanelHint ? (
+                  <button className="menuItem" type="button" onClick={toggleBotPanelVisible}>
+                    {botPanelVisible ? "Hide bot activity" : "Show bot activity"}
+                  </button>
+                  {botPanelVisible && showBotPanelHint ? (
                     <span className="menuHint" title="Expand/Collapse all also affects the Bot activity panel.">
                       Includes Bot activity
                       <button
@@ -8209,73 +8283,75 @@ export function App() {
           </details>
           <ConfigDock {...configDockProps} />
       </div>
-      <aside
-        className={`botPanel card${botPanelDragging ? " botPanelDragging" : ""}`}
-        aria-label="Bot activity"
-        data-panel="panel-bot-activity"
-        ref={botPanelRef}
-        style={botPanelStyle}
-      >
-        <div className="botPanelHeader" onPointerDown={handleBotPanelPointerDown}>
-          <div className="botPanelTitle">Bot activity</div>
-          <div className="botPanelHeaderActions">
-            <div className="botPanelStatus">
-              <span className={botPanel.dotClass} aria-hidden="true" />
-              {botPanel.statusLabel}
+      {botPanelVisible ? (
+        <aside
+          className={`botPanel card${botPanelDragging ? " botPanelDragging" : ""}`}
+          aria-label="Bot activity"
+          data-panel="panel-bot-activity"
+          ref={botPanelRef}
+          style={botPanelStyle}
+        >
+          <div className="botPanelHeader" onPointerDown={handleBotPanelPointerDown}>
+            <div className="botPanelTitle">Bot activity</div>
+            <div className="botPanelHeaderActions">
+              <div className="botPanelStatus">
+                <span className={botPanel.dotClass} aria-hidden="true" />
+                {botPanel.statusLabel}
+              </div>
+              <button
+                className="botPanelToggle"
+                type="button"
+                aria-expanded={botPanelOpen}
+                aria-controls={botPanelDetailsId}
+                data-no-drag="true"
+                onClick={() => setPanelOpen("panel-bot-activity", !botPanelOpen)}
+              >
+                {botPanelOpen ? "Minimize" : "Expand"}
+              </button>
             </div>
-            <button
-              className="botPanelToggle"
-              type="button"
-              aria-expanded={botPanelOpen}
-              aria-controls={botPanelDetailsId}
-              data-no-drag="true"
-              onClick={() => setPanelOpen("panel-bot-activity", !botPanelOpen)}
-            >
-              {botPanelOpen ? "Minimize" : "Expand"}
-            </button>
           </div>
-        </div>
-        <div className="botPanelDetails" id={botPanelDetailsId} hidden={!botPanelOpen}>
-          {botPanel.badges.length > 0 ? (
-            <div className="pillRow botPanelBadges">
-              {botPanel.badges.map((badge) => (
-                <span key={badge.key} className={badge.className}>
-                  {badge.label}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          <div className="botPanelBody">
-            <div className="kv">
-              <div className="k">Phase</div>
-              <div className="v">{botPanel.phaseLabel}</div>
-            </div>
-            <div className="kv">
-              <div className="k">Action</div>
-              <div className="v">{botPanel.actionLabel}</div>
-            </div>
-            <div className="kv">
-              <div className="k">Next poll</div>
-              <div className="v">{botPanel.nextPollLabel}</div>
-            </div>
-            <div className="kv">
-              <div className="k">Updated</div>
-              <div className="v">{botPanel.updatedLabel}</div>
-            </div>
-            <div className="kv">
-              <div className="k">Last event</div>
-              <div className="v botPanelEvent">{botPanel.lastEventLabel}</div>
-            </div>
-            {botPanel.lastOrderLabel ? (
-              <div className="kv">
-                <div className="k">Last order</div>
-                <div className="v">{botPanel.lastOrderLabel}</div>
+          <div className="botPanelDetails" id={botPanelDetailsId} hidden={!botPanelOpen}>
+            {botPanel.badges.length > 0 ? (
+              <div className="pillRow botPanelBadges">
+                {botPanel.badges.map((badge) => (
+                  <span key={badge.key} className={badge.className}>
+                    {badge.label}
+                  </span>
+                ))}
               </div>
             ) : null}
+            <div className="botPanelBody">
+              <div className="kv">
+                <div className="k">Phase</div>
+                <div className="v">{botPanel.phaseLabel}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Action</div>
+                <div className="v">{botPanel.actionLabel}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Next poll</div>
+                <div className="v">{botPanel.nextPollLabel}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Updated</div>
+                <div className="v">{botPanel.updatedLabel}</div>
+              </div>
+              <div className="kv">
+                <div className="k">Last event</div>
+                <div className="v botPanelEvent">{botPanel.lastEventLabel}</div>
+              </div>
+              {botPanel.lastOrderLabel ? (
+                <div className="kv">
+                  <div className="k">Last order</div>
+                  <div className="v">{botPanel.lastOrderLabel}</div>
+                </div>
+              ) : null}
+            </div>
+            {botPanel.error ? <div className="botPanelAlert">{botPanel.error}</div> : null}
           </div>
-          {botPanel.error ? <div className="botPanelAlert">{botPanel.error}</div> : null}
-        </div>
-      </aside>
+        </aside>
+      ) : null}
       <main className="dockMain">
         <section className="resultGrid">
           {state.error ? (
@@ -8483,7 +8559,7 @@ export function App() {
                     <Suspense fallback={<PanelFallback label="Loading live visuals…" />}>
                       <LiveVisuals
                         prices={botDisplay.prices}
-                        signal={botDisplay.latestSignal}
+                        signal={botDisplayLatestSignal ?? buildFallbackLatestSignal(botDisplay)}
                         position={botLastPosition}
                         risk={botRisk}
                         halted={botDisplay.halted}
@@ -8794,30 +8870,33 @@ export function App() {
                   ) : null}
                   <div className="kv">
                     <div className="k">Latest signal</div>
-                    <div className="v">{botDisplay.latestSignal.action}</div>
+                    <div className="v">{botDisplayLatestSignal?.action ?? "—"}</div>
                   </div>
                   <div className="kv">
                     <div className="k">Current price</div>
-                    <div className="v">{fmtMoney(botDisplay.latestSignal.currentPrice, 4)}</div>
+                    <div className="v">
+                      {botDisplayLatestSignal ? fmtMoney(botDisplayLatestSignal.currentPrice, 4) : "—"}
+                    </div>
                   </div>
                   <div className="kv">
                     <div className="k">Kalman</div>
                     <div className="v">
                       {(() => {
-                        const cur = botDisplay.latestSignal.currentPrice;
-                        const next = botDisplay.latestSignal.kalmanNext;
-                        const ret = botDisplay.latestSignal.kalmanReturn;
-                        const z = botDisplay.latestSignal.kalmanZ;
+                        const sig = botDisplayLatestSignal;
+                        const cur = sig?.currentPrice;
+                        const next = sig?.kalmanNext;
+                        const ret = sig?.kalmanReturn;
+                        const z = sig?.kalmanZ;
                         const ret2 =
                           typeof ret === "number" && Number.isFinite(ret)
                             ? ret
-                            : typeof next === "number" && Number.isFinite(next) && cur !== 0
+                            : typeof next === "number" && Number.isFinite(next) && typeof cur === "number" && cur !== 0
                               ? (next - cur) / cur
                               : null;
                         const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
                         const retTxt = typeof ret2 === "number" && Number.isFinite(ret2) ? fmtPct(ret2, 3) : "—";
                         const zTxt = typeof z === "number" && Number.isFinite(z) ? fmtNum(z, 3) : "—";
-                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${botDisplay.latestSignal.kalmanDirection ?? "—"}`;
+                        return `${nextTxt} (${retTxt}) • z ${zTxt} • ${sig?.kalmanDirection ?? "—"}`;
                       })()}
                     </div>
                   </div>
@@ -8825,31 +8904,32 @@ export function App() {
                     <div className="k">LSTM</div>
                     <div className="v">
                       {(() => {
-                        const cur = botDisplay.latestSignal.currentPrice;
-                        const next = botDisplay.latestSignal.lstmNext;
+                        const sig = botDisplayLatestSignal;
+                        const cur = sig?.currentPrice;
+                        const next = sig?.lstmNext;
                         const ret =
-                          typeof next === "number" && Number.isFinite(next) && cur !== 0 ? (next - cur) / cur : null;
+                          typeof next === "number" && Number.isFinite(next) && typeof cur === "number" && cur !== 0 ? (next - cur) / cur : null;
                         const nextTxt = typeof next === "number" && Number.isFinite(next) ? fmtMoney(next, 4) : "—";
                         const retTxt = typeof ret === "number" && Number.isFinite(ret) ? fmtPct(ret, 3) : "—";
-                        return `${nextTxt} (${retTxt}) • ${botDisplay.latestSignal.lstmDirection ?? "—"}`;
+                        return `${nextTxt} (${retTxt}) • ${sig?.lstmDirection ?? "—"}`;
                       })()}
                     </div>
                   </div>
                   <div className="kv">
                     <div className="k">Chosen</div>
-                    <div className="v">{botDisplay.latestSignal.chosenDirection ?? "—"}</div>
+                    <div className="v">{botDisplayLatestSignal?.chosenDirection ?? "—"}</div>
                   </div>
                   <div className="kv">
                     <div className="k">Close dir</div>
-                    <div className="v">{formatDirectionLabel(botDisplay.latestSignal.closeDirection)}</div>
+                    <div className="v">{formatDirectionLabel(botDisplayLatestSignal?.closeDirection ?? null)}</div>
                   </div>
-	                  {typeof botDisplay.latestSignal.confidence === "number" && Number.isFinite(botDisplay.latestSignal.confidence) ? (
+	                  {typeof botDisplayLatestSignal?.confidence === "number" && Number.isFinite(botDisplayLatestSignal.confidence) ? (
 	                    <div className="kv">
 	                      <div className="k">Confidence / Size</div>
 	                      <div className="v">
-	                        {fmtPct(botDisplay.latestSignal.confidence, 1)}
-	                        {typeof botDisplay.latestSignal.positionSize === "number" && Number.isFinite(botDisplay.latestSignal.positionSize)
-	                          ? ` • ${fmtPct(botDisplay.latestSignal.positionSize, 1)}`
+	                        {fmtPct(botDisplayLatestSignal.confidence, 1)}
+	                        {typeof botDisplayLatestSignal.positionSize === "number" && Number.isFinite(botDisplayLatestSignal.positionSize)
+	                          ? ` • ${fmtPct(botDisplayLatestSignal.positionSize, 1)}`
 	                          : ""}
 	                      </div>
 	                    </div>
@@ -8859,7 +8939,8 @@ export function App() {
 	                    <summary>Signal details</summary>
 	                    <div style={{ marginTop: 10 }}>
 	                      {(() => {
-	                        const sig = botDisplay.latestSignal;
+	                        const sig = botDisplayLatestSignal;
+	                        if (!sig) return null;
 	                        const r = sig.regimes;
 	                        if (!r) return null;
 	                        const trend = typeof r.trend === "number" && Number.isFinite(r.trend) ? fmtPct(r.trend, 1) : "—";
@@ -8876,7 +8957,7 @@ export function App() {
 	                      })()}
 
 	                      {(() => {
-	                        const q = botDisplay.latestSignal.quantiles;
+	                        const q = botDisplayLatestSignal?.quantiles;
 	                        if (!q) return null;
 	                        const q10 = typeof q.q10 === "number" && Number.isFinite(q.q10) ? fmtPct(q.q10, 3) : "—";
 	                        const q50 = typeof q.q50 === "number" && Number.isFinite(q.q50) ? fmtPct(q.q50, 3) : "—";
@@ -8893,7 +8974,7 @@ export function App() {
 	                      })()}
 
 	                      {(() => {
-	                        const i = botDisplay.latestSignal.conformalInterval;
+	                        const i = botDisplayLatestSignal?.conformalInterval;
 	                        if (!i) return null;
 	                        const lo = typeof i.lo === "number" && Number.isFinite(i.lo) ? fmtPct(i.lo, 3) : "—";
 	                        const hi = typeof i.hi === "number" && Number.isFinite(i.hi) ? fmtPct(i.hi, 3) : "—";
@@ -8909,7 +8990,7 @@ export function App() {
 	                      })()}
 
 	                      {(() => {
-	                        const std = botDisplay.latestSignal.kalmanStd;
+	                        const std = botDisplayLatestSignal?.kalmanStd;
 	                        if (typeof std !== "number" || !Number.isFinite(std)) return null;
 	                        return (
 	                          <div className="kv">

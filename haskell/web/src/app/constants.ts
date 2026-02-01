@@ -18,6 +18,7 @@ export const STORAGE_CONFIG_TAB_KEY = "trader.ui.configTab.v1";
 export const STORAGE_DATA_LOG_KEY = "trader.ui.dataLog.v1";
 export const STORAGE_DATA_LOG_PREFS_KEY = "trader.ui.dataLogPrefs.v1";
 export const STORAGE_BOT_PANEL_POS_KEY = "trader.ui.botPanelPos.v1";
+export const STORAGE_BOT_PANEL_VISIBLE_KEY = "trader.ui.botPanelVisible.v1";
 export const STORAGE_STATE_SYNC_TARGET_KEY = "trader.ui.stateSyncTarget.v1";
 export const STORAGE_STATE_SYNC_TOKEN_KEY = "trader.ui.stateSyncToken.v1";
 export const STORAGE_TOP_COMBOS_KEY = "trader.ui.topCombos.v1";

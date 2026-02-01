@@ -24,11 +24,15 @@ All notable changes to this project will be documented in this file.
 - Optimizer: add `--risk-per-trade-min/max` and `--p-disable-risk-per-trade` to tune risk sizing in optimize-equity sweeps.
 - Trading: allow gating exchange protection orders (futures stop-loss/take-profit) by confidence via `--protection-min-confidence`.
 - Web UI: avoid scheme-relative API URLs when `apiBaseUrl` is empty by falling back to same-origin paths.
+- Web UI: fix a dev-time crash when auto-refreshing Binance positions on startup.
 - Web UI: add a floating “Bot activity” panel with live status, timing, and last-event context.
 - Web UI: allow minimizing and dragging the floating “Bot activity” panel.
 - Web UI: expand/collapse all now includes the floating “Bot activity” panel.
 - Web UI: layout actions now show a dismissible hint that Bot activity is included.
 - Web UI: allow importing optimizer combos into State sync from exported state-sync/top-combos JSON files.
+- Web UI: guard missing bot `latestSignal` data so the dev UI does not crash on startup.
+- Web UI: add a favicon and a layout toggle to hide/show the Bot activity panel.
+- Web UI: hide the Bot activity panel by default (toggle from Layout).
 - API/UI: add `/binance/positions/close` and a “Close position” button to send reduce-only futures close orders (includes `positionSide` in hedge mode).
 - Binance: retry signed requests on timestamp skew and treat existing protection orders as non-fatal to keep key checks and protection refreshes stable after idle/sleep.
 - Optimizer: avoid overwriting existing `top-combos.json` with fallback seeds when the primary file exists but fails to load.
@@ -36,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - Dev: `start_api_bg.sh` now runs the Postgres-aware helper and sets persistent state/combos dirs by default.
 - Dev: `start_api_bg.sh` now auto-restarts the API on exit (configurable via `TRADER_API_RESTART_ON_EXIT` and `TRADER_API_RESTART_DELAY_SEC`).
 - Dev: add `haskell/scripts/start_ui_bg.sh` helper to wait for API health before starting the UI dev server.
+- Dev: `start_ui_bg.sh` now reports API port status and tails the API log on health timeouts.
 - ListenKey: add retry/backoff for listenKey create/keepAlive to reduce transient timeouts.
 - ListenKey: auto-expire user-data streams when Binance returns `-1125` so the UI can restart cleanly after idle/expired listen keys.
 - Dev: `start_api_bg.sh` now defaults `TRADER_API_BIND_HOST` to `127.0.0.1` for local stability.

@@ -648,7 +648,7 @@ Start the API in the background (loads `.env`, ensures local Postgres is running
 ```
 The API helper enables auto-restart by default; set `TRADER_API_RESTART_ON_EXIT=0` to disable. Use `TRADER_API_RESTART_DELAY_SEC` to adjust the delay between restarts.
 
-Start the UI in the background (waits briefly for `/health`, then runs Vite on `127.0.0.1:5173`, logs to `/tmp/trader-ui.log`):
+Start the UI in the background (waits briefly for `/health`, reports API log hints on timeout, then runs Vite on `127.0.0.1:5174`, logs to `/tmp/trader-ui.log`):
 ```
 ./haskell/scripts/start_ui_bg.sh
 ```
@@ -871,6 +871,7 @@ If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` requi
 - Web UI (dev): set `TRADER_API_TOKEN` in `haskell/web/.env.local` to have the Vite `/api/*` proxy attach it automatically.
 
 The UI also includes a “Live bot” panel to start/stop the continuous loop, show a chart per running live bot, and visualize Binance-opened positions plus each buy/sell operation on the selected bot chart (supports long/short on futures) within the chart’s time range. The selected bot stays sticky even when auto-start refreshes the top-combo bot list. Collapsed/minimized cards shrink to a compact header to keep the dock tight. It includes live/offline timeline charts with start/end controls when ops persistence is enabled: the selected bot shows the full timeline in a compact-height chart so controls stay visible, and each running bot card shows an even shorter mini timeline. The chart reflects the available ops history and warns when the selected range extends beyond it.
+Use the Layout menu to show the Bot activity panel (hidden by default); the preference is saved locally.
 When trading is armed, the UI blocks live bot start until Binance keys are provided or verified via “Check keys” (otherwise switch to paper mode).
 Binance account panels (positions/trades) require keys; the UI blocks refresh until keys are provided or verified via “Check keys”.
 When starting multi-symbol live bots, the UI uses the first bot symbol as the request symbol so `/bot/start` validation succeeds even if the main Symbol field is empty.
@@ -882,6 +883,11 @@ Troubleshooting: “No live operations yet”
 - A signal is neutral when the predicted next price is within the `openThreshold` deadband: it must be `> currentPrice*(1+openThreshold)` for UP or `< currentPrice*(1-openThreshold)` for DOWN.
 - With `positioning=long-flat` (required by `/bot/start`), a DOWN signal while already flat does nothing; you’ll only see a SELL after you previously bought.
 - If you want it to trade more often, lower `openThreshold` (or run “Optimize thresholds/operations”) and/or use a higher timeframe.
+
+Troubleshooting: “Blank UI during dev”
+- Confirm the Vite server is running (`./haskell/scripts/start_ui_bg.sh`) and that `/tmp/trader-ui.log` has no startup errors.
+- If the page is still blank, open the browser console and fix the first JavaScript error (a stale Vite server or port clash can serve an empty page).
+- If you see a `latestSignal` undefined error, restart the API/UI after updating (the UI expects bot status to include the latest signal).
 
 Assumptions and limitations
 ---------------------------
