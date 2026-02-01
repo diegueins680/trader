@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Trading/CLI: enforce lookback+1 price-row minimum even when CSV uses `--bars auto/0` to avoid short-series failures.
+- Optimizer: respect the configured `--tune-objective` when `--threshold-factor` is enabled (no forced override).
+- Web UI: guard the Bot activity panel against multi-bot status payloads missing `latestSignal`.
 - Predictors: add psychological price-level proximity features (round-number clustering) to the feature set.
 - Predictors: add short/mid momentum and volatility-spread features to improve signal quality.
 - Kalman: sensor variance now uses EWMA residuals so measurement weighting adapts faster to regime shifts.
@@ -42,6 +45,7 @@ All notable changes to this project will be documented in this file.
 - API/Combos: serialize top-combos writes and merge `/state/sync` imports to avoid overwriting newer or higher-performing combos.
 - Web UI: auto-reconnect Binance listenKey streams with backoff after unexpected disconnects.
 - Web UI: fix layout reset toast initialization order to avoid a startup crash.
+- Web UI: fix Binance positions auto-refresh initialization order to avoid a startup crash.
 - Web UI: ignore cross-origin fallbacks when `apiBaseUrl` is `/api` so proxy mode does not loop into CORS errors (use direct API mode for cross-origin failover).
 - Deploy/API: quick AWS deploy now reuses `TRADER_OPTIMIZER_ENABLED`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED`/`TRADER_API_MAX_EPOCHS` from the service and supports setting `TRADER_API_MAX_EPOCHS`/`TRADER_TOP_COMBOS_BACKTEST_ENABLED` on deploy.
 - Deploy/API: quick AWS deploy now reuses `TRADER_BOT_AUTOSTART` from the service and supports setting it on deploy.

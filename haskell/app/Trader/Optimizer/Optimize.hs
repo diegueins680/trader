@@ -1201,10 +1201,7 @@ buildCommand traderBin baseArgs params tuneRatio useSweepThreshold =
             if useSweepThreshold
                 then cmd35 ++ ["--sweep-threshold", "--tune-ratio", printf "%.6f" tuneRatio]
                 else cmd35
-        cmd37 =
-            if tpThresholdFactorEnabled params
-                then cmd36 ++ ["--tune-objective", "annualized-equity"]
-                else cmd36
+        cmd37 = cmd36
      in cmd37 ++ ["--json"]
 
 runTrial :: FilePath -> [String] -> TrialParams -> Double -> Bool -> Double -> Bool -> IO TrialResult

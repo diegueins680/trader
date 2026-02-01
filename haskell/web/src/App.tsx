@@ -5622,14 +5622,6 @@ export function App() {
     [binancePositionsBars],
   );
 
-  // Auto-refresh positions every 5 minutes when API is healthy.
-  useEffect(() => {
-    if (apiOk !== "ok") return;
-    const id = window.setInterval(() => {
-      void fetchBinancePositions();
-    }, 5 * 60 * 1000);
-    return () => window.clearInterval(id);
-  }, [apiOk, fetchBinancePositions]);
   const binancePositionsInputError = useMemo(
     () =>
       firstReason(
@@ -5851,6 +5843,15 @@ export function App() {
     form.market,
     withBinanceKeys,
   ]);
+
+  // Auto-refresh positions every 5 minutes when API is healthy.
+  useEffect(() => {
+    if (apiOk !== "ok") return;
+    const id = window.setInterval(() => {
+      void fetchBinancePositions();
+    }, 5 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, [apiOk, fetchBinancePositions]);
 
   const closeBinancePosition = useCallback(
     async (pos: { symbol: string; positionSide?: string | null }) => {
@@ -6181,11 +6182,11 @@ export function App() {
           ? "API unreachable"
           : "API status unknown";
   const botPanel = (() => {
-    const st = bot.status;
-    const running = st.running;
-    const starting = !running && st.starting === true;
-    const halted = st.running ? st.halted : false;
-    const error = bot.error ?? st.error ?? null;
+    const st = botSelectedStatus ?? (!isBotStatusMulti(bot.status) ? (bot.status as BotStatusSingle) : null);
+    const running = st?.running === true;
+    const starting = !running && st?.starting === true;
+    const halted = running ? st?.halted === true : false;
+    const error = bot.error ?? st?.error ?? null;
 
     const dotClass = error || halted ? "dot dotBad" : running ? "dot dotOk" : starting ? "dot dotWarn" : "dot";
     const statusLabel = error ? "Status error" : running ? (halted ? "Halted" : "Running") : starting ? "Starting" : "Stopped";
@@ -6201,15 +6202,16 @@ export function App() {
     let nextPollLabel = "—";
     let lastOrderLabel: string | null = null;
 
-    if (st.running) {
+    if (st && st.running) {
       symbol = st.symbol;
       interval = st.interval;
       market = st.market;
       method = st.method;
       tradeEnabled = typeof st.settings?.tradeEnabled === "boolean" ? st.settings.tradeEnabled : null;
 
-      if (st.latestSignal.action) {
-        badges.push({ key: "action", label: st.latestSignal.action, className: actionBadgeClass(st.latestSignal.action) });
+      const latestSignal = st.latestSignal ?? null;
+      if (latestSignal?.action) {
+        badges.push({ key: "action", label: latestSignal.action, className: actionBadgeClass(latestSignal.action) });
       }
 
       phaseLabel = halted
@@ -6217,14 +6219,14 @@ export function App() {
         : typeof st.cooldownLeft === "number" && Number.isFinite(st.cooldownLeft) && st.cooldownLeft > 0
           ? `Cooldown (${Math.max(0, Math.trunc(st.cooldownLeft))} bars)`
           : "Active";
-      actionLabel = `${st.latestSignal.action} @ ${fmtMoney(st.latestSignal.currentPrice, 4)}`;
+      actionLabel = latestSignal ? `${latestSignal.action} @ ${fmtMoney(latestSignal.currentPrice, 4)}` : "—";
       nextPollLabel = fmtEtaMs(botRealtime?.nextPollEtaMs);
       lastOrderLabel = st.lastOrder?.message ?? null;
     } else {
-      symbol = st.symbol ?? "";
-      interval = st.interval ?? "";
-      market = st.market ?? null;
-      method = st.method ?? null;
+      symbol = st?.symbol ?? "";
+      interval = st?.interval ?? "";
+      market = st?.market ?? null;
+      method = st?.method ?? null;
     }
 
     if (symbol) badges.push({ key: "symbol", label: symbol, className: "badge" });

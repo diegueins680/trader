@@ -780,6 +780,7 @@ main = do
                         ensureMinPriceRows args' 2 prices
 
                         let lookback = argLookback args'
+                        ensureLookbackRows args' lookback prices
                         if argTradeOnly args'
                             then runTradeOnly mWebhook args' lookback series mBinanceEnv
                             else runBacktestPipeline mWebhook args' lookback series mBinanceEnv
@@ -13784,6 +13785,7 @@ computeLatestSignalFromSeries args series mBinanceEnv = do
     let prices = psClose series
     ensureMinPriceRows args 2 prices
     let lookback = argLookback args
+    ensureLookbackRows args lookback prices
     computeTradeOnlySignal args lookback series mBinanceEnv
 
 computeTradeFromArgs :: Maybe OpsStore -> Args -> IO ApiTradeResponse
@@ -13804,6 +13806,7 @@ computeTradeFromSeries args series mBinanceEnv = do
     let prices = psClose series
     ensureMinPriceRows args 2 prices
     let lookback = argLookback args
+    ensureLookbackRows args lookback prices
     sig <- computeTradeOnlySignal args lookback series mBinanceEnv
     order <-
         case argPlatform args of
@@ -15640,6 +15643,7 @@ computeBacktestFromSeries args series mBinanceEnv = do
     let prices = psClose series
     ensureMinPriceRows args 2 prices
     let lookback = argLookback args
+    ensureLookbackRows args lookback prices
     summary <- computeBacktestSummary args lookback series mBinanceEnv
     pure (backtestSummaryJson summary)
 
@@ -18254,6 +18258,36 @@ ensureMinPriceRows args minRows prices =
                 _ -> ""
      in if n < minRows
             then throwIO (userError ("Need at least " ++ show minRows ++ " price rows (got " ++ show n ++ ") from " ++ priceSourceLabel args ++ "." ++ hint))
+            else pure ()
+
+ensureLookbackRows :: Args -> Int -> [Double] -> IO ()
+ensureLookbackRows args lookback prices =
+    let n = length prices
+        minRows = lookback + 1
+        hint =
+            case (argBinanceSymbol args, argData args) of
+                (Just _, _) ->
+                    " Increase --bars (requested " ++ show (resolveBarsForPlatform args) ++ ") or reduce --lookback-bars/--lookback-window."
+                (_, Just _) ->
+                    " Check the CSV has at least " ++ show minRows ++ " data rows (not counting the header), or reduce --lookback-bars/--lookback-window."
+                _ ->
+                    " Increase --bars or reduce --lookback-bars/--lookback-window."
+     in if n < minRows
+            then
+                throwIO
+                    ( userError
+                        ( "Need at least "
+                            ++ show minRows
+                            ++ " price rows for lookback="
+                            ++ show lookback
+                            ++ " (got "
+                            ++ show n
+                            ++ ") from "
+                            ++ priceSourceLabel args
+                            ++ "."
+                            ++ hint
+                        )
+                    )
             else pure ()
 
 loadPrices :: Maybe OpsStore -> Args -> IO (PriceSeries, Maybe BinanceEnv)

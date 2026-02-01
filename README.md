@@ -178,8 +178,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 - `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or 500 for exchanges; CSV also supports `0` = all; Binance 2..1000)
   - `--lookback-window 7d` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
-  - Lookback must be less than the total number of bars, otherwise the backtest errors.
-  - Signal/trade requests require at least `lookback + 1` prices; too-short datasets return a 400 with a clear message.
+  - Lookback must be less than the total number of bars; CLI/API requests error when fewer than `lookback + 1` prices are available (including CSV `--bars auto/0`).
 
 - Trading (Binance + Coinbase spot)
   - Trading flags apply only when `--platform binance` or `--platform coinbase` (Coinbase is spot-only and has no test endpoint).
@@ -267,7 +266,6 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.
   - `--tune-objective equity-dd-turnover` objective used by `--optimize-operations` / `--sweep-threshold`:
     - `annualized-equity` | `final-equity` | `sharpe` | `calmar` | `equity-dd` | `equity-dd-turnover`
-    - When `--threshold-factor` is enabled, the tune objective is forced to `annualized-equity`.
     - Calmar falls back to annualized return when max drawdown is zero (avoids infinite scores).
     - To maximize annualized equity, set `--tune-objective annualized-equity` (alias: `annualized-return`).
   - When sweep/optimization scores tie, the selector prefers higher final equity, then lower turnover, more round trips (excludes end-of-series EOD exits), and non-inverted hysteresis (close <= open) without reducing equity.
@@ -753,6 +751,8 @@ The configuration pane preserves its scroll position during live updates.
 Tables now expand within panels (with horizontal scroll when needed) so long trade lists, including Binance account trades, stay visible without clipped columns.
 Performance and Binance trade tables include CSV export buttons, and destructive clears (profiles/logs/trade history) now require confirmation or offer undo.
 Open positions chart headers and position badges wrap within the panel so all stats remain visible on narrower layouts.
+Binance positions auto-refresh no longer throws a startup error in the UI.
+The Bot activity panel now handles multi-bot status payloads without crashing when a `latestSignal` field is missing.
 The overview card summarizes connection, execution mode, and the latest signal/backtest/trade results for quick scanning.
 Overview summary metadata (like API URLs or error strings) wraps so full content stays visible.
 The platform selector includes Coinbase (symbols use BASE-QUOTE like `BTC-USD`); API keys are stored per platform, trading supports Binance + Coinbase spot, and the live bot remains Binance-only.
