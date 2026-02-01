@@ -905,20 +905,20 @@ body.panelMaximized .cardMaximized {
   padding-bottom: 12px;
 }
 
-.card[data-panel="panel-live-bot"]:not(.cardMaximized):not(.chartCard),
-.card[data-panel^="panel-bot-"]:not(.cardMaximized):not(.chartCard) {
+.dockMain .card[data-panel="panel-live-bot"]:not(.cardMaximized):not(.chartCard),
+.dockMain .card[data-panel^="panel-bot-"]:not(.cardMaximized):not(.chartCard) {
   height: var(--dock-main-height);
   max-height: var(--dock-main-height);
   overflow: hidden;
 }
 
-.card[data-panel="panel-live-bot"],
-.card[data-panel^="panel-bot-"] {
+.dockMain .card[data-panel="panel-live-bot"],
+.dockMain .card[data-panel^="panel-bot-"] {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.card[data-panel="panel-live-bot"] .cardBody,
-.card[data-panel^="panel-bot-"] .cardBody {
+.dockMain .card[data-panel="panel-live-bot"] .cardBody,
+.dockMain .card[data-panel^="panel-bot-"] .cardBody {
   overflow: auto;
 }
 

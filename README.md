@@ -110,6 +110,7 @@ Sending exchange orders (optional)
 ----------------------------------
 Binance: live orders are the default. Use `--no-binance-live` to send test orders (`/api/v3/order/test` or `/fapi/v1/order/test`). Futures use `--futures` (uses `/fapi` endpoints). Margin uses `--margin` (requires live orders).
 Coinbase: spot-only and live-only (no test endpoint). Use `--platform coinbase`.
+Binance order placement (and `/binance/keys` trade tests) requires exchangeInfo filters to validate precision/step sizes. If exchangeInfo is unreachable (proxy or REST URL issues), the backend skips orders to avoid precision errors.
 
 Futures protection orders (live):
 - When sending **LIVE futures** orders via the CLI (`--binance-trade`) or REST `/trade`, providing `--stop-loss` and/or `--take-profit` places exchange-native trigger orders (`STOP_MARKET` / `TAKE_PROFIT_MARKET`) with `closePosition=true`.
@@ -501,6 +502,7 @@ Optimizer script tips:
 - `optimize-equity` defaults to `--objective annualized-equity` (annualized return).
 - `optimize-equity` now tunes stop-loss and take-profit by default for annualized-equity; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
 - `optimize-equity` accepts `--futures` to pull Binance USDT-M futures data (Binance only).
+- `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons).
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - CSV runs derive `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename) and normalize it to a valid exchange symbol, trimming dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` -> `BNBUSDT`) before combos are persisted.
@@ -762,7 +764,7 @@ Missing/invalid saved symbols fall back to platform defaults, and trade-test ski
 The Latest signal card includes a decision-logic checklist that shows direction agreement, gating filters, and sizing behind the operate/hold outcome.
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.
-A floating “Bot activity” panel summarizes the selected bot’s status, phase, latest action, poll timing, and last event/order, and can be minimized into a header-only strip or dragged to a new position.
+A floating “Bot activity” panel summarizes the selected bot’s status, phase, latest action, poll timing, and last event/order, and can be minimized into a header-only strip that collapses the panel height or dragged to a new position.
 Live bot and per-bot panels expand to show full chart contents without internal clipping, while the optimizer combos panel keeps controls fixed with the combos list in a scrollable pane when docked; when maximized, the whole panel scrolls so long lists stay reachable even if controls exceed the viewport.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).

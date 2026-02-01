@@ -13930,29 +13930,62 @@ computeBinanceKeysStatusFromArgs mOps args = do
                                     then pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
                                     else do
                                         mFilters <- fetchFilters env sym''
-                                        case qty of
-                                            Nothing ->
-                                                case qq of
-                                                    Nothing -> pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
-                                                    Just qq0 ->
-                                                        case validateProbeQuote mFilters qq0 of
+                                        case mFilters of
+                                            Nothing -> pure (Just (mkSkippedProbe "order/test" missingFiltersMsg))
+                                            Just _ ->
+                                                case qty of
+                                                    Nothing ->
+                                                        case qq of
+                                                            Nothing -> pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
+                                                            Just qq0 ->
+                                                                case validateProbeQuote mFilters qq0 of
+                                                                    Left e -> pure (Just (mkSkippedProbe "order/test" e))
+                                                                    Right qq1 -> do
+                                                                        let ctx =
+                                                                                formatProbeContext
+                                                                                    [ ("symbol", Just sym'')
+                                                                                    , ("side", Just "BUY")
+                                                                                    , ("quote", Just (fmtProbeDouble qq1))
+                                                                                    , ("quoteRaw", fmtRawIfDifferent qq0 qq1)
+                                                                                    , ("step", fmtStepText (effectiveStep =<< mFilters))
+                                                                                    , ("minQty", fmtMaybeProbeDouble (effectiveMinQty =<< mFilters))
+                                                                                    , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
+                                                                                    ]
+                                                                        Just <$> (appendProbeContext ctx <$> probeBinance "order/test" (void (placeMarketOrder env OrderTest sym'' Buy qty (Just qq1) Nothing (trim <$> argIdempotencyKey args))))
+                                                    Just qRaw -> do
+                                                        mPrice <- fetchPriceIfNeeded env sym'' mFilters
+                                                        case normalizeProbeQty mFilters mPrice qRaw of
                                                             Left e -> pure (Just (mkSkippedProbe "order/test" e))
-                                                            Right qq1 -> do
+                                                            Right q -> do
                                                                 let ctx =
                                                                         formatProbeContext
                                                                             [ ("symbol", Just sym'')
                                                                             , ("side", Just "BUY")
-                                                                            , ("quote", Just (fmtProbeDouble qq1))
-                                                                            , ("quoteRaw", fmtRawIfDifferent qq0 qq1)
+                                                                            , ("qty", Just (fmtProbeDouble q))
+                                                                            , ("qtyRaw", fmtRawIfDifferent qRaw q)
+                                                                            , ("price", fmtMaybeProbeDouble mPrice)
                                                                             , ("step", fmtStepText (effectiveStep =<< mFilters))
                                                                             , ("minQty", fmtMaybeProbeDouble (effectiveMinQty =<< mFilters))
                                                                             , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
                                                                             ]
-                                                                Just <$> (appendProbeContext ctx <$> probeBinance "order/test" (void (placeMarketOrder env OrderTest sym'' Buy qty (Just qq1) Nothing (trim <$> argIdempotencyKey args))))
-                                            Just qRaw -> do
+                                                                Just <$> (appendProbeContext ctx <$> probeBinance "order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) qq Nothing (trim <$> argIdempotencyKey args))))
+                    MarketFutures ->
+                        case mSym of
+                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSymbolMsg))
+                            Just sym'' -> do
+                                let qtyFromArgs =
+                                        case argOrderQuantity args of
+                                            Just q | q > 0 -> Just q
+                                            _ -> Nothing
+                                case qtyFromArgs of
+                                    Just qRaw -> do
+                                        mFilters <- fetchFilters env sym''
+                                        case mFilters of
+                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingFiltersMsg))
+                                            Just _ -> do
                                                 mPrice <- fetchPriceIfNeeded env sym'' mFilters
                                                 case normalizeProbeQty mFilters mPrice qRaw of
-                                                    Left e -> pure (Just (mkSkippedProbe "order/test" e))
+                                                    Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
                                                     Right q -> do
                                                         let ctx =
                                                                 formatProbeContext
@@ -13965,34 +13998,7 @@ computeBinanceKeysStatusFromArgs mOps args = do
                                                                     , ("minQty", fmtMaybeProbeDouble (effectiveMinQty =<< mFilters))
                                                                     , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
                                                                     ]
-                                                        Just <$> (appendProbeContext ctx <$> probeBinance "order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) qq Nothing (trim <$> argIdempotencyKey args))))
-                    MarketFutures ->
-                        case mSym of
-                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSymbolMsg))
-                            Just sym'' -> do
-                                let qtyFromArgs =
-                                        case argOrderQuantity args of
-                                            Just q | q > 0 -> Just q
-                                            _ -> Nothing
-                                case qtyFromArgs of
-                                    Just qRaw -> do
-                                        mFilters <- fetchFilters env sym''
-                                        mPrice <- fetchPriceIfNeeded env sym'' mFilters
-                                        case normalizeProbeQty mFilters mPrice qRaw of
-                                            Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
-                                            Right q -> do
-                                                let ctx =
-                                                        formatProbeContext
-                                                            [ ("symbol", Just sym'')
-                                                            , ("side", Just "BUY")
-                                                            , ("qty", Just (fmtProbeDouble q))
-                                                            , ("qtyRaw", fmtRawIfDifferent qRaw q)
-                                                            , ("price", fmtMaybeProbeDouble mPrice)
-                                                            , ("step", fmtStepText (effectiveStep =<< mFilters))
-                                                            , ("minQty", fmtMaybeProbeDouble (effectiveMinQty =<< mFilters))
-                                                            , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
-                                                            ]
-                                                Just <$> (appendProbeContext ctx <$> probeBinance "futures/order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args))))
+                                                        Just <$> (appendProbeContext ctx <$> probeBinance "futures/order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args))))
                                     Nothing -> do
                                         qq <-
                                             case argOrderQuote args of
@@ -14016,31 +14022,34 @@ computeBinanceKeysStatusFromArgs mOps args = do
                                             Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSizingMsg))
                                             Just qq0 -> do
                                                 mFilters <- fetchFilters env sym''
-                                                case validateProbeQuote mFilters qq0 of
-                                                    Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
-                                                    Right qq1 -> do
-                                                        mPrice <- fetchPriceMaybe env sym''
-                                                        case mPrice of
-                                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" "Price unavailable for quote sizing."))
-                                                            Just price -> do
-                                                                let qRaw = qq1 / price
-                                                                case normalizeProbeQty mFilters (Just price) qRaw of
-                                                                    Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
-                                                                    Right q -> do
-                                                                        let ctx =
-                                                                                formatProbeContext
-                                                                                    [ ("symbol", Just sym'')
-                                                                                    , ("side", Just "BUY")
-                                                                                    , ("qty", Just (fmtProbeDouble q))
-                                                                                    , ("qtyRaw", fmtRawIfDifferent qRaw q)
-                                                                                    , ("quote", Just (fmtProbeDouble qq1))
-                                                                                    , ("quoteRaw", fmtRawIfDifferent qq0 qq1)
-                                                                                    , ("price", fmtMaybeProbeDouble (Just price))
-                                                                                    , ("step", fmtStepText (effectiveStep =<< mFilters))
-                                                                                    , ("minQty", fmtMaybeProbeDouble (effectiveMinQty =<< mFilters))
-                                                                                    , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
-                                                                                    ]
-                                                                        Just <$> (appendProbeContext ctx <$> probeBinance "futures/order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args))))
+                                                case mFilters of
+                                                    Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingFiltersMsg))
+                                                    Just _ ->
+                                                        case validateProbeQuote mFilters qq0 of
+                                                            Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
+                                                            Right qq1 -> do
+                                                                mPrice <- fetchPriceMaybe env sym''
+                                                                case mPrice of
+                                                                    Nothing -> pure (Just (mkSkippedProbe "futures/order/test" "Price unavailable for quote sizing."))
+                                                                    Just price -> do
+                                                                        let qRaw = qq1 / price
+                                                                        case normalizeProbeQty mFilters (Just price) qRaw of
+                                                                            Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
+                                                                            Right q -> do
+                                                                                let ctx =
+                                                                                        formatProbeContext
+                                                                                            [ ("symbol", Just sym'')
+                                                                                            , ("side", Just "BUY")
+                                                                                            , ("qty", Just (fmtProbeDouble q))
+                                                                                            , ("qtyRaw", fmtRawIfDifferent qRaw q)
+                                                                                            , ("quote", Just (fmtProbeDouble qq1))
+                                                                                            , ("quoteRaw", fmtRawIfDifferent qq0 qq1)
+                                                                                            , ("price", fmtMaybeProbeDouble (Just price))
+                                                                                            , ("step", fmtStepText (effectiveStep =<< mFilters))
+                                                                                            , ("minQty", fmtMaybeProbeDouble (effectiveMinQty =<< mFilters))
+                                                                                            , ("minNotional", fmtMaybeProbeDouble (sfMinNotional =<< mFilters))
+                                                                                            ]
+                                                                                Just <$> (appendProbeContext ctx <$> probeBinance "futures/order/test" (void (placeMarketOrder env OrderTest sym'' Buy (Just q) Nothing Nothing (trim <$> argIdempotencyKey args))))
 
             let isAuthFailureCode c = c == (-1022) || c == (-2014) || c == (-2015)
                 normalizeTradeProbe p =
@@ -14058,6 +14067,7 @@ computeBinanceKeysStatusFromArgs mOps args = do
             then "Provide orderQuantity/orderQuote, or set orderQuoteFraction with sufficient quote balance."
             else "Provide orderQuantity or orderQuote."
     missingSymbolMsg = "Provide binanceSymbol for the trade test."
+    missingFiltersMsg = "Exchange info unavailable (cannot validate precision)."
 
     normalizeBinanceSymbolForKeys raw =
         let sanitized = raw >>= sanitizeComboSymbolForPlatform (Just "binance")
@@ -14696,11 +14706,14 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
                 Nothing -> noOrder neutralMsg
                 Just dir -> do
                     mFilters <- tryFetchFilters
-                    let (baseAsset, quoteAsset) = splitSymbol sym
-                    r <- try (place mFilters baseAsset quoteAsset dir) :: IO (Either SomeException ApiOrderResult)
-                    case r of
-                        Left ex -> noOrder ("Order failed: " ++ shortErr ex)
-                        Right out -> pure out
+                    case mFilters of
+                        Nothing -> noOrder "No order: exchangeInfo unavailable (cannot validate precision)."
+                        Just _ -> do
+                            let (baseAsset, quoteAsset) = splitSymbol sym
+                            r <- try (place mFilters baseAsset quoteAsset dir) :: IO (Either SomeException ApiOrderResult)
+                            case r of
+                                Left ex -> noOrder ("Order failed: " ++ shortErr ex)
+                                Right out -> pure out
   where
     method = lsMethod sig
     chosenDir = lsChosenDir sig

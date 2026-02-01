@@ -8,11 +8,14 @@ All notable changes to this project will be documented in this file.
 - Predictors: add psychological price-level proximity features (round-number clustering) to the feature set.
 - Predictors: add short/mid momentum and volatility-spread features to improve signal quality.
 - API/UI: include test-order sizing details in Binance key-check trade permission errors to debug precision rejections.
+- Binance: skip key-check trade tests and order placement when exchangeInfo filters are unavailable to avoid precision errors.
 - Kalman: sensor variance now uses EWMA residuals so measurement weighting adapts faster to regime shifts.
 - Router: model scoring now uses risk-adjusted net returns (mean/vol) to avoid noisy switches.
 - Optimizer: allow `optimize-equity` to pass `--futures` through for Binance futures data.
+- Dev: add `haskell/scripts/run_optimize_equity_top5.sh` to run optimize-equity on top combos with optional baseline comparisons.
 - Trading: use close-threshold direction to hold/exit positions when open signals are neutral (backtest + live).
 - Trading: accept lookback-aligned Kalman prediction vectors in backtests to match LSTM alignment.
+- Web UI: ensure the floating Bot activity minimize toggle collapses the panel height instead of leaving an empty shell.
 - Trading: live-bot bracket exits now respect candle high/low with intrabar stop/TP ordering (per `--intrabar-fill`).
 - Normalization: `log` fitting now ignores non-finite values and only falls back when no positive finite values remain.
 - Trading: allow `--max-trades-per-day`, `--max-open-positions`, and `--max-open-per-base` to accept `0` to disable, matching CLI help.
