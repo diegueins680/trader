@@ -38,6 +38,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: guard missing bot `latestSignal` data so the dev UI does not crash on startup.
 - Web UI: add a favicon and a layout toggle to hide/show the Bot activity panel.
 - Web UI: hide the Bot activity panel by default (toggle from Layout).
+- Web UI: add a bot selector to the Bot activity panel for switching between running bots.
 - Web UI: avoid marking the API down on bot status timeouts and increase the default bot status timeout in `trader-config.js`.
 - API/UI: add `/binance/positions/close` and a “Close position” button to send reduce-only futures close orders (includes `positionSide` in hedge mode).
 - Binance: retry signed requests on timestamp skew and treat existing protection orders as non-fatal to keep key checks and protection refreshes stable after idle/sleep.

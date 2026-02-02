@@ -96,6 +96,9 @@ dropWhileEnd p = reverse . dropWhile p . reverse
 clamp :: Double -> Double -> Double -> Double
 clamp x lo hi = max lo (min hi x)
 
+clampInt :: Int -> Int -> Int -> Int
+clampInt x lo hi = max lo (min hi x)
+
 normalizeSymbol :: Maybe String -> Maybe String
 normalizeSymbol raw =
     case raw of
@@ -2698,8 +2701,8 @@ runOptimizer args0 = do
                                                                                                     | length parents >= 2 ->
                                                                                                         let ((p1, p2), rng1) = pickParentPair parents rng
                                                                                                             (child, rng2) = crossoverTrialParams p1 p2 rng1
-                                                                                                         in perturbTrialParams perturbScaleDouble perturbScaleInt child rng2
-                                                                                                _ -> perturbTrialParams perturbScaleDouble perturbScaleInt base rng
+                                                                                                         in perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt child rng2
+                                                                                                _ -> perturbTrialParams barsMin barsMax perturbScaleDouble perturbScaleInt base rng
                                                                             tr0 <-
                                                                                 runTrial
                                                                                     traderBinPath
@@ -3628,9 +3631,22 @@ crossoverTrialParams a b rng0 =
         , rng98
         )
 
-perturbTrialParams :: Double -> Int -> TrialParams -> Rng -> (TrialParams, Rng)
-perturbTrialParams scaleDouble scaleInt p rng0 =
-    let (bars', rng1) = perturbInt (tpBars p) scaleInt rng0
+clampBarsForPlatform :: Maybe String -> Int -> Int -> Int -> Int
+clampBarsForPlatform platform barsMin barsMax value =
+    let (lo0, hi0) = if barsMin <= barsMax then (barsMin, barsMax) else (barsMax, barsMin)
+        lo = max 2 lo0
+        hiBase = max lo hi0
+        hi =
+            case platform of
+                Just p | map toLower (trim p) == "binance" -> min 1000 hiBase
+                _ -> hiBase
+        lo' = min lo hi
+     in clampInt value lo' hi
+
+perturbTrialParams :: Int -> Int -> Double -> Int -> TrialParams -> Rng -> (TrialParams, Rng)
+perturbTrialParams barsMin barsMax scaleDouble scaleInt p rng0 =
+    let (barsRaw, rng1) = perturbInt (tpBars p) scaleInt rng0
+        bars' = clampBarsForPlatform (tpPlatform p) barsMin barsMax barsRaw
         (blendWeight', rng2) = perturbDouble (tpBlendWeight p) scaleDouble rng1
         (routerScorePnlWeight', rng2a) = perturbDouble (tpRouterScorePnlWeight p) scaleDouble rng2
         (openThreshold', rng3) = perturbDouble (tpBaseOpenThreshold p) scaleDouble rng2a

@@ -8280,6 +8280,21 @@ export function App() {
             </div>
           </div>
           <div className="botPanelDetails" id={botPanelDetailsId} hidden={!botPanelOpen}>
+            {botSymbolOptions.length > 1 ? (
+              <div className="pillRow">
+                <span className="badge">Bots</span>
+                <select className="select" value={botSelectedSymbol ?? ""} onChange={(e) => setBotSelectedSymbol(e.target.value)}>
+                  {botSymbolOptions.map((entry) => (
+                    <option key={entry.symbol} value={entry.symbol}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="badge">
+                  {botActiveSymbols.length}/{botSymbolOptions.length} active
+                </span>
+              </div>
+            ) : null}
             {botPanel.badges.length > 0 ? (
               <div className="pillRow botPanelBadges">
                 {botPanel.badges.map((badge) => (

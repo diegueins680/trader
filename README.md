@@ -803,7 +803,8 @@ The Latest signal card includes a decision-logic checklist that shows direction 
 The Live bot panel includes visual aids for live data (price pulse, signal/position compass, and risk buffer).
 The Live bot panel keeps the last bot status and bot list visible while bots are starting and during polling gaps, persisting stale data until fresh status arrives.
 A floating “Bot activity” panel summarizes the selected bot’s status, phase, latest action, poll timing, and last event/order, and can be minimized into a header-only strip that collapses the panel height or dragged to a new position.
-Live bot and per-bot panels expand to show full chart contents without internal clipping, and the optimizer combos panel stays scrollable in docked/maximized views so long lists remain reachable. Restoring a maximized panel resets its scroll position so header controls reappear immediately.
+The Bot activity panel includes a bot selector so you can switch between running bots.
+Live bot and per-bot panels expand to show full chart contents without internal clipping, while the optimizer combos panel keeps controls fixed with the combos list in a scrollable pane when docked; when maximized, the whole panel scrolls so long lists stay reachable. Restoring a maximized panel resets its scroll position so header controls reappear immediately.
 Realtime telemetry and feed history are tracked per running bot so switching bots keeps each bot's live context.
 When trading is armed, Long/Short positioning requires Futures market (the UI switches Market to Futures).
 Optimizer combos are clamped to API LSTM compute limits reported by `/health`.

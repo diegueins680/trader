@@ -96,7 +96,9 @@ run_set() {
     fi
 
     echo "Running $label: $sym $interval (trials=$TRIALS bars=$BARS)" | tee "$log"
-    "${cmd[@]}" >>"$log" 2>&1
+    if ! "${cmd[@]}" >>"$log" 2>&1; then
+      echo "Run failed for $sym $interval; continuing." | tee -a "$log"
+    fi
   done
 
   python3 - <<'PY' "$out_dir"
