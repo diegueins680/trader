@@ -82,9 +82,8 @@ All notable changes to this project will be documented in this file.
 - Web UI: auto-retry Binance positions refresh once on `-1021` timestamp errors and show a clearer time-sync hint.
 - Web UI: show inferred open times on open-position charts based on recent Binance trades and allow configuring the open-time cache window.
 - Web UI: reuse recent Binance trade fetches when inferring open-position times to reduce redundant requests.
-- Web UI: fix optimizer combos list scrolling in docked/maximized modes so long lists remain reachable.
-- Web UI: keep optimizer combo controls fixed while the combos list scrolls in the docked/maximized panel.
-- Web UI: allow scrolling the full optimizer combos panel when maximized so long lists remain accessible.
+- Web UI: keep optimizer combos panel scrollable with a sticky header when maximized so long lists remain reachable.
+- Web UI: reset panel scroll position on restore so header controls are immediately visible.
 - Ops: add `performance_rollups` via `haskell/scripts/rollup_performance.sh` to correlate git commits with live-bot equity performance.
 - Ops: extend performance rollups with `performance_commit_summary` plus commit/combo delta views for regression tracking.
 - API: add `/ops/performance` to expose performance rollups and deltas.

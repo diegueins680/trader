@@ -1386,6 +1386,7 @@ export function App() {
   const [draggingConfigPanel, setDraggingConfigPanel] = useState<ConfigPanelId | null>(null);
   const [dragOverConfigPanel, setDragOverConfigPanel] = useState<ConfigPanelId | null>(null);
   const [maximizedPanelId, setMaximizedPanelId] = useState<string | null>(null);
+  const lastMaximizedPanelId = useRef<string | null>(null);
   const [botPanelOffset, setBotPanelOffset] = useState<BotPanelOffset>(() => {
     const stored = readJson<BotPanelOffset>(STORAGE_BOT_PANEL_POS_KEY);
     if (!stored || typeof stored.x !== "number" || typeof stored.y !== "number") {
@@ -1994,6 +1995,23 @@ export function App() {
       document.body.classList.remove("panelMaximized");
     };
   }, [maximizedPanelId]);
+
+  const resetPanelScroll = useCallback((panelId: string) => {
+    if (typeof document === "undefined") return;
+    const panel = document.querySelector(`[data-panel="${panelId}"]`) as HTMLElement | null;
+    if (!panel) return;
+    panel.scrollTop = 0;
+    const body = panel.querySelector(".cardBody") as HTMLElement | null;
+    if (body) body.scrollTop = 0;
+  }, []);
+
+  useEffect(() => {
+    const prev = lastMaximizedPanelId.current;
+    if (prev && prev !== maximizedPanelId) {
+      resetPanelScroll(prev);
+    }
+    lastMaximizedPanelId.current = maximizedPanelId;
+  }, [maximizedPanelId, resetPanelScroll]);
 
   useEffect(() => {
     if (!maximizedPanelId || typeof window === "undefined") return;
