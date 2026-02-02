@@ -36,6 +36,7 @@ import Trader.Platform (
     platformCode,
     platformDefaultBars,
     platformIntervalsCsv,
+    platformSupportsTrading,
  )
 import Trader.Predictors.Types (
     PredictorSet,
@@ -72,6 +73,13 @@ data Args = Args
     , argOrderQuoteFraction :: Maybe Double
     , argMaxOrderQuote :: Maybe Double
     , argIdempotencyKey :: Maybe String
+    , argDexChainId :: Maybe Int
+    , argDexBaseToken :: Maybe String
+    , argDexQuoteToken :: Maybe String
+    , argDexBaseDecimals :: Maybe Int
+    , argDexQuoteDecimals :: Maybe Int
+    , argDexProtocols :: Maybe String
+    , argDexAutoApprove :: Bool
     , argNormalization :: NormType
     , argHiddenSize :: Int
     , argEpochs :: Int
@@ -305,7 +313,7 @@ opts = do
             ( long "platform"
                 <> value PlatformBinance
                 <> showDefaultWith platformCode
-                <> help "Exchange platform for --binance-symbol (binance|coinbase|kraken|poloniex)"
+                <> help "Exchange platform for --binance-symbol (binance|coinbase|kraken|poloniex|uniswap|curve|sushiswap|balancer|pancakeswap|1inch)"
             )
     argBinanceFutures <- switch (long "futures" <> help "Use Binance USDT-M futures endpoints for data/orders (Binance only)")
     argBinanceMargin <- switch (long "margin" <> help "Use Binance margin account endpoints for orders/balance (Binance only)")
@@ -328,7 +336,7 @@ opts = do
     argCoinbaseApiKey <- optional (strOption (long "coinbase-api-key" <> help "Coinbase API key (or env COINBASE_API_KEY; Coinbase only)"))
     argCoinbaseApiSecret <- optional (strOption (long "coinbase-api-secret" <> help "Coinbase API secret (or env COINBASE_API_SECRET; Coinbase only)"))
     argCoinbaseApiPassphrase <- optional (strOption (long "coinbase-api-passphrase" <> help "Coinbase API passphrase (or env COINBASE_API_PASSPHRASE; Coinbase only)"))
-    argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance/Coinbase spot)")
+    argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance/Coinbase/DEX)")
     argBinanceLive <-
         defaultOnSwitch
             "binance-live"
@@ -340,6 +348,18 @@ opts = do
     argOrderQuoteFraction <- optional (option auto (long "order-quote-fraction" <> help "Size BUY orders as a fraction of quote balance (0 < F <= 1) when --order-quote/--order-quantity not set"))
     argMaxOrderQuote <- optional (option auto (long "max-order-quote" <> help "Cap the computed quote amount when using --order-quote-fraction"))
     argIdempotencyKey <- optional (strOption (long "idempotency-key" <> metavar "ID" <> help "Optional Binance newClientOrderId for idempotent orders"))
+    argDexChainId <- optional (option auto (long "dex-chain-id" <> help "DEX chain id for on-chain swaps (e.g., 1 for Ethereum, 56 for BSC)"))
+    argDexBaseToken <- optional (strOption (long "dex-base-token" <> metavar "TOKEN" <> help "DEX base token address or symbol (asset you buy when LONG)"))
+    argDexQuoteToken <- optional (strOption (long "dex-quote-token" <> metavar "TOKEN" <> help "DEX quote token address or symbol (asset you sell to BUY base)"))
+    argDexBaseDecimals <- optional (option auto (long "dex-base-decimals" <> help "Override base token decimals when token metadata lookup fails"))
+    argDexQuoteDecimals <- optional (option auto (long "dex-quote-decimals" <> help "Override quote token decimals when token metadata lookup fails"))
+    argDexProtocols <- optional (strOption (long "dex-protocols" <> metavar "LIST" <> help "Comma-separated 1inch protocols to restrict routing (optional)"))
+    argDexAutoApprove <-
+        defaultOnSwitch
+            "dex-auto-approve"
+            "no-dex-auto-approve"
+            "Auto-approve ERC-20 allowance for DEX swaps when needed."
+            "Do not auto-approve; fail if allowance is insufficient."
     argNormalization <- option (maybeReader parseNormType) (long "normalization" <> value NormStandard <> help "none|minmax|standard|log")
     argHiddenSize <- option auto (long "hidden-size" <> value 16 <> help "LSTM hidden size")
     argEpochs <- option auto (long "epochs" <> value 30 <> help "LSTM training epochs (Adam)")
@@ -690,10 +710,23 @@ argLookback args =
 
 validateArgs :: Args -> Either String Args
 validateArgs args0 = do
+    let isDexPlatform p =
+            case p of
+                PlatformUniswap -> True
+                PlatformCurve -> True
+                PlatformSushiswap -> True
+                PlatformBalancer -> True
+                PlatformPancakeswap -> True
+                PlatformOneInch -> True
+                _ -> False
+        symbolNormalizer =
+            if isDexPlatform (argPlatform args0)
+                then trim
+                else map toUpper . trim
     let args =
             args0
                 { argData = fmap trim (argData args0)
-                , argBinanceSymbol = fmap (map toUpper . trim) (argBinanceSymbol args0)
+                , argBinanceSymbol = fmap symbolNormalizer (argBinanceSymbol args0)
                 , argInterval = trim (argInterval args0)
                 , argPriceCol = trim (argPriceCol args0)
                 , argHighCol = fmap trim (argHighCol args0)
@@ -706,7 +739,10 @@ validateArgs args0 = do
     case argBinanceSymbol args of
         Just "" -> Left "--binance-symbol cannot be empty"
         _ -> pure ()
-    ensure "Provide only one of --data or --binance-symbol" (not (present (argData args) && present (argBinanceSymbol args)))
+    let isDex = isDexPlatform (argPlatform args)
+    ensure
+        "Provide only one of --data or --binance-symbol (unless using a DEX platform with --data)"
+        (not (present (argData args) && present (argBinanceSymbol args) && not isDex))
     ensure
         "Provide a data source: --data or --binance-symbol (unless using --serve or --ops-backfill-commits)"
         (argServe args || argOpsBackfillCommits args || present (argData args) || present (argBinanceSymbol args))
@@ -716,11 +752,16 @@ validateArgs args0 = do
     ensure "--min-round-trips must be >= 0" (argMinRoundTrips args >= 0)
     let isBinance = argPlatform args == PlatformBinance
         isCoinbase = argPlatform args == PlatformCoinbase
-        supportsTrading = isBinance || isCoinbase
+        supportsTrading = platformSupportsTrading (argPlatform args)
+        supportsLiveMode = isBinance || isCoinbase
+        hasDexTokens = isJust (argDexBaseToken args) && isJust (argDexQuoteToken args)
     ensure "--futures/--margin are only supported on Binance" (isBinance || not (argBinanceFutures args || argBinanceMargin args))
     ensure "--binance-testnet is only supported on Binance" (isBinance || not (argBinanceTestnet args))
-    ensure "--binance-live is only supported on Binance/Coinbase" (supportsTrading || not (argBinanceLive args))
-    ensure "--binance-trade is only supported on Binance/Coinbase" (supportsTrading || not (argBinanceTrade args))
+    ensure "--binance-live is only supported on Binance/Coinbase" (supportsLiveMode || not (argBinanceLive args))
+    ensure "--binance-trade is only supported on trading platforms" (supportsTrading || not (argBinanceTrade args))
+    ensure
+        "--binance-trade requires --symbol/--binance-symbol (or --dex-base-token/--dex-quote-token for DEX platforms)"
+        (not (argBinanceTrade args) || present (argBinanceSymbol args) || (isDex && hasDexTokens))
 
     case argHighCol args of
         Nothing -> pure ()
@@ -988,6 +1029,15 @@ validateArgs args0 = do
                 okLen = not (null k) && length k <= 36
                 okChars = all (\c -> isAlphaNum c || c == '-' || c == '_') k
              in ensure "--idempotency-key must be 1..36 chars of [A-Za-z0-9_-]" (okLen && okChars)
+    case argDexChainId args of
+        Nothing -> pure ()
+        Just cid -> ensure "--dex-chain-id must be > 0" (cid > 0)
+    case argDexBaseDecimals args of
+        Nothing -> pure ()
+        Just d -> ensure "--dex-base-decimals must be >= 0" (d >= 0)
+    case argDexQuoteDecimals args of
+        Nothing -> pure ()
+        Just d -> ensure "--dex-quote-decimals must be >= 0" (d >= 0)
 
     ensure "--kalman-z-min must be >= 0" (argKalmanZMin args >= 0)
     ensure "--kalman-z-max must be >= --kalman-z-min" (argKalmanZMax args >= argKalmanZMin args)

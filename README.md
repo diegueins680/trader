@@ -110,6 +110,7 @@ Sending exchange orders (optional)
 ----------------------------------
 Binance: live orders are the default. Use `--no-binance-live` to send test orders (`/api/v3/order/test` or `/fapi/v1/order/test`). Futures use `--futures` (uses `/fapi` endpoints). Margin uses `--margin` (requires live orders).
 Coinbase: spot-only and live-only (no test endpoint). Use `--platform coinbase`.
+Placing CEX orders requires exchange data via `--symbol`/`--binance-symbol`. DEX orders can use CSV data plus `--dex-*` fields.
 Binance order placement (and `/binance/keys` trade tests) requires exchangeInfo filters to validate precision/step sizes. If exchangeInfo is unreachable (proxy or REST URL issues), the backend skips orders to avoid precision errors. Key-check trade test skips now include the exchangeInfo error summary to help diagnose why the filters were unavailable.
 
 Futures protection orders (live):
@@ -159,9 +160,27 @@ cabal run trader-hs -- \
   --order-quote 50
 ```
 
+Example (DEX swap via 1inch using CSV prices):
+```
+cd haskell
+export TRADER_DEX_CHAIN_ID=1
+export TRADER_DEX_RPC_URL=...
+export TRADER_DEX_PRIVATE_KEY=...
+export TRADER_DEX_ADDRESS=...
+cabal run trader-hs -- \
+  --platform uniswap \
+  --data ../data/sample_prices.csv \
+  --interval 1h \
+  --trade-only \
+  --binance-trade \
+  --dex-base-token 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 \
+  --dex-quote-token 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 \
+  --order-quote 100
+```
+
 CLI parameters
 --------------
-You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binance-symbol` (exchange; default platform is Binance).
+You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binance-symbol` (exchange; default platform is Binance). DEX trades require `--data` and accept `--dex-base-token/--dex-quote-token` (optionally `--symbol` for display).
 
 - Data source
   - `--data PATH` (default: none) CSV file containing prices
@@ -170,7 +189,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--low-column low` CSV column name for low (requires `--high-column`)
   - If a time column is detected, CSV rows are sorted by parsed timestamps; unparseable timestamps keep file order.
   - `--symbol SYMBOL` (alias `--binance-symbol`) exchange symbol to fetch klines
-  - `--platform binance` exchange platform for `--symbol` (`binance|coinbase|kraken|poloniex`)
+  - `--platform binance` exchange platform for `--symbol` (`binance|coinbase|kraken|poloniex|uniswap|curve|sushiswap|balancer|pancakeswap|1inch`)
     - Coinbase products use `BASE-QUOTE` (for example `BTC-USD`).
     - Poloniex symbols use `BASE_QUOTE` (for example `BTC_USDT`); legacy `USDT_BTC` is auto-swapped.
 
@@ -181,14 +200,14 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
   - Lookback must be less than the total number of bars; CLI/API requests error when fewer than `lookback + 1` prices are available (including CSV `--bars auto/0`).
 
-- Trading (Binance + Coinbase spot)
-  - Trading flags apply only when `--platform binance` or `--platform coinbase` (Coinbase is spot-only and has no test endpoint).
+- Trading (Binance + Coinbase + DEX)
+  - Trading flags apply only when `--platform binance`, `--platform coinbase`, or a supported DEX platform.
   - `--binance-testnet` (default: off) use Binance testnet base URL (Binance only)
   - `--futures` (default: off) use Binance USDT-M futures endpoints (data + orders; Binance only)
   - `--margin` (default: off) use Binance margin account endpoints for orders/balance (requires live orders; Binance only)
   - `--binance-api-key KEY` (default: none) or env `BINANCE_API_KEY`
   - `--binance-api-secret SECRET` (default: none) or env `BINANCE_API_SECRET`
-  - `--binance-trade` (default: off) place a market order for the latest signal
+  - `--binance-trade` (default: off) place a market order for the latest signal (CEX requires `--symbol`/`--binance-symbol`; DEX requires `--dex-base-token/--dex-quote-token`)
   - `--binance-live` (default: on) send LIVE orders
   - `--no-binance-live` send TEST orders (Binance only; Coinbase has no test endpoint)
   - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`)
@@ -199,6 +218,16 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Sizing inputs are mutually exclusive: choose one of `--order-quantity`, `--order-quote`, or `--order-quote-fraction`.
   - Order sizes are applied as specified (no extra multiplier).
   - Binance futures orders pre-check available balance (and leverage) and skip entries that exceed available margin.
+
+- DEX execution (Uniswap/Curve/Sushi/Balancer/Pancake/1inch via 1inch)
+  - DEX trades require CSV price data (`--data`) and the following config:
+    - `--dex-chain-id ID` (or env `TRADER_DEX_CHAIN_ID`)
+    - `--dex-base-token TOKEN` / `--dex-quote-token TOKEN` (address or symbol; base is the asset you buy when LONG)
+    - `--dex-base-decimals N` / `--dex-quote-decimals N` (optional overrides when token metadata lookup fails)
+    - `--dex-protocols LIST` (optional 1inch protocols restriction, comma-separated)
+    - `--dex-auto-approve` / `--no-dex-auto-approve` (default on)
+  - Requires Foundry's `cast` on the PATH to sign/send transactions.
+  - DEX sizing: use `--order-quote` for BUY and `--order-quantity` for SELL (fractional sizing is not supported).
 
 - Coinbase API keys (optional; used for `/coinbase/keys` checks and Coinbase trades)
   - `--coinbase-api-key KEY` (default: none) or env `COINBASE_API_KEY`
@@ -379,6 +408,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Trade-only: `{ "mode": "signal", "signal": ... }` or `{ "mode": "trade", "trade": ... }`
     - Backtest: `{ "mode": "backtest", "backtest": ... }` (includes `"baselines"` like `buy-hold` / `sma-cross(...)`, and `"trade"` if `--binance-trade` is set)
     - Backtest trades include `exitReason`; risk halts report `MAX_DRAWDOWN`/`MAX_DAILY_LOSS` when applicable.
+    - Trade responses include `txHash` when a DEX swap is submitted.
     - Backtest `positions` reflect the bar-open position for t->t+1; `agreementOk` flags when Kalman/LSTM open-direction signals match with non-neutral directions; agreement rate only counts bars where both models emit a non-neutral open direction.
     - Latest signal output includes `closeDirection` to indicate the close-threshold direction (when available).
     - When confidence gating is enabled, `closeDirection` respects the gated signal direction (matching backtests).
@@ -433,7 +463,7 @@ Endpoints:
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /signal/async` → starts an async signal job
 - `GET /signal/async/:jobId` → polls an async signal job (also accepts `POST` for proxy compatibility)
-- `POST /trade` → returns the latest signal + attempts an order (Binance live orders by default; use `binanceLive=false` for test orders; Coinbase is live-only)
+- `POST /trade` → returns the latest signal + attempts an order (Binance live orders by default; use `binanceLive=false` for test orders; Coinbase is live-only; DEX orders use 1inch + `dex*` fields)
 - `POST /trade/async` → starts an async trade job
 - `GET /trade/async/:jobId` → polls an async trade job (also accepts `POST` for proxy compatibility)
 - Signal endpoints validate request parameters the same way as the CLI; invalid ranges return 400.
@@ -502,7 +532,8 @@ Optimizer script tips:
 - `optimize-equity` defaults to `--objective annualized-equity` (annualized return).
 - `optimize-equity` now tunes stop-loss and take-profit by default for annualized-equity; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
 - `optimize-equity` accepts `--futures` to pull Binance USDT-M futures data (Binance only).
-- `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons).
+- `optimize-equity` clamps perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
+- `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons) and continues when a symbol run fails.
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - CSV runs derive `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename) and normalize it to a valid exchange symbol, trimming dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` -> `BNBUSDT`) before combos are persisted.
@@ -672,6 +703,13 @@ export BINANCE_API_SECRET=...
 curl -s -X POST http://127.0.0.1:8080/trade \
   -H 'Content-Type: application/json' \
   -d '{"binanceSymbol":"BTCUSDT","interval":"1h","bars":200,"method":"10","openThreshold":0.003838,"closeThreshold":0.003838,"orderQuote":20,"binanceLive":false}'
+```
+
+DEX trade (1inch; CSV prices):
+```
+curl -s -X POST http://127.0.0.1:8080/trade \
+  -H 'Content-Type: application/json' \
+  -d '{"platform":"uniswap","data":"../data/sample_prices.csv","interval":"1h","bars":200,"orderQuote":100,"dexChainId":1,"dexBaseToken":"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2","dexQuoteToken":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"}'
 ```
 
 Start the live bot (paper mode; no orders). `botTrade` defaults to `true`, so set `botTrade=false` explicitly for paper mode:

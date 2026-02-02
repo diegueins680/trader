@@ -50,6 +50,22 @@ normalizePlatform raw =
             let s = map toLower (trim v)
              in if null s then Nothing else Just s
 
+isDexPlatformKey :: String -> Bool
+isDexPlatformKey key =
+    key == "uniswap"
+        || key == "curve"
+        || key == "sushiswap"
+        || key == "balancer"
+        || key == "pancakeswap"
+        || key == "1inch"
+        || key == "oneinch"
+
+normalizeSymbolForPlatform :: Maybe String -> String -> String
+normalizeSymbolForPlatform platform raw =
+    case normalizePlatform platform of
+        Just key | isDexPlatformKey key -> trim raw
+        _ -> normalizeSymbolText raw
+
 normalizeSymbolText :: String -> String
 normalizeSymbolText = map toUpperAscii . trim
 
@@ -60,18 +76,20 @@ isAsciiAlphaNum c =
 isValidSymbolForPlatform :: Maybe String -> String -> Bool
 isValidSymbolForPlatform platform raw =
     case normalizePlatform platform of
+        Just key | isDexPlatformKey key -> not (null s)
         Just "coinbase" -> isValidDelimitedSymbol '-' s
         Just "poloniex" -> isValidDelimitedSymbol '_' s
         _ -> isValidBinanceSymbol s
   where
-    s = normalizeSymbolText raw
+    s = normalizeSymbolForPlatform platform raw
 
 sanitizeSymbolForPlatform :: Maybe String -> String -> Maybe String
 sanitizeSymbolForPlatform platform raw =
-    let s = normalizeSymbolText raw
+    let s = normalizeSymbolForPlatform platform raw
      in if null s
             then Nothing
             else case normalizePlatform platform of
+                Just key | isDexPlatformKey key -> Just s
                 Just "coinbase" -> sanitizeDelimitedSymbol '-' '_' s
                 Just "poloniex" -> sanitizeDelimitedSymbol '_' '-' s
                 _ ->

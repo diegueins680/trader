@@ -146,6 +146,16 @@ import Trader.Coinbase (
     newCoinbaseEnv,
     placeCoinbaseMarketOrder,
  )
+import Trader.Dex (
+    DexEnv (..),
+    DexSwapResult (..),
+    DexToken (..),
+    integerToTokenAmount,
+    resolveDexEnv,
+    resolveDexTokens,
+    swapDexExactIn,
+    tokenAmountToInteger,
+ )
 import Trader.Duration (
     inferPeriodsPerYear,
     lookbackBarsFrom,
@@ -931,6 +941,13 @@ data ApiParams = ApiParams
     , apOrderQuoteFraction :: Maybe Double
     , apMaxOrderQuote :: Maybe Double
     , apIdempotencyKey :: Maybe String
+    , apDexChainId :: Maybe Int
+    , apDexBaseToken :: Maybe String
+    , apDexQuoteToken :: Maybe String
+    , apDexBaseDecimals :: Maybe Int
+    , apDexQuoteDecimals :: Maybe Int
+    , apDexProtocols :: Maybe String
+    , apDexAutoApprove :: Maybe Bool
     , apBotPollSeconds :: Maybe Int
     , apBotOnlineEpochs :: Maybe Int
     , apBotTrainBars :: Maybe Int
@@ -1295,6 +1312,7 @@ data ApiOrderResult = ApiOrderResult
     , aorStatus :: Maybe String
     , aorExecutedQty :: Maybe Double
     , aorCummulativeQuoteQty :: Maybe Double
+    , aorTxHash :: Maybe String
     , aorResponse :: Maybe String
     , aorMessage :: String
     }
@@ -1775,7 +1793,7 @@ webhookEventTradeOrder args sig order =
 
 orderIdFromOrderResult :: ApiOrderResult -> Maybe Text
 orderIdFromOrderResult order =
-    T.pack . show <$> aorOrderId order
+    (T.pack . show <$> aorOrderId order) <|> (T.pack <$> aorTxHash order)
 
 -- Persistent operation history (PostgreSQL; safe to rebuild state from the log).
 
@@ -1970,11 +1988,24 @@ argsPublicJson args =
         barsRaw = argBars args
         barsCsv = resolveBarsForCsv args
         barsPlatform = resolveBarsForPlatform args
+        isDexPlatform p =
+            case p of
+                PlatformUniswap -> True
+                PlatformCurve -> True
+                PlatformSushiswap -> True
+                PlatformBalancer -> True
+                PlatformPancakeswap -> True
+                PlatformOneInch -> True
+                _ -> False
+        useCsvBars = isDexPlatform (argPlatform args) && isJust (argData args)
         barsUsed =
-            case (argBinanceSymbol args, argData args) of
-                (Just _, _) -> barsPlatform
-                (_, Just _) -> barsCsv
-                _ -> fromMaybe 0 barsRaw
+            if useCsvBars
+                then barsCsv
+                else
+                    case (argBinanceSymbol args, argData args) of
+                        (Just _, _) -> barsPlatform
+                        (_, Just _) -> barsCsv
+                        _ -> fromMaybe 0 barsRaw
         lookback =
             case argLookbackBars args of
                 Just n -> n
@@ -2009,6 +2040,13 @@ argsPublicJson args =
             , "orderQuoteFraction" .= argOrderQuoteFraction args
             , "maxOrderQuote" .= argMaxOrderQuote args
             , "idempotencyKey" .= argIdempotencyKey args
+            , "dexChainId" .= argDexChainId args
+            , "dexBaseToken" .= argDexBaseToken args
+            , "dexQuoteToken" .= argDexQuoteToken args
+            , "dexBaseDecimals" .= argDexBaseDecimals args
+            , "dexQuoteDecimals" .= argDexQuoteDecimals args
+            , "dexProtocols" .= argDexProtocols args
+            , "dexAutoApprove" .= argDexAutoApprove args
             , "normalization" .= show (argNormalization args)
             , "hiddenSize" .= argHiddenSize args
             , "epochs" .= argEpochs args
@@ -2217,6 +2255,54 @@ platformSeeds =
         , psWsUrl = Just "wss://ws.poloniex.com/ws/public"
         , psDocsUrl = Just "https://docs.poloniex.com"
         , psConnectionJson = Just poloniexConnectionJson
+        }
+    , PlatformSeed
+        { psCode = "uniswap"
+        , psLabel = "Uniswap"
+        , psRestUrl = Nothing
+        , psWsUrl = Nothing
+        , psDocsUrl = Nothing
+        , psConnectionJson = Nothing
+        }
+    , PlatformSeed
+        { psCode = "curve"
+        , psLabel = "Curve"
+        , psRestUrl = Nothing
+        , psWsUrl = Nothing
+        , psDocsUrl = Nothing
+        , psConnectionJson = Nothing
+        }
+    , PlatformSeed
+        { psCode = "sushiswap"
+        , psLabel = "SushiSwap"
+        , psRestUrl = Nothing
+        , psWsUrl = Nothing
+        , psDocsUrl = Nothing
+        , psConnectionJson = Nothing
+        }
+    , PlatformSeed
+        { psCode = "balancer"
+        , psLabel = "Balancer"
+        , psRestUrl = Nothing
+        , psWsUrl = Nothing
+        , psDocsUrl = Nothing
+        , psConnectionJson = Nothing
+        }
+    , PlatformSeed
+        { psCode = "pancakeswap"
+        , psLabel = "PancakeSwap"
+        , psRestUrl = Nothing
+        , psWsUrl = Nothing
+        , psDocsUrl = Nothing
+        , psConnectionJson = Nothing
+        }
+    , PlatformSeed
+        { psCode = "1inch"
+        , psLabel = "1inch"
+        , psRestUrl = Nothing
+        , psWsUrl = Nothing
+        , psDocsUrl = Nothing
+        , psConnectionJson = Nothing
         }
     ]
 
@@ -8246,13 +8332,13 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
 placeIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeIfEnabled args settings sig env sym =
     if not (bsTradeEnabled settings)
-        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
+        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
         else placeOrderForSignalBot args sym sig env (bsProtectionOrders settings)
 
 placeBotCloseIfEnabled :: Args -> BotSettings -> LatestSignal -> BinanceEnv -> String -> IO ApiOrderResult
 placeBotCloseIfEnabled args settings sig env sym =
     if not (bsTradeEnabled settings)
-        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
+        then pure (ApiOrderResult False Nothing Nothing (Just sym) Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing "Paper mode: no order sent.")
         else placeBotCloseOrder args sym sig env
 
 placeBotCloseOrder :: Args -> String -> LatestSignal -> BinanceEnv -> IO ApiOrderResult
@@ -13122,6 +13208,7 @@ handleBinanceClosePosition reqLimits mOps baseArgs req respond = do
                                           , aorStatus = Nothing
                                           , aorExecutedQty = Nothing
                                           , aorCummulativeQuoteQty = Nothing
+                                          , aorTxHash = Nothing
                                           , aorResponse = Nothing
                                           , aorMessage = ""
                                           }
@@ -13670,6 +13757,13 @@ argsFromApi baseArgs p = do
                 , argOrderQuoteFraction = pickMaybe (apOrderQuoteFraction p) (argOrderQuoteFraction baseArgs)
                 , argMaxOrderQuote = pickMaybe (apMaxOrderQuote p) (argMaxOrderQuote baseArgs)
                 , argIdempotencyKey = pickMaybe (apIdempotencyKey p) (argIdempotencyKey baseArgs)
+                , argDexChainId = pickMaybe (apDexChainId p) (argDexChainId baseArgs)
+                , argDexBaseToken = pickMaybe (apDexBaseToken p) (argDexBaseToken baseArgs)
+                , argDexQuoteToken = pickMaybe (apDexQuoteToken p) (argDexQuoteToken baseArgs)
+                , argDexBaseDecimals = pickMaybe (apDexBaseDecimals p) (argDexBaseDecimals baseArgs)
+                , argDexQuoteDecimals = pickMaybe (apDexQuoteDecimals p) (argDexQuoteDecimals baseArgs)
+                , argDexProtocols = pickMaybe (apDexProtocols p) (argDexProtocols baseArgs)
+                , argDexAutoApprove = pick (apDexAutoApprove p) (argDexAutoApprove baseArgs)
                 , argJson = False
                 , argServe = False
                 , argKalmanZMin = pick (apKalmanZMin p) (argKalmanZMin baseArgs)
@@ -13730,6 +13824,191 @@ computeTradeFromArgsWithLimits limits mOps args = do
         Right () -> pure ()
     computeTradeFromSeries args series mBinanceEnv
 
+noOrderResult :: String -> ApiOrderResult
+noOrderResult msg =
+    ApiOrderResult
+        { aorSent = False
+        , aorMode = Nothing
+        , aorSide = Nothing
+        , aorSymbol = Nothing
+        , aorQuantity = Nothing
+        , aorQuoteQuantity = Nothing
+        , aorOrderId = Nothing
+        , aorClientOrderId = Nothing
+        , aorStatus = Nothing
+        , aorExecutedQty = Nothing
+        , aorCummulativeQuoteQty = Nothing
+        , aorTxHash = Nothing
+        , aorResponse = Nothing
+        , aorMessage = msg
+        }
+
+placeOrderForSignalPlatform :: Args -> LatestSignal -> Maybe BinanceEnv -> IO ApiOrderResult
+placeOrderForSignalPlatform args sig mBinanceEnv =
+    case argPlatform args of
+        PlatformBinance ->
+            case (argBinanceSymbol args, mBinanceEnv) of
+                (Nothing, _) -> pure (noOrderResult "No order: missing binanceSymbol.")
+                (_, Nothing) -> pure (noOrderResult "No order: missing Binance environment (use binanceSymbol data source).")
+                (Just sym, Just env) -> placeOrderForSignal args sym sig env
+        PlatformCoinbase ->
+            case argBinanceSymbol args of
+                Nothing -> pure (noOrderResult "No order: missing symbol.")
+                Just sym -> do
+                    envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
+                    case envOrErr of
+                        Left ex -> pure (noOrderResult ("No order: " ++ take 240 (show ex)))
+                        Right env -> placeCoinbaseOrderForSignal args sym sig env
+        PlatformUniswap -> placeDexOrderForSignal args sig
+        PlatformCurve -> placeDexOrderForSignal args sig
+        PlatformSushiswap -> placeDexOrderForSignal args sig
+        PlatformBalancer -> placeDexOrderForSignal args sig
+        PlatformPancakeswap -> placeDexOrderForSignal args sig
+        PlatformOneInch -> placeDexOrderForSignal args sig
+        _ -> pure (noOrderResult "No order: trading is supported on Binance, Coinbase, and supported DEX platforms only.")
+
+placeDexOrderForSignal :: Args -> LatestSignal -> IO ApiOrderResult
+placeDexOrderForSignal args sig = do
+    let baseResult =
+            ApiOrderResult
+                { aorSent = False
+                , aorMode = Just "dex"
+                , aorSide = Nothing
+                , aorSymbol = argBinanceSymbol args
+                , aorQuantity = Nothing
+                , aorQuoteQuantity = Nothing
+                , aorOrderId = Nothing
+                , aorClientOrderId = Nothing
+                , aorStatus = Nothing
+                , aorExecutedQty = Nothing
+                , aorCummulativeQuoteQty = Nothing
+                , aorTxHash = Nothing
+                , aorResponse = Nothing
+                , aorMessage = ""
+                }
+        noOrder msg = pure baseResult{aorMessage = msg}
+        neutralMsg =
+            case lsMethod sig of
+                MethodBoth -> "No order: directions disagree or neutral (direction gate)."
+                MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
+                MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
+                MethodBlend -> "No order: Blend neutral (within threshold)."
+                MethodRouter -> "No order: Router neutral (score/threshold)."
+        currentPrice = lsCurrentPrice sig
+        entryScale = entryScaleForSignal args MarketSpot sig
+        exitScale = maybe 1 clamp01 (lsExitSize sig)
+    case argOrderQuoteFraction args of
+        Just f | f > 0 -> noOrder "No order: orderQuoteFraction is not supported for DEX trades."
+        _ ->
+            case lsChosenDir sig of
+                Nothing -> noOrder neutralMsg
+                Just dir -> do
+                    envOrErr <- resolveDexEnv (argDexChainId args) (Just (argDexAutoApprove args))
+                    case envOrErr of
+                        Left err -> noOrder ("No order: " ++ err)
+                        Right env -> do
+                            let protocols = argDexProtocols args <|> deProtocols env
+                            case resolveDexTokenInputs args of
+                                Left err -> noOrder ("No order: " ++ err)
+                                Right (baseRaw, quoteRaw) -> do
+                                    tokensOrErr <- resolveDexTokens env baseRaw quoteRaw (argDexBaseDecimals args) (argDexQuoteDecimals args)
+                                    case tokensOrErr of
+                                        Left err -> noOrder ("No order: " ++ err)
+                                        Right (baseTok, quoteTok) -> do
+                                            let symbolLabel = buildDexSymbolLabel baseTok quoteTok
+                                                baseOut = baseResult{aorSymbol = Just symbolLabel}
+                                            case resolveDexAmount dir (Just currentPrice) entryScale exitScale args of
+                                                Left err -> pure baseOut{aorMessage = "No order: " ++ err}
+                                                Right (amountInRaw, sideLabel, inputIsQuote) -> do
+                                                    let (tokenIn, tokenOut) =
+                                                            if inputIsQuote then (quoteTok, baseTok) else (baseTok, quoteTok)
+                                                    case tokenAmountToInteger amountInRaw (dtDecimals tokenIn) of
+                                                        Left err -> pure baseOut{aorMessage = "No order: " ++ err}
+                                                        Right amountInInt -> do
+                                                            swapOrErr <- swapDexExactIn env tokenIn tokenOut amountInInt (argSlippage args) protocols
+                                                            case swapOrErr of
+                                                                Left err -> pure baseOut{aorMessage = "Order failed: " ++ take 240 err}
+                                                                Right swap -> do
+                                                                    let amountInHuman = amountInRaw
+                                                                        outAmountHuman =
+                                                                            case dsToAmount swap of
+                                                                                Nothing -> Nothing
+                                                                                Just n -> Just (integerToTokenAmount n (dtDecimals tokenOut))
+                                                                        (qtyOut, quoteOut) =
+                                                                            if inputIsQuote
+                                                                                then (outAmountHuman, Just amountInHuman)
+                                                                                else (Just amountInHuman, outAmountHuman)
+                                                                    pure
+                                                                        baseOut
+                                                                            { aorSent = True
+                                                                            , aorSide = Just sideLabel
+                                                                            , aorQuantity = qtyOut
+                                                                            , aorQuoteQuantity = quoteOut
+                                                                            , aorTxHash = Just (dsTxHash swap)
+                                                                            , aorResponse = Just (dsResponseBody swap)
+                                                                            , aorMessage = "Order sent."
+                                                                            }
+
+resolveDexTokenInputs :: Args -> Either String (String, String)
+resolveDexTokenInputs args =
+    case (argDexBaseToken args, argDexQuoteToken args) of
+        (Just base, Just quote) -> Right (trim base, trim quote)
+        _ ->
+            case argBinanceSymbol args >>= splitDexSymbol of
+                Just (base, quote) -> Right (base, quote)
+                Nothing -> Left "DEX trades require dexBaseToken/dexQuoteToken or a symbol in BASE/QUOTE form."
+
+splitDexSymbol :: String -> Maybe (String, String)
+splitDexSymbol raw =
+    let s = trim raw
+        splitOn delim =
+            case break (== delim) s of
+                (a, _ : b) | not (null a) && not (null b) -> Just (a, b)
+                _ -> Nothing
+     in splitOn '/' <|> splitOn '-'
+
+buildDexSymbolLabel :: DexToken -> DexToken -> String
+buildDexSymbolLabel baseTok quoteTok =
+    let base = if null (dtSymbol baseTok) then dtAddress baseTok else dtSymbol baseTok
+        quote = if null (dtSymbol quoteTok) then dtAddress quoteTok else dtSymbol quoteTok
+     in base ++ "/" ++ quote
+
+resolveDexAmount :: Int -> Maybe Double -> Double -> Double -> Args -> Either String (Double, String, Bool)
+resolveDexAmount dir mPrice entryScale exitScale args =
+    let quoteArg = argOrderQuote args
+        qtyArg = argOrderQuantity args
+        price = fromMaybe 0 mPrice
+        wantPrice = price > 0
+        scaled val scale = max 0 (val * scale)
+     in case dir of
+            1 ->
+                let baseQuote =
+                        case quoteArg of
+                            Just q | q > 0 -> Right q
+                            _ ->
+                                case qtyArg of
+                                    Just q | q > 0 ->
+                                        if wantPrice then Right (q * price) else Left "Missing price to convert orderQuantity to quote amount."
+                                    _ -> Left "Provide orderQuote (or orderQuantity) for BUY."
+                 in do
+                        q <- baseQuote
+                        let qScaled = scaled q entryScale
+                        if qScaled <= 0 then Left "Quote amount must be > 0." else Right (qScaled, "BUY", True)
+            (-1) ->
+                let baseQty =
+                        case qtyArg of
+                            Just q | q > 0 -> Right q
+                            _ ->
+                                case quoteArg of
+                                    Just q | q > 0 ->
+                                        if wantPrice then Right (q / price) else Left "Missing price to convert orderQuote to base amount."
+                                    _ -> Left "Provide orderQuantity (or orderQuote) for SELL."
+                 in do
+                        q <- baseQty
+                        let qScaled = scaled q exitScale
+                        if qScaled <= 0 then Left "Base amount must be > 0." else Right (qScaled, "SELL", False)
+            _ -> Left "No order: neutral direction."
+
 computeTradeFromSeries :: Args -> PriceSeries -> Maybe BinanceEnv -> IO ApiTradeResponse
 computeTradeFromSeries args series mBinanceEnv = do
     let prices = psClose series
@@ -13737,26 +14016,8 @@ computeTradeFromSeries args series mBinanceEnv = do
     let lookback = argLookback args
     ensureLookbackRows args lookback prices
     sig <- computeTradeOnlySignal args lookback series mBinanceEnv
-    order <-
-        case argPlatform args of
-            PlatformBinance ->
-                case (argBinanceSymbol args, mBinanceEnv) of
-                    (Nothing, _) -> noOrder "No order: missing binanceSymbol."
-                    (_, Nothing) -> noOrder "No order: missing Binance environment (use binanceSymbol data source)."
-                    (Just sym, Just env) -> placeOrderForSignal args sym sig env
-            PlatformCoinbase ->
-                case argBinanceSymbol args of
-                    Nothing -> noOrder "No order: missing symbol."
-                    Just sym -> do
-                        envOrErr <- try (makeCoinbaseEnv args) :: IO (Either SomeException CoinbaseEnv)
-                        case envOrErr of
-                            Left ex -> noOrder ("No order: " ++ take 240 (show ex))
-                            Right env -> placeCoinbaseOrderForSignal args sym sig env
-            _ -> noOrder "No order: trading is supported on Binance and Coinbase only."
+    order <- placeOrderForSignalPlatform args sig mBinanceEnv
     pure ApiTradeResponse{atrSignal = sig, atrOrder = order}
-  where
-    noOrder msg =
-        pure (ApiOrderResult False Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing msg)
 
 data BinanceApiErrorBody = BinanceApiErrorBody
     { baeCode :: !Int
@@ -14759,6 +15020,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             , aorStatus = Nothing
             , aorExecutedQty = Nothing
             , aorCummulativeQuoteQty = Nothing
+            , aorTxHash = Nothing
             , aorResponse = Nothing
             , aorMessage = ""
             }
@@ -15533,6 +15795,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             , aorStatus = Nothing
             , aorExecutedQty = Nothing
             , aorCummulativeQuoteQty = Nothing
+            , aorTxHash = Nothing
             , aorResponse = Nothing
             , aorMessage = ""
             }
@@ -15856,11 +16119,7 @@ runTradeOnly mWebhook args lookback series mBinanceEnv = do
         then
             if argBinanceTrade args
                 then do
-                    (sym, env) <-
-                        case (argBinanceSymbol args, mBinanceEnv) of
-                            (Just s, Just e) -> pure (s, e)
-                            _ -> error "Internal: --binance-trade requires binanceSymbol data source."
-                    order <- placeOrderForSignal args sym signal env
+                    order <- placeOrderForSignalPlatform args signal mBinanceEnv
                     webhookNotifyMaybeSync mWebhook (webhookEventTradeOrder args signal order)
                     printJsonStdout (object ["mode" .= ("trade" :: String), "trade" .= ApiTradeResponse signal order])
                 else printJsonStdout (object ["mode" .= ("signal" :: String), "signal" .= signal])
@@ -15886,11 +16145,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
             let base = backtestSummaryJson summary
             if argBinanceTrade args
                 then do
-                    (sym, env) <-
-                        case (argBinanceSymbol args, mBinanceEnv) of
-                            (Just s, Just e) -> pure (s, e)
-                            _ -> error "Internal: --binance-trade requires binanceSymbol data source."
-                    order <- placeOrderForSignal args sym (bsLatestSignal summary) env
+                    order <- placeOrderForSignalPlatform args (bsLatestSignal summary) mBinanceEnv
                     webhookNotifyMaybeSync mWebhook (webhookEventTradeOrder args (bsLatestSignal summary) order)
                     printJsonStdout (object ["mode" .= ("backtest" :: String), "backtest" .= base, "trade" .= ApiTradeResponse (bsLatestSignal summary) order])
                 else printJsonStdout (object ["mode" .= ("backtest" :: String), "backtest" .= base])
@@ -18265,8 +18520,17 @@ ensureLookbackRows args lookback prices =
 
 loadPrices :: Maybe OpsStore -> Args -> IO (PriceSeries, Maybe BinanceEnv)
 loadPrices mOps args =
-    case (argData args, argBinanceSymbol args) of
-        (Just path, Nothing) -> do
+    let isDexPlatform p =
+            case p of
+                PlatformUniswap -> True
+                PlatformCurve -> True
+                PlatformSushiswap -> True
+                PlatformBalancer -> True
+                PlatformPancakeswap -> True
+                PlatformOneInch -> True
+                _ -> False
+        isDex = isDexPlatform (argPlatform args)
+        loadCsv path = do
             csvOrErr <- loadCsvPriceSeries path (argPriceCol args) (argHighCol args) (argLowCol args)
             (closes, mHighs, mLows, mOpenTimes) <-
                 case csvOrErr of
@@ -18290,6 +18554,9 @@ loadPrices mOps args =
                         then fmap (takeLast bars) mOpenTimes
                         else mOpenTimes
             pure (PriceSeries closes' highs' lows' openTimes', Nothing)
+     in case (argData args, argBinanceSymbol args) of
+        (Just path, Nothing) -> loadCsv path
+        (Just path, Just _sym) | isDex -> loadCsv path
         (Nothing, Just sym) ->
             case argPlatform args of
                 PlatformBinance -> do
@@ -18304,7 +18571,9 @@ loadPrices mOps args =
                 PlatformPoloniex -> do
                     series <- loadPricesPoloniex args sym
                     pure (series, Nothing)
-        (Just _, Just _) -> error "Provide only one of --data or --binance-symbol"
+                _ ->
+                    error ("DEX platforms require --data for price input (platform=" ++ platformCode (argPlatform args) ++ ").")
+        (Just _, Just _) -> error "Provide only one of --data or --binance-symbol (unless using a DEX platform)."
         (Nothing, Nothing) -> error "Provide --data or --binance-symbol"
 
 takeLast :: Int -> [a] -> [a]

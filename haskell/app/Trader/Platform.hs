@@ -29,6 +29,12 @@ data Platform
     | PlatformCoinbase
     | PlatformKraken
     | PlatformPoloniex
+    | PlatformUniswap
+    | PlatformCurve
+    | PlatformSushiswap
+    | PlatformBalancer
+    | PlatformPancakeswap
+    | PlatformOneInch
     deriving (Eq, Show)
 
 platformCode :: Platform -> String
@@ -38,6 +44,12 @@ platformCode p =
         PlatformCoinbase -> "coinbase"
         PlatformKraken -> "kraken"
         PlatformPoloniex -> "poloniex"
+        PlatformUniswap -> "uniswap"
+        PlatformCurve -> "curve"
+        PlatformSushiswap -> "sushiswap"
+        PlatformBalancer -> "balancer"
+        PlatformPancakeswap -> "pancakeswap"
+        PlatformOneInch -> "1inch"
 
 platformLabel :: Platform -> String
 platformLabel p =
@@ -46,6 +58,12 @@ platformLabel p =
         PlatformCoinbase -> "Coinbase"
         PlatformKraken -> "Kraken"
         PlatformPoloniex -> "Poloniex"
+        PlatformUniswap -> "Uniswap"
+        PlatformCurve -> "Curve"
+        PlatformSushiswap -> "SushiSwap"
+        PlatformBalancer -> "Balancer"
+        PlatformPancakeswap -> "PancakeSwap"
+        PlatformOneInch -> "1inch"
 
 parsePlatform :: String -> Either String Platform
 parsePlatform raw =
@@ -54,7 +72,14 @@ parsePlatform raw =
         "coinbase" -> Right PlatformCoinbase
         "kraken" -> Right PlatformKraken
         "poloniex" -> Right PlatformPoloniex
-        other -> Left ("Invalid platform: " ++ show other ++ " (expected binance|coinbase|kraken|poloniex)")
+        "uniswap" -> Right PlatformUniswap
+        "curve" -> Right PlatformCurve
+        "sushiswap" -> Right PlatformSushiswap
+        "balancer" -> Right PlatformBalancer
+        "pancakeswap" -> Right PlatformPancakeswap
+        "1inch" -> Right PlatformOneInch
+        "oneinch" -> Right PlatformOneInch
+        other -> Left ("Invalid platform: " ++ show other ++ " (expected binance|coinbase|kraken|poloniex|uniswap|curve|sushiswap|balancer|pancakeswap|1inch)")
 
 platformIntervals :: Platform -> [String]
 platformIntervals p =
@@ -63,6 +88,12 @@ platformIntervals p =
         PlatformCoinbase -> ["1m", "5m", "15m", "1h", "6h", "1d"]
         PlatformKraken -> ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"]
         PlatformPoloniex -> ["5m", "15m", "30m", "2h", "4h", "1d"]
+        PlatformUniswap -> binanceIntervals
+        PlatformCurve -> binanceIntervals
+        PlatformSushiswap -> binanceIntervals
+        PlatformBalancer -> binanceIntervals
+        PlatformPancakeswap -> binanceIntervals
+        PlatformOneInch -> binanceIntervals
 
 platformIntervalsCsv :: Platform -> String
 platformIntervalsCsv = intercalate "," . platformIntervals
@@ -77,7 +108,15 @@ platformDefaultBars p =
         _ -> 500
 
 platformSupportsTrading :: Platform -> Bool
-platformSupportsTrading p = p == PlatformBinance || p == PlatformCoinbase
+platformSupportsTrading p =
+    p == PlatformBinance
+        || p == PlatformCoinbase
+        || p == PlatformUniswap
+        || p == PlatformCurve
+        || p == PlatformSushiswap
+        || p == PlatformBalancer
+        || p == PlatformPancakeswap
+        || p == PlatformOneInch
 
 platformSupportsLiveBot :: Platform -> Bool
 platformSupportsLiveBot p = p == PlatformBinance
