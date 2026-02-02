@@ -13929,9 +13929,9 @@ computeBinanceKeysStatusFromArgs mOps args = do
                                 if isNothing qty && isNothing qq
                                     then pure (Just (mkSkippedProbe "order/test" missingSizingMsg))
                                     else do
-                                        mFilters <- fetchFilters env sym''
+                                        (mFilters, mFiltersErr) <- fetchFilters env sym''
                                         case mFilters of
-                                            Nothing -> pure (Just (mkSkippedProbe "order/test" missingFiltersMsg))
+                                            Nothing -> pure (Just (mkSkippedProbe "order/test" (missingFiltersMsgWith mFiltersErr)))
                                             Just _ ->
                                                 case qty of
                                                     Nothing ->
@@ -13979,9 +13979,9 @@ computeBinanceKeysStatusFromArgs mOps args = do
                                             _ -> Nothing
                                 case qtyFromArgs of
                                     Just qRaw -> do
-                                        mFilters <- fetchFilters env sym''
+                                        (mFilters, mFiltersErr) <- fetchFilters env sym''
                                         case mFilters of
-                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingFiltersMsg))
+                                            Nothing -> pure (Just (mkSkippedProbe "futures/order/test" (missingFiltersMsgWith mFiltersErr)))
                                             Just _ -> do
                                                 mPrice <- fetchPriceIfNeeded env sym'' mFilters
                                                 case normalizeProbeQty mFilters mPrice qRaw of
@@ -14021,9 +14021,9 @@ computeBinanceKeysStatusFromArgs mOps args = do
                                         case qq of
                                             Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingSizingMsg))
                                             Just qq0 -> do
-                                                mFilters <- fetchFilters env sym''
+                                                (mFilters, mFiltersErr) <- fetchFilters env sym''
                                                 case mFilters of
-                                                    Nothing -> pure (Just (mkSkippedProbe "futures/order/test" missingFiltersMsg))
+                                                    Nothing -> pure (Just (mkSkippedProbe "futures/order/test" (missingFiltersMsgWith mFiltersErr)))
                                                     Just _ ->
                                                         case validateProbeQuote mFilters qq0 of
                                                             Left e -> pure (Just (mkSkippedProbe "futures/order/test" e))
@@ -14068,6 +14068,10 @@ computeBinanceKeysStatusFromArgs mOps args = do
             else "Provide orderQuantity or orderQuote."
     missingSymbolMsg = "Provide binanceSymbol for the trade test."
     missingFiltersMsg = "Exchange info unavailable (cannot validate precision)."
+    missingFiltersMsgWith mDetail =
+        case mDetail >>= nonEmptyTrim of
+            Nothing -> missingFiltersMsg
+            Just detail -> missingFiltersMsg ++ ": " ++ detail
 
     normalizeBinanceSymbolForKeys raw =
         let sanitized = raw >>= sanitizeComboSymbolForPlatform (Just "binance")
@@ -14085,7 +14089,19 @@ computeBinanceKeysStatusFromArgs mOps args = do
 
     fetchFilters env sym = do
         r <- try (fetchSymbolFilters env sym) :: IO (Either SomeException SymbolFilters)
-        pure (either (const Nothing) Just r)
+        pure $
+            case r of
+                Right sf -> (Just sf, Nothing)
+                Left ex -> (Nothing, Just (summarizeExchangeInfoError ex))
+
+    summarizeExchangeInfoError ex =
+        let msg =
+                case (fromException ex :: Maybe IOError) of
+                    Just io | isUserError io -> ioeGetErrorString io
+                    _ -> show ex
+            (_code, _m, summary) = parseBinanceError msg
+            flattened = map (\c -> if c == '\n' || c == '\r' then ' ' else c) summary
+         in truncateString 240 (trim flattened)
 
     fetchPriceMaybe env sym = do
         let attempt action = do

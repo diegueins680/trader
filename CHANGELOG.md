@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - Predictors: add psychological price-level proximity features (round-number clustering) to the feature set.
 - Predictors: add short/mid momentum and volatility-spread features to improve signal quality.
 - API/UI: include test-order sizing details in Binance key-check trade permission errors to debug precision rejections.
+- API/UI: include exchangeInfo error details when Binance key-check trade tests are skipped.
 - Binance: skip key-check trade tests and order placement when exchangeInfo filters are unavailable to avoid precision errors.
 - Kalman: sensor variance now uses EWMA residuals so measurement weighting adapts faster to regime shifts.
 - Router: model scoring now uses risk-adjusted net returns (mean/vol) to avoid noisy switches.

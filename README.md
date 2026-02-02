@@ -110,7 +110,7 @@ Sending exchange orders (optional)
 ----------------------------------
 Binance: live orders are the default. Use `--no-binance-live` to send test orders (`/api/v3/order/test` or `/fapi/v1/order/test`). Futures use `--futures` (uses `/fapi` endpoints). Margin uses `--margin` (requires live orders).
 Coinbase: spot-only and live-only (no test endpoint). Use `--platform coinbase`.
-Binance order placement (and `/binance/keys` trade tests) requires exchangeInfo filters to validate precision/step sizes. If exchangeInfo is unreachable (proxy or REST URL issues), the backend skips orders to avoid precision errors.
+Binance order placement (and `/binance/keys` trade tests) requires exchangeInfo filters to validate precision/step sizes. If exchangeInfo is unreachable (proxy or REST URL issues), the backend skips orders to avoid precision errors. Key-check trade test skips now include the exchangeInfo error summary to help diagnose why the filters were unavailable.
 
 Futures protection orders (live):
 - When sending **LIVE futures** orders via the CLI (`--binance-trade`) or REST `/trade`, providing `--stop-loss` and/or `--take-profit` places exchange-native trigger orders (`STOP_MARKET` / `TAKE_PROFIT_MARKET`) with `closePosition=true`.
