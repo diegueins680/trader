@@ -160,6 +160,22 @@ cabal run trader-hs -- \
   --order-quote 50
 ```
 
+Example (Coinbase JSON trade output):
+```
+cd haskell
+export COINBASE_API_KEY=...
+export COINBASE_API_SECRET=...
+export COINBASE_API_PASSPHRASE=...
+cabal run trader-hs -- \
+  --symbol BTC-USD \
+  --platform coinbase \
+  --interval 1h \
+  --epochs 5 \
+  --trade-only \
+  --binance-trade \
+  --json
+```
+
 Example (DEX swap via 1inch using CSV prices):
 ```
 cd haskell
