@@ -23,6 +23,7 @@ Features
 - Feature engineering includes psychological round-number proximity (big figures/halves/quarters/tenths) plus short/mid momentum and volatility spread features.
 - LSTM next-step predictor with Adam, gradient clipping, and early stopping (`haskell/app/Trader/LSTM.hs`).
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
+- Ensemble simulation helpers return `Either` with validation errors instead of throwing exceptions.
 - Optional tri-layer entry gating: Kalman cloud trend + price-action reversal triggers (`haskell/app/Trader/Trading.hs`).
 - Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, max drawdown) (`haskell/app/Trader/Metrics.hs`).
 - Data sources: CSV or exchange klines (Binance/Coinbase/Kraken/Poloniex).
@@ -134,7 +135,7 @@ Environment variables:
 - `TRADER_BINANCE_PROXY_CLEAR` (optional; `true` clears any existing proxy when deploying with `deploy-aws-quick.sh`)
 - `TRADER_BINANCE_PROXY_HEALTHCHECK` / `TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT` (optional; enable/strict-fail proxy connectivity checks in `deploy-aws-quick.sh`)
 
-The CLI/API loads `.env` on startup (override with `TRADER_ENV_FILE`; relative paths resolve from the working directory, then its parent, then the git repo root). Existing environment variables take precedence, and set `TRADER_ENV_FILE=""` to disable loading.
+The CLI/API loads `.env` on startup (override with `TRADER_ENV_FILE`; relative paths resolve from the working directory, then its parent, then the git repo root). Existing environment variables take precedence, and set `TRADER_ENV_FILE=""` to disable loading. Inline `#` comments after whitespace are ignored, and double-quoted values support basic escapes.
 
 Getting Binance API keys:
 - Binance → Profile → **API Management** → **Create API**
@@ -621,6 +622,12 @@ S3 state (required for App Runner persistence):
 - Requires AWS credentials or an App Runner instance role with S3 access.
 - Bot snapshots include orders/trades, so the UI can show history after restarts; journal/async/LSTM weights still use `TRADER_STATE_DIR`.
 
+Optional state sync push (keep a central AWS deployment updated):
+- Set `TRADER_STATE_SYNC_URL` to the target API base or full `/state/sync` URL (if it does not end with `/state/sync`, the API appends it).
+- Set `TRADER_STATE_SYNC_TENANT_KEY` to the tenant key expected by the target; when unset, the server derives it from `BINANCE_API_KEY`/`BINANCE_API_SECRET` (or Coinbase keys).
+- The API POSTs updated `top-combos.json` to the target whenever combos are written.
+- To avoid sync loops, configure this only on non-target instances (leave it unset on the AWS instance).
+
 Optional journaling:
 - Set `TRADER_JOURNAL_DIR` to a directory path to write JSONL events (server start/stop, bot start/stop, bot orders/halts/adjustments, trade orders).
 - If `TRADER_STATE_DIR` is set, defaults to `TRADER_STATE_DIR/journal`.
@@ -795,12 +802,7 @@ The UI layout uses a refreshed header, section grouping, and spacing for faster 
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
 The header also exposes layout controls (expand/collapse all, reset layout) plus per-page issue badges and a quick issues dropdown with jump links; expand/collapse all also controls the floating Bot activity panel, and the layout controls display a dismissible hint that it is included.
-Configuration uses a menu bar to switch between single-section pages (API, Market, Lookback, Thresholds, Risk, Optimizer run, Optimization, Live bot, Trade) and expands into a full-page scroll rather than fixed-height panels; sections and result panels remain collapsible, cards/panels can be minimized or maximized for focus with the active panel kept opaque, crisp, and unclipped above a dimmed backdrop, the UI remembers open/closed state locally, and starts low-signal panels (Data Log, Request preview) collapsed by default.
-Maximized panels ignore main-area height caps so full card contents stay visible.
-Maximizing the configuration panel now escapes the docked layout so it fills the viewport cleanly.
-Maximized panels render above the docked layout so they stay visible instead of disappearing behind the dimmer.
-Maximized panels no longer dim the interface background.
-Maximized panels scroll within the panel so long content stays accessible without clipping, including docked configuration cards and panels.
+Configuration uses a menu bar to switch between single-section pages (API, Market, Lookback, Thresholds, Risk, Optimizer run, Optimization, Live bot, Trade) and expands into a full-page scroll rather than fixed-height panels; sections and result panels remain collapsible, the UI remembers open/closed state locally, and starts low-signal panels (Data Log, Request preview) collapsed by default.
 When the browser tab is hidden the UI slows background polling, and long lists/charts are rendered with lazy visibility + downsampling to stay responsive.
 Configuration stays in a fixed top dock, optimizer combos live in a fixed bottom dock, and each running bot has its own scrollable panel.
 The Data Log panel aligns toolbar controls and uses theme-matched styling with a responsive log viewport; code/log surfaces are more opaque so background content doesn't bleed through.

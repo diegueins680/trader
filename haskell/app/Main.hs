@@ -52,7 +52,7 @@ import Database.PostgreSQL.Simple.ToField (Action, toField)
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
-import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseTimeout, responseTimeoutMicro)
+import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), Response, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseStatus, responseTimeout, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
@@ -758,16 +758,46 @@ parseEnvLine raw =
 
 parseEnvValue :: String -> String
 parseEnvValue raw =
-    let trimmed = trim raw
+    let trimmed = trim (stripInlineComment raw)
      in case trimmed of
             "" -> ""
             _ ->
                 let firstChar = head trimmed
                     lastChar = last trimmed
-                 in if length trimmed >= 2
-                        && ((firstChar == '"' && lastChar == '"') || (firstChar == '\'' && lastChar == '\''))
-                        then init (tail trimmed)
-                        else trimmed
+                 in if length trimmed >= 2 && firstChar == '"' && lastChar == '"'
+                        then unescapeDoubleQuoted (init (tail trimmed))
+                        else
+                            if length trimmed >= 2 && firstChar == '\'' && lastChar == '\''
+                                then init (tail trimmed)
+                                else trimmed
+
+stripInlineComment :: String -> String
+stripInlineComment = go False False False []
+  where
+    go _ _ _ acc [] = reverse acc
+    go inSingle inDouble escaped acc (c : cs)
+        | escaped = go inSingle inDouble False (c : acc) cs
+        | c == '\\' && inDouble = go inSingle inDouble True (c : acc) cs
+        | c == '\'' && not inDouble = go (not inSingle) inDouble False (c : acc) cs
+        | c == '"' && not inSingle = go inSingle (not inDouble) False (c : acc) cs
+        | c == '#' && not inSingle && not inDouble =
+            let prev = case acc of
+                    [] -> Nothing
+                    (p : _) -> Just p
+             in if maybe True isSpace prev then reverse acc else go inSingle inDouble False (c : acc) cs
+        | otherwise = go inSingle inDouble False (c : acc) cs
+
+unescapeDoubleQuoted :: String -> String
+unescapeDoubleQuoted = go
+  where
+    go [] = []
+    go ('\\' : 'n' : rest) = '\n' : go rest
+    go ('\\' : 'r' : rest) = '\r' : go rest
+    go ('\\' : 't' : rest) = '\t' : go rest
+    go ('\\' : '"' : rest) = '"' : go rest
+    go ('\\' : '\\' : rest) = '\\' : go rest
+    go ('\\' : c : rest) = c : go rest
+    go (c : rest) = c : go rest
 
 main :: IO ()
 main = do
@@ -1724,6 +1754,114 @@ webhookSend wh ev = do
         req = (whRequest wh){requestBody = RequestBodyLBS (encode payload)}
     _ <- try (httpLbs req (whManager wh)) :: IO (Either SomeException (Response BL.ByteString))
     pure ()
+
+data StateSyncTarget = StateSyncTarget
+    { sstUrl :: !String
+    , sstRequest :: !Request
+    , sstManager :: !Manager
+    , sstLastError :: !(IORef (Maybe String))
+    }
+
+stateSyncTimeoutMicros :: Int
+stateSyncTimeoutMicros = 5 * 1000000
+
+newStateSyncTargetFromEnv :: IO (Maybe StateSyncTarget)
+newStateSyncTargetFromEnv = do
+    mUrl <- lookupEnv "TRADER_STATE_SYNC_URL"
+    case trim <$> mUrl of
+        Just url | not (null url) -> do
+            mTenantKey <- resolveStateSyncTenantKey
+            case mTenantKey of
+                Nothing -> do
+                    hPutStrLn stderr "WARN: TRADER_STATE_SYNC_URL is set but no tenant key is available (set TRADER_STATE_SYNC_TENANT_KEY or API keys)."
+                    pure Nothing
+                Just tenantKey -> do
+                    let url' = normalizeStateSyncUrl url
+                    reqOrErr <- try (parseRequest url') :: IO (Either SomeException Request)
+                    case reqOrErr of
+                        Left ex -> do
+                            hPutStrLn stderr ("WARN: TRADER_STATE_SYNC_URL is invalid (" ++ show ex ++ ").")
+                            pure Nothing
+                        Right req0 -> do
+                            manager <- newManager tlsManagerSettings
+                            errRef <- newIORef Nothing
+                            let req =
+                                    req0
+                                        { method = "POST"
+                                        , requestHeaders =
+                                            ("Content-Type", "application/json")
+                                                : ("X-Tenant-Key", TE.encodeUtf8 tenantKey)
+                                                : requestHeaders req0
+                                        , responseTimeout = responseTimeoutMicro stateSyncTimeoutMicros
+                                        }
+                            pure (Just StateSyncTarget{sstUrl = url', sstRequest = req, sstManager = manager, sstLastError = errRef})
+        _ -> pure Nothing
+
+normalizeStateSyncUrl :: String -> String
+normalizeStateSyncUrl raw =
+    let trimmed = trim raw
+        lowered = map toLower trimmed
+     in if "/state/sync" `isSuffixOf` lowered
+            then trimmed
+            else
+                let suffix = if "/" `isSuffixOf` trimmed then "state/sync" else "/state/sync"
+                 in trimmed ++ suffix
+
+resolveStateSyncTenantKey :: IO (Maybe TenantKey)
+resolveStateSyncTenantKey = do
+    explicitEnv <- lookupEnv "TRADER_STATE_SYNC_TENANT_KEY"
+    case normalizeTenantKey explicitEnv of
+        Just tenantKey -> pure (Just tenantKey)
+        Nothing -> do
+            bKey <- lookupEnv "BINANCE_API_KEY"
+            bSecret <- lookupEnv "BINANCE_API_SECRET"
+            case tenantKeyFromBinanceKeys bKey bSecret of
+                Just tenantKey -> pure (Just tenantKey)
+                Nothing -> do
+                    cKey <- lookupEnv "COINBASE_API_KEY"
+                    cSecret <- lookupEnv "COINBASE_API_SECRET"
+                    cPass <- lookupEnv "COINBASE_API_PASSPHRASE"
+                    pure (tenantKeyFromCoinbaseKeys cKey cSecret cPass)
+
+syncTopCombosMaybe :: Maybe StateSyncTarget -> BL.ByteString -> IO ()
+syncTopCombosMaybe mTarget contents =
+    case mTarget of
+        Nothing -> pure ()
+        Just target ->
+            case Aeson.eitherDecode' contents of
+                Left err -> recordStateSyncError target ("Invalid top-combos.json: " ++ err)
+                Right val ->
+                    if not (isTopCombosPayload val)
+                        then recordStateSyncError target "Invalid top-combos.json payload (missing combos array)."
+                        else do
+                            let payload =
+                                    StateSyncPayload
+                                        { sspGeneratedAtMs = topCombosGeneratedAtMs val
+                                        , sspBotSnapshots = Nothing
+                                        , sspTopCombos = Just val
+                                        }
+                                req = (sstRequest target){requestBody = RequestBodyLBS (encode payload)}
+                            respOrErr <- try (httpLbs req (sstManager target)) :: IO (Either SomeException (Response BL.ByteString))
+                            case respOrErr of
+                                Left ex -> recordStateSyncError target (show ex)
+                                Right resp -> do
+                                    let code = statusCode (responseStatus resp)
+                                    if code >= 200 && code < 300
+                                        then clearStateSyncError target
+                                        else recordStateSyncError target ("HTTP " ++ show code)
+
+recordStateSyncError :: StateSyncTarget -> String -> IO ()
+recordStateSyncError target msg = do
+    let full = "State sync failed (" ++ sstUrl target ++ "): " ++ msg
+    prev <- readIORef (sstLastError target)
+    if prev == Just full
+        then pure ()
+        else do
+            writeIORef (sstLastError target) (Just full)
+            hPutStrLn stderr ("WARN: " ++ full)
+
+clearStateSyncError :: StateSyncTarget -> IO ()
+clearStateSyncError target = writeIORef (sstLastError target) Nothing
 
 sanitizeWebhookText :: Int -> String -> String
 sanitizeWebhookText maxLen raw =
@@ -6585,8 +6723,8 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
 
     loop
 
-autoOptimizerLoop :: Args -> Maybe OpsStore -> Maybe Journal -> FilePath -> TopCombosStore -> IO ()
-autoOptimizerLoop baseArgs mOps mJournal optimizerTmp topCombosStore = do
+autoOptimizerLoop :: Args -> Maybe StateSyncTarget -> Maybe OpsStore -> Maybe Journal -> FilePath -> TopCombosStore -> IO ()
+autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore = do
     enabledEnv <- lookupEnv "TRADER_OPTIMIZER_ENABLED"
     let enabled = readEnvBool enabledEnv True
     if not enabled
@@ -6831,7 +6969,7 @@ autoOptimizerLoop baseArgs mOps mJournal optimizerTmp topCombosStore = do
                                                                                             ]
                                                                                         )
                                                                                 Right _ -> do
-                                                                                    mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos)
+                                                                                    mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsPath maxCombos)
                                                                                     case mergeResult of
                                                                                         Left (msg, out, err) -> do
                                                                                             now <- getTimestampMs
@@ -6885,6 +7023,7 @@ data TopCombosBacktestCtx = TopCombosBacktestCtx
     , tcbcOps :: !(Maybe OpsStore)
     , tcbcJournal :: !(Maybe Journal)
     , tcbcStore :: !TopCombosStore
+    , tcbcStateSync :: !(Maybe StateSyncTarget)
     , tcbcLock :: !(MVar ())
     , tcbcCandleChan :: !(Chan ())
     , tcbcEnabled :: !Bool
@@ -7047,7 +7186,7 @@ backtestTopCombosOnce topNRaw ctx = do
                                                                 case writeResult of
                                                                     Left err -> recordError "optimizer.combos.backtest_failed" err Nothing Nothing
                                                                     Right _ -> do
-                                                                        persistTopCombosMaybe topJsonPath
+                                                                        persistTopCombosMaybe (tcbcStateSync ctx) topJsonPath
                                                                         persistTopCombosDbMaybeUnlocked mOps store
                                                                         recordEvent
                                                                             "optimizer.combos.backtest_updated"
@@ -8483,6 +8622,7 @@ runRestApi baseArgs mWebhook = do
     metrics <- newMetrics
     mJournal <- newJournalFromEnv
     mOps <- newOpsStoreFromEnv
+    mStateSyncTarget <- newStateSyncTargetFromEnv
     listenKeyManager <- newListenKeyManager
     mBotStateDir <- resolveBotStateDir
     backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
@@ -8498,6 +8638,7 @@ runRestApi baseArgs mWebhook = do
                 , tcbcOps = mOps
                 , tcbcJournal = mJournal
                 , tcbcStore = topCombosStore
+                , tcbcStateSync = mStateSyncTarget
                 , tcbcLock = topCombosLock
                 , tcbcCandleChan = topCombosCandleChan
                 , tcbcEnabled = topCombosEnabled
@@ -8536,7 +8677,7 @@ runRestApi baseArgs mWebhook = do
         Just tenantKey -> do
             _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
             pure ()
-    _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp topCombosStore)
+    _ <- forkIO (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
     _ <- forkIO (topCombosCandleWorker topCombosCtx)
     _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
     asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
@@ -8545,7 +8686,7 @@ runRestApi baseArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
+            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
             IO (Either IOException ())
         )
     case res of
@@ -8595,6 +8736,7 @@ runRestApi baseArgs mWebhook = do
     metrics <- newMetrics
     mJournal <- newJournalFromEnv
     mOps <- newOpsStoreFromEnv
+    mStateSyncTarget <- newStateSyncTargetFromEnv
     listenKeyManager <- newListenKeyManager
     mBotStateDir <- resolveBotStateDir
     backtestGate <- newBacktestGate maxBacktestRunning backtestTimeoutSec
@@ -8610,6 +8752,7 @@ runRestApi baseArgs mWebhook = do
                 , tcbcOps = mOps
                 , tcbcJournal = mJournal
                 , tcbcStore = topCombosStore
+                , tcbcStateSync = mStateSyncTarget
                 , tcbcLock = topCombosLock
                 , tcbcCandleChan = topCombosCandleChan
                 , tcbcEnabled = topCombosEnabled
@@ -8648,7 +8791,7 @@ runRestApi baseArgs mWebhook = do
         Just tenantKey -> do
             _ <- forkIO (botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx baseArgs bot tenantKey)
             pure ()
-    _ <- forkIO (autoOptimizerLoop baseArgs mOps mJournal optimizerTmp topCombosStore)
+    _ <- forkIO (autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombosStore)
     _ <- forkIO (topCombosCandleWorker topCombosCtx)
     _ <- forkIO (autoTopCombosBacktestLoop topCombosCtx)
     asyncSignal <- newJobStore "signal" maxAsyncRunning mAsyncDir
@@ -8657,7 +8800,7 @@ runRestApi baseArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
+                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
                 IO (Either IOException ())
             )
     case res of
@@ -9642,6 +9785,7 @@ apiApp ::
     Maybe Journal ->
     Maybe Webhook ->
     Maybe OpsStore ->
+    Maybe StateSyncTarget ->
     ListenKeyManager ->
     Maybe FilePath ->
     ApiComputeLimits ->
@@ -9654,7 +9798,7 @@ apiApp ::
     TopCombosStore ->
     FilePath ->
     Wai.Application
-apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook mOps listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot topCombosStore optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot topCombosStore optimizerTmp req respond = do
     startMs <- getTimestampMs
     let rawPath = Wai.pathInfo req
         path =
@@ -9915,16 +10059,16 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["optimizer", "run"] ->
                                 case Wai.requestMethod req of
-                                    "POST" -> handleOptimizerRun reqLimits mOps projectRoot topCombosStore optimizerTmp req respondCors
+                                    "POST" -> handleOptimizerRun reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["optimizer", "combos"] ->
                                 case Wai.requestMethod req of
-                                    "GET" -> handleOptimizerCombos mOps projectRoot topCombosStore optimizerTmp respondCors
+                                    "GET" -> handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["state", "sync"] ->
                                 case Wai.requestMethod req of
                                     "GET" -> handleStateSyncExport mOps mBotStateDir topCombosStore req respondCors
-                                    "POST" -> handleStateSyncImport reqLimits mOps mBotStateDir topCombosStore req respondCors
+                                    "POST" -> handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStore req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             _ -> respondCors (jsonError status404 "Not found")
 
@@ -10923,12 +11067,13 @@ runOptimizerProcess projectRoot outputPath maxOutputBytes cliArgs = do
                 ExitFailure code -> pure (Left (printf "Optimizer executable failed (exit %d)" code, out, err))
 
 runMergeTopCombos ::
+    Maybe StateSyncTarget ->
     FilePath ->
     FilePath ->
     FilePath ->
     Int ->
     IO (Either (String, String, String) ())
-runMergeTopCombos projectRoot topJsonPath recordsPath maxItems = do
+runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsPath maxItems = do
     dirResult <- try (createDirectoryIfMissing True (takeDirectory topJsonPath)) :: IO (Either SomeException ())
     case dirResult of
         Left e -> pure (Left ("Failed to create top combos directory: " ++ show e, "", ""))
@@ -10948,7 +11093,7 @@ runMergeTopCombos projectRoot topJsonPath recordsPath maxItems = do
                     (exitCode, out, err) <- readCreateProcessWithExitCode proc' "" `finally` cleanup
                     case exitCode of
                         ExitSuccess -> do
-                            persistTopCombosMaybe topJsonPath
+                            persistTopCombosMaybe mStateSyncTarget topJsonPath
                             pure (Right ())
                         ExitFailure code -> pure (Left (printf "Merge executable failed (exit %d)" code, out, err))
 
@@ -11031,19 +11176,24 @@ readTopCombosExportWithDbFallback mOps store = do
                 Aeson.Error err -> pure (Left ("Failed to parse top combos JSON: " ++ err))
                 Aeson.Success out -> pure (Right out)
 
-persistTopCombosMaybe :: FilePath -> IO ()
-persistTopCombosMaybe path = do
+persistTopCombosMaybe :: Maybe StateSyncTarget -> FilePath -> IO ()
+persistTopCombosMaybe mSync path = do
     mS3 <- resolveS3State
-    case mS3 of
-        Nothing -> pure ()
-        Just st -> do
+    let needsRead = isJust mS3 || isJust mSync
+    if not needsRead
+        then pure ()
+        else do
             contentsOrErr <- (try (BL.readFile path) :: IO (Either SomeException BL.ByteString))
             case contentsOrErr of
                 Left _ -> pure ()
                 Right contents -> do
-                    _ <- s3PutObject st (s3TopCombosKey st) contents
-                    persistTopCombosHistoryMaybe path st contents
-                    pure ()
+                    case mS3 of
+                        Nothing -> pure ()
+                        Just st -> do
+                            _ <- s3PutObject st (s3TopCombosKey st) contents
+                            persistTopCombosHistoryMaybe path st contents
+                            pure ()
+                    syncTopCombosMaybe mSync contents
 
 strategyCodeFromMethod :: Maybe String -> Text
 strategyCodeFromMethod mMethod =
@@ -11420,13 +11570,14 @@ applyTopComboForStartWithUuid base combo = do
 handleOptimizerRun ::
     ApiRequestLimits ->
     Maybe OpsStore ->
+    Maybe StateSyncTarget ->
     FilePath ->
     TopCombosStore ->
     FilePath ->
     Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerRun reqLimits mOps projectRoot topCombosStore optimizerTmp req respond = do
+handleOptimizerRun reqLimits mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid optimizer payload: "
     case payloadOrErr of
         Left resp -> respond resp
@@ -11456,7 +11607,7 @@ handleOptimizerRun reqLimits mOps projectRoot topCombosStore optimizerTmp req re
                                         , arrStderr = truncateOut (arrStderr resp)
                                         }
                             maxCombos <- optimizerMaxCombosFromEnv
-                            mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos projectRoot topJsonPath recordsPath maxCombos)
+                            mergeResult <- withTopCombosLock topCombosStore (runMergeTopCombos mStateSyncTarget projectRoot topJsonPath recordsPath maxCombos)
                             case mergeResult of
                                 Left (msg, out, err) ->
                                     respond
@@ -11470,12 +11621,13 @@ handleOptimizerRun reqLimits mOps projectRoot topCombosStore optimizerTmp req re
 
 handleOptimizerCombos ::
     Maybe OpsStore ->
+    Maybe StateSyncTarget ->
     FilePath ->
     TopCombosStore ->
     FilePath ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleOptimizerCombos mOps projectRoot topCombosStore optimizerTmp respond = do
+handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizerTmp respond = do
     let topJsonPath = tcsPath topCombosStore
     let tmpPath = optimizerTmp </> optimizerCombosFileName
         fallbackPath = projectRoot </> "web" </> "public" </> optimizerCombosFileName
@@ -11505,7 +11657,7 @@ handleOptimizerCombos mOps projectRoot topCombosStore optimizerTmp respond = do
                 existsNow <- doesFileExist topJsonPath
                 unless existsNow $ do
                     _ <- writeTopCombosValue topJsonPath seed
-                    persistTopCombosMaybe topJsonPath
+                    persistTopCombosMaybe mStateSyncTarget topJsonPath
         _ -> pure ()
     let allVals = [topVal, tmpVal, fallbackVal]
     now <- getTimestampMs
@@ -11586,7 +11738,7 @@ handleOptimizerCombos mOps projectRoot topCombosStore optimizerTmp respond = do
             case valOrErr of
                 Right val -> do
                     _ <- writeTopCombosValue topPath val
-                    persistTopCombosMaybe topPath
+                    persistTopCombosMaybe mStateSyncTarget topPath
                     pure (Just val)
                 Left _ -> restoreFirst ps
 
@@ -11627,12 +11779,13 @@ handleStateSyncExport mOps mBotStateDir topCombosStore req respond =
 handleStateSyncImport ::
     ApiRequestLimits ->
     Maybe OpsStore ->
+    Maybe StateSyncTarget ->
     Maybe FilePath ->
     TopCombosStore ->
     Wai.Request ->
     (Wai.Response -> IO Wai.ResponseReceived) ->
     IO Wai.ResponseReceived
-handleStateSyncImport reqLimits mOps mBotStateDir topCombosStore req respond = do
+handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStore req respond = do
     payloadOrErr <- decodeRequestBodyLimited reqLimits req "Invalid state sync payload: "
     case payloadOrErr of
         Left resp -> respond resp
@@ -11713,7 +11866,7 @@ handleStateSyncImport reqLimits mOps mBotStateDir topCombosStore req respond = d
                                                         Left err ->
                                                             pure (Left (jsonError status500 ("Failed to write top combos: " ++ err)))
                                                         Right _ -> do
-                                                            persistTopCombosMaybe topJsonPath
+                                                            persistTopCombosMaybe mStateSyncTarget topJsonPath
                                                             pure (Right (mkTopStats action incomingGeneratedAt localGeneratedAt))
                                                 else pure (Right (mkTopStats "kept" incomingGeneratedAt localGeneratedAt))
 

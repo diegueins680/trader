@@ -5,10 +5,15 @@ All notable changes to this project will be documented in this file.
 - Trading/API: add DEX execution via 1inch for Uniswap/Curve/Sushi/Balancer/Pancake/1inch platforms, plus `dex*` params and `txHash` in trade responses.
 - Trading/CLI: require `--symbol`/`--binance-symbol` for `--binance-trade` and allow JSON trade output to place Coinbase orders instead of erroring.
 - Trading/CLI: enforce lookback+1 price-row minimum even when CSV uses `--bars auto/0` to avoid short-series failures.
+- Trading: ensemble simulation helpers now return `Either` instead of throwing on validation errors.
+- Trading: reject meta/meta-mask vector length mismatches instead of truncating extra values.
+- CLI/API: `.env` parsing now ignores inline `#` comments after whitespace and supports basic escapes in double-quoted values.
+- Ops/Combos: keep the top-combos process lock fresh during long updates to avoid stale-lock removal.
 - Optimizer: respect the configured `--tune-objective` when `--threshold-factor` is enabled (no forced override).
 - Optimizer: clamp perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
 - Dev: `run_optimize_equity_top5.sh` continues after per-symbol failures so later symbols still run.
 - Web UI: normalize bot status latestSignal to avoid crashes when payloads omit it (including older API versions).
+- API: optionally push updated `top-combos.json` to another deployment via `/state/sync` (`TRADER_STATE_SYNC_URL`/`TRADER_STATE_SYNC_TENANT_KEY`).
 - Predictors: add psychological price-level proximity features (round-number clustering) to the feature set.
 - Predictors: add short/mid momentum and volatility-spread features to improve signal quality.
 - API/UI: include test-order sizing details in Binance key-check trade permission errors to debug precision rejections.
@@ -39,6 +44,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: add a favicon and a layout toggle to hide/show the Bot activity panel.
 - Web UI: hide the Bot activity panel by default (toggle from Layout).
 - Web UI: add a bot selector to the Bot activity panel for switching between running bots.
+- Web UI: simplify panel chrome, compact Bot activity details, and move optimizer combo tips into a tooltip.
 - Web UI: avoid marking the API down on bot status timeouts and increase the default bot status timeout in `trader-config.js`.
 - API/UI: add `/binance/positions/close` and a “Close position” button to send reduce-only futures close orders (includes `positionSide` in hedge mode).
 - Binance: retry signed requests on timestamp skew and treat existing protection orders as non-fatal to keep key checks and protection refreshes stable after idle/sleep.
