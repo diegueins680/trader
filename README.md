@@ -161,6 +161,7 @@ cabal run trader-hs -- \
 ```
 
 Example (Coinbase JSON trade output):
+Requires `--symbol`/`--binance-symbol` (CSV-only runs cannot place orders).
 ```
 cd haskell
 export COINBASE_API_KEY=...
