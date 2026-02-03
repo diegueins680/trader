@@ -3881,6 +3881,11 @@ export function App() {
       }),
     [botEntriesWithSymbol],
   );
+  const botSelectedLabel = useMemo(() => {
+    if (botSymbolOptions.length === 0) return "—";
+    const target = botSelectedSymbol ?? botSymbolOptions[0]!.symbol;
+    return botSymbolOptions.find((entry) => entry.symbol === target)?.label ?? botSymbolOptions[0]!.label;
+  }, [botSelectedSymbol, botSymbolOptions]);
   const botActiveSymbols = useMemo(
     () =>
       botEntriesWithSymbol
@@ -8176,7 +8181,6 @@ export function App() {
                 </div>
               </div>
               <nav className="menuBar menuBarHeader" aria-label="Configuration pages">
-                <span className="jumpLabel">Menu</span>
                 {configPageList.map((page) => (
                   <button
                     key={page.id}
@@ -8267,6 +8271,13 @@ export function App() {
                 <span className={botPanel.dotClass} aria-hidden="true" />
                 {botPanel.statusLabel}
               </div>
+              {botPanel.badges.length > 0 ? (
+                <div data-no-drag="true">
+                  <InfoPopover label="Bot details">
+                    <InfoList items={botPanel.badges.map((badge) => badge.label)} />
+                  </InfoPopover>
+                </div>
+              ) : null}
               <button
                 className="botPanelToggle"
                 type="button"
@@ -8280,28 +8291,31 @@ export function App() {
             </div>
           </div>
           <div className="botPanelDetails" id={botPanelDetailsId} hidden={!botPanelOpen}>
-            {botSymbolOptions.length > 1 ? (
-              <div className="pillRow">
-                <span className="badge">Bots</span>
-                <select className="select" value={botSelectedSymbol ?? ""} onChange={(e) => setBotSelectedSymbol(e.target.value)}>
-                  {botSymbolOptions.map((entry) => (
-                    <option key={entry.symbol} value={entry.symbol}>
-                      {entry.label}
-                    </option>
-                  ))}
-                </select>
-                <span className="badge">
-                  {botActiveSymbols.length}/{botSymbolOptions.length} active
-                </span>
-              </div>
-            ) : null}
-            {botPanel.badges.length > 0 ? (
-              <div className="pillRow botPanelBadges">
-                {botPanel.badges.map((badge) => (
-                  <span key={badge.key} className={badge.className}>
-                    {badge.label}
-                  </span>
-                ))}
+            {botSymbolOptions.length > 0 ? (
+              <div className="pillRow botSwitcherRow">
+                <span className="badge">Bot</span>
+                {botSymbolOptions.length > 1 ? (
+                  <details className="botSwitcher" data-no-drag="true">
+                    <summary className="botSwitcherSummary">
+                      <span>{botSelectedLabel}</span>
+                      <span className="botSwitcherIcon" aria-hidden="true" />
+                    </summary>
+                    <div className="botSwitcherMenu">
+                      <select className="select" value={botSelectedSymbol ?? ""} onChange={(e) => setBotSelectedSymbol(e.target.value)}>
+                        {botSymbolOptions.map((entry) => (
+                          <option key={entry.symbol} value={entry.symbol}>
+                            {entry.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="botSwitcherMeta">
+                        {botActiveSymbols.length}/{botSymbolOptions.length} active
+                      </span>
+                    </div>
+                  </details>
+                ) : (
+                  <span className="botSwitcherLabel">{botSelectedLabel}</span>
+                )}
               </div>
             ) : null}
             <div className="botPanelBody">
@@ -8317,20 +8331,17 @@ export function App() {
                 <div className="k">Next poll</div>
                 <div className="v">{botPanel.nextPollLabel}</div>
               </div>
-              <div className="kv">
-                <div className="k">Updated</div>
-                <div className="v">{botPanel.updatedLabel}</div>
-              </div>
-              <div className="kv">
-                <div className="k">Last event</div>
-                <div className="v botPanelEvent">{botPanel.lastEventLabel}</div>
-              </div>
               {botPanel.lastOrderLabel ? (
                 <div className="kv">
                   <div className="k">Last order</div>
                   <div className="v">{botPanel.lastOrderLabel}</div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="kv">
+                  <div className="k">Last event</div>
+                  <div className="v botPanelEvent">{botPanel.lastEventLabel}</div>
+                </div>
+              )}
             </div>
             {botPanel.error ? <div className="botPanelAlert">{botPanel.error}</div> : null}
           </div>
@@ -8491,23 +8502,35 @@ export function App() {
           >
               {botDisplay ? (
                 <>
-                  {botSymbolOptions.length > 1 ? (
-                    <div className="pillRow" style={{ marginBottom: 10 }}>
-                      <span className="badge">Bots</span>
-                      <select
-                        className="select"
-                        value={botSelectedSymbol ?? ""}
-                        onChange={(e) => setBotSelectedSymbol(e.target.value)}
-                      >
-                        {botSymbolOptions.map((entry) => (
-                          <option key={entry.symbol} value={entry.symbol}>
-                            {entry.label}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="badge">
-                        {botActiveSymbols.length}/{botSymbolOptions.length} active
-                      </span>
+                  {botSymbolOptions.length > 0 ? (
+                    <div className="pillRow botSwitcherRow" style={{ marginBottom: 10 }}>
+                      <span className="badge">Bot</span>
+                      {botSymbolOptions.length > 1 ? (
+                        <details className="botSwitcher">
+                          <summary className="botSwitcherSummary">
+                            <span>{botSelectedLabel}</span>
+                            <span className="botSwitcherIcon" aria-hidden="true" />
+                          </summary>
+                          <div className="botSwitcherMenu">
+                            <select
+                              className="select"
+                              value={botSelectedSymbol ?? ""}
+                              onChange={(e) => setBotSelectedSymbol(e.target.value)}
+                            >
+                              {botSymbolOptions.map((entry) => (
+                                <option key={entry.symbol} value={entry.symbol}>
+                                  {entry.label}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="botSwitcherMeta">
+                              {botActiveSymbols.length}/{botSymbolOptions.length} active
+                            </span>
+                          </div>
+                        </details>
+                      ) : (
+                        <span className="botSwitcherLabel">{botSelectedLabel}</span>
+                      )}
                     </div>
                   ) : null}
                   {botStartErrors.length > 0 ? (

@@ -2857,6 +2857,67 @@ body.panelMaximized .cardMaximized {
   border-color: rgba(var(--accent-rgb), 0.55);
 }
 
+.botSwitcherRow {
+  gap: 8px;
+}
+
+.botSwitcher {
+  position: relative;
+}
+
+.botSwitcherSummary {
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: var(--surface-subtle);
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.botSwitcherSummary::-webkit-details-marker {
+  display: none;
+}
+
+.botSwitcherSummary::marker {
+  content: "";
+}
+
+.botSwitcherIcon {
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 140ms ease;
+}
+
+.botSwitcher[open] .botSwitcherIcon {
+  transform: rotate(-135deg);
+}
+
+.botSwitcherMenu {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.botSwitcherLabel {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.botSwitcherMeta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .botPanelBadges {
   gap: 6px;
   margin-top: 2px;

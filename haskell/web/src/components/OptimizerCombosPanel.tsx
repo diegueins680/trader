@@ -181,9 +181,16 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
   return (
   <div className="row" style={{ gridTemplateColumns: "1fr" }}>
     <div className="field">
-      <div className="label">Optimizer combos</div>
-      <div className="hint" style={{ marginTop: 4 }}>
-        Auto-apply is off by default to prevent the top combo from resetting your symbol.
+      <div className="labelRow">
+        <div className="label">Optimizer combos</div>
+        <InfoPopover label="Optimizer combo tips">
+          <InfoList
+            items={[
+              "Auto-apply is off by default to prevent the top combo from resetting your symbol.",
+              "When enabled, the top combo overwrites the form (including symbol) on refresh until you edit combo-driven fields.",
+            ]}
+          />
+        </InfoPopover>
       </div>
       {(() => {
         const updatedAtMs = topCombosMeta.generatedAtMs;
@@ -262,9 +269,6 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           />
           Auto-apply top combo
         </label>
-        <span className="hint" style={{ marginLeft: 4 }}>
-          When enabled, the top combo overwrites the form (including symbol) on refresh until you edit combo-driven fields.
-        </span>
         {manualOverrideLabels.length > 0 ? (
           <>
             <span

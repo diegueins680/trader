@@ -25,7 +25,7 @@ module Trader.TopCombosStore (
 ) where
 
 import Control.Applicative ((<|>))
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (ThreadId, forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (SomeException, bracket, throwIO, try)
 import Data.Aeson (Value (..), object, toJSON, (.=))
@@ -45,7 +45,7 @@ import qualified Data.Maybe
 import qualified Data.Text as T
 import Data.Time.Clock (NominalDiffTime, diffUTCTime, getCurrentTime)
 import qualified Data.Vector as V
-import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, removeDirectory, renameFile)
+import System.Directory (createDirectory, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, getModificationTime, removeDirectory, renameFile, setModificationTime)
 import System.FilePath (takeDirectory)
 import System.IO (Handle, hClose, openTempFile)
 import System.IO.Error (isAlreadyExistsError)
@@ -74,7 +74,8 @@ withTopCombosLock store action =
 
 withTopCombosProcessLock :: FilePath -> IO a -> IO a
 withTopCombosProcessLock path action =
-    bracket (acquireProcessLock path) releaseProcessLock (const action)
+    bracket (acquireProcessLock path) releaseProcessLock $ \lockPath ->
+        bracket (startLockHeartbeat lockPath) stopLockHeartbeat (const action)
   where
     acquireProcessLock :: FilePath -> IO FilePath
     acquireProcessLock basePath = do
@@ -108,6 +109,19 @@ withTopCombosProcessLock path action =
         _ <- try (removeDirectory lockPath) :: IO (Either IOError ())
         pure ()
 
+    startLockHeartbeat :: FilePath -> IO ThreadId
+    startLockHeartbeat lockPath = forkIO (heartbeatLoop lockPath)
+
+    stopLockHeartbeat :: ThreadId -> IO ()
+    stopLockHeartbeat = killThread
+
+    heartbeatLoop :: FilePath -> IO ()
+    heartbeatLoop lockPath = do
+        now <- getCurrentTime
+        _ <- try (setModificationTime lockPath now) :: IO (Either SomeException ())
+        threadDelay lockHeartbeatDelayMicros
+        heartbeatLoop lockPath
+
     isLockStale :: FilePath -> IO Bool
     isLockStale lockPath = do
         exists <- doesDirectoryExist lockPath
@@ -120,6 +134,9 @@ withTopCombosProcessLock path action =
 
 processLockStaleAfter :: NominalDiffTime
 processLockStaleAfter = 900
+
+lockHeartbeatDelayMicros :: Int
+lockHeartbeatDelayMicros = 60 * 1000000
 
 readTopCombosValueLocal :: FilePath -> IO (Either String Aeson.Value)
 readTopCombosValueLocal path = do

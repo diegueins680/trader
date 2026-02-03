@@ -261,7 +261,6 @@ const ConfigPanel = ({
   open,
   onToggle,
   maximized,
-  onToggleMaximize,
   dragState,
   onDragStart,
   onDragOver,
@@ -291,8 +290,8 @@ const ConfigPanel = ({
           <span className="configPanelTitle">{title}</span>
           {subtitle ? <span className="configPanelSubtitle">{subtitle}</span> : null}
         </div>
-        <div className="configPanelControls">
-          {draggable ? (
+        {draggable ? (
+          <div className="configPanelControls">
             <button
               className="configPanelHandle"
               type="button"
@@ -308,25 +307,8 @@ const ConfigPanel = ({
             >
               Drag
             </button>
-          ) : null}
-          <button
-            className="configPanelControl"
-            type="button"
-            aria-pressed={maximized}
-            aria-label={maximized ? "Restore panel size" : "Maximize panel"}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onToggleMaximize();
-            }}
-          >
-            {maximized ? "Restore" : "Maximize"}
-          </button>
-          <span className="configPanelToggle" aria-hidden="true">
-            <span className="configPanelToggleLabel" data-open="Minimize" data-closed="Expand" />
-            <span className="configPanelToggleIcon" />
-          </span>
-        </div>
+          </div>
+        ) : null}
       </summary>
       <div className="configPanelBody">{children}</div>
     </details>
@@ -565,9 +547,6 @@ export const ConfigDock = (props: ConfigDockProps) => {
               }}
             >
               {state.loading && state.lastKind === "backtest" ? "Optimizing…" : "Optimize operations"}
-            </button>
-            <button className="btn" disabled={!state.loading} onClick={cancelActiveRequest}>
-              Cancel
             </button>
           </div>
           {requestDisabledReason ? (

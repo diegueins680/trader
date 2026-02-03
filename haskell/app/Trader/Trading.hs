@@ -265,7 +265,7 @@ simulateEnsemble ::
     [Double] -> -- kalman predicted next prices length n-1 (for t=0..n-2)
     [Double] -> -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
     Maybe [StepMeta] -> -- optional per-step confidence meta (length n-1)
-    BacktestResult
+    Either String BacktestResult
 simulateEnsemble = simulateEnsembleLongFlat
 
 simulateEnsembleWithHL ::
@@ -277,11 +277,8 @@ simulateEnsembleWithHL ::
     [Double] -> -- kalman predicted next prices length n-1 (for t=0..n-2)
     [Double] -> -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
     Maybe [StepMeta] -> -- optional per-step confidence meta (length n-1)
-    BacktestResult
-simulateEnsembleWithHL cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
-    case simulateEnsembleWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta of
-        Left err -> error err
-        Right bt -> bt
+    Either String BacktestResult
+simulateEnsembleWithHL = simulateEnsembleWithHLChecked
 
 simulateEnsembleWithHLChecked ::
     EnsembleConfig ->
@@ -302,7 +299,7 @@ simulateEnsembleV ::
     V.Vector Double ->
     V.Vector Double ->
     Maybe (V.Vector StepMeta) -> -- optional per-step confidence meta
-    BacktestResult
+    Either String BacktestResult
 simulateEnsembleV = simulateEnsembleLongFlatV
 
 simulateEnsembleVWithHL ::
@@ -314,11 +311,8 @@ simulateEnsembleVWithHL ::
     V.Vector Double ->
     V.Vector Double ->
     Maybe (V.Vector StepMeta) -> -- optional per-step confidence meta
-    BacktestResult
-simulateEnsembleVWithHL cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV =
-    case simulateEnsembleVWithHLChecked cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV of
-        Left err -> error err
-        Right bt -> bt
+    Either String BacktestResult
+simulateEnsembleVWithHL = simulateEnsembleVWithHLChecked
 
 simulateEnsembleVWithHLChecked ::
     EnsembleConfig ->
@@ -344,11 +338,13 @@ simulateEnsembleLongFlat ::
     [Double] -> -- kalman predicted next prices length n-1 (for t=0..n-2)
     [Double] -> -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
     Maybe [StepMeta] -> -- optional per-step confidence meta (length n-1)
-    BacktestResult
+    Either String BacktestResult
 simulateEnsembleLongFlat cfg lookback prices kalPredNext lstmPredNext mMeta =
-    simulateEnsembleLongFlatV
+    simulateEnsembleLongFlatVWithHLChecked
         cfg
         lookback
+        (V.fromList prices)
+        (V.fromList prices)
         (V.fromList prices)
         (V.fromList kalPredNext)
         (V.fromList lstmPredNext)
@@ -363,11 +359,8 @@ simulateEnsembleLongFlatWithHL ::
     [Double] -> -- kalman predicted next prices length n-1 (for t=0..n-2)
     [Double] -> -- lstm predicted next prices length n-1 (for t=0..n-2) or n-lookback (for t=lookback-1..n-2)
     Maybe [StepMeta] -> -- optional per-step confidence meta (length n-1)
-    BacktestResult
-simulateEnsembleLongFlatWithHL cfg lookback closes highs lows kalPredNext lstmPredNext mMeta =
-    case simulateEnsembleLongFlatWithHLChecked cfg lookback closes highs lows kalPredNext lstmPredNext mMeta of
-        Left err -> error err
-        Right bt -> bt
+    Either String BacktestResult
+simulateEnsembleLongFlatWithHL = simulateEnsembleLongFlatWithHLChecked
 
 simulateEnsembleLongFlatWithHLChecked ::
     EnsembleConfig ->
@@ -397,8 +390,8 @@ simulateEnsembleLongFlatV ::
     V.Vector Double ->
     V.Vector Double ->
     Maybe (V.Vector StepMeta) -> -- optional per-step confidence meta
-    BacktestResult
-simulateEnsembleLongFlatV cfg lookback pricesV = simulateEnsembleLongFlatVWithHL cfg lookback pricesV pricesV pricesV
+    Either String BacktestResult
+simulateEnsembleLongFlatV cfg lookback pricesV = simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV pricesV pricesV
 
 simulateEnsembleLongFlatVWithHL ::
     EnsembleConfig ->
@@ -409,11 +402,8 @@ simulateEnsembleLongFlatVWithHL ::
     V.Vector Double ->
     V.Vector Double ->
     Maybe (V.Vector StepMeta) -> -- optional per-step confidence meta
-    BacktestResult
-simulateEnsembleLongFlatVWithHL cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV =
-    case simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPredNextV lstmPredNextV mMetaV of
-        Left err -> error err
-        Right bt -> bt
+    Either String BacktestResult
+simulateEnsembleLongFlatVWithHL = simulateEnsembleLongFlatVWithHLChecked
 
 simulateEnsembleLongFlatVWithHLChecked ::
     EnsembleConfig ->
@@ -474,25 +464,19 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
         noTradeReq = not (null noTradeWindows)
         metaMaskV =
             case ecMetaMask cfg of
-                Just mask
-                    | V.length mask == stepCount -> Just mask
-                    | V.length mask > stepCount -> Just (V.drop (V.length mask - stepCount) mask)
-                    | otherwise -> Nothing
+                Just mask | V.length mask == stepCount -> Just mask
                 _ -> Nothing
         metaMaskMismatch =
             case ecMetaMask cfg of
-                Just mask | V.length mask < stepCount -> Just "meta mask vector too short for simulateEnsembleLongFlatVWithHL"
+                Just mask | V.length mask /= stepCount -> Just "meta mask vector length must match step count for simulateEnsembleLongFlatVWithHL"
                 _ -> Nothing
         metaV =
             case mMetaV of
-                Just mv
-                    | V.length mv == stepCount -> Just mv
-                    | V.length mv > stepCount -> Just (V.drop (V.length mv - stepCount) mv)
-                    | otherwise -> Nothing
+                Just mv | V.length mv == stepCount -> Just mv
                 _ -> Nothing
         metaMismatch =
             case mMetaV of
-                Just mv | V.length mv < stepCount -> Just "meta vector too short for simulateEnsembleLongFlatVWithHL"
+                Just mv | V.length mv /= stepCount -> Just "meta vector length must match step count for simulateEnsembleLongFlatVWithHL"
                 _ -> Nothing
         kalPredAtE
             | kalLen >= stepCount =
