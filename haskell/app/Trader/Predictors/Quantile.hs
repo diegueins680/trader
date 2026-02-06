@@ -26,21 +26,24 @@ featureDimFromDataset dataset =
     case map (length . fst) dataset of
         [] -> 0
         d : ds
-            | d <= 0 -> error "quantile dataset has empty feature vectors"
-            | any (/= d) ds -> error "quantile dataset has inconsistent feature dimensions"
+            | d <= 0 -> 0
+            | any (/= d) ds -> 0
             | otherwise -> d
 
 trainQuantileModel :: Int -> Double -> Double -> [([Double], Double)] -> QuantileModel
 trainQuantileModel epochs lr l2 dataset
-    | epochs < 0 = error "epochs must be >= 0"
-    | lr <= 0 = error "lr must be > 0"
-    | l2 < 0 = error "l2 must be >= 0"
-    | null dataset = error "quantile dataset is empty"
+    | epochs < 0 = emptyQuantileModel
+    | lr <= 0 = emptyQuantileModel
+    | l2 < 0 = emptyQuantileModel
+    | null dataset = emptyQuantileModel
     | otherwise =
         let d = featureDimFromDataset dataset
-            initM = LinModel{lmW = replicate d 0, lmB = 0}
-            qs0 = QuantileModel initM initM initM
-         in applyN epochs (epochStep lr l2 dataset) qs0
+         in if d <= 0
+                then emptyQuantileModel
+                else
+                    let initM = LinModel{lmW = replicate d 0, lmB = 0}
+                        qs0 = QuantileModel initM initM initM
+                     in applyN epochs (epochStep lr l2 dataset) qs0
 
 predictQuantiles :: QuantileModel -> [Double] -> Maybe (Double, Double, Double, Double, Maybe Double)
 predictQuantiles qm x =
@@ -102,12 +105,12 @@ sigmaFromQ1090 q10 q90 =
             else Just (width / (2 * z))
 
 dot :: [Double] -> [Double] -> Double
-dot a b =
-    let la = length a
-        lb = length b
-     in if la /= lb
-            then error ("Quantile model feature dimension mismatch: expected " ++ show la ++ ", got " ++ show lb)
-            else sum (zipWith (*) a b)
+dot a b = sum (zipWith (*) a b)
+
+emptyQuantileModel :: QuantileModel
+emptyQuantileModel =
+    let empty = LinModel{lmW = [], lmB = 0}
+     in QuantileModel empty empty empty
 
 isFinite :: Double -> Bool
 isFinite x = not (isNaN x || isInfinite x)

@@ -385,7 +385,7 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
                                             else
                                                 if obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"]
                                                     then finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
-                                                    else error ("unknown objective: " ++ show objective)
+                                                    else finalEq
 
 extractOperations :: Maybe Value -> Maybe [Value]
 extractOperations raw = do
@@ -1353,6 +1353,7 @@ extractBacktest val =
 runWithTimeout :: CreateProcess -> Double -> IO (Maybe (ExitCode, String, String))
 runWithTimeout procSpec timeoutSec = do
     let timeoutMicros = max 0 (floor (timeoutSec * 1000000))
+        terminateWaitMicros = 2 * 1000000
     (_, Just hout, Just herr, ph) <- createProcess procSpec
     hSetEncoding hout utf8
     hSetEncoding herr utf8
@@ -1369,8 +1370,8 @@ runWithTimeout procSpec timeoutSec = do
     mExit <- timeout timeoutMicros (waitForProcess ph)
     case mExit of
         Nothing -> do
-            terminateProcess ph
-            _ <- waitForProcess ph
+            _ <- try (terminateProcess ph) :: IO (Either SomeException ())
+            _ <- timeout terminateWaitMicros (waitForProcess ph)
             pure Nothing
         Just exitCode -> do
             out <- takeMVar outVar

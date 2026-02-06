@@ -553,6 +553,7 @@ Optimizer script tips:
 - `optimize-equity` now tunes stop-loss and take-profit by default for annualized-equity; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
 - `optimize-equity` accepts `--futures` to pull Binance USDT-M futures data (Binance only).
 - `optimize-equity` clamps perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
+- Optimizer timeouts now return even if a child backtest process doesn't exit after SIGTERM.
 - `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons) and continues when a symbol run fails.
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.

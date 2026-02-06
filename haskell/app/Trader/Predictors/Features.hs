@@ -18,13 +18,11 @@ data FeatureSpec = FeatureSpec
     deriving (Eq, Show)
 
 mkFeatureSpec :: Int -> FeatureSpec
-mkFeatureSpec lookbackBars
-    | lookbackBars <= 1 = error "lookbackBars must be >= 2"
-    | otherwise =
-        let lb = lookbackBars
-            shortB = max 1 (min 12 (lb - 1))
-            midB = max 1 (min 48 (lb - 1))
-         in FeatureSpec{fsLookbackBars = lb, fsShortBars = shortB, fsMidBars = midB}
+mkFeatureSpec lookbackBars =
+    let lb = max 2 lookbackBars
+        shortB = max 1 (min 12 (lb - 1))
+        midB = max 1 (min 48 (lb - 1))
+     in FeatureSpec{fsLookbackBars = lb, fsShortBars = shortB, fsMidBars = midB}
 
 -- | Forward return r_t = p_{t+1}/p_t - 1.
 forwardReturnAt :: V.Vector Double -> Int -> Maybe Double

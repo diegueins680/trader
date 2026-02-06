@@ -679,7 +679,7 @@ opts = do
 argBinanceMarket :: Args -> BinanceMarket
 argBinanceMarket args =
     case (argBinanceFutures args, argBinanceMargin args) of
-        (True, True) -> error "Choose only one of --futures or --margin"
+        (True, True) -> MarketSpot
         (True, False) -> MarketFutures
         (False, True) -> MarketMargin
         (False, False) -> MarketSpot
@@ -688,25 +688,12 @@ argLookback :: Args -> Int
 argLookback args =
     case argLookbackBars args of
         Just n ->
-            if n < 2
-                then error "--lookback-bars must be >= 2"
-                else n
+            max 2 n
         Nothing ->
             case lookbackBarsFrom (argInterval args) (argLookbackWindow args) of
-                Left err -> error err
+                Left _ -> 2
                 Right n ->
-                    if n < 2
-                        then
-                            error
-                                ( "Lookback window too small: "
-                                    ++ show (argLookbackWindow args)
-                                    ++ " at interval "
-                                    ++ show (argInterval args)
-                                    ++ " yields "
-                                    ++ show n
-                                    ++ " bars; need at least 2 bars."
-                                )
-                        else n
+                    max 2 n
 
 validateArgs :: Args -> Either String Args
 validateArgs args0 = do

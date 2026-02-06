@@ -5681,7 +5681,7 @@ initBotState mOps tenantKey args settings mComboUuid sym = do
             else pure 0
     let initBars = clampInt 2 1000 (max 2 (resolveBarsForBinance args))
     ks <- fetchKlines env sym (argInterval args) initBars
-    when (length ks < 2) $ error "Not enough klines to start bot"
+    when (length ks < 2) $ throwIO (userError "Not enough klines to start bot")
     let closes = map kClose ks
         highs = map kHigh ks
         lows = map kLow ks
@@ -5775,26 +5775,30 @@ initBotState mOps tenantKey args settings mComboUuid sym = do
                                     predObs = predictNext lstmModel window
                                  in inverseNorm normState predObs
 
-        latest0Raw =
-            computeLatestSignal
-                args
-                lookback
-                pricesV
-                (Just highsV)
-                (Just lowsV)
-                mLstmCtx
-                mKalmanCtx
-                Nothing
-                ( Just
-                    PredHistory
-                        { phKalman = kalPred0
-                        , phLstm = lstmPred0
-                        , phMeta = Nothing
-                        , phLstmHealth = Nothing
-                        }
-                )
+    latest0Raw <-
+        case
+                computeLatestSignal
+                    args
+                    lookback
+                    pricesV
+                    (Just highsV)
+                    (Just lowsV)
+                    mLstmCtx
+                    mKalmanCtx
+                    Nothing
+                    ( Just
+                        PredHistory
+                            { phKalman = kalPred0
+                            , phLstm = lstmPred0
+                            , phMeta = Nothing
+                            , phLstmHealth = Nothing
+                            }
+                    )
+            of
+            Left err -> throwIO (userError err)
+            Right sig -> pure sig
 
-        -- Startup decision:
+    let -- Startup decision:
         -- - Adopted positions are kept only if the open-threshold signal still agrees.
         -- - Otherwise, entry uses openThreshold via lsChosenDir.
         allowShort = argPositioning args == LongShort
@@ -6200,7 +6204,7 @@ botOptimizeAfterOperation st = do
                                 , argCloseThreshold = newCloseThr
                                 }
                         argsSignal = applyBotAdjustments (botAdjustments st) args'
-                        latest' =
+                    case
                             computeLatestSignal
                                 argsSignal
                                 lookback
@@ -6218,7 +6222,11 @@ botOptimizeAfterOperation st = do
                                         , phLstmHealth = Nothing
                                         }
                                 )
-                    pure st{botArgs = sanitizeArgsKeys args', botLatestSignal = latest'}
+                        of
+                        Left err ->
+                            pure st{botError = Just ("Latest signal update failed: " ++ err)}
+                        Right latest' ->
+                            pure st{botArgs = sanitizeArgsKeys args', botLatestSignal = latest', botError = Nothing}
 
 argLookbackEither :: Args -> Either String Int
 argLookbackEither args =
@@ -6276,7 +6284,7 @@ botApplyOptimizerUpdate st upd = do
                 then pure st{botError = Just "Optimizer update skipped: not enough data for lookback.", botUpdatedAtMs = now}
                 else do
                     let argsSignal = applyBotAdjustments (botAdjustments st) argsWithKeys
-                        latest =
+                    case
                             computeLatestSignal
                                 argsSignal
                                 lookback'
@@ -6287,17 +6295,21 @@ botApplyOptimizerUpdate st upd = do
                                 mKalmanCtx'
                                 Nothing
                                 Nothing
-                    pure
-                        st
-                            { botArgs = sanitizeArgsKeys argsWithKeys
-                            , botLookback = lookback'
-                            , botLstmCtx = mLstmCtx'
-                            , botKalmanCtx = mKalmanCtx'
-                            , botComboUuid = bouComboUuid upd <|> botComboUuid st
-                            , botLatestSignal = latest
-                            , botUpdatedAtMs = now
-                            , botError = Nothing
-                            }
+                        of
+                        Left err ->
+                            pure st{botError = Just ("Optimizer update skipped: " ++ err), botUpdatedAtMs = now}
+                        Right latest ->
+                            pure
+                                st
+                                    { botArgs = sanitizeArgsKeys argsWithKeys
+                                    , botLookback = lookback'
+                                    , botLstmCtx = mLstmCtx'
+                                    , botKalmanCtx = mKalmanCtx'
+                                    , botComboUuid = bouComboUuid upd <|> botComboUuid st
+                                    , botLatestSignal = latest
+                                    , botUpdatedAtMs = now
+                                    , botError = Nothing
+                                    }
 
 rebuildLstmCtx :: Args -> Int -> V.Vector Double -> IO (Either String LstmCtx)
 rebuildLstmCtx args lookback pricesV =
@@ -7474,7 +7486,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         pricesPrev = botPrices st
         nPrev = V.length pricesPrev
 
-    when (nPrev < 1) $ error "botApplyKline: empty prices"
+    when (nPrev < 1) $ throwIO (userError "botApplyKline: empty prices")
 
     let prevPrice = pricesPrev V.! (nPrev - 1)
         prevEq = botEquityCurve st V.! (nPrev - 1)
@@ -7635,25 +7647,30 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
 
     allStates <- botGetStates ctrl (botTenantKey st)
 
-    let latest0Raw =
-            computeLatestSignal
-                argsSignal
-                lookback
-                pricesV
-                (Just highsV)
-                (Just lowsV)
-                mLstmCtx1
-                mKalmanCtx1
-                Nothing
-                ( Just
-                    PredHistory
-                        { phKalman = botKalmanPredNext st
-                        , phLstm = botLstmPredNext st
-                        , phMeta = Nothing
-                        , phLstmHealth = Nothing
-                        }
-                )
-        nan = 0 / 0 :: Double
+    latest0Raw <-
+        case
+                computeLatestSignal
+                    argsSignal
+                    lookback
+                    pricesV
+                    (Just highsV)
+                    (Just lowsV)
+                    mLstmCtx1
+                    mKalmanCtx1
+                    Nothing
+                    ( Just
+                        PredHistory
+                            { phKalman = botKalmanPredNext st
+                            , phLstm = botLstmPredNext st
+                            , phMeta = Nothing
+                            , phLstmHealth = Nothing
+                            }
+                    )
+            of
+            Left err -> throwIO (userError err)
+            Right sig -> pure sig
+
+    let nan = 0 / 0 :: Double
         kalPred1 = V.snoc (botKalmanPredNext st) (fromMaybe nan (lsKalmanNext latest0Raw))
         lstmPred1 = V.snoc (botLstmPredNext st) (fromMaybe nan (lsLstmNext latest0Raw))
 
@@ -10990,6 +11007,26 @@ optimizerMaxCombosFromEnv = do
             Just n | n >= 1 -> n
             _ -> defaultOptimizerMaxCombos
 
+defaultTopCombosMinPersist :: Int
+defaultTopCombosMinPersist = 100
+
+topCombosMinPersistFromEnv :: IO Int
+topCombosMinPersistFromEnv = do
+    minEnv <- lookupEnv "TRADER_TOP_COMBOS_MIN_PERSIST"
+    pure $
+        case minEnv >>= readMaybe of
+            Just n | n >= 1 -> n
+            _ -> defaultTopCombosMinPersist
+
+topCombosComboCount :: Aeson.Value -> Int
+topCombosComboCount val =
+    case val of
+        Aeson.Object o ->
+            case KM.lookup (AK.fromString "combos") o of
+                Just (Aeson.Array arr) -> V.length arr
+                _ -> 0
+        _ -> 0
+
 truncateProcessOutput :: Int -> String -> String
 truncateProcessOutput maxBytes raw =
     let maxBytes' = max 0 maxBytes
@@ -11704,6 +11741,31 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                     case recovered of
                         Just val -> Right val
                         Nothing -> Left err
+    minPersist <- topCombosMinPersistFromEnv
+    maxCombos <- optimizerMaxCombosFromEnv
+    topVal' <-
+        case (mOps, topVal) of
+            (Just opsStore, Right val) -> do
+                let currentCount = topCombosComboCount val
+                if currentCount >= minPersist
+                    then pure (Right val)
+                    else do
+                        dbVal <- readTopCombosValueFromDb opsStore
+                        case dbVal of
+                            Left _ -> pure (Right val)
+                            Right dbVal' -> do
+                                now <- getTimestampMs
+                                let mergedVal = mergeTopCombosPayloads (max minPersist maxCombos) now [val, dbVal']
+                                    mergedCount = topCombosComboCount mergedVal
+                                if mergedCount <= currentCount
+                                    then pure (Right val)
+                                    else do
+                                        withTopCombosLock topCombosStore $ do
+                                            _ <- writeTopCombosValue topJsonPath mergedVal
+                                            persistTopCombosMaybe mStateSyncTarget topJsonPath
+                                            persistTopCombosDbMaybeUnlocked mOps topCombosStore
+                                        pure (Right mergedVal)
+            _ -> pure topVal
     let sanitizeVal = fmap (fst . sanitizeTopCombosValue)
     tmpVal <-
         if tmpPath /= topJsonPath
@@ -11722,7 +11784,7 @@ handleOptimizerCombos mOps mStateSyncTarget projectRoot topCombosStore optimizer
                     _ <- writeTopCombosValue topJsonPath seed
                     persistTopCombosMaybe mStateSyncTarget topJsonPath
         _ -> pure ()
-    let allVals = [topVal, tmpVal, fallbackVal]
+    let allVals = [topVal', tmpVal, fallbackVal]
     now <- getTimestampMs
     let combosBySource =
             map
@@ -16704,7 +16766,9 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
                                 }
                     _ -> Nothing
 
-    pure (computeLatestSignal args lookback pricesV highsV lowsV mLstmCtx mKalmanCtx mMarketModel mPredHistory)
+    case computeLatestSignal args lookback pricesV highsV lowsV mLstmCtx mKalmanCtx mMarketModel mPredHistory of
+        Left err -> throwIO (userError err)
+        Right sig -> pure sig
 
 -- LSTM weight persistence (for incremental training across backtests)
 
@@ -17402,8 +17466,13 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                                 , phLstmHealth = lstmHealth
                                 }
                 else Nothing
-        latestSignal = computeLatestSignal argsForSignal lookback pricesV (Just highsV) (Just lowsV) mLstmCtx mKalmanCtx mMarketModel mPredHistorySignal
-        finiteMaybe x =
+
+    latestSignal <-
+        case computeLatestSignal argsForSignal lookback pricesV (Just highsV) (Just lowsV) mLstmCtx mKalmanCtx mMarketModel mPredHistorySignal of
+            Left err -> throwIO (userError err)
+            Right sig -> pure sig
+
+    let finiteMaybe x =
             if isNaN x || isInfinite x
                 then Nothing
                 else Just x
@@ -17813,31 +17882,35 @@ computeLatestSignal ::
     Maybe KalmanCtx ->
     Maybe MarketModel ->
     Maybe PredHistory ->
-    LatestSignal
+    Either String LatestSignal
 computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMarketModel mPredHistory =
-    case method of
-        MethodBoth ->
-            case (mKalmanCtx, mLstmCtx) of
-                (Just _, Just _) -> compute
-                _ -> error "Internal: --method 11 requires both Kalman and LSTM contexts."
-        MethodKalmanOnly ->
-            case mKalmanCtx of
-                Just _ -> compute
-                Nothing -> error "Internal: --method 10 requires Kalman context."
-        MethodLstmOnly ->
-            case mLstmCtx of
-                Just _ -> compute
-                Nothing -> error "Internal: --method 01 requires LSTM context."
-        MethodBlend ->
-            case (mKalmanCtx, mLstmCtx) of
-                (Just _, Just _) -> compute
-                _ -> error "Internal: --method blend requires both Kalman and LSTM contexts."
-        MethodRouter ->
-            case (mKalmanCtx, mLstmCtx) of
-                (Just _, Just _) -> compute
-                _ -> error "Internal: --method router requires both Kalman and LSTM contexts."
+    if nAll < 1
+        then Left ("Need at least 1 price to compute latest signal (got " ++ show nAll ++ ")")
+        else
+            case method of
+                MethodBoth ->
+                    case (mKalmanCtx, mLstmCtx) of
+                        (Just _, Just _) -> Right compute
+                        _ -> Left "Method 11 requires both Kalman and LSTM contexts."
+                MethodKalmanOnly ->
+                    case mKalmanCtx of
+                        Just _ -> Right compute
+                        Nothing -> Left "Method 10 requires Kalman context."
+                MethodLstmOnly ->
+                    case mLstmCtx of
+                        Just _ -> Right compute
+                        Nothing -> Left "Method 01 requires LSTM context."
+                MethodBlend ->
+                    case (mKalmanCtx, mLstmCtx) of
+                        (Just _, Just _) -> Right compute
+                        _ -> Left "Method blend requires both Kalman and LSTM contexts."
+                MethodRouter ->
+                    case (mKalmanCtx, mLstmCtx) of
+                        (Just _, Just _) -> Right compute
+                        _ -> Left "Method router requires both Kalman and LSTM contexts."
   where
     method = argMethod args
+    nAll = V.length pricesV
     compute =
         let n = V.length pricesV
          in if n < 1

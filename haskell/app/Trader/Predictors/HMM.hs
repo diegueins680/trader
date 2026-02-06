@@ -30,10 +30,10 @@ newtype HMMFilter = HMMFilter
 
 fitHMM3 :: Int -> [Double] -> HMM3
 fitHMM3 iters obs
-    | iters < 0 = error "iters must be >= 0"
     | null obs = defaultHMM
     | otherwise =
-        let mu0 = mean obs
+        let iters' = max 0 iters
+            mu0 = mean obs
             s0 = std obs
             pi0 = replicate 3 (1 / 3)
             a0 =
@@ -44,7 +44,7 @@ fitHMM3 iters obs
             mus0 = [mu0 - s0, mu0, mu0 + s0]
             vars0 = [s0 * s0, s0 * s0, max 1e-8 (4 * s0 * s0)]
             base0 = HMM3{hmmPi = pi0, hmmA = a0, hmmMu = mus0, hmmVar = vars0, hmmTrendIx = 0, hmmMrIx = 1, hmmHighVolIx = 2}
-            fitted = applyN iters (emStep obs) base0
+            fitted = applyN iters' (emStep obs) base0
          in remapRegimes fitted
 
 defaultHMM :: HMM3
@@ -65,7 +65,10 @@ remapRegimes hmm =
             case remaining of
                 [i, j] -> if abs (mus !! i) >= abs (mus !! j) then i else j
                 _ -> 0
-        mr = head (filter (\k -> k /= highVol && k /= trend) [0, 1, 2])
+        mr =
+            case filter (\k -> k /= highVol && k /= trend) [0, 1, 2] of
+                (k : _) -> k
+                [] -> highVol
      in hmm{hmmTrendIx = trend, hmmMrIx = mr, hmmHighVolIx = highVol}
 
 -- | Posterior after filtering through a sequence of observations.

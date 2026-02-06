@@ -15,16 +15,18 @@ data ConformalModel = ConformalModel
     deriving (Eq, Show)
 
 fitConformal :: Double -> [Double] -> ConformalModel
-fitConformal alpha absResiduals
-    | alpha <= 0 || alpha >= 1 = error "alpha must be in (0,1)"
-    | otherwise =
-        let cleaned = filter (\v -> isFinite v && v >= 0) absResiduals
-            count = length cleaned
-         in if null cleaned
-                then ConformalModel{cmAlpha = alpha, cmRadius = 0, cmCount = 0}
-                else
-                    let q = conformalRadius alpha cleaned
-                     in ConformalModel{cmAlpha = alpha, cmRadius = q, cmCount = count}
+fitConformal alpha absResiduals =
+    let alpha' = clampAlpha alpha
+        cleaned = filter (\v -> isFinite v && v >= 0) absResiduals
+        count = length cleaned
+     in if null cleaned
+            then ConformalModel{cmAlpha = alpha', cmRadius = 0, cmCount = 0}
+            else
+                let q = conformalRadius alpha' cleaned
+                 in ConformalModel{cmAlpha = alpha', cmRadius = q, cmCount = count}
+
+clampAlpha :: Double -> Double
+clampAlpha a = min 0.999999 (max 1e-6 a)
 
 predictInterval :: ConformalModel -> Double -> (Double, Double, Maybe Double)
 predictInterval cm mu =

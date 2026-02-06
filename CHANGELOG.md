@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - Ops/Combos: keep the top-combos process lock fresh during long updates to avoid stale-lock removal.
 - Optimizer: respect the configured `--tune-objective` when `--threshold-factor` is enabled (no forced override).
 - Optimizer: clamp perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
+- Optimizer: avoid hanging after timeouts by bounding the post-terminate wait for child runs.
 - Dev: `run_optimize_equity_top5.sh` continues after per-symbol failures so later symbols still run.
 - Web UI: normalize bot status latestSignal to avoid crashes when payloads omit it (including older API versions).
 - Web UI: switch Binance account trade date filters to date pickers.

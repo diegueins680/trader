@@ -20,8 +20,8 @@ featureDimFromDataset dataset =
     case map (length . fst) dataset of
         [] -> Nothing
         d : ds
-            | d <= 0 -> error "transformer dataset has empty feature vectors"
-            | any (/= d) ds -> error "transformer dataset has inconsistent feature dimensions"
+            | d <= 0 -> Nothing
+            | any (/= d) ds -> Nothing
             | otherwise -> Just d
 
 trainTransformer :: Double -> Int -> [([Double], Double)] -> TransformerModel
