@@ -4206,10 +4206,10 @@ export function App() {
   }, [binanceTradesFilterEndInput]);
   const binanceTradesFilterError = useMemo(() => {
     if (binanceTradesFilterStartInput.trim() && binanceTradesFilterStartMs === null) {
-      return "Filter start date must be a unix ms timestamp or ISO date.";
+      return "Filter start date must be a valid date (YYYY-MM-DD).";
     }
     if (binanceTradesFilterEndInput.trim() && binanceTradesFilterEndMs === null) {
-      return "Filter end date must be a unix ms timestamp or ISO date.";
+      return "Filter end date must be a valid date (YYYY-MM-DD).";
     }
     if (
       binanceTradesFilterStartMs !== null &&

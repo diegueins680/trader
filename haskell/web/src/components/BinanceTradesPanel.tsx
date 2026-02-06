@@ -332,6 +332,7 @@ export function BinanceTradesPanel({
       <input
         className="input"
         style={{ flex: "1 1 200px" }}
+        type="date"
         value={binanceTradesFilterStartInput}
         onChange={(e) => setBinanceTradesFilterStartInput(e.target.value)}
         placeholder="Filter start date"
@@ -340,6 +341,7 @@ export function BinanceTradesPanel({
       <input
         className="input"
         style={{ flex: "1 1 200px" }}
+        type="date"
         value={binanceTradesFilterEndInput}
         onChange={(e) => setBinanceTradesFilterEndInput(e.target.value)}
         placeholder="Filter end date"
@@ -366,7 +368,7 @@ export function BinanceTradesPanel({
       </div>
     ) : (
       <div className="hint" style={{ marginTop: 6 }}>
-        Filter dates accept unix ms timestamps or ISO dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
+        Filter dates use the date picker (YYYY-MM-DD).
       </div>
     )}
     <div className="pillRow" style={{ marginTop: 8 }}>

@@ -659,6 +659,7 @@ Optional optimizer combo persistence (keeps `/optimizer/combos` data across rest
 - `TRADER_OPTIMIZER_MAX_TIMEOUT_SEC` (default: `1200`) max timeout accepted by `/optimizer/run` (returns 400 if exceeded).
 - `TRADER_OPTIMIZER_MAX_BARS` (default: `1500`) max bars accepted by `/optimizer/run` (caps `barsMin`/`barsMax` and rejects lookback windows that require more bars at the selected intervals).
 - `TRADER_OPTIMIZER_COMBOS_HISTORY_DIR` (default: `<combos dir>/top-combos-history`) stores timestamped snapshots (set to `off`, `false`, or `0` to disable).
+- `TRADER_TOP_COMBOS_MIN_PERSIST` (default: `100`) ensures at least this many top combos are retained when rebuilding from DB/S3 after deploys (if available).
 - When S3 persistence is enabled, new optimizer runs merge against the existing S3 `top-combos.json` so the best-ever combos are retained, and history snapshots are written under `optimizer/history/`.
 - When S3 persistence is enabled, the API serves local `top-combos.json` first and only falls back to S3 when local data is missing.
 - When `TRADER_DB_URL` is set, the API can rebuild `top-combos.json` from Postgres if local/S3 state is missing, so combos persist across deploys.
@@ -867,7 +868,7 @@ Chart panels lift height caps so the full chart area is visible without panel sc
 Charts lazy-load to reduce the initial bundle size; placeholders appear while chart chunks load.
 The issue bar Fix button clamps bars/epochs/hidden size to the API limits when they are exceeded.
 The Binance account trades panel requires a non-negative From ID when provided.
-Binance account trades time filters accept unix ms timestamps or ISO-8601 dates (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
+Binance account trades date filters use date pickers with YYYY-MM-DD inputs.
 Loading a profile clears manual override locks so combos can apply again.
 Hover optimizer combos to inspect the operations captured for each top performer.
 The configuration panel includes quick-jump buttons for major sections (API, market, lookback, thresholds, risk, optimization, live bot, trade).
@@ -932,6 +933,9 @@ Timeouts:
 Proxying `/api/*` (CloudFront or similar): allow `GET`, `POST`, and `OPTIONS`; the UI will fall back to `GET` for async polling if `POST` hits proxy errors. Async signal/backtest starts retry transient 5xx/timeouts and can fail over to `apiFallbackUrl`; ensure the fallback points at the same backend to avoid mismatched job IDs. Live bot status/ops polling auto-reduces history sizes on proxy 502/503/504 or client timeouts to keep the dashboard responsive, and `/bot/status` is capped at 1000 points by default to avoid upstream 5xx responses.
 If live bot start/status returns 502/503/504, verify the `/api/*` proxy target and origin health when using `/api`, or check the direct API origin/CORS configuration when using a full API URL.
 Unexpected handler failures now return a JSON 500 response (with CORS headers) so the browser sees the error payload; check API logs for details.
+Latest-signal computation now reports missing model context or insufficient price data as a clear error instead of crashing; verify your `--method`/lookback and available bars if you see these errors.
+Predictor training falls back to empty models when datasets/parameters are invalid, which can yield neutral signals; check lookback/window settings and data quality if signals go flat unexpectedly.
+Optimizer objectives are validated by the CLI; if validation is bypassed, unknown values fall back to `final-equity` scoring.
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 
 - Web UI: `trader-config.js` is read at startup via a `<script>` tag in `index.html`, so keep it in `public/` and serve it at `/trader-config.js` for static hosts.
