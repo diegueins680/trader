@@ -12,14 +12,14 @@ jobs:
       run:
         working-directory: haskell
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - uses: haskell-actions/setup@v2
         with:
           ghc-version: "8.10.7"
 
       - name: Cache Cabal artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cabal/store
@@ -39,9 +39,9 @@ jobs:
       run:
         working-directory: haskell/web
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
@@ -61,9 +61,9 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
