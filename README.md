@@ -799,6 +799,7 @@ CI/CD (GitHub Actions):
 - On push to `main`/`master`, `.github/workflows/ci.yml` deploys via `deploy-aws-quick.sh` after CI passes.
 - Required secrets: `AWS_ROLE_ARN` + `AWS_REGION` (or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`), plus `TRADER_API_TOKEN`, `TRADER_DB_URL`, `TRADER_STATE_S3_BUCKET`, `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`.
 - Optional: `TRADER_AWS_ENSURE_RESOURCES` (auto-provision), `TRADER_UI_CLOUDFRONT_AUTO`, `TRADER_UI_BUCKET`, `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`, `TRADER_UI_CLOUDFRONT_DOMAIN`, `TRADER_UI_API_MODE`, `TRADER_UI_API_URL`, `TRADER_UI_API_FALLBACK_URL`.
+- Deploys run ops schema updates + performance rollups when `TRADER_DB_URL` is set (requires `psql`); disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`.
 
 Note: `/bot/*` is stateful, and async endpoints persist job state to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default (local only). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to a shared writable directory. If the UI reports "Async job not found", the backend likely restarted or the load balancer is not sticky; use shared async storage or run a single instance.
 

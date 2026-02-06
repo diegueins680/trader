@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - API/UI: include exchangeInfo error details when Binance key-check trade tests are skipped.
 - Binance: skip key-check trade tests and order placement when exchangeInfo filters are unavailable to avoid precision errors.
 - Ops/API: add tenant-scoped ops persistence and rollups; `TRADER_MULTI_USER` enforces tenantKey for `/ops` + `/ops/performance`.
+- Deploy: `deploy-aws-quick.sh` runs ops schema updates + performance rollups when `TRADER_DB_URL` is set (requires `psql`; disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`).
 - Kalman: sensor variance now uses EWMA residuals so measurement weighting adapts faster to regime shifts.
 - Router: model scoring now uses risk-adjusted net returns (mean/vol) to avoid noisy switches.
 - Optimizer: allow `optimize-equity` to pass `--futures` through for Binance futures data.

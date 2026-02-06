@@ -37,6 +37,8 @@ TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
 TRADER_API_MAX_EPOCHS="${TRADER_API_MAX_EPOCHS:-}"
 TRADER_API_MAX_HIDDEN_SIZE="${TRADER_API_MAX_HIDDEN_SIZE:-50}"
 TRADER_DB_URL="${TRADER_DB_URL:-${DATABASE_URL:-}}"
+TRADER_OPS_ROLLUP_ON_DEPLOY="${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}"
+TRADER_OPS_ROLLUP_STRICT="${TRADER_OPS_ROLLUP_STRICT:-false}"
 TRADER_STATE_S3_BUCKET_SET="${TRADER_STATE_S3_BUCKET+true}"
 TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
@@ -120,6 +122,7 @@ Flags:
   --region <region>                 AWS region (e.g. ap-northeast-1)
   --api-token <token>               API token (TRADER_API_TOKEN)
   --db-url <url>                    Database URL for ops persistence (TRADER_DB_URL / DATABASE_URL)
+  --skip-ops-rollup                Skip ops schema/rollup updates on deploy when TRADER_DB_URL is set
   --state-dir <path>                State dir (default: /var/lib/trader/state; mount durable storage)
   --state-s3-bucket <bucket>        S3 bucket for App Runner state (required unless TRADER_DB_URL is set)
   --state-s3-prefix <prefix>        S3 key prefix for state (TRADER_STATE_S3_PREFIX)
@@ -149,6 +152,8 @@ Environment variables (equivalents):
   TRADER_API_TOKEN
   TRADER_CORS_ORIGIN
   TRADER_DB_URL / DATABASE_URL
+  TRADER_OPS_ROLLUP_ON_DEPLOY
+  TRADER_OPS_ROLLUP_STRICT
   TRADER_STATE_DIR
   TRADER_STATE_S3_BUCKET
   TRADER_STATE_S3_PREFIX
@@ -301,6 +306,61 @@ health_check_api() {
   echo -e "${YELLOW}Warning: API /health check failed after ${max_attempts} attempts (${health_url})${NC}"
 }
 
+run_ops_migrations() {
+  local db_url="${1:-}"
+  if [[ -z "$db_url" ]]; then
+    return 1
+  fi
+  psql "$db_url" -v ON_ERROR_STOP=1 <<'SQL'
+ALTER TABLE ops ADD COLUMN IF NOT EXISTS tenant_key TEXT;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS tenant_key TEXT;
+ALTER TABLE bots DROP CONSTRAINT IF EXISTS bots_platform_id_symbol_market_interval_key;
+CREATE UNIQUE INDEX IF NOT EXISTS bots_tenant_platform_symbol_interval_idx ON bots(tenant_key, platform_id, symbol, market, interval);
+CREATE INDEX IF NOT EXISTS ops_tenant_key_idx ON ops(tenant_key);
+SQL
+}
+
+run_ops_rollup() {
+  local db_url="${1:-}"
+  if [[ -z "$db_url" ]]; then
+    return 1
+  fi
+  TRADER_DB_URL="$db_url" haskell/scripts/rollup_performance.sh
+}
+
+maybe_run_ops_rollup() {
+  local db_url="${TRADER_DB_URL:-}"
+  if [[ -z "$db_url" ]]; then
+    return 0
+  fi
+  if ! is_true "${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}"; then
+    return 0
+  fi
+  echo -e "${YELLOW}→ Ops rollup: ensuring tenant schema...${NC}" >&2
+  if ! run_ops_migrations "$db_url"; then
+    local msg="Ops rollup: schema update failed."
+    if is_true "${TRADER_OPS_ROLLUP_STRICT:-false}"; then
+      echo -e "${RED}✗ ${msg}${NC}" >&2
+      exit 1
+    else
+      echo -e "${YELLOW}⚠ ${msg} Skipping rollup.${NC}" >&2
+      return 0
+    fi
+  fi
+  echo -e "${YELLOW}→ Ops rollup: rebuilding performance rollups...${NC}" >&2
+  if ! run_ops_rollup "$db_url"; then
+    local msg="Ops rollup: performance rollup failed."
+    if is_true "${TRADER_OPS_ROLLUP_STRICT:-false}"; then
+      echo -e "${RED}✗ ${msg}${NC}" >&2
+      exit 1
+    else
+      echo -e "${YELLOW}⚠ ${msg}${NC}" >&2
+    fi
+  else
+    echo -e "${GREEN}✓ Ops rollup complete${NC}" >&2
+  fi
+}
+
 get_cloudfront_domain() {
   local dist_id="${1:-}"
   local domain=""
@@ -437,6 +497,10 @@ while [[ $# -gt 0 ]]; do
     --db-url)
       TRADER_DB_URL="${2:-}"
       shift 2
+      ;;
+    --skip-ops-rollup)
+      TRADER_OPS_ROLLUP_ON_DEPLOY="false"
+      shift
       ;;
     --state-dir)
       TRADER_STATE_DIR="${2:-}"
@@ -611,6 +675,19 @@ check_prerequisites() {
       exit 1
     fi
     echo -e "${GREEN}✓ npm found${NC}"
+  fi
+
+  if [[ -n "${TRADER_DB_URL:-}" ]] && is_true "${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}"; then
+    if ! command -v psql >/dev/null 2>&1; then
+      echo -e "${YELLOW}⚠ psql not found; ops rollup on deploy will be skipped${NC}" >&2
+      echo "Install postgresql-client (psql) or set TRADER_OPS_ROLLUP_ON_DEPLOY=false to silence this warning." >&2
+      if is_true "${TRADER_OPS_ROLLUP_STRICT:-false}"; then
+        exit 1
+      fi
+      TRADER_OPS_ROLLUP_ON_DEPLOY="false"
+    else
+      echo -e "${GREEN}✓ psql found (ops rollup)${NC}"
+    fi
   fi
   
   # Check AWS credentials
@@ -2259,6 +2336,7 @@ main() {
   echo "  CORS Origin: ${TRADER_CORS_ORIGIN:-"(not set)"}"
   if [[ -n "${TRADER_DB_URL:-}" ]]; then
     echo "  Ops DB URL: (set)"
+    echo "  Ops Rollup on Deploy: ${TRADER_OPS_ROLLUP_ON_DEPLOY}"
   else
     echo "  Ops DB URL: (not set)"
   fi
@@ -2376,6 +2454,10 @@ main() {
       fi
     fi
     deploy_ui "$ui_api_url" "$api_token" "$ui_api_fallback"
+  fi
+
+  if [[ "$DEPLOY_API" == "true" ]]; then
+    maybe_run_ops_rollup
   fi
 
   echo -e "${GREEN}=== Deployment Complete ===${NC}\n"

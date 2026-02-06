@@ -87,6 +87,7 @@ docker push "${ECR_URI}:latest"
   - `TRADER_BOT_SYMBOLS` / `TRADER_BOT_TRADE` (optional; used by the cron watchdog to build `/bot/start`)
   - Required: PostgreSQL persistence for ops/combos:
     - `TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require`
+    - `deploy-aws-quick.sh` runs ops schema updates + performance rollups automatically when `TRADER_DB_URL` is set (requires `psql`; disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`).
   - Required: S3 state persistence (App Runner has no EFS support):
     - `TRADER_STATE_S3_BUCKET=<bucket>`
     - `TRADER_STATE_S3_PREFIX=trader`
