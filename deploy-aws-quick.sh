@@ -725,11 +725,20 @@ ensure_s3_bucket() {
     args+=(--create-bucket-configuration "LocationConstraint=${region}")
   fi
 
-  if aws s3api create-bucket "${args[@]}" >/dev/null; then
+  local create_err
+  create_err="$(mktemp)"
+  if aws s3api create-bucket "${args[@]}" >/dev/null 2>"$create_err"; then
     LAST_S3_BUCKET_CREATED="true"
     echo -e "${GREEN}✓ S3 bucket created: ${bucket}${NC}" >&2
+    rm -f "$create_err"
     return 0
   fi
+  if grep -q "BucketAlreadyOwnedByYou" "$create_err"; then
+    echo -e "${YELLOW}✓ S3 bucket already owned: ${bucket}${NC}" >&2
+    rm -f "$create_err"
+    return 0
+  fi
+  rm -f "$create_err"
 
   echo -e "${RED}✗ Unable to create S3 bucket: ${bucket}${NC}" >&2
   echo "Ensure the bucket name is available and you have permissions." >&2

@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 - Dev/CI: auto-deploy to AWS from GitHub Actions after successful pushes to `main`/`master`.
+- Deploy: treat `BucketAlreadyOwnedByYou` as success when ensuring S3 buckets in `deploy-aws-quick.sh`.
 - Trading/API: add DEX execution via 1inch for Uniswap/Curve/Sushi/Balancer/Pancake/1inch platforms, plus `dex*` params and `txHash` in trade responses.
 - Trading/CLI: require `--symbol`/`--binance-symbol` for `--binance-trade` and allow JSON trade output to place Coinbase orders instead of erroring.
 - Trading/CLI: enforce lookback+1 price-row minimum even when CSV uses `--bars auto/0` to avoid short-series failures.

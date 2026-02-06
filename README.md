@@ -794,6 +794,7 @@ Deploy to AWS
 See `DEPLOY_AWS_QUICKSTART.md`, `DEPLOY_AWS.md`, and `deploy/aws/README.md`.
 The quick deploy script supports `--ensure-resources` (reuse/create S3 buckets + App Runner S3 role) and `--cloudfront` (reuse/create a UI CloudFront distribution, reusing existing UI bucket distributions when available), and it auto-detects the S3 bucket region when looking up existing CloudFront distributions.
 The quick deploy script also runs post-deploy health checks for the API and (when a CloudFront domain is known) the UI (`index.html`, `trader-config.js`, and `/api/health` when proxying).
+If an S3 bucket already exists and is owned by you, the quick deploy script treats it as success (including `BucketAlreadyOwnedByYou`).
 
 CI/CD (GitHub Actions):
 - On push to `main`/`master`, `.github/workflows/ci.yml` deploys via `deploy-aws-quick.sh` after CI passes.
