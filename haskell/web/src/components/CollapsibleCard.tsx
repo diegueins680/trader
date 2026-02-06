@@ -27,6 +27,7 @@ export const CollapsibleCard = ({
   style,
   containerRef,
   maximized = false,
+  onToggleMaximize,
 }: CollapsibleCardProps) => (
   <details
     className={`card cardCollapsible${maximized ? " cardMaximized" : ""}${className ? ` ${className}` : ""}`}
@@ -40,6 +41,27 @@ export const CollapsibleCard = ({
       <div className="cardHeaderText">
         <h2 className="cardTitle">{title}</h2>
         {subtitle ? <p className="cardSubtitle">{subtitle}</p> : null}
+      </div>
+      <div className="cardControls">
+        {onToggleMaximize ? (
+          <button
+            className="cardControl"
+            type="button"
+            aria-pressed={maximized}
+            aria-label={maximized ? "Restore panel size" : "Maximize panel"}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onToggleMaximize();
+            }}
+          >
+            {maximized ? "Restore" : "Maximize"}
+          </button>
+        ) : null}
+        <span className="cardToggle" aria-hidden="true">
+          <span className="cardToggleLabel" data-open="Collapse" data-closed="Expand" />
+          <span className="cardToggleIcon" />
+        </span>
       </div>
     </summary>
     <div className="cardBody">{children}</div>

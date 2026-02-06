@@ -2,6 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Dev/CI: auto-deploy to AWS from GitHub Actions after successful pushes to `main`/`master`.
 - Trading/API: add DEX execution via 1inch for Uniswap/Curve/Sushi/Balancer/Pancake/1inch platforms, plus `dex*` params and `txHash` in trade responses.
 - Trading/CLI: require `--symbol`/`--binance-symbol` for `--binance-trade` and allow JSON trade output to place Coinbase orders instead of erroring.
 - Trading/CLI: enforce lookback+1 price-row minimum even when CSV uses `--bars auto/0` to avoid short-series failures.
@@ -13,12 +14,14 @@ All notable changes to this project will be documented in this file.
 - Optimizer: clamp perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
 - Dev: `run_optimize_equity_top5.sh` continues after per-symbol failures so later symbols still run.
 - Web UI: normalize bot status latestSignal to avoid crashes when payloads omit it (including older API versions).
+- Web UI: add maximize/restore and expand/collapse controls to collapsible panel headers, including the optimizer combos dock.
 - API: optionally push updated `top-combos.json` to another deployment via `/state/sync` (`TRADER_STATE_SYNC_URL`/`TRADER_STATE_SYNC_TENANT_KEY`).
 - Predictors: add psychological price-level proximity features (round-number clustering) to the feature set.
 - Predictors: add short/mid momentum and volatility-spread features to improve signal quality.
 - API/UI: include test-order sizing details in Binance key-check trade permission errors to debug precision rejections.
 - API/UI: include exchangeInfo error details when Binance key-check trade tests are skipped.
 - Binance: skip key-check trade tests and order placement when exchangeInfo filters are unavailable to avoid precision errors.
+- Ops/API: add tenant-scoped ops persistence and rollups; `TRADER_MULTI_USER` enforces tenantKey for `/ops` + `/ops/performance`.
 - Kalman: sensor variance now uses EWMA residuals so measurement weighting adapts faster to regime shifts.
 - Router: model scoring now uses risk-adjusted net returns (mean/vol) to avoid noisy switches.
 - Optimizer: allow `optimize-equity` to pass `--futures` through for Binance futures data.

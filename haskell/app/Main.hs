@@ -2897,6 +2897,7 @@ ensureOpsDbSchema conn = do
             conn
             ( "CREATE TABLE IF NOT EXISTS bots ("
                 <> "id BIGSERIAL PRIMARY KEY,"
+                <> "tenant_key TEXT,"
                 <> "platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,"
                 <> "symbol_id BIGINT REFERENCES platform_symbols(id) ON DELETE SET NULL,"
                 <> "symbol TEXT NOT NULL,"
@@ -2910,7 +2911,7 @@ ensureOpsDbSchema conn = do
                 <> "status_json JSONB,"
                 <> "started_at_ms BIGINT,"
                 <> "updated_at_ms BIGINT,"
-                <> "UNIQUE (platform_id, symbol, market, interval)"
+                <> "UNIQUE (tenant_key, platform_id, symbol, market, interval)"
                 <> ")"
             )
     _ <-
@@ -2980,6 +2981,7 @@ ensureOpsDbSchema conn = do
             conn
             ( "CREATE TABLE IF NOT EXISTS ops ("
                 <> "id BIGSERIAL PRIMARY KEY,"
+                <> "tenant_key TEXT,"
                 <> "at_ms BIGINT NOT NULL,"
                 <> "kind TEXT NOT NULL,"
                 <> "symbol TEXT,"
@@ -2992,14 +2994,19 @@ ensureOpsDbSchema conn = do
                 <> "git_commit_id BIGINT REFERENCES git_commits(id)"
                 <> ")"
             )
+    _ <- execute_ conn "ALTER TABLE bots ADD COLUMN IF NOT EXISTS tenant_key TEXT"
+    _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS tenant_key TEXT"
+    _ <- execute_ conn "ALTER TABLE bots DROP CONSTRAINT IF EXISTS bots_platform_id_symbol_market_interval_key"
     _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS platform_id INTEGER REFERENCES platforms(id)"
     _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS symbol_id BIGINT REFERENCES platform_symbols(id)"
     _ <- execute_ conn "ALTER TABLE ops ADD COLUMN IF NOT EXISTS git_commit_id BIGINT REFERENCES git_commits(id)"
     _ <- execute_ conn "ALTER TABLE git_commits ADD COLUMN IF NOT EXISTS committed_at_ms BIGINT"
+    _ <- execute_ conn "CREATE UNIQUE INDEX IF NOT EXISTS bots_tenant_platform_symbol_interval_idx ON bots(tenant_key, platform_id, symbol, market, interval)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_kind_idx ON ops(kind)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_combo_uuid_idx ON ops(combo_uuid)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_idx ON ops(symbol)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_platform_idx ON ops(platform_id)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_tenant_key_idx ON ops(tenant_key)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_symbol_id_idx ON ops(symbol_id)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS ops_git_commit_id_idx ON ops(git_commit_id)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS git_commits_committed_at_ms_idx ON git_commits(committed_at_ms)"
@@ -3170,6 +3177,7 @@ runOpsBackfillCommits = do
 
 opsAppend ::
     OpsStore ->
+    Maybe TenantKey ->
     Text ->
     Maybe Aeson.Value ->
     Maybe Aeson.Value ->
@@ -3179,9 +3187,10 @@ opsAppend ::
     Maybe Text ->
     Maybe Text ->
     IO PersistedOperation
-opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId = do
+opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId = do
     now <- getTimestampMs
-    let mPlatformRaw =
+    let mTenantKey' = normalizeMaybeText mTenantKey
+        mPlatformRaw =
             firstJust
                 [ inferPlatformFromJson mArgs
                 , inferPlatformFromJson mParams
@@ -3218,8 +3227,8 @@ opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
             rows <-
                 query
                     conn
-                    "INSERT INTO ops (at_ms, kind, platform_id, symbol_id, symbol, combo_uuid, order_id, params_json, args_json, result_json, equity, git_commit_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?) RETURNING id"
-                    (now, kind, mPlatformId, mSymbolId, mSymbol', mComboUuid', mOrderId', paramsJson, argsJson, resultJson, mEquity, mCommitId)
+                    "INSERT INTO ops (tenant_key, at_ms, kind, platform_id, symbol_id, symbol, combo_uuid, order_id, params_json, args_json, result_json, equity, git_commit_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?) RETURNING id"
+                    (mTenantKey', now, kind, mPlatformId, mSymbolId, mSymbol', mComboUuid', mOrderId', paramsJson, argsJson, resultJson, mEquity, mCommitId)
             let newId =
                     case rows of
                         (Only v : _) -> v
@@ -3255,6 +3264,7 @@ opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
 
 opsAppendMaybe ::
     Maybe OpsStore ->
+    Maybe TenantKey ->
     Text ->
     Maybe Aeson.Value ->
     Maybe Aeson.Value ->
@@ -3264,11 +3274,11 @@ opsAppendMaybe ::
     Maybe Text ->
     Maybe Text ->
     IO ()
-opsAppendMaybe mStore kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
+opsAppendMaybe mStore mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId =
     case mStore of
         Nothing -> pure ()
         Just store -> do
-            _ <- try (opsAppend store kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId) :: IO (Either SomeException PersistedOperation)
+            _ <- try (opsAppend store mTenantKey kind mParams mArgs mResult mEquity mComboUuid mSymbol mOrderId) :: IO (Either SomeException PersistedOperation)
             pure ()
 
 data OpsCondition = OpsCondition
@@ -3278,6 +3288,7 @@ data OpsCondition = OpsCondition
 
 opsList ::
     OpsStore ->
+    Maybe TenantKey ->
     Maybe Int64 ->
     Int ->
     Maybe Text ->
@@ -3288,15 +3299,17 @@ opsList ::
     Maybe Int64 ->
     Maybe Bool ->
     IO [PersistedOperation]
-opsList store sinceId limit mKind mSymbol mComboUuid mOrderId mFromMs mToMs mBotOnly = do
+opsList store mTenantKey sinceId limit mKind mSymbol mComboUuid mOrderId mFromMs mToMs mBotOnly = do
     let limitSafe = max 0 (min 5000 limit)
+        mTenantKey' = normalizeMaybeText mTenantKey
         mKind' = normalizeMaybeText mKind
         mSymbol' = normalizeMaybeText mSymbol
         mOrderId' = normalizeMaybeText mOrderId
         mComboUuid' = mComboUuid >>= uuidFromText
         baseConditions =
             catMaybes
-                [ fmap (\sid -> OpsCondition "id > ?" [toField sid]) sinceId
+                [ fmap (\tkey -> OpsCondition "tenant_key = ?" [toField tkey]) mTenantKey'
+                , fmap (\sid -> OpsCondition "id > ?" [toField sid]) sinceId
                 , fmap (\k -> OpsCondition "kind = ?" [toField k]) mKind'
                 , fmap (\sym -> OpsCondition "symbol = ?" [toField sym]) mSymbol'
                 , fmap (\uuid -> OpsCondition "combo_uuid = ?" [toField uuid]) mComboUuid'
@@ -3350,63 +3363,89 @@ opsPerformanceReady store =
             ((commitsReady, combosReady) : _) -> pure (OpsPerformanceReady commitsReady combosReady)
             _ -> pure (OpsPerformanceReady False False)
 
-opsPerformanceCommits :: OpsStore -> Int -> IO [PerformanceCommitDelta]
-opsPerformanceCommits store limit = do
+opsPerformanceCommits :: OpsStore -> Maybe TenantKey -> Int -> IO [PerformanceCommitDelta]
+opsPerformanceCommits store mTenantKey limit = do
     let limitSafe = max 0 (min 200 limit)
+        tenantKey' = normalizeMaybeText mTenantKey
+        (whereSql, params) =
+            case tenantKey' of
+                Nothing -> ("", [])
+                Just t -> (" WHERE tenant_key = ?", [toField t])
+        sql =
+            "SELECT git_commit_id, commit_hash, committed_at_ms, start_at_ms, end_at_ms, symbols, combos, rollups, "
+                <> "avg_return, median_return, min_return, max_return, avg_drawdown, median_drawdown, worst_drawdown, "
+                <> "status_points, order_count, sample_points, updated_at_ms, prev_commit_hash, prev_median_return, "
+                <> "delta_median_return, prev_median_drawdown, delta_median_drawdown, prev_worst_drawdown, delta_worst_drawdown "
+                <> "FROM performance_commit_deltas "
+                <> whereSql
+                <> " ORDER BY committed_at_ms DESC NULLS LAST, git_commit_id DESC "
+                <> "LIMIT ?"
+        finalParams = params ++ [toField limitSafe]
     if limitSafe <= 0
         then pure []
         else withMVar (osLock store) $ \_ ->
             query
                 (osConn store)
-                ( "SELECT git_commit_id, commit_hash, committed_at_ms, start_at_ms, end_at_ms, symbols, combos, rollups, "
-                    <> "avg_return, median_return, min_return, max_return, avg_drawdown, median_drawdown, worst_drawdown, "
-                    <> "status_points, order_count, sample_points, updated_at_ms, prev_commit_hash, prev_median_return, "
-                    <> "delta_median_return, prev_median_drawdown, delta_median_drawdown, prev_worst_drawdown, delta_worst_drawdown "
-                    <> "FROM performance_commit_deltas "
-                    <> "ORDER BY committed_at_ms DESC NULLS LAST, git_commit_id DESC "
-                    <> "LIMIT ?"
-                )
-                (Only limitSafe)
+                (fromString sql)
+                finalParams
 
-opsPerformanceCombos :: OpsStore -> Int -> Text -> Text -> IO [PerformanceComboDelta]
-opsPerformanceCombos store limit scope order = do
+opsPerformanceCombos :: OpsStore -> Maybe TenantKey -> Int -> Text -> Text -> IO [PerformanceComboDelta]
+opsPerformanceCombos store mTenantKey limit scope order = do
     let limitSafe = max 0 (min 200 limit)
         scopeNorm = T.toLower (T.strip scope)
         orderNorm = T.toLower (T.strip order)
-        scopeSql =
+        tenantKey' = normalizeMaybeText mTenantKey
+        (tenantWhere, tenantParams) =
+            case tenantKey' of
+                Nothing -> ("", [])
+                Just t -> ("tenant_key = ?", [toField t])
+        scopeClause =
             if scopeNorm == "all"
                 then ""
                 else
-                    "WHERE committed_at_ms = ("
-                        <> "SELECT committed_at_ms FROM performance_combo_deltas "
-                        <> "WHERE committed_at_ms IS NOT NULL "
-                        <> "ORDER BY committed_at_ms DESC NULLS LAST LIMIT 1"
-                        <> ")"
+                    let subWhere =
+                            case tenantWhere of
+                                "" -> "WHERE committed_at_ms IS NOT NULL "
+                                _ -> "WHERE " <> tenantWhere <> " AND committed_at_ms IS NOT NULL "
+                     in "committed_at_ms = ("
+                            <> "SELECT committed_at_ms FROM performance_combo_deltas "
+                            <> subWhere
+                            <> "ORDER BY committed_at_ms DESC NULLS LAST LIMIT 1"
+                            <> ")"
+        conditions = filter (not . null) [tenantWhere, scopeClause]
+        whereSql =
+            if null conditions
+                then ""
+                else " WHERE " <> intercalate " AND " conditions
         orderSql =
             case orderNorm of
                 "recent" -> "ORDER BY committed_at_ms DESC NULLS LAST, git_commit_id DESC"
                 "return" -> "ORDER BY return DESC NULLS LAST"
                 _ -> "ORDER BY delta_return ASC NULLS LAST"
+        sql =
+            "SELECT git_commit_id, commit_hash, committed_at_ms, symbol, market, interval, combo_uuid::text, "
+                <> "start_at_ms, end_at_ms, first_equity, last_equity, return, max_drawdown, status_points, order_count, "
+                <> "sample_points, updated_at_ms, prev_commit_hash, prev_return, delta_return, prev_max_drawdown, delta_drawdown "
+                <> "FROM performance_combo_deltas "
+                <> whereSql
+                <> " "
+                <> orderSql
+                <> " LIMIT ?"
+        extraTenantParams =
+            case (tenantKey', scopeNorm == "all") of
+                (Just _, False) -> tenantParams
+                _ -> []
+        finalParams = tenantParams ++ extraTenantParams ++ [toField limitSafe]
     if limitSafe <= 0
         then pure []
         else withMVar (osLock store) $ \_ ->
             query
                 (osConn store)
-                ( fromString
-                    ( "SELECT git_commit_id, commit_hash, committed_at_ms, symbol, market, interval, combo_uuid::text, "
-                        <> "start_at_ms, end_at_ms, first_equity, last_equity, return, max_drawdown, status_points, order_count, "
-                        <> "sample_points, updated_at_ms, prev_commit_hash, prev_return, delta_return, prev_max_drawdown, delta_drawdown "
-                        <> "FROM performance_combo_deltas "
-                        <> scopeSql
-                        <> " "
-                        <> orderSql
-                        <> " LIMIT ?"
-                    )
-                )
-                (Only limitSafe)
+                (fromString sql)
+                finalParams
 
-binanceOpsLogger :: OpsStore -> BinanceLog -> IO ()
-binanceOpsLogger store entry = do
+binanceOpsLogger :: OpsStore -> Maybe TenantKey -> BinanceLog -> IO ()
+binanceOpsLogger store mTenantKey entry = do
     let params =
             object
                 [ "label" .= blLabel entry
@@ -3424,17 +3463,18 @@ binanceOpsLogger store entry = do
                 ]
         mSymbol = lookup "symbol" (blParams entry)
         mOrderId = lookup "orderId" (blParams entry)
-    opsAppendMaybe (Just store) "binance.request" (Just params) Nothing (Just result) Nothing Nothing mSymbol mOrderId
+    opsAppendMaybe (Just store) mTenantKey "binance.request" (Just params) Nothing (Just result) Nothing Nothing mSymbol mOrderId
 
-attachBinanceLogger :: Maybe OpsStore -> BinanceEnv -> BinanceEnv
-attachBinanceLogger mOps env =
+attachBinanceLogger :: Maybe OpsStore -> Maybe TenantKey -> BinanceEnv -> BinanceEnv
+attachBinanceLogger mOps mTenantKey env =
     case mOps of
         Nothing -> env
-        Just store -> env{beLogger = Just (binanceOpsLogger store)}
+        Just store -> env{beLogger = Just (binanceOpsLogger store mTenantKey)}
 
 newBinanceEnvWithOps :: Maybe OpsStore -> BinanceMarket -> String -> Maybe BS.ByteString -> Maybe BS.ByteString -> IO BinanceEnv
 newBinanceEnvWithOps mOps market baseUrl apiKey apiSecret =
-    attachBinanceLogger mOps <$> newBinanceEnv market baseUrl apiKey apiSecret
+    let mTenantKey = tenantKeyFromBinanceKeys (BS.unpack <$> apiKey) (BS.unpack <$> apiSecret)
+     in attachBinanceLogger mOps mTenantKey <$> newBinanceEnv market baseUrl apiKey apiSecret
 
 botStatusLogIntervalMs :: Int64
 botStatusLogIntervalMs = 60000
@@ -3464,6 +3504,7 @@ botStatusLogMaybe mOps running st = do
                 ]
     opsAppendMaybe
         mOps
+        (Just (botTenantKey st))
         "bot.status"
         Nothing
         (Just (argsPublicJson args))
@@ -3486,6 +3527,7 @@ persistBotSnapshot :: OpsStore -> Bool -> BotState -> Aeson.Value -> IO ()
 persistBotSnapshot store running st statusJson =
     withMVar (osLock store) $ \_ -> do
         let args = botArgs st
+            tenantKey = botTenantKey st
             platformCodeText = normalizePlatformText (T.pack (platformCode (argPlatform args)))
             symbolRaw = T.pack (botSymbol st)
             mSymbolSanitized = sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw
@@ -3510,9 +3552,9 @@ persistBotSnapshot store running st statusJson =
                 rows <-
                     query
                         conn
-                        ( "INSERT INTO bots (platform_id, symbol_id, symbol, market, interval, live, trade_enabled, running, combo_uuid, args_json, status_json, started_at_ms, updated_at_ms) "
-                            <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?) "
-                            <> "ON CONFLICT (platform_id, symbol, market, interval) DO UPDATE "
+                        ( "INSERT INTO bots (tenant_key, platform_id, symbol_id, symbol, market, interval, live, trade_enabled, running, combo_uuid, args_json, status_json, started_at_ms, updated_at_ms) "
+                            <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?) "
+                            <> "ON CONFLICT (tenant_key, platform_id, symbol, market, interval) DO UPDATE "
                             <> "SET symbol_id = EXCLUDED.symbol_id, "
                             <> "live = EXCLUDED.live, "
                             <> "trade_enabled = EXCLUDED.trade_enabled, "
@@ -3523,7 +3565,8 @@ persistBotSnapshot store running st statusJson =
                             <> "updated_at_ms = EXCLUDED.updated_at_ms "
                             <> "RETURNING id"
                         )
-                        ( platformId
+                        ( tenantKey
+                        , platformId
                         , mSymbolId
                         , symbolText
                         , marketText
@@ -5306,6 +5349,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
             journalWriteMaybe mJournal (object ["type" .= ("bot.start_failed" :: String), "atMs" .= now, "error" .= show ex])
             opsAppendMaybe
                 mOps
+                (Just tenantKey)
                 "bot.start_failed"
                 Nothing
                 (Just (argsPublicJson args))
@@ -5336,6 +5380,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
                         else V.last (botEquityCurve st0)
             opsAppendMaybe
                 mOps
+                (Just tenantKey)
                 "bot.started"
                 Nothing
                 (Just (argsPublicJson (botArgs st0)))
@@ -6640,7 +6685,7 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
 
     let sleepSec s = threadDelay (max 1 s * 1000000)
 
-        recordError kind msg sym interval mComboUuid = do
+        recordError kind msg tenantKey sym interval mComboUuid = do
             prev <- readIORef lastErrRef
             let cur = Just (kind, msg)
             if prev == cur
@@ -6661,6 +6706,7 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
                         )
                     opsAppendMaybe
                         mOps
+                        (Just tenantKey)
                         (T.pack kind)
                         Nothing
                         Nothing
@@ -6682,15 +6728,15 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
                         interval = argInterval (botArgs st)
                     combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
                     case combosOrErr of
-                        Left e -> recordError "bot.combo.sync_failed" e sym interval (botComboUuid st)
+                        Left e -> recordError "bot.combo.sync_failed" e (botTenantKey st) sym interval (botComboUuid st)
                         Right export ->
                             case bestTopComboForSymbol sym (Just interval) export of
-                                Nothing -> recordError "bot.combo.sync_failed" "No top combo for symbol+interval." sym interval (botComboUuid st)
+                                Nothing -> recordError "bot.combo.sync_failed" "No top combo for symbol+interval." (botTenantKey st) sym interval (botComboUuid st)
                                 Just bestCombo -> do
                                     clearError
                                     updOrErr <- buildOptimizerUpdate st bestCombo
                                     case updOrErr of
-                                        Left e -> recordError "bot.combo.apply_failed" e sym interval (botComboUuid st)
+                                        Left e -> recordError "bot.combo.apply_failed" e (botTenantKey st) sym interval (botComboUuid st)
                                         Right upd -> do
                                             let argsChanged = bouArgs upd /= botArgs st || bouLookback upd /= botLookback st
                                                 ctxChanged = isJust (bouLstmCtx upd) || isJust (bouKalmanCtx upd)
@@ -6700,6 +6746,7 @@ botOptimizerLoop mOps _metrics mJournal topCombosStore stVar stopSig pending = d
                                                     now <- getTimestampMs
                                                     opsAppendMaybe
                                                         mOps
+                                                        (Just (botTenantKey st))
                                                         "bot.optimizer.best"
                                                         Nothing
                                                         (Just (argsPublicJson (botArgs st)))
@@ -6746,6 +6793,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                         )
                     opsAppendMaybe
                         mOps
+                        Nothing
                         "optimizer.auto.platform_unsupported"
                         Nothing
                         (Just (argsPublicJson baseArgs))
@@ -6776,6 +6824,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                 )
                             opsAppendMaybe
                                 mOps
+                                Nothing
                                 "optimizer.auto.missing_script"
                                 Nothing
                                 Nothing
@@ -6988,6 +7037,7 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                             now <- getTimestampMs
                                                                                             opsAppendMaybe
                                                                                                 mOps
+                                                                                                Nothing
                                                                                                 "optimizer.auto.updated"
                                                                                                 Nothing
                                                                                                 (Just (object ["symbol" .= sym, "interval" .= interval]))
@@ -7047,7 +7097,7 @@ backtestTopCombosOnce topNRaw ctx = do
         recordEvent kind details = do
             now <- getTimestampMs
             journalWriteMaybe mJournal (object ("type" .= kind : "atMs" .= now : details))
-            opsAppendMaybe mOps (T.pack kind) Nothing Nothing (Just (object details)) Nothing Nothing Nothing Nothing
+            opsAppendMaybe mOps Nothing (T.pack kind) Nothing Nothing (Just (object details)) Nothing Nothing Nothing Nothing
 
         recordError :: String -> String -> Maybe String -> Maybe String -> IO ()
         recordError kind err sym interval = do
@@ -8003,6 +8053,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                     )
                 opsAppendMaybe
                     mOps
+                    (Just (botTenantKey st))
                     "bot.order"
                     Nothing
                     (Just (argsPublicJson args))
@@ -8154,6 +8205,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             )
                         opsAppendMaybe
                             mOps
+                            (Just (botTenantKey st))
                             "bot.order"
                             Nothing
                             (Just (argsPublicJson args))
@@ -8196,6 +8248,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 )
             opsAppendMaybe
                 mOps
+                (Just (botTenantKey st))
                 "bot.halt"
                 Nothing
                 (Just (argsPublicJson args))
@@ -8413,6 +8466,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 )
             opsAppendMaybe
                 mOps
+                (Just (botTenantKey stOut))
                 "bot.adjust"
                 Nothing
                 (Just (argsPublicJson args))
@@ -8446,6 +8500,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                 Nothing
     opsAppendMaybe
         mOps
+        (Just (botTenantKey stOut))
         "bot.bar"
         Nothing
         (Just (argsPublicJson (botArgs stOut)))
@@ -8491,6 +8546,7 @@ runRestApi baseArgs mWebhook = do
     mCommit <- getBuildCommit
     let buildInfo = BuildInfo traderVersion mCommit
     apiToken <- fmap BS.pack <$> lookupEnv "TRADER_API_TOKEN"
+    multiUserEnv <- lookupEnv "TRADER_MULTI_USER"
     corsConfig <- resolveCorsConfig apiToken
     timeoutEnv <- lookupEnv "TRADER_API_TIMEOUT_SEC"
     maxAsyncRunningEnv <- lookupEnv "TRADER_API_MAX_ASYNC_RUNNING"
@@ -8503,7 +8559,8 @@ runRestApi baseArgs mWebhook = do
     maxHiddenSizeEnv <- lookupEnv "TRADER_API_MAX_HIDDEN_SIZE"
     maxBodyBytesEnv <- lookupEnv "TRADER_API_MAX_BODY_BYTES"
     maxOptimizerOutputBytesEnv <- lookupEnv "TRADER_API_MAX_OPTIMIZER_OUTPUT_BYTES"
-    let timeoutSec =
+    let multiUserEnabled = readEnvBool multiUserEnv False
+        timeoutSec =
             case timeoutEnv >>= readMaybe of
                 Just n | n >= 0 -> n
                 _ -> 1800
@@ -8610,6 +8667,11 @@ runRestApi baseArgs mWebhook = do
             cacheTtlMs
             cacheMaxEntries
         )
+    let multiUserLabel =
+            if multiUserEnabled
+                then "enabled (tenant-key required for /ops and /ops/performance)"
+                else "disabled"
+    putStrLn ("Multi-user mode: " ++ multiUserLabel)
     projectRoot <- getCurrentDirectory
     mStateDir <- stateDirFromEnv
     let tmpRoot = projectRoot </> ".tmp"
@@ -8667,7 +8729,7 @@ runRestApi baseArgs mWebhook = do
             putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
     now <- getTimestampMs
     journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
-    opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
+    opsAppendMaybe mOps Nothing "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
     autoBotKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey baseArgs)
     autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
     let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
@@ -8686,7 +8748,7 @@ runRestApi baseArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
+            (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
             IO (Either IOException ())
         )
     case res of
@@ -8781,7 +8843,7 @@ runRestApi baseArgs mWebhook = do
             putStrLn (printf "Async job persistence enabled: %s%s" dir suffix)
     now <- getTimestampMs
     journalWriteMaybe mJournal (object ["type" .= ("server.start" :: String), "atMs" .= now, "port" .= port])
-    opsAppendMaybe mOps "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
+    opsAppendMaybe mOps Nothing "server.start" Nothing Nothing (Just (object ["port" .= port])) Nothing Nothing Nothing Nothing
     autoBotKey <- resolveEnv "BINANCE_API_KEY" (argBinanceApiKey baseArgs)
     autoBotSecret <- resolveEnv "BINANCE_API_SECRET" (argBinanceApiSecret baseArgs)
     let mAutoBotTenant = tenantKeyFromBinanceKeys autoBotKey autoBotSecret
@@ -8800,7 +8862,7 @@ runRestApi baseArgs mWebhook = do
     hFlush stdout
     res <-
         ( try
-                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
+                (Warp.runSettings settings (apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled bot metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx (AsyncStores asyncSignal asyncBacktest asyncTrade) projectRoot topCombosStore optimizerTmp)) ::
                 IO (Either IOException ())
             )
     case res of
@@ -9780,6 +9842,7 @@ apiApp ::
     Args ->
     Maybe BS.ByteString ->
     CorsConfig ->
+    Bool ->
     BotController ->
     Metrics ->
     Maybe Journal ->
@@ -9798,7 +9861,7 @@ apiApp ::
     TopCombosStore ->
     FilePath ->
     Wai.Application
-apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot topCombosStore optimizerTmp req respond = do
+apiApp buildInfo baseArgs apiToken corsConfig multiUserEnabled botCtrl metrics mJournal mWebhook mOps mStateSyncTarget listenKeyManager mBotStateDir limits reqLimits apiCache backtestGate topCombosCtx asyncStores projectRoot topCombosStore optimizerTmp req respond = do
     startMs <- getTimestampMs
     let rawPath = Wai.pathInfo req
         path =
@@ -9934,11 +9997,11 @@ apiApp buildInfo baseArgs apiToken corsConfig botCtrl metrics mJournal mWebhook 
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["ops"] ->
                                 case Wai.requestMethod req of
-                                    "GET" -> handleOps mOps req respondCors
+                                    "GET" -> handleOps multiUserEnabled mOps req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["ops", "performance"] ->
                                 case Wai.requestMethod req of
-                                    "GET" -> handleOpsPerformance mOps req respondCors
+                                    "GET" -> handleOpsPerformance multiUserEnabled mOps req respondCors
                                     _ -> respondCors (jsonError status405 "Method not allowed")
                             ["cache"] ->
                                 case Wai.requestMethod req of
@@ -11885,8 +11948,8 @@ handleMetrics metrics botCtrl respond = do
     body <- renderMetricsText metrics (not (null states))
     respond (textValue status200 body)
 
-handleOps :: Maybe OpsStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleOps mOps req respond =
+handleOps :: Bool -> Maybe OpsStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleOps multiUserEnabled mOps req respond =
     case mOps of
         Nothing ->
             respond
@@ -11900,40 +11963,47 @@ handleOps mOps req respond =
                     )
                 )
         Just store -> do
-            let q = Wai.queryString req
-                lookupParam name =
-                    case lookup (BS.pack name) q of
-                        Just (Just raw) -> Just raw
-                        _ -> Nothing
-                readIntParam name =
-                    lookupParam name >>= (readMaybe . BS.unpack)
-                readBoolParam name =
-                    case fmap (map toLower . BS.unpack) (lookupParam name) of
-                        Just "1" -> Just True
-                        Just "true" -> Just True
-                        Just "yes" -> Just True
-                        Just "y" -> Just True
-                        Just "only" -> Just True
-                        Just "0" -> Just False
-                        Just "false" -> Just False
-                        Just "no" -> Just False
-                        Just "n" -> Just False
-                        _ -> Nothing
-                limit = fromMaybe 200 (readIntParam "limit")
-                sinceId = readIntParam "since"
-                kind = T.pack . BS.unpack <$> lookupParam "kind"
-                symbol = T.pack . BS.unpack <$> lookupParam "symbol"
-                comboUuid = T.pack . BS.unpack <$> lookupParam "comboUuid"
-                orderId = T.pack . BS.unpack <$> lookupParam "orderId"
-                fromMs = readIntParam "fromMs"
-                toMs = readIntParam "toMs"
-                botOnly = readBoolParam "bot"
-            ops <- opsList store sinceId limit kind symbol comboUuid orderId fromMs toMs botOnly
-            latestId <- readIORef (osLatestId store)
-            respond (jsonValue status200 (object ["enabled" .= True, "latestId" .= latestId, "ops" .= ops]))
+            let tenantResult =
+                    if multiUserEnabled
+                        then Just <$> requireTenantKey "ops" (tenantKeyFromRequest req)
+                        else Right (tenantKeyFromRequest req)
+            case tenantResult of
+                Left e -> respond (jsonError status400 e)
+                Right mTenantKey -> do
+                    let q = Wai.queryString req
+                        lookupParam name =
+                            case lookup (BS.pack name) q of
+                                Just (Just raw) -> Just raw
+                                _ -> Nothing
+                        readIntParam name =
+                            lookupParam name >>= (readMaybe . BS.unpack)
+                        readBoolParam name =
+                            case fmap (map toLower . BS.unpack) (lookupParam name) of
+                                Just "1" -> Just True
+                                Just "true" -> Just True
+                                Just "yes" -> Just True
+                                Just "y" -> Just True
+                                Just "only" -> Just True
+                                Just "0" -> Just False
+                                Just "false" -> Just False
+                                Just "no" -> Just False
+                                Just "n" -> Just False
+                                _ -> Nothing
+                        limit = fromMaybe 200 (readIntParam "limit")
+                        sinceId = readIntParam "since"
+                        kind = T.pack . BS.unpack <$> lookupParam "kind"
+                        symbol = T.pack . BS.unpack <$> lookupParam "symbol"
+                        comboUuid = T.pack . BS.unpack <$> lookupParam "comboUuid"
+                        orderId = T.pack . BS.unpack <$> lookupParam "orderId"
+                        fromMs = readIntParam "fromMs"
+                        toMs = readIntParam "toMs"
+                        botOnly = readBoolParam "bot"
+                    ops <- opsList store mTenantKey sinceId limit kind symbol comboUuid orderId fromMs toMs botOnly
+                    latestId <- readIORef (osLatestId store)
+                    respond (jsonValue status200 (object ["enabled" .= True, "latestId" .= latestId, "ops" .= ops]))
 
-handleOpsPerformance :: Maybe OpsStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleOpsPerformance mOps req respond =
+handleOpsPerformance :: Bool -> Maybe OpsStore -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
+handleOpsPerformance multiUserEnabled mOps req respond =
     case mOps of
         Nothing ->
             respond
@@ -11952,51 +12022,58 @@ handleOpsPerformance mOps req respond =
                     )
                 )
         Just store -> do
-            let q = Wai.queryString req
-                lookupParam name =
-                    case lookup (BS.pack name) q of
-                        Just (Just raw) -> Just raw
-                        _ -> Nothing
-                readIntParam name =
-                    lookupParam name >>= (readMaybe . BS.unpack)
-                readTextParam name =
-                    T.pack . BS.unpack <$> lookupParam name
-                limitParam name def =
-                    case readIntParam name of
-                        Nothing -> def
-                        Just n -> max 0 (min 200 n)
-                commitLimit = limitParam "commitLimit" 40
-                comboLimit = limitParam "comboLimit" 40
-                comboScope = fromMaybe "latest" (readTextParam "comboScope")
-                comboOrder = fromMaybe "delta" (readTextParam "comboOrder")
-            now <- getTimestampMs
-            ready <- opsPerformanceReady store
-            let commitsReady = oprCommitsReadyFlag ready
-                combosReady = oprCombosReadyFlag ready
-                baseHint =
-                    if commitsReady
-                        then
-                            if combosReady
-                                then Nothing
-                                else Just "Combo deltas are unavailable; rerun rollup_performance.sh to create the views."
-                        else Just "Performance rollups are unavailable; run haskell/scripts/rollup_performance.sh to build them."
-            commits <- if commitsReady then opsPerformanceCommits store commitLimit else pure []
-            combos <- if combosReady then opsPerformanceCombos store comboLimit comboScope comboOrder else pure []
-            respond
-                ( jsonValue
-                    status200
-                    ( OpsPerformanceResponse
-                        { oprEnabled = True
-                        , oprReady = commitsReady
-                        , oprCommitsReady = commitsReady
-                        , oprCombosReady = combosReady
-                        , oprHint = baseHint
-                        , oprUpdatedAtMs = Just now
-                        , oprCommits = commits
-                        , oprCombos = combos
-                        }
-                    )
-                )
+            let tenantResult =
+                    if multiUserEnabled
+                        then Just <$> requireTenantKey "ops/performance" (tenantKeyFromRequest req)
+                        else Right (tenantKeyFromRequest req)
+            case tenantResult of
+                Left e -> respond (jsonError status400 e)
+                Right mTenantKey -> do
+                    let q = Wai.queryString req
+                        lookupParam name =
+                            case lookup (BS.pack name) q of
+                                Just (Just raw) -> Just raw
+                                _ -> Nothing
+                        readIntParam name =
+                            lookupParam name >>= (readMaybe . BS.unpack)
+                        readTextParam name =
+                            T.pack . BS.unpack <$> lookupParam name
+                        limitParam name def =
+                            case readIntParam name of
+                                Nothing -> def
+                                Just n -> max 0 (min 200 n)
+                        commitLimit = limitParam "commitLimit" 40
+                        comboLimit = limitParam "comboLimit" 40
+                        comboScope = fromMaybe "latest" (readTextParam "comboScope")
+                        comboOrder = fromMaybe "delta" (readTextParam "comboOrder")
+                    now <- getTimestampMs
+                    ready <- opsPerformanceReady store
+                    let commitsReady = oprCommitsReadyFlag ready
+                        combosReady = oprCombosReadyFlag ready
+                        baseHint =
+                            if commitsReady
+                                then
+                                    if combosReady
+                                        then Nothing
+                                        else Just "Combo deltas are unavailable; rerun rollup_performance.sh to create the views."
+                                else Just "Performance rollups are unavailable; run haskell/scripts/rollup_performance.sh to build them."
+                    commits <- if commitsReady then opsPerformanceCommits store mTenantKey commitLimit else pure []
+                    combos <- if combosReady then opsPerformanceCombos store mTenantKey comboLimit comboScope comboOrder else pure []
+                    respond
+                        ( jsonValue
+                            status200
+                            ( OpsPerformanceResponse
+                                { oprEnabled = True
+                                , oprReady = commitsReady
+                                , oprCommitsReady = commitsReady
+                                , oprCombosReady = combosReady
+                                , oprHint = baseHint
+                                , oprUpdatedAtMs = Just now
+                                , oprCommits = commits
+                                , oprCombos = combos
+                                }
+                            )
+                        )
 
 handleSignal :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
@@ -12004,46 +12081,57 @@ handleSignal reqLimits apiCache mOps limits baseArgs req respond = do
     case payloadOrErr of
         Left resp -> respond resp
         Right params ->
-            case argsFromApi baseArgs params of
-                Left e -> respond (jsonError status400 e)
-                Right args0 -> do
-                    let args =
-                            args0
-                                { argTradeOnly = True
-                                , argBinanceTrade = False
-                                , argSweepThreshold = False
-                                , argOptimizeOperations = False
-                                }
-                    case validateArgs args of
-                        Left e -> respond (jsonError status400 e)
-                        Right args1 -> do
-                            case validateApiComputeLimits limits args1 of
-                                Left e -> respond (jsonError status400 e)
-                                Right argsOk -> do
-                                    let noCache = requestWantsNoCache req
-                                    r <-
-                                        try
-                                            ( if noCache
-                                                then computeLatestSignalFromArgsWithLimits limits mOps argsOk
-                                                else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
-                                            ) ::
-                                            IO (Either SomeException LatestSignal)
-                                    case r of
-                                        Left ex ->
-                                            let (st, msg) = exceptionToHttp ex
-                                             in respond (jsonError st msg)
-                                        Right sig -> do
-                                            opsAppendMaybe
-                                                mOps
-                                                "signal"
-                                                (Just (toJSON (sanitizeApiParams params)))
-                                                (Just (argsPublicJson argsOk))
-                                                (Just (toJSON sig))
-                                                Nothing
-                                                Nothing
-                                                (T.pack <$> argBinanceSymbol argsOk)
-                                                Nothing
-                                            respond (jsonValue status200 sig)
+            let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+             in case resolveTenantKeyFromParams
+                    tenantHint
+                    (apBinanceApiKey params)
+                    (apBinanceApiSecret params)
+                    (apCoinbaseApiKey params)
+                    (apCoinbaseApiSecret params)
+                    (apCoinbaseApiPassphrase params) of
+                    Left e -> respond (jsonError status400 e)
+                    Right mReqTenant ->
+                        case argsFromApi baseArgs params of
+                            Left e -> respond (jsonError status400 e)
+                            Right args0 -> do
+                                let args =
+                                        args0
+                                            { argTradeOnly = True
+                                            , argBinanceTrade = False
+                                            , argSweepThreshold = False
+                                            , argOptimizeOperations = False
+                                            }
+                                case validateArgs args of
+                                    Left e -> respond (jsonError status400 e)
+                                    Right args1 -> do
+                                        case validateApiComputeLimits limits args1 of
+                                            Left e -> respond (jsonError status400 e)
+                                            Right argsOk -> do
+                                                let noCache = requestWantsNoCache req
+                                                r <-
+                                                    try
+                                                        ( if noCache
+                                                            then computeLatestSignalFromArgsWithLimits limits mOps argsOk
+                                                            else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
+                                                        ) ::
+                                                        IO (Either SomeException LatestSignal)
+                                                case r of
+                                                    Left ex ->
+                                                        let (st, msg) = exceptionToHttp ex
+                                                         in respond (jsonError st msg)
+                                                    Right sig -> do
+                                                        opsAppendMaybe
+                                                            mOps
+                                                            mReqTenant
+                                                            "signal"
+                                                            (Just (toJSON (sanitizeApiParams params)))
+                                                            (Just (argsPublicJson argsOk))
+                                                            (Just (toJSON sig))
+                                                            Nothing
+                                                            Nothing
+                                                            (T.pack <$> argBinanceSymbol argsOk)
+                                                            Nothing
+                                                        respond (jsonValue status200 sig)
 
 handleSignalAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> JobStore LatestSignal -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
@@ -12051,36 +12139,46 @@ handleSignalAsync reqLimits apiCache mOps limits store baseArgs req respond = do
     case payloadOrErr of
         Left resp -> respond resp
         Right params ->
-            case argsFromApi baseArgs params of
-                Left e -> respond (jsonError status400 e)
-                Right args0 -> do
-                    let args =
-                            args0
-                                { argTradeOnly = True
-                                , argBinanceTrade = False
-                                , argSweepThreshold = False
-                                , argOptimizeOperations = False
-                                }
-                    case validateArgs args of
-                        Left e -> respond (jsonError status400 e)
-                        Right args1 -> do
-                            case validateApiComputeLimits limits args1 of
-                                Left e -> respond (jsonError status400 e)
-                                Right argsOk -> do
-                                    let paramsJson = Just (toJSON (sanitizeApiParams params))
-                                        argsJson = Just (argsPublicJson argsOk)
-                                        noCache = requestWantsNoCache req
-                                    r <-
-                                        startJob store $ do
-                                            sig <-
-                                                if noCache
-                                                    then computeLatestSignalFromArgsWithLimits limits mOps argsOk
-                                                    else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
-                                            opsAppendMaybe mOps "signal" paramsJson argsJson (Just (toJSON sig)) Nothing Nothing (T.pack <$> argBinanceSymbol argsOk) Nothing
-                                            pure sig
-                                    case r of
-                                        Left e -> respond (jsonError status429 e)
-                                        Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
+            let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+             in case resolveTenantKeyFromParams
+                    tenantHint
+                    (apBinanceApiKey params)
+                    (apBinanceApiSecret params)
+                    (apCoinbaseApiKey params)
+                    (apCoinbaseApiSecret params)
+                    (apCoinbaseApiPassphrase params) of
+                    Left e -> respond (jsonError status400 e)
+                    Right mReqTenant ->
+                        case argsFromApi baseArgs params of
+                            Left e -> respond (jsonError status400 e)
+                            Right args0 -> do
+                                let args =
+                                        args0
+                                            { argTradeOnly = True
+                                            , argBinanceTrade = False
+                                            , argSweepThreshold = False
+                                            , argOptimizeOperations = False
+                                            }
+                                case validateArgs args of
+                                    Left e -> respond (jsonError status400 e)
+                                    Right args1 -> do
+                                        case validateApiComputeLimits limits args1 of
+                                            Left e -> respond (jsonError status400 e)
+                                            Right argsOk -> do
+                                                let paramsJson = Just (toJSON (sanitizeApiParams params))
+                                                    argsJson = Just (argsPublicJson argsOk)
+                                                    noCache = requestWantsNoCache req
+                                                r <-
+                                                    startJob store $ do
+                                                        sig <-
+                                                            if noCache
+                                                                then computeLatestSignalFromArgsWithLimits limits mOps argsOk
+                                                                else computeLatestSignalFromArgsCached apiCache limits mOps argsOk
+                                                        opsAppendMaybe mOps mReqTenant "signal" paramsJson argsJson (Just (toJSON sig)) Nothing Nothing (T.pack <$> argBinanceSymbol argsOk) Nothing
+                                                        pure sig
+                                                case r of
+                                                    Left e -> respond (jsonError status429 e)
+                                                    Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 handleTrade :: ApiRequestLimits -> Maybe OpsStore -> ApiComputeLimits -> Metrics -> Maybe Journal -> Maybe Webhook -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond = do
@@ -12126,6 +12224,10 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                                                                 case mReqTenant of
                                                                     Nothing -> True
                                                                     Just _ -> ownerMatch
+                                                    mOpsTenant =
+                                                        if useServerKeys
+                                                            then mServerTenant
+                                                            else mReqTenant
                                                     needsUserKeys =
                                                         case (argPlatform argsOk, mReqTenant) of
                                                             (PlatformBinance, Just _) -> not useServerKeys
@@ -12173,6 +12275,7 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                                                                     )
                                                                 opsAppendMaybe
                                                                     mOps
+                                                                    mOpsTenant
                                                                     "trade.order"
                                                                     (Just (toJSON (sanitizeApiParams params)))
                                                                     (Just (argsPublicJson argsFinal))
@@ -12228,6 +12331,10 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                                 case mReqTenant of
                                                                     Nothing -> True
                                                                     Just _ -> ownerMatch
+                                                    mOpsTenant =
+                                                        if useServerKeys
+                                                            then mServerTenant
+                                                            else mReqTenant
                                                     needsUserKeys =
                                                         case (argPlatform argsOk, mReqTenant) of
                                                             (PlatformBinance, Just _) -> not useServerKeys
@@ -12274,6 +12381,7 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                                     )
                                                                 opsAppendMaybe
                                                                     mOps
+                                                                    mOpsTenant
                                                                     "trade.order"
                                                                     paramsJson
                                                                     argsJson
@@ -12301,42 +12409,53 @@ handleBacktest reqLimits apiCache mOps limits backtestGate baseArgs req respond 
     case payloadOrErr of
         Left resp -> respond resp
         Right params ->
-            case argsFromApi baseArgs params of
-                Left e -> respond (jsonError status400 e)
-                Right args0 -> do
-                    let args =
-                            args0
-                                { argTradeOnly = False
-                                , argBinanceTrade = False
-                                , argOptimizeOperations = fromMaybe (argOptimizeOperations args0) (apOptimizeOperations params)
-                                , argSweepThreshold = fromMaybe (argSweepThreshold args0) (apSweepThreshold params)
-                                , argBacktestRatio = fromMaybe (argBacktestRatio args0) (apBacktestRatio params)
-                                }
-                    case validateApiComputeLimits limits args of
-                        Left e -> respond (jsonError status400 e)
-                        Right argsOk -> do
-                            let noCache = requestWantsNoCache req
-                                computeAction =
-                                    if noCache
-                                        then computeBacktestFromArgsWithLimits limits mOps argsOk
-                                        else computeBacktestFromArgsCached apiCache limits mOps argsOk
-                            r <- runBacktestWithGateWait backtestGate computeAction
-                            case r of
-                                Left failure ->
-                                    let (st, msg) = backtestFailureToHttp backtestGate failure
-                                     in respond (jsonError st msg)
-                                Right out -> do
-                                    opsAppendMaybe
-                                        mOps
-                                        "backtest"
-                                        (Just (toJSON (sanitizeApiParams params)))
-                                        (Just (argsPublicJson argsOk))
-                                        (Just out)
-                                        (extractBacktestFinalEquity out)
-                                        Nothing
-                                        (T.pack <$> argBinanceSymbol argsOk)
-                                        Nothing
-                                    respond (jsonValue status200 out)
+            let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+             in case resolveTenantKeyFromParams
+                    tenantHint
+                    (apBinanceApiKey params)
+                    (apBinanceApiSecret params)
+                    (apCoinbaseApiKey params)
+                    (apCoinbaseApiSecret params)
+                    (apCoinbaseApiPassphrase params) of
+                    Left e -> respond (jsonError status400 e)
+                    Right mReqTenant ->
+                        case argsFromApi baseArgs params of
+                            Left e -> respond (jsonError status400 e)
+                            Right args0 -> do
+                                let args =
+                                        args0
+                                            { argTradeOnly = False
+                                            , argBinanceTrade = False
+                                            , argOptimizeOperations = fromMaybe (argOptimizeOperations args0) (apOptimizeOperations params)
+                                            , argSweepThreshold = fromMaybe (argSweepThreshold args0) (apSweepThreshold params)
+                                            , argBacktestRatio = fromMaybe (argBacktestRatio args0) (apBacktestRatio params)
+                                            }
+                                case validateApiComputeLimits limits args of
+                                    Left e -> respond (jsonError status400 e)
+                                    Right argsOk -> do
+                                        let noCache = requestWantsNoCache req
+                                            computeAction =
+                                                if noCache
+                                                    then computeBacktestFromArgsWithLimits limits mOps argsOk
+                                                    else computeBacktestFromArgsCached apiCache limits mOps argsOk
+                                        r <- runBacktestWithGateWait backtestGate computeAction
+                                        case r of
+                                            Left failure ->
+                                                let (st, msg) = backtestFailureToHttp backtestGate failure
+                                                 in respond (jsonError st msg)
+                                            Right out -> do
+                                                opsAppendMaybe
+                                                    mOps
+                                                    mReqTenant
+                                                    "backtest"
+                                                    (Just (toJSON (sanitizeApiParams params)))
+                                                    (Just (argsPublicJson argsOk))
+                                                    (Just out)
+                                                    (extractBacktestFinalEquity out)
+                                                    Nothing
+                                                    (T.pack <$> argBinanceSymbol argsOk)
+                                                    Nothing
+                                                respond (jsonValue status200 out)
 
 handleBacktestAsync :: ApiRequestLimits -> ApiCache -> Maybe OpsStore -> ApiComputeLimits -> BacktestGate -> JobStore Aeson.Value -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs req respond = do
@@ -12344,47 +12463,58 @@ handleBacktestAsync reqLimits apiCache mOps limits backtestGate store baseArgs r
     case payloadOrErr of
         Left resp -> respond resp
         Right params ->
-            case argsFromApi baseArgs params of
-                Left e -> respond (jsonError status400 e)
-                Right args0 -> do
-                    let args =
-                            args0
-                                { argTradeOnly = False
-                                , argBinanceTrade = False
-                                , argOptimizeOperations = fromMaybe (argOptimizeOperations args0) (apOptimizeOperations params)
-                                , argSweepThreshold = fromMaybe (argSweepThreshold args0) (apSweepThreshold params)
-                                , argBacktestRatio = fromMaybe (argBacktestRatio args0) (apBacktestRatio params)
-                                }
-                    case validateApiComputeLimits limits args of
-                        Left e -> respond (jsonError status400 e)
-                        Right argsOk -> do
-                            let paramsJson = Just (toJSON (sanitizeApiParams params))
-                                argsJson = Just (argsPublicJson argsOk)
-                                noCache = requestWantsNoCache req
-                            r <-
-                                startJob store $ do
-                                    let computeAction =
-                                            if noCache
-                                                then computeBacktestFromArgsWithLimits limits mOps argsOk
-                                                else computeBacktestFromArgsCached apiCache limits mOps argsOk
-                                    gateResult <- runBacktestWithGateWait backtestGate computeAction
-                                    case gateResult of
-                                        Left failure -> throwIO (userError (backtestFailureMessage backtestGate failure))
-                                        Right out -> do
-                                            opsAppendMaybe
-                                                mOps
-                                                "backtest"
-                                                paramsJson
-                                                argsJson
-                                                (Just out)
-                                                (extractBacktestFinalEquity out)
-                                                Nothing
-                                                (T.pack <$> argBinanceSymbol argsOk)
-                                                Nothing
-                                            pure out
-                            case r of
-                                Left e -> respond (jsonError status429 e)
-                                Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
+            let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+             in case resolveTenantKeyFromParams
+                    tenantHint
+                    (apBinanceApiKey params)
+                    (apBinanceApiSecret params)
+                    (apCoinbaseApiKey params)
+                    (apCoinbaseApiSecret params)
+                    (apCoinbaseApiPassphrase params) of
+                    Left e -> respond (jsonError status400 e)
+                    Right mReqTenant ->
+                        case argsFromApi baseArgs params of
+                            Left e -> respond (jsonError status400 e)
+                            Right args0 -> do
+                                let args =
+                                        args0
+                                            { argTradeOnly = False
+                                            , argBinanceTrade = False
+                                            , argOptimizeOperations = fromMaybe (argOptimizeOperations args0) (apOptimizeOperations params)
+                                            , argSweepThreshold = fromMaybe (argSweepThreshold args0) (apSweepThreshold params)
+                                            , argBacktestRatio = fromMaybe (argBacktestRatio args0) (apBacktestRatio params)
+                                            }
+                                case validateApiComputeLimits limits args of
+                                    Left e -> respond (jsonError status400 e)
+                                    Right argsOk -> do
+                                        let paramsJson = Just (toJSON (sanitizeApiParams params))
+                                            argsJson = Just (argsPublicJson argsOk)
+                                            noCache = requestWantsNoCache req
+                                        r <-
+                                            startJob store $ do
+                                                let computeAction =
+                                                        if noCache
+                                                            then computeBacktestFromArgsWithLimits limits mOps argsOk
+                                                            else computeBacktestFromArgsCached apiCache limits mOps argsOk
+                                                gateResult <- runBacktestWithGateWait backtestGate computeAction
+                                                case gateResult of
+                                                    Left failure -> throwIO (userError (backtestFailureMessage backtestGate failure))
+                                                    Right out -> do
+                                                        opsAppendMaybe
+                                                            mOps
+                                                            mReqTenant
+                                                            "backtest"
+                                                            paramsJson
+                                                            argsJson
+                                                            (Just out)
+                                                            (extractBacktestFinalEquity out)
+                                                            Nothing
+                                                            (T.pack <$> argBinanceSymbol argsOk)
+                                                            Nothing
+                                                        pure out
+                                        case r of
+                                            Left e -> respond (jsonError status429 e)
+                                            Right jobId -> respond (jsonValue status202 (object ["jobId" .= jobId]))
 
 handleAsyncPoll :: (ToJSON a) => JobStore a -> Text -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
 handleAsyncPoll store jobId respond = do
@@ -13522,6 +13652,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                                 )
                                                             opsAppendMaybe
                                                                 mOps
+                                                                (Just tenantKey)
                                                                 "bot.start"
                                                                 (Just (toJSON (sanitizeApiParams params)))
                                                                 (Just (argsPublicJson (bsrArgs rt)))
@@ -13596,7 +13727,7 @@ handleBotStop mOps mJournal mWebhook mBotStateDir botCtrl req respond = do
                         [sym] -> Just (T.pack sym)
                         _ -> Nothing
             journalWriteMaybe mJournal (object ["type" .= ("bot.stop" :: String), "atMs" .= now, "symbols" .= stoppedSymbols])
-            opsAppendMaybe mOps "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing Nothing mStopSymbol Nothing
+            opsAppendMaybe mOps (Just tenantKey) "bot.stop" Nothing Nothing (Just (object ["symbols" .= stoppedSymbols])) Nothing Nothing mStopSymbol Nothing
             forM_ stopped (botStatusLogMaybe mOps False)
             webhookNotifyMaybe mWebhook (webhookEventBotStop stoppedSymbols)
 

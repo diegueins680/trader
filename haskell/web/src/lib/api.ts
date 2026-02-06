@@ -952,7 +952,16 @@ export async function botStatus(
 
 export async function ops(
   baseUrl: string,
-  params?: { kind?: string; limit?: number; since?: number; symbol?: string; fromMs?: number; toMs?: number; bot?: boolean },
+  params?: {
+    kind?: string;
+    limit?: number;
+    since?: number;
+    symbol?: string;
+    fromMs?: number;
+    toMs?: number;
+    bot?: boolean;
+    tenantKey?: string;
+  },
   opts?: FetchJsonOptions,
 ): Promise<OpsResponse> {
   const query = new URLSearchParams();
@@ -963,13 +972,14 @@ export async function ops(
   if (typeof params?.fromMs === "number" && Number.isFinite(params.fromMs)) query.set("fromMs", String(Math.trunc(params.fromMs)));
   if (typeof params?.toMs === "number" && Number.isFinite(params.toMs)) query.set("toMs", String(Math.trunc(params.toMs)));
   if (typeof params?.bot === "boolean") query.set("bot", params.bot ? "1" : "0");
+  if (params?.tenantKey) query.set("tenantKey", params.tenantKey);
   const path = query.size > 0 ? `/ops?${query.toString()}` : "/ops";
   return fetchJson<OpsResponse>(baseUrl, path, { method: "GET" }, opts);
 }
 
 export async function opsPerformance(
   baseUrl: string,
-  params?: { commitLimit?: number; comboLimit?: number; comboScope?: string; comboOrder?: string },
+  params?: { commitLimit?: number; comboLimit?: number; comboScope?: string; comboOrder?: string; tenantKey?: string },
   opts?: FetchJsonOptions,
 ): Promise<OpsPerformanceResponse> {
   const query = new URLSearchParams();
@@ -981,6 +991,7 @@ export async function opsPerformance(
   }
   if (params?.comboScope) query.set("comboScope", params.comboScope);
   if (params?.comboOrder) query.set("comboOrder", params.comboOrder);
+  if (params?.tenantKey) query.set("tenantKey", params.tenantKey);
   const path = query.size > 0 ? `/ops/performance?${query.toString()}` : "/ops/performance";
   return fetchJson<OpsPerformanceResponse>(baseUrl, path, { method: "GET" }, opts);
 }

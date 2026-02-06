@@ -43,6 +43,7 @@ DROP TABLE IF EXISTS performance_commit_summary;
 DROP TABLE IF EXISTS performance_rollups;
 
 CREATE TABLE performance_rollups (
+  tenant_key TEXT,
   git_commit_id BIGINT NOT NULL REFERENCES git_commits(id),
   commit_hash TEXT,
   committed_at_ms BIGINT,
@@ -63,6 +64,7 @@ CREATE TABLE performance_rollups (
 );
 
 CREATE INDEX IF NOT EXISTS performance_rollups_commit_idx ON performance_rollups(git_commit_id);
+CREATE INDEX IF NOT EXISTS performance_rollups_tenant_commit_idx ON performance_rollups(tenant_key, git_commit_id);
 CREATE INDEX IF NOT EXISTS performance_rollups_symbol_idx ON performance_rollups(symbol);
 CREATE INDEX IF NOT EXISTS performance_rollups_combo_idx ON performance_rollups(combo_uuid);
 
@@ -71,6 +73,7 @@ $commit_sql
 CREATE TEMP VIEW ops_inferred AS
 SELECT
   id,
+  tenant_key,
   NULLIF(lower(trim(COALESCE(
     args_json->>'platform',
     params_json->>'platform',
@@ -219,6 +222,7 @@ WHERE ops.git_commit_id IS NULL
 
 WITH ops_filtered AS (
   SELECT
+    o.tenant_key,
     o.git_commit_id,
     COALESCE(
       NULLIF(o.symbol, ''),
@@ -251,23 +255,23 @@ base AS (
   SELECT
     *,
     first_value(equity) OVER (
-      PARTITION BY git_commit_id, symbol, market, interval, combo_uuid
+      PARTITION BY tenant_key, git_commit_id, symbol, market, interval, combo_uuid
       ORDER BY at_ms
     ) AS first_equity,
     first_value(at_ms) OVER (
-      PARTITION BY git_commit_id, symbol, market, interval, combo_uuid
+      PARTITION BY tenant_key, git_commit_id, symbol, market, interval, combo_uuid
       ORDER BY at_ms
     ) AS first_at_ms,
     first_value(equity) OVER (
-      PARTITION BY git_commit_id, symbol, market, interval, combo_uuid
+      PARTITION BY tenant_key, git_commit_id, symbol, market, interval, combo_uuid
       ORDER BY at_ms DESC
     ) AS last_equity,
     first_value(at_ms) OVER (
-      PARTITION BY git_commit_id, symbol, market, interval, combo_uuid
+      PARTITION BY tenant_key, git_commit_id, symbol, market, interval, combo_uuid
       ORDER BY at_ms DESC
     ) AS last_at_ms,
     max(equity) OVER (
-      PARTITION BY git_commit_id, symbol, market, interval, combo_uuid
+      PARTITION BY tenant_key, git_commit_id, symbol, market, interval, combo_uuid
       ORDER BY at_ms
       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     ) AS peak_equity
@@ -281,6 +285,7 @@ drawdowns AS (
 ),
 summary AS (
   SELECT
+    tenant_key,
     git_commit_id,
     symbol,
     market,
@@ -295,9 +300,10 @@ summary AS (
     count(*) FILTER (WHERE kind = 'bot.order') AS order_count,
     count(*) AS sample_points
   FROM drawdowns
-  GROUP BY git_commit_id, symbol, market, interval, combo_uuid
+  GROUP BY tenant_key, git_commit_id, symbol, market, interval, combo_uuid
 )
 INSERT INTO performance_rollups (
+  tenant_key,
   git_commit_id,
   commit_hash,
   committed_at_ms,
@@ -317,6 +323,7 @@ INSERT INTO performance_rollups (
   updated_at_ms
 )
 SELECT
+  s.tenant_key,
   s.git_commit_id,
   g.commit_hash,
   g.committed_at_ms,
@@ -338,6 +345,7 @@ FROM summary s
 LEFT JOIN git_commits g ON g.id = s.git_commit_id;
 
 CREATE TABLE performance_commit_summary (
+  tenant_key TEXT,
   git_commit_id BIGINT NOT NULL REFERENCES git_commits(id),
   commit_hash TEXT,
   committed_at_ms BIGINT,
@@ -360,9 +368,11 @@ CREATE TABLE performance_commit_summary (
 );
 
 CREATE INDEX IF NOT EXISTS performance_commit_summary_commit_idx ON performance_commit_summary(git_commit_id);
+CREATE INDEX IF NOT EXISTS performance_commit_summary_tenant_commit_idx ON performance_commit_summary(tenant_key, git_commit_id);
 CREATE INDEX IF NOT EXISTS performance_commit_summary_committed_idx ON performance_commit_summary(committed_at_ms);
 
 INSERT INTO performance_commit_summary (
+  tenant_key,
   git_commit_id,
   commit_hash,
   committed_at_ms,
@@ -384,6 +394,7 @@ INSERT INTO performance_commit_summary (
   updated_at_ms
 )
 SELECT
+  pr.tenant_key,
   pr.git_commit_id,
   MAX(pr.commit_hash) AS commit_hash,
   MAX(pr.committed_at_ms) AS committed_at_ms,
@@ -404,41 +415,41 @@ SELECT
   SUM(pr.sample_points) AS sample_points,
   :now_ms AS updated_at_ms
 FROM performance_rollups pr
-GROUP BY pr.git_commit_id;
+GROUP BY pr.tenant_key, pr.git_commit_id;
 
 CREATE VIEW performance_commit_deltas AS
 SELECT
   s.*,
-  LAG(s.commit_hash) OVER (ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id) AS prev_commit_hash,
-  LAG(s.median_return) OVER (ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id) AS prev_median_return,
-  (s.median_return - LAG(s.median_return) OVER (ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id)) AS delta_median_return,
-  LAG(s.median_drawdown) OVER (ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id) AS prev_median_drawdown,
-  (s.median_drawdown - LAG(s.median_drawdown) OVER (ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id)) AS delta_median_drawdown,
-  LAG(s.worst_drawdown) OVER (ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id) AS prev_worst_drawdown,
-  (s.worst_drawdown - LAG(s.worst_drawdown) OVER (ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id)) AS delta_worst_drawdown
+  LAG(s.commit_hash) OVER (PARTITION BY s.tenant_key ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id) AS prev_commit_hash,
+  LAG(s.median_return) OVER (PARTITION BY s.tenant_key ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id) AS prev_median_return,
+  (s.median_return - LAG(s.median_return) OVER (PARTITION BY s.tenant_key ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id)) AS delta_median_return,
+  LAG(s.median_drawdown) OVER (PARTITION BY s.tenant_key ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id) AS prev_median_drawdown,
+  (s.median_drawdown - LAG(s.median_drawdown) OVER (PARTITION BY s.tenant_key ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id)) AS delta_median_drawdown,
+  LAG(s.worst_drawdown) OVER (PARTITION BY s.tenant_key ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id) AS prev_worst_drawdown,
+  (s.worst_drawdown - LAG(s.worst_drawdown) OVER (PARTITION BY s.tenant_key ORDER BY s.committed_at_ms NULLS LAST, s.git_commit_id)) AS delta_worst_drawdown
 FROM performance_commit_summary s;
 
 CREATE VIEW performance_combo_deltas AS
 SELECT
   pr.*,
   LAG(pr.commit_hash) OVER (
-    PARTITION BY pr.symbol, pr.market, pr.interval, pr.combo_uuid
+    PARTITION BY pr.tenant_key, pr.symbol, pr.market, pr.interval, pr.combo_uuid
     ORDER BY pr.committed_at_ms NULLS LAST, pr.git_commit_id
   ) AS prev_commit_hash,
   LAG(pr.return) OVER (
-    PARTITION BY pr.symbol, pr.market, pr.interval, pr.combo_uuid
+    PARTITION BY pr.tenant_key, pr.symbol, pr.market, pr.interval, pr.combo_uuid
     ORDER BY pr.committed_at_ms NULLS LAST, pr.git_commit_id
   ) AS prev_return,
   (pr.return - LAG(pr.return) OVER (
-    PARTITION BY pr.symbol, pr.market, pr.interval, pr.combo_uuid
+    PARTITION BY pr.tenant_key, pr.symbol, pr.market, pr.interval, pr.combo_uuid
     ORDER BY pr.committed_at_ms NULLS LAST, pr.git_commit_id
   )) AS delta_return,
   LAG(pr.max_drawdown) OVER (
-    PARTITION BY pr.symbol, pr.market, pr.interval, pr.combo_uuid
+    PARTITION BY pr.tenant_key, pr.symbol, pr.market, pr.interval, pr.combo_uuid
     ORDER BY pr.committed_at_ms NULLS LAST, pr.git_commit_id
   ) AS prev_max_drawdown,
   (pr.max_drawdown - LAG(pr.max_drawdown) OVER (
-    PARTITION BY pr.symbol, pr.market, pr.interval, pr.combo_uuid
+    PARTITION BY pr.tenant_key, pr.symbol, pr.market, pr.interval, pr.combo_uuid
     ORDER BY pr.committed_at_ms NULLS LAST, pr.git_commit_id
   )) AS delta_drawdown
 FROM performance_rollups pr;

@@ -467,6 +467,7 @@ Tenant isolation (multi-user UI):
 - Pass `tenantKey` in JSON payloads; for GET endpoints use `X-Tenant-Key` or `?tenantKey=`.
 - `/binance/keys` and `/coinbase/keys` return `tenantKey` when keys are present.
 - Trades use backend env keys when they are set and the request tenant matches (or when no tenantKey is provided). If backend keys are missing or the request tenant differs, requests must include user API keys, which are used for order placement.
+- Set `TRADER_MULTI_USER=true` to require `tenantKey` for `/ops` + `/ops/performance` and scope ops/rollups per tenant (rerun `haskell/scripts/rollup_performance.sh` after upgrading).
 
 Build info:
 - `GET /` and `GET /health` include `version` and optional `commit` (from env `TRADER_GIT_COMMIT` / `TRADER_COMMIT` / `GIT_COMMIT` / `COMMIT_SHA`).
@@ -475,7 +476,8 @@ Endpoints:
 - `GET /` → basic endpoint list
 - `GET /health`
 - `GET /metrics`
-- `GET /ops` → persisted operations feed (enabled via `TRADER_DB_URL`)
+- `GET /ops` → persisted operations feed (enabled via `TRADER_DB_URL`; requires `tenantKey` when `TRADER_MULTI_USER=true`)
+- `GET /ops/performance` → ops rollups/deltas (requires `haskell/scripts/rollup_performance.sh`; `tenantKey` required when `TRADER_MULTI_USER=true`)
 - `GET /cache` → in-memory cache stats (entries + hit/miss)
 - `POST /cache/clear` → clears the in-memory cache
 - `POST /signal` → returns the latest signal (no orders)
@@ -793,6 +795,11 @@ See `DEPLOY_AWS_QUICKSTART.md`, `DEPLOY_AWS.md`, and `deploy/aws/README.md`.
 The quick deploy script supports `--ensure-resources` (reuse/create S3 buckets + App Runner S3 role) and `--cloudfront` (reuse/create a UI CloudFront distribution, reusing existing UI bucket distributions when available), and it auto-detects the S3 bucket region when looking up existing CloudFront distributions.
 The quick deploy script also runs post-deploy health checks for the API and (when a CloudFront domain is known) the UI (`index.html`, `trader-config.js`, and `/api/health` when proxying).
 
+CI/CD (GitHub Actions):
+- On push to `main`/`master`, `.github/workflows/ci.yml` deploys via `deploy-aws-quick.sh` after CI passes.
+- Required secrets: `AWS_ROLE_ARN` + `AWS_REGION` (or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`), plus `TRADER_API_TOKEN`, `TRADER_DB_URL`, `TRADER_STATE_S3_BUCKET`, `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`.
+- Optional: `TRADER_AWS_ENSURE_RESOURCES` (auto-provision), `TRADER_UI_CLOUDFRONT_AUTO`, `TRADER_UI_BUCKET`, `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`, `TRADER_UI_CLOUDFRONT_DOMAIN`, `TRADER_UI_API_MODE`, `TRADER_UI_API_URL`, `TRADER_UI_API_FALLBACK_URL`.
+
 Note: `/bot/*` is stateful, and async endpoints persist job state to `TRADER_STATE_DIR/async` (if set) or `.tmp/async` by default (local only). For deployments behind non-sticky load balancers (including CloudFront `/api/*`), keep the backend **single-instance** unless you set `TRADER_API_ASYNC_DIR` (or `TRADER_STATE_DIR`) to a shared writable directory. If the UI reports "Async job not found", the backend likely restarted or the load balancer is not sticky; use shared async storage or run a single instance.
 
 Web UI
@@ -802,6 +809,7 @@ The UI layout uses a refreshed header, section grouping, and spacing for faster 
 The UI styling now emphasizes a light-first palette, calmer surfaces, and updated typography for a cleaner read.
 The header status card is collapsible to free space when docked.
 The header also exposes layout controls (expand/collapse all, reset layout) plus per-page issue badges and a quick issues dropdown with jump links; expand/collapse all also controls the floating Bot activity panel, and the layout controls display a dismissible hint that it is included.
+Collapsible panels now include explicit Maximize/Restore and Expand/Collapse controls in their headers, including the optimizer combos dock.
 Configuration uses a menu bar to switch between single-section pages (API, Market, Lookback, Thresholds, Risk, Optimizer run, Optimization, Live bot, Trade) and expands into a full-page scroll rather than fixed-height panels; sections and result panels remain collapsible, the UI remembers open/closed state locally, and starts low-signal panels (Data Log, Request preview) collapsed by default.
 When the browser tab is hidden the UI slows background polling, and long lists/charts are rendered with lazy visibility + downsampling to stay responsive.
 Configuration stays in a fixed top dock, optimizer combos live in a fixed bottom dock, and each running bot has its own scrollable panel.

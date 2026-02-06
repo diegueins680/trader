@@ -117,6 +117,12 @@ assertApprox :: String -> Double -> Double -> Double -> IO ()
 assertApprox msg eps a b =
     assert msg (abs (a - b) <= eps)
 
+requireRight :: String -> Either String a -> a
+requireRight label res =
+    case res of
+        Left err -> error (label ++ ": " ++ err)
+        Right v -> v
+
 parseArgs :: [String] -> IO Args
 parseArgs argv = do
     let parser = info (opts <**> helper) fullDesc
@@ -391,7 +397,7 @@ testAgreementGate = do
         kalPred = [101, 110, 120] -- length 3
         lstmPred = [110, 100] -- length 2, for t=1..2
         cfg = baseEnsembleConfig
-        res = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
+        res = requireRight "simulateEnsemble" (simulateEnsemble cfg lookback prices kalPred lstmPred Nothing)
     assert "expected two position changes (enter + exit)" (brPositionChanges res == 2)
 
 testHoldOnCloseAgree :: IO ()
@@ -401,9 +407,9 @@ testHoldOnCloseAgree = do
         kalPred = [103, 101]
         lstmPred = [103, 101]
         cfgHold = baseEnsembleConfig{ecOpenThreshold = 0.02, ecCloseThreshold = 0.005}
-        btHold = simulateEnsemble cfgHold lookback prices kalPred lstmPred Nothing
+        btHold = requireRight "simulateEnsemble hold" (simulateEnsemble cfgHold lookback prices kalPred lstmPred Nothing)
         cfgExit = baseEnsembleConfig{ecOpenThreshold = 0.02, ecCloseThreshold = 0.02}
-        btExit = simulateEnsemble cfgExit lookback prices kalPred lstmPred Nothing
+        btExit = requireRight "simulateEnsemble exit" (simulateEnsemble cfgExit lookback prices kalPred lstmPred Nothing)
     assert "holds when close signal still agrees" (brPositions btHold == [1, 1])
     assert "exits when open signal neutral and close signal does not agree" (brPositions btExit == [1, 0])
 
@@ -413,7 +419,7 @@ testMinHoldBars = do
         lookback = 1
         preds = [101, 99, 99, 99] -- enter, then exit signals
         cfg = baseEnsembleConfig{ecMinHoldBars = 2}
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble min-hold" (simulateEnsemble cfg lookback prices preds preds Nothing)
     assert "min-hold keeps position through bar 2" (brPositions bt == [1, 1, 0, 0])
 
 testMaxHoldBars :: IO ()
@@ -422,7 +428,7 @@ testMaxHoldBars = do
         lookback = 1
         preds = [101, 101, 101]
         cfg = baseEnsembleConfig{ecMaxHoldBars = Just 1}
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble max-hold" (simulateEnsemble cfg lookback prices preds preds Nothing)
     assert "max-hold forces exit after limit with 1-bar cooldown" (brPositions bt == [1, 0, 0])
 
 testCooldownBars :: IO ()
@@ -431,7 +437,7 @@ testCooldownBars = do
         lookback = 1
         preds = [101, 99, 101, 101] -- enter, exit, re-enter attempts
         cfg = baseEnsembleConfig{ecCooldownBars = 1}
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble cooldown" (simulateEnsemble cfg lookback prices preds preds Nothing)
     assert "cooldown blocks entry for 1 bar after exit" (brPositions bt == [1, 0, 0, 1])
 
 testEntryBlockNoTradeWindow :: IO ()
@@ -447,7 +453,7 @@ testEntryBlockNoTradeWindow = do
                 , ecOpenTimes = Just openTimes
                 , ecPositioning = LongShort
                 }
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble no-trade-window" (simulateEnsemble cfg lookback prices preds preds Nothing)
     case brPositions bt of
         [p0, p1, p2] -> do
             assert "entered long" (p0 > 0)
@@ -468,7 +474,7 @@ testEntryBlockMaxTradesPerDay = do
                 , ecOpenTimes = Just openTimes
                 , ecPositioning = LongShort
                 }
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble max-trades" (simulateEnsemble cfg lookback prices preds preds Nothing)
     case brPositions bt of
         [p0, p1, p2] -> do
             assert "entered long" (p0 > 0)
@@ -482,7 +488,7 @@ testFlipFeesPerSide = do
         lookback = 1
         preds = [110, 90, 90] -- enter long then flip short
         cfg = baseEnsembleConfig{ecFee = 0.1, ecPositioning = LongShort}
-        bt = simulateEnsemble cfg lookback prices preds preds Nothing
+        bt = requireRight "simulateEnsemble flip-fees" (simulateEnsemble cfg lookback prices preds preds Nothing)
     case brEquityCurve bt of
         [e0, e1, e2, e3] -> do
             assertApprox "initial equity" 1e-12 e0 1.0
@@ -498,8 +504,8 @@ testLongShortDownMove = do
         kalPred = [90]
         lstmPred = [90]
         baseCfg = baseEnsembleConfig
-        btFlat = simulateEnsemble baseCfg lookback prices kalPred lstmPred Nothing
-        btShort = simulateEnsemble (baseCfg{ecPositioning = LongShort}) lookback prices kalPred lstmPred Nothing
+        btFlat = requireRight "simulateEnsemble flat" (simulateEnsemble baseCfg lookback prices kalPred lstmPred Nothing)
+        btShort = requireRight "simulateEnsemble short" (simulateEnsemble (baseCfg{ecPositioning = LongShort}) lookback prices kalPred lstmPred Nothing)
 
     assertApprox "flat final equity" 1e-12 (last (brEquityCurve btFlat)) 1.0
     assertApprox "short final equity" 1e-12 (last (brEquityCurve btShort)) 1.1
@@ -512,7 +518,7 @@ testLiquidationClamp = do
         kalPred = [50]
         lstmPred = [50]
         cfg = baseEnsembleConfig{ecPositioning = LongShort}
-        bt = simulateEnsemble cfg lookback prices kalPred lstmPred Nothing
+        bt = requireRight "simulateEnsemble liquidation" (simulateEnsemble cfg lookback prices kalPred lstmPred Nothing)
         finalEq = last (brEquityCurve bt)
         trades = brTrades bt
     assertApprox "equity clamped at 0" 1e-12 finalEq 0.0

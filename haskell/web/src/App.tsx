@@ -5631,7 +5631,7 @@ export function App() {
             : undefined;
         const out = await ops(
           apiBase,
-          { kind: "bot.status", limit, ...(since ? { since } : {}) },
+          { kind: "bot.status", limit, ...(since ? { since } : {}), tenantKey: activeTenantKey ?? undefined },
           { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
         );
         const incoming = Array.isArray(out.ops) ? out.ops : [];
@@ -5661,7 +5661,7 @@ export function App() {
             const fallbackLimit = BOT_STATUS_OPS_FALLBACK_LIMIT;
             const out = await ops(
               apiBase,
-              { kind: "bot.status", limit: fallbackLimit },
+              { kind: "bot.status", limit: fallbackLimit, tenantKey: activeTenantKey ?? undefined },
               { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
             );
             const incoming = Array.isArray(out.ops) ? out.ops : [];
@@ -5705,7 +5705,7 @@ export function App() {
         botStatusOpsInFlightRef.current = false;
       }
     },
-    [apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
+    [activeTenantKey, apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
   );
 
   const fetchBotOrderOps = useCallback(
@@ -5725,7 +5725,7 @@ export function App() {
         const limit = botStatusOpsLimitRef.current;
         const out = await ops(
           apiBase,
-          { kind: "bot.order", limit, fromMs: range.startMs, toMs: range.endMs },
+          { kind: "bot.order", limit, fromMs: range.startMs, toMs: range.endMs, tenantKey: activeTenantKey ?? undefined },
           { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
         );
         const incoming = Array.isArray(out.ops) ? out.ops : [];
@@ -5754,7 +5754,7 @@ export function App() {
         botOrderOpsInFlightRef.current = false;
       }
     },
-    [apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
+    [activeTenantKey, apiBase, apiOk, appendDataLog, authHeaders, buildDataLogError],
   );
 
   const fetchOpsPerformance = useCallback(
@@ -5776,6 +5776,7 @@ export function App() {
             comboLimit: opsPerformanceComboLimit,
             comboScope: opsPerformanceComboScope,
             comboOrder: opsPerformanceComboOrder,
+            tenantKey: activeTenantKey ?? undefined,
           },
           { headers: authHeaders, timeoutMs: 30_000, signal: controller.signal },
         );
@@ -5806,6 +5807,7 @@ export function App() {
       }
     },
     [
+      activeTenantKey,
       apiBase,
       apiOk,
       appendDataLog,
