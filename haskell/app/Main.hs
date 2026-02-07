@@ -12736,6 +12736,7 @@ data ListenKeyStreamEvent
 
 data ListenKeyStreamState = ListenKeyStreamState
     { lksEnv :: !BinanceEnv
+    , lksTenantKey :: !TenantKey
     , lksMarket :: !BinanceMarket
     , lksTestnet :: !Bool
     , lksListenKey :: !String
@@ -12783,6 +12784,27 @@ listenKeyStreamHeartbeatMs = 15000
 
 maxListenKeyEventBytes :: Int
 maxListenKeyEventBytes = 20000
+
+formatTenantKeyShort :: TenantKey -> String
+formatTenantKeyShort key =
+    let raw = T.unpack key
+        len = length raw
+     in if len <= 12
+            then raw
+            else take 6 raw ++ "..." ++ drop (len - 4) raw
+
+listenKeyLogPrefix :: ListenKeyStreamState -> String
+listenKeyLogPrefix st =
+    "ListenKey[tenant="
+        ++ formatTenantKeyShort (lksTenantKey st)
+        ++ ", market="
+        ++ show (lksMarket st)
+        ++ ", testnet="
+        ++ show (lksTestnet st)
+        ++ "]"
+
+logListenKey :: ListenKeyStreamState -> String -> IO ()
+logListenKey st msg = putStrLn (listenKeyLogPrefix st ++ " " ++ msg)
 
 mkSseEvent :: BS.ByteString -> BS.ByteString -> BS.ByteString
 mkSseEvent eventName payload =
@@ -12832,6 +12854,7 @@ emitListenKeyStatus :: ListenKeyStreamState -> String -> Maybe String -> IO ()
 emitListenKeyStatus st status message = do
     now <- getTimestampMs
     let payload = listenKeyStatusPayload status message now
+    logListenKey st ("status=" ++ status ++ maybe "" (\msg -> " msg=" ++ msg) message)
     writeIORef (lksStatusRef st) (Just payload)
     writeChan (lksChan st) (ListenKeyStreamStatus payload)
 
@@ -12853,6 +12876,7 @@ emitListenKeyError :: ListenKeyStreamState -> String -> IO ()
 emitListenKeyError st message = do
     now <- getTimestampMs
     let payload = listenKeyErrorPayload message now
+    logListenKey st ("error=" ++ message)
     writeChan (lksChan st) (ListenKeyStreamError payload)
 
 isListenKeyMissingError :: String -> Bool
@@ -12940,6 +12964,7 @@ startListenKeyStream manager tenantKey env market testnet listenKey keepAliveMs 
         state =
           ListenKeyStreamState
             { lksEnv = env
+            , lksTenantKey = tenantKey
             , lksMarket = market
             , lksTestnet = testnet
             , lksListenKey = listenKey
@@ -13060,11 +13085,14 @@ handleBinanceListenKeyStream manager req respond =
                 Nothing -> respond (jsonError status404 "Listen key stream not running.")
                 Just stream -> do
                     let st = lksState stream
+                    logListenKey st "SSE client connected"
                     respond $
                         Wai.responseStream status200 listenKeyStreamHeaders $ \write flush -> do
                             chan <- dupChan (lksChan st)
                             let handleSendError :: IOException -> IO Bool
-                                handleSendError _ = pure False
+                                handleSendError ex = do
+                                    logListenKey st ("SSE send failed: " ++ displayException ex)
+                                    pure False
                                 send payload =
                                     (write (byteString payload) >> flush >> pure True)
                                         `catch` handleSendError
@@ -13092,7 +13120,7 @@ handleBinanceListenKeyStream manager req respond =
                                                         when ok loop
                                                     Just evt ->
                                                         case listenKeyEventToSse evt of
-                                                            Nothing -> pure ()
+                                                            Nothing -> logListenKey st "SSE stream stopped"
                                                             Just payload -> do
                                                                 ok <- send payload
                                                                 when ok loop

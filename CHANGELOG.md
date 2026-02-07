@@ -24,6 +24,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: switch Binance account trade date filters to date pickers.
 - Web UI: add maximize/restore and expand/collapse controls to collapsible panel headers, including the optimizer combos dock.
 - Web UI: prefer the configured direct `apiFallbackUrl` for the Binance listenKey stream when `apiBaseUrl` is `/api` to avoid CDN stream disconnects.
+- API: log listenKey stream status/errors and SSE disconnects with tenant hints to aid debugging.
 - API: optionally push updated `top-combos.json` to another deployment via `/state/sync` (`TRADER_STATE_SYNC_URL`/`TRADER_STATE_SYNC_TENANT_KEY`).
 - Predictors: add psychological price-level proximity features (round-number clustering) to the feature set.
 - Predictors: add short/mid momentum and volatility-spread features to improve signal quality.
