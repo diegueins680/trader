@@ -85,6 +85,7 @@ docker push "${ECR_URI}:latest"
   - `TRADER_API_TOKEN` (recommended)
   - `BINANCE_API_KEY` / `BINANCE_API_SECRET` (only if you will call `/trade`)
   - `TRADER_BOT_SYMBOLS` / `TRADER_BOT_TRADE` (optional; used by the cron watchdog to build `/bot/start`)
+  - `TRADER_MULTI_USER=true` (enable tenant-scoped ops/rollups; recommended for multi-user deployments)
   - Required: PostgreSQL persistence for ops/combos:
     - `TRADER_DB_URL=postgresql://user:pass@host:5432/trader?sslmode=require`
     - `deploy-aws-quick.sh` runs ops schema updates + performance rollups automatically when `TRADER_DB_URL` is set (requires `psql`; disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`).

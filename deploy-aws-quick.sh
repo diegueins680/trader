@@ -37,6 +37,7 @@ TRADER_API_MAX_BARS_LSTM="${TRADER_API_MAX_BARS_LSTM:-1000}"
 TRADER_API_MAX_EPOCHS="${TRADER_API_MAX_EPOCHS:-}"
 TRADER_API_MAX_HIDDEN_SIZE="${TRADER_API_MAX_HIDDEN_SIZE:-50}"
 TRADER_DB_URL="${TRADER_DB_URL:-${DATABASE_URL:-}}"
+TRADER_MULTI_USER="${TRADER_MULTI_USER:-true}"
 TRADER_OPS_ROLLUP_ON_DEPLOY="${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}"
 TRADER_OPS_ROLLUP_STRICT="${TRADER_OPS_ROLLUP_STRICT:-false}"
 TRADER_STATE_S3_BUCKET_SET="${TRADER_STATE_S3_BUCKET+true}"
@@ -152,6 +153,7 @@ Environment variables (equivalents):
   TRADER_API_TOKEN
   TRADER_CORS_ORIGIN
   TRADER_DB_URL / DATABASE_URL
+  TRADER_MULTI_USER
   TRADER_OPS_ROLLUP_ON_DEPLOY
   TRADER_OPS_ROLLUP_STRICT
   TRADER_STATE_DIR
@@ -1724,6 +1726,9 @@ create_app_runner() {
   fi
   if [[ -n "${TRADER_DB_URL:-}" ]]; then
     runtime_env_json="${runtime_env_json},\"TRADER_DB_URL\":\"${TRADER_DB_URL}\""
+  fi
+  if [[ -n "${TRADER_MULTI_USER:-}" ]]; then
+    runtime_env_json="${runtime_env_json},\"TRADER_MULTI_USER\":\"${TRADER_MULTI_USER}\""
   fi
   if is_true "${TRADER_BINANCE_PROXY_CLEAR:-false}"; then
     runtime_env_json="${runtime_env_json},\"TRADER_BINANCE_PROXY_URL\":\"\""

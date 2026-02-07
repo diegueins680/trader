@@ -105,6 +105,7 @@ Create an AWS App Runner service to run your API.
    ```
    TRADER_API_TOKEN=<your-random-token>
    TRADER_DB_URL=<postgres-connection-url>
+   TRADER_MULTI_USER=true
    TRADER_STATE_S3_BUCKET=<s3-bucket>
    TRADER_STATE_S3_PREFIX=trader
    TRADER_STATE_S3_REGION=ap-northeast-1
@@ -181,6 +182,7 @@ If you didn't set `TRADER_API_TOKEN` during creation, add it now:
    ```
    TRADER_API_TOKEN=<your-random-token>
    TRADER_DB_URL=<postgres-connection-url>
+   TRADER_MULTI_USER=true
    ```
 5. Click **Save changes**
 
