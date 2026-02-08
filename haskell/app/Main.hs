@@ -12000,19 +12000,24 @@ handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStor
                                     else
                                         withTopCombosLock topCombosStore $ do
                                             localTopValResult <- readTopCombosValueWithDbFallbackUnlocked mOps topCombosStore
+                                            minPersist <- topCombosMinPersistFromEnv
                                             let localTopVal =
                                                     case localTopValResult of
                                                         Right val -> Just val
                                                         Left _ -> Nothing
                                                 localGeneratedAt = localTopVal >>= topCombosGeneratedAtMs
+                                                localCount = maybe 0 topCombosComboCount localTopVal
                                                 (incomingSanitized, _) = sanitizeTopCombosValue raw
                                                 incomingGeneratedAt = topCombosGeneratedAtMs incomingSanitized
+                                                incomingCount = topCombosComboCount incomingSanitized
+                                                needsBackfill = localCount < minPersist && incomingCount > localCount
                                                 shouldReplace =
-                                                    case (incomingGeneratedAt, localGeneratedAt) of
-                                                        (Just incomingTs, Just localTs) -> incomingTs >= localTs
-                                                        (Just _, Nothing) -> True
-                                                        (Nothing, Nothing) -> True
-                                                        (Nothing, Just _) -> False
+                                                    needsBackfill
+                                                        || case (incomingGeneratedAt, localGeneratedAt) of
+                                                            (Just incomingTs, Just localTs) -> incomingTs >= localTs
+                                                            (Just _, Nothing) -> True
+                                                            (Nothing, Nothing) -> True
+                                                            (Nothing, Just _) -> False
                                             if shouldReplace
                                                 then do
                                                     maxCombos <- optimizerMaxCombosFromEnv
@@ -12030,6 +12035,7 @@ handleStateSyncImport reqLimits mOps mStateSyncTarget mBotStateDir topCombosStor
                                                             pure (Left (jsonError status500 ("Failed to write top combos: " ++ err)))
                                                         Right _ -> do
                                                             persistTopCombosMaybe mStateSyncTarget topJsonPath
+                                                            persistTopCombosDbMaybeUnlocked mOps topCombosStore
                                                             pure (Right (mkTopStats action incomingGeneratedAt localGeneratedAt))
                                                 else pure (Right (mkTopStats "kept" incomingGeneratedAt localGeneratedAt))
 

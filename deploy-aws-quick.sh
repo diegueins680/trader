@@ -40,6 +40,7 @@ TRADER_DB_URL="${TRADER_DB_URL:-${DATABASE_URL:-}}"
 TRADER_MULTI_USER="${TRADER_MULTI_USER:-true}"
 TRADER_OPS_ROLLUP_ON_DEPLOY="${TRADER_OPS_ROLLUP_ON_DEPLOY:-true}"
 TRADER_OPS_ROLLUP_STRICT="${TRADER_OPS_ROLLUP_STRICT:-false}"
+TRADER_STATE_SYNC_TENANT_KEY="${TRADER_STATE_SYNC_TENANT_KEY:-}"
 TRADER_STATE_S3_BUCKET_SET="${TRADER_STATE_S3_BUCKET+true}"
 TRADER_STATE_S3_BUCKET="${TRADER_STATE_S3_BUCKET:-}"
 TRADER_STATE_S3_PREFIX="${TRADER_STATE_S3_PREFIX:-}"
@@ -66,6 +67,9 @@ TRADER_OPTIMIZER_SYMBOLS="${TRADER_OPTIMIZER_SYMBOLS:-}"
 TRADER_OPTIMIZER_INTERVALS="${TRADER_OPTIMIZER_INTERVALS:-}"
 BINANCE_API_KEY="${BINANCE_API_KEY:-}"
 BINANCE_API_SECRET="${BINANCE_API_SECRET:-}"
+COINBASE_API_KEY="${COINBASE_API_KEY:-}"
+COINBASE_API_SECRET="${COINBASE_API_SECRET:-}"
+COINBASE_API_PASSPHRASE="${COINBASE_API_PASSPHRASE:-}"
 UI_BUCKET="${TRADER_UI_BUCKET:-${S3_BUCKET:-}}"
 UI_DISTRIBUTION_ID="${TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID:-${CLOUDFRONT_DISTRIBUTION_ID:-}}"
 UI_CLOUDFRONT_DOMAIN="${TRADER_UI_CLOUDFRONT_DOMAIN:-}"
@@ -160,6 +164,7 @@ Environment variables (equivalents):
   TRADER_STATE_S3_BUCKET
   TRADER_STATE_S3_PREFIX
   TRADER_STATE_S3_REGION
+  TRADER_STATE_SYNC_TENANT_KEY
   TRADER_BINANCE_PROXY_URL
   TRADER_BINANCE_PROXY_CLEAR
   TRADER_BINANCE_PROXY_HEALTHCHECK
@@ -216,6 +221,131 @@ mask_token() {
     return 0
   fi
   echo "${tok:0:6}…${tok:n-4:4}"
+}
+
+sha256_hex() {
+  local payload="${1:-}"
+  if [[ -z "$payload" ]]; then
+    echo ""
+    return 0
+  fi
+  if command -v openssl >/dev/null 2>&1; then
+    printf '%s' "$payload" | openssl dgst -sha256 -hex 2>/dev/null | awk '{print $2}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$payload" | shasum -a 256 2>/dev/null | awk '{print $1}'
+    return 0
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$payload" | sha256sum 2>/dev/null | awk '{print $1}'
+    return 0
+  fi
+  echo ""
+}
+
+resolve_state_sync_tenant_key() {
+  if [[ -n "${TRADER_STATE_SYNC_TENANT_KEY:-}" ]]; then
+    echo "$TRADER_STATE_SYNC_TENANT_KEY"
+    return 0
+  fi
+  if [[ -n "${BINANCE_API_KEY:-}" && -n "${BINANCE_API_SECRET:-}" ]]; then
+    local hash=""
+    hash="$(sha256_hex "${BINANCE_API_KEY}:${BINANCE_API_SECRET}")"
+    if [[ -n "$hash" ]]; then
+      echo "binance:${hash}"
+      return 0
+    fi
+  fi
+  if [[ -n "${COINBASE_API_KEY:-}" && -n "${COINBASE_API_SECRET:-}" && -n "${COINBASE_API_PASSPHRASE:-}" ]]; then
+    local hash=""
+    hash="$(sha256_hex "${COINBASE_API_KEY}:${COINBASE_API_SECRET}:${COINBASE_API_PASSPHRASE}")"
+    if [[ -n "$hash" ]]; then
+      echo "coinbase:${hash}"
+      return 0
+    fi
+  fi
+  echo ""
+}
+
+state_sync_endpoint() {
+  local base="${1:-}"
+  if [[ -z "$base" ]]; then
+    echo ""
+    return 1
+  fi
+  if [[ "$base" == *"/state/sync" ]]; then
+    echo "$base"
+    return 0
+  fi
+  echo "${base%/}/state/sync"
+}
+
+state_sync_export() {
+  local base_url="${1:-}"
+  local api_token="${2:-}"
+  local tenant_key="${3:-}"
+  local out_path="${4:-}"
+
+  if [[ -z "$base_url" || -z "$tenant_key" || -z "$out_path" ]]; then
+    return 1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Warning: curl not found; skipping /state/sync export${NC}" >&2
+    return 1
+  fi
+
+  local endpoint=""
+  endpoint="$(state_sync_endpoint "$base_url")" || true
+  if [[ -z "$endpoint" ]]; then
+    return 1
+  fi
+
+  local auth_header=()
+  if [[ -n "$api_token" ]]; then
+    auth_header=(-H "Authorization: Bearer ${api_token}")
+  fi
+
+  local body=""
+  if body="$(curl -fsS --connect-timeout 5 --max-time 20 "${auth_header[@]}" -H "X-Tenant-Key: ${tenant_key}" "$endpoint" 2>/dev/null)"; then
+    printf '%s\n' "$body" >"$out_path"
+    return 0
+  fi
+  return 1
+}
+
+state_sync_import() {
+  local base_url="${1:-}"
+  local api_token="${2:-}"
+  local tenant_key="${3:-}"
+  local payload_path="${4:-}"
+
+  if [[ -z "$base_url" || -z "$tenant_key" || -z "$payload_path" ]]; then
+    return 1
+  fi
+  if [[ ! -s "$payload_path" ]]; then
+    return 1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Warning: curl not found; skipping /state/sync import${NC}" >&2
+    return 1
+  fi
+
+  local endpoint=""
+  endpoint="$(state_sync_endpoint "$base_url")" || true
+  if [[ -z "$endpoint" ]]; then
+    return 1
+  fi
+
+  local auth_header=()
+  if [[ -n "$api_token" ]]; then
+    auth_header=(-H "Authorization: Bearer ${api_token}")
+  fi
+
+  if curl -fsS --connect-timeout 5 --max-time 20 "${auth_header[@]}" -H "X-Tenant-Key: ${tenant_key}" -H "Content-Type: application/json" -X POST --data-binary @"$payload_path" "$endpoint" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
 }
 
 mask_proxy_url() {
@@ -1401,6 +1531,8 @@ create_app_runner() {
   set -euo pipefail
   local ecr_uri="$1"
   local image_identifier="${ecr_uri}:latest"
+  local state_sync_payload=""
+  local state_sync_tenant_key=""
   
   echo "Creating App Runner service..." >&2
   
@@ -1594,6 +1726,10 @@ create_app_runner() {
       BINANCE_API_SECRET="$existing_binance_secret"
       echo -e "${YELLOW}✓ Reusing existing BINANCE_API_SECRET from service${NC}" >&2
     fi
+  fi
+
+  if [[ -n "$existing_service_arn" ]]; then
+    state_sync_tenant_key="$(resolve_state_sync_tenant_key)"
   fi
 
   if [[ -n "$existing_service_arn" ]]; then
@@ -1830,6 +1966,20 @@ EOF
     echo "Waiting for any in-progress operation to finish..." >&2
     wait_for_apprunner_running "$service_arn" >/dev/null
 
+    if [[ -n "$state_sync_tenant_key" ]]; then
+      local existing_url=""
+      existing_url="$(discover_apprunner_service_url "$existing_service_arn" || true)"
+      if [[ -n "$existing_url" ]]; then
+        state_sync_payload="$(mktemp)"
+        if state_sync_export "$existing_url" "$TRADER_API_TOKEN" "$state_sync_tenant_key" "$state_sync_payload"; then
+          echo -e "${YELLOW}✓ Backed up /state/sync before update${NC}" >&2
+        else
+          rm -f "$state_sync_payload"
+          state_sync_payload=""
+        fi
+      fi
+    fi
+
     echo "Updating service configuration..." >&2
     aws apprunner update-service \
       --region "$AWS_REGION" \
@@ -1873,6 +2023,15 @@ EOF
     APP_RUNNER_SERVICE_URL="$service_host"
   else
     APP_RUNNER_SERVICE_URL="https://${service_host}"
+  fi
+
+  if [[ -n "$state_sync_payload" ]]; then
+    if state_sync_import "$APP_RUNNER_SERVICE_URL" "$TRADER_API_TOKEN" "$state_sync_tenant_key" "$state_sync_payload"; then
+      echo -e "${GREEN}✓ Restored /state/sync after update${NC}" >&2
+    else
+      echo -e "${YELLOW}Warning: failed to restore /state/sync after update${NC}" >&2
+    fi
+    rm -f "$state_sync_payload"
   fi
 }
 
