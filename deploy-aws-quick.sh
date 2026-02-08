@@ -49,6 +49,9 @@ TRADER_BINANCE_PROXY_URL="${TRADER_BINANCE_PROXY_URL:-}"
 TRADER_BINANCE_PROXY_CLEAR="${TRADER_BINANCE_PROXY_CLEAR:-false}"
 TRADER_BINANCE_PROXY_HEALTHCHECK="${TRADER_BINANCE_PROXY_HEALTHCHECK:-true}"
 TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT="${TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT:-false}"
+APP_RUNNER_EGRESS_EIP="${TRADER_APP_RUNNER_EGRESS_EIP:-false}"
+APP_RUNNER_EGRESS_PREFIX="${TRADER_APP_RUNNER_EGRESS_PREFIX:-}"
+APP_RUNNER_EGRESS_TEARDOWN="${TRADER_APP_RUNNER_EGRESS_TEARDOWN:-false}"
 TRADER_BOT_SYMBOLS="${TRADER_BOT_SYMBOLS:-}"
 TRADER_BOT_SYMBOL="${TRADER_BOT_SYMBOL:-}"
 TRADER_BOT_TRADE="${TRADER_BOT_TRADE:-true}"
@@ -137,6 +140,9 @@ Flags:
   --skip-binance-proxy-check        Skip Binance proxy connectivity check
   --instance-role-arn <arn>         App Runner instance role ARN (for S3 access)
   --ensure-resources                Create/reuse AWS resources (defaults state bucket; CloudFront when --cloudfront or --distribution-id)
+  --setup-egress-eip                Provision a fixed App Runner egress IP (VPC connector + NAT + EIP)
+  --egress-prefix <prefix>          Resource name prefix for egress resources
+  --teardown-egress-eip             Tear down fixed egress resources (prompts for confirmation)
   --api-only                         Deploy API only
   --ui-only                          Deploy UI only (requires --ui-bucket and --api-url or --service-arn)
   --ui-bucket|--bucket <bucket>     S3 bucket to upload UI to
@@ -169,6 +175,9 @@ Environment variables (equivalents):
   TRADER_BINANCE_PROXY_CLEAR
   TRADER_BINANCE_PROXY_HEALTHCHECK
   TRADER_BINANCE_PROXY_HEALTHCHECK_STRICT
+  TRADER_APP_RUNNER_EGRESS_EIP
+  TRADER_APP_RUNNER_EGRESS_PREFIX
+  TRADER_APP_RUNNER_EGRESS_TEARDOWN
   TRADER_API_MAX_BARS_LSTM
   TRADER_API_MAX_EPOCHS
   TRADER_API_MAX_HIDDEN_SIZE
@@ -673,6 +682,18 @@ while [[ $# -gt 0 ]]; do
       ENSURE_RESOURCES="true"
       shift
       ;;
+    --setup-egress-eip)
+      APP_RUNNER_EGRESS_EIP="true"
+      shift
+      ;;
+    --egress-prefix)
+      APP_RUNNER_EGRESS_PREFIX="${2:-}"
+      shift 2
+      ;;
+    --teardown-egress-eip)
+      APP_RUNNER_EGRESS_TEARDOWN="true"
+      shift
+      ;;
     --api-only)
       API_ONLY="true"
       shift
@@ -756,6 +777,10 @@ fi
 if [[ "$UI_ONLY" == "true" ]]; then
   DEPLOY_API="false"
   DEPLOY_UI="true"
+fi
+if is_true "$APP_RUNNER_EGRESS_TEARDOWN"; then
+  DEPLOY_API="false"
+  DEPLOY_UI="false"
 fi
 
 echo -e "${GREEN}=== Trader AWS Deployment Script ===${NC}\n"
@@ -1526,6 +1551,75 @@ build_and_push() {
   echo -e "${GREEN}✓ Image pushed to ${ecr_uri}:latest${NC}\n"
 }
 
+maybe_teardown_apprunner_egress_eip() {
+  if ! is_true "$APP_RUNNER_EGRESS_TEARDOWN"; then
+    return
+  fi
+
+  local script_path="deploy/aws/teardown-apprunner-egress-eip.sh"
+  if [[ ! -x "$script_path" ]]; then
+    echo -e "${RED}[ERR] Missing ${script_path}. Ensure the repo is up to date.${NC}" >&2
+    exit 1
+  fi
+
+  if [[ ! -t 0 ]]; then
+    echo -e "${RED}[ERR] Teardown requires interactive confirmation. Re-run in a TTY.${NC}" >&2
+    exit 1
+  fi
+
+  echo -e "${YELLOW}This will delete VPC/NAT/EIP resources created for App Runner fixed egress.${NC}" >&2
+  echo -n "Type DELETE to confirm: " >&2
+  local confirm=""
+  read -r confirm
+  if [[ "$confirm" != "DELETE" ]]; then
+    echo -e "${YELLOW}[WARN] Teardown aborted.${NC}" >&2
+    exit 0
+  fi
+
+  local service_arn=""
+  if [[ -n "${UI_SERVICE_ARN:-}" ]]; then
+    service_arn="$UI_SERVICE_ARN"
+  fi
+  if [[ -z "$service_arn" ]]; then
+    service_arn="$(discover_apprunner_service_arn_by_name "$APP_RUNNER_SERVICE_NAME" || true)"
+  fi
+
+  local args=(--confirm --region "$AWS_REGION")
+  if [[ -n "${APP_RUNNER_EGRESS_PREFIX:-}" ]]; then
+    args+=(--resource-prefix "$APP_RUNNER_EGRESS_PREFIX")
+  fi
+  if [[ -n "$service_arn" ]]; then
+    args+=(--service-arn "$service_arn")
+  elif [[ -n "${APP_RUNNER_SERVICE_NAME:-}" ]]; then
+    args+=(--service-name "$APP_RUNNER_SERVICE_NAME")
+  fi
+
+  echo "Tearing down App Runner fixed egress IP resources..." >&2
+  bash "$script_path" "${args[@]}"
+}
+
+maybe_setup_apprunner_egress_eip() {
+  local service_arn="$1"
+
+  if ! is_true "$APP_RUNNER_EGRESS_EIP"; then
+    return
+  fi
+
+  local script_path="deploy/aws/setup-apprunner-egress-eip.sh"
+  if [[ ! -x "$script_path" ]]; then
+    echo -e "${RED}[ERR] Missing ${script_path}. Ensure the repo is up to date.${NC}" >&2
+    exit 1
+  fi
+
+  local args=(--service-arn "$service_arn" --region "$AWS_REGION")
+  if [[ -n "${APP_RUNNER_EGRESS_PREFIX:-}" ]]; then
+    args+=(--resource-prefix "$APP_RUNNER_EGRESS_PREFIX")
+  fi
+
+  echo "Setting up App Runner fixed egress IP..." >&2
+  bash "$script_path" "${args[@]}"
+}
+
 # Create App Runner service
 create_app_runner() {
   set -euo pipefail
@@ -2017,6 +2111,8 @@ EOF
   echo "Waiting for service to be RUNNING (this may take a few minutes)..." >&2
   wait_for_apprunner_running "$service_arn" >/dev/null
 
+  maybe_setup_apprunner_egress_eip "$service_arn"
+
   local service_host
   service_host="$(aws apprunner describe-service --service-arn "$service_arn" --region "$AWS_REGION" --query 'Service.ServiceUrl' --output text)"
   if [[ "$service_host" == http* ]]; then
@@ -2407,6 +2503,12 @@ main() {
   fi
 
   check_prerequisites "$need_docker" "$need_npm"
+
+  if is_true "$APP_RUNNER_EGRESS_TEARDOWN"; then
+    maybe_teardown_apprunner_egress_eip
+    echo -e "${GREEN}=== Egress Teardown Complete ===${NC}\n"
+    return
+  fi
 
   if [[ -z "${UI_DISTRIBUTION_ID:-}" && -n "${UI_CLOUDFRONT_DOMAIN:-}" ]]; then
     UI_DISTRIBUTION_ID="$(discover_cloudfront_distribution_id_for_domain "$UI_CLOUDFRONT_DOMAIN" || true)"

@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 - Trading: add a richer transaction-cost model with fixed/min fees and volatility/size-based slippage/spread.
 - Dev/CI: auto-deploy to AWS from GitHub Actions after successful pushes to `main`/`master`.
 - Deploy: treat `BucketAlreadyOwnedByYou` as success when ensuring S3 buckets in `deploy-aws-quick.sh`.
-- Deploy: add `deploy/aws/setup-apprunner-egress-eip.sh` to provision fixed App Runner egress IPs for allowlisting.
+- Deploy: add App Runner fixed-egress helpers (`deploy/aws/setup-apprunner-egress-eip.sh`, `deploy/aws/teardown-apprunner-egress-eip.sh`) and `deploy-aws-quick.sh --setup-egress-eip`/`--teardown-egress-eip` flags (teardown prompts for confirmation).
 - Deploy: enable `TRADER_MULTI_USER` by default in `deploy-aws-quick.sh` for AWS deployments.
 - Trading/API: add DEX execution via 1inch for Uniswap/Curve/Sushi/Balancer/Pancake/1inch platforms, plus `dex*` params and `txHash` in trade responses.
 - Trading/CLI: require `--symbol`/`--binance-symbol` for `--binance-trade` and allow JSON trade output to place Coinbase orders instead of erroring.
