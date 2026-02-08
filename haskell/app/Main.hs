@@ -603,6 +603,12 @@ data BacktestSummary = BacktestSummary
     , bsFee :: !Double
     , bsSlippage :: !Double
     , bsSpread :: !Double
+    , bsFeeFixed :: !Double
+    , bsFeeMin :: !Double
+    , bsSlippageVolMult :: !Double
+    , bsSlippageImpact :: !Double
+    , bsSlippageImpactPower :: !Double
+    , bsSpreadVolMult :: !Double
     , bsEstimatedPerSideCost :: !Double
     , bsEstimatedRoundTripCost :: !Double
     , bsMetrics :: !BacktestMetrics
@@ -889,6 +895,12 @@ data ApiParams = ApiParams
     , apFee :: Maybe Double
     , apSlippage :: Maybe Double
     , apSpread :: Maybe Double
+    , apFeeFixed :: Maybe Double
+    , apFeeMin :: Maybe Double
+    , apSlippageVolMult :: Maybe Double
+    , apSlippageImpact :: Maybe Double
+    , apSlippageImpactPower :: Maybe Double
+    , apSpreadVolMult :: Maybe Double
     , apIntrabarFill :: Maybe String
     , apStopLoss :: Maybe Double
     , apTakeProfit :: Maybe Double
@@ -915,6 +927,9 @@ data ApiParams = ApiParams
     , apNoTradeWindows :: Maybe [String]
     , apMaxOpenPositions :: Maybe Int
     , apMaxOpenPerBase :: Maybe Int
+    , apMaxGrossExposure :: Maybe Double
+    , apMaxNetExposure :: Maybe Double
+    , apMaxExposurePerBase :: Maybe Double
     , apMinEdge :: Maybe Double
     , apMinSignalToNoise :: Maybe Double
     , apSnrSizeWeight :: Maybe Double
@@ -2208,6 +2223,14 @@ argsPublicJson args =
             , "sweepThreshold" .= argSweepThreshold args
             , "tradeOnly" .= argTradeOnly args
             , "fee" .= argFee args
+            , "slippage" .= argSlippage args
+            , "spread" .= argSpread args
+            , "feeFixed" .= argFeeFixed args
+            , "feeMin" .= argFeeMin args
+            , "slippageVolMult" .= argSlippageVolMult args
+            , "slippageImpact" .= argSlippageImpact args
+            , "slippageImpactPower" .= argSlippageImpactPower args
+            , "spreadVolMult" .= argSpreadVolMult args
             , "stopLoss" .= argStopLoss args
             , "takeProfit" .= argTakeProfit args
             , "trailingStop" .= argTrailingStop args
@@ -2233,6 +2256,9 @@ argsPublicJson args =
             , "noTradeWindows" .= map timeWindowCode (argNoTradeWindows args)
             , "maxOpenPositions" .= argMaxOpenPositions args
             , "maxOpenPerBase" .= argMaxOpenPerBase args
+            , "maxGrossExposure" .= argMaxGrossExposure args
+            , "maxNetExposure" .= argMaxNetExposure args
+            , "maxExposurePerBase" .= argMaxExposurePerBase args
             , "minEdge" .= argMinEdge args
             , "minSignalToNoise" .= argMinSignalToNoise args
             , "snrSizeWeight" .= argSnrSizeWeight args
@@ -2257,6 +2283,11 @@ argsPublicJson args =
             , "costAwareEdge" .= argCostAwareEdge args
             , "edgeBuffer" .= argEdgeBuffer args
             , "trendLookback" .= argTrendLookback args
+            , "maxOpenPositions" .= argMaxOpenPositions args
+            , "maxOpenPerBase" .= argMaxOpenPerBase args
+            , "maxGrossExposure" .= argMaxGrossExposure args
+            , "maxNetExposure" .= argMaxNetExposure args
+            , "maxExposurePerBase" .= argMaxExposurePerBase args
             , "maxPositionSize" .= argMaxPositionSize args
             , "volTarget" .= argVolTarget args
             , "volLookback" .= argVolLookback args
@@ -5917,16 +5948,22 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
           | appliedSwitch = desiredPosSignal
           | otherwise = startPos0
         didTradeNow = wantSwitch && appliedSwitch && feeApplied
-
-        feeSize
-          | not wantSwitch = 0
-          | startPos0 == 0 = entrySize
-          | desiredPosSignal == 0 = startSize
-          | otherwise = startSize + entrySize
-        feeFrac = min 0.999999 (max 0 (argFee args) * feeSize)
+        volPerBar = volPerBarFromSignal args latest
+        costFor size = costPerSideTotal args size volPerBar
+        exitSize =
+            if wantSwitch && startPos0 /= 0
+                then startSize
+                else 0
+        entryCostSize =
+            if wantSwitch && desiredPosSignal /= 0
+                then entrySize
+                else 0
+        exitCost = costFor exitSize
+        entryCost = costFor entryCostSize
+        eqAfterCost = baseEq * (1 - exitCost) * (1 - entryCost)
         eq1 =
             if didTradeNow
-                then eq0 V.// [(n - 1, baseEq * (1 - feeFrac))]
+                then eq0 V.// [(n - 1, eqAfterCost)]
                 else eq0
         pos1 = pos0 V.// [(n - 1, desiredPos)]
         openTrade =
@@ -6089,7 +6126,9 @@ botOptimizeAfterOperation st = do
                         baseOpenThr = argOpenThreshold args
                         baseCloseThr = argCloseThreshold args
                         fee = argFee args
-                        perSideCost = estimatedPerSideCost fee (argSlippage args) (argSpread args)
+                        volPerBar = volPerBarFromPrices prices
+                        sizeRef = max 1e-6 (argMaxPositionSize args)
+                        perSideCost = estimatedPerSideCost args sizeRef volPerBar
                         rebalanceThresholdBase = max 0 (argRebalanceThreshold args)
                         rebalanceCostMult = max 0 (argRebalanceCostMult args)
                         rebalanceThreshold =
@@ -6108,6 +6147,12 @@ botOptimizeAfterOperation st = do
                                 , ecFee = fee
                                 , ecSlippage = argSlippage args
                                 , ecSpread = argSpread args
+                                , ecFeeFixed = argFeeFixed args
+                                , ecFeeMin = argFeeMin args
+                                , ecSlippageVolMult = argSlippageVolMult args
+                                , ecSlippageImpact = argSlippageImpact args
+                                , ecSlippageImpactPower = argSlippageImpactPower args
+                                , ecSpreadVolMult = argSpreadVolMult args
                                 , ecStopLoss = argStopLoss args
                                 , ecTakeProfit = argTakeProfit args
                                 , ecTrailingStop = argTrailingStop args
@@ -6490,6 +6535,12 @@ parseTopComboToArgs base combo = do
         fee = max 0 (pickD "fee" (argFee base))
         slippage = max 0 (pickD "slippage" (argSlippage base))
         spread = max 0 (pickD "spread" (argSpread base))
+        feeFixed = max 0 (pickD "feeFixed" (argFeeFixed base))
+        feeMin = max 0 (pickD "feeMin" (argFeeMin base))
+        slippageVolMult = max 0 (pickD "slippageVolMult" (argSlippageVolMult base))
+        slippageImpact = max 0 (pickD "slippageImpact" (argSlippageImpact base))
+        slippageImpactPower = max 0 (pickD "slippageImpactPower" (argSlippageImpactPower base))
+        spreadVolMult = max 0 (pickD "spreadVolMult" (argSpreadVolMult base))
 
         kalZMin = max 0 (pickD "kalmanZMin" (argKalmanZMin base))
         kalZMaxRaw = max 0 (pickD "kalmanZMax" (argKalmanZMax base))
@@ -6533,6 +6584,9 @@ parseTopComboToArgs base combo = do
         costAwareEdge = pickBool "costAwareEdge" (argCostAwareEdge base)
         trendLookback = max 0 (pickI "trendLookback" (argTrendLookback base))
         maxPositionSize = max 0 (pickD "maxPositionSize" (argMaxPositionSize base))
+        maxGrossExposure = pickMaybeMaybeDbl "maxGrossExposure" (argMaxGrossExposure base)
+        maxNetExposure = pickMaybeMaybeDbl "maxNetExposure" (argMaxNetExposure base)
+        maxExposurePerBase = pickMaybeMaybeDbl "maxExposurePerBase" (argMaxExposurePerBase base)
 
         volTarget =
             case pickMaybeMaybeDbl "volTarget" (argVolTarget base) of
@@ -6586,6 +6640,8 @@ parseTopComboToArgs base combo = do
                 , argOpenThreshold = openThr
                 , argCloseThreshold = closeThr
                 , argFee = fee
+                , argFeeFixed = feeFixed
+                , argFeeMin = feeMin
                 , argEpochs = max 1 (pickI "epochs" (argEpochs base))
                 , argHiddenSize = max 1 (pickI "hiddenSize" (argHiddenSize base))
                 , argLr = max 1e-12 (pickD "learningRate" (argLr base))
@@ -6594,6 +6650,10 @@ parseTopComboToArgs base combo = do
                 , argGradClip = gradClip
                 , argSlippage = slippage
                 , argSpread = spread
+                , argSlippageVolMult = slippageVolMult
+                , argSlippageImpact = slippageImpact
+                , argSlippageImpactPower = slippageImpactPower
+                , argSpreadVolMult = spreadVolMult
                 , argIntrabarFill = intrabarFill
                 , argStopLoss = stopLoss
                 , argTakeProfit = takeProfit
@@ -6613,6 +6673,9 @@ parseTopComboToArgs base combo = do
                 , argEdgeBuffer = edgeBuffer
                 , argTrendLookback = trendLookback
                 , argMaxPositionSize = maxPositionSize
+                , argMaxGrossExposure = maxGrossExposure
+                , argMaxNetExposure = maxNetExposure
+                , argMaxExposurePerBase = maxExposurePerBase
                 , argVolTarget = volTarget
                 , argVolLookback = volLookback
                 , argVolEwmaAlpha = volEwmaAlpha
@@ -7964,18 +8027,64 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                     (T.pack (botSymbol st'))
                 )
         baseAssetNow = baseAssetFor st
+        entrySizePre = entryScaleForSignal args (beMarket (botEnv st)) latest2
         openPositionsTotal = length [s | s <- allStates, positionNow s /= 0]
         openPositionsBase =
             case baseAssetNow of
                 Nothing -> 0
                 Just base -> length [s | s <- allStates, positionNow s /= 0, baseAssetFor s == Just base]
-        exposureBlocked =
+        countBlocked =
             case argMaxOpenPositions args of
                 Just lim | lim > 0 -> openPositionsTotal >= lim
                 _ -> False
-        baseExposureBlocked =
+        baseCountBlocked =
             case argMaxOpenPerBase args of
                 Just lim | lim > 0 -> openPositionsBase >= lim
+                _ -> False
+        positionSizeFor st' =
+            case botOpenTrade st' of
+                Just ot | positionNow st' /= 0 -> max 0 (botOpenSize ot)
+                _ ->
+                    if positionNow st' == 0
+                        then 0
+                        else max 0 (argMaxPositionSize (botArgs st'))
+        signedSizeFor st' =
+            let s = positionSizeFor st'
+             in fromIntegral (positionNow st') * s
+        grossExposureNow =
+            sum [abs (signedSizeFor s) | s <- allStates]
+        netExposureNow =
+            sum [signedSizeFor s | s <- allStates]
+        baseExposureNow =
+            case baseAssetNow of
+                Nothing -> 0
+                Just base ->
+                    sum
+                        [ abs (signedSizeFor s)
+                        | s <- allStates
+                        , positionNow s /= 0
+                        , baseAssetFor s == Just base
+                        ]
+        desiredSize =
+            if desiredPosWanted2 /= 0
+                then entrySizePre
+                else 0
+        currentSigned = fromIntegral prevPos * prevSize
+        desiredSigned = fromIntegral desiredPosWanted2 * desiredSize
+        grossExposureAfter = grossExposureNow - abs currentSigned + abs desiredSigned
+        netExposureAfter = netExposureNow - currentSigned + desiredSigned
+        baseExposureAfter = baseExposureNow - abs currentSigned + abs desiredSigned
+        grossExposureBlocked =
+            case argMaxGrossExposure args of
+                Just lim | lim > 0 -> grossExposureAfter > lim
+                _ -> False
+        netExposureBlocked =
+            case argMaxNetExposure args of
+                Just lim | lim > 0 -> abs netExposureAfter > lim
+                _ -> False
+        baseExposureBlocked =
+            case argMaxExposurePerBase args of
+                Just lim | lim > 0 -> baseExposureAfter > lim
                 _ -> False
 
         (latest1, desiredPosWanted1, mExitReason1) =
@@ -8009,8 +8118,11 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         entryAttempt = desiredPosWanted2 /= 0 && desiredPosWanted2 /= prevPos
         entryAttemptFromFlat = prevPos == 0 && desiredPosWanted2 /= 0
         entryBlockReason
-          | entryAttemptFromFlat && exposureBlocked = Just "MAX_OPEN_POSITIONS"
-          | entryAttemptFromFlat && baseExposureBlocked = Just "MAX_OPEN_PER_BASE"
+          | entryAttemptFromFlat && countBlocked = Just "MAX_OPEN_POSITIONS"
+          | entryAttemptFromFlat && baseCountBlocked = Just "MAX_OPEN_PER_BASE"
+          | entryAttempt && grossExposureBlocked = Just "MAX_GROSS_EXPOSURE"
+          | entryAttempt && netExposureBlocked = Just "MAX_NET_EXPOSURE"
+          | entryAttempt && baseExposureBlocked = Just "MAX_EXPOSURE_PER_BASE"
           | entryAttempt && noTradeActive = Just "NO_TRADE_WINDOW"
           | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
           | entryAttempt = perfGateReasonMaybe
@@ -8064,7 +8176,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                         not tradeEnabled || aorSent oPartial
                     partialSize = max 0 (min prevSize (prevSize * partialTpFrac))
                     remainingSize = max 0 (prevSize - partialSize)
-                    feeFrac = min 0.999999 (max 0 (argFee args) * partialSize)
+                    feeFrac = costPerSideTotal args partialSize volPerBar
                     eqAfterFee =
                         if appliedPartial && feeApplied
                             then eqAfterReturn * (1 - feeFrac)
@@ -8177,17 +8289,15 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 not tradeEnabled || (aorSent o || alreadyMsg)
                             feeApplied =
                                 not tradeEnabled || aorSent o
-                            feeRate = max 0 (argFee args)
-                            applyFee eq size =
-                                let s = max 0 size
-                                    feeFrac = min 0.999999 (feeRate * s)
+                            applyCostOnce eq size =
+                                let feeFrac = costPerSideTotal args size volPerBar
                                  in eq * (1 - feeFrac)
                             eqAfterFee =
                                 if appliedSwitch && feeApplied
                                     then case (prevPos, desiredPosWanted) of
-                                        (0, _) -> applyFee eqAfterReturn entrySize
-                                        (_, 0) -> applyFee eqAfterReturn prevSize
-                                        _ -> applyFee (applyFee eqAfterReturn prevSize) entrySize
+                                        (0, _) -> applyCostOnce eqAfterReturn entrySize
+                                        (_, 0) -> applyCostOnce eqAfterReturn prevSize
+                                        _ -> applyCostOnce (applyCostOnce eqAfterReturn prevSize) entrySize
                                     else eqAfterReturn
                             posNew = if appliedSwitch then desiredPosWanted else prevPos
                             switchedApplied1 = posNew /= prevPos
@@ -9114,6 +9224,15 @@ argsCacheJsonSignal args =
             , "closeThreshold" .= argCloseThreshold args
             , "method" .= methodCode (argMethod args)
             , "positioning" .= positioningCode (argPositioning args)
+            , "fee" .= argFee args
+            , "slippage" .= argSlippage args
+            , "spread" .= argSpread args
+            , "feeFixed" .= argFeeFixed args
+            , "feeMin" .= argFeeMin args
+            , "slippageVolMult" .= argSlippageVolMult args
+            , "slippageImpact" .= argSlippageImpact args
+            , "slippageImpactPower" .= argSlippageImpactPower args
+            , "spreadVolMult" .= argSpreadVolMult args
             , "maxHoldBars" .= argMaxHoldBars args
             , "minEdge" .= argMinEdge args
             , "minSignalToNoise" .= argMinSignalToNoise args
@@ -9134,6 +9253,11 @@ argsCacheJsonSignal args =
             , "costAwareEdge" .= argCostAwareEdge args
             , "edgeBuffer" .= argEdgeBuffer args
             , "trendLookback" .= argTrendLookback args
+            , "maxOpenPositions" .= argMaxOpenPositions args
+            , "maxOpenPerBase" .= argMaxOpenPerBase args
+            , "maxGrossExposure" .= argMaxGrossExposure args
+            , "maxNetExposure" .= argMaxNetExposure args
+            , "maxExposurePerBase" .= argMaxExposurePerBase args
             , "maxPositionSize" .= argMaxPositionSize args
             , "volTarget" .= argVolTarget args
             , "volLookback" .= argVolLookback args
@@ -9217,6 +9341,12 @@ argsCacheJsonBacktest args =
             , "fee" .= argFee args
             , "slippage" .= argSlippage args
             , "spread" .= argSpread args
+            , "feeFixed" .= argFeeFixed args
+            , "feeMin" .= argFeeMin args
+            , "slippageVolMult" .= argSlippageVolMult args
+            , "slippageImpact" .= argSlippageImpact args
+            , "slippageImpactPower" .= argSlippageImpactPower args
+            , "spreadVolMult" .= argSpreadVolMult args
             , "intrabarFill" .= intrabarFillCode (argIntrabarFill args)
             , "stopLoss" .= argStopLoss args
             , "takeProfit" .= argTakeProfit args
@@ -14106,6 +14236,12 @@ argsFromApi baseArgs p = do
                 , argFee = pick (apFee p) (argFee baseArgs)
                 , argSlippage = pick (apSlippage p) (argSlippage baseArgs)
                 , argSpread = pick (apSpread p) (argSpread baseArgs)
+                , argFeeFixed = pick (apFeeFixed p) (argFeeFixed baseArgs)
+                , argFeeMin = pick (apFeeMin p) (argFeeMin baseArgs)
+                , argSlippageVolMult = pick (apSlippageVolMult p) (argSlippageVolMult baseArgs)
+                , argSlippageImpact = pick (apSlippageImpact p) (argSlippageImpact baseArgs)
+                , argSlippageImpactPower = pick (apSlippageImpactPower p) (argSlippageImpactPower baseArgs)
+                , argSpreadVolMult = pick (apSpreadVolMult p) (argSpreadVolMult baseArgs)
                 , argIntrabarFill = intrabarFill
                 , argStopLoss = pickMaybe (apStopLoss p) (argStopLoss baseArgs)
                 , argTakeProfit = pickMaybe (apTakeProfit p) (argTakeProfit baseArgs)
@@ -14132,6 +14268,9 @@ argsFromApi baseArgs p = do
                 , argNoTradeWindows = noTradeWindows
                 , argMaxOpenPositions = pickMaybe (apMaxOpenPositions p) (argMaxOpenPositions baseArgs)
                 , argMaxOpenPerBase = pickMaybe (apMaxOpenPerBase p) (argMaxOpenPerBase baseArgs)
+                , argMaxGrossExposure = pickMaybe (apMaxGrossExposure p) (argMaxGrossExposure baseArgs)
+                , argMaxNetExposure = pickMaybe (apMaxNetExposure p) (argMaxNetExposure baseArgs)
+                , argMaxExposurePerBase = pickMaybe (apMaxExposurePerBase p) (argMaxExposurePerBase baseArgs)
                 , argMinEdge = pick (apMinEdge p) (argMinEdge baseArgs)
                 , argMinSignalToNoise = pick (apMinSignalToNoise p) (argMinSignalToNoise baseArgs)
                 , argSnrSizeWeight = pick (apSnrSizeWeight p) (argSnrSizeWeight baseArgs)
@@ -15006,7 +15145,9 @@ lstmConfidenceScore :: Args -> LatestSignal -> Maybe Double
 lstmConfidenceScore args sig = do
     next <- lsSizingNext sig
     let cur = lsCurrentPrice sig
-        perSideCost = estimatedPerSideCost (argFee args) (argSlippage args) (argSpread args)
+        sizeRef = max 1e-6 (max 0 (fromMaybe (argMaxPositionSize args) (lsPositionSize sig)))
+        volPerBar = volPerBarFromSignal args sig
+        perSideCost = estimatedPerSideCost args sizeRef volPerBar
         minEdgeBase = max 0 (argMinEdge args)
         minEdge =
             if argCostAwareEdge args
@@ -16400,6 +16541,12 @@ backtestSummaryJson summary =
                 [ "fee" .= bsFee summary
                 , "slippage" .= bsSlippage summary
                 , "spread" .= bsSpread summary
+                , "feeFixed" .= bsFeeFixed summary
+                , "feeMin" .= bsFeeMin summary
+                , "slippageVolMult" .= bsSlippageVolMult summary
+                , "slippageImpact" .= bsSlippageImpact summary
+                , "slippageImpactPower" .= bsSlippageImpactPower summary
+                , "spreadVolMult" .= bsSpreadVolMult summary
                 , "perSideCost" .= bsEstimatedPerSideCost summary
                 , "roundTripCost" .= bsEstimatedRoundTripCost summary
                 , "breakEvenThreshold" .= breakEvenThresholdFromPerSideCost (bsEstimatedPerSideCost summary)
@@ -16534,6 +16681,11 @@ metricsToJson m =
         , "annualizedReturn" .= bmAnnualizedReturn m
         , "annualizedVolatility" .= bmAnnualizedVolatility m
         , "sharpe" .= bmSharpe m
+        , "sortino" .= bmSortino m
+        , "calmar" .= bmCalmar m
+        , "downsideVolatility" .= bmDownsideVolatility m
+        , "var95" .= bmVaR95 m
+        , "cvar95" .= bmCVaR95 m
         , "maxDrawdown" .= bmMaxDrawdown m
         , "tradeCount" .= bmTradeCount m
         , "positionChanges" .= bmPositionChanges m
@@ -16562,8 +16714,10 @@ runTradeOnly mWebhook args lookback series mBinanceEnv = do
                 else printJsonStdout (object ["mode" .= ("signal" :: String), "signal" .= signal])
         else do
             printLatestSignalSummary signal
-            let perSide = estimatedPerSideCost (argFee args) (argSlippage args) (argSpread args)
-                roundTrip = estimatedRoundTripCost (argFee args) (argSlippage args) (argSpread args)
+            let sizeRef = max 1e-6 (max 0 (fromMaybe (argMaxPositionSize args) (lsPositionSize signal)))
+                volPerBar = volPerBarFromSignal args signal
+                perSide = estimatedPerSideCost args sizeRef volPerBar
+                roundTrip = estimatedRoundTripCost args sizeRef volPerBar
                 minEdgeBase = max 0 (argMinEdge args)
                 minEdge =
                     if argCostAwareEdge args
@@ -17186,8 +17340,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     let feeUsed = max 0 (argFee args)
         slippageUsed = max 0 (argSlippage args)
         spreadUsed = max 0 (argSpread args)
-        perSideCost = estimatedPerSideCost feeUsed slippageUsed spreadUsed
-        roundTripCost = estimatedRoundTripCost feeUsed slippageUsed spreadUsed
+        volPerBar = volPerBarFromPrices (psClose series)
+        sizeRef = max 1e-6 (argMaxPositionSize args)
+        perSideCost = estimatedPerSideCost args sizeRef volPerBar
+        roundTripCost = estimatedRoundTripCost args sizeRef volPerBar
         rebalanceThresholdBase = max 0 (argRebalanceThreshold args)
         rebalanceCostMult = max 0 (argRebalanceCostMult args)
         rebalanceThresholdUsed =
@@ -17216,6 +17372,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 , ecFee = feeUsed
                 , ecSlippage = slippageUsed
                 , ecSpread = spreadUsed
+                , ecFeeFixed = argFeeFixed args
+                , ecFeeMin = argFeeMin args
+                , ecSlippageVolMult = argSlippageVolMult args
+                , ecSlippageImpact = argSlippageImpact args
+                , ecSlippageImpactPower = argSlippageImpactPower args
+                , ecSpreadVolMult = argSpreadVolMult args
                 , ecStopLoss = argStopLoss args
                 , ecTakeProfit = argTakeProfit args
                 , ecTrailingStop = argTrailingStop args
@@ -17652,6 +17814,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             , bsFee = feeUsed
             , bsSlippage = slippageUsed
             , bsSpread = spreadUsed
+            , bsFeeFixed = argFeeFixed args
+            , bsFeeMin = argFeeMin args
+            , bsSlippageVolMult = argSlippageVolMult args
+            , bsSlippageImpact = argSlippageImpact args
+            , bsSlippageImpactPower = argSlippageImpactPower args
+            , bsSpreadVolMult = argSpreadVolMult args
             , bsEstimatedPerSideCost = perSideCost
             , bsEstimatedRoundTripCost = roundTripCost
             , bsMetrics = metrics
@@ -18011,8 +18179,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 else
                     let t = n - 1
                         currentPrice = pricesV V.! t
-                        perSideCost = estimatedPerSideCost (argFee args) (argSlippage args) (argSpread args)
-                        roundTripCost = estimatedRoundTripCost (argFee args) (argSlippage args) (argSpread args)
+                        volPerBarCost = volPerBarFromPricesV pricesV
+                        sizeRef = max 1e-6 (argMaxPositionSize args)
+                        perSideCost = estimatedPerSideCost args sizeRef volPerBarCost
+                        roundTripCost = estimatedRoundTripCost args sizeRef volPerBarCost
                         minEdgeBase = max 0 (argMinEdge args)
                         minEdge =
                             if argCostAwareEdge args
@@ -18829,17 +18999,74 @@ printLatestSignalSummary sig = do
     putStrLn (printf "Close dir:       %s" (showDir (lsCloseDir sig)))
     putStrLn (printf "Action: %s" (lsAction sig))
 
-estimatedPerSideCost :: Double -> Double -> Double -> Double
-estimatedPerSideCost fee slippage spread =
-    let fee' = max 0 fee
-        slip' = max 0 slippage
-        spr' = max 0 spread
-        c = fee' + slip' + spr' / 2
-     in min 0.999999 (max 0 c)
+volPerBarFromSignal :: Args -> LatestSignal -> Maybe Double
+volPerBarFromSignal args sig =
+    case lsVolatility sig of
+        Just vol ->
+            let ppy = max 1e-12 (periodsPerYear args)
+                perBar = vol / sqrt ppy
+             in if isNaN perBar || isInfinite perBar || perBar <= 0 then Nothing else Just perBar
+        _ -> Nothing
 
-estimatedRoundTripCost :: Double -> Double -> Double -> Double
-estimatedRoundTripCost fee slippage spread =
-    let perSide = estimatedPerSideCost fee slippage spread
+volPerBarFromPrices :: [Double] -> Maybe Double
+volPerBarFromPrices prices =
+    let rs =
+            case prices of
+                [] -> []
+                [_] -> []
+                _ ->
+                    zipWith
+                        (\p0 p1 -> if p0 == 0 then 0 else p1 / p0 - 1)
+                        prices
+                        (drop 1 prices)
+        rsClean = filter (\x -> not (isNaN x || isInfinite x)) rs
+        n = length rsClean
+     in if n < 2
+            then Nothing
+            else
+                let m = sum rsClean / fromIntegral n
+                    var = sum (map (\x -> (x - m) ** 2) rsClean) / fromIntegral (n - 1)
+                    std = sqrt (max 0 var)
+                 in if isNaN std || isInfinite std || std <= 0 then Nothing else Just std
+
+volPerBarFromPricesV :: V.Vector Double -> Maybe Double
+volPerBarFromPricesV = volPerBarFromPrices . V.toList
+
+costPerSideTotal :: Args -> Double -> Maybe Double -> Double
+costPerSideTotal args size mVolPerBar =
+    let s = max 0 (abs size)
+     in if s <= 0
+            then 0
+            else
+                let vol = max 0 (fromMaybe 0 mVolPerBar)
+                    feeRate = max 0 (argFee args)
+                    feeFixed = max 0 (argFeeFixed args)
+                    feeMin = max 0 (argFeeMin args)
+                    slipBase = max 0 (argSlippage args)
+                    slipVol = max 0 (argSlippageVolMult args) * vol
+                    impactPower = max 0 (argSlippageImpactPower args)
+                    impactRate = max 0 (argSlippageImpact args) * (s ** impactPower)
+                    spreadBase = max 0 (argSpread args)
+                    spreadVol = max 0 (argSpreadVolMult args) * vol
+                    spreadTotal = spreadBase + spreadVol
+                    perNotional = feeRate + slipBase + slipVol + impactRate + spreadTotal / 2
+                    total0 = perNotional * s + feeFixed
+                    total1 = if feeMin > 0 then max feeMin total0 else total0
+                 in min 0.999999 (max 0 total1)
+
+costPerSideRate :: Args -> Double -> Maybe Double -> Double
+costPerSideRate args size mVolPerBar =
+    let s = max 0 (abs size)
+     in if s <= 0
+            then 0
+            else costPerSideTotal args s mVolPerBar / s
+
+estimatedPerSideCost :: Args -> Double -> Maybe Double -> Double
+estimatedPerSideCost = costPerSideRate
+
+estimatedRoundTripCost :: Args -> Double -> Maybe Double -> Double
+estimatedRoundTripCost args size mVolPerBar =
+    let perSide = estimatedPerSideCost args size mVolPerBar
      in min 0.999999 (2 * perSide)
 
 breakEvenThresholdFromPerSideCost :: Double -> Double
@@ -18849,9 +19076,9 @@ breakEvenThresholdFromPerSideCost perSide0 =
         be = 1 / denom - 1
      in max 0 be
 
-estimatedBreakEvenThreshold :: Double -> Double -> Double -> Double
-estimatedBreakEvenThreshold fee slippage spread =
-    let perSide = estimatedPerSideCost fee slippage spread
+estimatedBreakEvenThreshold :: Args -> Double -> Maybe Double -> Double
+estimatedBreakEvenThreshold args size mVolPerBar =
+    let perSide = estimatedPerSideCost args size mVolPerBar
      in breakEvenThresholdFromPerSideCost perSide
 
 printCostGuidance :: Double -> Double -> Double -> Double -> IO ()
@@ -19325,8 +19552,13 @@ printMetrics method m = do
     putStrLn ""
     putStrLn "**Risk & Volatility**"
     putStrLn (printf "Annualized volatility: %.2f%%" (bmAnnualizedVolatility m * 100))
+    putStrLn (printf "Downside volatility (ann.): %.2f%%" (bmDownsideVolatility m * 100))
     putStrLn (printf "Sharpe ratio (rf=0): %.3f" (bmSharpe m))
+    putStrLn (printf "Sortino ratio (rf=0): %.3f" (bmSortino m))
     putStrLn (printf "Max drawdown: %.2f%%" (bmMaxDrawdown m * 100))
+    putStrLn (printf "Calmar ratio: %.3f" (bmCalmar m))
+    putStrLn (printf "VaR 95%% (per-period): %.2f%%" (bmVaR95 m * 100))
+    putStrLn (printf "CVaR 95%% (per-period): %.2f%%" (bmCVaR95 m * 100))
 
     putStrLn ""
     putStrLn "**Trade Execution**"

@@ -3,7 +3,7 @@ module Trader.Metrics (
     computeMetrics,
 ) where
 
-import Data.List (foldl')
+import Data.List (foldl', sort)
 
 import Trader.Trading (BacktestResult (..), ExitReason (..), Trade (..))
 
@@ -14,6 +14,11 @@ data BacktestMetrics = BacktestMetrics
     , bmAnnualizedReturn :: !Double
     , bmAnnualizedVolatility :: !Double
     , bmSharpe :: !Double
+    , bmSortino :: !Double
+    , bmCalmar :: !Double
+    , bmDownsideVolatility :: !Double
+    , bmVaR95 :: !Double
+    , bmCVaR95 :: !Double
     , bmMaxDrawdown :: !Double
     , bmPositionChanges :: !Int
     , bmTradeCount :: !Int
@@ -49,11 +54,22 @@ computeMetrics periodsPerYear br =
             if stdR <= 0
                 then 0
                 else (meanR / stdR) * sqrt periodsPerYear
+        downsideDev = downsideDeviation rets
+        downsideVol = downsideDev * sqrt periodsPerYear
+        sortino =
+            if downsideDev <= 0
+                then 0
+                else (meanR / downsideDev) * sqrt periodsPerYear
         annRet =
             if periods <= 0
                 then 0
                 else finalEq ** (periodsPerYear / fromIntegral periods) - 1
         maxDd = abs (min 0 (minDrawdown eq))
+        calmar =
+            if maxDd <= 0
+                then 0
+                else annRet / maxDd
+        (var95, cvar95) = varCvar 0.95 rets
 
         trades = brTrades br
         tradeCount = length trades
@@ -107,6 +123,11 @@ computeMetrics periodsPerYear br =
             , bmAnnualizedReturn = annRet
             , bmAnnualizedVolatility = annVol
             , bmSharpe = sharpe
+            , bmSortino = sortino
+            , bmCalmar = calmar
+            , bmDownsideVolatility = downsideVol
+            , bmVaR95 = var95
+            , bmCVaR95 = cvar95
             , bmMaxDrawdown = maxDd
             , bmPositionChanges = positionChanges
             , bmTradeCount = tradeCount
@@ -155,6 +176,32 @@ stddev xs =
             let m = mean xs
                 var = sum (map (\x -> (x - m) ** 2) xs) / fromIntegral (length xs - 1)
              in sqrt var
+
+downsideDeviation :: [Double] -> Double
+downsideDeviation xs =
+    let downs = map (\r -> min 0 r) xs
+        n = length downs
+     in if n <= 0
+            then 0
+            else sqrt (sum (map (\r -> r * r) downs) / fromIntegral n)
+
+varCvar :: Double -> [Double] -> (Double, Double)
+varCvar level xs =
+    let xs' = sort xs
+        n = length xs'
+        alpha = max 0 (min 1 (1 - level))
+     in if n <= 0
+            then (0, 0)
+            else
+                let idx = floor (alpha * fromIntegral (n - 1))
+                    q = xs' !! max 0 (min (n - 1) idx)
+                    tailXs = take (idx + 1) xs'
+                    varLoss = max 0 (-q)
+                    cvarLoss =
+                        if null tailXs
+                            then 0
+                            else max 0 (negate (mean tailXs))
+                 in (varLoss, cvarLoss)
 
 minDrawdown :: [Double] -> Double
 minDrawdown eq =

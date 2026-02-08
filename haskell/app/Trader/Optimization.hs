@@ -331,12 +331,50 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         routerLookback = max 2 (ecRouterLookback baseCfg)
         routerMinScore = clamp01 (ecRouterMinScore baseCfg)
         routerScorePnlWeight = clamp01 (ecRouterScorePnlWeight baseCfg)
+        costPerSideTotal size volPerBar =
+            let s = max 0 (abs size)
+             in if s <= 0
+                    then 0
+                    else
+                        let vol = max 0 volPerBar
+                            feeRate = max 0 (ecFee baseCfg)
+                            feeFixed = max 0 (ecFeeFixed baseCfg)
+                            feeMin = max 0 (ecFeeMin baseCfg)
+                            slipBase = max 0 (ecSlippage baseCfg)
+                            slipVol = max 0 (ecSlippageVolMult baseCfg) * vol
+                            impactPower = max 0 (ecSlippageImpactPower baseCfg)
+                            impactRate = max 0 (ecSlippageImpact baseCfg) * (s ** impactPower)
+                            spreadBase = max 0 (ecSpread baseCfg)
+                            spreadVol = max 0 (ecSpreadVolMult baseCfg) * vol
+                            spreadTotal = spreadBase + spreadVol
+                            perNotional = feeRate + slipBase + slipVol + impactRate + spreadTotal / 2
+                            total0 = perNotional * s + feeFixed
+                            total1 = if feeMin > 0 then max feeMin total0 else total0
+                         in min 0.999999 (max 0 total1)
+
+        volPerBarAvg =
+            if stepCount <= 1
+                then 0
+                else
+                    let rets = V.generate stepCount $ \i ->
+                            if i <= 0
+                                then 0
+                                else
+                                    let p0 = pricesV V.! (i - 1)
+                                        p1 = pricesV V.! i
+                                        r = if p0 == 0 then 0 else p1 / p0 - 1
+                                     in if isNaN r || isInfinite r then 0 else r
+                        m = if stepCount <= 0 then 0 else V.sum rets / fromIntegral stepCount
+                        var =
+                            if stepCount < 2
+                                then 0
+                                else V.sum (V.map (\x -> (x - m) ** 2) rets) / fromIntegral (stepCount - 1)
+                     in max 0 (sqrt (max 0 var))
+
+        sizeRef = max 1e-6 (ecMaxPositionSize baseCfg)
         perSideCost =
-            let fee = max 0 (ecFee baseCfg)
-                slip = max 0 (ecSlippage baseCfg)
-                spr = max 0 (ecSpread baseCfg)
-                c = fee + slip + spr / 2
-             in min 0.999999 (max 0 c)
+            let total = costPerSideTotal sizeRef volPerBarAvg
+             in if sizeRef <= 0 then 0 else total / sizeRef
         roundTripCost = min 0.999999 (2 * perSideCost)
 
         downsample :: Int -> [Double] -> [Double]

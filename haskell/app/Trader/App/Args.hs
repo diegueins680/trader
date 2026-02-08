@@ -111,6 +111,12 @@ data Args = Args
     , argFee :: Double
     , argSlippage :: Double
     , argSpread :: Double
+    , argFeeFixed :: Double
+    , argFeeMin :: Double
+    , argSlippageVolMult :: Double
+    , argSlippageImpact :: Double
+    , argSlippageImpactPower :: Double
+    , argSpreadVolMult :: Double
     , argIntrabarFill :: IntrabarFill
     , argStopLoss :: Maybe Double
     , argTakeProfit :: Maybe Double
@@ -137,6 +143,9 @@ data Args = Args
     , argNoTradeWindows :: [TimeWindow]
     , argMaxOpenPositions :: Maybe Int
     , argMaxOpenPerBase :: Maybe Int
+    , argMaxGrossExposure :: Maybe Double
+    , argMaxNetExposure :: Maybe Double
+    , argMaxExposurePerBase :: Maybe Double
     , argMinEdge :: Double
     , argMinSignalToNoise :: Double
     , argSnrSizeWeight :: Double
@@ -455,6 +464,12 @@ opts = do
     argFee <- option auto (long "fee" <> value 0.0008 <> help "Fee applied when switching position")
     argSlippage <- option auto (long "slippage" <> value 0.0002 <> help "Slippage per side (fractional, e.g. 0.0002)")
     argSpread <- option auto (long "spread" <> value 0.0002 <> help "Bid-ask spread (fractional total; half applied per side)")
+    argFeeFixed <- option auto (long "fee-fixed" <> value 0 <> help "Fixed fee per side as a fraction of equity (0 disables)")
+    argFeeMin <- option auto (long "fee-min" <> value 0 <> help "Minimum fee per side as a fraction of equity (0 disables)")
+    argSlippageVolMult <- option auto (long "slippage-vol-mult" <> value 0 <> help "Extra slippage per-bar sigma multiple (0 disables)")
+    argSlippageImpact <- option auto (long "slippage-impact" <> value 0 <> help "Slippage impact coefficient applied to size^power (0 disables)")
+    argSlippageImpactPower <- option auto (long "slippage-impact-power" <> value 1 <> help "Exponent for slippage impact scaling (>=0)")
+    argSpreadVolMult <- option auto (long "spread-vol-mult" <> value 0 <> help "Extra spread per-bar sigma multiple (0 disables)")
     argIntrabarFill <-
         option
             (eitherReader parseIntrabarFill)
@@ -512,6 +527,9 @@ opts = do
             )
     argMaxOpenPositions <- optional (option auto (long "max-open-positions" <> help "Max open positions across all running bots (0 disables)"))
     argMaxOpenPerBase <- optional (option auto (long "max-open-per-base" <> help "Max open positions per base asset across running bots (0 disables)"))
+    argMaxGrossExposure <- optional (option auto (long "max-gross-exposure" <> help "Max gross exposure across running bots (sum of abs sizes; 0 disables)"))
+    argMaxNetExposure <- optional (option auto (long "max-net-exposure" <> help "Max net exposure across running bots (abs sum of signed sizes; 0 disables)"))
+    argMaxExposurePerBase <- optional (option auto (long "max-exposure-per-base" <> help "Max gross exposure per base asset across running bots (0 disables)"))
     argMinEdge <- option auto (long "min-edge" <> value 0.0004 <> help "Minimum predicted return magnitude required to enter (0 disables)")
     argMinSignalToNoise <- option auto (long "min-signal-to-noise" <> value 0.8 <> help "Minimum edge/vol (per-bar sigma) required to enter (0 disables)")
     argSnrSizeWeight <-
@@ -853,6 +871,12 @@ validateArgs args0 = do
     ensure "--fee must be >= 0" (argFee args >= 0)
     ensure "--slippage must be >= 0" (argSlippage args >= 0)
     ensure "--spread must be >= 0" (argSpread args >= 0)
+    ensure "--fee-fixed must be >= 0" (argFeeFixed args >= 0)
+    ensure "--fee-min must be >= 0" (argFeeMin args >= 0)
+    ensure "--slippage-vol-mult must be >= 0" (argSlippageVolMult args >= 0)
+    ensure "--slippage-impact must be >= 0" (argSlippageImpact args >= 0)
+    ensure "--slippage-impact-power must be >= 0" (argSlippageImpactPower args >= 0)
+    ensure "--spread-vol-mult must be >= 0" (argSpreadVolMult args >= 0)
     case argStopLoss args of
         Nothing -> pure ()
         Just v -> ensure "--stop-loss must be > 0 and < 1" (v > 0 && v < 1)
@@ -913,6 +937,15 @@ validateArgs args0 = do
     case argMaxOpenPerBase args of
         Nothing -> pure ()
         Just n -> ensure "--max-open-per-base must be >= 0" (n >= 0)
+    case argMaxGrossExposure args of
+        Nothing -> pure ()
+        Just v -> ensure "--max-gross-exposure must be >= 0" (v >= 0)
+    case argMaxNetExposure args of
+        Nothing -> pure ()
+        Just v -> ensure "--max-net-exposure must be >= 0" (v >= 0)
+    case argMaxExposurePerBase args of
+        Nothing -> pure ()
+        Just v -> ensure "--max-exposure-per-base must be >= 0" (v >= 0)
     ensure "--min-edge must be >= 0" (argMinEdge args >= 0)
     ensure "--min-signal-to-noise must be >= 0" (argMinSignalToNoise args >= 0)
     ensure "--snr-size-weight must be between 0 and 1" (argSnrSizeWeight args >= 0 && argSnrSizeWeight args <= 1)

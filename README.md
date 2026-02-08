@@ -25,7 +25,7 @@ Features
 - Agreement-gated ensemble strategy (`haskell/app/Trader/Trading.hs`).
 - Ensemble simulation helpers return `Either` with validation errors instead of throwing exceptions.
 - Optional tri-layer entry gating: Kalman cloud trend + price-action reversal triggers (`haskell/app/Trader/Trading.hs`).
-- Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, max drawdown) (`haskell/app/Trader/Metrics.hs`).
+- Profitability, risk/volatility, trade execution, and efficiency metrics (incl. Sharpe, Sortino, Calmar, VaR/CVaR, max drawdown) (`haskell/app/Trader/Metrics.hs`).
 - Data sources: CSV or exchange klines (Binance/Coinbase/Kraken/Poloniex).
 - Sample dataset in `data/sample_prices.csv`.
 
@@ -142,6 +142,7 @@ Getting Binance API keys:
 - Enable only what you need (Spot/Margin/Futures trading) and keep withdrawals disabled
 - Prefer IP restrictions (allowlist your server IP) when possible
 - If deploying on AWS App Runner, outbound IP is not stable by default; use `deploy/aws/setup-apprunner-egress-eip.sh` to get a fixed Elastic IP for allowlisting
+- Example: `bash deploy/aws/setup-apprunner-egress-eip.sh --service-name trader-api --region ap-northeast-1` (prints the Elastic IP to allowlist)
 - If using Binance testnet keys, run with `--binance-testnet` (keys are not interchangeable with mainnet)
 - Save the secret: Binance only shows it once
 - Signed requests auto-adjust to Binance server time and retry once on `-1021` timestamp errors; if they persist, ensure the time endpoint is reachable (proxy allowed) and the host clock is roughly in sync.
@@ -326,8 +327,16 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--walk-forward-folds 7` number of folds used to score the tune split and report backtest variability (`1` disables)
   - `--walk-forward-embargo-bars N` optional: drop `N` bars from each fold edge when scoring walk-forward folds (`0` disables)
   - `--trade-only` skip backtest/metrics and only compute the latest signal (and optionally place an order)
-  - `--fee 0.0008` fee applied per side when switching position (flips charge exit + entry)
-  - The CLI also prints an estimated **round-trip cost** (fee + slippage + spread) and warns when thresholds are below it.
+  - `--fee 0.0008` fee rate per side when switching position (flips charge exit + entry)
+  - `--slippage 0.0002` slippage per side (fractional)
+  - `--spread 0.0002` bid-ask spread (fractional total; half applied per side)
+  - `--fee-fixed F` fixed fee per side (fraction of equity; `0` disables)
+  - `--fee-min F` minimum fee per side (fraction of equity; `0` disables)
+  - `--slippage-vol-mult F` extra slippage per-bar sigma multiple (`0` disables)
+  - `--slippage-impact F` impact coefficient applied to `size^power` (`0` disables)
+  - `--slippage-impact-power P` exponent for slippage impact scaling (`>= 0`)
+  - `--spread-vol-mult F` extra spread per-bar sigma multiple (`0` disables)
+  - The CLI also prints an estimated **round-trip cost** (fee + slippage + spread + impact) and warns when thresholds are below it.
   - `--stop-loss F` optional synthetic stop loss (`0 < F < 1`, e.g. `0.02` for 2%)
   - `--take-profit F` optional synthetic take profit (`0 < F < 1`)
   - `--take-profit-partial F` scale out this fraction at take-profit before keeping the remainder open (`0` disables; `0 < F < 1`; live bots only)
@@ -410,6 +419,9 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
     - Weekly loss and max-trades-per-day use the same timestamp rules as daily loss.
   - `--max-open-positions N` cap open positions across all running bots (`0` disables)
   - `--max-open-per-base N` cap open positions per base asset across all running bots (`0` disables)
+  - `--max-gross-exposure F` cap gross exposure (sum of abs sizes) across running bots (`0` disables)
+  - `--max-net-exposure F` cap net exposure (abs sum of signed sizes) across running bots (`0` disables)
+  - `--max-exposure-per-base F` cap gross exposure per base asset across running bots (`0` disables)
   - `--max-order-errors N` optional live-bot kill switch: halt after `N` consecutive order failures
   - Risk halts are evaluated on post-bar equity and can close open positions at the bar close.
   - Risk halts that occur while holding a position record `MAX_DRAWDOWN`/`MAX_DAILY_LOSS`/`MAX_WEEKLY_LOSS`/`NEGATIVE_EXPECTANCY` as the exit reason.
@@ -966,7 +978,7 @@ Troubleshooting: “Blank UI during dev”
 
 Assumptions and limitations
 ---------------------------
-- The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests/live bot); it includes basic sizing/filters but is not a full portfolio/risk system or detailed transaction-cost model.
+- The strategy is intentionally simple (default long or flat; optional long-short for backtests and futures trade requests/live bot); it includes portfolio-level exposure caps, expanded risk metrics, and a richer transaction-cost model, but remains experimental.
 - UTC day/week resets and no-trade windows require bar open timestamps; interval-only inputs now error to avoid misaligned boundaries.
 - When `--max-daily-loss` is enabled and open timestamps are provided (CSV or API), their length must match the closes series; mismatches return an error to avoid misaligned day boundaries.
 - Live order placement applies exchange filters (minQty/step size/minNotional) by flooring entry sizes to the minimums when possible and treating dust-sized positions as flat; orders can still be rejected if filters change or balances are insufficient.
