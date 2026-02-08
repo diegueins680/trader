@@ -403,6 +403,8 @@ export type TradePnlRow = {
   pnl: number;
   entryTime: number | null;
   exitTime: number | null;
+  entryIp: string | null;
+  exitIp: string | null;
 };
 
 export type TradePnlAnalysis = {
@@ -551,6 +553,8 @@ export function buildBacktestOpsCsv(backtest: BacktestResponse): string {
     "return",
     "holdingPeriods",
     "exitReason",
+    "entryIp",
+    "exitIp",
   ].join(",");
   const prices = backtest.prices ?? [];
   const rows = backtest.trades.map((trade, idx) => {
@@ -569,6 +573,8 @@ export function buildBacktestOpsCsv(backtest: BacktestResponse): string {
       trade.return,
       trade.holdingPeriods,
       trade.exitReason ?? "",
+      trade.entryIp ?? "",
+      trade.exitIp ?? "",
     ]
       .map(csvEscape)
       .join(",");
@@ -600,6 +606,8 @@ export function buildBacktestTradePnlAnalysis(backtest: BacktestResponse): Trade
         pnl: trade.exitEquity - trade.entryEquity,
         entryTime,
         exitTime,
+        entryIp: trade.entryIp ?? null,
+        exitIp: trade.exitIp ?? null,
       };
     })
     .filter((row): row is TradePnlRow => Boolean(row));

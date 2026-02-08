@@ -6,8 +6,8 @@ module Trader.Optimizer.Optimize (
     runOptimizer,
 ) where
 
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar, tryTakeMVar)
 import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (foldM, forM_, unless, when)
 import Crypto.Hash (Digest, hash)
@@ -67,7 +67,6 @@ import System.Process (
     terminateProcess,
     waitForProcess,
  )
-import System.Timeout (timeout)
 import Text.Printf (printf)
 import Text.Read (readMaybe)
 
@@ -1354,11 +1353,13 @@ runWithTimeout :: CreateProcess -> Double -> IO (Maybe (ExitCode, String, String
 runWithTimeout procSpec timeoutSec = do
     let timeoutMicros = max 0 (floor (timeoutSec * 1000000))
         terminateWaitMicros = 2 * 1000000
+        pollMicros = 50 * 1000
     (_, Just hout, Just herr, ph) <- createProcess procSpec
     hSetEncoding hout utf8
     hSetEncoding herr utf8
     outVar <- newEmptyMVar
     errVar <- newEmptyMVar
+    exitVar <- newEmptyMVar
     _ <- forkIO $ do
         out <- hGetContents hout
         _ <- evaluate (length out)
@@ -1367,16 +1368,37 @@ runWithTimeout procSpec timeoutSec = do
         err <- hGetContents herr
         _ <- evaluate (length err)
         putMVar errVar err
-    mExit <- timeout timeoutMicros (waitForProcess ph)
+    _ <- forkIO $ do
+        exitCode <- waitForProcess ph
+        putMVar exitVar exitCode
+    mExit <- waitForExit timeoutMicros pollMicros exitVar
     case mExit of
         Nothing -> do
             _ <- try (terminateProcess ph) :: IO (Either SomeException ())
-            _ <- timeout terminateWaitMicros (waitForProcess ph)
+            _ <- waitForExit terminateWaitMicros pollMicros exitVar
             pure Nothing
         Just exitCode -> do
             out <- takeMVar outVar
             err <- takeMVar errVar
             pure (Just (exitCode, out, err))
+  where
+    waitForExit timeoutMicros pollMicros var
+        | timeoutMicros <= 0 = tryTakeMVar var
+        | otherwise = go 0
+      where
+        pollDelay = max 1000 pollMicros
+        go waited = do
+            mVal <- tryTakeMVar var
+            case mVal of
+                Just v -> pure (Just v)
+                Nothing ->
+                    if waited >= timeoutMicros
+                        then pure Nothing
+                        else do
+                            let remaining = timeoutMicros - waited
+                                delay = min pollDelay remaining
+                            threadDelay delay
+                            go (waited + delay)
 
 setEnv :: String -> String -> [(String, String)] -> [(String, String)]
 setEnv key val env =

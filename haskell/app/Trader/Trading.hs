@@ -221,6 +221,8 @@ data Trade = Trade
     , trReturn :: !Double
     , trHoldingPeriods :: !Int
     , trExitReason :: !(Maybe ExitReason)
+    , trEntryIp :: !(Maybe T.Text)
+    , trExitIp :: !(Maybe T.Text)
     }
     deriving (Eq, Show)
 
@@ -1805,6 +1807,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trReturn = eqExit / otEntryEquity ot - 1
                                                 , trHoldingPeriods = otHoldingPeriods ot
                                                 , trExitReason = Just why
+                                                , trEntryIp = Nothing
+                                                , trExitIp = Nothing
                                                 }
 
                                         openTradeFor side eqEntry baseSize =
@@ -1963,6 +1967,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trReturn = exitEq / otEntryEquity otHeld - 1
                                                                             , trHoldingPeriods = otHoldingPeriods otHeld
                                                                             , trExitReason = reason
+                                                                            , trEntryIp = Nothing
+                                                                            , trExitIp = Nothing
                                                                             }
                                                                  in (Nothing, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
                                                             (Nothing, trail1) ->
@@ -2029,6 +2035,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trReturn = exitEq / otEntryEquity otHeld - 1
                                                                             , trHoldingPeriods = otHoldingPeriods otHeld
                                                                             , trExitReason = reason
+                                                                            , trEntryIp = Nothing
+                                                                            , trExitIp = Nothing
                                                                             }
                                                                  in (Nothing, 0, exitEq, changes' + 1, Nothing, tr : tradesAcc')
                                                             (Nothing, trail1) ->
@@ -2063,6 +2071,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                 , trReturn = exitEq / otEntryEquity otHeld - 1
                                                                                 , trHoldingPeriods = otHoldingPeriods otHeld
                                                                                 , trExitReason = Just ExitLiquidation
+                                                                                , trEntryIp = Nothing
+                                                                                , trExitIp = Nothing
                                                                                 }
                                                                      in (tr : tradesFinal, changesFinal + 1)
                                                      in (Nothing, 0, exitEq, changesOut, Nothing, tradesOut, True)
@@ -2215,6 +2225,8 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trReturn = exitEq / otEntryEquity ot - 1
                                                 , trHoldingPeriods = otHoldingPeriods ot
                                                 , trExitReason = Just ExitEod
+                                                , trEntryIp = Nothing
+                                                , trExitIp = Nothing
                                                 }
                                         eqRev1 =
                                             case eqRev of

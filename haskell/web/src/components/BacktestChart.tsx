@@ -9,6 +9,8 @@ type Trade = {
   return: number;
   holdingPeriods: number;
   exitReason?: string | null;
+  entryIp?: string | null;
+  exitIp?: string | null;
   open?: boolean;
 };
 

@@ -551,6 +551,8 @@ testMetricsProfitFactorPnL = do
                 , trReturn = 1.0
                 , trHoldingPeriods = 1
                 , trExitReason = Just ExitSignal
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
                 }
         tr2 =
             Trade
@@ -561,6 +563,8 @@ testMetricsProfitFactorPnL = do
                 , trReturn = -0.5
                 , trHoldingPeriods = 1
                 , trExitReason = Just ExitSignal
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
                 }
         br =
             BacktestResult

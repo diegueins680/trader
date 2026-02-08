@@ -56,6 +56,7 @@ import Network.HTTP.Client (HttpException, Manager, Request, RequestBody (..), R
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types (RequestHeaders, ResponseHeaders, Status, status200, status202, status204, status400, status401, status404, status405, status413, status429, status500, status502, status504, statusCode)
 import Network.HTTP.Types.Header (hAuthorization, hCacheControl, hPragma)
+import Network.Socket (SockAddr (..))
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
 import qualified Network.Wai.Internal as WaiInternal
@@ -3656,6 +3657,7 @@ botOpenTradeJson trade =
     object
         [ "entryIndex" .= botOpenEntryIndex trade
         , "entryEquity" .= botOpenEntryEquity trade
+        , "entryIp" .= botOpenEntryIp trade
         , "entryPrice" .= botOpenEntryPrice trade
         , "trail" .= botOpenTrail trade
         , "size" .= botOpenSize trade
@@ -3867,6 +3869,7 @@ topComboUuid combo =
 data BotOpenTrade = BotOpenTrade
     { botOpenEntryIndex :: !Int
     , botOpenEntryEquity :: !Double
+    , botOpenEntryIp :: !(Maybe Text)
     , botOpenHoldingPeriods :: !Int
     , botOpenEntryPrice :: !Double
     , botOpenSize :: !Double
@@ -3900,6 +3903,7 @@ data BotState = BotState
     , botSettings :: !BotSettings
     , botSymbol :: !String
     , botTenantKey :: !TenantKey
+    , botTradeOriginIp :: !(Maybe Text)
     , botComboUuid :: !(Maybe Text)
     , botEnv :: !BinanceEnv
     , botLookback :: !Int
@@ -4746,6 +4750,31 @@ tenantKeyFromRequest req =
         queryStr = fmap BS.unpack queryRaw
      in normalizeTenantKey headerStr <|> normalizeTenantKey queryStr
 
+requestOriginIp :: Wai.Request -> Maybe Text
+requestOriginIp req =
+    let headers = Wai.requestHeaders req
+        forwardedRaw = lookupHeaderNormalized "X-Forwarded-For" headers
+        realRaw = lookupHeaderNormalized "X-Real-IP" headers
+        forwardedIp = forwardedRaw >>= parseForwardedIp
+        realIp = realRaw >>= parseForwardedIp
+        sockIp = Just (sockAddrToIpText (Wai.remoteHost req))
+     in forwardedIp <|> realIp <|> sockIp
+  where
+    parseForwardedIp raw =
+        let rawStr = trim (BS.unpack raw)
+            first = trim (takeWhile (/= ',') rawStr)
+         in if null first then Nothing else Just (T.pack first)
+
+sockAddrToIpText :: SockAddr -> Text
+sockAddrToIpText addr =
+    case addr of
+        SockAddrUnix path -> T.pack path
+        _ ->
+            let raw = show addr
+             in case raw of
+                    ('[' : rest) -> T.pack (takeWhile (/= ']') rest)
+                    _ -> T.pack (takeWhile (/= ':') raw)
+
 serverTenantKeyForPlatform :: Platform -> IO (Maybe TenantKey)
 serverTenantKeyForPlatform platform =
     case platform of
@@ -5215,10 +5244,11 @@ botStartSymbol ::
     TenantKey ->
     Args ->
     Maybe Text ->
+    Maybe Text ->
     ApiParams ->
     String ->
     IO (Either String BotStartOutcome)
-botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey args mComboUuid p symRaw =
+botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey args mComboUuid originIp p symRaw =
     case botSettingsFromApi args p of
         Left e -> pure (Left e)
         Right settings ->
@@ -5238,6 +5268,7 @@ botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topComb
                 args
                 settings
                 mComboUuid
+                originIp
                 symRaw
 
 botStartSymbolWithSettings ::
@@ -5256,9 +5287,10 @@ botStartSymbolWithSettings ::
     Args ->
     BotSettings ->
     Maybe Text ->
+    Maybe Text ->
     String ->
     IO (Either String BotStartOutcome)
-botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid symRaw =
+botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid originIp symRaw =
     if not (platformSupportsLiveBot (argPlatform args))
         then pure (Left ("bot/start supports Binance only (platform=" ++ platformCode (argPlatform args) ++ ")"))
         else case argData args of
@@ -5295,7 +5327,7 @@ botStartSymbolWithSettings allowExisting mOps metrics mJournal mWebhook mBotStat
                                                                 BotStarting _ -> pure (mrt, Left "Bot is starting")
                                                     Nothing -> do
                                                         stopSig <- newEmptyMVar
-                                                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid sym stopSig)
+                                                        tid <- forkIO (botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey argsSym settings mComboUuid originIp sym stopSig)
                                                         now <- getTimestampMs
                                                         let rt =
                                                                 BotStartRuntime
@@ -5328,10 +5360,11 @@ botStartWorker ::
     Args ->
     BotSettings ->
     Maybe Text ->
+    Maybe Text ->
     String ->
     MVar () ->
     IO ()
-botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid sym stopSig = do
+botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq ctrl tenantKey args settings mComboUuid originIp sym stopSig = do
     tid <- myThreadId
     let doStart baseArgs = do
             (argsFinal, comboUuidFinal) <-
@@ -5341,7 +5374,7 @@ botStartWorker mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits
             preflight <- preflightBotStart mOps argsFinal settings sym
             case preflight of
                 Left e -> throwIO (userError e)
-                Right () -> initBotState mOps tenantKey argsFinal settings comboUuidFinal sym
+                Right () -> initBotState mOps tenantKey argsFinal settings comboUuidFinal originIp sym
     r <- try (doStart args) :: IO (Either SomeException BotState)
     case r of
         Left ex -> do
@@ -5557,6 +5590,7 @@ botAutoStartLoop mOps metrics mJournal mWebhook mBotStateDir topCombosStore limi
                                                         argsOk
                                                         settings
                                                         mComboUuid
+                                                        Nothing
                                                         sym
                                                 case r of
                                                     Left err -> recordError sym err
@@ -5651,8 +5685,8 @@ botGetStateFor ctrl tenantKey symRaw = do
         Just (BotRunning rt) -> Just <$> readMVar (brStateVar rt)
         _ -> pure Nothing
 
-initBotState :: Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> String -> IO BotState
-initBotState mOps tenantKey args settings mComboUuid sym = do
+initBotState :: Maybe OpsStore -> TenantKey -> Args -> BotSettings -> Maybe Text -> Maybe Text -> String -> IO BotState
+initBotState mOps tenantKey args settings mComboUuid originIp sym = do
     let lookback = argLookback args
     now <- getTimestampMs
     env <- makeBinanceEnv mOps args
@@ -5900,11 +5934,11 @@ initBotState mOps tenantKey args settings mComboUuid sym = do
                 1 ->
                     let px = V.last pricesV
                         openSize = if desiredPos == startPos0 then startSize else entrySize
-                     in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px openSize px SideLong False)
+                     in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) originIp 0 px openSize px SideLong False)
                 (-1) ->
                     let px = V.last pricesV
                         openSize = if desiredPos == startPos0 then startSize else entrySize
-                     in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) 0 px openSize px SideShort False)
+                     in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) originIp 0 px openSize px SideShort False)
                 _ -> Nothing
         ops =
             ([BotOp (n - 1) opSide (V.last pricesV) | wantSwitch && appliedSwitch])
@@ -5978,6 +6012,7 @@ initBotState mOps tenantKey args settings mComboUuid sym = do
                 , botSettings = settings
                 , botSymbol = sym
                 , botTenantKey = tenantKey
+                , botTradeOriginIp = originIp
                 , botComboUuid = mComboUuid
                 , botEnv = env
                 , botLookback = lookback
@@ -8164,6 +8199,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                 BotOpenTrade
                                     { botOpenEntryIndex = nPrev
                                     , botOpenEntryEquity = eqEntry
+                                    , botOpenEntryIp = botTradeOriginIp st
                                     , botOpenHoldingPeriods = 0
                                     , botOpenEntryPrice = priceNew
                                     , botOpenSize = entrySize
@@ -8180,6 +8216,8 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                     , trReturn = exitEq / botOpenEntryEquity ot - 1
                                     , trHoldingPeriods = botOpenHoldingPeriods ot
                                     , trExitReason = exitReasonFromCode <$> mExitReason
+                                    , trEntryIp = botOpenEntryIp ot
+                                    , trExitIp = botTradeOriginIp st
                                     }
                             closeTrades =
                                 case openTrade1 of
@@ -12249,6 +12287,7 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
         Left resp -> respond resp
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+                originIp = requestOriginIp req
              in case resolveTenantKeyFromParams
                     tenantHint
                     (apBinanceApiKey params)
@@ -12333,15 +12372,22 @@ handleTrade reqLimits mOps limits metrics mJournal mWebhook baseArgs req respond
                                                                         , "market" .= marketCode (argBinanceMarket argsFinal)
                                                                         , "action" .= lsAction (atrSignal out)
                                                                         , "order" .= atrOrder out
+                                                                        , "originIp" .= originIp
                                                                         ]
                                                                     )
+                                                                let outJson =
+                                                                        case toJSON out of
+                                                                            Aeson.Object o ->
+                                                                                Aeson.Object
+                                                                                    (KM.insert (AK.fromString "originIp") (toJSON originIp) o)
+                                                                            v -> v
                                                                 opsAppendMaybe
                                                                     mOps
                                                                     mOpsTenant
                                                                     "trade.order"
                                                                     (Just (toJSON (sanitizeApiParams params)))
                                                                     (Just (argsPublicJson argsFinal))
-                                                                    (Just (toJSON out))
+                                                                    (Just outJson)
                                                                     Nothing
                                                                     Nothing
                                                                     (T.pack <$> argBinanceSymbol argsFinal)
@@ -12356,6 +12402,7 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
         Left resp -> respond resp
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+                originIp = requestOriginIp req
              in case resolveTenantKeyFromParams
                     tenantHint
                     (apBinanceApiKey params)
@@ -12439,15 +12486,22 @@ handleTradeAsync reqLimits mOps limits store metrics mJournal mWebhook baseArgs 
                                                                         , "market" .= marketCode (argBinanceMarket argsFinal)
                                                                         , "action" .= lsAction (atrSignal out)
                                                                         , "order" .= atrOrder out
+                                                                        , "originIp" .= originIp
                                                                         ]
                                                                     )
+                                                                let outJson =
+                                                                        case toJSON out of
+                                                                            Aeson.Object o ->
+                                                                                Aeson.Object
+                                                                                    (KM.insert (AK.fromString "originIp") (toJSON originIp) o)
+                                                                            v -> v
                                                                 opsAppendMaybe
                                                                     mOps
                                                                     mOpsTenant
                                                                     "trade.order"
                                                                     paramsJson
                                                                     argsJson
-                                                                    (Just (toJSON out))
+                                                                    (Just outJson)
                                                                     Nothing
                                                                     Nothing
                                                                     (T.pack <$> argBinanceSymbol argsFinal)
@@ -13660,6 +13714,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
         Left resp -> respond resp
         Right params ->
             let tenantHint = apTenantKey params <|> fmap T.unpack (tenantKeyFromRequest req)
+                originIp = requestOriginIp req
              in case resolveTenantKeyFromParams tenantHint (apBinanceApiKey params) (apBinanceApiSecret params) (apCoinbaseApiKey params) (apCoinbaseApiSecret params) (apCoinbaseApiPassphrase params) of
                     Left e -> respond (jsonError status400 e)
                     Right mTenant ->
@@ -13709,7 +13764,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                             case validateApiComputeLimits limits argsCombo of
                                                                 Left err -> pure (sym, Left err)
                                                                 Right argsOk -> do
-                                                                    r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid params sym
+                                                                    r <- botStartSymbol allowExisting mOps metrics mJournal mWebhook mBotStateDir topCombosStore limits topCombosCtx adoptReq botCtrl tenantKey argsOk mComboUuid originIp params sym
                                                                     pure (sym, r)
 
                                                 let errors =
@@ -16454,6 +16509,8 @@ tradeToJson tr =
         , "return" .= trReturn tr
         , "holdingPeriods" .= trHoldingPeriods tr
         , "exitReason" .= trExitReason tr
+        , "entryIp" .= trEntryIp tr
+        , "exitIp" .= trExitIp tr
         ]
 
 baselineToJson :: Baseline -> Aeson.Value
@@ -17670,6 +17727,8 @@ baselineSimLongFlat perSideCost prices wantLong =
                 , trReturn = if entryEquity == 0 then 0 else eqExit / entryEquity - 1
                 , trHoldingPeriods = holdingPeriods
                 , trExitReason = Nothing
+                , trEntryIp = Nothing
+                , trExitIp = Nothing
                 }
 
         stepFn (posSize, equity, eqAcc, posAcc, changes, mOpen, tradesAcc) t =

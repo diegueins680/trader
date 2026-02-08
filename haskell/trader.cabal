@@ -58,6 +58,7 @@ executable trader-hs
                      , directory
                      , filepath
                      , memory
+                     , network
                      , network-uri
                      , http-client
                      , http-client-tls
@@ -102,6 +103,7 @@ executable optimize-equity
                      , directory
                      , filepath
                      , memory
+                     , network
                      , optparse-applicative >=0.17
                      , process
                      , scientific

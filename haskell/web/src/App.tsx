@@ -10341,6 +10341,8 @@ export function App() {
                                           <th>Return</th>
                                           <th>P&amp;L</th>
                                           <th>Exit reason</th>
+                                          <th>Open IP</th>
+                                          <th>Close IP</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -10348,6 +10350,8 @@ export function App() {
                                           const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
                                           const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
                                           const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
+                                          const entryIp = row.entryIp ?? "—";
+                                          const exitIp = row.exitIp ?? "—";
                                           return (
                                             <tr key={`bt-win-${row.idx}`}>
                                               <td className="tdMono">{row.idx}</td>
@@ -10368,6 +10372,8 @@ export function App() {
                                                 <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
                                               </td>
                                               <td>{row.exitReason ?? "—"}</td>
+                                              <td className="tdMono">{entryIp}</td>
+                                              <td className="tdMono">{exitIp}</td>
                                             </tr>
                                           );
                                         })}
@@ -10393,6 +10399,8 @@ export function App() {
                                           <th>Return</th>
                                           <th>P&amp;L</th>
                                           <th>Exit reason</th>
+                                          <th>Open IP</th>
+                                          <th>Close IP</th>
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -10400,6 +10408,8 @@ export function App() {
                                           const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
                                           const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
                                           const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
+                                          const entryIp = row.entryIp ?? "—";
+                                          const exitIp = row.exitIp ?? "—";
                                           return (
                                             <tr key={`bt-loss-${row.idx}`}>
                                               <td className="tdMono">{row.idx}</td>
@@ -10420,6 +10430,8 @@ export function App() {
                                                 <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
                                               </td>
                                               <td>{row.exitReason ?? "—"}</td>
+                                              <td className="tdMono">{entryIp}</td>
+                                              <td className="tdMono">{exitIp}</td>
                                             </tr>
                                           );
                                         })}

@@ -168,6 +168,7 @@ export type ApiOrderResult = {
 export type ApiTradeResponse = {
   signal: LatestSignal;
   order: ApiOrderResult;
+  originIp?: string | null;
 };
 
 export type BinanceProbe = {
@@ -329,6 +330,8 @@ export type Trade = {
   return: number;
   holdingPeriods: number;
   exitReason?: string | null;
+  entryIp?: string | null;
+  exitIp?: string | null;
 };
 
 export type BacktestResponse = {
