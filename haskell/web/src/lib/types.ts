@@ -235,6 +235,9 @@ export type BinanceTrade = {
   side?: string | null;
   positionSide?: string | null;
   realizedPnl?: number | null;
+  originIp?: string | null;
+  entryIp?: string | null;
+  exitIp?: string | null;
 };
 
 export type BinancePosition = {

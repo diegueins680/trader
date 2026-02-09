@@ -26,7 +26,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: avoid hanging after timeouts by bounding the post-terminate wait and stdout/stderr capture for child runs.
 - Dev: `run_optimize_equity_top5.sh` continues after per-symbol failures, logs exit/signal status to `run.log`, and still runs later symbols.
 - Web UI: normalize bot status latestSignal to avoid crashes when payloads omit it (including older API versions).
-- API/UI: log trade origin IPs and surface open/close IP columns in trade tables.
+- API/UI: annotate Binance account trades with order origin IPs (when ops persistence is enabled) and surface origin/close IP columns in the trade tables.
 - Web UI: switch Binance account trade date filters to date pickers.
 - Web UI: add maximize/restore and expand/collapse controls to collapsible panel headers, including the optimizer combos dock.
 - Web UI: prefer the configured direct `apiFallbackUrl` for the Binance listenKey stream when `apiBaseUrl` is `/api` to avoid CDN stream disconnects.

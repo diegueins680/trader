@@ -190,12 +190,14 @@ import {
   TRADE_PNL_TOP_N,
   applyComboToForm,
   backtestTradePhase,
+  binanceTradeKey,
   binanceTradeSideLabel,
   botStatusKey,
   botStatusKeyFromSingle,
   botStatusSymbol,
   buildBacktestOpsCsv,
   buildBacktestTradePnlAnalysis,
+  buildBinanceTradeIpMap,
   buildBinanceTradePnlAnalysis,
   buildDefaultOptimizerRunForm,
   buildEquityCurve,
@@ -4217,10 +4219,22 @@ export function App() {
     binanceTradesFilterStartInput,
     binanceTradesFilterStartMs,
   ]);
+  const binanceTradesIpMap = useMemo(() => {
+    const trades = binanceTradesUi.response?.trades ?? [];
+    return buildBinanceTradeIpMap(trades);
+  }, [binanceTradesUi.response]);
   const binanceTradesFiltered = useMemo(() => {
     const trades = binanceTradesUi.response?.trades ?? [];
     if (trades.length === 0) return trades;
-    let filtered = trades;
+    const withIps = trades.map((trade) => {
+      const ipMeta = binanceTradesIpMap.get(binanceTradeKey(trade));
+      return {
+        ...trade,
+        entryIp: ipMeta?.entryIp ?? null,
+        exitIp: ipMeta?.exitIp ?? null,
+      };
+    });
+    let filtered = withIps;
     if (binanceTradesFilterSymbols.length > 0) {
       const symbols = new Set(binanceTradesFilterSymbols);
       filtered = filtered.filter((trade) => symbols.has(trade.symbol.toUpperCase()));
@@ -4240,6 +4254,7 @@ export function App() {
     binanceTradesFilterSide,
     binanceTradesFilterStartMs,
     binanceTradesFilterSymbols,
+    binanceTradesIpMap,
     binanceTradesUi.response,
   ]);
   const binanceTradesFilteredTotals = useMemo(() => {

@@ -111,6 +111,8 @@ export function BinanceTradesPanel({
       "commission",
       "commissionAsset",
       "positionSide",
+      "entryIp",
+      "exitIp",
       "orderId",
       "tradeId",
     ];
@@ -130,6 +132,8 @@ export function BinanceTradesPanel({
         trade.commission ?? "",
         trade.commissionAsset ?? "",
         trade.positionSide ?? "",
+        trade.entryIp ?? "",
+        trade.exitIp ?? "",
         trade.orderId ?? "",
         trade.tradeId ?? "",
       ];
@@ -513,6 +517,8 @@ export function BinanceTradesPanel({
                               <th>Price</th>
                               <th>Qty</th>
                               <th>Pos</th>
+                              <th>Origin IP</th>
+                              <th>Close IP</th>
                               <th>PNL</th>
                               <th>Commission</th>
                               <th>Order</th>
@@ -532,6 +538,8 @@ export function BinanceTradesPanel({
                                 row.commission != null && Number.isFinite(row.commission)
                                   ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
                                   : "—";
+                              const entryIpTxt = row.entryIp ?? "—";
+                              const exitIpTxt = row.exitIp ?? "—";
                               return (
                                 <tr key={`binance-win-${row.tradeId}`}>
                                   <td className="tdMono">{fmtTimeMsWithMs(row.time)}</td>
@@ -542,6 +550,8 @@ export function BinanceTradesPanel({
                                   <td className="tdMono">{fmtMoney(row.price, 4)}</td>
                                   <td className="tdMono">{qtyTxt}</td>
                                   <td className="tdMono">{row.positionSide ?? "—"}</td>
+                                  <td className="tdMono">{entryIpTxt}</td>
+                                  <td className="tdMono">{exitIpTxt}</td>
                                   <td>
                                     <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
                                   </td>
@@ -570,6 +580,8 @@ export function BinanceTradesPanel({
                               <th>Price</th>
                               <th>Qty</th>
                               <th>Pos</th>
+                              <th>Origin IP</th>
+                              <th>Close IP</th>
                               <th>PNL</th>
                               <th>Commission</th>
                               <th>Order</th>
@@ -589,6 +601,8 @@ export function BinanceTradesPanel({
                                 row.commission != null && Number.isFinite(row.commission)
                                   ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
                                   : "—";
+                              const entryIpTxt = row.entryIp ?? "—";
+                              const exitIpTxt = row.exitIp ?? "—";
                               return (
                                 <tr key={`binance-loss-${row.tradeId}`}>
                                   <td className="tdMono">{fmtTimeMsWithMs(row.time)}</td>
@@ -599,6 +613,8 @@ export function BinanceTradesPanel({
                                   <td className="tdMono">{fmtMoney(row.price, 4)}</td>
                                   <td className="tdMono">{qtyTxt}</td>
                                   <td className="tdMono">{row.positionSide ?? "—"}</td>
+                                  <td className="tdMono">{entryIpTxt}</td>
+                                  <td className="tdMono">{exitIpTxt}</td>
                                   <td>
                                     <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
                                   </td>
@@ -644,6 +660,8 @@ export function BinanceTradesPanel({
               <th>Qty</th>
               <th>Quote</th>
               <th>Pos</th>
+              <th>Origin IP</th>
+              <th>Close IP</th>
               <th>Commission</th>
               <th>PNL</th>
               <th>Order</th>
@@ -660,6 +678,8 @@ export function BinanceTradesPanel({
                   : "—";
               const pnlTxt =
                 trade.realizedPnl != null && Number.isFinite(trade.realizedPnl) ? fmtMoney(trade.realizedPnl, 4) : "—";
+              const entryIpTxt = trade.entryIp ?? "—";
+              const exitIpTxt = trade.exitIp ?? "—";
               return (
                 <tr key={`${trade.symbol}-${trade.tradeId}`}>
                   <td className="tdMono">{fmtTimeMsWithMs(trade.time)}</td>
@@ -673,6 +693,8 @@ export function BinanceTradesPanel({
                   <td className="tdMono">{qtyTxt}</td>
                   <td className="tdMono">{quoteTxt}</td>
                   <td className="tdMono">{trade.positionSide ?? "—"}</td>
+                  <td className="tdMono">{entryIpTxt}</td>
+                  <td className="tdMono">{exitIpTxt}</td>
                   <td className="tdMono">{commissionTxt}</td>
                   <td className="tdMono">{pnlTxt}</td>
                   <td className="tdMono">{trade.orderId ?? "—"}</td>

@@ -47,6 +47,7 @@ import Data.Word (Word64)
 import Database.PostgreSQL.Simple (Connection, Only (..), connectPostgreSQL, execute, executeMany, execute_, query, query_, withTransaction)
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
 import Database.PostgreSQL.Simple.ToField (Action, toField)
+import Database.PostgreSQL.Simple.Types (PGArray (..))
 import GHC.Conc (getNumCapabilities, setNumCapabilities)
 import GHC.Exception (ErrorCall (..))
 import GHC.Generics (Generic)
@@ -3511,6 +3512,61 @@ binanceOpsLogger store mTenantKey entry = do
         mSymbol = lookup "symbol" (blParams entry)
         mOrderId = lookup "orderId" (blParams entry)
     opsAppendMaybe (Just store) mTenantKey "binance.request" (Just params) Nothing (Just result) Nothing Nothing mSymbol mOrderId
+
+data OpsOrderOriginRow = OpsOrderOriginRow
+    { oorOrderId :: !Text
+    , oorResult :: !(Maybe Aeson.Value)
+    }
+    deriving (Eq, Show)
+
+instance FromRow OpsOrderOriginRow where
+    fromRow = OpsOrderOriginRow <$> field <*> field
+
+extractOriginIpFromOp :: Maybe Aeson.Value -> Maybe Text
+extractOriginIpFromOp mVal =
+    case mVal of
+        Nothing -> Nothing
+        Just (Aeson.Object o) ->
+            case KM.lookup (AK.fromString "originIp") o of
+                Just (Aeson.String v) ->
+                    let trimmed = T.strip v
+                     in if T.null trimmed then Nothing else Just trimmed
+                _ -> Nothing
+        _ -> Nothing
+
+attachBinanceTradeOriginIps :: OpsStore -> TenantKey -> [BinanceTrade] -> IO [BinanceTrade]
+attachBinanceTradeOriginIps store tenantKey trades = do
+    let orderIds =
+            dedupeStable
+                [ T.pack (show oid)
+                | Just oid <- map btOrderId trades
+                ]
+    if null orderIds
+        then pure trades
+        else do
+            rows <-
+                withMVar (osLock store) $ \_ ->
+                    query
+                        (osConn store)
+                        "SELECT order_id, result_json FROM ops WHERE tenant_key = ? AND kind = 'trade.order' AND order_id = ANY (?)"
+                        (tenantKey, PGArray orderIds)
+            let ipMap =
+                    HM.fromList
+                        [ (oorOrderId row, ip)
+                        | row <- rows
+                        , Just ip <- [extractOriginIpFromOp (oorResult row)]
+                        ]
+                attachIp trade =
+                    case btOriginIp trade of
+                        Just _ -> trade
+                        Nothing ->
+                            case btOrderId trade of
+                                Nothing -> trade
+                                Just oid ->
+                                    case HM.lookup (T.pack (show oid)) ipMap of
+                                        Just ip -> trade{btOriginIp = Just ip}
+                                        Nothing -> trade
+            pure (map attachIp trades)
 
 attachBinanceLogger :: Maybe OpsStore -> Maybe TenantKey -> BinanceEnv -> BinanceEnv
 attachBinanceLogger mOps mTenantKey env =
@@ -13506,6 +13562,7 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                             apiSecret <- resolveEnv "BINANCE_API_SECRET" (abrBinanceApiSecret params <|> argBinanceApiSecret baseArgs)
                                             urls <- resolveBinanceBaseUrls
                                             let baseUrl = selectBinanceBaseUrl urls testnet market
+                                                mOpsTenant = tenantKeyFromBinanceKeys apiKey apiSecret
                                             env <- newBinanceEnvWithOps mOps market baseUrl (BS.pack <$> apiKey) (BS.pack <$> apiSecret)
                                             let symbolsRaw =
                                                     case abrSymbols params of
@@ -13532,6 +13589,11 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                                         (\sym -> fetchAccountTrades env (Just sym) limit startTime endTime fromId)
                                                                         symbols
                                                     let tradesSorted = sortOn (negate . btTime) trades
+                                                    tradesWithIps <-
+                                                        case (mOps, mOpsTenant) of
+                                                            (Just store, Just tenantKey) ->
+                                                                attachBinanceTradeOriginIps store tenantKey tradesSorted
+                                                            _ -> pure tradesSorted
                                                     now <- getTimestampMs
                                                     respond $
                                                         jsonValue
@@ -13541,7 +13603,7 @@ handleBinanceTrades reqLimits mOps baseArgs req respond = do
                                                                 , abtrTestnet = testnet
                                                                 , abtrSymbols = symbols
                                                                 , abtrAllSymbols = allSymbols
-                                                                , abtrTrades = tradesSorted
+                                                                , abtrTrades = tradesWithIps
                                                                 , abtrFetchedAtMs = now
                                                                 }
 
