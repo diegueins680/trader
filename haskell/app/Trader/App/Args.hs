@@ -831,14 +831,15 @@ validateArgs args0 = do
             case argBinanceSymbol args of
                 Just _ -> barsPlatform
                 Nothing -> barsCsv
-    when (hasDataSource && barsForLookback > 0) $ ensure
-                ( "--bars must be >= lookback+1 (need at least "
-                    ++ show (lookback + 1)
-                    ++ " bars for lookback="
-                    ++ show lookback
-                    ++ ")"
-                )
-                (barsForLookback > lookback)
+    when (hasDataSource && barsForLookback > 0) $
+        ensure
+            ( "--bars must be >= lookback+1 (need at least "
+                ++ show (lookback + 1)
+                ++ " bars for lookback="
+                ++ show lookback
+                ++ ")"
+            )
+            (barsForLookback > lookback)
 
     ensure "--hidden-size must be >= 1" (argHiddenSize args >= 1)
     ensure "--epochs must be >= 0" (argEpochs args >= 0)

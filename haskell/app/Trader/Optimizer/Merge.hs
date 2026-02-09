@@ -248,7 +248,7 @@ mergeCombos sources =
             objPrev = comboObjective prev
             scoreNew = comboScore newer
             scorePrev = comboScore prev
-            scoreVal = fromMaybe (- (1 / 0))
+            scoreVal = fromMaybe (-(1 / 0))
          in if objNew == objPrev && (isJust scoreNew || isJust scorePrev)
                 then if scoreVal scoreNew > scoreVal scorePrev then newer else prev
                 else if comboFinalEquity newer > comboFinalEquity prev then newer else prev
@@ -291,8 +291,8 @@ compareCombos :: Combo -> Combo -> Ordering
 compareCombos a b =
     let annA = comboAnnualizedReturn a
         annB = comboAnnualizedReturn b
-        scoreA = sanitizeScore (fromMaybe (- (1 / 0)) (comboScore a))
-        scoreB = sanitizeScore (fromMaybe (- (1 / 0)) (comboScore b))
+        scoreA = sanitizeScore (fromMaybe (-(1 / 0)) (comboScore a))
+        scoreB = sanitizeScore (fromMaybe (-(1 / 0)) (comboScore b))
         eqA = sanitizeEq (comboFinalEquity a)
         eqB = sanitizeEq (comboFinalEquity b)
      in case compareDesc annA annB of
@@ -309,12 +309,12 @@ comboMetricDouble key combo = do
 
 comboAnnualizedReturn :: Combo -> Double
 comboAnnualizedReturn combo =
-    let ann = fromMaybe (- (1 / 0)) (comboMetricDouble "annualizedReturn" combo)
-     in if isNaN ann || isInfinite ann then - (1 / 0) else ann
+    let ann = fromMaybe (-(1 / 0)) (comboMetricDouble "annualizedReturn" combo)
+     in if isNaN ann || isInfinite ann then -(1 / 0) else ann
 
 sanitizeScore :: Double -> Double
 sanitizeScore score
-    | isNaN score || isInfinite score = - (1 / 0)
+    | isNaN score || isInfinite score = -(1 / 0)
     | otherwise = score
 
 sanitizeEq :: Double -> Double

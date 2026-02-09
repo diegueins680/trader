@@ -274,19 +274,20 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
         evaluated = Data.Either.rights results
         errors = Data.Either.lefts results
         pick (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats) (sc, std, m, openThr, closeThr, bt, stats)
-          | sc > bestSc + eps = (sc, std, m, openThr, closeThr, bt, stats)
-          | abs (sc - bestSc) <= eps = if std < bestStd - eps
-                                then (sc, std, m, openThr, closeThr, bt, stats)
-                                else
-                                    if abs (std - bestStd) <= eps
-                                        then
-                                            let r = methodRank m
-                                                bestR = methodRank bestM
-                                             in if r > bestR || (r == bestR && (openThr, closeThr) > (bestOpenThr, bestCloseThr))
-                                                    then (sc, std, m, openThr, closeThr, bt, stats)
-                                                    else (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats)
+            | sc > bestSc + eps = (sc, std, m, openThr, closeThr, bt, stats)
+            | abs (sc - bestSc) <= eps =
+                if std < bestStd - eps
+                    then (sc, std, m, openThr, closeThr, bt, stats)
+                    else
+                        if abs (std - bestStd) <= eps
+                            then
+                                let r = methodRank m
+                                    bestR = methodRank bestM
+                                 in if r > bestR || (r == bestR && (openThr, closeThr) > (bestOpenThr, bestCloseThr))
+                                        then (sc, std, m, openThr, closeThr, bt, stats)
                                         else (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats)
-          | otherwise = (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats)
+                            else (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats)
+            | otherwise = (bestSc, bestStd, bestM, bestOpenThr, bestCloseThr, bestBt, bestStats)
      in case evaluated of
             [] ->
                 Left
@@ -412,76 +413,76 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodLstmOnly -> (lstmV, lstmV)
 
         validationError
-          | n < 2 = Just "sweepThreshold: need at least 2 prices"
-          | V.length highsV /= n || V.length lowsV /= n = Just "sweepThreshold: high/low series must match closes length"
-          | maybe False (\mv -> V.length mv < stepCount) metaUsed = Just "sweepThreshold: meta vector too short"
-          | otherwise = case method of
-                                    MethodBoth
-                                        | V.length kalV < stepCount ->
-                                            Just
-                                                ( "sweepThreshold: kalPred has length "
-                                                    ++ show (V.length kalV)
-                                                    ++ " but needs at least "
-                                                    ++ show stepCount
-                                                )
-                                        | V.length lstmV < stepCount ->
-                                            Just
-                                                ( "sweepThreshold: lstmPred has length "
-                                                    ++ show (V.length lstmV)
-                                                    ++ " but needs at least "
-                                                    ++ show stepCount
-                                                )
-                                        | otherwise -> Nothing
-                                    MethodRouter
-                                        | V.length kalV < stepCount ->
-                                            Just
-                                                ( "sweepThreshold: kalPred has length "
-                                                    ++ show (V.length kalV)
-                                                    ++ " but needs at least "
-                                                    ++ show stepCount
-                                                )
-                                        | V.length lstmV < stepCount ->
-                                            Just
-                                                ( "sweepThreshold: lstmPred has length "
-                                                    ++ show (V.length lstmV)
-                                                    ++ " but needs at least "
-                                                    ++ show stepCount
-                                                )
-                                        | otherwise -> Nothing
-                                    MethodBlend
-                                        | V.length kalV < stepCount ->
-                                            Just
-                                                ( "sweepThreshold: kalPred has length "
-                                                    ++ show (V.length kalV)
-                                                    ++ " but needs at least "
-                                                    ++ show stepCount
-                                                )
-                                        | V.length lstmV < stepCount ->
-                                            Just
-                                                ( "sweepThreshold: lstmPred has length "
-                                                    ++ show (V.length lstmV)
-                                                    ++ " but needs at least "
-                                                    ++ show stepCount
-                                                )
-                                        | otherwise -> Nothing
-                                    MethodKalmanOnly
-                                        | V.length kalV < stepCount ->
-                                            Just
-                                                ( "sweepThreshold: kalPred has length "
-                                                    ++ show (V.length kalV)
-                                                    ++ " but needs at least "
-                                                    ++ show stepCount
-                                                )
-                                        | otherwise -> Nothing
-                                    MethodLstmOnly
-                                        | V.length lstmV < stepCount ->
-                                            Just
-                                                ( "sweepThreshold: lstmPred has length "
-                                                    ++ show (V.length lstmV)
-                                                    ++ " but needs at least "
-                                                    ++ show stepCount
-                                                )
-                                        | otherwise -> Nothing
+            | n < 2 = Just "sweepThreshold: need at least 2 prices"
+            | V.length highsV /= n || V.length lowsV /= n = Just "sweepThreshold: high/low series must match closes length"
+            | maybe False (\mv -> V.length mv < stepCount) metaUsed = Just "sweepThreshold: meta vector too short"
+            | otherwise = case method of
+                MethodBoth
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodRouter
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodBlend
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodKalmanOnly
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodLstmOnly
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
 
         predSources =
             case method of
@@ -593,25 +594,26 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                             ((minRoundTripsReq <= 0) || (bmRoundTrips metrics' >= minRoundTripsReq))
                                         eligible'' = eligible' && foldEvalOk
                                         foldScores'
-                                          | not eligible'' = [ineligibleScore]
-                                          | foldSingle = [scoreBacktest cfg btFull']
-                                          | otherwise = [ let steps = t1 - t0 + 1
-                                                              pricesF = V.slice t0 (steps + 1) pricesV
-                                                              highsF = V.slice t0 (steps + 1) highsV
-                                                              lowsF = V.slice t0 (steps + 1) lowsV
-                                                              kalF = V.slice t0 steps kalUsedV
-                                                              lstmF = V.slice t0 steps lstmUsedV
-                                                              metaF = fmap (V.slice t0 steps) metaUsed
-                                                              openTimesF = fmap (V.slice t0 (steps + 1)) (ecOpenTimes btCfg)
-                                                              metaMaskF = fmap (V.slice t0 steps) metaMask
-                                                              btCfgFold = btCfg{ecOpenTimes = openTimesF, ecMetaMask = metaMaskF}
-                                                              btFoldE = simulateEnsembleVWithHLChecked btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
-                                                           in case btFoldE of
-                                                                Left _ -> ineligibleScore
-                                                                Right btFold -> scoreBacktest cfg btFold
-                                                            | (t0, t1) <- foldRsEval
-                                                            , t1 >= t0
-                                                            ]
+                                            | not eligible'' = [ineligibleScore]
+                                            | foldSingle = [scoreBacktest cfg btFull']
+                                            | otherwise =
+                                                [ let steps = t1 - t0 + 1
+                                                      pricesF = V.slice t0 (steps + 1) pricesV
+                                                      highsF = V.slice t0 (steps + 1) highsV
+                                                      lowsF = V.slice t0 (steps + 1) lowsV
+                                                      kalF = V.slice t0 steps kalUsedV
+                                                      lstmF = V.slice t0 steps lstmUsedV
+                                                      metaF = fmap (V.slice t0 steps) metaUsed
+                                                      openTimesF = fmap (V.slice t0 (steps + 1)) (ecOpenTimes btCfg)
+                                                      metaMaskF = fmap (V.slice t0 steps) metaMask
+                                                      btCfgFold = btCfg{ecOpenTimes = openTimesF, ecMetaMask = metaMaskF}
+                                                      btFoldE = simulateEnsembleVWithHLChecked btCfgFold 1 pricesF highsF lowsF kalF lstmF metaF
+                                                   in case btFoldE of
+                                                        Left _ -> ineligibleScore
+                                                        Right btFold -> scoreBacktest cfg btFold
+                                                | (t0, t1) <- foldRsEval
+                                                , t1 >= t0
+                                                ]
                                      in (btFull', metrics', eligible'', foldScores')
                         m = mean foldScores
                         s = stddev foldScores
@@ -638,13 +640,19 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 inverted = closeThr > openThr + eqEps
                 bestInverted = bestClose > bestOpen + eqEps
              in (eq > bestEq + eqEps)
-                    || (abs (eq - bestEq) <= eqEps
-                            && (turnover < bestTurnover - eqEps
-                                    || (abs (turnover - bestTurnover) <= eqEps
-                                            && (roundTrips > bestRoundTrips
-                                                    || (roundTrips == bestRoundTrips
-                                                            && ((not inverted && bestInverted)
-                                                                    || (inverted == bestInverted && (openThr, closeThr) > (bestOpen, bestClose))))))))
+                    || ( abs (eq - bestEq) <= eqEps
+                            && ( turnover < bestTurnover - eqEps
+                                    || ( abs (turnover - bestTurnover) <= eqEps
+                                            && ( roundTrips > bestRoundTrips
+                                                    || ( roundTrips == bestRoundTrips
+                                                            && ( (not inverted && bestInverted)
+                                                                    || (inverted == bestInverted && (openThr, closeThr) > (bestOpen, bestClose))
+                                                               )
+                                                       )
+                                               )
+                                       )
+                               )
+                       )
         pickResult (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics) (eligible, m, s, openThr', closeThr', bt, stats, metrics) =
             case (bestEligible, eligible) of
                 (False, True) -> (True, m, s, openThr', closeThr', bt, stats, metrics)
@@ -653,8 +661,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                     | m > bestMean + eqEps -> (eligible, m, s, openThr', closeThr', bt, stats, metrics)
                     | abs (m - bestMean) <= eqEps
                     , s < bestStd - eqEps
-                        || (abs (s - bestStd) <= eqEps && preferTie metrics openThr' closeThr' bestMetrics bestOpenThr bestCloseThr)
-                        ->
+                        || (abs (s - bestStd) <= eqEps && preferTie metrics openThr' closeThr' bestMetrics bestOpenThr bestCloseThr) ->
                         (eligible, m, s, openThr', closeThr', bt, stats, metrics)
                     | otherwise -> (bestEligible, bestMean, bestStd, bestOpenThr, bestCloseThr, bestBt, bestStats, bestMetrics)
 

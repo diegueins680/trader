@@ -21,6 +21,30 @@ BASE_REF="${BASE_REF:-HEAD~1}"
 OUT_ROOT="${OUT_ROOT:-"$ROOT_DIR/.tmp/opt-eq-top5-$(date +%Y%m%d-%H%M%S)"}"
 
 mkdir -p "$OUT_ROOT"
+RUN_LOG="$OUT_ROOT/run.log"
+
+log() {
+  printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S%z')" "$*" | tee -a "$RUN_LOG"
+}
+
+on_exit() {
+  local status=$?
+  set +e
+  log "Exit status=$status"
+}
+
+on_signal() {
+  local sig="$1"
+  local code="$2"
+  set +e
+  log "Received signal=$sig"
+  exit "$code"
+}
+
+trap on_exit EXIT
+trap 'on_signal HUP 129' HUP
+trap 'on_signal INT 130' INT
+trap 'on_signal TERM 143' TERM
 
 COMBOS=()
 while IFS= read -r line; do
@@ -52,9 +76,11 @@ PY
 )
 
 if [[ ${#COMBOS[@]} -eq 0 ]]; then
-  echo "No combos found in $TOP_JSON"
+  log "No combos found in $TOP_JSON"
   exit 1
 fi
+
+log "Run start out=$OUT_ROOT top_json=$TOP_JSON count=$COUNT trials=$TRIALS bars=$BARS timeout=$TIMEOUT_SEC platform=$PLATFORM futures=$FUTURES quality=$QUALITY compare=$COMPARE"
 
 run_set() {
   local label="$1"
@@ -95,8 +121,10 @@ run_set() {
       cmd+=(--quality)
     fi
 
+    log "Running $label: $sym $interval (trials=$TRIALS bars=$BARS)"
     echo "Running $label: $sym $interval (trials=$TRIALS bars=$BARS)" | tee "$log"
     if ! "${cmd[@]}" >>"$log" 2>&1; then
+      log "Run failed for $sym $interval; continuing."
       echo "Run failed for $sym $interval; continuing." | tee -a "$log"
     fi
   done
@@ -127,6 +155,7 @@ with open(os.path.join(out_dir, "summary.json"), "w") as f:
     json.dump(summary, f, indent=2)
 print("Wrote", os.path.join(out_dir, "summary.json"))
 PY
+  log "Finished $label"
 }
 
 run_set "current" "$ROOT_DIR"
@@ -138,4 +167,4 @@ if [[ "$COMPARE" == "1" ]]; then
   git -C "$ROOT_DIR" worktree remove "$wt_dir" --force
 fi
 
-echo "Done. Outputs in $OUT_ROOT"
+log "Done. Outputs in $OUT_ROOT"

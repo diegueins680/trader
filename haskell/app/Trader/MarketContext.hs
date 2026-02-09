@@ -11,7 +11,6 @@ import Control.Concurrent (QSem, forkIO, modifyMVar, newEmptyMVar, newMVar, newQ
 import Control.Exception (SomeException, finally, try)
 import Control.Monad (forM)
 import Data.Char (isAsciiLower)
-import Data.Char (isAsciiLower)
 import Data.List (foldl')
 import Data.Maybe (catMaybes)
 import Data.Time.Clock.POSIX (getPOSIXTime)

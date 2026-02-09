@@ -18,10 +18,11 @@ data Kalman1 = Kalman1
     deriving (Eq, Show)
 
 initKalman1 :: Double -> Double -> Double -> Kalman1
-initKalman1 mean0 var0 processVar
-    | var0 <= 0 = error "Kalman1 initial variance must be > 0"
-    | processVar < 0 = error "Kalman1 process variance must be >= 0"
-    | otherwise = Kalman1{kMean = mean0, kVar = var0, kProcessVar = processVar}
+initKalman1 mean0 var0 processVar =
+    let eps = 1e-12
+        var0' = max eps var0
+        processVar' = max 0 processVar
+     in Kalman1{kMean = mean0, kVar = var0', kProcessVar = processVar'}
 
 -- | Predict step for a random-walk state model: x_t = x_{t-1} + w, w~N(0,Q).
 predict :: Kalman1 -> Kalman1

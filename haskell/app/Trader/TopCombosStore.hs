@@ -36,9 +36,9 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiUpper, isDigit, toUpper)
+import qualified Data.HashMap.Strict as HM
 import Data.Int (Int64)
 import Data.List (foldl', isPrefixOf, isSuffixOf, sortBy)
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, listToMaybe, maybeToList)
 import qualified Data.Maybe
@@ -54,7 +54,6 @@ import Text.Read (readMaybe)
 import Trader.Optimizer.Json (encodePretty)
 import Trader.Symbol (commonQuotes, sanitizeSymbolForPlatform)
 import Trader.Text (normalizeKey, trim)
-
 
 data TopCombosStore = TopCombosStore
     { tcsPath :: !FilePath
@@ -559,8 +558,6 @@ mergeTopCombosPayloads maxItems now payloads =
 
 normalizeSymbol :: String -> String
 normalizeSymbol = map toUpper . trim
-
-
 
 data ComboBacktestUpdate = ComboBacktestUpdate
     { cbuMetrics :: !Aeson.Value

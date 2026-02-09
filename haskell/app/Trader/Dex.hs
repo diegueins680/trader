@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Trader.Dex (
     DexEnv (..),
@@ -25,8 +26,8 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, find)
 import qualified Data.HashMap.Strict as HM
+import Data.List (dropWhileEnd, find)
 import Data.Maybe (fromMaybe)
 import Data.Scientific (FPFormat (Fixed), Scientific, floatingOrInteger, formatScientific)
 import Data.Text (Text)
@@ -35,7 +36,7 @@ import Network.HTTP.Client (Request (..), Response, parseRequest, responseBody)
 import Network.HTTP.Types.URI (renderQuery)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.Process (readCreateProcessWithExitCode, proc)
+import System.Process (proc, readCreateProcessWithExitCode)
 import Text.Read (readMaybe)
 
 import Trader.Http (defaultRetryConfig, getSharedManager, httpLbsWithRetry)
@@ -223,7 +224,8 @@ fetchDexAllowance :: DexEnv -> DexToken -> IO (Either String Integer)
 fetchDexAllowance env token = do
     let url =
             oneInchEndpoint env "approve/allowance"
-                ++ "?" ++ BS.unpack (renderQuery False [("tokenAddress", Just (BS.pack (dtAddress token))), ("walletAddress", Just (BS.pack (deAddress env)))])
+                ++ "?"
+                ++ BS.unpack (renderQuery False [("tokenAddress", Just (BS.pack (dtAddress token))), ("walletAddress", Just (BS.pack (deAddress env)))])
     req0 <- parseRequest url
     let req = applyApiKey env req0
     mgr <- getSharedManager
@@ -246,7 +248,8 @@ fetchDexApproveTx :: DexEnv -> DexToken -> IO (Either String DexSwapTx)
 fetchDexApproveTx env token = do
     let url =
             oneInchEndpoint env "approve/transaction"
-                ++ "?" ++ BS.unpack (renderQuery False [("tokenAddress", Just (BS.pack (dtAddress token)))])
+                ++ "?"
+                ++ BS.unpack (renderQuery False [("tokenAddress", Just (BS.pack (dtAddress token)))])
     req0 <- parseRequest url
     let req = applyApiKey env req0
     mgr <- getSharedManager
@@ -464,12 +467,12 @@ parseTokenMap :: AT.Object -> AT.Parser (HM.HashMap Text DexToken)
 parseTokenMap o =
     HM.fromList
         <$> traverse
-            (\(k, v) -> (\tok -> (Key.toText k, tok)) <$> parseTokenEntry (Key.toText k) v)
+            (\(k, v) -> (Key.toText k,) <$> parseTokenEntry (Key.toText k) v)
             (KM.toList o)
 
 parseTokenEntry :: Text -> Value -> AT.Parser DexToken
-parseTokenEntry addr v =
-    AT.withObject "Token" (\t -> DexToken (T.unpack addr) <$> t AT..: "symbol" <*> t AT..: "decimals") v
+parseTokenEntry addr =
+    AT.withObject "Token" (\t -> DexToken (T.unpack addr) <$> t AT..: "symbol" <*> t AT..: "decimals")
 
 fallbackToken :: String -> Maybe Int -> Either String DexToken
 fallbackToken raw decOverride =
@@ -496,7 +499,7 @@ resolveDexToken tokenMap raw decOverride =
                 Just tok ->
                     case decOverride of
                         Nothing -> pure (Right tok)
-                        Just d -> pure (Right tok {dtDecimals = d})
+                        Just d -> pure (Right tok{dtDecimals = d})
                 Nothing ->
                     case decOverride of
                         Nothing -> pure (Left ("Token not found in 1inch list: " ++ raw))
@@ -506,7 +509,7 @@ resolveDexToken tokenMap raw decOverride =
                 Just tok ->
                     case decOverride of
                         Nothing -> pure (Right tok)
-                        Just d -> pure (Right tok {dtDecimals = d})
+                        Just d -> pure (Right tok{dtDecimals = d})
                 Nothing ->
                     case decOverride of
                         Nothing -> pure (Left ("Token not found in 1inch list: " ++ raw))

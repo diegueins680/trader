@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 - Trading/CLI: enforce lookback+1 price-row minimum even when CSV uses `--bars auto/0` to avoid short-series failures.
 - Trading/API: surface latest-signal context/price errors as user-facing failures instead of crashing the process (bot updates and signal computation).
 - Predictors: return empty models on invalid datasets/parameters instead of throwing errors.
+- Kalman/LSTM: short-series and invalid-variance inputs now clamp to safe defaults instead of crashing; TCN/GBDT skip invalid shapes.
+- CLI/API: price-loader and backtest tuning validation now return user-facing errors instead of crashing.
 - Optimizer: unknown objective codes now fall back to `final-equity` scoring instead of crashing.
 - CLI: lookback/market accessors clamp to safe defaults if validation is bypassed.
 - Trading: ensemble simulation helpers now return `Either` instead of throwing on validation errors.
@@ -21,8 +23,8 @@ All notable changes to this project will be documented in this file.
 - Ops/Combos: keep the top-combos process lock fresh during long updates to avoid stale-lock removal.
 - Optimizer: respect the configured `--tune-objective` when `--threshold-factor` is enabled (no forced override).
 - Optimizer: clamp perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
-- Optimizer: avoid hanging after timeouts by bounding the post-terminate wait for child runs.
-- Dev: `run_optimize_equity_top5.sh` continues after per-symbol failures so later symbols still run.
+- Optimizer: avoid hanging after timeouts by bounding the post-terminate wait and stdout/stderr capture for child runs.
+- Dev: `run_optimize_equity_top5.sh` continues after per-symbol failures, logs exit/signal status to `run.log`, and still runs later symbols.
 - Web UI: normalize bot status latestSignal to avoid crashes when payloads omit it (including older API versions).
 - API/UI: log trade origin IPs and surface open/close IP columns in trade tables.
 - Web UI: switch Binance account trade date filters to date pickers.
@@ -40,6 +42,7 @@ All notable changes to this project will be documented in this file.
 - Deploy: `deploy-aws-quick.sh` snapshots `/state/sync` before App Runner updates (when a tenant key is available) and restores it after to preserve optimizer combos across deploys.
 - Optimizer: ensure at least the top 100 combos are restored from DB/S3 after deploys (configurable via `TRADER_TOP_COMBOS_MIN_PERSIST`).
 - State sync: allow incoming top-combos payloads to backfill when local combos fall below `TRADER_TOP_COMBOS_MIN_PERSIST`, even if `generatedAtMs` is older.
+- State sync: support authenticated sync targets via `TRADER_STATE_SYNC_API_TOKEN`/`TRADER_STATE_SYNC_API_KEY`.
 - Kalman: sensor variance now uses EWMA residuals so measurement weighting adapts faster to regime shifts.
 - Router: model scoring now uses risk-adjusted net returns (mean/vol) to avoid noisy switches.
 - Optimizer: allow `optimize-equity` to pass `--futures` through for Binance futures data.

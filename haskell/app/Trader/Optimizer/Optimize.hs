@@ -22,11 +22,12 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum, isSpace, toLower, toUpper)
+import Data.Either (fromRight)
 import Data.Foldable (for_)
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (foldl', intercalate, sort, sortBy)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
-import Data.Either (fromRight)
 import Data.Ord (comparing)
 import qualified Data.Ord
 import Data.Scientific (Scientific, toRealFloat)
@@ -53,6 +54,7 @@ import System.IO (
     hFlush,
     hGetContents,
     hPutStrLn,
+    hSetBinaryMode,
     hSetEncoding,
     openFile,
     stderr,
@@ -304,10 +306,10 @@ coerceFloatValueLenient value =
                                 "-nan" -> Just (0 / 0)
                                 "inf" -> Just (1 / 0)
                                 "+inf" -> Just (1 / 0)
-                                "-inf" -> Just (- (1 / 0))
+                                "-inf" -> Just (-(1 / 0))
                                 "infinity" -> Just (1 / 0)
                                 "+infinity" -> Just (1 / 0)
-                                "-infinity" -> Just (- (1 / 0))
+                                "-infinity" -> Just (-(1 / 0))
                                 _ -> Nothing
         _ -> Nothing
 
@@ -743,9 +745,9 @@ applyQualityPreset args =
                 Just v | not (null (trim v)) -> True
                 _ -> False
         intervals' = if intervalReset then Just binanceIntervalsCsv else oaIntervals args
-        maxIf :: Ord a => a -> a -> a
+        maxIf :: (Ord a) => a -> a -> a
         maxIf = max
-        minIf :: Ord a => a -> a -> a
+        minIf :: (Ord a) => a -> a -> a
         minIf = min
      in args
             { oaTrials = maxIf (oaTrials args) 500
@@ -1353,21 +1355,14 @@ runWithTimeout :: CreateProcess -> Double -> IO (Maybe (ExitCode, String, String
 runWithTimeout procSpec timeoutSec = do
     let timeoutMicros = max 0 (floor (timeoutSec * 1000000))
         terminateWaitMicros = 2 * 1000000
+        captureWaitMicros = 2 * 1000000
         pollMicros = 50 * 1000
     (_, Just hout, Just herr, ph) <- createProcess procSpec
-    hSetEncoding hout utf8
-    hSetEncoding herr utf8
-    outVar <- newEmptyMVar
-    errVar <- newEmptyMVar
+    hSetBinaryMode hout True
+    hSetBinaryMode herr True
+    (outRef, outDone, outHandle) <- startCapture hout
+    (errRef, errDone, errHandle) <- startCapture herr
     exitVar <- newEmptyMVar
-    _ <- forkIO $ do
-        out <- hGetContents hout
-        _ <- evaluate (length out)
-        putMVar outVar out
-    _ <- forkIO $ do
-        err <- hGetContents herr
-        _ <- evaluate (length err)
-        putMVar errVar err
     _ <- forkIO $ do
         exitCode <- waitForProcess ph
         putMVar exitVar exitCode
@@ -1376,10 +1371,24 @@ runWithTimeout procSpec timeoutSec = do
         Nothing -> do
             _ <- try (terminateProcess ph) :: IO (Either SomeException ())
             _ <- waitForExit terminateWaitMicros pollMicros exitVar
+            closeHandle outHandle
+            closeHandle errHandle
+            _ <- waitForExit captureWaitMicros pollMicros outDone
+            _ <- waitForExit captureWaitMicros pollMicros errDone
             pure Nothing
         Just exitCode -> do
-            out <- takeMVar outVar
-            err <- takeMVar errVar
+            outReady <- waitForExit captureWaitMicros pollMicros outDone
+            errReady <- waitForExit captureWaitMicros pollMicros errDone
+            when (isNothing outReady) $ do
+                closeHandle outHandle
+                _ <- waitForExit captureWaitMicros pollMicros outDone
+                pure ()
+            when (isNothing errReady) $ do
+                closeHandle errHandle
+                _ <- waitForExit captureWaitMicros pollMicros errDone
+                pure ()
+            out <- decodeBytes <$> readIORef outRef
+            err <- decodeBytes <$> readIORef errRef
             pure (Just (exitCode, out, err))
   where
     waitForExit timeoutMicros pollMicros var
@@ -1399,6 +1408,25 @@ runWithTimeout procSpec timeoutSec = do
                                 delay = min pollDelay remaining
                             threadDelay delay
                             go (waited + delay)
+    startCapture h = do
+        ref <- newIORef BS.empty
+        done <- newEmptyMVar
+        _ <- forkIO $ do
+            let loop = do
+                    chunk <- BS.hGetSome h 8192
+                    if BS.null chunk
+                        then pure ()
+                        else do
+                            modifyIORef' ref (<> chunk)
+                            loop
+            _ <- try loop :: IO (Either SomeException ())
+            _ <- try (hClose h) :: IO (Either SomeException ())
+            putMVar done ()
+        pure (ref, done, h)
+    closeHandle h = do
+        _ <- try (hClose h) :: IO (Either SomeException ())
+        pure ()
+    decodeBytes bs = T.unpack (TE.decodeUtf8With TEE.lenientDecode bs)
 
 setEnv :: String -> String -> [(String, String)] -> [(String, String)]
 setEnv key val env =
@@ -2845,7 +2873,8 @@ runOptimizer args0 = do
                                                                             (zip [1 .. seedTrials] sobolRngs)
                                                                     let seedResults = reverse seedResultsRev
                                                                         scored =
-                                                                            sortBy (comparing (Data.Ord.Down . fromMaybe (-1e18) . trScore))
+                                                                            sortBy
+                                                                                (comparing (Data.Ord.Down . fromMaybe (-1e18) . trScore))
                                                                                 (filter (isJust . trScore) seedResults)
                                                                         survivorsRaw = take survivorCount (filter trEligible scored ++ scored)
                                                                         techniqueSummarySeed =
@@ -3136,9 +3165,9 @@ printTrialStatus :: Int -> Int -> TrialResult -> IO ()
 printTrialStatus i trials tr = do
     let status :: String
         status
-          | trEligible tr = "OK"
-          | trOk tr = "SKIP"
-          | otherwise = "FAIL"
+            | trEligible tr = "OK"
+            | trOk tr = "SKIP"
+            | otherwise = "FAIL"
         eq :: String
         eq = maybe "-" (printf "%.6fx") (trFinalEquity tr)
         scoreLabel :: String
@@ -3800,10 +3829,10 @@ writeTopJson topPath dataSource sourceOverride symbolLabel records summary = do
             , isJust (trScore tr)
             ]
         sortKey tr =
-            let ann = metricFloat (trMetrics tr) "annualizedReturn" (- (1 / 0))
-                ann' = if isNaN ann || isInfinite ann then- (1 / 0) else ann
-                score = fromMaybe (- (1 / 0)) (trScore tr)
-                score' = if isNaN score || isInfinite score then- (1 / 0) else score
+            let ann = metricFloat (trMetrics tr) "annualizedReturn" (-(1 / 0))
+                ann' = if isNaN ann || isInfinite ann then -(1 / 0) else ann
+                score = fromMaybe (-(1 / 0)) (trScore tr)
+                score' = if isNaN score || isInfinite score then -(1 / 0) else score
                 eq = fromMaybe 0 (trFinalEquity tr)
                 eq' = if isNaN eq || isInfinite eq then 0 else eq
              in (ann', score', eq')

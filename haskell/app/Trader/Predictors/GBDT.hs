@@ -39,9 +39,13 @@ predictGBDT m feats =
             then (base, gmSigma m)
             else
                 let featsV = V.fromList feats
+                    featLen = V.length featsV
                     applySt Stump{stFeature = j, stThreshold = thr, stLeftValue = l, stRightValue = r} =
-                        let x = featsV V.! j
-                         in if x <= thr then l else r
+                        if j < 0 || j >= featLen
+                            then 0
+                            else
+                                let x = featsV V.! j
+                                 in if x <= thr then l else r
                     y = base + lr * sum (map applySt (gmStumps m))
                  in (y, gmSigma m)
 

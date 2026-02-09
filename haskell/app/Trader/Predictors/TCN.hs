@@ -47,8 +47,12 @@ predictTCN :: TCNModel -> V.Vector Double -> Int -> Maybe (Double, Maybe Double)
 predictTCN m prices t = do
     feats <- tcnFeaturesAt (tmDilations m) (tmKernelSize m) prices t
     let x = feats ++ [1.0] -- bias
-        y = dot (tmWeights m) x
-    pure (y, tmSigma m)
+        w = tmWeights m
+    if length w /= length x
+        then Nothing
+        else
+            let y = dot w x
+             in pure (y, tmSigma m)
 
 trainTCN :: Int -> V.Vector Double -> [(Int, Double)] -> TCNModel
 trainTCN lookbackBars prices trainTargets

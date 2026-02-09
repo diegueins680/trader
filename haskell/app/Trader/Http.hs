@@ -94,23 +94,37 @@ httpLbsWithRetry cfg mLabel mgr req0 = go 0
         let latencyMs = max 0 (fromIntegral (t1 - t0) :: Int)
         case respOrErr of
             Left ex ->
-                (if shouldRetryException cfg req attempt then (do
-                delayMs <- computeDelay cfg attempt Nothing
-                logHttpAttempt labelTxt methodBs hostBs pathBs (Left ex) latencyMs attempt True
-                sleepMs delayMs
-                go (attempt + 1)) else (do
-                logHttpAttempt labelTxt methodBs hostBs pathBs (Left ex) latencyMs attempt False
-                throwIO ex))
+                ( if shouldRetryException cfg req attempt
+                    then
+                        ( do
+                            delayMs <- computeDelay cfg attempt Nothing
+                            logHttpAttempt labelTxt methodBs hostBs pathBs (Left ex) latencyMs attempt True
+                            sleepMs delayMs
+                            go (attempt + 1)
+                        )
+                    else
+                        ( do
+                            logHttpAttempt labelTxt methodBs hostBs pathBs (Left ex) latencyMs attempt False
+                            throwIO ex
+                        )
+                )
             Right resp -> do
                 let code = statusCode (responseStatus resp)
                     retryable = shouldRetryStatus cfg req code attempt
-                (if retryable then (do
-                    delayMs <- computeDelay cfg attempt (retryAfterMs resp)
-                    logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt True
-                    sleepMs delayMs
-                    go (attempt + 1)) else (do
-                    logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt False
-                    pure resp))
+                ( if retryable
+                        then
+                            ( do
+                                delayMs <- computeDelay cfg attempt (retryAfterMs resp)
+                                logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt True
+                                sleepMs delayMs
+                                go (attempt + 1)
+                            )
+                        else
+                            ( do
+                                logHttpAttempt labelTxt methodBs hostBs pathBs (Right resp) latencyMs attempt False
+                                pure resp
+                            )
+                    )
 
 shouldRetryException :: RetryConfig -> Request -> Int -> Bool
 shouldRetryException cfg req attempt =
@@ -205,9 +219,14 @@ rateLimitMsForHost host =
                 if "coinbase" `isInfixOf` h
                     then 150
                     else
-                        (if ("kraken" `isInfixOf` h) || ("poloniex" `isInfixOf` h) then 200 else (if ".s3." `isInfixOf` h
-                                            then 50
-                                            else 0))
+                        ( if ("kraken" `isInfixOf` h) || ("poloniex" `isInfixOf` h)
+                            then 200
+                            else
+                                ( if ".s3." `isInfixOf` h
+                                    then 50
+                                    else 0
+                                )
+                        )
 
 {-# NOINLINE httpLogFlag #-}
 httpLogFlag :: IORef (Maybe Bool)

@@ -94,9 +94,9 @@ computeMetrics periodsPerYear br =
         winRate = if tradeCount == 0 then 0 else fromIntegral wins / fromIntegral tradeCount
         grossLosses = abs grossLossSum
         profitFactor
-          | grossLosses > 0 = Just (grossProfits / grossLosses)
-          | grossProfits > 0 = Nothing
-          | otherwise = Just 0
+            | grossLosses > 0 = Just (grossProfits / grossLosses)
+            | grossProfits > 0 = Nothing
+            | otherwise = Just 0
         avgTrade = if tradeCount == 0 then 0 else sumReturns / fromIntegral tradeCount
         avgHold = if tradeCount == 0 then 0 else fromIntegral totalHold / fromIntegral tradeCount
 
@@ -179,7 +179,7 @@ stddev xs =
 
 downsideDeviation :: [Double] -> Double
 downsideDeviation xs =
-    let downs = map (\r -> min 0 r) xs
+    let downs = map (min 0) xs
         n = length downs
      in if n <= 0
             then 0

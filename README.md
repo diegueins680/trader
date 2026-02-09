@@ -565,8 +565,8 @@ Optimizer script tips:
 - `optimize-equity` now tunes stop-loss and take-profit by default for annualized-equity; override with `--p-disable-stop` / `--p-disable-tp` to allow disabling them.
 - `optimize-equity` accepts `--futures` to pull Binance USDT-M futures data (Binance only).
 - `optimize-equity` clamps perturbed `--bars` to the configured range and Binance's 1000-bar cap to avoid invalid trials.
-- Optimizer timeouts now return even if a child backtest process doesn't exit after SIGTERM.
-- `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons) and continues when a symbol run fails.
+- Optimizer timeouts now return even if a child backtest process doesn't exit after SIGTERM, and stdout/stderr capture won't block progress if pipes never close.
+- `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons), continues when a symbol run fails, and writes a `run.log` with exit/signal status in the output directory.
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - CSV runs derive `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename) and normalize it to a valid exchange symbol, trimming dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` -> `BNBUSDT`) before combos are persisted.
@@ -640,6 +640,7 @@ S3 state (required for App Runner persistence):
 Optional state sync push (keep a central AWS deployment updated):
 - Set `TRADER_STATE_SYNC_URL` to the target API base or full `/state/sync` URL (if it does not end with `/state/sync`, the API appends it).
 - Set `TRADER_STATE_SYNC_TENANT_KEY` to the tenant key expected by the target; when unset, the server derives it from `BINANCE_API_KEY`/`BINANCE_API_SECRET` (or Coinbase keys).
+- If the target requires auth, set `TRADER_STATE_SYNC_API_TOKEN` (Authorization: Bearer) or `TRADER_STATE_SYNC_API_KEY` (X-API-Key).
 - The API POSTs updated `top-combos.json` to the target whenever combos are written.
 - To avoid sync loops, configure this only on non-target instances (leave it unset on the AWS instance).
 
@@ -949,6 +950,8 @@ If live bot start/status returns 502/503/504, verify the `/api/*` proxy target a
 Unexpected handler failures now return a JSON 500 response (with CORS headers) so the browser sees the error payload; check API logs for details.
 Latest-signal computation now reports missing model context or insufficient price data as a clear error instead of crashing; verify your `--method`/lookback and available bars if you see these errors.
 Predictor training falls back to empty models when datasets/parameters are invalid, which can yield neutral signals; check lookback/window settings and data quality if signals go flat unexpectedly.
+Kalman/LSTM helpers clamp invalid variances or short series to safe defaults instead of crashing, so early/undersized windows may emit neutral outputs until enough data arrives.
+Price loading now returns clear errors for unsupported intervals or conflicting `--data`/`--binance-symbol` inputs instead of crashing.
 Optimizer objectives are validated by the CLI; if validation is bypassed, unknown values fall back to `final-equity` scoring.
 If your backend has `TRADER_API_TOKEN` set, all endpoints except `/health` require auth.
 

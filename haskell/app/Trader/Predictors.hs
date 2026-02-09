@@ -98,9 +98,9 @@ trainPredictors enabled lookbackBars trainPrices =
 
         gbdtTrained = useGbdt || useConformal
         gbdt
-          | not gbdtTrained = emptyGbdt
-          | null trainSet = emptyGbdt
-          | otherwise = trainGBDT 60 0.1 trainSet
+            | not gbdtTrained = emptyGbdt
+            | null trainSet = emptyGbdt
+            | otherwise = trainGBDT 60 0.1 trainSet
         quant =
             if useQuantile
                 then

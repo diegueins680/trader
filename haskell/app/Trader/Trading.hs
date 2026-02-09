@@ -525,27 +525,27 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                         ++ show lstmLen
                     )
         validationError
-          | n < 2 = Just "Need at least 2 prices to simulate"
-          | V.length highsV /= n || V.length lowsV /= n = Just "high/low vectors must match closes length"
-          | lookback >= n = Just "lookback must be less than number of prices"
-          | (isJust dailyLossReq || isJust weeklyLossReq || isJust maxTradesPerDayReq || noTradeReq) && not hasDailyKey = Just "--max-daily-loss/--max-weekly-loss/--max-trades-per-day/--no-trade-window require bar timestamps"
-          | isJust minExpectancy && expectancyLookback <= 0 = Just "--min-expectancy requires --expectancy-lookback >= 1"
-          | otherwise = case openTimesMismatch of
-                                                    Just err
-                                                        | isJust dailyLossReq || isJust weeklyLossReq || isJust maxTradesPerDayReq || noTradeReq -> Just err
-                                                    _ ->
-                                                        case metaMaskMismatch of
-                                                            Just err -> Just err
-                                                            Nothing ->
-                                                                case metaMismatch of
-                                                                    Just err -> Just err
-                                                                    Nothing ->
-                                                                        case kalPredAtE of
-                                                                            Left err -> Just err
-                                                                            Right _ ->
-                                                                                case lstmPredAtE of
-                                                                                    Left err -> Just err
-                                                                                    Right _ -> Nothing
+            | n < 2 = Just "Need at least 2 prices to simulate"
+            | V.length highsV /= n || V.length lowsV /= n = Just "high/low vectors must match closes length"
+            | lookback >= n = Just "lookback must be less than number of prices"
+            | (isJust dailyLossReq || isJust weeklyLossReq || isJust maxTradesPerDayReq || noTradeReq) && not hasDailyKey = Just "--max-daily-loss/--max-weekly-loss/--max-trades-per-day/--no-trade-window require bar timestamps"
+            | isJust minExpectancy && expectancyLookback <= 0 = Just "--min-expectancy requires --expectancy-lookback >= 1"
+            | otherwise = case openTimesMismatch of
+                Just err
+                    | isJust dailyLossReq || isJust weeklyLossReq || isJust maxTradesPerDayReq || noTradeReq -> Just err
+                _ ->
+                    case metaMaskMismatch of
+                        Just err -> Just err
+                        Nothing ->
+                            case metaMismatch of
+                                Just err -> Just err
+                                Nothing ->
+                                    case kalPredAtE of
+                                        Left err -> Just err
+                                        Right _ ->
+                                            case lstmPredAtE of
+                                                Left err -> Just err
+                                                Right _ -> Nothing
      in case validationError of
             Just err -> Left err
             Nothing ->
@@ -1019,21 +1019,25 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                         signalToNoiseOkAt :: Int -> Double -> Double -> Bool
                         signalToNoiseOkAt t minSn edge =
-                            ((minSn <= 0) || (case volPerBarAt t of
-                                    Just vol | vol > 0 -> edge / vol >= minSn
-                                    _ -> False))
+                            ( (minSn <= 0)
+                                || ( case volPerBarAt t of
+                                        Just vol | vol > 0 -> edge / vol >= minSn
+                                        _ -> False
+                                   )
+                            )
 
                         trendOkAt :: Int -> PositionSide -> Bool
                         trendOkAt t side =
                             (trendLookback <= 1 || t < trendLookback - 1)
-                                || (let start = t - trendLookback + 1
-                                        v = V.slice start trendLookback pricesV
-                                        sma = meanV v
-                                        px = pricesV V.! t
-                                     in (isBad sma || isBad px)
+                                || ( let start = t - trendLookback + 1
+                                         v = V.slice start trendLookback pricesV
+                                         sma = meanV v
+                                         px = pricesV V.! t
+                                      in (isBad sma || isBad px)
                                             || case side of
                                                 SideLong -> px >= sma
-                                                SideShort -> px <= sma)
+                                                SideShort -> px <= sma
+                                   )
 
                         touchCloudAt :: Int -> Bool
                         touchCloudAt idx =
@@ -1062,44 +1066,53 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                         touchCloudInWindow :: Int -> Bool
                         touchCloudInWindow t =
-                            (not cloudReady || (let start = max 0 (t - touchLookback + 1)
-                                                    end = min n (t + 1)
-                                                 in (touchCloudPrefix V.! end) > (touchCloudPrefix V.! start)))
+                            ( not cloudReady
+                                || ( let start = max 0 (t - touchLookback + 1)
+                                         end = min n (t + 1)
+                                      in (touchCloudPrefix V.! end) > (touchCloudPrefix V.! start)
+                                   )
+                            )
 
                         cloudOkAt :: Int -> PositionSide -> Bool
                         cloudOkAt t side =
-                            ((not cloudReady || t <= 0) || (let fast = cloudFastV V.! t
-                                                                slow = cloudSlowV V.! t
-                                                                slope = slow - cloudSlowV V.! (t - 1)
-                                                                cloudTop = max fast slow
-                                                                cloudBot = min fast slow
-                                                                px = pricesV V.! t
-                                                                slopeFrac =
-                                                                    if isBad px || px == 0
-                                                                        then 0
-                                                                        else slope / abs px
-                                                                widthFrac =
-                                                                    if isBad px || px == 0
-                                                                        then 0
-                                                                        else (cloudTop - cloudBot) / abs px
-                                                                widthOk = cloudWidthMax <= 0 || isBad widthFrac || widthFrac <= cloudWidthMax
-                                                                touchCloud = touchCloudInWindow t
-                                                                trendOk =
-                                                                    case side of
-                                                                        SideLong -> fast > slow && slopeFrac >= cloudSlopeMin
-                                                                        SideShort -> fast < slow && slopeFrac <= -cloudSlopeMin
-                                                             in (isBad fast || isBad slow || isBad slope)
-                                                                    || (touchCloud && trendOk && widthOk)))
+                            ( (not cloudReady || t <= 0)
+                                || ( let fast = cloudFastV V.! t
+                                         slow = cloudSlowV V.! t
+                                         slope = slow - cloudSlowV V.! (t - 1)
+                                         cloudTop = max fast slow
+                                         cloudBot = min fast slow
+                                         px = pricesV V.! t
+                                         slopeFrac =
+                                            if isBad px || px == 0
+                                                then 0
+                                                else slope / abs px
+                                         widthFrac =
+                                            if isBad px || px == 0
+                                                then 0
+                                                else (cloudTop - cloudBot) / abs px
+                                         widthOk = cloudWidthMax <= 0 || isBad widthFrac || widthFrac <= cloudWidthMax
+                                         touchCloud = touchCloudInWindow t
+                                         trendOk =
+                                            case side of
+                                                SideLong -> fast > slow && slopeFrac >= cloudSlopeMin
+                                                SideShort -> fast < slow && slopeFrac <= -cloudSlopeMin
+                                      in (isBad fast || isBad slow || isBad slope)
+                                            || (touchCloud && trendOk && widthOk)
+                                   )
+                            )
 
                         priceActionOkAt :: Int -> PositionSide -> Bool
                         priceActionOkAt t side =
-                            ((not triLayerEnabled || not requirePriceAction || t < 2) || (let cur = candleAt t
-                                                                                              prev = candleAt (t - 1)
-                                                                                              bullish = hammer cur || bullishEngulf cur prev || railroadTracksLong cur prev
-                                                                                              bearish = shootingStar cur || bearishEngulf cur prev || darkCloudCover cur prev
-                                                                                           in case side of
-                                                                                                  SideLong -> bullish
-                                                                                                  SideShort -> bearish))
+                            ( (not triLayerEnabled || not requirePriceAction || t < 2)
+                                || ( let cur = candleAt t
+                                         prev = candleAt (t - 1)
+                                         bullish = hammer cur || bullishEngulf cur prev || railroadTracksLong cur prev
+                                         bearish = shootingStar cur || bearishEngulf cur prev || darkCloudCover cur prev
+                                      in case side of
+                                            SideLong -> bullish
+                                            SideShort -> bearish
+                                   )
+                            )
 
                         clamp01 :: Double -> Double
                         clamp01 x = max 0 (min 1 x)
@@ -1153,9 +1166,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 Nothing -> 1
                                                 Just score ->
                                                     let scaleRaw
-                                                          | score <= soft = 0
-                                                          | score >= hard = 1
-                                                          | otherwise = (score - soft) / denom
+                                                            | score <= soft = 0
+                                                            | score >= hard = 1
+                                                            | otherwise = (score - soft) / denom
                                                      in clamp01 scaleRaw
 
                         clampFrac :: Double -> Double
@@ -1269,15 +1282,21 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                         confirmConformal :: Double -> StepMeta -> PositionSide -> Bool
                         confirmConformal thr m side =
-                            (not (ecConfirmConformal cfg) || (case side of
-                                    SideLong -> maybe True (> thr) (smConformalLo m)
-                                    SideShort -> maybe True (< negate thr) (smConformalHi m)))
+                            ( not (ecConfirmConformal cfg)
+                                || ( case side of
+                                        SideLong -> maybe True (> thr) (smConformalLo m)
+                                        SideShort -> maybe True (< negate thr) (smConformalHi m)
+                                   )
+                            )
 
                         confirmQuantiles :: Double -> StepMeta -> PositionSide -> Bool
                         confirmQuantiles thr m side =
-                            (not (ecConfirmQuantiles cfg) || (case side of
-                                    SideLong -> maybe True (> thr) (smQuantile10 m)
-                                    SideShort -> maybe True (< negate thr) (smQuantile90 m)))
+                            ( not (ecConfirmQuantiles cfg)
+                                || ( case side of
+                                        SideLong -> maybe True (> thr) (smQuantile10 m)
+                                        SideShort -> maybe True (< negate thr) (smQuantile90 m)
+                                   )
+                            )
 
                         confidenceScoreKalman :: StepMeta -> Double
                         confidenceScoreKalman m =
@@ -1597,9 +1616,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 else factorCloseBase
 
                                         lstmFlipStrongOk =
-                                            (not lstmFlipStrongOnly || (case lstmConfScoreMaybe of
-                                                    Just score -> score >= max 0 (min 1 (ecLstmConfidenceHard cfg))
-                                                    Nothing -> False))
+                                            ( not lstmFlipStrongOnly
+                                                || ( case lstmConfScoreMaybe of
+                                                        Just score -> score >= max 0 (min 1 (ecLstmConfidenceHard cfg))
+                                                        Nothing -> False
+                                                   )
+                                            )
 
                                         (openTradeFlip, lstmFlipExit) =
                                             if lstmFlipBars <= 0
@@ -1655,9 +1677,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 else (1 - snrSizeWeight) + snrSizeWeight * snrScale
 
                                         snrOk =
-                                            (not needsEntry || (if snrSizeWeight <= 0
+                                            ( not needsEntry
+                                                || ( if snrSizeWeight <= 0
                                                         then signalToNoiseOkAt t minSignalToNoiseAdj (max 0 edgeRaw)
-                                                        else snrScale > 0))
+                                                        else snrScale > 0
+                                                   )
+                                            )
 
                                         volTargetReady =
                                             (not needsEntry || volTargetReadyAt t)
@@ -1676,9 +1701,12 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                         && let slow = cloudSlowV V.! t
                                                                slowPrev = cloudSlowV V.! (t - 1)
                                                                priorClose = pricesV V.! (t - 1)
-                                                            in (not (any isBad [slow, slowPrev, prev, priorClose]) && (case side of
-                                                                    SideLong -> priorClose >= slowPrev && prev < slow
-                                                                    SideShort -> priorClose <= slowPrev && prev > slow))
+                                                            in ( not (any isBad [slow, slowPrev, prev, priorClose])
+                                                                    && ( case side of
+                                                                            SideLong -> priorClose >= slowPrev && prev < slow
+                                                                            SideShort -> priorClose <= slowPrev && prev > slow
+                                                                       )
+                                                               )
                                                 Nothing -> False
 
                                         kalmanBandExit =
@@ -1774,9 +1802,9 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 Nothing -> False
 
                                         entryBlockReason
-                                          | entryAttempt && noTradeActive = Just "NO_TRADE_WINDOW"
-                                          | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
-                                          | otherwise = Nothing
+                                            | entryAttempt && noTradeActive = Just "NO_TRADE_WINDOW"
+                                            | entryAttempt && tradeLimitReached = Just "MAX_TRADES_PER_DAY"
+                                            | otherwise = Nothing
 
                                         (desiredSideFinal0, desiredSizeFinal0) =
                                             if cooldownActive
@@ -1858,13 +1886,13 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
 
                                         rebalanceDelta = abs (desiredSizeFinal - posSize)
                                         rebalanceDue
-                                          | not rebalanceEnabled = False
-                                          | rebalanceGlobal = t `mod` rebalanceBars == 0
-                                          | otherwise = case openTradeUpdated of
-                                                            Just ot ->
-                                                                let age = max 0 (t - otRebalanceAnchor ot)
-                                                                 in age `mod` rebalanceBars == 0
-                                                            Nothing -> t `mod` rebalanceBars == 0
+                                            | not rebalanceEnabled = False
+                                            | rebalanceGlobal = t `mod` rebalanceBars == 0
+                                            | otherwise = case openTradeUpdated of
+                                                Just ot ->
+                                                    let age = max 0 (t - otRebalanceAnchor ot)
+                                                     in age `mod` rebalanceBars == 0
+                                                Nothing -> t `mod` rebalanceBars == 0
                                         rebalanceOk =
                                             rebalanceEnabled
                                                 && Data.Maybe.isJust posSide
