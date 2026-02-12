@@ -192,8 +192,8 @@ export const defaultForm: FormState = {
   orderQuoteFraction: 0,
   maxOrderQuote: 0,
   idempotencyKey: "",
-  binanceLive: true,
-  tradeArmed: true,
+  binanceLive: false,
+  tradeArmed: false,
   bypassCache: false,
   autoRefresh: false,
   autoRefreshSec: 20,
@@ -332,6 +332,11 @@ function normalizePlatform(raw: unknown, fallback: Platform): Platform {
   return fallback;
 }
 
+function normalizeMarket(raw: unknown, fallback: Market): Market {
+  if (raw === "spot" || raw === "margin" || raw === "futures") return raw;
+  return fallback;
+}
+
 function normalizeTuneObjective(raw: unknown, fallback: string): string {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (s && TUNE_OBJECTIVE_SET.has(s)) return s;
@@ -360,6 +365,21 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
   );
   const kalmanZMax = Math.max(kalmanZMin, kalmanZMaxRaw);
   const platform = normalizePlatform(rawRec.platform ?? merged.platform, defaultForm.platform);
+  let market = platform === "binance" ? normalizeMarket(rawRec.market ?? merged.market, defaultForm.market) : "spot";
+  const binanceLiveCandidate =
+    platform === "binance" ? normalizeBool(rawRec.binanceLive ?? merged.binanceLive, defaultForm.binanceLive) : false;
+  // Margin requires live orders; prefer a safe fallback over implicitly enabling live mode.
+  const binanceLive = market === "margin" && !binanceLiveCandidate ? false : binanceLiveCandidate;
+  if (market === "margin" && !binanceLiveCandidate) market = "spot";
+  // Trade arming is meaningful for Binance + Coinbase; disable it for non-trading platforms.
+  const tradeArmed =
+    platform === "binance" || platform === "coinbase"
+      ? normalizeBool(rawRec.tradeArmed ?? merged.tradeArmed, defaultForm.tradeArmed)
+      : false;
+  const binanceTestnet =
+    platform === "binance" && market !== "margin"
+      ? normalizeBool(rawRec.binanceTestnet ?? merged.binanceTestnet, defaultForm.binanceTestnet)
+      : false;
   const symbolFallback = PLATFORM_DEFAULT_SYMBOL[platform] ?? defaultForm.binanceSymbol;
   const binanceSymbol = normalizeSymbol(rawRec.binanceSymbol ?? merged.binanceSymbol, platform, symbolFallback);
   const { threshold: _ignoredThreshold, ...mergedNoLegacy } = merged as FormState & { threshold?: unknown };
@@ -367,6 +387,10 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     ...mergedNoLegacy,
     botSymbols,
     platform,
+    market,
+    binanceTestnet,
+    binanceLive,
+    tradeArmed,
     binanceSymbol,
     interval: normalizePlatformInterval(platform, raw?.interval ?? merged.interval, defaultForm.interval),
     positioning: normalizePositioning(raw?.positioning ?? merged.positioning, defaultForm.positioning),
@@ -462,7 +486,10 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     confirmConformal: normalizeBool(rawRec.confirmConformal ?? merged.confirmConformal, defaultForm.confirmConformal),
     confirmQuantiles: normalizeBool(rawRec.confirmQuantiles ?? merged.confirmQuantiles, defaultForm.confirmQuantiles),
     confidenceSizing: normalizeBool(rawRec.confidenceSizing ?? merged.confidenceSizing, defaultForm.confidenceSizing),
+    optimizeOperations: normalizeBool(rawRec.optimizeOperations ?? merged.optimizeOperations, defaultForm.optimizeOperations),
+    sweepThreshold: normalizeBool(rawRec.sweepThreshold ?? merged.sweepThreshold, defaultForm.sweepThreshold),
     bypassCache: normalizeBool(rawRec.bypassCache ?? merged.bypassCache, defaultForm.bypassCache),
+    autoRefresh: normalizeBool(rawRec.autoRefresh ?? merged.autoRefresh, defaultForm.autoRefresh),
     positionsOpenTimeCacheSec: normalizeFiniteNumber(
       rawRec.positionsOpenTimeCacheSec ?? merged.positionsOpenTimeCacheSec,
       defaultForm.positionsOpenTimeCacheSec,

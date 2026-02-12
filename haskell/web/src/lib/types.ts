@@ -18,9 +18,11 @@ export type Method =
   | "tension_gate"
   | "entropy_blend"
   | "coherence_gate"
+  | "divergence_gate"
   | "fractal_blend"
   | "phase_cancel"
   | "softmax_blend"
+  | "smooth_softmax_blend"
   | "net_softmax_blend"
   | "edge_blend"
   | "edge_pick"
@@ -791,9 +793,11 @@ export type OptimizerRunRequest = {
   methodWeightTensionGate?: number;
   methodWeightEntropyBlend?: number;
   methodWeightCoherenceGate?: number;
+  methodWeightDivergenceGate?: number;
   methodWeightFractalBlend?: number;
   methodWeightPhaseCancel?: number;
   methodWeightSoftmaxBlend?: number;
+  methodWeightSmoothSoftmaxBlend?: number;
   methodWeightNetSoftmaxBlend?: number;
   methodWeightEdgeBlend?: number;
   methodWeightEdgePick?: number;

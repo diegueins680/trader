@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildOrphanedPositions, buildRequestIssueDetails, isLocalHostname, normalizeApiBaseUrlInput, numFromInput } from "../.tmp/web-tests/utils.js";
+import { buildOrphanedPositions, buildRequestIssueDetails, isLocalHostname, methodLabel, normalizeApiBaseUrlInput, numFromInput } from "../.tmp/web-tests/utils.js";
 import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
 
 test("buildRequestIssueDetails returns empty when clean", () => {
@@ -129,4 +129,70 @@ test("normalizeFormState restores default minPositionSize for invalid input", ()
   assert.equal(fromInvalid.minPositionSize, defaultForm.minPositionSize);
   const fromExplicitZero = normalizeFormState({ minPositionSize: 0 });
   assert.equal(fromExplicitZero.minPositionSize, 0);
+});
+
+test("defaultForm uses safe trade defaults", () => {
+  assert.equal(defaultForm.binanceLive, false);
+  assert.equal(defaultForm.tradeArmed, false);
+});
+
+test("normalizeFormState normalizes trade toggles and booleans from strings", () => {
+  const out = normalizeFormState({
+    binanceLive: "false",
+    tradeArmed: "1",
+    optimizeOperations: "true",
+    sweepThreshold: "0",
+    autoRefresh: "false",
+  });
+  assert.equal(out.binanceLive, false);
+  assert.equal(out.tradeArmed, true);
+  assert.equal(out.optimizeOperations, true);
+  assert.equal(out.sweepThreshold, false);
+  assert.equal(out.autoRefresh, false);
+});
+
+test("normalizeFormState forces non-binance platforms into spot + disables binance-only flags", () => {
+  const out = normalizeFormState({
+    platform: "coinbase",
+    market: "futures",
+    binanceTestnet: true,
+    binanceLive: true,
+    tradeArmed: true,
+  });
+  assert.equal(out.platform, "coinbase");
+  assert.equal(out.market, "spot");
+  assert.equal(out.binanceTestnet, false);
+  assert.equal(out.binanceLive, false);
+  assert.equal(out.tradeArmed, true);
+});
+
+test("normalizeFormState disables tradeArmed for non-trading platforms", () => {
+  const out = normalizeFormState({ platform: "kraken", tradeArmed: true });
+  assert.equal(out.platform, "kraken");
+  assert.equal(out.tradeArmed, false);
+});
+
+test("normalizeFormState treats margin+non-live as spot (safe fallback)", () => {
+  const out = normalizeFormState({
+    market: "margin",
+    binanceLive: false,
+  });
+  assert.equal(out.market, "spot");
+  assert.equal(out.binanceLive, false);
+});
+
+test("normalizeFormState forces margin to disable testnet", () => {
+  const out = normalizeFormState({
+    market: "margin",
+    binanceLive: true,
+    binanceTestnet: true,
+  });
+  assert.equal(out.market, "margin");
+  assert.equal(out.binanceLive, true);
+  assert.equal(out.binanceTestnet, false);
+});
+
+test("methodLabel includes newly added backend methods", () => {
+  assert.equal(methodLabel("divergence_gate"), "Divergence gate (shrinks blended return on disagreement)");
+  assert.equal(methodLabel("smooth_softmax_blend"), "Smooth softmax blend (EMA-smooth softmax weights)");
 });

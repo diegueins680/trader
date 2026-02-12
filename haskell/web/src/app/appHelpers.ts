@@ -242,9 +242,11 @@ export const COMPLEX_TIPS = {
     "tension_gate uses stronger conviction on agreement, but partially neutralizes toward spot on directional conflict.",
     "entropy_blend uses edge-entropy to adaptively shrink blend predictions toward spot when model uncertainty is high.",
     "coherence_gate measures return coherence; it amplifies coherent agreement and soft-gates incoherent conflicts toward spot.",
+    "divergence_gate shrinks blended returns toward spot as Kalman/LSTM return divergence grows relative to the open threshold.",
     "fractal_blend blends signed square-root returns, then maps back to return space to reduce outlier dominance.",
     "phase_cancel detects anti-phase Kalman/LSTM returns and compresses conflicting edges toward neutral.",
     "softmax_blend uses a softmax-style edge weighting so the higher-edge model gets more weight (blend weight is a bias/fallback).",
+    "smooth_softmax_blend smooths the softmax edge weights over time (EMA) to reduce twitchy per-bar switching.",
     "net_softmax_blend is like softmax_blend but uses post-cost edge (net of round-trip costs) in the softmax weighting.",
     "edge_blend adapts Kalman vs LSTM weights from each model's instantaneous edge magnitude.",
     "edge_pick selects Kalman or LSTM per bar using the larger absolute edge.",
@@ -263,7 +265,7 @@ export const COMPLEX_TIPS = {
   ],
   snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
   blend: [
-    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/fractal_blend/phase_cancel/softmax_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch.",
+    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch.",
   ],
   router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
   split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
@@ -1467,9 +1469,11 @@ export type OptimizerRunForm = {
   methodWeightTensionGate: string;
   methodWeightEntropyBlend: string;
   methodWeightCoherenceGate: string;
+  methodWeightDivergenceGate: string;
   methodWeightFractalBlend: string;
   methodWeightPhaseCancel: string;
   methodWeightSoftmaxBlend: string;
+  methodWeightSmoothSoftmaxBlend: string;
   methodWeightNetSoftmaxBlend: string;
   methodWeightEdgeBlend: string;
   methodWeightEdgePick: string;
@@ -1627,9 +1631,11 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     methodWeightTensionGate: "",
     methodWeightEntropyBlend: "",
     methodWeightCoherenceGate: "",
+    methodWeightDivergenceGate: "",
     methodWeightFractalBlend: "",
     methodWeightPhaseCancel: "",
     methodWeightSoftmaxBlend: "",
+    methodWeightSmoothSoftmaxBlend: "",
     methodWeightNetSoftmaxBlend: "",
     methodWeightEdgeBlend: "",
     methodWeightEdgePick: "",
@@ -1863,12 +1869,16 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (methodWeightEntropyBlend != null) req.methodWeightEntropyBlend = methodWeightEntropyBlend;
   const methodWeightCoherenceGate = parseOptionalNumber(form.methodWeightCoherenceGate);
   if (methodWeightCoherenceGate != null) req.methodWeightCoherenceGate = methodWeightCoherenceGate;
+  const methodWeightDivergenceGate = parseOptionalNumber(form.methodWeightDivergenceGate);
+  if (methodWeightDivergenceGate != null) req.methodWeightDivergenceGate = methodWeightDivergenceGate;
   const methodWeightFractalBlend = parseOptionalNumber(form.methodWeightFractalBlend);
   if (methodWeightFractalBlend != null) req.methodWeightFractalBlend = methodWeightFractalBlend;
   const methodWeightPhaseCancel = parseOptionalNumber(form.methodWeightPhaseCancel);
   if (methodWeightPhaseCancel != null) req.methodWeightPhaseCancel = methodWeightPhaseCancel;
   const methodWeightSoftmaxBlend = parseOptionalNumber(form.methodWeightSoftmaxBlend);
   if (methodWeightSoftmaxBlend != null) req.methodWeightSoftmaxBlend = methodWeightSoftmaxBlend;
+  const methodWeightSmoothSoftmaxBlend = parseOptionalNumber(form.methodWeightSmoothSoftmaxBlend);
+  if (methodWeightSmoothSoftmaxBlend != null) req.methodWeightSmoothSoftmaxBlend = methodWeightSmoothSoftmaxBlend;
   const methodWeightNetSoftmaxBlend = parseOptionalNumber(form.methodWeightNetSoftmaxBlend);
   if (methodWeightNetSoftmaxBlend != null) req.methodWeightNetSoftmaxBlend = methodWeightNetSoftmaxBlend;
   const methodWeightEdgeBlend = parseOptionalNumber(form.methodWeightEdgeBlend);

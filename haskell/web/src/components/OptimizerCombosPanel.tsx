@@ -2035,6 +2035,23 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           </div>
           <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightDivergenceGate">
+                Divergence gate method weight
+              </label>
+              <input
+                id="optimizerMethodWeightDivergenceGate"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightDivergenceGate}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightDivergenceGate: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightSoftmaxBlend">
                 Softmax blend method weight
               </label>
@@ -2050,6 +2067,21 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               />
             </div>
             <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightSmoothSoftmaxBlend">
+                Smooth softmax blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightSmoothSoftmaxBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightSmoothSoftmaxBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightSmoothSoftmaxBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightNetSoftmaxBlend">
                 Net softmax blend method weight
               </label>
@@ -2061,21 +2093,6 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 min={0}
                 value={optimizerRunForm.methodWeightNetSoftmaxBlend}
                 onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightNetSoftmaxBlend: e.target.value }))}
-                placeholder="0.0"
-              />
-            </div>
-            <div className="field">
-              <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
-                Geo blend method weight
-              </label>
-              <input
-                id="optimizerMethodWeightGeoBlend"
-                className="input"
-                type="number"
-                step="0.1"
-                min={0}
-                value={optimizerRunForm.methodWeightGeoBlend}
-                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightGeoBlend: e.target.value }))}
                 placeholder="0.0"
               />
             </div>
@@ -2108,6 +2125,21 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 min={0}
                 value={optimizerRunForm.methodWeightBanditRouter}
                 onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightBanditRouter: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
+                Geo blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightGeoBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightGeoBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightGeoBlend: e.target.value }))}
                 placeholder="0.0"
               />
             </div>

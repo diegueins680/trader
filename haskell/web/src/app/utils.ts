@@ -438,12 +438,16 @@ export function methodLabel(method: Method): string {
       return "Entropy blend (uncertainty-aware spot anchoring)";
     case "coherence_gate":
       return "Coherence gate (agreement coherence conflict guard)";
+    case "divergence_gate":
+      return "Divergence gate (shrinks blended return on disagreement)";
     case "fractal_blend":
       return "Fractal blend (signed-root nonlinear fusion)";
     case "phase_cancel":
       return "Phase cancel (anti-phase conflict neutralization)";
     case "softmax_blend":
       return "Softmax blend (softmax edge weights)";
+    case "smooth_softmax_blend":
+      return "Smooth softmax blend (EMA-smooth softmax weights)";
     case "net_softmax_blend":
       return "Net softmax blend (post-cost softmax edge weights)";
     case "edge_blend":
