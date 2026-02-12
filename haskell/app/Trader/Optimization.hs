@@ -525,6 +525,102 @@ disagreementGuardPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
              in disagreementGuardPredFromPreds fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
+medianBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+medianBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        w = clamp01 fallbackWeight
+        arithmetic = w * kalPred + (1 - w) * lstmPred
+     in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
+            (False, False, False) ->
+                let rKal = kalPred / prev
+                    rLstm = lstmPred / prev
+                    rBlend = arithmetic / prev
+                    rMedian = (sort [rKal, rLstm, rBlend]) !! 1
+                    pred = prev * rMedian
+                 in if isNaN pred || isInfinite pred then arithmetic else pred
+            (_, False, True) -> kalPred
+            (_, True, False) -> lstmPred
+            (_, False, False) -> arithmetic
+            _ -> arithmetic
+
+medianBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+medianBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in medianBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
+neutralGuardPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+neutralGuardPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        neutralPred =
+            if bad prev || isInfinite prev
+                then blend
+                else prev
+        edge x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let v = abs (x / prev - 1)
+                     in if bad v then Nothing else Just v
+        dir x
+            | bad x || bad prev = Nothing
+            | x > prev = Just (1 :: Int)
+            | x < prev = Just (-1 :: Int)
+            | otherwise = Just 0
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                case (dir kalPred, dir lstmPred, edge kalPred, edge lstmPred) of
+                    (Just dKal, Just dLstm, _, _)
+                        | dKal /= dLstm ->
+                            neutralPred
+                    (_, _, Just eKal, Just eLstm) ->
+                        if eKal < eLstm
+                            then kalPred
+                            else
+                                if eLstm < eKal
+                                    then lstmPred
+                                    else if wFallback >= 0.5 then kalPred else lstmPred
+                    _ -> if wFallback >= 0.5 then kalPred else lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> blend
+
+neutralGuardPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+neutralGuardPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in neutralGuardPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 edgeBlendWeightFromPreds ::
     Double ->
     Double ->
@@ -756,6 +852,8 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodCostPick -> 2
                 MethodHarmonicBlend -> 2
                 MethodDisagreementGuard -> 2
+                MethodMedianBlend -> 2
+                MethodNeutralGuard -> 2
                 MethodEdgeBlend -> 2
                 MethodEdgePick -> 2
                 MethodGeoBlend -> 2
@@ -777,6 +875,8 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
             , MethodCostPick
             , MethodHarmonicBlend
             , MethodDisagreementGuard
+            , MethodMedianBlend
+            , MethodNeutralGuard
             , MethodEdgeBlend
             , MethodEdgePick
             , MethodGeoBlend
@@ -923,6 +1023,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         costPickV0 = costPickPredictionsV blendWeight roundTripCost pricesV kalV lstmV
         harmonicBlendV0 = harmonicBlendPredictionsV blendWeight pricesV kalV lstmV
         disagreementGuardV0 = disagreementGuardPredictionsV blendWeight pricesV kalV lstmV
+        medianBlendV0 = medianBlendPredictionsV blendWeight pricesV kalV lstmV
+        neutralGuardV0 = neutralGuardPredictionsV blendWeight pricesV kalV lstmV
         geoBlendV0 = geometricBlendPredictionsV blendWeight pricesV kalV lstmV
         kalZMinForBlend = max 0 (ecKalmanZMin baseCfg)
         kalZMaxForBlend = max kalZMinForBlend (ecKalmanZMax baseCfg)
@@ -942,6 +1044,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodCostPick -> (costPickV0, costPickV0)
                 MethodHarmonicBlend -> (harmonicBlendV0, harmonicBlendV0)
                 MethodDisagreementGuard -> (disagreementGuardV0, disagreementGuardV0)
+                MethodMedianBlend -> (medianBlendV0, medianBlendV0)
+                MethodNeutralGuard -> (neutralGuardV0, neutralGuardV0)
                 MethodEdgeBlend -> (edgeBlendV0, edgeBlendV0)
                 MethodEdgePick -> (edgePickV0, edgePickV0)
                 MethodGeoBlend -> (geoBlendV0, geoBlendV0)
@@ -1098,6 +1202,38 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodMedianBlend
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodNeutralGuard
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodEdgeBlend
                     | V.length kalV < stepCount ->
                         Just
@@ -1192,6 +1328,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodCostPick -> [costPickV0]
                 MethodHarmonicBlend -> [harmonicBlendV0]
                 MethodDisagreementGuard -> [disagreementGuardV0]
+                MethodMedianBlend -> [medianBlendV0]
+                MethodNeutralGuard -> [neutralGuardV0]
                 MethodEdgeBlend -> [edgeBlendV0]
                 MethodEdgePick -> [edgePickV0]
                 MethodGeoBlend -> [geoBlendV0]

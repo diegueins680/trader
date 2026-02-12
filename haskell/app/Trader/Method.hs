@@ -17,6 +17,8 @@ data Method
     | MethodCostPick
     | MethodHarmonicBlend
     | MethodDisagreementGuard
+    | MethodMedianBlend
+    | MethodNeutralGuard
     | MethodEdgeBlend
     | MethodEdgePick
     | MethodGeoBlend
@@ -37,6 +39,8 @@ methodCode m =
         MethodCostPick -> "cost_pick"
         MethodHarmonicBlend -> "harmonic_blend"
         MethodDisagreementGuard -> "disagreement_guard"
+        MethodMedianBlend -> "median_blend"
+        MethodNeutralGuard -> "neutral_guard"
         MethodEdgeBlend -> "edge_blend"
         MethodEdgePick -> "edge_pick"
         MethodGeoBlend -> "geo_blend"
@@ -100,6 +104,18 @@ parseMethod raw =
         "conflict_guard" -> Right MethodDisagreementGuard
         "conflict-guard" -> Right MethodDisagreementGuard
         "conflictguard" -> Right MethodDisagreementGuard
+        "median_blend" -> Right MethodMedianBlend
+        "median-blend" -> Right MethodMedianBlend
+        "medianblend" -> Right MethodMedianBlend
+        "robust_blend" -> Right MethodMedianBlend
+        "robust-blend" -> Right MethodMedianBlend
+        "robustblend" -> Right MethodMedianBlend
+        "neutral_guard" -> Right MethodNeutralGuard
+        "neutral-guard" -> Right MethodNeutralGuard
+        "neutralguard" -> Right MethodNeutralGuard
+        "conflict_neutral" -> Right MethodNeutralGuard
+        "conflict-neutral" -> Right MethodNeutralGuard
+        "conflictneutral" -> Right MethodNeutralGuard
         "edge_blend" -> Right MethodEdgeBlend
         "edge-blend" -> Right MethodEdgeBlend
         "edgeblend" -> Right MethodEdgeBlend
@@ -138,7 +154,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -168,6 +184,14 @@ selectPredictions m blendWeight kalPred lstmPred =
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
         MethodDisagreementGuard ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodMedianBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodNeutralGuard ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)

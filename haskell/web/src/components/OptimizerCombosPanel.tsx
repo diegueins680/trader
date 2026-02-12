@@ -1876,6 +1876,39 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 placeholder="0.0"
               />
             </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightMedianBlend">
+                Median blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightMedianBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightMedianBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightMedianBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightNeutralGuard">
+                Neutral guard method weight
+              </label>
+              <input
+                id="optimizerMethodWeightNeutralGuard"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightNeutralGuard}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightNeutralGuard: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field" />
             <div className="field" />
           </div>
           <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>

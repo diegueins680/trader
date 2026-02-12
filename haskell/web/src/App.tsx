@@ -698,6 +698,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     "cost_pick",
     "harmonic_blend",
     "disagreement_guard",
+    "median_blend",
+    "neutral_guard",
     "edge_blend",
     "edge_pick",
     "geo_blend",
@@ -1813,6 +1815,8 @@ export function App() {
       "cost_pick",
       "harmonic_blend",
       "disagreement_guard",
+      "median_blend",
+      "neutral_guard",
       "edge_blend",
       "edge_pick",
       "geo_blend",
@@ -7595,6 +7599,14 @@ export function App() {
       case "disagreement_guard":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "disagreement_guard";
+        break;
+      case "median_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "median_blend";
+        break;
+      case "neutral_guard":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "neutral_guard";
         break;
       case "edge_blend":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);

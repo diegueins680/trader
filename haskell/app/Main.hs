@@ -887,7 +887,7 @@ data ApiParams = ApiParams
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
     , apCloseThreshold :: Maybe Double
-    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "cost_pick" | "harmonic_blend" | "disagreement_guard" | "edge_blend" | "edge_pick" | "geo_blend" | "regime_switch" | "router" | "bandit_router"
+    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "cost_pick" | "harmonic_blend" | "disagreement_guard" | "median_blend" | "neutral_guard" | "edge_blend" | "edge_pick" | "geo_blend" | "regime_switch" | "router" | "bandit_router"
     , apPositioning :: Maybe String -- "long-flat" | "long-short"
     , apOptimizeOperations :: Maybe Bool
     , apSweepThreshold :: Maybe Bool
@@ -1250,6 +1250,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrMethodWeightCostPick :: !(Maybe Double)
     , arrMethodWeightHarmonicBlend :: !(Maybe Double)
     , arrMethodWeightDisagreementGuard :: !(Maybe Double)
+    , arrMethodWeightMedianBlend :: !(Maybe Double)
+    , arrMethodWeightNeutralGuard :: !(Maybe Double)
     , arrMethodWeightEdgeBlend :: !(Maybe Double)
     , arrMethodWeightEdgePick :: !(Maybe Double)
     , arrMethodWeightGeoBlend :: !(Maybe Double)
@@ -3100,6 +3102,8 @@ seedStrategies conn = do
             , ("cost_pick", "Cost Pick")
             , ("harmonic_blend", "Harmonic Blend")
             , ("disagreement_guard", "Disagreement Guard")
+            , ("median_blend", "Median Blend")
+            , ("neutral_guard", "Neutral Guard")
             , ("edge_blend", "Edge Blend")
             , ("edge_pick", "Edge Pick")
             , ("geo_blend", "Geo Blend")
@@ -5858,6 +5862,8 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                     MethodCostPick -> MethodBoth
                     MethodHarmonicBlend -> MethodBoth
                     MethodDisagreementGuard -> MethodBoth
+                    MethodMedianBlend -> MethodBoth
+                    MethodNeutralGuard -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
                     MethodGeoBlend -> MethodBoth
@@ -6462,6 +6468,8 @@ botApplyOptimizerUpdate st upd = do
                 MethodCostPick -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodHarmonicBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodDisagreementGuard -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodMedianBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodNeutralGuard -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgePick -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodGeoBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -11060,6 +11068,10 @@ prepareOptimizerArgs outputPath req = do
                     maybeDoubleArg "--method-weight-harmonic-blend" (fmap (max 0) (arrMethodWeightHarmonicBlend req))
                 methodWeightDisagreementGuardArgs =
                     maybeDoubleArg "--method-weight-disagreement-guard" (fmap (max 0) (arrMethodWeightDisagreementGuard req))
+                methodWeightMedianBlendArgs =
+                    maybeDoubleArg "--method-weight-median-blend" (fmap (max 0) (arrMethodWeightMedianBlend req))
+                methodWeightNeutralGuardArgs =
+                    maybeDoubleArg "--method-weight-neutral-guard" (fmap (max 0) (arrMethodWeightNeutralGuard req))
                 methodWeightEdgeBlendArgs =
                     maybeDoubleArg "--method-weight-edge-blend" (fmap (max 0) (arrMethodWeightEdgeBlend req))
                 methodWeightEdgePickArgs =
@@ -11199,6 +11211,8 @@ prepareOptimizerArgs outputPath req = do
                         ++ methodWeightCostPickArgs
                         ++ methodWeightHarmonicBlendArgs
                         ++ methodWeightDisagreementGuardArgs
+                        ++ methodWeightMedianBlendArgs
+                        ++ methodWeightNeutralGuardArgs
                         ++ methodWeightEdgeBlendArgs
                         ++ methodWeightEdgePickArgs
                         ++ methodWeightGeoBlendArgs
@@ -11635,6 +11649,10 @@ strategyCodeFromMethod mMethod =
             Just "harmonic-blend" -> "harmonic_blend"
             Just "disagreement_guard" -> "disagreement_guard"
             Just "disagreement-guard" -> "disagreement_guard"
+            Just "median_blend" -> "median_blend"
+            Just "median-blend" -> "median_blend"
+            Just "neutral_guard" -> "neutral_guard"
+            Just "neutral-guard" -> "neutral_guard"
             Just "edge_blend" -> "edge_blend"
             Just "edge-blend" -> "edge_blend"
             Just "edge_pick" -> "edge_pick"
@@ -14679,6 +14697,8 @@ placeDexOrderForSignal args sig = do
                 MethodCostPick -> "No order: Cost pick neutral (within threshold)."
                 MethodHarmonicBlend -> "No order: Harmonic blend neutral (within threshold)."
                 MethodDisagreementGuard -> "No order: Disagreement guard neutral (within threshold)."
+                MethodMedianBlend -> "No order: Median blend neutral (within threshold)."
+                MethodNeutralGuard -> "No order: Neutral guard neutral (within threshold)."
                 MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
                 MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
                 MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
@@ -15724,6 +15744,112 @@ disagreementGuardPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
              in disagreementGuardPredFromPreds fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
+medianBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+medianBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        w = clamp01 fallbackWeight
+        arithmetic = w * kalPred + (1 - w) * lstmPred
+        median3 a b c =
+            if a <= b
+                then
+                    if b <= c
+                        then b
+                        else if a <= c then c else a
+                else
+                    if a <= c
+                        then a
+                        else if b <= c then c else b
+     in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
+            (False, False, False) ->
+                let rKal = kalPred / prev
+                    rLstm = lstmPred / prev
+                    rBlend = arithmetic / prev
+                    rMedian = median3 rKal rLstm rBlend
+                    pred = prev * rMedian
+                 in if isNaN pred || isInfinite pred then arithmetic else pred
+            (_, False, True) -> kalPred
+            (_, True, False) -> lstmPred
+            (_, False, False) -> arithmetic
+            _ -> arithmetic
+
+medianBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+medianBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in medianBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
+neutralGuardPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+neutralGuardPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        neutralPred =
+            if bad prev || isInfinite prev
+                then blend
+                else prev
+        edge x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let v = abs (x / prev - 1)
+                     in if bad v then Nothing else Just v
+        dir x
+            | bad x || bad prev = Nothing
+            | x > prev = Just (1 :: Int)
+            | x < prev = Just (-1 :: Int)
+            | otherwise = Just 0
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                case (dir kalPred, dir lstmPred, edge kalPred, edge lstmPred) of
+                    (Just dKal, Just dLstm, _, _)
+                        | dKal /= dLstm ->
+                            neutralPred
+                    (_, _, Just eKal, Just eLstm) ->
+                        if eKal < eLstm
+                            then kalPred
+                            else
+                                if eLstm < eKal
+                                    then lstmPred
+                                    else if wFallback >= 0.5 then kalPred else lstmPred
+                    _ -> if wFallback >= 0.5 then kalPred else lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> blend
+
+neutralGuardPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+neutralGuardPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in neutralGuardPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 edgeBlendWeightFromPreds ::
     Double ->
     Double ->
@@ -16053,6 +16179,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 blendPred0 = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPred0 lstmPred0
                 harmonicBlendPred0 = harmonicBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 disagreementGuardPred0 = disagreementGuardPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                medianBlendPred0 = medianBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                neutralGuardPred0 = neutralGuardPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 edgeBlendPred0 = edgeBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 edgePickPred0 = edgePickPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 costPickPred0 = costPickPredictionsV blendWeight roundTripCost pricesV kalPred0 lstmPred0
@@ -16114,6 +16242,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodCostPick -> (costPickPred0, costPickPred0)
                         MethodHarmonicBlend -> (harmonicBlendPred0, harmonicBlendPred0)
                         MethodDisagreementGuard -> (disagreementGuardPred0, disagreementGuardPred0)
+                        MethodMedianBlend -> (medianBlendPred0, medianBlendPred0)
+                        MethodNeutralGuard -> (neutralGuardPred0, neutralGuardPred0)
                         MethodEdgeBlend -> (edgeBlendPred0, edgeBlendPred0)
                         MethodEdgePick -> (edgePickPred0, edgePickPred0)
                         MethodGeoBlend -> (geoBlendPred0, geoBlendPred0)
@@ -16367,6 +16497,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodCostPick -> "No order: Cost pick neutral (within threshold)."
             MethodHarmonicBlend -> "No order: Harmonic blend neutral (within threshold)."
             MethodDisagreementGuard -> "No order: Disagreement guard neutral (within threshold)."
+            MethodMedianBlend -> "No order: Median blend neutral (within threshold)."
+            MethodNeutralGuard -> "No order: Neutral guard neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
             MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
@@ -17152,6 +17284,8 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodCostPick -> "No order: Cost pick neutral (within threshold)."
             MethodHarmonicBlend -> "No order: Harmonic blend neutral (within threshold)."
             MethodDisagreementGuard -> "No order: Disagreement guard neutral (within threshold)."
+            MethodMedianBlend -> "No order: Median blend neutral (within threshold)."
+            MethodNeutralGuard -> "No order: Neutral guard neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
             MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
@@ -17608,6 +17742,8 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodCostPick -> "Backtest (cost-aware Kalman/LSTM pick) complete."
                     MethodHarmonicBlend -> "Backtest (harmonic-return Kalman/LSTM blend) complete."
                     MethodDisagreementGuard -> "Backtest (disagreement-aware Kalman/LSTM pick) complete."
+                    MethodMedianBlend -> "Backtest (median-robust Kalman/LSTM blend) complete."
+                    MethodNeutralGuard -> "Backtest (neutral-on-disagreement Kalman/LSTM guard) complete."
                     MethodEdgeBlend -> "Backtest (edge-weighted Kalman/LSTM blend) complete."
                     MethodEdgePick -> "Backtest (edge winner-take-all Kalman/LSTM pick) complete."
                     MethodGeoBlend -> "Backtest (geometric Kalman/LSTM blend) complete."
@@ -18004,6 +18140,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     MethodCostPick -> MethodBoth
                     MethodHarmonicBlend -> MethodBoth
                     MethodDisagreementGuard -> MethodBoth
+                    MethodMedianBlend -> MethodBoth
+                    MethodNeutralGuard -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
                     MethodGeoBlend -> MethodBoth
@@ -18108,6 +18246,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             MethodCostPick -> runDualPredictorBacktest
             MethodHarmonicBlend -> runDualPredictorBacktest
             MethodDisagreementGuard -> runDualPredictorBacktest
+            MethodMedianBlend -> runDualPredictorBacktest
+            MethodNeutralGuard -> runDualPredictorBacktest
             MethodEdgeBlend -> runDualPredictorBacktest
             MethodEdgePick -> runDualPredictorBacktest
             MethodGeoBlend -> runDualPredictorBacktest
@@ -18330,6 +18470,16 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
              in V.toList (disagreementGuardPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+        medianBlendPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (medianBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+        neutralGuardPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (neutralGuardPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         geoBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -18428,6 +18578,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     (harmonicBlendPredBacktest, harmonicBlendPredBacktest, metaBacktest, Nothing)
                 MethodDisagreementGuard ->
                     (disagreementGuardPredBacktest, disagreementGuardPredBacktest, metaBacktest, Nothing)
+                MethodMedianBlend ->
+                    (medianBlendPredBacktest, medianBlendPredBacktest, metaBacktest, Nothing)
+                MethodNeutralGuard ->
+                    (neutralGuardPredBacktest, neutralGuardPredBacktest, metaBacktest, Nothing)
                 MethodEdgeBlend ->
                     (edgeBlendPredBacktest, edgeBlendPredBacktest, metaBacktest, Nothing)
                 MethodEdgePick ->
@@ -19178,6 +19332,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method disagreement_guard requires both Kalman and LSTM contexts."
+            MethodMedianBlend ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method median_blend requires both Kalman and LSTM contexts."
+            MethodNeutralGuard ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method neutral_guard requires both Kalman and LSTM contexts."
             MethodEdgeBlend ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -19215,6 +19377,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             MethodCostPick -> True
             MethodHarmonicBlend -> True
             MethodDisagreementGuard -> True
+            MethodMedianBlend -> True
+            MethodNeutralGuard -> True
             MethodEdgeBlend -> True
             MethodEdgePick -> True
             MethodGeoBlend -> True
@@ -19751,6 +19915,28 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 l
                             )
                     _ -> Nothing
+            medianBlendNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        Just
+                            ( medianBlendPredFromPreds
+                                blendWeight
+                                currentPrice
+                                k
+                                l
+                            )
+                    _ -> Nothing
+            neutralGuardNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        Just
+                            ( neutralGuardPredFromPreds
+                                blendWeight
+                                currentPrice
+                                k
+                                l
+                            )
+                    _ -> Nothing
             edgeBlendNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
@@ -19878,6 +20064,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodCostPick -> costPickNext
                     MethodHarmonicBlend -> harmonicBlendNext
                     MethodDisagreementGuard -> disagreementGuardNext
+                    MethodMedianBlend -> medianBlendNext
+                    MethodNeutralGuard -> neutralGuardNext
                     MethodEdgeBlend -> edgeBlendNext
                     MethodEdgePick -> edgePickNext
                     MethodGeoBlend -> geoBlendNext
@@ -19900,6 +20088,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             edgeCostPick = costPickNext >>= edgeFromPred
             edgeHarmonicBlend = harmonicBlendNext >>= edgeFromPred
             edgeDisagreementGuard = disagreementGuardNext >>= edgeFromPred
+            edgeMedianBlend = medianBlendNext >>= edgeFromPred
+            edgeNeutralGuard = neutralGuardNext >>= edgeFromPred
             edgeEdgeBlend = edgeBlendNext >>= edgeFromPred
             edgeEdgePick = edgePickNext >>= edgeFromPred
             edgeGeoBlend = geoBlendNext >>= edgeFromPred
@@ -19919,6 +20109,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodCostPick -> edgeCostPick
                     MethodHarmonicBlend -> edgeHarmonicBlend
                     MethodDisagreementGuard -> edgeDisagreementGuard
+                    MethodMedianBlend -> edgeMedianBlend
+                    MethodNeutralGuard -> edgeNeutralGuard
                     MethodEdgeBlend -> edgeEdgeBlend
                     MethodEdgePick -> edgeEdgePick
                     MethodGeoBlend -> edgeGeoBlend
@@ -19962,6 +20154,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             harmonicBlendCloseDir = harmonicBlendNext >>= directionPrice closeThrAdj
             disagreementGuardDir = disagreementGuardNext >>= directionPrice openThrAdj
             disagreementGuardCloseDir = disagreementGuardNext >>= directionPrice closeThrAdj
+            medianBlendDir = medianBlendNext >>= directionPrice openThrAdj
+            medianBlendCloseDir = medianBlendNext >>= directionPrice closeThrAdj
+            neutralGuardDir = neutralGuardNext >>= directionPrice openThrAdj
+            neutralGuardCloseDir = neutralGuardNext >>= directionPrice closeThrAdj
             edgeBlendDir = edgeBlendNext >>= directionPrice openThrAdj
             edgeBlendCloseDir = edgeBlendNext >>= directionPrice closeThrAdj
             edgePickDir = edgePickNext >>= directionPrice openThrAdj
@@ -20076,6 +20272,44 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore disagreementGuardDir
                             (closeDirUsed, _) =
                                 gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore disagreementGuardCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
+            (medianBlendDirGated, medianBlendCloseDirGated, medianBlendPosSize, medianBlendGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodMedianBlend, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing medianBlendDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore medianBlendDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore medianBlendCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
+            (neutralGuardDirGated, neutralGuardCloseDirGated, neutralGuardPosSize, neutralGuardGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodNeutralGuard, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing neutralGuardDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore neutralGuardDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore neutralGuardCloseDir
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -20207,6 +20441,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodCostPick -> costPickCloseDirGated
                     MethodHarmonicBlend -> harmonicBlendCloseDirGated
                     MethodDisagreementGuard -> disagreementGuardCloseDirGated
+                    MethodMedianBlend -> medianBlendCloseDirGated
+                    MethodNeutralGuard -> neutralGuardCloseDirGated
                     MethodEdgeBlend -> edgeBlendCloseDirGated
                     MethodEdgePick -> edgePickCloseDirGated
                     MethodGeoBlend -> geoBlendCloseDirGated
@@ -20229,6 +20465,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodCostPick -> costPickDirGated
                     MethodHarmonicBlend -> harmonicBlendDirGated
                     MethodDisagreementGuard -> disagreementGuardDirGated
+                    MethodMedianBlend -> medianBlendDirGated
+                    MethodNeutralGuard -> neutralGuardDirGated
                     MethodEdgeBlend -> edgeBlendDirGated
                     MethodEdgePick -> edgePickDirGated
                     MethodGeoBlend -> geoBlendDirGated
@@ -20382,6 +20620,22 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (disagreement_guard neutral)"
+                        MethodMedianBlend ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (median_blend neutral)"
+                        MethodNeutralGuard ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (neutral_guard neutral)"
                         MethodEdgeBlend ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -20439,6 +20693,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodCostPick -> costPickPosSize
                     MethodHarmonicBlend -> harmonicBlendPosSize
                     MethodDisagreementGuard -> disagreementGuardPosSize
+                    MethodMedianBlend -> medianBlendPosSize
+                    MethodNeutralGuard -> neutralGuardPosSize
                     MethodEdgeBlend -> edgeBlendPosSize
                     MethodEdgePick -> edgePickPosSize
                     MethodGeoBlend -> geoBlendPosSize
@@ -20454,6 +20710,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodCostPick -> costPickGateReason
                     MethodHarmonicBlend -> harmonicBlendGateReason
                     MethodDisagreementGuard -> disagreementGuardGateReason
+                    MethodMedianBlend -> medianBlendGateReason
+                    MethodNeutralGuard -> neutralGuardGateReason
                     MethodEdgeBlend -> edgeBlendGateReason
                     MethodEdgePick -> edgePickGateReason
                     MethodGeoBlend -> geoBlendGateReason
@@ -21129,6 +21387,8 @@ printMetrics method m = do
                 MethodCostPick -> "Signal rate (Cost pick)"
                 MethodHarmonicBlend -> "Signal rate (Harmonic blend)"
                 MethodDisagreementGuard -> "Signal rate (Disagreement guard)"
+                MethodMedianBlend -> "Signal rate (Median blend)"
+                MethodNeutralGuard -> "Signal rate (Neutral guard)"
                 MethodEdgeBlend -> "Signal rate (Edge blend)"
                 MethodEdgePick -> "Signal rate (Edge pick)"
                 MethodGeoBlend -> "Signal rate (Geo blend)"

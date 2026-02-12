@@ -422,6 +422,10 @@ export function methodLabel(method: Method): string {
       return "Harmonic blend (return harmonic mean)";
     case "disagreement_guard":
       return "Disagreement guard (lower-edge on conflict)";
+    case "median_blend":
+      return "Median blend (robust middle return)";
+    case "neutral_guard":
+      return "Neutral guard (flat on conflict)";
     case "edge_blend":
       return "Edge blend (edge-weighted)";
     case "edge_pick":

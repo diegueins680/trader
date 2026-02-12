@@ -734,6 +734,8 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightCostPick :: !Double
     , oaMethodWeightHarmonicBlend :: !Double
     , oaMethodWeightDisagreementGuard :: !Double
+    , oaMethodWeightMedianBlend :: !Double
+    , oaMethodWeightNeutralGuard :: !Double
     , oaMethodWeightEdgeBlend :: !Double
     , oaMethodWeightEdgePick :: !Double
     , oaMethodWeightGeoBlend :: !Double
@@ -1705,7 +1707,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
+    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -1749,6 +1751,8 @@ sampleParams
                 , ("cost_pick", methodWCostPick)
                 , ("harmonic_blend", methodWHarmonicBlend)
                 , ("disagreement_guard", methodWDisagreementGuard)
+                , ("median_blend", methodWMedianBlend)
+                , ("neutral_guard", methodWNeutralGuard)
                 , ("edge_blend", methodWEdgeBlend)
                 , ("edge_pick", methodWEdgePick)
                 , ("geo_blend", methodWGeoBlend)
@@ -2568,6 +2572,8 @@ runOptimizer args0 = do
                                                             , oaMethodWeightCostPick args
                                                             , oaMethodWeightHarmonicBlend args
                                                             , oaMethodWeightDisagreementGuard args
+                                                            , oaMethodWeightMedianBlend args
+                                                            , oaMethodWeightNeutralGuard args
                                                             , oaMethodWeightEdgeBlend args
                                                             , oaMethodWeightEdgePick args
                                                             , oaMethodWeightGeoBlend args

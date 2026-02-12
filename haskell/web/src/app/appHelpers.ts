@@ -234,6 +234,8 @@ export const COMPLEX_TIPS = {
     "cost_pick selects Kalman or LSTM per bar using post-cost edge (net of round-trip costs).",
     "harmonic_blend mixes Kalman/LSTM predictions using a harmonic mean in return space (more conservative on outliers).",
     "disagreement_guard picks higher-edge model when Kalman/LSTM agree, but lower-edge model when they disagree.",
+    "median_blend uses the median of Kalman/LSTM/blend return ratios to damp outlier predictions.",
+    "neutral_guard goes neutral when Kalman/LSTM directions conflict, and otherwise follows the more conservative edge.",
     "edge_blend adapts Kalman vs LSTM weights from each model's instantaneous edge magnitude.",
     "edge_pick selects Kalman or LSTM per bar using the larger absolute edge.",
     "geo_blend mixes Kalman/LSTM returns in log-space for a multiplicative geometric blend.",
@@ -251,7 +253,7 @@ export const COMPLEX_TIPS = {
   ],
   snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
   blend: [
-    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/edge_blend/edge_pick/geo_blend/regime_switch.",
+    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/edge_blend/edge_pick/geo_blend/regime_switch.",
   ],
   router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
   split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
@@ -1395,6 +1397,8 @@ export type OptimizerRunForm = {
   methodWeightCostPick: string;
   methodWeightHarmonicBlend: string;
   methodWeightDisagreementGuard: string;
+  methodWeightMedianBlend: string;
+  methodWeightNeutralGuard: string;
   methodWeightEdgeBlend: string;
   methodWeightEdgePick: string;
   methodWeightGeoBlend: string;
@@ -1543,6 +1547,8 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     methodWeightCostPick: "",
     methodWeightHarmonicBlend: "",
     methodWeightDisagreementGuard: "",
+    methodWeightMedianBlend: "",
+    methodWeightNeutralGuard: "",
     methodWeightEdgeBlend: "",
     methodWeightEdgePick: "",
     methodWeightGeoBlend: "",
@@ -1759,6 +1765,10 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (methodWeightHarmonicBlend != null) req.methodWeightHarmonicBlend = methodWeightHarmonicBlend;
   const methodWeightDisagreementGuard = parseOptionalNumber(form.methodWeightDisagreementGuard);
   if (methodWeightDisagreementGuard != null) req.methodWeightDisagreementGuard = methodWeightDisagreementGuard;
+  const methodWeightMedianBlend = parseOptionalNumber(form.methodWeightMedianBlend);
+  if (methodWeightMedianBlend != null) req.methodWeightMedianBlend = methodWeightMedianBlend;
+  const methodWeightNeutralGuard = parseOptionalNumber(form.methodWeightNeutralGuard);
+  if (methodWeightNeutralGuard != null) req.methodWeightNeutralGuard = methodWeightNeutralGuard;
   const methodWeightEdgeBlend = parseOptionalNumber(form.methodWeightEdgeBlend);
   if (methodWeightEdgeBlend != null) req.methodWeightEdgeBlend = methodWeightEdgeBlend;
   const methodWeightEdgePick = parseOptionalNumber(form.methodWeightEdgePick);
