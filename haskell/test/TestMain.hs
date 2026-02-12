@@ -79,6 +79,7 @@ main = do
             , run "cooldown blocks re-entry" testCooldownBars
             , run "entry block holds position (no-trade window)" testEntryBlockNoTradeWindow
             , run "entry block holds position (max trades)" testEntryBlockMaxTradesPerDay
+            , run "weekly loss resets on UTC calendar week boundary" testWeeklyLossResetsOnUtcWeekBoundary
             , run "flip fees apply per side" testFlipFeesPerSide
             , run "long-short down move" testLongShortDownMove
             , run "liquidation clamps equity" testLiquidationClamp
@@ -492,6 +493,37 @@ testEntryBlockMaxTradesPerDay = do
             assert "trade limit holds position" (p1 > 0)
             assert "trade limit holds position" (p2 > 0)
         _ -> error "expected 3 position entries"
+
+testWeeklyLossResetsOnUtcWeekBoundary :: IO ()
+testWeeklyLossResetsOnUtcWeekBoundary = do
+    let prices = replicate 5 100
+        lookback = 1
+        preds = [110, 90, 110, 90] -- enter/exit, then enter/exit again after UTC week rollover
+        dayMs :: Int64
+        dayMs = 86400000
+        minMs :: Int64
+        minMs = 60000
+        sunday2358 = 3 * dayMs + (23 * 60 + 58) * minMs
+        sunday2359 = 3 * dayMs + (23 * 60 + 59) * minMs
+        monday0000 = 4 * dayMs
+        monday0001 = 4 * dayMs + minMs
+        monday0002 = 4 * dayMs + 2 * minMs
+        openTimes :: V.Vector Int64
+        openTimes = V.fromList [sunday2358, sunday2359, monday0000, monday0001, monday0002]
+        cfg =
+            baseEnsembleConfig
+                { ecFee = 0.03
+                , ecMaxWeeklyLoss = Just 0.05
+                , ecOpenTimes = Just openTimes
+                }
+        bt = requireRight "simulateEnsemble weekly-reset" (simulateEnsemble cfg lookback prices preds preds Nothing)
+    case brPositions bt of
+        [p0, p1, p2, p3] -> do
+            assert "entered before week boundary" (p0 > 0)
+            assert "exited after first reversal" (p1 == 0)
+            assert "weekly loss gate resets at UTC Monday boundary and allows re-entry" (p2 > 0)
+            assert "second reversal exits again" (p3 == 0)
+        _ -> error "expected 4 position entries"
 
 testFlipFeesPerSide :: IO ()
 testFlipFeesPerSide = do

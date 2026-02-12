@@ -8,14 +8,17 @@ export function normalizeApiBaseUrlInput(raw: string): string {
   if (v.startsWith("/") || /^https?:\/\//i.test(v)) return v;
   if (v.includes("://")) return v;
 
-  const looksLikeHost = v === "localhost" || v.startsWith("localhost:") || v.includes(".") || v.includes(":");
-  if (!looksLikeHost) return `/${v}`;
-
   const slashIdx = v.indexOf("/");
   const authority = slashIdx === -1 ? v : v.slice(0, slashIdx);
   const rest = slashIdx === -1 ? "" : v.slice(slashIdx);
-
   const lowerAuthority = authority.toLowerCase();
+  const looksLikeHost =
+    lowerAuthority === "localhost" ||
+    lowerAuthority.startsWith("localhost:") ||
+    authority.includes(".") ||
+    authority.includes(":");
+  if (!looksLikeHost) return `/${v}`;
+
   const isLocal =
     lowerAuthority === "localhost" ||
     lowerAuthority.startsWith("localhost:") ||
@@ -229,6 +232,8 @@ export function numFromInput(raw: string, fallback: number): number {
   const normalized = (() => {
     if (!trimmed.includes(",")) return trimmed;
     if (trimmed.includes(".")) return trimmed.replace(/,/g, "");
+    // Treat clear thousands grouping only when there are at least two comma groups.
+    if (/^[-+]?\d{1,3}(,\d{3}){2,}$/.test(trimmed)) return trimmed.replace(/,/g, "");
     const parts = trimmed.split(",");
     if (parts.length === 2) {
       const left = parts[0] ?? "";
@@ -236,7 +241,9 @@ export function numFromInput(raw: string, fallback: number): number {
       const leftDigits = left.replace(/\D/g, "");
       const rightDigits = right.replace(/\D/g, "");
       if (leftDigits === "0") return `${left}.${right}`;
-      if (rightDigits.length === 3) return `${left}${right}`;
+      // Single-comma values like "1,234" are ambiguous across locales.
+      // Keep raw input so Number(...) fails and the caller's fallback is used.
+      if (rightDigits.length === 3 && leftDigits.length > 0) return trimmed;
       return `${left}.${right}`;
     }
     return trimmed.replace(/,/g, "");
@@ -295,7 +302,7 @@ export function buildRequestIssueDetails(input: RequestIssueDetailsInput): Reque
 }
 
 export function isLocalHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0" || hostname === "::1" || hostname === "[::1]";
 }
 
 export function fmtTimeMs(ms: number): string {

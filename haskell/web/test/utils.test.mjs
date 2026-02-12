@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildOrphanedPositions, buildRequestIssueDetails, isLocalHostname, normalizeApiBaseUrlInput } from "../.tmp/web-tests/utils.js";
+import { buildOrphanedPositions, buildRequestIssueDetails, isLocalHostname, normalizeApiBaseUrlInput, numFromInput } from "../.tmp/web-tests/utils.js";
 import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
 
 test("buildRequestIssueDetails returns empty when clean", () => {
@@ -104,8 +104,21 @@ test("normalizeApiBaseUrlInput supports bare loopback IPv6 with port", () => {
   assert.equal(normalizeApiBaseUrlInput("[::1]:8080"), "http://[::1]:8080");
 });
 
+test("normalizeApiBaseUrlInput supports localhost host+path without explicit scheme", () => {
+  assert.equal(normalizeApiBaseUrlInput("localhost/api"), "http://localhost/api");
+});
+
 test("isLocalHostname accepts bracketed IPv6 loopback", () => {
   assert.equal(isLocalHostname("[::1]"), true);
+});
+
+test("isLocalHostname accepts 0.0.0.0", () => {
+  assert.equal(isLocalHostname("0.0.0.0"), true);
+});
+
+test("numFromInput uses fallback for ambiguous single-comma thousand-like values", () => {
+  assert.equal(numFromInput("1,234", 99), 99);
+  assert.equal(numFromInput("1,234,567", 0), 1234567);
 });
 
 test("normalizeFormState restores default minPositionSize for invalid input", () => {

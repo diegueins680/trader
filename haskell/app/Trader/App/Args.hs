@@ -335,7 +335,7 @@ opts = do
                 <> metavar "N|auto"
                 <> value Nothing
                 <> showDefaultWith (maybe "auto" show)
-                <> help "Number of bars/klines to use (auto/0=all CSV, exchange default=500; Binance supports 2..1000)"
+                <> help "Number of bars/klines to use (auto/0=all CSV, exchange default depends on platform: Binance=500, Coinbase=300; Binance supports 2..1000)"
             )
     argLookbackWindow <- strOption (long "lookback-window" <> value "7d" <> help "Lookback window duration (e.g., 90m, 24h, 7d)")
     argLookbackBars <- optional (option auto (long "lookback-bars" <> long "lookback" <> help "Override lookback bars (disables --lookback-window conversion)"))

@@ -727,8 +727,11 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                             case openTimesV of
                                 Just tsV
                                     | i >= 0 && i < V.length tsV ->
-                                        let weekMs = 7 * 86400000 :: Int64
-                                         in fromIntegral ((tsV V.! i) `div` weekMs)
+                                        let dayMs = 86400000 :: Int64
+                                            dayKey = (tsV V.! i) `div` dayMs
+                                            -- Monday-aligned UTC week buckets (epoch day 0 = Thursday).
+                                            mondayWeekKey = (dayKey + 3) `div` 7
+                                         in fromIntegral mondayWeekKey
                                 _ -> 0
                         minuteOfDayAt :: Int -> Int
                         minuteOfDayAt i =
