@@ -527,14 +527,11 @@ type TradeLot = {
   qty: number;
   ip: string | null;
   openedAtMs: number | null;
-  tradeKey: string | null;
 };
 
 type ConsumedTradeLot = {
   ip: string | null;
   openedAtMs: number | null;
-  tradeKey: string | null;
-  fullyClosed: boolean;
 };
 
 const BINANCE_TRADE_IP_EPS = 1e-12;
@@ -558,17 +555,10 @@ function normalizeTradeTime(raw: unknown): number | null {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
-function pushLot(
-  store: Map<string, TradeLot[]>,
-  key: string,
-  qty: number,
-  ip: string | null,
-  openedAtMs: number | null,
-  tradeKey: string | null,
-): void {
+function pushLot(store: Map<string, TradeLot[]>, key: string, qty: number, ip: string | null, openedAtMs: number | null): void {
   if (!Number.isFinite(qty) || qty <= BINANCE_TRADE_IP_EPS) return;
   const lots = store.get(key) ?? [];
-  lots.push({ qty, ip, openedAtMs, tradeKey });
+  lots.push({ qty, ip, openedAtMs });
   store.set(key, lots);
 }
 
@@ -587,10 +577,9 @@ function consumeLots(store: Map<string, TradeLot[]>, key: string, qty: number): 
     const take = Math.min(lot.qty, remaining);
     remaining -= take;
     const leftover = lot.qty - take;
-    const fullyClosed = leftover <= BINANCE_TRADE_IP_EPS;
-    consumed.push({ ip: lot.ip, openedAtMs: lot.openedAtMs, tradeKey: lot.tradeKey, fullyClosed });
+    consumed.push({ ip: lot.ip, openedAtMs: lot.openedAtMs });
     if (leftover > BINANCE_TRADE_IP_EPS) {
-      nextLots.push({ ...lot, qty: leftover });
+      nextLots.push({ qty: leftover, ip: lot.ip, openedAtMs: lot.openedAtMs });
     }
   }
   if (nextLots.length > 0) {
@@ -618,24 +607,6 @@ function consumedOpenTime(consumed: ConsumedTradeLot[]): number | null {
     out = out === null ? t : Math.min(out, t);
   }
   return out;
-}
-
-function applyExitToConsumedLots(
-  meta: Map<string, BinanceTradeIpMeta>,
-  consumed: ConsumedTradeLot[],
-  exitIp: string | null,
-  exitTime: number | null,
-): void {
-  if (!exitIp && exitTime == null) return;
-  for (const item of consumed) {
-    if (!item.fullyClosed) continue;
-    const tradeKey = item.tradeKey;
-    if (!tradeKey) continue;
-    const existing = meta.get(tradeKey);
-    if (!existing) continue;
-    if (existing.exitIp || existing.exitTime != null) continue;
-    meta.set(tradeKey, { ...existing, exitIp: exitIp ?? existing.exitIp, exitTime: exitTime ?? existing.exitTime });
-  }
 }
 
 export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, BinanceTradeIpMeta> {
@@ -674,7 +645,7 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
     if (posSide === "LONG") {
       const lotKey = `${symbolKey}::LONG`;
       if (side === "BUY") {
-        pushLot(longLots, lotKey, qty, orderIp, tradeTime, key);
+        pushLot(longLots, lotKey, qty, orderIp, tradeTime);
         entryIp = orderIp;
         entryTime = tradeTime;
       } else if (side === "SELL") {
@@ -683,12 +654,11 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
         exitIp = orderIp;
         entryTime = consumedOpenTime(consumed);
         exitTime = tradeTime;
-        applyExitToConsumedLots(meta, consumed, orderIp, tradeTime);
       }
     } else if (posSide === "SHORT") {
       const lotKey = `${symbolKey}::SHORT`;
       if (side === "SELL") {
-        pushLot(shortLots, lotKey, qty, orderIp, tradeTime, key);
+        pushLot(shortLots, lotKey, qty, orderIp, tradeTime);
         entryIp = orderIp;
         entryTime = tradeTime;
       } else if (side === "BUY") {
@@ -697,7 +667,6 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
         exitIp = orderIp;
         entryTime = consumedOpenTime(consumed);
         exitTime = tradeTime;
-        applyExitToConsumedLots(meta, consumed, orderIp, tradeTime);
       }
     } else {
       const netKey = `${symbolKey}::BOTH`;
@@ -707,7 +676,7 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
 
       if (side === "BUY") {
         if (net >= 0) {
-          pushLot(longLots, longKey, qty, orderIp, tradeTime, key);
+          pushLot(longLots, longKey, qty, orderIp, tradeTime);
           entryIp = orderIp;
           entryTime = tradeTime;
         } else {
@@ -718,11 +687,10 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
             exitIp = orderIp;
             entryTime = consumedOpenTime(consumed);
             exitTime = tradeTime;
-            applyExitToConsumedLots(meta, consumed, orderIp, tradeTime);
           }
           const openQty = qty - closeQty;
           if (openQty > BINANCE_TRADE_IP_EPS) {
-            pushLot(longLots, longKey, openQty, orderIp, tradeTime, key);
+            pushLot(longLots, longKey, openQty, orderIp, tradeTime);
             if (!entryIp && entryTime == null) {
               entryIp = orderIp;
               entryTime = tradeTime;
@@ -732,7 +700,7 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
         netPos.set(netKey, net + qty);
       } else {
         if (net <= 0) {
-          pushLot(shortLots, shortKey, qty, orderIp, tradeTime, key);
+          pushLot(shortLots, shortKey, qty, orderIp, tradeTime);
           entryIp = orderIp;
           entryTime = tradeTime;
         } else {
@@ -743,11 +711,10 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
             exitIp = orderIp;
             entryTime = consumedOpenTime(consumed);
             exitTime = tradeTime;
-            applyExitToConsumedLots(meta, consumed, orderIp, tradeTime);
           }
           const openQty = qty - closeQty;
           if (openQty > BINANCE_TRADE_IP_EPS) {
-            pushLot(shortLots, shortKey, openQty, orderIp, tradeTime, key);
+            pushLot(shortLots, shortKey, openQty, orderIp, tradeTime);
             if (!entryIp && entryTime == null) {
               entryIp = orderIp;
               entryTime = tradeTime;
