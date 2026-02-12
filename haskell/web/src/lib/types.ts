@@ -380,6 +380,7 @@ export type Trade = {
   exitEquity: number;
   return: number;
   holdingPeriods: number;
+  entryHighVolProb?: number | null;
   exitReason?: string | null;
   entryIp?: string | null;
   exitIp?: string | null;

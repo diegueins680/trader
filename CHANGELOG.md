@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - Trading: fix `--method blend` so entry direction uses the same Kalman confidence/risk gating path as close direction.
 - Trading: weekly loss gating now uses UTC calendar weeks (Monday 00:00 boundaries) instead of epoch-aligned 7-day buckets.
 - Trading: adaptive filter tightening now ramps in slightly above the hard performance thresholds; perf-gated direction flips exit to flat instead of holding the prior side.
+- Trading: performance gates now prefer a same-regime (high-vol vs not) rolling lookback when HMM regimes are available (fallback to global), and trades include `entryHighVolProb` in JSON outputs for analysis.
 - Web UI: normalize bare `localhost/path` API base inputs to `http://localhost/path`, treat `0.0.0.0` as local, and avoid silently coercing ambiguous single-comma numeric inputs (for example `1,234`) by falling back to the previous value.
 - Web UI: default Binance trade toggles (`binanceLive`, `tradeArmed`) to false and normalize them by platform/market (avoid implicitly enabling live mode).
 - CLI/docs: clarify `--bars auto` exchange defaults (Coinbase uses 300; Binance/Kraken/Poloniex use 500).

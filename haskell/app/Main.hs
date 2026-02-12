@@ -3916,6 +3916,7 @@ botOpenTradeJson trade =
         [ "entryIndex" .= botOpenEntryIndex trade
         , "entryEquity" .= botOpenEntryEquity trade
         , "entryIp" .= botOpenEntryIp trade
+        , "entryHighVolProb" .= botOpenEntryHighVolProb trade
         , "entryPrice" .= botOpenEntryPrice trade
         , "trail" .= botOpenTrail trade
         , "size" .= botOpenSize trade
@@ -4128,6 +4129,7 @@ data BotOpenTrade = BotOpenTrade
     { botOpenEntryIndex :: !Int
     , botOpenEntryEquity :: !Double
     , botOpenEntryIp :: !(Maybe Text)
+    , botOpenEntryHighVolProb :: !(Maybe Double)
     , botOpenHoldingPeriods :: !Int
     , botOpenEntryPrice :: !Double
     , botOpenSize :: !Double
@@ -4257,6 +4259,81 @@ computeBotPerfStats lookback trades =
             , bpsProfitFactor = profitFactor
             , bpsExpectancy = expectancy
             }
+
+highVolCutoff :: Double
+highVolCutoff = 0.6
+
+botCurrentHighVolFlag :: LatestSignal -> Maybe Bool
+botCurrentHighVolFlag sig =
+    case lsRegimes sig of
+        Nothing -> Nothing
+        Just r -> Just (rpHighVol r >= highVolCutoff)
+
+tradeEntryHighVolFlag :: Trade -> Maybe Bool
+tradeEntryHighVolFlag tr =
+    case trEntryHighVolProb tr of
+        Nothing -> Nothing
+        Just hv -> Just (hv >= highVolCutoff)
+
+computeBotPerfStatsFiltered :: Int -> (Trade -> Bool) -> [Trade] -> BotPerfStats
+computeBotPerfStatsFiltered lookback keep trades =
+    let lb = max 0 lookback
+        recent = if lb <= 0 then [] else take lb (filter keep (reverse trades))
+        bad x = isNaN x || isInfinite x
+        returns = [trReturn t | t <- recent, not (bad (trReturn t))]
+        wins = length [r | r <- returns, r > 0]
+        losses = length [r | r <- returns, r < 0]
+        winRate =
+            if wins + losses == 0
+                then 0
+                else fromIntegral wins / fromIntegral (wins + losses)
+        grossWin = sum [r | r <- returns, r > 0]
+        grossLoss = abs (sum [r | r <- returns, r < 0])
+        profitFactor
+            | grossLoss > 0 = Just (grossWin / grossLoss)
+            | grossWin > 0 = Nothing
+            | otherwise = Just 0
+        expectancy =
+            if null returns
+                then 0
+                else sum returns / fromIntegral (length returns)
+     in BotPerfStats
+            { bpsLookback = lb
+            , bpsTrades = length recent
+            , bpsWins = wins
+            , bpsLosses = losses
+            , bpsWinRate = winRate
+            , bpsProfitFactor = profitFactor
+            , bpsExpectancy = expectancy
+            }
+
+data PerfGateMode
+    = PerfGateGlobal
+    | PerfGateRegimeHighVol
+    | PerfGateRegimeLowVol
+    deriving (Eq, Show)
+
+perfGateModeLabel :: PerfGateMode -> String
+perfGateModeLabel mode =
+    case mode of
+        PerfGateGlobal -> "GLOBAL"
+        PerfGateRegimeHighVol -> "REGIME_HIGH_VOL"
+        PerfGateRegimeLowVol -> "REGIME_LOW_VOL"
+
+selectPerfStatsForPerfGate :: Args -> LatestSignal -> BotPerfStats -> [Trade] -> (BotPerfStats, PerfGateMode)
+selectPerfStatsForPerfGate args sig statsAll trades =
+    let lb = max 0 (argPerfLookback args)
+        mHighVolNow = botCurrentHighVolFlag sig
+     in case mHighVolNow of
+            Nothing -> (statsAll, PerfGateGlobal)
+            Just wantHigh ->
+                let statsRegime = computeBotPerfStatsFiltered lb (\tr -> tradeEntryHighVolFlag tr == Just wantHigh) trades
+                    ready = lb > 0 && bpsTrades statsRegime >= lb
+                    mode =
+                        if wantHigh
+                            then PerfGateRegimeHighVol
+                            else PerfGateRegimeLowVol
+                 in if ready then (statsRegime, mode) else (statsAll, PerfGateGlobal)
 
 perfGateReason :: Args -> BotPerfStats -> Maybe String
 perfGateReason args stats =
@@ -4401,18 +4478,32 @@ botStatusJson st =
 
         argsBase = botArgs st
         argsAdjusted = applyBotAdjustments (botAdjustments st) argsBase
-        perf = botPerfStats st
+        perfAll = botPerfStats st
+        (perfGate, perfMode) =
+            selectPerfStatsForPerfGate argsBase (botLatestSignal st) perfAll (botTrades st)
         perfJson =
             object
-                [ "lookback" .= bpsLookback perf
-                , "trades" .= bpsTrades perf
-                , "wins" .= bpsWins perf
-                , "losses" .= bpsLosses perf
-                , "winRate" .= bpsWinRate perf
-                , "profitFactor" .= bpsProfitFactor perf
-                , "expectancy" .= bpsExpectancy perf
+                [ "mode" .= perfGateModeLabel perfMode
+                , "lookback" .= bpsLookback perfGate
+                , "trades" .= bpsTrades perfGate
+                , "wins" .= bpsWins perfGate
+                , "losses" .= bpsLosses perfGate
+                , "winRate" .= bpsWinRate perfGate
+                , "profitFactor" .= bpsProfitFactor perfGate
+                , "expectancy" .= bpsExpectancy perfGate
                 , "lossStreak" .= botLossStreak st
-                , "gateReason" .= perfGateReason argsBase perf
+                , "gateReason" .= perfGateReason argsBase perfGate
+                , "all"
+                    .= object
+                        [ "lookback" .= bpsLookback perfAll
+                        , "trades" .= bpsTrades perfAll
+                        , "wins" .= bpsWins perfAll
+                        , "losses" .= bpsLosses perfAll
+                        , "winRate" .= bpsWinRate perfAll
+                        , "profitFactor" .= bpsProfitFactor perfAll
+                        , "expectancy" .= bpsExpectancy perfAll
+                        , "gateReason" .= perfGateReason argsBase perfAll
+                        ]
                 ]
         adj = botAdjustments st
         adaptiveJson =
@@ -6238,11 +6329,37 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 1 ->
                     let px = V.last pricesV
                         openSize = if desiredPos == startPos0 then startSize else entrySize
-                     in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) originIp 0 px openSize px SideLong False)
+                        entryHv = rpHighVol <$> lsRegimes latest
+                     in Just
+                            BotOpenTrade
+                                { botOpenEntryIndex = n - 1
+                                , botOpenEntryEquity = eq1 V.! (n - 1)
+                                , botOpenEntryIp = originIp
+                                , botOpenEntryHighVolProb = entryHv
+                                , botOpenHoldingPeriods = 0
+                                , botOpenEntryPrice = px
+                                , botOpenSize = openSize
+                                , botOpenTrail = px
+                                , botOpenSide = SideLong
+                                , botOpenPartialTaken = False
+                                }
                 (-1) ->
                     let px = V.last pricesV
                         openSize = if desiredPos == startPos0 then startSize else entrySize
-                     in Just (BotOpenTrade (n - 1) (eq1 V.! (n - 1)) originIp 0 px openSize px SideShort False)
+                        entryHv = rpHighVol <$> lsRegimes latest
+                     in Just
+                            BotOpenTrade
+                                { botOpenEntryIndex = n - 1
+                                , botOpenEntryEquity = eq1 V.! (n - 1)
+                                , botOpenEntryIp = originIp
+                                , botOpenEntryHighVolProb = entryHv
+                                , botOpenHoldingPeriods = 0
+                                , botOpenEntryPrice = px
+                                , botOpenSize = openSize
+                                , botOpenTrail = px
+                                , botOpenSide = SideShort
+                                , botOpenPartialTaken = False
+                                }
                 _ -> Nothing
         ops =
             ([BotOp (n - 1) opSide (V.last pricesV) | wantSwitch && appliedSwitch])
@@ -8413,7 +8530,9 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
             case argMaxTradesPerDay args of
                 Just lim | lim > 0 -> dayTrades1 >= lim
                 _ -> False
-        perfGateReasonMaybe = perfGateReason args (botPerfStats st)
+        (perfStatsForGate, _perfMode) =
+            selectPerfStatsForPerfGate args latest0Raw (botPerfStats st) (botTrades st)
+        perfGateReasonMaybe = perfGateReason args perfStatsForGate
         entryAttempt = desiredPosWanted2 /= 0 && desiredPosWanted2 /= prevPos
         entryAttemptFromFlat = prevPos == 0 && desiredPosWanted2 /= 0
         entryBlockReason
@@ -8622,6 +8741,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                     { botOpenEntryIndex = nPrev
                                     , botOpenEntryEquity = eqEntry
                                     , botOpenEntryIp = botTradeOriginIp st
+                                    , botOpenEntryHighVolProb = rpHighVol <$> lsRegimes latestFinal
                                     , botOpenHoldingPeriods = 0
                                     , botOpenEntryPrice = priceNew
                                     , botOpenSize = entrySize
@@ -8637,6 +8757,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                     , trExitEquity = exitEq
                                     , trReturn = exitEq / botOpenEntryEquity ot - 1
                                     , trHoldingPeriods = botOpenHoldingPeriods ot
+                                    , trEntryHighVolProb = botOpenEntryHighVolProb ot
                                     , trExitReason = exitReasonFromCode <$> mExitReason
                                     , trEntryIp = botOpenEntryIp ot
                                     , trExitIp = botTradeOriginIp st
@@ -18604,6 +18725,7 @@ tradeToJson tr =
         , "exitEquity" .= trExitEquity tr
         , "return" .= trReturn tr
         , "holdingPeriods" .= trHoldingPeriods tr
+        , "entryHighVolProb" .= trEntryHighVolProb tr
         , "exitReason" .= trExitReason tr
         , "entryIp" .= trEntryIp tr
         , "exitIp" .= trExitIp tr
@@ -20135,6 +20257,7 @@ baselineSimLongFlat perSideCost prices wantLong =
                 , trExitEquity = eqExit
                 , trReturn = if entryEquity == 0 then 0 else eqExit / entryEquity - 1
                 , trHoldingPeriods = holdingPeriods
+                , trEntryHighVolProb = Nothing
                 , trExitReason = Nothing
                 , trEntryIp = Nothing
                 , trExitIp = Nothing

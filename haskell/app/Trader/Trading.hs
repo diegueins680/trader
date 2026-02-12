@@ -236,6 +236,7 @@ data Trade = Trade
     , trExitEquity :: !Double
     , trReturn :: !Double
     , trHoldingPeriods :: !Int
+    , trEntryHighVolProb :: !(Maybe Double)
     , trExitReason :: !(Maybe ExitReason)
     , trEntryIp :: !(Maybe T.Text)
     , trExitIp :: !(Maybe T.Text)
@@ -1476,41 +1477,83 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                         nextClose = pricesV V.! (t + 1)
                                         hi = barHigh (t + 1)
                                         lo = barLow (t + 1)
-                                        perfRecent =
+                                        highVolCutoff = 0.6
+                                        tradeHighVolFlag tr =
+                                            case trEntryHighVolProb tr of
+                                                Just hv -> Just (hv >= highVolCutoff)
+                                                Nothing -> Nothing
+                                        mHighVolNow =
+                                            case metaNow >>= smHighVolProb of
+                                                Just hv -> Just (hv >= highVolCutoff)
+                                                Nothing -> Nothing
+
+                                        perfRecentAll =
                                             if perfLookback <= 0
                                                 then []
                                                 else take perfLookback tradesAcc
-                                        perfReady =
-                                            perfLookback > 0 && length perfRecent >= perfLookback
-                                        perfReturns =
+                                        perfReadyAll =
+                                            perfLookback > 0 && length perfRecentAll >= perfLookback
+                                        perfReturnsAll =
                                             [ trReturn tr
-                                            | tr <- perfRecent
+                                            | tr <- perfRecentAll
                                             , not (isBad (trReturn tr))
                                             ]
-                                        perfWins = length [r | r <- perfReturns, r > 0]
-                                        perfLosses = length [r | r <- perfReturns, r < 0]
-                                        perfWinRate =
-                                            if perfWins + perfLosses == 0
+                                        perfWinsAll = length [r | r <- perfReturnsAll, r > 0]
+                                        perfLossesAll = length [r | r <- perfReturnsAll, r < 0]
+                                        perfWinRateAll =
+                                            if perfWinsAll + perfLossesAll == 0
                                                 then 0
-                                                else fromIntegral perfWins / fromIntegral (perfWins + perfLosses)
-                                        perfGrossWin = sum [r | r <- perfReturns, r > 0]
-                                        perfGrossLoss = abs (sum [r | r <- perfReturns, r < 0])
-                                        perfProfitFactor
-                                            | perfGrossLoss > 0 = Just (perfGrossWin / perfGrossLoss)
-                                            | perfGrossWin > 0 = Nothing
+                                                else fromIntegral perfWinsAll / fromIntegral (perfWinsAll + perfLossesAll)
+                                        perfGrossWinAll = sum [r | r <- perfReturnsAll, r > 0]
+                                        perfGrossLossAll = abs (sum [r | r <- perfReturnsAll, r < 0])
+                                        perfProfitFactorAll
+                                            | perfGrossLossAll > 0 = Just (perfGrossWinAll / perfGrossLossAll)
+                                            | perfGrossWinAll > 0 = Nothing
+                                            | otherwise = Just 0
+
+                                        perfRecentRegime =
+                                            case mHighVolNow of
+                                                Nothing -> []
+                                                Just want ->
+                                                    if perfLookback <= 0
+                                                        then []
+                                                        else take perfLookback [tr | tr <- tradesAcc, tradeHighVolFlag tr == Just want]
+
+                                        perfRecentGate =
+                                            if perfLookback > 0 && length perfRecentRegime >= perfLookback
+                                                then perfRecentRegime
+                                                else perfRecentAll
+                                        perfReadyGate =
+                                            perfLookback > 0 && length perfRecentGate >= perfLookback
+                                        perfReturnsGate =
+                                            [ trReturn tr
+                                            | tr <- perfRecentGate
+                                            , not (isBad (trReturn tr))
+                                            ]
+                                        perfWinsGate = length [r | r <- perfReturnsGate, r > 0]
+                                        perfLossesGate = length [r | r <- perfReturnsGate, r < 0]
+                                        perfWinRateGate =
+                                            if perfWinsGate + perfLossesGate == 0
+                                                then 0
+                                                else fromIntegral perfWinsGate / fromIntegral (perfWinsGate + perfLossesGate)
+                                        perfGrossWinGate = sum [r | r <- perfReturnsGate, r > 0]
+                                        perfGrossLossGate = abs (sum [r | r <- perfReturnsGate, r < 0])
+                                        perfProfitFactorGate
+                                            | perfGrossLossGate > 0 = Just (perfGrossWinGate / perfGrossLossGate)
+                                            | perfGrossWinGate > 0 = Nothing
                                             | otherwise = Just 0
                                         perfGateReasonNow =
-                                            if not perfReady
+                                            if not perfReadyGate
                                                 then Nothing
                                                 else
                                                     let winOk =
                                                             case perfMinWinRate of
-                                                                Just v | v > 0 -> perfWinRate >= v
+                                                                Just v | v > 0 -> perfWinRateGate >= v
                                                                 _ -> True
                                                         pfOk =
                                                             case perfMinProfitFactor of
                                                                 Just v | v > 0 ->
-                                                                    case perfProfitFactor of
+                                                                    case perfProfitFactorGate of
                                                                         Nothing -> True
                                                                         Just pf -> pf >= v
                                                                 _ -> True
@@ -1526,7 +1569,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     let slack = 0.05
                                                         start = min 1 (v + slack)
                                                         denom = max 1e-12 (start - v)
-                                                        raw = (start - perfWinRate) / denom
+                                                        raw = (start - perfWinRateAll) / denom
                                                      in clamp01 raw
                                                 _ -> 0
                                         pfScore =
@@ -1535,14 +1578,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     let start = v * 1.10
                                                         denom = max 1e-12 (start - v)
                                                         pfVal =
-                                                            case perfProfitFactor of
+                                                            case perfProfitFactorAll of
                                                                 Nothing -> start
                                                                 Just pf -> pf
                                                         raw = (start - pfVal) / denom
                                                      in clamp01 raw
                                                 _ -> 0
                                         strictness =
-                                            if adaptiveFilters && perfReady
+                                            if adaptiveFilters && perfReadyAll
                                                 then max winScore pfScore
                                                 else 0
                                         edgeAdd = strictness * adaptiveEdgeBufferMax
@@ -1976,6 +2019,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trExitEquity = eqExit
                                                 , trReturn = eqExit / otEntryEquity ot - 1
                                                 , trHoldingPeriods = otHoldingPeriods ot
+                                                , trEntryHighVolProb = metaAt (otEntryIndex ot) >>= smHighVolProb
                                                 , trExitReason = Just why
                                                 , trEntryIp = Nothing
                                                 , trExitIp = Nothing
@@ -2136,6 +2180,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trExitEquity = exitEq
                                                                             , trReturn = exitEq / otEntryEquity otHeld - 1
                                                                             , trHoldingPeriods = otHoldingPeriods otHeld
+                                                                            , trEntryHighVolProb = metaAt (otEntryIndex otHeld) >>= smHighVolProb
                                                                             , trExitReason = reason
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
@@ -2204,6 +2249,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                             , trExitEquity = exitEq
                                                                             , trReturn = exitEq / otEntryEquity otHeld - 1
                                                                             , trHoldingPeriods = otHoldingPeriods otHeld
+                                                                            , trEntryHighVolProb = metaAt (otEntryIndex otHeld) >>= smHighVolProb
                                                                             , trExitReason = reason
                                                                             , trEntryIp = Nothing
                                                                             , trExitIp = Nothing
@@ -2240,6 +2286,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                                 , trExitEquity = exitEq
                                                                                 , trReturn = exitEq / otEntryEquity otHeld - 1
                                                                                 , trHoldingPeriods = otHoldingPeriods otHeld
+                                                                                , trEntryHighVolProb = metaAt (otEntryIndex otHeld) >>= smHighVolProb
                                                                                 , trExitReason = Just ExitLiquidation
                                                                                 , trEntryIp = Nothing
                                                                                 , trExitIp = Nothing
@@ -2424,6 +2471,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 , trExitEquity = exitEq
                                                 , trReturn = exitEq / otEntryEquity ot - 1
                                                 , trHoldingPeriods = otHoldingPeriods ot
+                                                , trEntryHighVolProb = metaAt (otEntryIndex ot) >>= smHighVolProb
                                                 , trExitReason = Just ExitEod
                                                 , trEntryIp = Nothing
                                                 , trExitIp = Nothing
