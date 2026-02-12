@@ -473,7 +473,7 @@ export function normalizeFormState(raw: FormStateJson | null | undefined): FormS
     valRatio: normalizeFiniteNumber(rawRec.valRatio ?? merged.valRatio, defaultForm.valRatio, 0, 1),
     patience: normalizeFiniteNumber(rawRec.patience ?? merged.patience, defaultForm.patience, 0, 100),
     gradClip: normalizeFiniteNumber(rawRec.gradClip ?? merged.gradClip, defaultForm.gradClip, 0, 10),
-    minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, 0, 0, 1),
+    minPositionSize: normalizeFiniteNumber(rawRec.minPositionSize ?? merged.minPositionSize, defaultForm.minPositionSize, 0, 1),
     botProtectionOrders: normalizeBool(rawRec.botProtectionOrders ?? merged.botProtectionOrders, defaultForm.botProtectionOrders),
     botAdoptExistingPosition: true,
   };

@@ -33,8 +33,12 @@ export function normalizeApiBaseUrlInput(raw: string): string {
       const m = authority.match(/^\[[^\]]+\]:(\d{1,5})$/);
       return m ? m[1] : null;
     }
-    // For bare IPv6 (multiple ':'), treat as "no port"; port must be provided via brackets.
-    if (authority.split(":").length > 2) return null;
+    const parts = authority.split(":");
+    // Bare IPv6 with a port is ambiguous; only infer for the common loopback shorthand `::1:PORT`.
+    if (parts.length > 2) {
+      const m = authority.match(/^::1:(\d{1,5})$/i);
+      return m ? m[1] : null;
+    }
     const m = authority.match(/:([0-9]{1,5})$/);
     return m ? m[1] : null;
   };
@@ -45,10 +49,9 @@ export function normalizeApiBaseUrlInput(raw: string): string {
     const parts = authority.split(":");
     if (parts.length <= 2) return authority;
 
-    // Likely IPv6 without brackets; bracketize. If a port was detected (bracketed form), keep it.
-    if (port) {
-      const host = parts.slice(0, -1).join(":");
-      return `[${host}]:${port}`;
+    // Likely IPv6 without brackets; bracketize. Preserve inferred loopback port shorthand.
+    if (port && /^::1:\d{1,5}$/i.test(authority)) {
+      return `[::1]:${port}`;
     }
     return `[${authority}]`;
   };

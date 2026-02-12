@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildOrphanedPositions, buildRequestIssueDetails } from "../.tmp/web-tests/utils.js";
+import { buildOrphanedPositions, buildRequestIssueDetails, normalizeApiBaseUrlInput } from "../.tmp/web-tests/utils.js";
+import { defaultForm, normalizeFormState } from "../.tmp/web-tests/formState.js";
 
 test("buildRequestIssueDetails returns empty when clean", () => {
   assert.deepEqual(buildRequestIssueDetails({}), []);
@@ -96,4 +97,16 @@ test("buildOrphanedPositions flags market mismatch", () => {
   const orphans = buildOrphanedPositions(positions, bots, { market: "futures" });
   assert.equal(orphans.length, 1);
   assert.equal(orphans[0]?.reason, "market mismatch");
+});
+
+test("normalizeApiBaseUrlInput supports bare loopback IPv6 with port", () => {
+  assert.equal(normalizeApiBaseUrlInput("::1:8080"), "http://[::1]:8080");
+  assert.equal(normalizeApiBaseUrlInput("[::1]:8080"), "http://[::1]:8080");
+});
+
+test("normalizeFormState restores default minPositionSize for invalid input", () => {
+  const fromInvalid = normalizeFormState({ minPositionSize: "not-a-number" });
+  assert.equal(fromInvalid.minPositionSize, defaultForm.minPositionSize);
+  const fromExplicitZero = normalizeFormState({ minPositionSize: 0 });
+  assert.equal(fromExplicitZero.minPositionSize, 0);
 });

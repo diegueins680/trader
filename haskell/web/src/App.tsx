@@ -5516,7 +5516,7 @@ export function App() {
           ...tradeParams,
           botTrade: form.tradeArmed,
           ...(form.botProtectionOrders ? { botProtectionOrders: true } : {}),
-          botAdoptExistingPosition: true,
+          botAdoptExistingPosition: adoptOverride || form.botAdoptExistingPosition,
           ...(form.botPollSeconds > 0 ? { botPollSeconds: clamp(Math.trunc(form.botPollSeconds), 1, 3600) } : {}),
           botOnlineEpochs: clamp(Math.trunc(form.botOnlineEpochs), 0, 50),
           botTrainBars: Math.max(10, Math.trunc(form.botTrainBars)),

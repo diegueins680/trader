@@ -39,6 +39,16 @@ export class HttpError extends Error {
   }
 }
 
+export class AsyncEndpointNotFoundError extends Error {
+  readonly httpError: HttpError;
+
+  constructor(httpError: HttpError) {
+    super(httpError.message);
+    this.name = "AsyncEndpointNotFoundError";
+    this.httpError = httpError;
+  }
+}
+
 export class UnexpectedResponseError extends Error {
   readonly status: number;
   readonly contentType: string;
@@ -537,18 +547,19 @@ async function runAsyncJob<T>(
     }
 
     try {
-        start = await fetchJson<AsyncStartResponse>(
-          baseUrl,
-          startPath,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(params),
-          },
+      start = await fetchJson<AsyncStartResponse>(
+        baseUrl,
+        startPath,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        },
         { signal: opts?.signal, headers: opts?.headers, timeoutMs: Math.min(remaining, perRequestTimeoutMs) },
       );
       break;
     } catch (err) {
+      if (err instanceof HttpError && err.status === 404) throw new AsyncEndpointNotFoundError(err);
       // 429 is safe to retry: the server didn't start the async job.
       if (err instanceof HttpError && err.status === 429) {
         lastTransientError = err;
@@ -622,7 +633,16 @@ async function runAsyncJob<T>(
         }
       } catch (err) {
         if (err instanceof HttpError && (err.status === 401 || err.status === 403)) throw err;
-        if (err instanceof HttpError && err.status === 404) throw err;
+        if (err instanceof HttpError && err.status === 404) {
+          lastTransientError = err;
+          if (notFoundSinceMs == null) notFoundSinceMs = Date.now();
+          if (Date.now() - notFoundSinceMs > notFoundGraceMs) {
+            throw new Error(asyncJobNotFoundMessage());
+          }
+          await sleep(Math.min(backoffMs, remaining), opts?.signal);
+          backoffMs = Math.min(5_000, Math.round(backoffMs * 1.4));
+          continue;
+        }
         if (err instanceof HttpError && err.status === 429) {
           lastTransientError = err;
           const retryAfterMs = typeof err.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) ? Math.max(0, err.retryAfterMs) : 0;
@@ -716,7 +736,7 @@ export async function signal(baseUrl: string, params: ApiParams, opts?: AsyncJob
   try {
     return await runAsyncJob<LatestSignal>(baseUrl, "/signal/async", "/signal/async", params, asyncOpts);
   } catch (err) {
-    if (err instanceof HttpError && err.status === 404) {
+    if (err instanceof AsyncEndpointNotFoundError) {
       return fetchJson<LatestSignal>(
         baseUrl,
         "/signal",
@@ -737,7 +757,7 @@ export async function backtest(baseUrl: string, params: ApiParams, opts?: AsyncJ
   try {
     return await runAsyncJob<BacktestResponse>(baseUrl, "/backtest/async", "/backtest/async", params, asyncOpts);
   } catch (err) {
-    if (err instanceof HttpError && err.status === 404) {
+    if (err instanceof AsyncEndpointNotFoundError) {
       return runSyncBacktestWithRetry(baseUrl, params, opts);
     }
     throw err;
@@ -748,7 +768,7 @@ export async function trade(baseUrl: string, params: ApiParams, opts?: AsyncJobO
   try {
     return await runAsyncJob<ApiTradeResponse>(baseUrl, "/trade/async", "/trade/async", params, opts);
   } catch (err) {
-    if (err instanceof HttpError && err.status === 404) {
+    if (err instanceof AsyncEndpointNotFoundError) {
       return fetchJson<ApiTradeResponse>(
         baseUrl,
         "/trade",
