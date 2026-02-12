@@ -12,6 +12,8 @@ export type Method =
   | "disagreement_guard"
   | "median_blend"
   | "neutral_guard"
+  | "risk_parity_blend"
+  | "consensus_boost"
   | "edge_blend"
   | "edge_pick"
   | "geo_blend"
@@ -775,6 +777,8 @@ export type OptimizerRunRequest = {
   methodWeightDisagreementGuard?: number;
   methodWeightMedianBlend?: number;
   methodWeightNeutralGuard?: number;
+  methodWeightRiskParityBlend?: number;
+  methodWeightConsensusBoost?: number;
   methodWeightEdgeBlend?: number;
   methodWeightEdgePick?: number;
   methodWeightGeoBlend?: number;

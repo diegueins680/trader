@@ -1908,8 +1908,36 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 placeholder="0.0"
               />
             </div>
-            <div className="field" />
-            <div className="field" />
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightRiskParityBlend">
+                Risk parity blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightRiskParityBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightRiskParityBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightRiskParityBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightConsensusBoost">
+                Consensus boost method weight
+              </label>
+              <input
+                id="optimizerMethodWeightConsensusBoost"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightConsensusBoost}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightConsensusBoost: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
           </div>
           <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">

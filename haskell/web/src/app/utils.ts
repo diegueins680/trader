@@ -426,6 +426,10 @@ export function methodLabel(method: Method): string {
       return "Median blend (robust middle return)";
     case "neutral_guard":
       return "Neutral guard (flat on conflict)";
+    case "risk_parity_blend":
+      return "Risk parity blend (inverse-edge weighted)";
+    case "consensus_boost":
+      return "Consensus boost (flat on conflict, strong on agree)";
     case "edge_blend":
       return "Edge blend (edge-weighted)";
     case "edge_pick":
