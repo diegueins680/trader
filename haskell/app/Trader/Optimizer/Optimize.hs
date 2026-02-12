@@ -729,6 +729,7 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeight10 :: !Double
     , oaMethodWeight01 :: !Double
     , oaMethodWeightBlend :: !Double
+    , oaMethodWeightConfBlend :: !Double
     , oaBlendWeightMin :: !Double
     , oaBlendWeightMax :: !Double
     , oaRouterScorePnlWeightMin :: !Double
@@ -1695,7 +1696,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend)
+    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -1729,7 +1730,7 @@ sampleParams
             (intervalChoice, rng2) = nextChoice intervalPool rng1
             interval = fromMaybe (fromMaybe "1h" (listToMaybe intervals)) intervalChoice
             (bars, rng3) = sampleBars rng2
-            methods = [("11", methodW11), ("10", methodW10), ("01", methodW01), ("blend", methodWBlend)]
+            methods = [("11", methodW11), ("10", methodW10), ("01", methodW01), ("blend", methodWBlend), ("conf_blend", methodWConfBlend)]
             (method, rng4) = chooseWeighted methods rng3
             (blendWeight, rng5) =
                 let (bwLo, bwHi) = ordered blendWeightRange
@@ -2538,6 +2539,7 @@ runOptimizer args0 = do
                                                             , oaMethodWeight10 args
                                                             , oaMethodWeight01 args
                                                             , oaMethodWeightBlend args
+                                                            , oaMethodWeightConfBlend args
                                                             )
                                                         blendWeightRange =
                                                             let lo = clamp (oaBlendWeightMin args) 0 1

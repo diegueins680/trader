@@ -448,7 +448,7 @@ opts = do
             ( long "method"
                 <> value MethodBoth
                 <> showDefaultWith methodCode
-                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, router=adaptive model selection, 10|kalman=Kalman only, 01|lstm=LSTM only"
+                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, router=adaptive model selection, 10|kalman=Kalman only, 01|lstm=LSTM only"
             )
     argPositioning <-
         option
@@ -458,7 +458,7 @@ opts = do
                 <> showDefaultWith positioningCode
                 <> help "Positioning: long-flat (default), long-only/long (alias), or long-short (futures-only when trading)"
             )
-    argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
+    argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01/blend/conf_blend/router), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
     argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
     argTradeOnly <- switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     argFee <- option auto (long "fee" <> value 0.0008 <> help "Fee applied when switching position")

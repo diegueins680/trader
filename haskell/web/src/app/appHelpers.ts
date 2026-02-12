@@ -229,6 +229,7 @@ export const COMPLEX_TIPS = {
   method: [
     "11 requires Kalman + LSTM agreement beyond the open threshold; fewer trades, higher confidence.",
     "blend averages predictions; blend weight sets the Kalman vs LSTM mix.",
+    "conf_blend adjusts Kalman vs LSTM mix per bar using confidence (Kalman z vs LSTM edge confidence).",
     "router picks the best recent model using router lookback; min score gates to HOLD.",
   ],
   thresholds: [
@@ -240,7 +241,7 @@ export const COMPLEX_TIPS = {
     "Edge buffer adds extra margin above break-even when cost-aware edge is on.",
   ],
   snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
-  blend: ["0 = LSTM only, 1 = Kalman only. Only used with method=blend."],
+  blend: ["0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend."],
   router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
   split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
   lstm: ["Normalization affects scaling for LSTM only; keep consistent with training.", "Epochs/hidden size trade off fit vs runtime and overfitting."],
@@ -1378,6 +1379,7 @@ export type OptimizerRunForm = {
   trailMin: string;
   trailMax: string;
   methodWeightBlend: string;
+  methodWeightConfBlend: string;
   blendWeightMin: string;
   blendWeightMax: string;
   disableLstmPersistence: boolean;
@@ -1516,6 +1518,7 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     trailMin: "",
     trailMax: "",
     methodWeightBlend: "",
+    methodWeightConfBlend: "",
     blendWeightMin: "",
     blendWeightMax: "",
     disableLstmPersistence: false,
@@ -1717,6 +1720,8 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
 
   const methodWeightBlend = parseOptionalNumber(form.methodWeightBlend);
   if (methodWeightBlend != null) req.methodWeightBlend = methodWeightBlend;
+  const methodWeightConfBlend = parseOptionalNumber(form.methodWeightConfBlend);
+  if (methodWeightConfBlend != null) req.methodWeightConfBlend = methodWeightConfBlend;
   const blendWeightMin = parseOptionalNumber(form.blendWeightMin);
   if (blendWeightMin != null) req.blendWeightMin = blendWeightMin;
   const blendWeightMax = parseOptionalNumber(form.blendWeightMax);

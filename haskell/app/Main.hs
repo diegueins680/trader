@@ -887,7 +887,7 @@ data ApiParams = ApiParams
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
     , apCloseThreshold :: Maybe Double
-    , apMethod :: Maybe String -- "11" | "10" | "01"
+    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "router"
     , apPositioning :: Maybe String -- "long-flat" | "long-short"
     , apOptimizeOperations :: Maybe Bool
     , apSweepThreshold :: Maybe Bool
@@ -1245,6 +1245,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrKalmanMarketTopNMin :: !(Maybe Int)
     , arrKalmanMarketTopNMax :: !(Maybe Int)
     , arrMethodWeightBlend :: !(Maybe Double)
+    , arrMethodWeightConfBlend :: !(Maybe Double)
     , arrBlendWeightMin :: !(Maybe Double)
     , arrBlendWeightMax :: !(Maybe Double)
     , arrRouterScorePnlWeightMin :: !(Maybe Double)
@@ -3085,6 +3086,7 @@ seedStrategies conn = do
             , ("lstm", "LSTM")
             , ("both", "Kalman+LSTM")
             , ("blend", "Blend")
+            , ("conf_blend", "Confidence Blend")
             , ("router", "Router")
             , ("unknown", "Unknown")
             ]
@@ -5833,6 +5835,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
             if argOptimizeOperations args
                 then MethodBoth
                 else case method of
+                    MethodConfBlend -> MethodBoth
                     MethodRouter -> MethodBoth
                     _ -> method
         nan = 0 / 0 :: Double
@@ -6427,6 +6430,7 @@ botApplyOptimizerUpdate st upd = do
                 MethodKalmanOnly -> isJust mKalmanCtx'
                 MethodLstmOnly -> isJust mLstmCtx'
                 MethodBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodConfBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
         hasLstmWindow = method /= MethodKalmanOnly && n >= lookback'
 
     if not ctxOk
@@ -11010,6 +11014,8 @@ prepareOptimizerArgs outputPath req = do
                         ++ maybeIntArg "--kalman-market-top-n-max" (fmap (max 0) (arrKalmanMarketTopNMax req))
                 methodWeightBlendArgs =
                     maybeDoubleArg "--method-weight-blend" (fmap (max 0) (arrMethodWeightBlend req))
+                methodWeightConfBlendArgs =
+                    maybeDoubleArg "--method-weight-conf-blend" (fmap (max 0) (arrMethodWeightConfBlend req))
                 blendWeightArgs =
                     maybeDoubleArg "--blend-weight-min" (fmap clamp01 (arrBlendWeightMin req))
                         ++ maybeDoubleArg "--blend-weight-max" (fmap clamp01 (arrBlendWeightMax req))
@@ -11134,6 +11140,7 @@ prepareOptimizerArgs outputPath req = do
                         ++ confidenceSizingArgs
                         ++ protectionMinConfidenceArgs
                         ++ methodWeightBlendArgs
+                        ++ methodWeightConfBlendArgs
                         ++ blendWeightArgs
                         ++ routerScorePnlWeightArgs
                         ++ kalmanMarketTopNArgs
@@ -11555,6 +11562,8 @@ strategyCodeFromMethod mMethod =
             Just "both" -> "both"
             Just "11" -> "both"
             Just "blend" -> "blend"
+            Just "conf_blend" -> "conf_blend"
+            Just "conf-blend" -> "conf_blend"
             Just "router" -> "router"
             _ -> "unknown"
 
@@ -14584,6 +14593,7 @@ placeDexOrderForSignal args sig = do
                 MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
                 MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
                 MethodBlend -> "No order: Blend neutral (within threshold)."
+                MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
                 MethodRouter -> "No order: Router neutral (score/threshold)."
         currentPrice = lsCurrentPrice sig
         entryScale = entryScaleForSignal args MarketSpot sig
@@ -15322,6 +15332,100 @@ scale01 lo hi x =
             then if x >= hi' then 1 else 0
             else clamp01 ((x - lo') / (hi' - lo'))
 
+lstmConfidenceScoreFromPred :: Double -> Double -> Double -> Maybe Double
+lstmConfidenceScoreFromPred openThr prev next =
+    let bad x = isNaN x || isInfinite x
+        thr = max 1e-12 openThr
+     in if prev <= 0 || bad prev || bad next
+            then Nothing
+            else
+                let edge = abs (next / prev - 1)
+                    raw = edge / (2 * thr)
+                 in if bad edge || bad raw
+                        then Nothing
+                        else Just (clamp01 raw)
+
+kalmanZFromMeta :: StepMeta -> Maybe Double
+kalmanZFromMeta m =
+    let v = max 0 (smKalmanVar m)
+        s = sqrt v
+        z = if s <= 0 then 0 else abs (smKalmanMean m) / s
+     in if isNaN z || isInfinite z then Nothing else Just z
+
+confidenceBlendWeightFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Maybe Double ->
+    Double
+confidenceBlendWeightFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred mKalZ =
+    let wFallback = clamp01 fallbackWeight
+        kalScore =
+            case mKalZ of
+                Just z | not (isNaN z || isInfinite z) -> scale01 zMin zMax z
+                _ ->
+                    case lstmConfidenceScoreFromPred openThr prev kalPred of
+                        Just s -> s
+                        Nothing -> 0
+        lstmScore =
+            case lstmConfidenceScoreFromPred openThr prev lstmPred of
+                Just s -> s
+                Nothing -> 0
+        denom = kalScore + lstmScore
+     in if denom <= 1e-12
+            then wFallback
+            else clamp01 (kalScore / denom)
+
+confidenceBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Maybe Double ->
+    Double
+confidenceBlendPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred mKalZ =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                let w = confidenceBlendWeightFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred mKalZ
+                 in w * kalPred + (1 - w) * lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+
+confidenceBlendPredictionsV ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    V.Vector Double
+confidenceBlendPredictionsV fallbackWeight zMin zMax openThr pricesV kalPredV lstmPredV mMetaV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        kalZAt t =
+            case mMetaV of
+                Just metaV
+                    | t >= 0 && t < V.length metaV ->
+                        kalmanZFromMeta (metaV V.! t)
+                _ -> Nothing
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in confidenceBlendPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred (kalZAt t)
+     in V.generate (max 0 stepCount) pick
+
 clampRange :: Double -> Double -> Double -> Double
 clampRange lo hi x =
     let lo' = min lo hi
@@ -15470,6 +15574,17 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 lstmPred0 = phLstm hist
                 blendWeight = clamp01 (argBlendWeight args)
                 blendPred0 = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPred0 lstmPred0
+                confBlendOpenThr = max openThrBase minEdge
+                confBlendPred0 =
+                    confidenceBlendPredictionsV
+                        blendWeight
+                        (max 0 (argKalmanZMin args))
+                        (max (max 0 (argKalmanZMin args)) (argKalmanZMax args))
+                        confBlendOpenThr
+                        pricesV
+                        kalPred0
+                        lstmPred0
+                        (phMeta hist)
                 routerPred =
                     if method == MethodRouter
                         then
@@ -15489,6 +15604,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 (kalPred1, lstmPred1) =
                     case method of
                         MethodBlend -> (blendPred0, blendPred0)
+                        MethodConfBlend -> (confBlendPred0, confBlendPred0)
                         MethodKalmanOnly -> (kalPred0, kalPred0)
                         MethodLstmOnly -> (lstmPred0, lstmPred0)
                         MethodRouter -> (routerPred, routerPred)
@@ -15522,16 +15638,6 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                     let denom = max 1e-12 (abs thr)
                         raw = edge / (2 * denom)
                      in if bad raw then 0.5 else clamp01 raw
-                lstmConfidenceScoreFromPred prev next =
-                    if prev <= 0 || bad prev || bad next
-                        then Nothing
-                        else
-                            let edge = abs (next / prev - 1)
-                                thr = max 1e-12 openThrBase
-                                raw = edge / (2 * thr)
-                             in if bad edge || bad raw
-                                    then Nothing
-                                    else Just (clamp01 raw)
                 metaAt t =
                     case metaUsed of
                         Just v | t >= 0 && t < V.length v -> Just (v V.! t)
@@ -15545,10 +15651,6 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                     case (smConformalLo m, smConformalHi m) of
                         (Just lo, Just hi) -> Just (Interval lo hi)
                         _ -> Nothing
-                kalZFromMeta m =
-                    let v = max 0 (smKalmanVar m)
-                        s = sqrt v
-                     in if s <= 0 then 0 else abs (smKalmanMean m) / s
                 direction thr prev next =
                     if prev <= 0 || bad prev || bad next
                         then Nothing
@@ -15583,7 +15685,9 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         (mReg, mQ, mI, kalZ) =
                             case metaAt t of
                                 Nothing -> (Nothing, Nothing, Nothing, 0)
-                                Just m -> (metaReg m, metaQuantiles m, metaInterval m, kalZFromMeta m)
+                                Just m ->
+                                    let z = fromMaybe 0 (kalmanZFromMeta m)
+                                     in (metaReg m, metaQuantiles m, metaInterval m, z)
                         confScore = confidenceScoreKalman args kalZ mReg mI mQ
                         kalDirRaw = direction openThrAdj prev kalNext
                         lstmDir = direction openThrAdj prev lstmNext
@@ -15627,7 +15731,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                                     case argMaxQuantileWidth args of
                                         Just maxW | maxW > 0 -> Just (clamp01 ((maxW - quantileWidth q) / max 1e-12 maxW))
                                         _ -> Nothing
-                        lstmScore = scoreOrNeutral (lstmConfidenceScoreFromPred prev lstmNext)
+                        lstmScore = scoreOrNeutral (lstmConfidenceScoreFromPred openThrBase prev lstmNext)
                         healthScore = lstmHealthScore
                         factorTarget thr =
                             let edgeKalScore = edgeScore thr edgeKal
@@ -15744,6 +15848,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
             MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
             MethodBlend -> "No order: Blend neutral (within threshold)."
+            MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
 
     shortErr :: SomeException -> String
@@ -16519,6 +16624,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodKalmanOnly -> "No order: Kalman neutral (within threshold)."
             MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
             MethodBlend -> "No order: Blend neutral (within threshold)."
+            MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
 
     lstmBlockMsg :: Maybe String
@@ -16965,6 +17071,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodKalmanOnly -> "Backtest (Kalman fusion only) complete."
                     MethodLstmOnly -> "Backtest (LSTM only) complete."
                     MethodBlend -> "Backtest (Kalman + LSTM blend) complete."
+                    MethodConfBlend -> "Backtest (confidence-weighted Kalman/LSTM blend) complete."
                     MethodRouter -> "Backtest (adaptive router: Kalman/LSTM/blend) complete."
 
             Data.Foldable.for_ (bsLstmHistory summary) printLstmSummary
@@ -17351,6 +17458,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 then MethodBoth
                 else case methodRequested of
                     MethodBlend -> MethodBoth
+                    MethodConfBlend -> MethodBoth
                     MethodRouter -> MethodBoth
                     _ -> methodRequested
         pricesV = V.fromList prices
@@ -17445,6 +17553,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 pure (Just (normState, obsAll, lstmModel), Just history, lstmPred, lstmPred, Nothing, Nothing)
             MethodBoth -> runDualPredictorBacktest
             MethodBlend -> runDualPredictorBacktest
+            MethodConfBlend -> runDualPredictorBacktest
             MethodRouter -> runDualPredictorBacktest
 
     let feeUsed = max 0 (argFee args)
@@ -17634,7 +17743,25 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         routerOpenThr = max bestOpenThr minEdge
         blendWeight0 = argBlendWeight args
         blendWeight = max 0 (min 1 blendWeight0)
+        kalZMinForBlend = max 0 (argKalmanZMin args)
+        kalZMaxForBlend = max kalZMinForBlend (argKalmanZMax args)
         blendPredBacktest = zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredBacktest lstmPredBacktest
+        confBlendPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+                metaBacktestV = V.fromList <$> metaBacktest
+             in V.toList
+                    ( confidenceBlendPredictionsV
+                        blendWeight
+                        kalZMinForBlend
+                        kalZMaxForBlend
+                        routerOpenThr
+                        pricesBacktestV
+                        kalBacktestV
+                        lstmBacktestV
+                        metaBacktestV
+                    )
         routerPredBacktest =
             case methodUsed of
                 MethodRouter ->
@@ -17664,6 +17791,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                                 routerMaskV = V.map (== Just RouterKalman) routerModelsV
                              in (routerPred, routerPred, metaBacktest, Just routerMaskV)
                         Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest, Nothing)
+                MethodConfBlend ->
+                    (confBlendPredBacktest, confBlendPredBacktest, metaBacktest, Nothing)
                 _ ->
                     let (kalPredUsed, lstmPredUsed) =
                             selectPredictions methodUsed blendWeight0 kalPredBacktest lstmPredBacktest
@@ -18285,6 +18414,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method blend requires both Kalman and LSTM contexts."
+            MethodConfBlend ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method conf_blend requires both Kalman and LSTM contexts."
             MethodRouter ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -18297,6 +18430,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             MethodLstmOnly -> True
             MethodBoth -> True
             MethodBlend -> True
+            MethodConfBlend -> True
             MethodRouter -> True
             _ -> False
     lstmWindowOk =
@@ -18697,6 +18831,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 )
 
             blendWeight = clamp01 (argBlendWeight args)
+            kalZMinForBlend = max 0 (argKalmanZMin args)
+            kalZMaxForBlend = max kalZMinForBlend (argKalmanZMax args)
 
             (mKalNext, mKalReturn, mKalStd, mKalZ, mRegimes, mQuantiles, mConformal, kalDirRaw, kalDir, kalCloseDir, mConfidence, mPosSize, mGateReason) =
                 case mKalmanCtx of
@@ -18761,6 +18897,21 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             blendNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) -> Just (blendWeight * k + (1 - blendWeight) * l)
+                    _ -> Nothing
+            confBlendNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        Just
+                            ( confidenceBlendPredFromPreds
+                                blendWeight
+                                kalZMinForBlend
+                                kalZMaxForBlend
+                                openThrAdj
+                                currentPrice
+                                k
+                                l
+                                mKalZ
+                            )
                     _ -> Nothing
             routerLookback = max 1 (argRouterLookback args)
             routerMinScore = max 0 (min 1 (argRouterMinScore args))
@@ -18831,6 +18982,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodKalmanOnly -> mKalNext
                     MethodLstmOnly -> mLstmNext
                     MethodBlend -> blendNext
+                    MethodConfBlend -> confBlendNext
                     MethodRouter -> routerNext
             routerDirRaw = routerNext >>= directionPrice openThrAdj
             routerCloseDirRaw = routerNext >>= directionPrice closeThrAdj
@@ -18843,6 +18995,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             edgeKal = mKalNext >>= edgeFromPred
             edgeLstm = mLstmNext >>= edgeFromPred
             edgeBlend = blendNext >>= edgeFromPred
+            edgeConfBlend = confBlendNext >>= edgeFromPred
             edgeRouter = routerNext >>= edgeFromPred
             edgeForMethod =
                 case method of
@@ -18853,6 +19006,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodKalmanOnly -> edgeKal
                     MethodLstmOnly -> edgeLstm
                     MethodBlend -> edgeBlend
+                    MethodConfBlend -> edgeConfBlend
                     MethodRouter -> edgeRouter
             snrRatio =
                 case (edgeForMethod, volPerBar) of
@@ -18881,6 +19035,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             blendDir = blendNext >>= directionPrice openThrAdj
             lstmCloseDir = mLstmNext >>= directionPrice closeThrAdj
             blendCloseDir = blendNext >>= directionPrice closeThrAdj
+            confBlendDir = confBlendNext >>= directionPrice openThrAdj
+            confBlendCloseDir = confBlendNext >>= directionPrice closeThrAdj
             (blendDirGated, blendCloseDirGated, blendPosSize, blendGateReason) =
                 case (method, mKalZ, mConfidence) of
                     (MethodBlend, Just kalZ, Just confScore) ->
@@ -18892,6 +19048,25 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore blendDir
                             (closeDirUsed, _) =
                                 gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore blendCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
+            (confBlendDirGated, confBlendCloseDirGated, confBlendPosSize, confBlendGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodConfBlend, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing confBlendDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore confBlendDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore confBlendCloseDir
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -18942,6 +19117,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodKalmanOnly -> kalCloseDir
                     MethodLstmOnly -> lstmCloseDir
                     MethodBlend -> blendCloseDirGated
+                    MethodConfBlend -> confBlendCloseDirGated
                     MethodRouter -> routerCloseDirGated
 
             agreeDir =
@@ -18954,6 +19130,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodKalmanOnly -> kalDir
                     MethodLstmOnly -> lstmDir
                     MethodBlend -> blendDirGated
+                    MethodConfBlend -> confBlendDirGated
                     MethodRouter -> routerDirGated
             (chosenDir1, mPostGateReason) =
                 case chosenDir0 of
@@ -19062,6 +19239,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (blend neutral)"
+                        MethodConfBlend ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (conf_blend neutral)"
                         MethodRouter ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -19074,11 +19259,13 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             tradePosSize =
                 case method of
                     MethodBlend -> blendPosSize
+                    MethodConfBlend -> confBlendPosSize
                     MethodRouter -> routerPosSize
                     _ -> mPosSize
             gateReasonForMethod =
                 case method of
                     MethodBlend -> blendGateReason
+                    MethodConfBlend -> confBlendGateReason
                     MethodRouter -> mRouterReason <|> routerGateReason
                     _ -> mGateReason
          in LatestSignal
@@ -19743,6 +19930,7 @@ printMetrics method m = do
                 MethodKalmanOnly -> "Signal rate (Kalman)"
                 MethodLstmOnly -> "Signal rate (LSTM)"
                 MethodBlend -> "Signal rate (Blend)"
+                MethodConfBlend -> "Signal rate (Conf blend)"
                 MethodRouter -> "Signal rate (Router)"
     putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
     putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))

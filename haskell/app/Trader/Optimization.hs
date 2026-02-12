@@ -215,6 +215,108 @@ stddev xs =
 clamp01 :: Double -> Double
 clamp01 x = max 0 (min 1 x)
 
+scale01 :: Double -> Double -> Double -> Double
+scale01 lo hi x =
+    let lo' = min lo hi
+        hi' = max lo hi
+     in if hi' <= lo' + 1e-12
+            then if x >= hi' then 1 else 0
+            else clamp01 ((x - lo') / (hi' - lo'))
+
+lstmConfidenceScoreFromPred :: Double -> Double -> Double -> Maybe Double
+lstmConfidenceScoreFromPred openThr prev next =
+    let bad x = isNaN x || isInfinite x
+        thr = max 1e-12 openThr
+     in if prev <= 0 || bad prev || bad next
+            then Nothing
+            else
+                let edge = abs (next / prev - 1)
+                    raw = edge / (2 * thr)
+                 in if bad edge || bad raw
+                        then Nothing
+                        else Just (clamp01 raw)
+
+kalmanZFromMeta :: StepMeta -> Maybe Double
+kalmanZFromMeta m =
+    let v = max 0 (smKalmanVar m)
+        s = sqrt v
+        z = if s <= 0 then 0 else abs (smKalmanMean m) / s
+     in if isNaN z || isInfinite z then Nothing else Just z
+
+confidenceBlendWeightFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Maybe Double ->
+    Double
+confidenceBlendWeightFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred mKalZ =
+    let wFallback = clamp01 fallbackWeight
+        kalScore =
+            case mKalZ of
+                Just z | not (isNaN z || isInfinite z) -> scale01 zMin zMax z
+                _ ->
+                    case lstmConfidenceScoreFromPred openThr prev kalPred of
+                        Just s -> s
+                        Nothing -> 0
+        lstmScore =
+            case lstmConfidenceScoreFromPred openThr prev lstmPred of
+                Just s -> s
+                Nothing -> 0
+        denom = kalScore + lstmScore
+     in if denom <= 1e-12
+            then wFallback
+            else clamp01 (kalScore / denom)
+
+confidenceBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Maybe Double ->
+    Double
+confidenceBlendPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred mKalZ =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                let w = confidenceBlendWeightFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred mKalZ
+                 in w * kalPred + (1 - w) * lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+
+confidenceBlendPredictionsV ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    V.Vector Double
+confidenceBlendPredictionsV fallbackWeight zMin zMax openThr pricesV kalPredV lstmPredV mMetaV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        kalZAt t =
+            case mMetaV of
+                Just metaV
+                    | t >= 0 && t < V.length metaV ->
+                        kalmanZFromMeta (metaV V.! t)
+                _ -> Nothing
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in confidenceBlendPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred (kalZAt t)
+     in V.generate (max 0 stepCount) pick
+
 foldRanges :: Int -> Int -> [(Int, Int)]
 foldRanges stepCount foldsReq =
     let steps = max 0 stepCount
@@ -261,6 +363,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
             case m of
                 MethodBoth -> 3 :: Int
                 MethodRouter -> 3
+                MethodConfBlend -> 2
                 MethodBlend -> 2
                 MethodKalmanOnly -> 1
                 MethodLstmOnly -> 0
@@ -269,7 +372,7 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 Left e -> Left e
                 Right (openThr, closeThr, bt, stats) ->
                     Right (tsMeanScore stats, tsStdScore stats, m, openThr, closeThr, bt, stats)
-        candidates = [MethodBoth, MethodRouter, MethodBlend, MethodKalmanOnly, MethodLstmOnly]
+        candidates = [MethodBoth, MethodRouter, MethodConfBlend, MethodBlend, MethodKalmanOnly, MethodLstmOnly]
         results = map eval candidates
         evaluated = Data.Either.rights results
         errors = Data.Either.lefts results
@@ -403,12 +506,17 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
 
         blendWeight = clamp01 (ecBlendWeight baseCfg)
         blendV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalV lstmV
+        kalZMinForBlend = max 0 (ecKalmanZMin baseCfg)
+        kalZMaxForBlend = max kalZMinForBlend (ecKalmanZMax baseCfg)
+        confBlendOpenThr0 = max baseOpenThreshold minEdge
+        confBlendV0 = confidenceBlendPredictionsV blendWeight kalZMinForBlend kalZMaxForBlend confBlendOpenThr0 pricesV kalV lstmV metaV
 
         (kalUsedV0, lstmUsedV0) =
             case method of
                 MethodBoth -> (kalV, lstmV)
                 MethodRouter -> (kalV, lstmV)
                 MethodBlend -> (blendV, blendV)
+                MethodConfBlend -> (confBlendV0, confBlendV0)
                 MethodKalmanOnly -> (kalV, kalV)
                 MethodLstmOnly -> (lstmV, lstmV)
 
@@ -465,6 +573,22 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodConfBlend
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodKalmanOnly
                     | V.length kalV < stepCount ->
                         Just
@@ -489,6 +613,7 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodBoth -> [kalV, lstmV]
                 MethodRouter -> [kalV, lstmV, blendV]
                 MethodBlend -> [blendV]
+                MethodConfBlend -> [confBlendV0]
                 MethodKalmanOnly -> [kalV]
                 MethodLstmOnly -> [lstmV]
         epsilonFor v =
@@ -574,6 +699,19 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                         blendV
                                 routerMaskV = V.map (== Just RouterKalman) routerModelsV
                              in (routerPredV, routerPredV, Just routerMaskV)
+                        MethodConfBlend ->
+                            let confBlendOpenThr = max openThr minEdge
+                                confBlendV =
+                                    confidenceBlendPredictionsV
+                                        blendWeight
+                                        kalZMinForBlend
+                                        kalZMaxForBlend
+                                        confBlendOpenThr
+                                        pricesV
+                                        kalV
+                                        lstmV
+                                        metaV
+                             in (confBlendV, confBlendV, Nothing)
                         _ -> (kalUsedV0, lstmUsedV0, Nothing)
                 evalClose closeThr =
                     let btCfg0 =

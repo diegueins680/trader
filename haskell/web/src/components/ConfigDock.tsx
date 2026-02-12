@@ -1301,12 +1301,13 @@ export const ConfigDock = (props: ConfigDockProps) => {
             >
               <option value="11">11 — Both (agreement gated)</option>
               <option value="blend">blend — Weighted average</option>
+              <option value="conf_blend">conf_blend — Confidence blend</option>
               <option value="router">router — Adaptive router</option>
               <option value="10">10 — Kalman only</option>
               <option value="01">01 — LSTM only</option>
             </select>
             <div className="hint">
-              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” averages the two predictions. “router” picks the best recent model.
+              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, and “router” picks the best recent model.
             </div>
             {methodOverride ? (
               <div className="pillRow" style={{ marginTop: 6 }}>
@@ -1574,9 +1575,9 @@ export const ConfigDock = (props: ConfigDockProps) => {
               inputMode="decimal"
               value={form.blendWeight}
               onChange={(e) => setForm((f) => ({ ...f, blendWeight: numFromInput(e.target.value, f.blendWeight) }))}
-              disabled={form.method !== "blend"}
+              disabled={form.method !== "blend" && form.method !== "conf_blend"}
             />
-            <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend.</div>
+            <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend.</div>
           </div>
         </div>
 

@@ -12,6 +12,7 @@ data Method
     | MethodKalmanOnly
     | MethodLstmOnly
     | MethodBlend
+    | MethodConfBlend
     | MethodRouter
     deriving (Eq, Show)
 
@@ -22,6 +23,7 @@ methodCode m =
         MethodKalmanOnly -> "10"
         MethodLstmOnly -> "01"
         MethodBlend -> "blend"
+        MethodConfBlend -> "conf_blend"
         MethodRouter -> "router"
 
 parseMethod :: String -> Either String Method
@@ -50,6 +52,12 @@ parseMethod raw =
         "mix" -> Right MethodBlend
         "weighted" -> Right MethodBlend
         "12" -> Right MethodBlend
+        "conf_blend" -> Right MethodConfBlend
+        "conf-blend" -> Right MethodConfBlend
+        "confblend" -> Right MethodConfBlend
+        "adaptive_blend" -> Right MethodConfBlend
+        "adaptive-blend" -> Right MethodConfBlend
+        "adaptiveblend" -> Right MethodConfBlend
         "router" -> Right MethodRouter
         "route" -> Right MethodRouter
         "adaptive" -> Right MethodRouter
@@ -58,7 +66,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -68,6 +76,10 @@ selectPredictions m blendWeight kalPred lstmPred =
         MethodKalmanOnly -> (kalPred, kalPred)
         MethodLstmOnly -> (lstmPred, lstmPred)
         MethodBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodConfBlend ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)

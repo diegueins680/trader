@@ -1751,7 +1751,7 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               </div>
             </div>
           </div>
-          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightBlend">
                 Blend method weight
@@ -1764,6 +1764,21 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 min={0}
                 value={optimizerRunForm.methodWeightBlend}
                 onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightConfBlend">
+                Conf blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightConfBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightConfBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightConfBlend: e.target.value }))}
                 placeholder="0.0"
               />
             </div>

@@ -275,6 +275,7 @@ optimizerArgsParser =
         <*> option auto (long "method-weight-10" <> value 4.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-01" <> value 0.1 <> metavar "FLOAT")
         <*> option auto (long "method-weight-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-conf-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "blend-weight-min" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "blend-weight-max" <> value 0.5 <> metavar "FLOAT")
         <*> option auto (long "router-score-pnl-weight-min" <> value 0.5 <> metavar "FLOAT")

@@ -654,6 +654,8 @@ testMethodParsing = do
     assert "parse lstm" (parseMethod "lstm" == Right MethodLstmOnly)
     assert "parse LSTM_ONLY" (parseMethod "LSTM_ONLY" == Right MethodLstmOnly)
     assert "parse blend" (parseMethod "blend" == Right MethodBlend)
+    assert "parse conf_blend" (parseMethod "conf_blend" == Right MethodConfBlend)
+    assert "parse conf-blend" (parseMethod "conf-blend" == Right MethodConfBlend)
     case parseMethod "00" of
         Left _ -> pure ()
         Right _ -> error "expected parse failure"
@@ -750,6 +752,7 @@ testMethodSelection = do
     assert "kalman-only duplicates kalman" (selectPredictions MethodKalmanOnly w kal lstm == (kal, kal))
     assert "lstm-only duplicates lstm" (selectPredictions MethodLstmOnly w kal lstm == (lstm, lstm))
     assert "blend averages" (selectPredictions MethodBlend w kal lstm == (blend, blend))
+    assert "conf_blend falls back to weighted average when confidence context is unavailable" (selectPredictions MethodConfBlend w kal lstm == (blend, blend))
 
 testTrainBacktestSplit :: IO ()
 testTrainBacktestSplit = do

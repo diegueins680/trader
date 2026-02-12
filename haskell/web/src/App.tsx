@@ -616,7 +616,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
   const generatedAtMsRaw = payloadRec.generatedAtMs;
   const generatedAtMs =
     typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
-  const methods: Method[] = ["11", "10", "01", "blend", "router"];
+  const methods: Method[] = ["11", "10", "01", "blend", "conf_blend", "router"];
   const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
   const positionings: Positioning[] = ["long-flat", "long-short"];
   const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
@@ -1712,7 +1712,7 @@ export function App() {
     }
     const intervalList = Array.from(intervals).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const symbolList = Array.from(symbols).sort((a, b) => a.localeCompare(b));
-    const methodOrder: Method[] = ["11", "10", "01", "blend", "router"];
+    const methodOrder: Method[] = ["11", "10", "01", "blend", "conf_blend", "router"];
     const methodList = methodOrder.filter((method) => methods.has(method));
     const marketOrder: ComboMarketValue[] = [...PLATFORMS, "csv", "unknown"];
     const marketList = marketOrder.filter((market) => markets.has(market));
@@ -7468,6 +7468,10 @@ export function App() {
       case "blend":
         edgeForMethod = blendEdge;
         edgeSource = "blend";
+        break;
+      case "conf_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "conf_blend";
         break;
       case "router":
         edgeForMethod = null;
