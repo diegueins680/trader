@@ -25,9 +25,11 @@ data Method
     | MethodTensionGate
     | MethodEntropyBlend
     | MethodCoherenceGate
+    | MethodDivergenceGate
     | MethodFractalBlend
     | MethodPhaseCancel
     | MethodSoftmaxBlend
+    | MethodSmoothSoftmaxBlend
     | MethodNetSoftmaxBlend
     | MethodEdgeBlend
     | MethodEdgePick
@@ -57,9 +59,11 @@ methodCode m =
         MethodTensionGate -> "tension_gate"
         MethodEntropyBlend -> "entropy_blend"
         MethodCoherenceGate -> "coherence_gate"
+        MethodDivergenceGate -> "divergence_gate"
         MethodFractalBlend -> "fractal_blend"
         MethodPhaseCancel -> "phase_cancel"
         MethodSoftmaxBlend -> "softmax_blend"
+        MethodSmoothSoftmaxBlend -> "smooth_softmax_blend"
         MethodNetSoftmaxBlend -> "net_softmax_blend"
         MethodEdgeBlend -> "edge_blend"
         MethodEdgePick -> "edge_pick"
@@ -172,6 +176,12 @@ parseMethod raw =
         "phase_lock" -> Right MethodCoherenceGate
         "phase-lock" -> Right MethodCoherenceGate
         "phaselock" -> Right MethodCoherenceGate
+        "divergence_gate" -> Right MethodDivergenceGate
+        "divergence-gate" -> Right MethodDivergenceGate
+        "divergencegate" -> Right MethodDivergenceGate
+        "dispersion_gate" -> Right MethodDivergenceGate
+        "dispersion-gate" -> Right MethodDivergenceGate
+        "dispersiongate" -> Right MethodDivergenceGate
         "fractal_blend" -> Right MethodFractalBlend
         "fractal-blend" -> Right MethodFractalBlend
         "fractalblend" -> Right MethodFractalBlend
@@ -190,6 +200,12 @@ parseMethod raw =
         "exp_blend" -> Right MethodSoftmaxBlend
         "exp-blend" -> Right MethodSoftmaxBlend
         "expblend" -> Right MethodSoftmaxBlend
+        "smooth_softmax_blend" -> Right MethodSmoothSoftmaxBlend
+        "smooth-softmax-blend" -> Right MethodSmoothSoftmaxBlend
+        "smoothsoftmaxblend" -> Right MethodSmoothSoftmaxBlend
+        "ema_softmax_blend" -> Right MethodSmoothSoftmaxBlend
+        "ema-softmax-blend" -> Right MethodSmoothSoftmaxBlend
+        "emasoftmaxblend" -> Right MethodSmoothSoftmaxBlend
         "net_softmax_blend" -> Right MethodNetSoftmaxBlend
         "net-softmax-blend" -> Right MethodNetSoftmaxBlend
         "netsoftmaxblend" -> Right MethodNetSoftmaxBlend
@@ -234,7 +250,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, fractal_blend, phase_cancel, softmax_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -299,6 +315,10 @@ selectPredictions m blendWeight kalPred lstmPred =
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
+        MethodDivergenceGate ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
         MethodFractalBlend ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
@@ -308,6 +328,10 @@ selectPredictions m blendWeight kalPred lstmPred =
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
         MethodSoftmaxBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodSmoothSoftmaxBlend ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)

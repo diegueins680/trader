@@ -1522,14 +1522,24 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                                     else Nothing
                                         winScore =
                                             case perfMinWinRate of
-                                                Just v | v > 0 -> clamp01 ((v - perfWinRate) / v)
+                                                Just v | v > 0 ->
+                                                    let slack = 0.05
+                                                        start = min 1 (v + slack)
+                                                        denom = max 1e-12 (start - v)
+                                                        raw = (start - perfWinRate) / denom
+                                                     in clamp01 raw
                                                 _ -> 0
                                         pfScore =
                                             case perfMinProfitFactor of
                                                 Just v | v > 0 ->
-                                                    case perfProfitFactor of
-                                                        Just pf -> clamp01 ((v - pf) / v)
-                                                        Nothing -> 0
+                                                    let start = v * 1.10
+                                                        denom = max 1e-12 (start - v)
+                                                        pfVal =
+                                                            case perfProfitFactor of
+                                                                Nothing -> start
+                                                                Just pf -> pf
+                                                        raw = (start - pfVal) / denom
+                                                     in clamp01 raw
                                                 _ -> 0
                                         strictness =
                                             if adaptiveFilters && perfReady
@@ -1915,9 +1925,17 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                 then (Nothing, 0)
                                                 else case entryBlockReason of
                                                     Nothing -> (desiredSideHoldAdjusted, desiredSizeHoldAdjusted)
-                                                    Just _ ->
+                                                    Just reason ->
                                                         case posSide of
-                                                            Just side -> (Just side, posSize)
+                                                            Just side ->
+                                                                let isPerfGate = reason == "PERF_WIN_RATE" || reason == "PERF_PROFIT_FACTOR"
+                                                                    flipAttempt =
+                                                                        case desiredSideHoldAdjusted of
+                                                                            Just s -> Just s /= posSide
+                                                                            Nothing -> False
+                                                                 in if isPerfGate && flipAttempt
+                                                                        then (Nothing, 0)
+                                                                        else (Just side, posSize)
                                                             Nothing -> (Nothing, 0)
 
                                         holdTooLong =

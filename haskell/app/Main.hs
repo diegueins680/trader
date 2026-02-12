@@ -1259,9 +1259,11 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrMethodWeightTensionGate :: !(Maybe Double)
     , arrMethodWeightEntropyBlend :: !(Maybe Double)
     , arrMethodWeightCoherenceGate :: !(Maybe Double)
+    , arrMethodWeightDivergenceGate :: !(Maybe Double)
     , arrMethodWeightFractalBlend :: !(Maybe Double)
     , arrMethodWeightPhaseCancel :: !(Maybe Double)
     , arrMethodWeightSoftmaxBlend :: !(Maybe Double)
+    , arrMethodWeightSmoothSoftmaxBlend :: !(Maybe Double)
     , arrMethodWeightNetSoftmaxBlend :: !(Maybe Double)
     , arrMethodWeightEdgeBlend :: !(Maybe Double)
     , arrMethodWeightEdgePick :: !(Maybe Double)
@@ -3124,6 +3126,7 @@ seedStrategies conn = do
             , ("fractal_blend", "Fractal Blend")
             , ("phase_cancel", "Phase Cancel")
             , ("softmax_blend", "Softmax Blend")
+            , ("smooth_softmax_blend", "Smooth Softmax Blend")
             , ("net_softmax_blend", "Net Softmax Blend")
             , ("edge_blend", "Edge Blend")
             , ("edge_pick", "Edge Pick")
@@ -3131,6 +3134,7 @@ seedStrategies conn = do
             , ("regime_switch", "Regime Switch")
             , ("router", "Router")
             , ("bandit_router", "Bandit Router")
+            , ("divergence_gate", "Divergence Gate")
             , ("unknown", "Unknown")
             ]
     forM_ seeds $ \(code, label) -> do
@@ -4288,16 +4292,29 @@ computeAdaptiveAdjustments :: Args -> BotPerfStats -> BotAdjustments
 computeAdaptiveAdjustments args stats =
     let lookback = max 0 (argPerfLookback args)
         ready = lookback > 0 && bpsTrades stats >= lookback
+        -- When adaptive filters are enabled, tighten gradually *before* the hard perf gate fails.
+        -- Win-rate tightening starts at (minWinRate + 0.05) and reaches full strictness at minWinRate.
+        -- Profit-factor tightening starts at (minPF * 1.10) and reaches full strictness at minPF.
         winScore =
             case argPerfMinWinRate args of
-                Just v | v > 0 -> clamp01 ((v - bpsWinRate stats) / v)
+                Just v | v > 0 ->
+                    let slack = 0.05
+                        start = min 1 (v + slack)
+                        denom = max 1e-12 (start - v)
+                        raw = (start - bpsWinRate stats) / denom
+                     in clamp01 raw
                 _ -> 0
         pfScore =
             case argPerfMinProfitFactor args of
                 Just v | v > 0 ->
-                    case bpsProfitFactor stats of
-                        Just pf -> clamp01 ((v - pf) / v)
-                        Nothing -> 0
+                    let start = v * 1.10
+                        denom = max 1e-12 (start - v)
+                        pfVal =
+                            case bpsProfitFactor stats of
+                                Nothing -> start
+                                Just pf -> pf
+                        raw = (start - pfVal) / denom
+                     in clamp01 raw
                 _ -> 0
         strictness =
             if argAdaptiveFilters args && ready
@@ -5998,9 +6015,11 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                     MethodTensionGate -> MethodBoth
                     MethodEntropyBlend -> MethodBoth
                     MethodCoherenceGate -> MethodBoth
+                    MethodDivergenceGate -> MethodBoth
                     MethodFractalBlend -> MethodBoth
                     MethodPhaseCancel -> MethodBoth
                     MethodSoftmaxBlend -> MethodBoth
+                    MethodSmoothSoftmaxBlend -> MethodBoth
                     MethodNetSoftmaxBlend -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
@@ -6624,9 +6643,11 @@ botApplyOptimizerUpdate st upd = do
                 MethodTensionGate -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEntropyBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodCoherenceGate -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodDivergenceGate -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodFractalBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodPhaseCancel -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodSoftmaxBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodSmoothSoftmaxBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodNetSoftmaxBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgePick -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -8409,10 +8430,18 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
         (latest2b, desiredPosWanted2b, mExitReason2b) =
             case entryBlockReason of
                 Just reason ->
-                    let action = "HOLD_" ++ reason
+                    let isPerfGate = reason == "PERF_WIN_RATE" || reason == "PERF_PROFIT_FACTOR"
+                        flipAttempt = prevPos /= 0 && desiredPosWanted2 /= 0 && desiredPosWanted2 /= prevPos
+                        action =
+                            if isPerfGate && flipAttempt
+                                then "EXIT_" ++ reason
+                                else "HOLD_" ++ reason
                      in if prevPos == 0
                             then (latest2{lsAction = action}, 0, Nothing)
-                            else (latest2{lsAction = action}, prevPos, Nothing)
+                            else
+                                if isPerfGate && flipAttempt
+                                    then (latest2{lsAction = action}, 0, Just reason)
+                                    else (latest2{lsAction = action}, prevPos, Nothing)
                 Nothing -> (latest2, desiredPosWanted2, mExitReason2)
 
         (latest, desiredPosWanted, mExitReason) =
@@ -11242,12 +11271,16 @@ prepareOptimizerArgs outputPath req = do
                     maybeDoubleArg "--method-weight-entropy-blend" (fmap (max 0) (arrMethodWeightEntropyBlend req))
                 methodWeightCoherenceGateArgs =
                     maybeDoubleArg "--method-weight-coherence-gate" (fmap (max 0) (arrMethodWeightCoherenceGate req))
+                methodWeightDivergenceGateArgs =
+                    maybeDoubleArg "--method-weight-divergence-gate" (fmap (max 0) (arrMethodWeightDivergenceGate req))
                 methodWeightFractalBlendArgs =
                     maybeDoubleArg "--method-weight-fractal-blend" (fmap (max 0) (arrMethodWeightFractalBlend req))
                 methodWeightPhaseCancelArgs =
                     maybeDoubleArg "--method-weight-phase-cancel" (fmap (max 0) (arrMethodWeightPhaseCancel req))
                 methodWeightSoftmaxBlendArgs =
                     maybeDoubleArg "--method-weight-softmax-blend" (fmap (max 0) (arrMethodWeightSoftmaxBlend req))
+                methodWeightSmoothSoftmaxBlendArgs =
+                    maybeDoubleArg "--method-weight-smooth-softmax-blend" (fmap (max 0) (arrMethodWeightSmoothSoftmaxBlend req))
                 methodWeightNetSoftmaxBlendArgs =
                     maybeDoubleArg "--method-weight-net-softmax-blend" (fmap (max 0) (arrMethodWeightNetSoftmaxBlend req))
                 methodWeightEdgeBlendArgs =
@@ -11397,9 +11430,11 @@ prepareOptimizerArgs outputPath req = do
                         ++ methodWeightTensionGateArgs
                         ++ methodWeightEntropyBlendArgs
                         ++ methodWeightCoherenceGateArgs
+                        ++ methodWeightDivergenceGateArgs
                         ++ methodWeightFractalBlendArgs
                         ++ methodWeightPhaseCancelArgs
                         ++ methodWeightSoftmaxBlendArgs
+                        ++ methodWeightSmoothSoftmaxBlendArgs
                         ++ methodWeightNetSoftmaxBlendArgs
                         ++ methodWeightEdgeBlendArgs
                         ++ methodWeightEdgePickArgs
@@ -14913,9 +14948,11 @@ placeDexOrderForSignal args sig = do
                 MethodTensionGate -> "No order: Tension gate neutral (within threshold)."
                 MethodEntropyBlend -> "No order: Entropy blend neutral (within threshold)."
                 MethodCoherenceGate -> "No order: Coherence gate neutral (within threshold)."
+                MethodDivergenceGate -> "No order: Divergence gate neutral (within threshold)."
                 MethodFractalBlend -> "No order: Fractal blend neutral (within threshold)."
                 MethodPhaseCancel -> "No order: Phase cancel neutral (within threshold)."
                 MethodSoftmaxBlend -> "No order: Softmax blend neutral (within threshold)."
+                MethodSmoothSoftmaxBlend -> "No order: Smooth softmax blend neutral (within threshold)."
                 MethodNetSoftmaxBlend -> "No order: Net softmax blend neutral (within threshold)."
                 MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
                 MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
@@ -16711,6 +16748,96 @@ netSoftmaxBlendPredictionsV fallbackWeight roundTripCost pricesV kalPredV lstmPr
              in netSoftmaxBlendPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
+smoothSoftmaxBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+smoothSoftmaxBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        alpha = 0.2
+        bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        step (t, wPrev0) =
+            if t >= stepCount
+                then Nothing
+                else
+                    let prev = pricesV V.! t
+                        kalPred = kalPredV V.! t
+                        lstmPred = lstmPredV V.! t
+                        wPrev = clamp01 wPrev0
+                        wSoft = softmaxBlendWeightFromPreds wFallback prev kalPred lstmPred
+                        wRaw = (1 - alpha) * wPrev + alpha * wSoft
+                        w =
+                            if bad wRaw
+                                then wPrev
+                                else clamp01 wRaw
+                        pred =
+                            case (bad kalPred, bad lstmPred) of
+                                (False, False) ->
+                                    let v = w * kalPred + (1 - w) * lstmPred
+                                     in if bad v then wFallback * kalPred + (1 - wFallback) * lstmPred else v
+                                (False, True) -> kalPred
+                                (True, False) -> lstmPred
+                                (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+                     in Just (pred, (t + 1, w))
+     in V.unfoldrN (max 0 stepCount) step (0, wFallback)
+
+divergenceGatePredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        thr = max 1e-12 (abs openThr)
+        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        neutralPred =
+            if bad prev || isInfinite prev
+                then blend
+                else prev
+        ret x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let v = x / prev - 1
+                     in if bad v then Nothing else Just v
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                case (ret kalPred, ret lstmPred) of
+                    (Just rKal, Just rLstm) ->
+                        let rBlend = wFallback * rKal + (1 - wFallback) * rLstm
+                            disp = abs (rKal - rLstm)
+                            k = 4
+                            alpha = 1 / (1 + disp / (k * thr))
+                            a = if bad alpha then 1 else clamp01 alpha
+                            pred = neutralPred * (1 + a * rBlend)
+                         in if bad pred then blend else pred
+                    _ -> blend
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> blend
+
+divergenceGatePredictionsV ::
+    Double ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+divergenceGatePredictionsV fallbackWeight openThr pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in divergenceGatePredFromPreds fallbackWeight openThr prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 edgeBlendWeightFromPreds ::
     Double ->
     Double ->
@@ -17051,12 +17178,14 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 fractalBlendPred0 = fractalBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 phaseCancelPred0 = phaseCancelPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 softmaxBlendPred0 = softmaxBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                smoothSoftmaxBlendPred0 = smoothSoftmaxBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 netSoftmaxBlendPred0 = netSoftmaxBlendPredictionsV blendWeight roundTripCost pricesV kalPred0 lstmPred0
                 edgeBlendPred0 = edgeBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 edgePickPred0 = edgePickPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 costPickPred0 = costPickPredictionsV blendWeight roundTripCost pricesV kalPred0 lstmPred0
                 geoBlendPred0 = geometricBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 confBlendOpenThr = max openThrBase minEdge
+                divergenceGatePred0 = divergenceGatePredictionsV blendWeight confBlendOpenThr pricesV kalPred0 lstmPred0
                 confBlendPred0 =
                     confidenceBlendPredictionsV
                         blendWeight
@@ -17122,9 +17251,11 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodTensionGate -> (tensionGatePred0, tensionGatePred0)
                         MethodEntropyBlend -> (entropyBlendPred0, entropyBlendPred0)
                         MethodCoherenceGate -> (coherenceGatePred0, coherenceGatePred0)
+                        MethodDivergenceGate -> (divergenceGatePred0, divergenceGatePred0)
                         MethodFractalBlend -> (fractalBlendPred0, fractalBlendPred0)
                         MethodPhaseCancel -> (phaseCancelPred0, phaseCancelPred0)
                         MethodSoftmaxBlend -> (softmaxBlendPred0, softmaxBlendPred0)
+                        MethodSmoothSoftmaxBlend -> (smoothSoftmaxBlendPred0, smoothSoftmaxBlendPred0)
                         MethodNetSoftmaxBlend -> (netSoftmaxBlendPred0, netSoftmaxBlendPred0)
                         MethodEdgeBlend -> (edgeBlendPred0, edgeBlendPred0)
                         MethodEdgePick -> (edgePickPred0, edgePickPred0)
@@ -17387,9 +17518,11 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodTensionGate -> "No order: Tension gate neutral (within threshold)."
             MethodEntropyBlend -> "No order: Entropy blend neutral (within threshold)."
             MethodCoherenceGate -> "No order: Coherence gate neutral (within threshold)."
+            MethodDivergenceGate -> "No order: Divergence gate neutral (within threshold)."
             MethodFractalBlend -> "No order: Fractal blend neutral (within threshold)."
             MethodPhaseCancel -> "No order: Phase cancel neutral (within threshold)."
             MethodSoftmaxBlend -> "No order: Softmax blend neutral (within threshold)."
+            MethodSmoothSoftmaxBlend -> "No order: Smooth softmax blend neutral (within threshold)."
             MethodNetSoftmaxBlend -> "No order: Net softmax blend neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
@@ -18184,9 +18317,11 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodTensionGate -> "No order: Tension gate neutral (within threshold)."
             MethodEntropyBlend -> "No order: Entropy blend neutral (within threshold)."
             MethodCoherenceGate -> "No order: Coherence gate neutral (within threshold)."
+            MethodDivergenceGate -> "No order: Divergence gate neutral (within threshold)."
             MethodFractalBlend -> "No order: Fractal blend neutral (within threshold)."
             MethodPhaseCancel -> "No order: Phase cancel neutral (within threshold)."
             MethodSoftmaxBlend -> "No order: Softmax blend neutral (within threshold)."
+            MethodSmoothSoftmaxBlend -> "No order: Smooth softmax blend neutral (within threshold)."
             MethodNetSoftmaxBlend -> "No order: Net softmax blend neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
@@ -18652,9 +18787,11 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodTensionGate -> "Backtest (tension-gated Kalman/LSTM guard) complete."
                     MethodEntropyBlend -> "Backtest (entropy-aware Kalman/LSTM blend) complete."
                     MethodCoherenceGate -> "Backtest (coherence-gated Kalman/LSTM guard) complete."
+                    MethodDivergenceGate -> "Backtest (divergence-gated Kalman/LSTM blend) complete."
                     MethodFractalBlend -> "Backtest (fractal-space Kalman/LSTM blend) complete."
                     MethodPhaseCancel -> "Backtest (phase-cancel Kalman/LSTM guard) complete."
                     MethodSoftmaxBlend -> "Backtest (softmax-edge Kalman/LSTM blend) complete."
+                    MethodSmoothSoftmaxBlend -> "Backtest (EMA-smoothed softmax-edge Kalman/LSTM blend) complete."
                     MethodNetSoftmaxBlend -> "Backtest (post-cost softmax Kalman/LSTM blend) complete."
                     MethodEdgeBlend -> "Backtest (edge-weighted Kalman/LSTM blend) complete."
                     MethodEdgePick -> "Backtest (edge winner-take-all Kalman/LSTM pick) complete."
@@ -19060,9 +19197,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     MethodTensionGate -> MethodBoth
                     MethodEntropyBlend -> MethodBoth
                     MethodCoherenceGate -> MethodBoth
+                    MethodDivergenceGate -> MethodBoth
                     MethodFractalBlend -> MethodBoth
                     MethodPhaseCancel -> MethodBoth
                     MethodSoftmaxBlend -> MethodBoth
+                    MethodSmoothSoftmaxBlend -> MethodBoth
                     MethodNetSoftmaxBlend -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
@@ -19176,9 +19315,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             MethodTensionGate -> runDualPredictorBacktest
             MethodEntropyBlend -> runDualPredictorBacktest
             MethodCoherenceGate -> runDualPredictorBacktest
+            MethodDivergenceGate -> runDualPredictorBacktest
             MethodFractalBlend -> runDualPredictorBacktest
             MethodPhaseCancel -> runDualPredictorBacktest
             MethodSoftmaxBlend -> runDualPredictorBacktest
+            MethodSmoothSoftmaxBlend -> runDualPredictorBacktest
             MethodNetSoftmaxBlend -> runDualPredictorBacktest
             MethodEdgeBlend -> runDualPredictorBacktest
             MethodEdgePick -> runDualPredictorBacktest
@@ -19467,11 +19608,21 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
              in V.toList (softmaxBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+        smoothSoftmaxBlendPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (smoothSoftmaxBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         netSoftmaxBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
              in V.toList (netSoftmaxBlendPredictionsV blendWeight roundTripCost pricesBacktestV kalBacktestV lstmBacktestV)
+        divergenceGatePredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (divergenceGatePredictionsV blendWeight routerOpenThr pricesBacktestV kalBacktestV lstmBacktestV)
         geoBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -19594,8 +19745,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     (phaseCancelPredBacktest, phaseCancelPredBacktest, metaBacktest, Nothing)
                 MethodSoftmaxBlend ->
                     (softmaxBlendPredBacktest, softmaxBlendPredBacktest, metaBacktest, Nothing)
+                MethodSmoothSoftmaxBlend ->
+                    (smoothSoftmaxBlendPredBacktest, smoothSoftmaxBlendPredBacktest, metaBacktest, Nothing)
                 MethodNetSoftmaxBlend ->
                     (netSoftmaxBlendPredBacktest, netSoftmaxBlendPredBacktest, metaBacktest, Nothing)
+                MethodDivergenceGate ->
+                    (divergenceGatePredBacktest, divergenceGatePredBacktest, metaBacktest, Nothing)
                 MethodEdgeBlend ->
                     (edgeBlendPredBacktest, edgeBlendPredBacktest, metaBacktest, Nothing)
                 MethodEdgePick ->
@@ -20425,6 +20580,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method coherence_gate requires both Kalman and LSTM contexts."
+            MethodDivergenceGate ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method divergence_gate requires both Kalman and LSTM contexts."
             MethodFractalBlend ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -20437,6 +20596,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method softmax_blend requires both Kalman and LSTM contexts."
+            MethodSmoothSoftmaxBlend ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method smooth_softmax_blend requires both Kalman and LSTM contexts."
             MethodNetSoftmaxBlend ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -20486,9 +20649,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             MethodTensionGate -> True
             MethodEntropyBlend -> True
             MethodCoherenceGate -> True
+            MethodDivergenceGate -> True
             MethodFractalBlend -> True
             MethodPhaseCancel -> True
             MethodSoftmaxBlend -> True
+            MethodSmoothSoftmaxBlend -> True
             MethodNetSoftmaxBlend -> True
             MethodEdgeBlend -> True
             MethodEdgePick -> True
@@ -21009,10 +21174,44 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     (Just k, Just l) ->
                         Just (softmaxBlendPredFromPreds blendWeight currentPrice k l)
                     _ -> Nothing
+            smoothSoftmaxBlendNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        let alpha = 0.2
+                            w0 = clamp01 blendWeight
+                            wPrev =
+                                case mPredHistory of
+                                    Just PredHistory{phKalman = kalHist, phLstm = lstmHist}
+                                        | t > 0 ->
+                                            let histLen = min t (min (V.length kalHist) (V.length lstmHist))
+                                                step w i =
+                                                    let prev = pricesV V.! i
+                                                        kp = kalHist V.! i
+                                                        lp = lstmHist V.! i
+                                                        wSoft = softmaxBlendWeightFromPreds w0 prev kp lp
+                                                        wRaw = (1 - alpha) * w + alpha * wSoft
+                                                     in if bad wRaw then w else clamp01 wRaw
+                                             in foldl' step w0 [0 .. histLen - 1]
+                                    _ -> w0
+                            wSoftCur = softmaxBlendWeightFromPreds w0 currentPrice k l
+                            wRaw = (1 - alpha) * wPrev + alpha * wSoftCur
+                            w =
+                                if bad wRaw
+                                    then wPrev
+                                    else clamp01 wRaw
+                            fallbackPred = w0 * k + (1 - w0) * l
+                            pred = w * k + (1 - w) * l
+                         in Just (if bad pred then fallbackPred else pred)
+                    _ -> Nothing
             netSoftmaxBlendNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
                         Just (netSoftmaxBlendPredFromPreds blendWeight roundTripCost currentPrice k l)
+                    _ -> Nothing
+            divergenceGateNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        Just (divergenceGatePredFromPreds blendWeight openThrAdj currentPrice k l)
                     _ -> Nothing
             harmonicBlendNext =
                 case (mKalNext, mLstmNext) of
@@ -21287,9 +21486,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodTensionGate -> tensionGateNext
                     MethodEntropyBlend -> entropyBlendNext
                     MethodCoherenceGate -> coherenceGateNext
+                    MethodDivergenceGate -> divergenceGateNext
                     MethodFractalBlend -> fractalBlendNext
                     MethodPhaseCancel -> phaseCancelNext
                     MethodSoftmaxBlend -> softmaxBlendNext
+                    MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendNext
                     MethodNetSoftmaxBlend -> netSoftmaxBlendNext
                     MethodEdgeBlend -> edgeBlendNext
                     MethodEdgePick -> edgePickNext
@@ -21324,7 +21525,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             edgeFractalBlend = fractalBlendNext >>= edgeFromPred
             edgePhaseCancel = phaseCancelNext >>= edgeFromPred
             edgeSoftmaxBlend = softmaxBlendNext >>= edgeFromPred
+            edgeSmoothSoftmaxBlend = smoothSoftmaxBlendNext >>= edgeFromPred
             edgeNetSoftmaxBlend = netSoftmaxBlendNext >>= edgeFromPred
+            edgeDivergenceGate = divergenceGateNext >>= edgeFromPred
             edgeEdgeBlend = edgeBlendNext >>= edgeFromPred
             edgeEdgePick = edgePickNext >>= edgeFromPred
             edgeGeoBlend = geoBlendNext >>= edgeFromPred
@@ -21355,7 +21558,9 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodFractalBlend -> edgeFractalBlend
                     MethodPhaseCancel -> edgePhaseCancel
                     MethodSoftmaxBlend -> edgeSoftmaxBlend
+                    MethodSmoothSoftmaxBlend -> edgeSmoothSoftmaxBlend
                     MethodNetSoftmaxBlend -> edgeNetSoftmaxBlend
+                    MethodDivergenceGate -> edgeDivergenceGate
                     MethodEdgeBlend -> edgeEdgeBlend
                     MethodEdgePick -> edgeEdgePick
                     MethodGeoBlend -> edgeGeoBlend
@@ -21421,8 +21626,12 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             phaseCancelCloseDir = phaseCancelNext >>= directionPrice closeThrAdj
             softmaxBlendDir = softmaxBlendNext >>= directionPrice openThrAdj
             softmaxBlendCloseDir = softmaxBlendNext >>= directionPrice closeThrAdj
+            smoothSoftmaxBlendDir = smoothSoftmaxBlendNext >>= directionPrice openThrAdj
+            smoothSoftmaxBlendCloseDir = smoothSoftmaxBlendNext >>= directionPrice closeThrAdj
             netSoftmaxBlendDir = netSoftmaxBlendNext >>= directionPrice openThrAdj
             netSoftmaxBlendCloseDir = netSoftmaxBlendNext >>= directionPrice closeThrAdj
+            divergenceGateDir = divergenceGateNext >>= directionPrice openThrAdj
+            divergenceGateCloseDir = divergenceGateNext >>= directionPrice closeThrAdj
             edgeBlendDir = edgeBlendNext >>= directionPrice openThrAdj
             edgeBlendCloseDir = edgeBlendNext >>= directionPrice closeThrAdj
             edgePickDir = edgePickNext >>= directionPrice openThrAdj
@@ -21697,6 +21906,25 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                          in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
                          in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
                     _ -> (Nothing, Nothing, Nothing, Nothing)
+            (divergenceGateDirGated, divergenceGateCloseDirGated, divergenceGatePosSize, divergenceGateGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodDivergenceGate, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing divergenceGateDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore divergenceGateDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore divergenceGateCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
             (fractalBlendDirGated, fractalBlendCloseDirGated, fractalBlendPosSize, fractalBlendGateReason) =
                 case (method, mKalZ, mConfidence) of
                     (MethodFractalBlend, Just kalZ, Just confScore) ->
@@ -21746,6 +21974,25 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore softmaxBlendDir
                             (closeDirUsed, _) =
                                 gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore softmaxBlendCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
+            (smoothSoftmaxBlendDirGated, smoothSoftmaxBlendCloseDirGated, smoothSoftmaxBlendPosSize, smoothSoftmaxBlendGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodSmoothSoftmaxBlend, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing smoothSoftmaxBlendDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore smoothSoftmaxBlendDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore smoothSoftmaxBlendCloseDir
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -21904,9 +22151,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodTensionGate -> tensionGateCloseDirGated
                     MethodEntropyBlend -> entropyBlendCloseDirGated
                     MethodCoherenceGate -> coherenceGateCloseDirGated
+                    MethodDivergenceGate -> divergenceGateCloseDirGated
                     MethodFractalBlend -> fractalBlendCloseDirGated
                     MethodPhaseCancel -> phaseCancelCloseDirGated
                     MethodSoftmaxBlend -> softmaxBlendCloseDirGated
+                    MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendCloseDirGated
                     MethodNetSoftmaxBlend -> netSoftmaxBlendCloseDirGated
                     MethodEdgeBlend -> edgeBlendCloseDirGated
                     MethodEdgePick -> edgePickCloseDirGated
@@ -21938,9 +22187,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodTensionGate -> tensionGateDirGated
                     MethodEntropyBlend -> entropyBlendDirGated
                     MethodCoherenceGate -> coherenceGateDirGated
+                    MethodDivergenceGate -> divergenceGateDirGated
                     MethodFractalBlend -> fractalBlendDirGated
                     MethodPhaseCancel -> phaseCancelDirGated
                     MethodSoftmaxBlend -> softmaxBlendDirGated
+                    MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendDirGated
                     MethodNetSoftmaxBlend -> netSoftmaxBlendDirGated
                     MethodEdgeBlend -> edgeBlendDirGated
                     MethodEdgePick -> edgePickDirGated
@@ -22159,6 +22410,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (coherence_gate neutral)"
+                        MethodDivergenceGate ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (divergence_gate neutral)"
                         MethodFractalBlend ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -22183,6 +22442,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (softmax_blend neutral)"
+                        MethodSmoothSoftmaxBlend ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (smooth_softmax_blend neutral)"
                         MethodNetSoftmaxBlend ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -22256,9 +22523,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodTensionGate -> tensionGatePosSize
                     MethodEntropyBlend -> entropyBlendPosSize
                     MethodCoherenceGate -> coherenceGatePosSize
+                    MethodDivergenceGate -> divergenceGatePosSize
                     MethodFractalBlend -> fractalBlendPosSize
                     MethodPhaseCancel -> phaseCancelPosSize
                     MethodSoftmaxBlend -> softmaxBlendPosSize
+                    MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendPosSize
                     MethodNetSoftmaxBlend -> netSoftmaxBlendPosSize
                     MethodEdgeBlend -> edgeBlendPosSize
                     MethodEdgePick -> edgePickPosSize
@@ -22283,9 +22552,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodTensionGate -> tensionGateGateReason
                     MethodEntropyBlend -> entropyBlendGateReason
                     MethodCoherenceGate -> coherenceGateGateReason
+                    MethodDivergenceGate -> divergenceGateGateReason
                     MethodFractalBlend -> fractalBlendGateReason
                     MethodPhaseCancel -> phaseCancelGateReason
                     MethodSoftmaxBlend -> softmaxBlendGateReason
+                    MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendGateReason
                     MethodNetSoftmaxBlend -> netSoftmaxBlendGateReason
                     MethodEdgeBlend -> edgeBlendGateReason
                     MethodEdgePick -> edgePickGateReason
@@ -22970,9 +23241,11 @@ printMetrics method m = do
                 MethodTensionGate -> "Signal rate (Tension gate)"
                 MethodEntropyBlend -> "Signal rate (Entropy blend)"
                 MethodCoherenceGate -> "Signal rate (Coherence gate)"
+                MethodDivergenceGate -> "Signal rate (Divergence gate)"
                 MethodFractalBlend -> "Signal rate (Fractal blend)"
                 MethodPhaseCancel -> "Signal rate (Phase cancel)"
                 MethodSoftmaxBlend -> "Signal rate (Softmax blend)"
+                MethodSmoothSoftmaxBlend -> "Signal rate (Smooth softmax blend)"
                 MethodNetSoftmaxBlend -> "Signal rate (Net softmax blend)"
                 MethodEdgeBlend -> "Signal rate (Edge blend)"
                 MethodEdgePick -> "Signal rate (Edge pick)"

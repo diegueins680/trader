@@ -742,9 +742,11 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightTensionGate :: !Double
     , oaMethodWeightEntropyBlend :: !Double
     , oaMethodWeightCoherenceGate :: !Double
+    , oaMethodWeightDivergenceGate :: !Double
     , oaMethodWeightFractalBlend :: !Double
     , oaMethodWeightPhaseCancel :: !Double
     , oaMethodWeightSoftmaxBlend :: !Double
+    , oaMethodWeightSmoothSoftmaxBlend :: !Double
     , oaMethodWeightNetSoftmaxBlend :: !Double
     , oaMethodWeightEdgeBlend :: !Double
     , oaMethodWeightEdgePick :: !Double
@@ -1717,7 +1719,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
+    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWDivergenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWSmoothSoftmaxBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -1769,9 +1771,11 @@ sampleParams
                 , ("tension_gate", methodWTensionGate)
                 , ("entropy_blend", methodWEntropyBlend)
                 , ("coherence_gate", methodWCoherenceGate)
+                , ("divergence_gate", methodWDivergenceGate)
                 , ("fractal_blend", methodWFractalBlend)
                 , ("phase_cancel", methodWPhaseCancel)
                 , ("softmax_blend", methodWSoftmaxBlend)
+                , ("smooth_softmax_blend", methodWSmoothSoftmaxBlend)
                 , ("net_softmax_blend", methodWNetSoftmaxBlend)
                 , ("edge_blend", methodWEdgeBlend)
                 , ("edge_pick", methodWEdgePick)
@@ -2600,9 +2604,11 @@ runOptimizer args0 = do
                                                             , oaMethodWeightTensionGate args
                                                             , oaMethodWeightEntropyBlend args
                                                             , oaMethodWeightCoherenceGate args
+                                                            , oaMethodWeightDivergenceGate args
                                                             , oaMethodWeightFractalBlend args
                                                             , oaMethodWeightPhaseCancel args
                                                             , oaMethodWeightSoftmaxBlend args
+                                                            , oaMethodWeightSmoothSoftmaxBlend args
                                                             , oaMethodWeightNetSoftmaxBlend args
                                                             , oaMethodWeightEdgeBlend args
                                                             , oaMethodWeightEdgePick args
