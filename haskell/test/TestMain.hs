@@ -656,7 +656,9 @@ testMethodParsing = do
     assert "parse blend" (parseMethod "blend" == Right MethodBlend)
     assert "parse conf_blend" (parseMethod "conf_blend" == Right MethodConfBlend)
     assert "parse conf-blend" (parseMethod "conf-blend" == Right MethodConfBlend)
+    assert "parse conf_pick" (parseMethod "conf_pick" == Right MethodConfPick)
     assert "parse edge_blend" (parseMethod "edge_blend" == Right MethodEdgeBlend)
+    assert "parse edge_pick" (parseMethod "edge_pick" == Right MethodEdgePick)
     assert "parse geo_blend" (parseMethod "geo_blend" == Right MethodGeoBlend)
     case parseMethod "00" of
         Left _ -> pure ()
@@ -755,7 +757,9 @@ testMethodSelection = do
     assert "lstm-only duplicates lstm" (selectPredictions MethodLstmOnly w kal lstm == (lstm, lstm))
     assert "blend averages" (selectPredictions MethodBlend w kal lstm == (blend, blend))
     assert "conf_blend falls back to weighted average when confidence context is unavailable" (selectPredictions MethodConfBlend w kal lstm == (blend, blend))
+    assert "conf_pick falls back to weighted average when confidence context is unavailable" (selectPredictions MethodConfPick w kal lstm == (blend, blend))
     assert "edge_blend falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgeBlend w kal lstm == (blend, blend))
+    assert "edge_pick falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgePick w kal lstm == (blend, blend))
     assert "geo_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodGeoBlend w kal lstm == (blend, blend))
 
 testTrainBacktestSplit :: IO ()
@@ -799,7 +803,12 @@ testOptimizeOperations = do
         case optimizeOperations cfg prices kalPred lstmPred Nothing of
             Left e -> error e
             Right v -> pure v
-    assert "picked kalman-only" (m == MethodKalmanOnly)
+    assert
+        "picked method that follows kalman for this case"
+        ( m == MethodKalmanOnly
+            || m == MethodConfPick
+            || m == MethodEdgePick
+        )
     assertApprox "open thr close to 10%" 1e-6 openThr 0.1
     assertApprox "close thr close to 10%" 1e-6 closeThr 0.1
     assertApprox "final equity" 1e-12 (bestFinalEquity bt) 1.1

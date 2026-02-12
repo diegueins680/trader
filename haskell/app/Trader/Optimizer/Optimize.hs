@@ -730,7 +730,9 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeight01 :: !Double
     , oaMethodWeightBlend :: !Double
     , oaMethodWeightConfBlend :: !Double
+    , oaMethodWeightConfPick :: !Double
     , oaMethodWeightEdgeBlend :: !Double
+    , oaMethodWeightEdgePick :: !Double
     , oaMethodWeightGeoBlend :: !Double
     , oaBlendWeightMin :: !Double
     , oaBlendWeightMax :: !Double
@@ -1698,7 +1700,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWEdgeBlend, methodWGeoBlend)
+    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -1738,7 +1740,9 @@ sampleParams
                 , ("01", methodW01)
                 , ("blend", methodWBlend)
                 , ("conf_blend", methodWConfBlend)
+                , ("conf_pick", methodWConfPick)
                 , ("edge_blend", methodWEdgeBlend)
+                , ("edge_pick", methodWEdgePick)
                 , ("geo_blend", methodWGeoBlend)
                 ]
             (method, rng4) = chooseWeighted methods rng3
@@ -2550,7 +2554,9 @@ runOptimizer args0 = do
                                                             , oaMethodWeight01 args
                                                             , oaMethodWeightBlend args
                                                             , oaMethodWeightConfBlend args
+                                                            , oaMethodWeightConfPick args
                                                             , oaMethodWeightEdgeBlend args
+                                                            , oaMethodWeightEdgePick args
                                                             , oaMethodWeightGeoBlend args
                                                             )
                                                         blendWeightRange =

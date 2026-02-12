@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
-- Trading/Optimizer/Web UI: expand blend methods with `--method conf_blend` (confidence-weighted), `--method edge_blend` (edge-weighted), and `--method geo_blend` (geometric), expose them in CLI/API/UI method lists, and add optimizer sampling via `--method-weight-conf-blend` / `--method-weight-edge-blend` / `--method-weight-geo-blend`.
+- Trading/Optimizer/Web UI: expand adaptive methods with `--method conf_blend`/`conf_pick` (confidence-weighted/pick), `--method edge_blend`/`edge_pick` (edge-weighted/pick), and `--method geo_blend` (geometric), expose them in CLI/API/UI method lists, and add optimizer sampling via `--method-weight-conf-blend` / `--method-weight-conf-pick` / `--method-weight-edge-blend` / `--method-weight-edge-pick` / `--method-weight-geo-blend`.
 - Trading: fix `--method blend` so entry direction uses the same Kalman confidence/risk gating path as close direction.
 - Trading: weekly loss gating now uses UTC calendar weeks (Monday 00:00 boundaries) instead of epoch-aligned 7-day buckets.
 - Web UI: normalize bare `localhost/path` API base inputs to `http://localhost/path`, treat `0.0.0.0` as local, and avoid silently coercing ambiguous single-comma numeric inputs (for example `1,234`) by falling back to the previous value.

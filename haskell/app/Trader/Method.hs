@@ -13,7 +13,9 @@ data Method
     | MethodLstmOnly
     | MethodBlend
     | MethodConfBlend
+    | MethodConfPick
     | MethodEdgeBlend
+    | MethodEdgePick
     | MethodGeoBlend
     | MethodRouter
     deriving (Eq, Show)
@@ -26,7 +28,9 @@ methodCode m =
         MethodLstmOnly -> "01"
         MethodBlend -> "blend"
         MethodConfBlend -> "conf_blend"
+        MethodConfPick -> "conf_pick"
         MethodEdgeBlend -> "edge_blend"
+        MethodEdgePick -> "edge_pick"
         MethodGeoBlend -> "geo_blend"
         MethodRouter -> "router"
 
@@ -62,12 +66,24 @@ parseMethod raw =
         "adaptive_blend" -> Right MethodConfBlend
         "adaptive-blend" -> Right MethodConfBlend
         "adaptiveblend" -> Right MethodConfBlend
+        "conf_pick" -> Right MethodConfPick
+        "conf-pick" -> Right MethodConfPick
+        "confpick" -> Right MethodConfPick
+        "confidence_pick" -> Right MethodConfPick
+        "confidence-pick" -> Right MethodConfPick
+        "confidencepick" -> Right MethodConfPick
         "edge_blend" -> Right MethodEdgeBlend
         "edge-blend" -> Right MethodEdgeBlend
         "edgeblend" -> Right MethodEdgeBlend
         "edge_mix" -> Right MethodEdgeBlend
         "edge-mix" -> Right MethodEdgeBlend
         "edgemix" -> Right MethodEdgeBlend
+        "edge_pick" -> Right MethodEdgePick
+        "edge-pick" -> Right MethodEdgePick
+        "edgepick" -> Right MethodEdgePick
+        "edge_select" -> Right MethodEdgePick
+        "edge-select" -> Right MethodEdgePick
+        "edgeselect" -> Right MethodEdgePick
         "geo_blend" -> Right MethodGeoBlend
         "geo-blend" -> Right MethodGeoBlend
         "geoblend" -> Right MethodGeoBlend
@@ -82,7 +98,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, edge_blend, geo_blend, router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, edge_blend, edge_pick, geo_blend, router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -99,7 +115,15 @@ selectPredictions m blendWeight kalPred lstmPred =
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
+        MethodConfPick ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
         MethodEdgeBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodEdgePick ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)

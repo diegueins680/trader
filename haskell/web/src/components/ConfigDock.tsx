@@ -1302,14 +1302,16 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <option value="11">11 — Both (agreement gated)</option>
               <option value="blend">blend — Weighted average</option>
               <option value="conf_blend">conf_blend — Confidence blend</option>
+              <option value="conf_pick">conf_pick — Confidence pick</option>
               <option value="edge_blend">edge_blend — Edge-weighted blend</option>
+              <option value="edge_pick">edge_pick — Edge pick</option>
               <option value="geo_blend">geo_blend — Geometric blend</option>
               <option value="router">router — Adaptive router</option>
               <option value="10">10 — Kalman only</option>
               <option value="01">01 — LSTM only</option>
             </select>
             <div className="hint">
-              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “edge_blend” weights by instantaneous edge, “geo_blend” blends in log-return space, and “router” picks the best recent model.
+              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, and “router” picks the best recent model.
             </div>
             {methodOverride ? (
               <div className="pillRow" style={{ marginTop: 6 }}>
@@ -1580,11 +1582,13 @@ export const ConfigDock = (props: ConfigDockProps) => {
               disabled={
                 form.method !== "blend" &&
                 form.method !== "conf_blend" &&
+                form.method !== "conf_pick" &&
                 form.method !== "edge_blend" &&
+                form.method !== "edge_pick" &&
                 form.method !== "geo_blend"
               }
             />
-            <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/edge_blend/geo_blend.</div>
+            <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/edge_blend/edge_pick/geo_blend.</div>
           </div>
         </div>
 

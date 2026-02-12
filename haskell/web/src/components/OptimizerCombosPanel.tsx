@@ -1798,7 +1798,37 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               />
             </div>
           </div>
-          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightConfPick">
+                Conf pick method weight
+              </label>
+              <input
+                id="optimizerMethodWeightConfPick"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightConfPick}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightConfPick: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightEdgePick">
+                Edge pick method weight
+              </label>
+              <input
+                id="optimizerMethodWeightEdgePick"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightEdgePick}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightEdgePick: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
             <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
                 Geo blend method weight
@@ -1814,6 +1844,8 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 placeholder="0.0"
               />
             </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerBlendWeightMin">
                 Blend weight range
