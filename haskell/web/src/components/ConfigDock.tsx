@@ -1304,6 +1304,8 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <option value="conf_blend">conf_blend — Confidence blend</option>
               <option value="conf_pick">conf_pick — Confidence pick</option>
               <option value="cost_pick">cost_pick — Cost-aware pick</option>
+              <option value="harmonic_blend">harmonic_blend — Harmonic-return blend</option>
+              <option value="disagreement_guard">disagreement_guard — Disagreement-aware pick</option>
               <option value="edge_blend">edge_blend — Edge-weighted blend</option>
               <option value="edge_pick">edge_pick — Edge pick</option>
               <option value="geo_blend">geo_blend — Geometric blend</option>
@@ -1314,7 +1316,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <option value="01">01 — LSTM only</option>
             </select>
             <div className="hint">
-              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “cost_pick” picks the higher post-cost edge, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, “regime_switch” toggles by volatility/z-score context, and “router”/“bandit_router” pick the best recent model.
+              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “cost_pick” picks the higher post-cost edge, “harmonic_blend” uses a harmonic mean in return space, “disagreement_guard” picks lower-edge predictions when models conflict, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, “regime_switch” toggles by volatility/z-score context, and “router”/“bandit_router” pick the best recent model.
             </div>
             {methodOverride ? (
               <div className="pillRow" style={{ marginTop: 6 }}>
@@ -1587,13 +1589,15 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 form.method !== "conf_blend" &&
                 form.method !== "conf_pick" &&
                 form.method !== "cost_pick" &&
+                form.method !== "harmonic_blend" &&
+                form.method !== "disagreement_guard" &&
                 form.method !== "edge_blend" &&
                 form.method !== "edge_pick" &&
                 form.method !== "geo_blend" &&
                 form.method !== "regime_switch"
               }
             />
-            <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/edge_blend/edge_pick/geo_blend/regime_switch.</div>
+            <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/edge_blend/edge_pick/geo_blend/regime_switch.</div>
           </div>
         </div>
 

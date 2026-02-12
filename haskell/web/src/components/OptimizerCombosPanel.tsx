@@ -1847,6 +1847,39 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           </div>
           <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightHarmonicBlend">
+                Harmonic blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightHarmonicBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightHarmonicBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightHarmonicBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightDisagreementGuard">
+                Disagreement guard method weight
+              </label>
+              <input
+                id="optimizerMethodWeightDisagreementGuard"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightDisagreementGuard}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightDisagreementGuard: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field" />
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
                 Geo blend method weight
               </label>

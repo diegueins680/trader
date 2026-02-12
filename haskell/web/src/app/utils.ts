@@ -418,6 +418,10 @@ export function methodLabel(method: Method): string {
       return "Conf pick (confidence winner)";
     case "cost_pick":
       return "Cost pick (net-edge winner)";
+    case "harmonic_blend":
+      return "Harmonic blend (return harmonic mean)";
+    case "disagreement_guard":
+      return "Disagreement guard (lower-edge on conflict)";
     case "edge_blend":
       return "Edge blend (edge-weighted)";
     case "edge_pick":

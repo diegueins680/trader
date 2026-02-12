@@ -8,6 +8,8 @@ export type Method =
   | "conf_blend"
   | "conf_pick"
   | "cost_pick"
+  | "harmonic_blend"
+  | "disagreement_guard"
   | "edge_blend"
   | "edge_pick"
   | "geo_blend"
@@ -767,6 +769,8 @@ export type OptimizerRunRequest = {
   methodWeightConfBlend?: number;
   methodWeightConfPick?: number;
   methodWeightCostPick?: number;
+  methodWeightHarmonicBlend?: number;
+  methodWeightDisagreementGuard?: number;
   methodWeightEdgeBlend?: number;
   methodWeightEdgePick?: number;
   methodWeightGeoBlend?: number;
