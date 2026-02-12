@@ -231,10 +231,13 @@ export const COMPLEX_TIPS = {
     "blend averages predictions; blend weight sets the Kalman vs LSTM mix.",
     "conf_blend adjusts Kalman vs LSTM mix per bar using confidence (Kalman z vs LSTM edge confidence).",
     "conf_pick selects Kalman or LSTM per bar using the stronger confidence score.",
+    "cost_pick selects Kalman or LSTM per bar using post-cost edge (net of round-trip costs).",
     "edge_blend adapts Kalman vs LSTM weights from each model's instantaneous edge magnitude.",
     "edge_pick selects Kalman or LSTM per bar using the larger absolute edge.",
     "geo_blend mixes Kalman/LSTM returns in log-space for a multiplicative geometric blend.",
+    "regime_switch prefers LSTM in calm periods, Kalman on strong z-scores, and blend in high-volatility regimes.",
     "router picks the best recent model using router lookback; min score gates to HOLD.",
+    "bandit_router adds an exploration bonus so under-sampled models can still be selected when promising.",
   ],
   thresholds: [
     "Open threshold is the entry deadband; below break-even can churn after costs.",
@@ -245,11 +248,11 @@ export const COMPLEX_TIPS = {
     "Edge buffer adds extra margin above break-even when cost-aware edge is on.",
   ],
   snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
-  blend: ["0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/edge_blend/edge_pick/geo_blend."],
+  blend: ["0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/edge_blend/edge_pick/geo_blend/regime_switch."],
   router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
   split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
   lstm: ["Normalization affects scaling for LSTM only; keep consistent with training.", "Epochs/hidden size trade off fit vs runtime and overfitting."],
-  optimization: ["Sweep thresholds searches open/close gates only.", "Optimize operations also tries methods and thresholds; router disables both."],
+  optimization: ["Sweep thresholds searches open/close gates only.", "Optimize operations also tries methods and thresholds; router/bandit_router disable both."],
   tuneObjective: ["Tune objective defines the score used during fit/tune; it can differ from backtest objective."],
   walkForward: [
     "Walk-forward folds split data into sequential folds to estimate stability.",
@@ -1385,9 +1388,12 @@ export type OptimizerRunForm = {
   methodWeightBlend: string;
   methodWeightConfBlend: string;
   methodWeightConfPick: string;
+  methodWeightCostPick: string;
   methodWeightEdgeBlend: string;
   methodWeightEdgePick: string;
   methodWeightGeoBlend: string;
+  methodWeightRegimeSwitch: string;
+  methodWeightBanditRouter: string;
   blendWeightMin: string;
   blendWeightMax: string;
   disableLstmPersistence: boolean;
@@ -1528,9 +1534,12 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     methodWeightBlend: "",
     methodWeightConfBlend: "",
     methodWeightConfPick: "",
+    methodWeightCostPick: "",
     methodWeightEdgeBlend: "",
     methodWeightEdgePick: "",
     methodWeightGeoBlend: "",
+    methodWeightRegimeSwitch: "",
+    methodWeightBanditRouter: "",
     blendWeightMin: "",
     blendWeightMax: "",
     disableLstmPersistence: false,
@@ -1736,12 +1745,18 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (methodWeightConfBlend != null) req.methodWeightConfBlend = methodWeightConfBlend;
   const methodWeightConfPick = parseOptionalNumber(form.methodWeightConfPick);
   if (methodWeightConfPick != null) req.methodWeightConfPick = methodWeightConfPick;
+  const methodWeightCostPick = parseOptionalNumber(form.methodWeightCostPick);
+  if (methodWeightCostPick != null) req.methodWeightCostPick = methodWeightCostPick;
   const methodWeightEdgeBlend = parseOptionalNumber(form.methodWeightEdgeBlend);
   if (methodWeightEdgeBlend != null) req.methodWeightEdgeBlend = methodWeightEdgeBlend;
   const methodWeightEdgePick = parseOptionalNumber(form.methodWeightEdgePick);
   if (methodWeightEdgePick != null) req.methodWeightEdgePick = methodWeightEdgePick;
   const methodWeightGeoBlend = parseOptionalNumber(form.methodWeightGeoBlend);
   if (methodWeightGeoBlend != null) req.methodWeightGeoBlend = methodWeightGeoBlend;
+  const methodWeightRegimeSwitch = parseOptionalNumber(form.methodWeightRegimeSwitch);
+  if (methodWeightRegimeSwitch != null) req.methodWeightRegimeSwitch = methodWeightRegimeSwitch;
+  const methodWeightBanditRouter = parseOptionalNumber(form.methodWeightBanditRouter);
+  if (methodWeightBanditRouter != null) req.methodWeightBanditRouter = methodWeightBanditRouter;
   const blendWeightMin = parseOptionalNumber(form.blendWeightMin);
   if (blendWeightMin != null) req.blendWeightMin = blendWeightMin;
   const blendWeightMax = parseOptionalNumber(form.blendWeightMax);

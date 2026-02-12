@@ -364,6 +364,67 @@ confidencePickPredictionsV fallbackWeight zMin zMax openThr pricesV kalPredV lst
              in confidencePickPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred (kalZAt t)
      in V.generate (max 0 stepCount) pick
 
+costPickWeightFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+costPickWeightFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
+    let netEdge x =
+            if prev <= 0 || isNaN prev || isInfinite prev || isNaN x || isInfinite x
+                then Nothing
+                else
+                    let raw = abs (x / prev - 1) - max 0 roundTripCost
+                        v = max 0 raw
+                     in if isNaN v || isInfinite v then Nothing else Just v
+        wFallback = clamp01 fallbackWeight
+     in case (netEdge kalPred, netEdge lstmPred) of
+            (Just eKal, Just eLstm) ->
+                let denom = eKal + eLstm
+                 in if denom <= 1e-12
+                        then wFallback
+                        else clamp01 (eKal / denom)
+            (Just _, Nothing) -> 1
+            (Nothing, Just _) -> 0
+            (Nothing, Nothing) -> wFallback
+
+costPickPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+costPickPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                let w = costPickWeightFromPreds fallbackWeight roundTripCost prev kalPred lstmPred
+                 in if w >= 0.5 then kalPred else lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) ->
+                let wFallback = clamp01 fallbackWeight
+                 in wFallback * kalPred + (1 - wFallback) * lstmPred
+
+costPickPredictionsV ::
+    Double ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+costPickPredictionsV fallbackWeight roundTripCost pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in costPickPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 edgeBlendWeightFromPreds ::
     Double ->
     Double ->
@@ -492,6 +553,57 @@ geometricBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
              in geometricBlendPredFromPreds fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
+regimeSwitchPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Maybe StepMeta ->
+    Double
+regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred mMeta =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        kalZMeta =
+            case mMeta of
+                Just m -> kalmanZFromMeta m
+                Nothing -> Nothing
+        hvMeta =
+            case mMeta of
+                Just m -> smHighVolProb m
+                Nothing -> Nothing
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                case (kalZMeta, hvMeta) of
+                    (Just _, Just hv) | hv >= highVolCutoff -> blend
+                    (Just z, _) | z >= kalZCutoff -> kalPred
+                    _ -> lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> blend
+
+regimeSwitchPredictionsV ::
+    Double ->
+    Double ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    V.Vector Double
+regimeSwitchPredictionsV fallbackWeight highVolCutoff kalZCutoff kalPredV lstmPredV mMetaV =
+    let stepCount = min (V.length kalPredV) (V.length lstmPredV)
+        metaAt t =
+            case mMetaV of
+                Just metaV
+                    | t >= 0 && t < V.length metaV -> Just (metaV V.! t)
+                _ -> Nothing
+        pick t =
+            let kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred (metaAt t)
+     in V.generate (max 0 stepCount) pick
+
 foldRanges :: Int -> Int -> [(Int, Int)]
 foldRanges stepCount foldsReq =
     let steps = max 0 stepCount
@@ -538,11 +650,14 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
             case m of
                 MethodBoth -> 3 :: Int
                 MethodRouter -> 3
+                MethodBanditRouter -> 3
                 MethodConfBlend -> 2
                 MethodConfPick -> 2
+                MethodCostPick -> 2
                 MethodEdgeBlend -> 2
                 MethodEdgePick -> 2
                 MethodGeoBlend -> 2
+                MethodRegimeSwitch -> 2
                 MethodBlend -> 2
                 MethodKalmanOnly -> 1
                 MethodLstmOnly -> 0
@@ -554,11 +669,14 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
         candidates =
             [ MethodBoth
             , MethodRouter
+            , MethodBanditRouter
             , MethodConfBlend
             , MethodConfPick
+            , MethodCostPick
             , MethodEdgeBlend
             , MethodEdgePick
             , MethodGeoBlend
+            , MethodRegimeSwitch
             , MethodBlend
             , MethodKalmanOnly
             , MethodLstmOnly
@@ -698,23 +816,28 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         blendV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalV lstmV
         edgeBlendV0 = edgeBlendPredictionsV blendWeight pricesV kalV lstmV
         edgePickV0 = edgePickPredictionsV blendWeight pricesV kalV lstmV
+        costPickV0 = costPickPredictionsV blendWeight roundTripCost pricesV kalV lstmV
         geoBlendV0 = geometricBlendPredictionsV blendWeight pricesV kalV lstmV
         kalZMinForBlend = max 0 (ecKalmanZMin baseCfg)
         kalZMaxForBlend = max kalZMinForBlend (ecKalmanZMax baseCfg)
         confBlendOpenThr0 = max baseOpenThreshold minEdge
         confBlendV0 = confidenceBlendPredictionsV blendWeight kalZMinForBlend kalZMaxForBlend confBlendOpenThr0 pricesV kalV lstmV metaV
         confPickV0 = confidencePickPredictionsV blendWeight kalZMinForBlend kalZMaxForBlend confBlendOpenThr0 pricesV kalV lstmV metaV
+        regimeSwitchV0 = regimeSwitchPredictionsV blendWeight 0.6 1.0 kalV lstmV metaV
 
         (kalUsedV0, lstmUsedV0) =
             case method of
                 MethodBoth -> (kalV, lstmV)
                 MethodRouter -> (kalV, lstmV)
+                MethodBanditRouter -> (kalV, lstmV)
                 MethodBlend -> (blendV, blendV)
                 MethodConfBlend -> (confBlendV0, confBlendV0)
                 MethodConfPick -> (confPickV0, confPickV0)
+                MethodCostPick -> (costPickV0, costPickV0)
                 MethodEdgeBlend -> (edgeBlendV0, edgeBlendV0)
                 MethodEdgePick -> (edgePickV0, edgePickV0)
                 MethodGeoBlend -> (geoBlendV0, geoBlendV0)
+                MethodRegimeSwitch -> (regimeSwitchV0, regimeSwitchV0)
                 MethodKalmanOnly -> (kalV, kalV)
                 MethodLstmOnly -> (lstmV, lstmV)
 
@@ -740,6 +863,22 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                             )
                     | otherwise -> Nothing
                 MethodRouter
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodBanditRouter
                     | V.length kalV < stepCount ->
                         Just
                             ( "sweepThreshold: kalPred has length "
@@ -803,6 +942,22 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodCostPick
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodEdgeBlend
                     | V.length kalV < stepCount ->
                         Just
@@ -851,6 +1006,22 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodRegimeSwitch
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodKalmanOnly
                     | V.length kalV < stepCount ->
                         Just
@@ -874,12 +1045,15 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
             case method of
                 MethodBoth -> [kalV, lstmV]
                 MethodRouter -> [kalV, lstmV, blendV]
+                MethodBanditRouter -> [kalV, lstmV, blendV]
                 MethodBlend -> [blendV]
                 MethodConfBlend -> [confBlendV0]
                 MethodConfPick -> [confPickV0]
+                MethodCostPick -> [costPickV0]
                 MethodEdgeBlend -> [edgeBlendV0]
                 MethodEdgePick -> [edgePickV0]
                 MethodGeoBlend -> [geoBlendV0]
+                MethodRegimeSwitch -> [regimeSwitchV0]
                 MethodKalmanOnly -> [kalV]
                 MethodLstmOnly -> [lstmV]
         epsilonFor v =
@@ -965,6 +1139,21 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                         blendV
                                 routerMaskV = V.map (== Just RouterKalman) routerModelsV
                              in (routerPredV, routerPredV, Just routerMaskV)
+                        MethodBanditRouter ->
+                            let routerOpenThr = max openThr minEdge
+                                (routerPredV, routerModelsV) =
+                                    banditPredictionsWithModelsV
+                                        routerOpenThr
+                                        roundTripCost
+                                        routerScorePnlWeight
+                                        routerLookback
+                                        routerMinScore
+                                        pricesV
+                                        kalV
+                                        lstmV
+                                        blendV
+                                routerMaskV = V.map (== Just RouterKalman) routerModelsV
+                             in (routerPredV, routerPredV, Just routerMaskV)
                         MethodConfBlend ->
                             let confBlendOpenThr = max openThr minEdge
                                 confBlendV =
@@ -991,6 +1180,9 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                         lstmV
                                         metaV
                              in (confPickV, confPickV, Nothing)
+                        MethodRegimeSwitch ->
+                            let regimeSwitchV = regimeSwitchPredictionsV blendWeight 0.6 1.0 kalV lstmV metaV
+                             in (regimeSwitchV, regimeSwitchV, Nothing)
                         _ -> (kalUsedV0, lstmUsedV0, Nothing)
                 evalClose closeThr =
                     let btCfg0 =
@@ -1247,6 +1439,87 @@ routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore p
                 ]
         pickPred t =
             case routerSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV t of
+                (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
+                (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
+                (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
+                _ -> (pricesV V.! t, Nothing)
+        picks = V.generate (max 0 stepCount) pickPred
+     in (V.map fst picks, V.map snd picks)
+
+banditSelectModelAt ::
+    Double ->
+    Double ->
+    Double ->
+    Int ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Int ->
+    (Maybe RouterModel, Double, Maybe String)
+banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV t =
+    let stepCount =
+            minimum
+                [ V.length pricesV - 1
+                , V.length kalPredV
+                , V.length lstmPredV
+                , V.length blendPredV
+                ]
+        lookback = max 1 lookback0
+        minScore = max 0 (min 1 minScore0)
+        windowEnd = min (t - 1) (stepCount - 1)
+        modelRank m =
+            case m of
+                RouterBlend -> 2 :: Int
+                RouterKalman -> 1
+                RouterLstm -> 0
+        bonusScale = 0.25 :: Double
+        scoreKey totalSignals (m, stats) =
+            let n = max 0 (rsSignals stats)
+                explore = sqrt (2 * log (max 2 totalSignals) / fromIntegral (n + 1))
+                score = rsScore stats + bonusScale * explore
+             in (score, rsScore stats, rsCoverage stats, rsAccuracy stats, modelRank m)
+        pick totalSignals best cand =
+            if scoreKey totalSignals cand > scoreKey totalSignals best
+                then cand
+                else best
+     in if stepCount <= 0 || windowEnd < 0
+            then (Nothing, 0, Just "BANDIT_WARMUP")
+            else
+                let windowStart = max 0 (windowEnd - lookback + 1)
+                    statsKal = routerStatsWindow openThr roundTripCost pnlWeight pricesV kalPredV windowStart windowEnd
+                    statsLstm = routerStatsWindow openThr roundTripCost pnlWeight pricesV lstmPredV windowStart windowEnd
+                    statsBlend = routerStatsWindow openThr roundTripCost pnlWeight pricesV blendPredV windowStart windowEnd
+                    totalSignals = fromIntegral (1 + rsSignals statsKal + rsSignals statsLstm + rsSignals statsBlend)
+                    (bestModel, bestStats) =
+                        foldl' (pick totalSignals) (RouterKalman, statsKal) [(RouterLstm, statsLstm), (RouterBlend, statsBlend)]
+                    bestScore = rsScore bestStats
+                 in if bestScore < minScore
+                        then (Nothing, bestScore, Just "BANDIT_MIN_SCORE")
+                        else (Just bestModel, bestScore, Nothing)
+
+banditPredictionsWithModelsV ::
+    Double ->
+    Double ->
+    Double ->
+    Int ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    (V.Vector Double, V.Vector (Maybe RouterModel))
+banditPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV =
+    let stepCount =
+            minimum
+                [ V.length pricesV - 1
+                , V.length kalPredV
+                , V.length lstmPredV
+                , V.length blendPredV
+                ]
+        pickPred t =
+            case banditSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)

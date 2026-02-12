@@ -1295,7 +1295,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 setForm((f) => ({
                   ...f,
                   method: nextMethod,
-                  ...(nextMethod === "router" ? { optimizeOperations: false, sweepThreshold: false } : {}),
+                  ...(nextMethod === "router" || nextMethod === "bandit_router" ? { optimizeOperations: false, sweepThreshold: false } : {}),
                 }));
               }}
             >
@@ -1303,15 +1303,18 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <option value="blend">blend — Weighted average</option>
               <option value="conf_blend">conf_blend — Confidence blend</option>
               <option value="conf_pick">conf_pick — Confidence pick</option>
+              <option value="cost_pick">cost_pick — Cost-aware pick</option>
               <option value="edge_blend">edge_blend — Edge-weighted blend</option>
               <option value="edge_pick">edge_pick — Edge pick</option>
               <option value="geo_blend">geo_blend — Geometric blend</option>
+              <option value="regime_switch">regime_switch — Regime switch</option>
               <option value="router">router — Adaptive router</option>
+              <option value="bandit_router">bandit_router — Bandit router</option>
               <option value="10">10 — Kalman only</option>
               <option value="01">01 — LSTM only</option>
             </select>
             <div className="hint">
-              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, and “router” picks the best recent model.
+              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “cost_pick” picks the higher post-cost edge, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, “regime_switch” toggles by volatility/z-score context, and “router”/“bandit_router” pick the best recent model.
             </div>
             {methodOverride ? (
               <div className="pillRow" style={{ marginTop: 6 }}>
@@ -1583,12 +1586,14 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 form.method !== "blend" &&
                 form.method !== "conf_blend" &&
                 form.method !== "conf_pick" &&
+                form.method !== "cost_pick" &&
                 form.method !== "edge_blend" &&
                 form.method !== "edge_pick" &&
-                form.method !== "geo_blend"
+                form.method !== "geo_blend" &&
+                form.method !== "regime_switch"
               }
             />
-            <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/edge_blend/edge_pick/geo_blend.</div>
+            <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/edge_blend/edge_pick/geo_blend/regime_switch.</div>
           </div>
         </div>
 
@@ -1610,9 +1615,9 @@ export const ConfigDock = (props: ConfigDockProps) => {
               min={2}
               value={form.routerLookback}
               onChange={(e) => setForm((f) => ({ ...f, routerLookback: numFromInput(e.target.value, f.routerLookback) }))}
-              disabled={form.method !== "router"}
+              disabled={form.method !== "router" && form.method !== "bandit_router"}
             />
-            <div className="hint">Used with method=router; evaluates recent signal accuracy.</div>
+            <div className="hint">Used with method=router/bandit_router; evaluates recent signal accuracy.</div>
           </div>
           <div className="field">
             <div className="labelRow">
@@ -1634,7 +1639,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               inputMode="decimal"
               value={form.routerMinScore}
               onChange={(e) => setForm((f) => ({ ...f, routerMinScore: numFromInput(e.target.value, f.routerMinScore) }))}
-              disabled={form.method !== "router"}
+              disabled={form.method !== "router" && form.method !== "bandit_router"}
             />
             <div className="hint">Accuracy × coverage threshold; below = hold.</div>
           </div>
@@ -2712,7 +2717,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 <input
                   type="checkbox"
                   checked={form.sweepThreshold}
-                  disabled={form.method === "router"}
+                  disabled={form.method === "router" || form.method === "bandit_router"}
                   onChange={(e) => setForm((f) => ({ ...f, sweepThreshold: e.target.checked, optimizeOperations: false }))}
                 />
                 Sweep thresholds
@@ -2721,7 +2726,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 <input
                   type="checkbox"
                   checked={form.optimizeOperations}
-                  disabled={form.method === "router"}
+                  disabled={form.method === "router" || form.method === "bandit_router"}
                   onChange={(e) => setForm((f) => ({ ...f, optimizeOperations: e.target.checked, sweepThreshold: false }))}
                 />
                 Optimize operations (method + thresholds)
@@ -2729,13 +2734,13 @@ export const ConfigDock = (props: ConfigDockProps) => {
             </div>
             <div className="hint">
               Tunes on the last part of the train split (fit/tune), then evaluates on the held-out backtest.
-              {form.method === "router" ? " Router mode disables optimize/sweep." : ""}
+              {form.method === "router" || form.method === "bandit_router" ? " Router mode disables optimize/sweep." : ""}
             </div>
             <div className="pillRow" style={{ marginTop: 10 }}>
               <button
                 className="btnSmall"
                 type="button"
-                disabled={form.method === "router"}
+                disabled={form.method === "router" || form.method === "bandit_router"}
                 onClick={() => {
                   setForm((f) => ({
                     ...f,
@@ -2753,7 +2758,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <button
                 className="btnSmall"
                 type="button"
-                disabled={form.method === "router"}
+                disabled={form.method === "router" || form.method === "bandit_router"}
                 onClick={() => {
                   setForm((f) => ({
                     ...f,

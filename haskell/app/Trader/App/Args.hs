@@ -445,10 +445,10 @@ opts = do
     argMethod <-
         option
             (eitherReader parseMethod)
-            ( long "method"
+                ( long "method"
                 <> value MethodBoth
                 <> showDefaultWith methodCode
-                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, conf_pick=confidence winner-take-all, edge_blend=edge-weighted blend, edge_pick=edge winner-take-all, geo_blend=geometric blend, router=adaptive model selection, 10|kalman=Kalman only, 01|lstm=LSTM only"
+                <> help "Method: 11|both=Kalman+LSTM (direction-agreement gated), blend=weighted avg, conf_blend=confidence-weighted blend, conf_pick=confidence winner-take-all, cost_pick=cost-aware winner-take-all, edge_blend=edge-weighted blend, edge_pick=edge winner-take-all, geo_blend=geometric blend, regime_switch=volatility/z-score model switch, router=adaptive model selection, bandit_router=UCB-style adaptive router, 10|kalman=Kalman only, 01|lstm=LSTM only"
         )
     argPositioning <-
         option
@@ -458,7 +458,7 @@ opts = do
                 <> showDefaultWith positioningCode
                 <> help "Positioning: long-flat (default), long-only/long (alias), or long-short (futures-only when trading)"
             )
-    argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01/blend/conf_blend/conf_pick/edge_blend/edge_pick/geo_blend/router), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
+    argOptimizeOperations <- switch (long "optimize-operations" <> help "Optimize method (11/10/01/blend/conf_blend/conf_pick/cost_pick/edge_blend/edge_pick/geo_blend/regime_switch/router/bandit_router), open-threshold, and close-threshold on a tune split (avoids lookahead on the backtest split)")
     argSweepThreshold <- switch (long "sweep-threshold" <> help "Sweep open/close thresholds on a tune split and print the best final equity (avoids lookahead on the backtest split)")
     argTradeOnly <- switch (long "trade-only" <> help "Skip backtest/metrics; only compute the latest signal (and optionally place an order)")
     argFee <- option auto (long "fee" <> value 0.0008 <> help "Fee applied when switching position")
@@ -618,8 +618,8 @@ opts = do
     argFundingRate <- option auto (long "funding-rate" <> long "financing-rate" <> value 0.1 <> showDefault <> help "Annualized funding/borrow rate applied per bar in backtests (fraction; negative allowed; side-agnostic unless --funding-by-side)")
     argFundingBySide <- switch (long "funding-by-side" <> help "Apply funding sign by side (long pays positive, short receives)")
     argFundingOnOpen <- switch (long "funding-on-open" <> help "Charge funding for bars opened with a position (even if exited intrabar)")
-    argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend/conf_blend/conf_pick/edge_blend/edge_pick/geo_blend (0..1)")
-    argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router scoring (>= 2)")
+    argBlendWeight <- option auto (long "blend-weight" <> value 0.5 <> help "Kalman weight for --method blend/conf_blend/conf_pick/cost_pick/edge_blend/edge_pick/geo_blend/regime_switch (0..1)")
+    argRouterLookback <- option auto (long "router-lookback" <> value 30 <> help "Lookback bars for --method router/bandit_router scoring (>= 2)")
     argRouterMinScore <- option auto (long "router-min-score" <> value 0.25 <> help "Minimum router score (blend of accuracy*coverage and return) to accept a model (0..1)")
     argRouterScorePnlWeight <-
         option
@@ -864,9 +864,9 @@ validateArgs args0 = do
     ensure "--router-lookback must be >= 2" (argRouterLookback args >= 2)
     ensure "--router-min-score must be between 0 and 1" (argRouterMinScore args >= 0 && argRouterMinScore args <= 1)
     ensure "--router-score-pnl-weight must be between 0 and 1" (argRouterScorePnlWeight args >= 0 && argRouterScorePnlWeight args <= 1)
-    ensure "--method router cannot be used with --optimize-operations/--sweep-threshold" $
+    ensure "--method router/bandit_router cannot be used with --optimize-operations/--sweep-threshold" $
         not
-            ( argMethod args == MethodRouter
+            ( (argMethod args == MethodRouter || argMethod args == MethodBanditRouter)
                 && (argOptimizeOperations args || argSweepThreshold args)
             )
     ensure "--fee must be >= 0" (argFee args >= 0)

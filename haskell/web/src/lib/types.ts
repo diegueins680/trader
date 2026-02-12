@@ -1,6 +1,19 @@
 export type Market = "spot" | "margin" | "futures";
 export type Platform = "binance" | "coinbase" | "kraken" | "poloniex";
-export type Method = "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "edge_blend" | "edge_pick" | "geo_blend" | "router";
+export type Method =
+  | "11"
+  | "10"
+  | "01"
+  | "blend"
+  | "conf_blend"
+  | "conf_pick"
+  | "cost_pick"
+  | "edge_blend"
+  | "edge_pick"
+  | "geo_blend"
+  | "regime_switch"
+  | "router"
+  | "bandit_router";
 export type Normalization = "none" | "minmax" | "standard" | "log";
 export type Positioning = "long-flat" | "long-short";
 export type IntrabarFill = "stop-first" | "take-profit-first";
@@ -753,9 +766,12 @@ export type OptimizerRunRequest = {
   methodWeightBlend?: number;
   methodWeightConfBlend?: number;
   methodWeightConfPick?: number;
+  methodWeightCostPick?: number;
   methodWeightEdgeBlend?: number;
   methodWeightEdgePick?: number;
   methodWeightGeoBlend?: number;
+  methodWeightRegimeSwitch?: number;
+  methodWeightBanditRouter?: number;
   blendWeightMin?: number;
   blendWeightMax?: number;
   disableLstmPersistence?: boolean;

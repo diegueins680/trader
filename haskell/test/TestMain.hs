@@ -657,9 +657,12 @@ testMethodParsing = do
     assert "parse conf_blend" (parseMethod "conf_blend" == Right MethodConfBlend)
     assert "parse conf-blend" (parseMethod "conf-blend" == Right MethodConfBlend)
     assert "parse conf_pick" (parseMethod "conf_pick" == Right MethodConfPick)
+    assert "parse cost_pick" (parseMethod "cost_pick" == Right MethodCostPick)
     assert "parse edge_blend" (parseMethod "edge_blend" == Right MethodEdgeBlend)
     assert "parse edge_pick" (parseMethod "edge_pick" == Right MethodEdgePick)
     assert "parse geo_blend" (parseMethod "geo_blend" == Right MethodGeoBlend)
+    assert "parse regime_switch" (parseMethod "regime_switch" == Right MethodRegimeSwitch)
+    assert "parse bandit_router" (parseMethod "bandit_router" == Right MethodBanditRouter)
     case parseMethod "00" of
         Left _ -> pure ()
         Right _ -> error "expected parse failure"
@@ -758,9 +761,12 @@ testMethodSelection = do
     assert "blend averages" (selectPredictions MethodBlend w kal lstm == (blend, blend))
     assert "conf_blend falls back to weighted average when confidence context is unavailable" (selectPredictions MethodConfBlend w kal lstm == (blend, blend))
     assert "conf_pick falls back to weighted average when confidence context is unavailable" (selectPredictions MethodConfPick w kal lstm == (blend, blend))
+    assert "cost_pick falls back to weighted average when context is unavailable" (selectPredictions MethodCostPick w kal lstm == (blend, blend))
     assert "edge_blend falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgeBlend w kal lstm == (blend, blend))
     assert "edge_pick falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgePick w kal lstm == (blend, blend))
     assert "geo_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodGeoBlend w kal lstm == (blend, blend))
+    assert "regime_switch falls back to weighted average when context is unavailable" (selectPredictions MethodRegimeSwitch w kal lstm == (blend, blend))
+    assert "bandit_router preserves both prediction streams for routing" (selectPredictions MethodBanditRouter w kal lstm == (kal, lstm))
 
 testTrainBacktestSplit :: IO ()
 testTrainBacktestSplit = do

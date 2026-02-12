@@ -731,9 +731,12 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightBlend :: !Double
     , oaMethodWeightConfBlend :: !Double
     , oaMethodWeightConfPick :: !Double
+    , oaMethodWeightCostPick :: !Double
     , oaMethodWeightEdgeBlend :: !Double
     , oaMethodWeightEdgePick :: !Double
     , oaMethodWeightGeoBlend :: !Double
+    , oaMethodWeightRegimeSwitch :: !Double
+    , oaMethodWeightBanditRouter :: !Double
     , oaBlendWeightMin :: !Double
     , oaBlendWeightMax :: !Double
     , oaRouterScorePnlWeightMin :: !Double
@@ -1700,7 +1703,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend)
+    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -1741,9 +1744,12 @@ sampleParams
                 , ("blend", methodWBlend)
                 , ("conf_blend", methodWConfBlend)
                 , ("conf_pick", methodWConfPick)
+                , ("cost_pick", methodWCostPick)
                 , ("edge_blend", methodWEdgeBlend)
                 , ("edge_pick", methodWEdgePick)
                 , ("geo_blend", methodWGeoBlend)
+                , ("regime_switch", methodWRegimeSwitch)
+                , ("bandit_router", methodWBanditRouter)
                 ]
             (method, rng4) = chooseWeighted methods rng3
             (blendWeight, rng5) =
@@ -2555,9 +2561,12 @@ runOptimizer args0 = do
                                                             , oaMethodWeightBlend args
                                                             , oaMethodWeightConfBlend args
                                                             , oaMethodWeightConfPick args
+                                                            , oaMethodWeightCostPick args
                                                             , oaMethodWeightEdgeBlend args
                                                             , oaMethodWeightEdgePick args
                                                             , oaMethodWeightGeoBlend args
+                                                            , oaMethodWeightRegimeSwitch args
+                                                            , oaMethodWeightBanditRouter args
                                                             )
                                                         blendWeightRange =
                                                             let lo = clamp (oaBlendWeightMin args) 0 1

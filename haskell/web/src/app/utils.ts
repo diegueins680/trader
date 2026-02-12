@@ -416,14 +416,20 @@ export function methodLabel(method: Method): string {
       return "Conf blend (confidence-weighted)";
     case "conf_pick":
       return "Conf pick (confidence winner)";
+    case "cost_pick":
+      return "Cost pick (net-edge winner)";
     case "edge_blend":
       return "Edge blend (edge-weighted)";
     case "edge_pick":
       return "Edge pick (edge winner)";
     case "geo_blend":
       return "Geo blend (geometric)";
+    case "regime_switch":
+      return "Regime switch (vol/z adaptive)";
     case "router":
       return "Router (adaptive)";
+    case "bandit_router":
+      return "Bandit router (UCB adaptive)";
     default:
       return "Unknown";
   }

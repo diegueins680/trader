@@ -1815,6 +1815,21 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               />
             </div>
             <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightCostPick">
+                Cost pick method weight
+              </label>
+              <input
+                id="optimizerMethodWeightCostPick"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightCostPick}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightCostPick: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightEdgePick">
                 Edge pick method weight
               </label>
@@ -1829,6 +1844,8 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 placeholder="0.0"
               />
             </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
                 Geo blend method weight
@@ -1841,6 +1858,36 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 min={0}
                 value={optimizerRunForm.methodWeightGeoBlend}
                 onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightGeoBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightRegimeSwitch">
+                Regime switch method weight
+              </label>
+              <input
+                id="optimizerMethodWeightRegimeSwitch"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightRegimeSwitch}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightRegimeSwitch: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightBanditRouter">
+                Bandit router method weight
+              </label>
+              <input
+                id="optimizerMethodWeightBanditRouter"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightBanditRouter}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightBanditRouter: e.target.value }))}
                 placeholder="0.0"
               />
             </div>

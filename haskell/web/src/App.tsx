@@ -688,7 +688,21 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
   const generatedAtMsRaw = payloadRec.generatedAtMs;
   const generatedAtMs =
     typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
-  const methods: Method[] = ["11", "10", "01", "blend", "conf_blend", "conf_pick", "edge_blend", "edge_pick", "geo_blend", "router"];
+  const methods: Method[] = [
+    "11",
+    "10",
+    "01",
+    "blend",
+    "conf_blend",
+    "conf_pick",
+    "cost_pick",
+    "edge_blend",
+    "edge_pick",
+    "geo_blend",
+    "regime_switch",
+    "router",
+    "bandit_router",
+  ];
   const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
   const positionings: Positioning[] = ["long-flat", "long-short"];
   const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
@@ -1787,7 +1801,21 @@ export function App() {
     }
     const intervalList = Array.from(intervals).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const symbolList = Array.from(symbols).sort((a, b) => a.localeCompare(b));
-    const methodOrder: Method[] = ["11", "10", "01", "blend", "conf_blend", "conf_pick", "edge_blend", "edge_pick", "geo_blend", "router"];
+    const methodOrder: Method[] = [
+      "11",
+      "10",
+      "01",
+      "blend",
+      "conf_blend",
+      "conf_pick",
+      "cost_pick",
+      "edge_blend",
+      "edge_pick",
+      "geo_blend",
+      "regime_switch",
+      "router",
+      "bandit_router",
+    ];
     const methodList = methodOrder.filter((method) => methods.has(method));
     const marketOrder: ComboMarketValue[] = [...PLATFORMS, "csv", "unknown"];
     const marketList = marketOrder.filter((market) => markets.has(market));
@@ -3751,7 +3779,7 @@ export function App() {
     if (form.lookbackBars >= 2) base.lookbackBars = Math.trunc(form.lookbackBars);
     else if (form.lookbackWindow.trim()) base.lookbackWindow = form.lookbackWindow.trim();
 
-    if (form.method !== "router") {
+    if (form.method !== "router" && form.method !== "bandit_router") {
       if (form.optimizeOperations) base.optimizeOperations = true;
       if (form.sweepThreshold) base.sweepThreshold = true;
     }
@@ -3766,7 +3794,7 @@ export function App() {
   }, [apiComputeLimits, form]);
 
   useEffect(() => {
-    if (form.method !== "router") return;
+    if (form.method !== "router" && form.method !== "bandit_router") return;
     if (!form.optimizeOperations && !form.sweepThreshold) return;
     setForm((f) => ({ ...f, optimizeOperations: false, sweepThreshold: false }));
   }, [form.method, form.optimizeOperations, form.sweepThreshold]);
@@ -7552,6 +7580,10 @@ export function App() {
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "conf_pick";
         break;
+      case "cost_pick":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "cost_pick";
+        break;
       case "edge_blend":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "edge_blend";
@@ -7564,9 +7596,19 @@ export function App() {
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "geo_blend";
         break;
+      case "regime_switch":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "regime_switch";
+        break;
       case "router":
         edgeForMethod = null;
         edgeSource = `router (kal ${kalEdge != null ? fmtPct(kalEdge, 3) : "n/a"}, lstm ${
+          lstmEdge != null ? fmtPct(lstmEdge, 3) : "n/a"
+        }, blend ${blendEdge != null ? fmtPct(blendEdge, 3) : "n/a"})`;
+        break;
+      case "bandit_router":
+        edgeForMethod = null;
+        edgeSource = `bandit_router (kal ${kalEdge != null ? fmtPct(kalEdge, 3) : "n/a"}, lstm ${
           lstmEdge != null ? fmtPct(lstmEdge, 3) : "n/a"
         }, blend ${blendEdge != null ? fmtPct(blendEdge, 3) : "n/a"})`;
         break;
@@ -7811,7 +7853,7 @@ export function App() {
       const snrLabel = snr != null && Number.isFinite(snr) ? fmtNum(snr, 2) : "—";
       const detail = `edge ${edgeLabel} (${edgeSource}) / vol ${volLabel} = ${snrLabel} (min ${fmtNum(form.minSignalToNoise, 2)})`;
       let status: DecisionCheckStatus = "bad";
-      if (sig.method === "router" && edgeForMethod == null) {
+      if ((sig.method === "router" || sig.method === "bandit_router") && edgeForMethod == null) {
         status = "warn";
       } else if (edgeForMethod != null && volPerBar != null) {
         status = snr != null && Number.isFinite(snr) && snr >= form.minSignalToNoise ? "ok" : "bad";

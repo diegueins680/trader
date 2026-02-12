@@ -887,7 +887,7 @@ data ApiParams = ApiParams
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
     , apCloseThreshold :: Maybe Double
-    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "edge_blend" | "edge_pick" | "geo_blend" | "router"
+    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "cost_pick" | "edge_blend" | "edge_pick" | "geo_blend" | "regime_switch" | "router" | "bandit_router"
     , apPositioning :: Maybe String -- "long-flat" | "long-short"
     , apOptimizeOperations :: Maybe Bool
     , apSweepThreshold :: Maybe Bool
@@ -1247,9 +1247,12 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrMethodWeightBlend :: !(Maybe Double)
     , arrMethodWeightConfBlend :: !(Maybe Double)
     , arrMethodWeightConfPick :: !(Maybe Double)
+    , arrMethodWeightCostPick :: !(Maybe Double)
     , arrMethodWeightEdgeBlend :: !(Maybe Double)
     , arrMethodWeightEdgePick :: !(Maybe Double)
     , arrMethodWeightGeoBlend :: !(Maybe Double)
+    , arrMethodWeightRegimeSwitch :: !(Maybe Double)
+    , arrMethodWeightBanditRouter :: !(Maybe Double)
     , arrBlendWeightMin :: !(Maybe Double)
     , arrBlendWeightMax :: !(Maybe Double)
     , arrRouterScorePnlWeightMin :: !(Maybe Double)
@@ -3092,10 +3095,13 @@ seedStrategies conn = do
             , ("blend", "Blend")
             , ("conf_blend", "Confidence Blend")
             , ("conf_pick", "Confidence Pick")
+            , ("cost_pick", "Cost Pick")
             , ("edge_blend", "Edge Blend")
             , ("edge_pick", "Edge Pick")
             , ("geo_blend", "Geo Blend")
+            , ("regime_switch", "Regime Switch")
             , ("router", "Router")
+            , ("bandit_router", "Bandit Router")
             , ("unknown", "Unknown")
             ]
     forM_ seeds $ \(code, label) -> do
@@ -5845,10 +5851,13 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 else case method of
                     MethodConfBlend -> MethodBoth
                     MethodConfPick -> MethodBoth
+                    MethodCostPick -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
                     MethodGeoBlend -> MethodBoth
+                    MethodRegimeSwitch -> MethodBoth
                     MethodRouter -> MethodBoth
+                    MethodBanditRouter -> MethodBoth
                     _ -> method
         nan = 0 / 0 :: Double
 
@@ -6444,9 +6453,12 @@ botApplyOptimizerUpdate st upd = do
                 MethodBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodConfBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodConfPick -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodCostPick -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgePick -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodGeoBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodRegimeSwitch -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodBanditRouter -> isJust mLstmCtx' && isJust mKalmanCtx'
         hasLstmWindow = method /= MethodKalmanOnly && n >= lookback'
 
     if not ctxOk
@@ -11034,12 +11046,18 @@ prepareOptimizerArgs outputPath req = do
                     maybeDoubleArg "--method-weight-conf-blend" (fmap (max 0) (arrMethodWeightConfBlend req))
                 methodWeightConfPickArgs =
                     maybeDoubleArg "--method-weight-conf-pick" (fmap (max 0) (arrMethodWeightConfPick req))
+                methodWeightCostPickArgs =
+                    maybeDoubleArg "--method-weight-cost-pick" (fmap (max 0) (arrMethodWeightCostPick req))
                 methodWeightEdgeBlendArgs =
                     maybeDoubleArg "--method-weight-edge-blend" (fmap (max 0) (arrMethodWeightEdgeBlend req))
                 methodWeightEdgePickArgs =
                     maybeDoubleArg "--method-weight-edge-pick" (fmap (max 0) (arrMethodWeightEdgePick req))
                 methodWeightGeoBlendArgs =
                     maybeDoubleArg "--method-weight-geo-blend" (fmap (max 0) (arrMethodWeightGeoBlend req))
+                methodWeightRegimeSwitchArgs =
+                    maybeDoubleArg "--method-weight-regime-switch" (fmap (max 0) (arrMethodWeightRegimeSwitch req))
+                methodWeightBanditRouterArgs =
+                    maybeDoubleArg "--method-weight-bandit-router" (fmap (max 0) (arrMethodWeightBanditRouter req))
                 blendWeightArgs =
                     maybeDoubleArg "--blend-weight-min" (fmap clamp01 (arrBlendWeightMin req))
                         ++ maybeDoubleArg "--blend-weight-max" (fmap clamp01 (arrBlendWeightMax req))
@@ -11166,9 +11184,12 @@ prepareOptimizerArgs outputPath req = do
                         ++ methodWeightBlendArgs
                         ++ methodWeightConfBlendArgs
                         ++ methodWeightConfPickArgs
+                        ++ methodWeightCostPickArgs
                         ++ methodWeightEdgeBlendArgs
                         ++ methodWeightEdgePickArgs
                         ++ methodWeightGeoBlendArgs
+                        ++ methodWeightRegimeSwitchArgs
+                        ++ methodWeightBanditRouterArgs
                         ++ blendWeightArgs
                         ++ routerScorePnlWeightArgs
                         ++ kalmanMarketTopNArgs
@@ -11594,13 +11615,19 @@ strategyCodeFromMethod mMethod =
             Just "conf-blend" -> "conf_blend"
             Just "conf_pick" -> "conf_pick"
             Just "conf-pick" -> "conf_pick"
+            Just "cost_pick" -> "cost_pick"
+            Just "cost-pick" -> "cost_pick"
             Just "edge_blend" -> "edge_blend"
             Just "edge-blend" -> "edge_blend"
             Just "edge_pick" -> "edge_pick"
             Just "edge-pick" -> "edge_pick"
             Just "geo_blend" -> "geo_blend"
             Just "geo-blend" -> "geo_blend"
+            Just "regime_switch" -> "regime_switch"
+            Just "regime-switch" -> "regime_switch"
             Just "router" -> "router"
+            Just "bandit_router" -> "bandit_router"
+            Just "bandit-router" -> "bandit_router"
             _ -> "unknown"
 
 persistTopCombosDbMaybe :: Maybe OpsStore -> TopCombosStore -> IO ()
@@ -14631,10 +14658,13 @@ placeDexOrderForSignal args sig = do
                 MethodBlend -> "No order: Blend neutral (within threshold)."
                 MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
                 MethodConfPick -> "No order: Conf pick neutral (within threshold)."
+                MethodCostPick -> "No order: Cost pick neutral (within threshold)."
                 MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
                 MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
                 MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
+                MethodRegimeSwitch -> "No order: Regime switch neutral (within threshold)."
                 MethodRouter -> "No order: Router neutral (score/threshold)."
+                MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
         currentPrice = lsCurrentPrice sig
         entryScale = entryScaleForSignal args MarketSpot sig
         exitScale = maybe 1 clamp01 (lsExitSize sig)
@@ -15513,6 +15543,67 @@ confidencePickPredictionsV fallbackWeight zMin zMax openThr pricesV kalPredV lst
              in confidencePickPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred (kalZAt t)
      in V.generate (max 0 stepCount) pick
 
+costPickWeightFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+costPickWeightFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
+    let netEdge x =
+            if prev <= 0 || isNaN prev || isInfinite prev || isNaN x || isInfinite x
+                then Nothing
+                else
+                    let raw = abs (x / prev - 1) - max 0 roundTripCost
+                        v = max 0 raw
+                     in if isNaN v || isInfinite v then Nothing else Just v
+        wFallback = clamp01 fallbackWeight
+     in case (netEdge kalPred, netEdge lstmPred) of
+            (Just eKal, Just eLstm) ->
+                let denom = eKal + eLstm
+                 in if denom <= 1e-12
+                        then wFallback
+                        else clamp01 (eKal / denom)
+            (Just _, Nothing) -> 1
+            (Nothing, Just _) -> 0
+            (Nothing, Nothing) -> wFallback
+
+costPickPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+costPickPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                let w = costPickWeightFromPreds fallbackWeight roundTripCost prev kalPred lstmPred
+                 in if w >= 0.5 then kalPred else lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) ->
+                let wFallback = clamp01 fallbackWeight
+                 in wFallback * kalPred + (1 - wFallback) * lstmPred
+
+costPickPredictionsV ::
+    Double ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+costPickPredictionsV fallbackWeight roundTripCost pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in costPickPredFromPreds fallbackWeight roundTripCost prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 edgeBlendWeightFromPreds ::
     Double ->
     Double ->
@@ -15639,6 +15730,57 @@ geometricBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
                 kalPred = kalPredV V.! t
                 lstmPred = lstmPredV V.! t
              in geometricBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
+regimeSwitchPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Maybe StepMeta ->
+    Double
+regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred mMeta =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        kalZMeta =
+            case mMeta of
+                Just m -> kalmanZFromMeta m
+                Nothing -> Nothing
+        hvMeta =
+            case mMeta of
+                Just m -> smHighVolProb m
+                Nothing -> Nothing
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                case (kalZMeta, hvMeta) of
+                    (Just _, Just hv) | hv >= highVolCutoff -> blend
+                    (Just z, _) | z >= kalZCutoff -> kalPred
+                    _ -> lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> blend
+
+regimeSwitchPredictionsV ::
+    Double ->
+    Double ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    V.Vector Double
+regimeSwitchPredictionsV fallbackWeight highVolCutoff kalZCutoff kalPredV lstmPredV mMetaV =
+    let stepCount = min (V.length kalPredV) (V.length lstmPredV)
+        metaAt t =
+            case mMetaV of
+                Just metaV
+                    | t >= 0 && t < V.length metaV -> Just (metaV V.! t)
+                _ -> Nothing
+        pick t =
+            let kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred (metaAt t)
      in V.generate (max 0 stepCount) pick
 
 clampRange :: Double -> Double -> Double -> Double
@@ -15791,6 +15933,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 blendPred0 = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPred0 lstmPred0
                 edgeBlendPred0 = edgeBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 edgePickPred0 = edgePickPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                costPickPred0 = costPickPredictionsV blendWeight roundTripCost pricesV kalPred0 lstmPred0
                 geoBlendPred0 = geometricBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 confBlendOpenThr = max openThrBase minEdge
                 confBlendPred0 =
@@ -15813,33 +15956,48 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         kalPred0
                         lstmPred0
                         (phMeta hist)
+                regimeSwitchPred0 =
+                    regimeSwitchPredictionsV
+                        blendWeight
+                        0.6
+                        1.0
+                        kalPred0
+                        lstmPred0
+                        (phMeta hist)
                 routerPred =
-                    if method == MethodRouter
+                    if method == MethodRouter || method == MethodBanditRouter
                         then
-                            let (predV, _models) =
-                                    routerPredictionsWithModelsV
-                                        openThrBase
-                                        roundTripCost
-                                        (argRouterScorePnlWeight args)
-                                        (argRouterLookback args)
-                                        (argRouterMinScore args)
-                                        pricesV
-                                        kalPred0
-                                        lstmPred0
-                                        blendPred0
-                             in predV
+                            let runRouter f =
+                                    let (predV, _models) =
+                                            f
+                                                openThrBase
+                                                roundTripCost
+                                                (argRouterScorePnlWeight args)
+                                                (argRouterLookback args)
+                                                (argRouterMinScore args)
+                                                pricesV
+                                                kalPred0
+                                                lstmPred0
+                                                blendPred0
+                                     in predV
+                             in case method of
+                                    MethodBanditRouter -> runRouter banditPredictionsWithModelsV
+                                    _ -> runRouter routerPredictionsWithModelsV
                         else blendPred0
                 (kalPred1, lstmPred1) =
                     case method of
                         MethodBlend -> (blendPred0, blendPred0)
                         MethodConfBlend -> (confBlendPred0, confBlendPred0)
                         MethodConfPick -> (confPickPred0, confPickPred0)
+                        MethodCostPick -> (costPickPred0, costPickPred0)
                         MethodEdgeBlend -> (edgeBlendPred0, edgeBlendPred0)
                         MethodEdgePick -> (edgePickPred0, edgePickPred0)
                         MethodGeoBlend -> (geoBlendPred0, geoBlendPred0)
+                        MethodRegimeSwitch -> (regimeSwitchPred0, regimeSwitchPred0)
                         MethodKalmanOnly -> (kalPred0, kalPred0)
                         MethodLstmOnly -> (lstmPred0, lstmPred0)
                         MethodRouter -> (routerPred, routerPred)
+                        MethodBanditRouter -> (routerPred, routerPred)
                         MethodBoth -> (kalPred0, lstmPred0)
                 stepCount = minimum [V.length pricesV - 1, V.length kalPred1, V.length lstmPred1]
                 alignVec len v
@@ -16082,10 +16240,13 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodBlend -> "No order: Blend neutral (within threshold)."
             MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
             MethodConfPick -> "No order: Conf pick neutral (within threshold)."
+            MethodCostPick -> "No order: Cost pick neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
             MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
+            MethodRegimeSwitch -> "No order: Regime switch neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
+            MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
 
     shortErr :: SomeException -> String
     shortErr ex = take 240 (show ex)
@@ -16862,10 +17023,13 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodBlend -> "No order: Blend neutral (within threshold)."
             MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
             MethodConfPick -> "No order: Conf pick neutral (within threshold)."
+            MethodCostPick -> "No order: Cost pick neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
             MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
+            MethodRegimeSwitch -> "No order: Regime switch neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
+            MethodBanditRouter -> "No order: Bandit router neutral (score/threshold)."
 
     lstmBlockMsg :: Maybe String
     lstmBlockMsg = snd (lstmConfidenceSizing args sig)
@@ -17313,10 +17477,13 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodBlend -> "Backtest (Kalman + LSTM blend) complete."
                     MethodConfBlend -> "Backtest (confidence-weighted Kalman/LSTM blend) complete."
                     MethodConfPick -> "Backtest (confidence winner-take-all Kalman/LSTM pick) complete."
+                    MethodCostPick -> "Backtest (cost-aware Kalman/LSTM pick) complete."
                     MethodEdgeBlend -> "Backtest (edge-weighted Kalman/LSTM blend) complete."
                     MethodEdgePick -> "Backtest (edge winner-take-all Kalman/LSTM pick) complete."
                     MethodGeoBlend -> "Backtest (geometric Kalman/LSTM blend) complete."
+                    MethodRegimeSwitch -> "Backtest (regime-switched Kalman/LSTM) complete."
                     MethodRouter -> "Backtest (adaptive router: Kalman/LSTM/blend) complete."
+                    MethodBanditRouter -> "Backtest (bandit router: Kalman/LSTM/blend) complete."
 
             Data.Foldable.for_ (bsLstmHistory summary) printLstmSummary
 
@@ -17364,7 +17531,7 @@ computeTradeOnlySignal args lookback series mBinanceEnv = do
         pricesV = V.fromList prices
         n = V.length pricesV
         stepCount = max 0 (n - 1)
-        needsHistory = argThresholdFactorEnabled args || method == MethodRouter
+        needsHistory = argThresholdFactorEnabled args || method == MethodRouter || method == MethodBanditRouter
     when
         (n <= lookback)
         ( throwIO
@@ -17704,10 +17871,13 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     MethodBlend -> MethodBoth
                     MethodConfBlend -> MethodBoth
                     MethodConfPick -> MethodBoth
+                    MethodCostPick -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
                     MethodGeoBlend -> MethodBoth
+                    MethodRegimeSwitch -> MethodBoth
                     MethodRouter -> MethodBoth
+                    MethodBanditRouter -> MethodBoth
                     _ -> methodRequested
         pricesV = V.fromList prices
         highsV = V.fromList highsAll
@@ -17803,10 +17973,13 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             MethodBlend -> runDualPredictorBacktest
             MethodConfBlend -> runDualPredictorBacktest
             MethodConfPick -> runDualPredictorBacktest
+            MethodCostPick -> runDualPredictorBacktest
             MethodEdgeBlend -> runDualPredictorBacktest
             MethodEdgePick -> runDualPredictorBacktest
             MethodGeoBlend -> runDualPredictorBacktest
+            MethodRegimeSwitch -> runDualPredictorBacktest
             MethodRouter -> runDualPredictorBacktest
+            MethodBanditRouter -> runDualPredictorBacktest
 
     let feeUsed = max 0 (argFee args)
         slippageUsed = max 0 (argSlippage args)
@@ -18008,6 +18181,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
              in V.toList (edgePickPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+        costPickPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (costPickPredictionsV blendWeight roundTripCost pricesBacktestV kalBacktestV lstmBacktestV)
         geoBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -18045,25 +18223,40 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         lstmBacktestV
                         metaBacktestV
                     )
+        regimeSwitchPredBacktest =
+            let kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+                metaBacktestV = V.fromList <$> metaBacktest
+             in V.toList
+                    ( regimeSwitchPredictionsV
+                        blendWeight
+                        0.6
+                        1.0
+                        kalBacktestV
+                        lstmBacktestV
+                        metaBacktestV
+                    )
+        runRouterBacktest selectFn =
+            let pricesV = V.fromList backtestPrices
+                kalV = V.fromList kalPredBacktest
+                lstmV = V.fromList lstmPredBacktest
+                blendV = V.fromList blendPredBacktest
+             in selectFn
+                    routerOpenThr
+                    roundTripCost
+                    (argRouterScorePnlWeight args)
+                    (argRouterLookback args)
+                    (argRouterMinScore args)
+                    pricesV
+                    kalV
+                    lstmV
+                    blendV
         routerPredBacktest =
             case methodUsed of
                 MethodRouter ->
-                    let pricesV = V.fromList backtestPrices
-                        kalV = V.fromList kalPredBacktest
-                        lstmV = V.fromList lstmPredBacktest
-                        blendV = V.fromList blendPredBacktest
-                     in Just
-                            ( routerPredictionsWithModelsV
-                                routerOpenThr
-                                roundTripCost
-                                (argRouterScorePnlWeight args)
-                                (argRouterLookback args)
-                                (argRouterMinScore args)
-                                pricesV
-                                kalV
-                                lstmV
-                                blendV
-                            )
+                    Just (runRouterBacktest routerPredictionsWithModelsV)
+                MethodBanditRouter ->
+                    Just (runRouterBacktest banditPredictionsWithModelsV)
                 _ -> Nothing
         (kalPredUsedBacktest, lstmPredUsedBacktest, metaUsedBacktest, metaMaskUsedBacktest) =
             case methodUsed of
@@ -18074,16 +18267,27 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                                 routerMaskV = V.map (== Just RouterKalman) routerModelsV
                              in (routerPred, routerPred, metaBacktest, Just routerMaskV)
                         Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest, Nothing)
+                MethodBanditRouter ->
+                    case routerPredBacktest of
+                        Just (routerPredV, routerModelsV) ->
+                            let routerPred = V.toList routerPredV
+                                routerMaskV = V.map (== Just RouterKalman) routerModelsV
+                             in (routerPred, routerPred, metaBacktest, Just routerMaskV)
+                        Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest, Nothing)
                 MethodConfBlend ->
                     (confBlendPredBacktest, confBlendPredBacktest, metaBacktest, Nothing)
                 MethodConfPick ->
                     (confPickPredBacktest, confPickPredBacktest, metaBacktest, Nothing)
+                MethodCostPick ->
+                    (costPickPredBacktest, costPickPredBacktest, metaBacktest, Nothing)
                 MethodEdgeBlend ->
                     (edgeBlendPredBacktest, edgeBlendPredBacktest, metaBacktest, Nothing)
                 MethodEdgePick ->
                     (edgePickPredBacktest, edgePickPredBacktest, metaBacktest, Nothing)
                 MethodGeoBlend ->
                     (geoBlendPredBacktest, geoBlendPredBacktest, metaBacktest, Nothing)
+                MethodRegimeSwitch ->
+                    (regimeSwitchPredBacktest, regimeSwitchPredBacktest, metaBacktest, Nothing)
                 _ ->
                     let (kalPredUsed, lstmPredUsed) =
                             selectPredictions methodUsed blendWeight0 kalPredBacktest lstmPredBacktest
@@ -18115,6 +18319,26 @@ computeBacktestSummary args lookback series mBinanceEnv = do
     backtest <-
         case methodUsed of
             MethodRouter -> do
+                let agreementBacktestE =
+                        simulateEnsembleWithHLChecked
+                            backtestCfgAgreement
+                            1
+                            backtestPrices
+                            backtestHighs
+                            backtestLows
+                            kalPredBacktest
+                            lstmPredBacktest
+                            metaBacktest
+                agreementBacktest <-
+                    case agreementBacktestE of
+                        Left err -> throwIO (userError err)
+                        Right bt -> pure bt
+                pure
+                    backtestRaw
+                        { brAgreementOk = brAgreementOk agreementBacktest
+                        , brAgreementValid = brAgreementValid agreementBacktest
+                        }
+            MethodBanditRouter -> do
                 let agreementBacktestE =
                         simulateEnsembleWithHLChecked
                             backtestCfgAgreement
@@ -18246,7 +18470,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             | otherwise = args
 
         mPredHistorySignal =
-            if argThresholdFactorEnabled argsForSignal || methodUsed == MethodRouter
+            if argThresholdFactorEnabled argsForSignal || methodUsed == MethodRouter || methodUsed == MethodBanditRouter
                 then
                     let kalPredV = V.fromList kalPredAll
                         lstmPredV = V.fromList lstmPredAll
@@ -18631,6 +18855,59 @@ routerSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV 
                         then (Nothing, bestScore, Just "ROUTER_MIN_SCORE")
                         else (Just bestModel, bestScore, Nothing)
 
+banditSelectModelAt ::
+    Double ->
+    Double ->
+    Double ->
+    Int ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Int ->
+    (Maybe RouterModel, Double, Maybe String)
+banditSelectModelAt openThr roundTripCost pnlWeight lookback0 minScore0 pricesV kalPredV lstmPredV blendPredV t =
+    let stepCount =
+            minimum
+                [ V.length pricesV - 1
+                , V.length kalPredV
+                , V.length lstmPredV
+                , V.length blendPredV
+                ]
+        lookback = max 1 lookback0
+        minScore = max 0 (min 1 minScore0)
+        windowEnd = min (t - 1) (stepCount - 1)
+        modelRank m =
+            case m of
+                RouterBlend -> 2 :: Int
+                RouterKalman -> 1
+                RouterLstm -> 0
+        bonusScale = 0.25 :: Double
+        scoreKey totalSignals (m, stats) =
+            let n = max 0 (rsSignals stats)
+                explore = sqrt (2 * log (max 2 totalSignals) / fromIntegral (n + 1))
+                score = rsScore stats + bonusScale * explore
+             in (score, rsScore stats, rsCoverage stats, rsAccuracy stats, modelRank m)
+        pick totalSignals best cand =
+            if scoreKey totalSignals cand > scoreKey totalSignals best
+                then cand
+                else best
+     in if stepCount <= 0 || windowEnd < 0
+            then (Nothing, 0, Just "BANDIT_WARMUP")
+            else
+                let windowStart = max 0 (windowEnd - lookback + 1)
+                    statsKal = routerStatsWindow openThr roundTripCost pnlWeight pricesV kalPredV windowStart windowEnd
+                    statsLstm = routerStatsWindow openThr roundTripCost pnlWeight pricesV lstmPredV windowStart windowEnd
+                    statsBlend = routerStatsWindow openThr roundTripCost pnlWeight pricesV blendPredV windowStart windowEnd
+                    totalSignals = fromIntegral (1 + rsSignals statsKal + rsSignals statsLstm + rsSignals statsBlend)
+                    (bestModel, bestStats) =
+                        foldl' (pick totalSignals) (RouterKalman, statsKal) [(RouterLstm, statsLstm), (RouterBlend, statsBlend)]
+                    bestScore = rsScore bestStats
+                 in if bestScore < minScore
+                        then (Nothing, bestScore, Just "BANDIT_MIN_SCORE")
+                        else (Just bestModel, bestScore, Nothing)
+
 routerPredictionsWithModelsV ::
     Double ->
     Double ->
@@ -18652,6 +18929,34 @@ routerPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore p
                 ]
         pickPred t =
             case routerSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV t of
+                (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
+                (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
+                (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
+                _ -> (pricesV V.! t, Nothing)
+        picks = V.generate (max 0 stepCount) pickPred
+     in (V.map fst picks, V.map snd picks)
+
+banditPredictionsWithModelsV ::
+    Double ->
+    Double ->
+    Double ->
+    Int ->
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    (V.Vector Double, V.Vector (Maybe RouterModel))
+banditPredictionsWithModelsV openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV =
+    let stepCount =
+            minimum
+                [ V.length pricesV - 1
+                , V.length kalPredV
+                , V.length lstmPredV
+                , V.length blendPredV
+                ]
+        pickPred t =
+            case banditSelectModelAt openThr roundTripCost pnlWeight lookback minScore pricesV kalPredV lstmPredV blendPredV t of
                 (Just RouterKalman, _, _) -> (kalPredV V.! t, Just RouterKalman)
                 (Just RouterLstm, _, _) -> (lstmPredV V.! t, Just RouterLstm)
                 (Just RouterBlend, _, _) -> (blendPredV V.! t, Just RouterBlend)
@@ -18713,6 +19018,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method conf_pick requires both Kalman and LSTM contexts."
+            MethodCostPick ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method cost_pick requires both Kalman and LSTM contexts."
             MethodEdgeBlend ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -18725,10 +19034,18 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method geo_blend requires both Kalman and LSTM contexts."
+            MethodRegimeSwitch ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method regime_switch requires both Kalman and LSTM contexts."
             MethodRouter ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method router requires both Kalman and LSTM contexts."
+            MethodBanditRouter ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method bandit_router requires both Kalman and LSTM contexts."
   where
     method = argMethod args
     nAll = V.length pricesV
@@ -18739,10 +19056,13 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             MethodBlend -> True
             MethodConfBlend -> True
             MethodConfPick -> True
+            MethodCostPick -> True
             MethodEdgeBlend -> True
             MethodEdgePick -> True
             MethodGeoBlend -> True
+            MethodRegimeSwitch -> True
             MethodRouter -> True
+            MethodBanditRouter -> True
             _ -> False
     lstmWindowOk =
         case mLstmCtx of
@@ -19239,6 +19559,18 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 mKalZ
                             )
                     _ -> Nothing
+            costPickNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        Just
+                            ( costPickPredFromPreds
+                                blendWeight
+                                roundTripCost
+                                currentPrice
+                                k
+                                l
+                            )
+                    _ -> Nothing
             edgeBlendNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
@@ -19272,11 +19604,27 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 l
                             )
                     _ -> Nothing
+            regimeSwitchNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        let highVolCutoff = 0.6
+                            kalZCutoff = 1.0
+                            blend = blendWeight * k + (1 - blendWeight) * l
+                         in Just
+                                ( case (mKalZ, mRegimes) of
+                                    (Just _, Just r)
+                                        | rpHighVol r >= highVolCutoff -> blend
+                                    (Just z, _)
+                                        | z >= kalZCutoff -> k
+                                    _ -> l
+                                )
+                    _ -> Nothing
             routerLookback = max 1 (argRouterLookback args)
             routerMinScore = max 0 (min 1 (argRouterMinScore args))
             (mRouterModel, mRouterReason) =
                 case (method, mKalmanCtx, mLstmCtxSafe) of
-                    (MethodRouter, Just (predictors, _, _, _), Just (normState, obsAll, lstmModel)) ->
+                    (mMethod, Just (predictors, _, _, _), Just (normState, obsAll, lstmModel))
+                        | mMethod == MethodRouter || mMethod == MethodBanditRouter ->
                         let stepCount = max 0 (n - 1)
                             historyPreds =
                                 case mPredHistory of
@@ -19315,8 +19663,12 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                                              in inverseNorm normState predObs
                                             blendPredV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredV lstmPredV
                                          in (kalPredV, lstmPredV, blendPredV)
+                            selectAt =
+                                if mMethod == MethodBanditRouter
+                                    then banditSelectModelAt
+                                    else routerSelectModelAt
                             (mChoice, _score, mReason) =
-                                routerSelectModelAt
+                                selectAt
                                     openThrBase
                                     roundTripCost
                                     (argRouterScorePnlWeight args)
@@ -19343,10 +19695,13 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> blendNext
                     MethodConfBlend -> confBlendNext
                     MethodConfPick -> confPickNext
+                    MethodCostPick -> costPickNext
                     MethodEdgeBlend -> edgeBlendNext
                     MethodEdgePick -> edgePickNext
                     MethodGeoBlend -> geoBlendNext
+                    MethodRegimeSwitch -> regimeSwitchNext
                     MethodRouter -> routerNext
+                    MethodBanditRouter -> routerNext
             routerDirRaw = routerNext >>= directionPrice openThrAdj
             routerCloseDirRaw = routerNext >>= directionPrice closeThrAdj
             edgeFromPred pred =
@@ -19360,9 +19715,11 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             edgeBlend = blendNext >>= edgeFromPred
             edgeConfBlend = confBlendNext >>= edgeFromPred
             edgeConfPick = confPickNext >>= edgeFromPred
+            edgeCostPick = costPickNext >>= edgeFromPred
             edgeEdgeBlend = edgeBlendNext >>= edgeFromPred
             edgeEdgePick = edgePickNext >>= edgeFromPred
             edgeGeoBlend = geoBlendNext >>= edgeFromPred
+            edgeRegimeSwitch = regimeSwitchNext >>= edgeFromPred
             edgeRouter = routerNext >>= edgeFromPred
             edgeForMethod =
                 case method of
@@ -19375,10 +19732,13 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> edgeBlend
                     MethodConfBlend -> edgeConfBlend
                     MethodConfPick -> edgeConfPick
+                    MethodCostPick -> edgeCostPick
                     MethodEdgeBlend -> edgeEdgeBlend
                     MethodEdgePick -> edgeEdgePick
                     MethodGeoBlend -> edgeGeoBlend
+                    MethodRegimeSwitch -> edgeRegimeSwitch
                     MethodRouter -> edgeRouter
+                    MethodBanditRouter -> edgeRouter
             snrRatio =
                 case (edgeForMethod, volPerBar) of
                     (Just edge, Just vol) | vol > 0 -> Just (edge / vol)
@@ -19410,12 +19770,16 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             confBlendCloseDir = confBlendNext >>= directionPrice closeThrAdj
             confPickDir = confPickNext >>= directionPrice openThrAdj
             confPickCloseDir = confPickNext >>= directionPrice closeThrAdj
+            costPickDir = costPickNext >>= directionPrice openThrAdj
+            costPickCloseDir = costPickNext >>= directionPrice closeThrAdj
             edgeBlendDir = edgeBlendNext >>= directionPrice openThrAdj
             edgeBlendCloseDir = edgeBlendNext >>= directionPrice closeThrAdj
             edgePickDir = edgePickNext >>= directionPrice openThrAdj
             edgePickCloseDir = edgePickNext >>= directionPrice closeThrAdj
             geoBlendDir = geoBlendNext >>= directionPrice openThrAdj
             geoBlendCloseDir = geoBlendNext >>= directionPrice closeThrAdj
+            regimeSwitchDir = regimeSwitchNext >>= directionPrice openThrAdj
+            regimeSwitchCloseDir = regimeSwitchNext >>= directionPrice closeThrAdj
             (blendDirGated, blendCloseDirGated, blendPosSize, blendGateReason) =
                 case (method, mKalZ, mConfidence) of
                     (MethodBlend, Just kalZ, Just confScore) ->
@@ -19465,6 +19829,25 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore confPickDir
                             (closeDirUsed, _) =
                                 gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore confPickCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
+            (costPickDirGated, costPickCloseDirGated, costPickPosSize, costPickGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodCostPick, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing costPickDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore costPickDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore costPickCloseDir
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -19530,6 +19913,25 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                          in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
                          in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
                     _ -> (Nothing, Nothing, Nothing, Nothing)
+            (regimeSwitchDirGated, regimeSwitchCloseDirGated, regimeSwitchPosSize, regimeSwitchGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodRegimeSwitch, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing regimeSwitchDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore regimeSwitchDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore regimeSwitchCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
             (routerDirGated, routerCloseDirGated, routerPosSize, routerGateReason, routerConfidence) =
                 case mRouterModel of
                     Just RouterKalman ->
@@ -19574,10 +19976,13 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> blendCloseDirGated
                     MethodConfBlend -> confBlendCloseDirGated
                     MethodConfPick -> confPickCloseDirGated
+                    MethodCostPick -> costPickCloseDirGated
                     MethodEdgeBlend -> edgeBlendCloseDirGated
                     MethodEdgePick -> edgePickCloseDirGated
                     MethodGeoBlend -> geoBlendCloseDirGated
+                    MethodRegimeSwitch -> regimeSwitchCloseDirGated
                     MethodRouter -> routerCloseDirGated
+                    MethodBanditRouter -> routerCloseDirGated
 
             agreeDir =
                 if kalDir == lstmDir
@@ -19591,10 +19996,13 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> blendDirGated
                     MethodConfBlend -> confBlendDirGated
                     MethodConfPick -> confPickDirGated
+                    MethodCostPick -> costPickDirGated
                     MethodEdgeBlend -> edgeBlendDirGated
                     MethodEdgePick -> edgePickDirGated
                     MethodGeoBlend -> geoBlendDirGated
+                    MethodRegimeSwitch -> regimeSwitchDirGated
                     MethodRouter -> routerDirGated
+                    MethodBanditRouter -> routerDirGated
             (chosenDir1, mPostGateReason) =
                 case chosenDir0 of
                     Nothing -> (Nothing, Nothing)
@@ -19718,6 +20126,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (conf_pick neutral)"
+                        MethodCostPick ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (cost_pick neutral)"
                         MethodEdgeBlend ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -19742,6 +20158,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (geo_blend neutral)"
+                        MethodRegimeSwitch ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (regime_switch neutral)"
                         MethodRouter ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -19750,26 +20174,40 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (router neutral)"
+                        MethodBanditRouter ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (bandit_router neutral)"
             posSizeFinal = Just sizeFinal0
             tradePosSize =
                 case method of
                     MethodBlend -> blendPosSize
                     MethodConfBlend -> confBlendPosSize
                     MethodConfPick -> confPickPosSize
+                    MethodCostPick -> costPickPosSize
                     MethodEdgeBlend -> edgeBlendPosSize
                     MethodEdgePick -> edgePickPosSize
                     MethodGeoBlend -> geoBlendPosSize
+                    MethodRegimeSwitch -> regimeSwitchPosSize
                     MethodRouter -> routerPosSize
+                    MethodBanditRouter -> routerPosSize
                     _ -> mPosSize
             gateReasonForMethod =
                 case method of
                     MethodBlend -> blendGateReason
                     MethodConfBlend -> confBlendGateReason
                     MethodConfPick -> confPickGateReason
+                    MethodCostPick -> costPickGateReason
                     MethodEdgeBlend -> edgeBlendGateReason
                     MethodEdgePick -> edgePickGateReason
                     MethodGeoBlend -> geoBlendGateReason
+                    MethodRegimeSwitch -> regimeSwitchGateReason
                     MethodRouter -> mRouterReason <|> routerGateReason
+                    MethodBanditRouter -> mRouterReason <|> routerGateReason
                     _ -> mGateReason
          in LatestSignal
                 { lsMethod = method
@@ -19788,6 +20226,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     case method of
                         MethodLstmOnly -> Nothing
                         MethodRouter -> routerConfidence
+                        MethodBanditRouter -> routerConfidence
                         _ -> mConfidence
                 , lsPositionSize = posSizeFinal
                 , lsExitSize = Nothing
@@ -20435,10 +20874,13 @@ printMetrics method m = do
                 MethodBlend -> "Signal rate (Blend)"
                 MethodConfBlend -> "Signal rate (Conf blend)"
                 MethodConfPick -> "Signal rate (Conf pick)"
+                MethodCostPick -> "Signal rate (Cost pick)"
                 MethodEdgeBlend -> "Signal rate (Edge blend)"
                 MethodEdgePick -> "Signal rate (Edge pick)"
                 MethodGeoBlend -> "Signal rate (Geo blend)"
+                MethodRegimeSwitch -> "Signal rate (Regime switch)"
                 MethodRouter -> "Signal rate (Router)"
+                MethodBanditRouter -> "Signal rate (Bandit router)"
     putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
     putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
 

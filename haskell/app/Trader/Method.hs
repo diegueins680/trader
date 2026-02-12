@@ -14,10 +14,13 @@ data Method
     | MethodBlend
     | MethodConfBlend
     | MethodConfPick
+    | MethodCostPick
     | MethodEdgeBlend
     | MethodEdgePick
     | MethodGeoBlend
+    | MethodRegimeSwitch
     | MethodRouter
+    | MethodBanditRouter
     deriving (Eq, Show)
 
 methodCode :: Method -> String
@@ -29,10 +32,13 @@ methodCode m =
         MethodBlend -> "blend"
         MethodConfBlend -> "conf_blend"
         MethodConfPick -> "conf_pick"
+        MethodCostPick -> "cost_pick"
         MethodEdgeBlend -> "edge_blend"
         MethodEdgePick -> "edge_pick"
         MethodGeoBlend -> "geo_blend"
+        MethodRegimeSwitch -> "regime_switch"
         MethodRouter -> "router"
+        MethodBanditRouter -> "bandit_router"
 
 parseMethod :: String -> Either String Method
 parseMethod raw =
@@ -72,6 +78,12 @@ parseMethod raw =
         "confidence_pick" -> Right MethodConfPick
         "confidence-pick" -> Right MethodConfPick
         "confidencepick" -> Right MethodConfPick
+        "cost_pick" -> Right MethodCostPick
+        "cost-pick" -> Right MethodCostPick
+        "costpick" -> Right MethodCostPick
+        "netedge_pick" -> Right MethodCostPick
+        "netedge-pick" -> Right MethodCostPick
+        "netedgepick" -> Right MethodCostPick
         "edge_blend" -> Right MethodEdgeBlend
         "edge-blend" -> Right MethodEdgeBlend
         "edgeblend" -> Right MethodEdgeBlend
@@ -90,15 +102,27 @@ parseMethod raw =
         "geometric_blend" -> Right MethodGeoBlend
         "geometric-blend" -> Right MethodGeoBlend
         "geometricblend" -> Right MethodGeoBlend
+        "regime_switch" -> Right MethodRegimeSwitch
+        "regime-switch" -> Right MethodRegimeSwitch
+        "regimeswitch" -> Right MethodRegimeSwitch
+        "regime_router" -> Right MethodRegimeSwitch
+        "regime-router" -> Right MethodRegimeSwitch
+        "regimerouter" -> Right MethodRegimeSwitch
         "router" -> Right MethodRouter
         "route" -> Right MethodRouter
         "adaptive" -> Right MethodRouter
         "auto" -> Right MethodRouter
+        "bandit_router" -> Right MethodBanditRouter
+        "bandit-router" -> Right MethodBanditRouter
+        "banditrouter" -> Right MethodBanditRouter
+        "ucb_router" -> Right MethodBanditRouter
+        "ucb-router" -> Right MethodBanditRouter
+        "ucbrouter" -> Right MethodBanditRouter
         other ->
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, edge_blend, edge_pick, geo_blend, router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -119,6 +143,10 @@ selectPredictions m blendWeight kalPred lstmPred =
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
+        MethodCostPick ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
         MethodEdgeBlend ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
@@ -131,7 +159,12 @@ selectPredictions m blendWeight kalPred lstmPred =
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
+        MethodRegimeSwitch ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
         MethodRouter -> (kalPred, lstmPred)
+        MethodBanditRouter -> (kalPred, lstmPred)
   where
     clamp01 x = max 0 (min 1 x)
 
