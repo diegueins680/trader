@@ -16,6 +16,10 @@ export type Method =
   | "consensus_boost"
   | "anchor_blend"
   | "tension_gate"
+  | "entropy_blend"
+  | "coherence_gate"
+  | "fractal_blend"
+  | "phase_cancel"
   | "edge_blend"
   | "edge_pick"
   | "geo_blend"
@@ -783,6 +787,10 @@ export type OptimizerRunRequest = {
   methodWeightConsensusBoost?: number;
   methodWeightAnchorBlend?: number;
   methodWeightTensionGate?: number;
+  methodWeightEntropyBlend?: number;
+  methodWeightCoherenceGate?: number;
+  methodWeightFractalBlend?: number;
+  methodWeightPhaseCancel?: number;
   methodWeightEdgeBlend?: number;
   methodWeightEdgePick?: number;
   methodWeightGeoBlend?: number;

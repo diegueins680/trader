@@ -740,6 +740,10 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightConsensusBoost :: !Double
     , oaMethodWeightAnchorBlend :: !Double
     , oaMethodWeightTensionGate :: !Double
+    , oaMethodWeightEntropyBlend :: !Double
+    , oaMethodWeightCoherenceGate :: !Double
+    , oaMethodWeightFractalBlend :: !Double
+    , oaMethodWeightPhaseCancel :: !Double
     , oaMethodWeightEdgeBlend :: !Double
     , oaMethodWeightEdgePick :: !Double
     , oaMethodWeightGeoBlend :: !Double
@@ -1711,7 +1715,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
+    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWFractalBlend, methodWPhaseCancel, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -1761,6 +1765,10 @@ sampleParams
                 , ("consensus_boost", methodWConsensusBoost)
                 , ("anchor_blend", methodWAnchorBlend)
                 , ("tension_gate", methodWTensionGate)
+                , ("entropy_blend", methodWEntropyBlend)
+                , ("coherence_gate", methodWCoherenceGate)
+                , ("fractal_blend", methodWFractalBlend)
+                , ("phase_cancel", methodWPhaseCancel)
                 , ("edge_blend", methodWEdgeBlend)
                 , ("edge_pick", methodWEdgePick)
                 , ("geo_blend", methodWGeoBlend)
@@ -2586,6 +2594,10 @@ runOptimizer args0 = do
                                                             , oaMethodWeightConsensusBoost args
                                                             , oaMethodWeightAnchorBlend args
                                                             , oaMethodWeightTensionGate args
+                                                            , oaMethodWeightEntropyBlend args
+                                                            , oaMethodWeightCoherenceGate args
+                                                            , oaMethodWeightFractalBlend args
+                                                            , oaMethodWeightPhaseCancel args
                                                             , oaMethodWeightEdgeBlend args
                                                             , oaMethodWeightEdgePick args
                                                             , oaMethodWeightGeoBlend args

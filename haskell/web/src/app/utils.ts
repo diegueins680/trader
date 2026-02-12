@@ -434,6 +434,14 @@ export function methodLabel(method: Method): string {
       return "Anchor blend (pulls toward current price on conflict)";
     case "tension_gate":
       return "Tension gate (partial neutralization on conflict)";
+    case "entropy_blend":
+      return "Entropy blend (uncertainty-aware spot anchoring)";
+    case "coherence_gate":
+      return "Coherence gate (agreement coherence conflict guard)";
+    case "fractal_blend":
+      return "Fractal blend (signed-root nonlinear fusion)";
+    case "phase_cancel":
+      return "Phase cancel (anti-phase conflict neutralization)";
     case "edge_blend":
       return "Edge blend (edge-weighted)";
     case "edge_pick":

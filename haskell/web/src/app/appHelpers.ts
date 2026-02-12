@@ -240,6 +240,10 @@ export const COMPLEX_TIPS = {
     "consensus_boost goes flat on model conflict, and on agreement chooses the higher-edge forecast.",
     "anchor_blend continuously pulls the blend back to current price when Kalman/LSTM conflict or disagree in edge strength.",
     "tension_gate uses stronger conviction on agreement, but partially neutralizes toward spot on directional conflict.",
+    "entropy_blend uses edge-entropy to adaptively shrink blend predictions toward spot when model uncertainty is high.",
+    "coherence_gate measures return coherence; it amplifies coherent agreement and soft-gates incoherent conflicts toward spot.",
+    "fractal_blend blends signed square-root returns, then maps back to return space to reduce outlier dominance.",
+    "phase_cancel detects anti-phase Kalman/LSTM returns and compresses conflicting edges toward neutral.",
     "edge_blend adapts Kalman vs LSTM weights from each model's instantaneous edge magnitude.",
     "edge_pick selects Kalman or LSTM per bar using the larger absolute edge.",
     "geo_blend mixes Kalman/LSTM returns in log-space for a multiplicative geometric blend.",
@@ -257,7 +261,7 @@ export const COMPLEX_TIPS = {
   ],
   snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
   blend: [
-    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/edge_blend/edge_pick/geo_blend/regime_switch.",
+    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/fractal_blend/phase_cancel/edge_blend/edge_pick/geo_blend/regime_switch.",
   ],
   router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
   split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
@@ -1426,6 +1430,10 @@ export type OptimizerRunForm = {
   methodWeightConsensusBoost: string;
   methodWeightAnchorBlend: string;
   methodWeightTensionGate: string;
+  methodWeightEntropyBlend: string;
+  methodWeightCoherenceGate: string;
+  methodWeightFractalBlend: string;
+  methodWeightPhaseCancel: string;
   methodWeightEdgeBlend: string;
   methodWeightEdgePick: string;
   methodWeightGeoBlend: string;
@@ -1580,6 +1588,10 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     methodWeightConsensusBoost: "",
     methodWeightAnchorBlend: "",
     methodWeightTensionGate: "",
+    methodWeightEntropyBlend: "",
+    methodWeightCoherenceGate: "",
+    methodWeightFractalBlend: "",
+    methodWeightPhaseCancel: "",
     methodWeightEdgeBlend: "",
     methodWeightEdgePick: "",
     methodWeightGeoBlend: "",
@@ -1808,6 +1820,14 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (methodWeightAnchorBlend != null) req.methodWeightAnchorBlend = methodWeightAnchorBlend;
   const methodWeightTensionGate = parseOptionalNumber(form.methodWeightTensionGate);
   if (methodWeightTensionGate != null) req.methodWeightTensionGate = methodWeightTensionGate;
+  const methodWeightEntropyBlend = parseOptionalNumber(form.methodWeightEntropyBlend);
+  if (methodWeightEntropyBlend != null) req.methodWeightEntropyBlend = methodWeightEntropyBlend;
+  const methodWeightCoherenceGate = parseOptionalNumber(form.methodWeightCoherenceGate);
+  if (methodWeightCoherenceGate != null) req.methodWeightCoherenceGate = methodWeightCoherenceGate;
+  const methodWeightFractalBlend = parseOptionalNumber(form.methodWeightFractalBlend);
+  if (methodWeightFractalBlend != null) req.methodWeightFractalBlend = methodWeightFractalBlend;
+  const methodWeightPhaseCancel = parseOptionalNumber(form.methodWeightPhaseCancel);
+  if (methodWeightPhaseCancel != null) req.methodWeightPhaseCancel = methodWeightPhaseCancel;
   const methodWeightEdgeBlend = parseOptionalNumber(form.methodWeightEdgeBlend);
   if (methodWeightEdgeBlend != null) req.methodWeightEdgeBlend = methodWeightEdgeBlend;
   const methodWeightEdgePick = parseOptionalNumber(form.methodWeightEdgePick);

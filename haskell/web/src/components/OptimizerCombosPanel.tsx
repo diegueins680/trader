@@ -1971,6 +1971,70 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               />
             </div>
             <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightEntropyBlend">
+                Entropy blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightEntropyBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightEntropyBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightEntropyBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightCoherenceGate">
+                Coherence gate method weight
+              </label>
+              <input
+                id="optimizerMethodWeightCoherenceGate"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightCoherenceGate}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightCoherenceGate: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightFractalBlend">
+                Fractal blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightFractalBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightFractalBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightFractalBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightPhaseCancel">
+                Phase cancel method weight
+              </label>
+              <input
+                id="optimizerMethodWeightPhaseCancel"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightPhaseCancel}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightPhaseCancel: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
+            <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
                 Geo blend method weight
               </label>

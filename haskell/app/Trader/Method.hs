@@ -23,6 +23,10 @@ data Method
     | MethodConsensusBoost
     | MethodAnchorBlend
     | MethodTensionGate
+    | MethodEntropyBlend
+    | MethodCoherenceGate
+    | MethodFractalBlend
+    | MethodPhaseCancel
     | MethodEdgeBlend
     | MethodEdgePick
     | MethodGeoBlend
@@ -49,6 +53,10 @@ methodCode m =
         MethodConsensusBoost -> "consensus_boost"
         MethodAnchorBlend -> "anchor_blend"
         MethodTensionGate -> "tension_gate"
+        MethodEntropyBlend -> "entropy_blend"
+        MethodCoherenceGate -> "coherence_gate"
+        MethodFractalBlend -> "fractal_blend"
+        MethodPhaseCancel -> "phase_cancel"
         MethodEdgeBlend -> "edge_blend"
         MethodEdgePick -> "edge_pick"
         MethodGeoBlend -> "geo_blend"
@@ -148,6 +156,30 @@ parseMethod raw =
         "conflict_damp" -> Right MethodTensionGate
         "conflict-damp" -> Right MethodTensionGate
         "conflictdamp" -> Right MethodTensionGate
+        "entropy_blend" -> Right MethodEntropyBlend
+        "entropy-blend" -> Right MethodEntropyBlend
+        "entropyblend" -> Right MethodEntropyBlend
+        "info_blend" -> Right MethodEntropyBlend
+        "info-blend" -> Right MethodEntropyBlend
+        "infoblend" -> Right MethodEntropyBlend
+        "coherence_gate" -> Right MethodCoherenceGate
+        "coherence-gate" -> Right MethodCoherenceGate
+        "coherencegate" -> Right MethodCoherenceGate
+        "phase_lock" -> Right MethodCoherenceGate
+        "phase-lock" -> Right MethodCoherenceGate
+        "phaselock" -> Right MethodCoherenceGate
+        "fractal_blend" -> Right MethodFractalBlend
+        "fractal-blend" -> Right MethodFractalBlend
+        "fractalblend" -> Right MethodFractalBlend
+        "root_blend" -> Right MethodFractalBlend
+        "root-blend" -> Right MethodFractalBlend
+        "rootblend" -> Right MethodFractalBlend
+        "phase_cancel" -> Right MethodPhaseCancel
+        "phase-cancel" -> Right MethodPhaseCancel
+        "phasecancel" -> Right MethodPhaseCancel
+        "wave_cancel" -> Right MethodPhaseCancel
+        "wave-cancel" -> Right MethodPhaseCancel
+        "wavecancel" -> Right MethodPhaseCancel
         "edge_blend" -> Right MethodEdgeBlend
         "edge-blend" -> Right MethodEdgeBlend
         "edgeblend" -> Right MethodEdgeBlend
@@ -186,7 +218,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, fractal_blend, phase_cancel, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -240,6 +272,22 @@ selectPredictions m blendWeight kalPred lstmPred =
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
         MethodTensionGate ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodEntropyBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodCoherenceGate ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodFractalBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodPhaseCancel ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)

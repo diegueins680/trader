@@ -705,6 +705,10 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     "consensus_boost",
     "anchor_blend",
     "tension_gate",
+    "entropy_blend",
+    "coherence_gate",
+    "fractal_blend",
+    "phase_cancel",
     "edge_blend",
     "edge_pick",
     "geo_blend",
@@ -1826,6 +1830,10 @@ export function App() {
       "consensus_boost",
       "anchor_blend",
       "tension_gate",
+      "entropy_blend",
+      "coherence_gate",
+      "fractal_blend",
+      "phase_cancel",
       "edge_blend",
       "edge_pick",
       "geo_blend",
@@ -7635,6 +7643,22 @@ export function App() {
       case "tension_gate":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "tension_gate";
+        break;
+      case "entropy_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "entropy_blend";
+        break;
+      case "coherence_gate":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "coherence_gate";
+        break;
+      case "fractal_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "fractal_blend";
+        break;
+      case "phase_cancel":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "phase_cancel";
         break;
       case "edge_blend":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
