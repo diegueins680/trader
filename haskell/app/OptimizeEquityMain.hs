@@ -284,6 +284,8 @@ optimizerArgsParser =
         <*> option auto (long "method-weight-neutral-guard" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-risk-parity-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-consensus-boost" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-anchor-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-tension-gate" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-edge-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-edge-pick" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-geo-blend" <> value 0.0 <> metavar "FLOAT")

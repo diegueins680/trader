@@ -238,6 +238,8 @@ export const COMPLEX_TIPS = {
     "neutral_guard goes neutral when Kalman/LSTM directions conflict, and otherwise follows the more conservative edge.",
     "risk_parity_blend down-weights the more extreme edge, blending by inverse edge magnitude to reduce forecast concentration.",
     "consensus_boost goes flat on model conflict, and on agreement chooses the higher-edge forecast.",
+    "anchor_blend continuously pulls the blend back to current price when Kalman/LSTM conflict or disagree in edge strength.",
+    "tension_gate uses stronger conviction on agreement, but partially neutralizes toward spot on directional conflict.",
     "edge_blend adapts Kalman vs LSTM weights from each model's instantaneous edge magnitude.",
     "edge_pick selects Kalman or LSTM per bar using the larger absolute edge.",
     "geo_blend mixes Kalman/LSTM returns in log-space for a multiplicative geometric blend.",
@@ -255,7 +257,7 @@ export const COMPLEX_TIPS = {
   ],
   snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
   blend: [
-    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/edge_blend/edge_pick/geo_blend/regime_switch.",
+    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/edge_blend/edge_pick/geo_blend/regime_switch.",
   ],
   router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
   split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
@@ -532,6 +534,11 @@ export function binanceTradeKey(trade: BinanceTrade): string {
   return `${normalizeSymbolKey(trade.symbol)}-${trade.tradeId}`;
 }
 
+export function isLikelyBinanceCloseFill(trade: BinanceTrade): boolean {
+  const pnl = trade.realizedPnl;
+  return typeof pnl === "number" && Number.isFinite(pnl) && Math.abs(pnl) > BINANCE_TRADE_IP_EPS;
+}
+
 function normalizeTradeIp(raw?: string | null): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
@@ -599,7 +606,14 @@ function consumedOpenTime(consumed: ConsumedTradeLot[]): number | null {
 export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, BinanceTradeIpMeta> {
   const meta = new Map<string, BinanceTradeIpMeta>();
   if (trades.length === 0) return meta;
-  const sorted = [...trades].sort((a, b) => a.time - b.time);
+  const sorted = [...trades].sort((a, b) => {
+    const aTime = Number.isFinite(a.time) ? a.time : Number.POSITIVE_INFINITY;
+    const bTime = Number.isFinite(b.time) ? b.time : Number.POSITIVE_INFINITY;
+    if (aTime !== bTime) return aTime - bTime;
+    const aTradeId = Number.isFinite(a.tradeId) ? a.tradeId : 0;
+    const bTradeId = Number.isFinite(b.tradeId) ? b.tradeId : 0;
+    return aTradeId - bTradeId;
+  });
   const longLots = new Map<string, TradeLot[]>();
   const shortLots = new Map<string, TradeLot[]>();
   const netPos = new Map<string, number>();
@@ -703,6 +717,13 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
         }
         netPos.set(netKey, net - qty);
       }
+    }
+
+    // When we cannot pair inventory from the visible window, non-zero realized PnL
+    // still indicates a close fill, so keep its close timestamp/IP.
+    if (exitTime == null && isLikelyBinanceCloseFill(trade)) {
+      exitIp = exitIp ?? orderIp;
+      exitTime = tradeTime;
     }
 
     meta.set(key, { entryIp, exitIp, entryTime, exitTime });
@@ -1403,6 +1424,8 @@ export type OptimizerRunForm = {
   methodWeightNeutralGuard: string;
   methodWeightRiskParityBlend: string;
   methodWeightConsensusBoost: string;
+  methodWeightAnchorBlend: string;
+  methodWeightTensionGate: string;
   methodWeightEdgeBlend: string;
   methodWeightEdgePick: string;
   methodWeightGeoBlend: string;
@@ -1555,6 +1578,8 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     methodWeightNeutralGuard: "",
     methodWeightRiskParityBlend: "",
     methodWeightConsensusBoost: "",
+    methodWeightAnchorBlend: "",
+    methodWeightTensionGate: "",
     methodWeightEdgeBlend: "",
     methodWeightEdgePick: "",
     methodWeightGeoBlend: "",
@@ -1779,6 +1804,10 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (methodWeightRiskParityBlend != null) req.methodWeightRiskParityBlend = methodWeightRiskParityBlend;
   const methodWeightConsensusBoost = parseOptionalNumber(form.methodWeightConsensusBoost);
   if (methodWeightConsensusBoost != null) req.methodWeightConsensusBoost = methodWeightConsensusBoost;
+  const methodWeightAnchorBlend = parseOptionalNumber(form.methodWeightAnchorBlend);
+  if (methodWeightAnchorBlend != null) req.methodWeightAnchorBlend = methodWeightAnchorBlend;
+  const methodWeightTensionGate = parseOptionalNumber(form.methodWeightTensionGate);
+  if (methodWeightTensionGate != null) req.methodWeightTensionGate = methodWeightTensionGate;
   const methodWeightEdgeBlend = parseOptionalNumber(form.methodWeightEdgeBlend);
   if (methodWeightEdgeBlend != null) req.methodWeightEdgeBlend = methodWeightEdgeBlend;
   const methodWeightEdgePick = parseOptionalNumber(form.methodWeightEdgePick);

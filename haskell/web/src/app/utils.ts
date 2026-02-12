@@ -430,6 +430,10 @@ export function methodLabel(method: Method): string {
       return "Risk parity blend (inverse-edge weighted)";
     case "consensus_boost":
       return "Consensus boost (flat on conflict, strong on agree)";
+    case "anchor_blend":
+      return "Anchor blend (pulls toward current price on conflict)";
+    case "tension_gate":
+      return "Tension gate (partial neutralization on conflict)";
     case "edge_blend":
       return "Edge blend (edge-weighted)";
     case "edge_pick":

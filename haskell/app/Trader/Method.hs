@@ -21,6 +21,8 @@ data Method
     | MethodNeutralGuard
     | MethodRiskParityBlend
     | MethodConsensusBoost
+    | MethodAnchorBlend
+    | MethodTensionGate
     | MethodEdgeBlend
     | MethodEdgePick
     | MethodGeoBlend
@@ -45,6 +47,8 @@ methodCode m =
         MethodNeutralGuard -> "neutral_guard"
         MethodRiskParityBlend -> "risk_parity_blend"
         MethodConsensusBoost -> "consensus_boost"
+        MethodAnchorBlend -> "anchor_blend"
+        MethodTensionGate -> "tension_gate"
         MethodEdgeBlend -> "edge_blend"
         MethodEdgePick -> "edge_pick"
         MethodGeoBlend -> "geo_blend"
@@ -132,6 +136,18 @@ parseMethod raw =
         "agreement_boost" -> Right MethodConsensusBoost
         "agreement-boost" -> Right MethodConsensusBoost
         "agreementboost" -> Right MethodConsensusBoost
+        "anchor_blend" -> Right MethodAnchorBlend
+        "anchor-blend" -> Right MethodAnchorBlend
+        "anchorblend" -> Right MethodAnchorBlend
+        "shrink_blend" -> Right MethodAnchorBlend
+        "shrink-blend" -> Right MethodAnchorBlend
+        "shrinkblend" -> Right MethodAnchorBlend
+        "tension_gate" -> Right MethodTensionGate
+        "tension-gate" -> Right MethodTensionGate
+        "tensiongate" -> Right MethodTensionGate
+        "conflict_damp" -> Right MethodTensionGate
+        "conflict-damp" -> Right MethodTensionGate
+        "conflictdamp" -> Right MethodTensionGate
         "edge_blend" -> Right MethodEdgeBlend
         "edge-blend" -> Right MethodEdgeBlend
         "edgeblend" -> Right MethodEdgeBlend
@@ -170,7 +186,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -216,6 +232,14 @@ selectPredictions m blendWeight kalPred lstmPred =
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
         MethodConsensusBoost ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodAnchorBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodTensionGate ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)

@@ -34,6 +34,7 @@ import Data.Int (Int64)
 import Data.List (dropWhileEnd, find, foldl', intercalate, isInfixOf, isPrefixOf, isSuffixOf, sortOn, stripPrefix)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Ord
+import Data.Scientific (FPFormat (Fixed), formatScientific, toBoundedInteger)
 import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -887,7 +888,7 @@ data ApiParams = ApiParams
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
     , apCloseThreshold :: Maybe Double
-    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "cost_pick" | "harmonic_blend" | "disagreement_guard" | "median_blend" | "neutral_guard" | "risk_parity_blend" | "consensus_boost" | "edge_blend" | "edge_pick" | "geo_blend" | "regime_switch" | "router" | "bandit_router"
+    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "cost_pick" | "harmonic_blend" | "disagreement_guard" | "median_blend" | "neutral_guard" | "risk_parity_blend" | "consensus_boost" | "anchor_blend" | "tension_gate" | "edge_blend" | "edge_pick" | "geo_blend" | "regime_switch" | "router" | "bandit_router"
     , apPositioning :: Maybe String -- "long-flat" | "long-short"
     , apOptimizeOperations :: Maybe Bool
     , apSweepThreshold :: Maybe Bool
@@ -1254,6 +1255,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrMethodWeightNeutralGuard :: !(Maybe Double)
     , arrMethodWeightRiskParityBlend :: !(Maybe Double)
     , arrMethodWeightConsensusBoost :: !(Maybe Double)
+    , arrMethodWeightAnchorBlend :: !(Maybe Double)
+    , arrMethodWeightTensionGate :: !(Maybe Double)
     , arrMethodWeightEdgeBlend :: !(Maybe Double)
     , arrMethodWeightEdgePick :: !(Maybe Double)
     , arrMethodWeightGeoBlend :: !(Maybe Double)
@@ -3108,6 +3111,8 @@ seedStrategies conn = do
             , ("neutral_guard", "Neutral Guard")
             , ("risk_parity_blend", "Risk Parity Blend")
             , ("consensus_boost", "Consensus Boost")
+            , ("anchor_blend", "Anchor Blend")
+            , ("tension_gate", "Tension Gate")
             , ("edge_blend", "Edge Blend")
             , ("edge_pick", "Edge Pick")
             , ("geo_blend", "Geo Blend")
@@ -3542,25 +3547,90 @@ binanceOpsLogger store mTenantKey entry = do
     opsAppendMaybe (Just store) mTenantKey "binance.request" (Just params) Nothing (Just result) Nothing Nothing mSymbol mOrderId
 
 data OpsOrderOriginRow = OpsOrderOriginRow
-    { oorOrderId :: !Text
+    { oorId :: !Int64
+    , oorTenantKey :: !(Maybe Text)
+    , oorKind :: !Text
+    , oorOrderId :: !(Maybe Text)
+    , oorParams :: !(Maybe Aeson.Value)
     , oorResult :: !(Maybe Aeson.Value)
     }
     deriving (Eq, Show)
 
 instance FromRow OpsOrderOriginRow where
-    fromRow = OpsOrderOriginRow <$> field <*> field
+    fromRow = OpsOrderOriginRow <$> field <*> field <*> field <*> field <*> field <*> field
+
+trimmedTextOrNothing :: Text -> Maybe Text
+trimmedTextOrNothing raw =
+    let trimmed = T.strip raw
+     in if T.null trimmed then Nothing else Just trimmed
+
+jsonValueToText :: Aeson.Value -> Maybe Text
+jsonValueToText v =
+    case v of
+        Aeson.String t -> trimmedTextOrNothing t
+        Aeson.Number n ->
+            case (toBoundedInteger n :: Maybe Int64) of
+                Just i -> Just (T.pack (show i))
+                Nothing -> trimmedTextOrNothing (T.pack (formatScientific Fixed Nothing n))
+        _ -> Nothing
+
+jsonLookupPathText :: [AK.Key] -> Aeson.Value -> Maybe Text
+jsonLookupPathText path v =
+    case path of
+        [] -> Nothing
+        [k] ->
+            case v of
+                Aeson.Object o -> KM.lookup k o >>= jsonValueToText
+                _ -> Nothing
+        (k : ks) ->
+            case v of
+                Aeson.Object o ->
+                    case KM.lookup k o of
+                        Just next -> jsonLookupPathText ks next
+                        Nothing -> Nothing
+                _ -> Nothing
 
 extractOriginIpFromOp :: Maybe Aeson.Value -> Maybe Text
 extractOriginIpFromOp mVal =
     case mVal of
         Nothing -> Nothing
-        Just (Aeson.Object o) ->
-            case KM.lookup (AK.fromString "originIp") o of
-                Just (Aeson.String v) ->
-                    let trimmed = T.strip v
-                     in if T.null trimmed then Nothing else Just trimmed
-                _ -> Nothing
-        _ -> Nothing
+        Just v ->
+            listToMaybe . catMaybes $
+                [ jsonLookupPathText [AK.fromString "originIp"] v
+                , jsonLookupPathText [AK.fromString "origin_ip"] v
+                , jsonLookupPathText [AK.fromString "event", AK.fromString "originIp"] v
+                , jsonLookupPathText [AK.fromString "order", AK.fromString "originIp"] v
+                , jsonLookupPathText [AK.fromString "event", AK.fromString "order", AK.fromString "originIp"] v
+                ]
+
+extractOrderIdFromOp :: OpsOrderOriginRow -> Maybe Text
+extractOrderIdFromOp row =
+    let fromJson mVal =
+            case mVal of
+                Nothing -> Nothing
+                Just v ->
+                    listToMaybe . catMaybes $
+                        [ jsonLookupPathText [AK.fromString "orderId"] v
+                        , jsonLookupPathText [AK.fromString "order", AK.fromString "orderId"] v
+                        , jsonLookupPathText [AK.fromString "event", AK.fromString "order", AK.fromString "orderId"] v
+                        ]
+     in normalizeMaybeText (oorOrderId row) <|> fromJson (oorResult row) <|> fromJson (oorParams row)
+
+originIpFromRow :: OpsOrderOriginRow -> Maybe Text
+originIpFromRow row = extractOriginIpFromOp (oorResult row) <|> extractOriginIpFromOp (oorParams row)
+
+rowScore :: TenantKey -> OpsOrderOriginRow -> Maybe Text -> (Int, Int, Int, Int64)
+rowScore tenantKey row mIp =
+    let tenantRank =
+            case normalizeMaybeText (oorTenantKey row) of
+                Just t | t == tenantKey -> 1
+                _ -> 0
+        ipRank = if isJust mIp then 1 else 0
+        kindRank =
+            if oorKind row == "trade.order"
+                then 1
+                else 0
+     in (ipRank, tenantRank, kindRank, oorId row)
 
 attachBinanceTradeOriginIps :: OpsStore -> TenantKey -> [BinanceTrade] -> IO [BinanceTrade]
 attachBinanceTradeOriginIps store tenantKey trades = do
@@ -3576,13 +3646,45 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                 withMVar (osLock store) $ \_ ->
                     query
                         (osConn store)
-                        "SELECT order_id, result_json FROM ops WHERE tenant_key = ? AND kind IN ('trade.order', 'bot.order') AND order_id = ANY (?) ORDER BY kind = 'trade.order' ASC"
-                        (tenantKey, PGArray orderIds)
+                        ( "SELECT id, tenant_key, kind, order_id, params_json, result_json "
+                            <> "FROM ops "
+                            <> "WHERE kind IN ('trade.order', 'bot.order') "
+                            <> "AND (tenant_key = ? OR tenant_key IS NULL OR tenant_key = '') "
+                            <> "AND ("
+                            <> "order_id = ANY (?) "
+                            <> "OR result_json ->> 'orderId' = ANY (?) "
+                            <> "OR result_json #>> '{event,order,orderId}' = ANY (?) "
+                            <> "OR params_json ->> 'orderId' = ANY (?) "
+                            <> "OR params_json #>> '{event,order,orderId}' = ANY (?)"
+                            <> ") "
+                            <> "ORDER BY id DESC"
+                        )
+                        (tenantKey, PGArray orderIds, PGArray orderIds, PGArray orderIds, PGArray orderIds, PGArray orderIds)
+            let orderLookup = HM.fromList [(oid, ()) | oid <- orderIds]
+                ipMapScored =
+                    foldl'
+                        ( \acc row ->
+                            case extractOrderIdFromOp row of
+                                Nothing -> acc
+                                Just oid ->
+                                    if not (HM.member oid orderLookup)
+                                        then acc
+                                        else
+                                            let mIp = originIpFromRow row
+                                                score = rowScore tenantKey row mIp
+                                             in case HM.lookup oid acc of
+                                                    Nothing -> HM.insert oid (score, mIp) acc
+                                                    Just (prevScore, _prevIp) ->
+                                                        if score > prevScore
+                                                            then HM.insert oid (score, mIp) acc
+                                                            else acc
+                        )
+                        HM.empty
+                        rows
             let ipMap =
                     HM.fromList
-                        [ (oorOrderId row, ip)
-                        | row <- rows
-                        , Just ip <- [extractOriginIpFromOp (oorResult row)]
+                        [ (oid, ip)
+                        | (oid, (_score, Just ip)) <- HM.toList ipMapScored
                         ]
                 attachIp trade =
                     case btOriginIp trade of
@@ -5870,6 +5972,8 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                     MethodNeutralGuard -> MethodBoth
                     MethodRiskParityBlend -> MethodBoth
                     MethodConsensusBoost -> MethodBoth
+                    MethodAnchorBlend -> MethodBoth
+                    MethodTensionGate -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
                     MethodGeoBlend -> MethodBoth
@@ -6478,6 +6582,8 @@ botApplyOptimizerUpdate st upd = do
                 MethodNeutralGuard -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodRiskParityBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodConsensusBoost -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodAnchorBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodTensionGate -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgePick -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodGeoBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -11084,6 +11190,10 @@ prepareOptimizerArgs outputPath req = do
                     maybeDoubleArg "--method-weight-risk-parity-blend" (fmap (max 0) (arrMethodWeightRiskParityBlend req))
                 methodWeightConsensusBoostArgs =
                     maybeDoubleArg "--method-weight-consensus-boost" (fmap (max 0) (arrMethodWeightConsensusBoost req))
+                methodWeightAnchorBlendArgs =
+                    maybeDoubleArg "--method-weight-anchor-blend" (fmap (max 0) (arrMethodWeightAnchorBlend req))
+                methodWeightTensionGateArgs =
+                    maybeDoubleArg "--method-weight-tension-gate" (fmap (max 0) (arrMethodWeightTensionGate req))
                 methodWeightEdgeBlendArgs =
                     maybeDoubleArg "--method-weight-edge-blend" (fmap (max 0) (arrMethodWeightEdgeBlend req))
                 methodWeightEdgePickArgs =
@@ -11227,6 +11337,8 @@ prepareOptimizerArgs outputPath req = do
                         ++ methodWeightNeutralGuardArgs
                         ++ methodWeightRiskParityBlendArgs
                         ++ methodWeightConsensusBoostArgs
+                        ++ methodWeightAnchorBlendArgs
+                        ++ methodWeightTensionGateArgs
                         ++ methodWeightEdgeBlendArgs
                         ++ methodWeightEdgePickArgs
                         ++ methodWeightGeoBlendArgs
@@ -11671,6 +11783,10 @@ strategyCodeFromMethod mMethod =
             Just "risk-parity-blend" -> "risk_parity_blend"
             Just "consensus_boost" -> "consensus_boost"
             Just "consensus-boost" -> "consensus_boost"
+            Just "anchor_blend" -> "anchor_blend"
+            Just "anchor-blend" -> "anchor_blend"
+            Just "tension_gate" -> "tension_gate"
+            Just "tension-gate" -> "tension_gate"
             Just "edge_blend" -> "edge_blend"
             Just "edge-blend" -> "edge_blend"
             Just "edge_pick" -> "edge_pick"
@@ -14719,6 +14835,8 @@ placeDexOrderForSignal args sig = do
                 MethodNeutralGuard -> "No order: Neutral guard neutral (within threshold)."
                 MethodRiskParityBlend -> "No order: Risk parity blend neutral (within threshold)."
                 MethodConsensusBoost -> "No order: Consensus boost neutral (within threshold)."
+                MethodAnchorBlend -> "No order: Anchor blend neutral (within threshold)."
+                MethodTensionGate -> "No order: Tension gate neutral (within threshold)."
                 MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
                 MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
                 MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
@@ -15992,6 +16110,138 @@ consensusBoostPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
              in consensusBoostPredFromPreds fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
+anchorBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        neutralPred =
+            if bad prev || isInfinite prev
+                then blend
+                else prev
+        edge x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let v = abs (x / prev - 1)
+                     in if bad v then Nothing else Just v
+        dir x
+            | bad x || bad prev = Nothing
+            | x > prev = Just (1 :: Int)
+            | x < prev = Just (-1 :: Int)
+            | otherwise = Just 0
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                case (edge kalPred, edge lstmPred, dir kalPred, dir lstmPred) of
+                    (Just eKal, Just eLstm, Just dKal, Just dLstm) ->
+                        let total = eKal + eLstm
+                            gap = abs (eKal - eLstm)
+                            conflictScore =
+                                if total <= 1e-12
+                                    then 0
+                                    else clamp01 (gap / total)
+                            anchorWeight =
+                                if dKal /= dLstm
+                                    then min 1 (0.6 + 0.4 * conflictScore)
+                                    else 0.2 * conflictScore
+                            pred = (1 - anchorWeight) * blend + anchorWeight * neutralPred
+                         in if bad pred then blend else pred
+                    _ -> blend
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> blend
+
+anchorBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+anchorBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
+tensionGatePredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        neutralPred =
+            if bad prev || isInfinite prev
+                then blend
+                else prev
+        edge x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let v = abs (x / prev - 1)
+                     in if bad v then Nothing else Just v
+        dir x
+            | bad x || bad prev = Nothing
+            | x > prev = Just (1 :: Int)
+            | x < prev = Just (-1 :: Int)
+            | otherwise = Just 0
+        chooseStrong eKal eLstm =
+            if eKal > eLstm
+                then kalPred
+                else
+                    if eLstm > eKal
+                        then lstmPred
+                        else if wFallback >= 0.5 then kalPred else lstmPred
+        chooseWeak eKal eLstm =
+            if eKal < eLstm
+                then kalPred
+                else
+                    if eLstm < eKal
+                        then lstmPred
+                        else if wFallback >= 0.5 then kalPred else lstmPred
+        shrink alpha pred = (1 - alpha) * neutralPred + alpha * pred
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                case (dir kalPred, dir lstmPred, edge kalPred, edge lstmPred) of
+                    (Just dKal, Just dLstm, Just eKal, Just eLstm)
+                        | dKal == dLstm && dKal /= 0 ->
+                            chooseStrong eKal eLstm
+                        | dKal /= dLstm ->
+                            let pred = shrink 0.25 (chooseWeak eKal eLstm)
+                             in if bad pred then neutralPred else pred
+                        | otherwise ->
+                            shrink 0.5 (if wFallback >= 0.5 then kalPred else lstmPred)
+                    _ -> if wFallback >= 0.5 then kalPred else lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> blend
+
+tensionGatePredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+tensionGatePredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 edgeBlendWeightFromPreds ::
     Double ->
     Double ->
@@ -16325,6 +16575,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 neutralGuardPred0 = neutralGuardPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 riskParityBlendPred0 = riskParityBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 consensusBoostPred0 = consensusBoostPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                anchorBlendPred0 = anchorBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                tensionGatePred0 = tensionGatePredictionsV blendWeight pricesV kalPred0 lstmPred0
                 edgeBlendPred0 = edgeBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 edgePickPred0 = edgePickPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 costPickPred0 = costPickPredictionsV blendWeight roundTripCost pricesV kalPred0 lstmPred0
@@ -16390,6 +16642,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodNeutralGuard -> (neutralGuardPred0, neutralGuardPred0)
                         MethodRiskParityBlend -> (riskParityBlendPred0, riskParityBlendPred0)
                         MethodConsensusBoost -> (consensusBoostPred0, consensusBoostPred0)
+                        MethodAnchorBlend -> (anchorBlendPred0, anchorBlendPred0)
+                        MethodTensionGate -> (tensionGatePred0, tensionGatePred0)
                         MethodEdgeBlend -> (edgeBlendPred0, edgeBlendPred0)
                         MethodEdgePick -> (edgePickPred0, edgePickPred0)
                         MethodGeoBlend -> (geoBlendPred0, geoBlendPred0)
@@ -16647,6 +16901,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodNeutralGuard -> "No order: Neutral guard neutral (within threshold)."
             MethodRiskParityBlend -> "No order: Risk parity blend neutral (within threshold)."
             MethodConsensusBoost -> "No order: Consensus boost neutral (within threshold)."
+            MethodAnchorBlend -> "No order: Anchor blend neutral (within threshold)."
+            MethodTensionGate -> "No order: Tension gate neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
             MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
@@ -17436,6 +17692,8 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodNeutralGuard -> "No order: Neutral guard neutral (within threshold)."
             MethodRiskParityBlend -> "No order: Risk parity blend neutral (within threshold)."
             MethodConsensusBoost -> "No order: Consensus boost neutral (within threshold)."
+            MethodAnchorBlend -> "No order: Anchor blend neutral (within threshold)."
+            MethodTensionGate -> "No order: Tension gate neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
             MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
@@ -17896,6 +18154,8 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodNeutralGuard -> "Backtest (neutral-on-disagreement Kalman/LSTM guard) complete."
                     MethodRiskParityBlend -> "Backtest (risk-parity Kalman/LSTM blend) complete."
                     MethodConsensusBoost -> "Backtest (consensus-boost Kalman/LSTM guard) complete."
+                    MethodAnchorBlend -> "Backtest (anchor-to-price Kalman/LSTM blend) complete."
+                    MethodTensionGate -> "Backtest (tension-gated Kalman/LSTM guard) complete."
                     MethodEdgeBlend -> "Backtest (edge-weighted Kalman/LSTM blend) complete."
                     MethodEdgePick -> "Backtest (edge winner-take-all Kalman/LSTM pick) complete."
                     MethodGeoBlend -> "Backtest (geometric Kalman/LSTM blend) complete."
@@ -18296,6 +18556,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     MethodNeutralGuard -> MethodBoth
                     MethodRiskParityBlend -> MethodBoth
                     MethodConsensusBoost -> MethodBoth
+                    MethodAnchorBlend -> MethodBoth
+                    MethodTensionGate -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
                     MethodGeoBlend -> MethodBoth
@@ -18404,6 +18666,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             MethodNeutralGuard -> runDualPredictorBacktest
             MethodRiskParityBlend -> runDualPredictorBacktest
             MethodConsensusBoost -> runDualPredictorBacktest
+            MethodAnchorBlend -> runDualPredictorBacktest
+            MethodTensionGate -> runDualPredictorBacktest
             MethodEdgeBlend -> runDualPredictorBacktest
             MethodEdgePick -> runDualPredictorBacktest
             MethodGeoBlend -> runDualPredictorBacktest
@@ -18646,6 +18910,16 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
              in V.toList (consensusBoostPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+        anchorBlendPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (anchorBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+        tensionGatePredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (tensionGatePredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         geoBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -18752,6 +19026,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     (riskParityBlendPredBacktest, riskParityBlendPredBacktest, metaBacktest, Nothing)
                 MethodConsensusBoost ->
                     (consensusBoostPredBacktest, consensusBoostPredBacktest, metaBacktest, Nothing)
+                MethodAnchorBlend ->
+                    (anchorBlendPredBacktest, anchorBlendPredBacktest, metaBacktest, Nothing)
+                MethodTensionGate ->
+                    (tensionGatePredBacktest, tensionGatePredBacktest, metaBacktest, Nothing)
                 MethodEdgeBlend ->
                     (edgeBlendPredBacktest, edgeBlendPredBacktest, metaBacktest, Nothing)
                 MethodEdgePick ->
@@ -19518,6 +19796,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method consensus_boost requires both Kalman and LSTM contexts."
+            MethodAnchorBlend ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method anchor_blend requires both Kalman and LSTM contexts."
+            MethodTensionGate ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method tension_gate requires both Kalman and LSTM contexts."
             MethodEdgeBlend ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -19559,6 +19845,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             MethodNeutralGuard -> True
             MethodRiskParityBlend -> True
             MethodConsensusBoost -> True
+            MethodAnchorBlend -> True
+            MethodTensionGate -> True
             MethodEdgeBlend -> True
             MethodEdgePick -> True
             MethodGeoBlend -> True
@@ -20139,6 +20427,28 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 l
                             )
                     _ -> Nothing
+            anchorBlendNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        Just
+                            ( anchorBlendPredFromPreds
+                                blendWeight
+                                currentPrice
+                                k
+                                l
+                            )
+                    _ -> Nothing
+            tensionGateNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        Just
+                            ( tensionGatePredFromPreds
+                                blendWeight
+                                currentPrice
+                                k
+                                l
+                            )
+                    _ -> Nothing
             edgeBlendNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
@@ -20270,6 +20580,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodNeutralGuard -> neutralGuardNext
                     MethodRiskParityBlend -> riskParityBlendNext
                     MethodConsensusBoost -> consensusBoostNext
+                    MethodAnchorBlend -> anchorBlendNext
+                    MethodTensionGate -> tensionGateNext
                     MethodEdgeBlend -> edgeBlendNext
                     MethodEdgePick -> edgePickNext
                     MethodGeoBlend -> geoBlendNext
@@ -20296,6 +20608,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             edgeNeutralGuard = neutralGuardNext >>= edgeFromPred
             edgeRiskParityBlend = riskParityBlendNext >>= edgeFromPred
             edgeConsensusBoost = consensusBoostNext >>= edgeFromPred
+            edgeAnchorBlend = anchorBlendNext >>= edgeFromPred
+            edgeTensionGate = tensionGateNext >>= edgeFromPred
             edgeEdgeBlend = edgeBlendNext >>= edgeFromPred
             edgeEdgePick = edgePickNext >>= edgeFromPred
             edgeGeoBlend = geoBlendNext >>= edgeFromPred
@@ -20319,6 +20633,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodNeutralGuard -> edgeNeutralGuard
                     MethodRiskParityBlend -> edgeRiskParityBlend
                     MethodConsensusBoost -> edgeConsensusBoost
+                    MethodAnchorBlend -> edgeAnchorBlend
+                    MethodTensionGate -> edgeTensionGate
                     MethodEdgeBlend -> edgeEdgeBlend
                     MethodEdgePick -> edgeEdgePick
                     MethodGeoBlend -> edgeGeoBlend
@@ -20370,6 +20686,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             riskParityBlendCloseDir = riskParityBlendNext >>= directionPrice closeThrAdj
             consensusBoostDir = consensusBoostNext >>= directionPrice openThrAdj
             consensusBoostCloseDir = consensusBoostNext >>= directionPrice closeThrAdj
+            anchorBlendDir = anchorBlendNext >>= directionPrice openThrAdj
+            anchorBlendCloseDir = anchorBlendNext >>= directionPrice closeThrAdj
+            tensionGateDir = tensionGateNext >>= directionPrice openThrAdj
+            tensionGateCloseDir = tensionGateNext >>= directionPrice closeThrAdj
             edgeBlendDir = edgeBlendNext >>= directionPrice openThrAdj
             edgeBlendCloseDir = edgeBlendNext >>= directionPrice closeThrAdj
             edgePickDir = edgePickNext >>= directionPrice openThrAdj
@@ -20568,6 +20888,44 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                          in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
                          in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
                     _ -> (Nothing, Nothing, Nothing, Nothing)
+            (anchorBlendDirGated, anchorBlendCloseDirGated, anchorBlendPosSize, anchorBlendGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodAnchorBlend, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing anchorBlendDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore anchorBlendDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore anchorBlendCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
+            (tensionGateDirGated, tensionGateCloseDirGated, tensionGatePosSize, tensionGateGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodTensionGate, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing tensionGateDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore tensionGateDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore tensionGateCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
             (edgeBlendDirGated, edgeBlendCloseDirGated, edgeBlendPosSize, edgeBlendGateReason) =
                 case (method, mKalZ, mConfidence) of
                     (MethodEdgeBlend, Just kalZ, Just confScore) ->
@@ -20695,6 +21053,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodNeutralGuard -> neutralGuardCloseDirGated
                     MethodRiskParityBlend -> riskParityBlendCloseDirGated
                     MethodConsensusBoost -> consensusBoostCloseDirGated
+                    MethodAnchorBlend -> anchorBlendCloseDirGated
+                    MethodTensionGate -> tensionGateCloseDirGated
                     MethodEdgeBlend -> edgeBlendCloseDirGated
                     MethodEdgePick -> edgePickCloseDirGated
                     MethodGeoBlend -> geoBlendCloseDirGated
@@ -20721,6 +21081,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodNeutralGuard -> neutralGuardDirGated
                     MethodRiskParityBlend -> riskParityBlendDirGated
                     MethodConsensusBoost -> consensusBoostDirGated
+                    MethodAnchorBlend -> anchorBlendDirGated
+                    MethodTensionGate -> tensionGateDirGated
                     MethodEdgeBlend -> edgeBlendDirGated
                     MethodEdgePick -> edgePickDirGated
                     MethodGeoBlend -> geoBlendDirGated
@@ -20906,6 +21268,22 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (consensus_boost neutral)"
+                        MethodAnchorBlend ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (anchor_blend neutral)"
+                        MethodTensionGate ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (tension_gate neutral)"
                         MethodEdgeBlend ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -20967,6 +21345,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodNeutralGuard -> neutralGuardPosSize
                     MethodRiskParityBlend -> riskParityBlendPosSize
                     MethodConsensusBoost -> consensusBoostPosSize
+                    MethodAnchorBlend -> anchorBlendPosSize
+                    MethodTensionGate -> tensionGatePosSize
                     MethodEdgeBlend -> edgeBlendPosSize
                     MethodEdgePick -> edgePickPosSize
                     MethodGeoBlend -> geoBlendPosSize
@@ -20986,6 +21366,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodNeutralGuard -> neutralGuardGateReason
                     MethodRiskParityBlend -> riskParityBlendGateReason
                     MethodConsensusBoost -> consensusBoostGateReason
+                    MethodAnchorBlend -> anchorBlendGateReason
+                    MethodTensionGate -> tensionGateGateReason
                     MethodEdgeBlend -> edgeBlendGateReason
                     MethodEdgePick -> edgePickGateReason
                     MethodGeoBlend -> geoBlendGateReason
@@ -21665,6 +22047,8 @@ printMetrics method m = do
                 MethodNeutralGuard -> "Signal rate (Neutral guard)"
                 MethodRiskParityBlend -> "Signal rate (Risk parity blend)"
                 MethodConsensusBoost -> "Signal rate (Consensus boost)"
+                MethodAnchorBlend -> "Signal rate (Anchor blend)"
+                MethodTensionGate -> "Signal rate (Tension gate)"
                 MethodEdgeBlend -> "Signal rate (Edge blend)"
                 MethodEdgePick -> "Signal rate (Edge pick)"
                 MethodGeoBlend -> "Signal rate (Geo blend)"

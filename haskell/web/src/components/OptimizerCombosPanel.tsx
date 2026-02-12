@@ -1941,6 +1941,36 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           </div>
           <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightAnchorBlend">
+                Anchor blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightAnchorBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightAnchorBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightAnchorBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightTensionGate">
+                Tension gate method weight
+              </label>
+              <input
+                id="optimizerMethodWeightTensionGate"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightTensionGate}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightTensionGate: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
                 Geo blend method weight
               </label>
@@ -1955,6 +1985,8 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
                 placeholder="0.0"
               />
             </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightRegimeSwitch">
                 Regime switch method weight

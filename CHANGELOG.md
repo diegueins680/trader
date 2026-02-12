@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 - Trading/Optimizer/Web UI: add `--method harmonic_blend` (harmonic return-space blend) and `--method disagreement_guard` (defensive pick on model disagreement); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-harmonic-blend` / `--method-weight-disagreement-guard`.
 - Trading/Optimizer/Web UI: add `--method median_blend` (median-robust return blend) and `--method neutral_guard` (neutralize on model conflict); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-median-blend` / `--method-weight-neutral-guard`.
 - Trading/Optimizer/Web UI: add `--method risk_parity_blend` (inverse-edge risk-parity blend) and `--method consensus_boost` (consensus-strength guard); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-risk-parity-blend` / `--method-weight-consensus-boost`.
+- Trading/Optimizer/Web UI: add `--method anchor_blend` (conflict-aware spot anchoring) and `--method tension_gate` (agreement-conviction with conflict neutralization); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-anchor-blend` / `--method-weight-tension-gate`.
 - Trading: fix `--method blend` so entry direction uses the same Kalman confidence/risk gating path as close direction.
 - Trading: weekly loss gating now uses UTC calendar weeks (Monday 00:00 boundaries) instead of epoch-aligned 7-day buckets.
 - Web UI: normalize bare `localhost/path` API base inputs to `http://localhost/path`, treat `0.0.0.0` as local, and avoid silently coercing ambiguous single-comma numeric inputs (for example `1,234`) by falling back to the previous value.
@@ -41,6 +42,7 @@ All notable changes to this project will be documented in this file.
 - Web UI: treat bracketed IPv6 loopback (`[::1]`) as local for startup/help messaging.
 - API/UI: annotate Binance account trades with order origin IPs (trade.order + bot.order when ops persistence is enabled) and surface origin/close IP columns in the trade tables.
 - API/UI: persist `POST /binance/positions/close` orders as `trade.order` ops with `originIp` so Binance trade `Close IP` values survive refreshes.
+- API/UI: make Binance trade IP enrichment resilient to legacy ops rows without tenant keys, parse nested order/origin fields, and keep `Closed` timestamp/IP fallbacks for non-zero realized-PnL fills when entry history is outside the fetched window.
 - Web UI: Binance account trade tables now include separate `Opened` and `Closed` timestamps in local browser time, with open times inferred from matched prior fills on close rows.
 - Web UI: paginate Binance account trade tables (main list plus top winners/losers) and add a configurable rows-per-page control.
 - Web UI: paginate backtest trade P&L top winners/losers tables and add a configurable rows-per-page control.

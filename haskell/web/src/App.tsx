@@ -227,6 +227,7 @@ import {
   inferPeriodsPerYear,
   invalidSymbolsForPlatform,
   isBinanceKeysStatus,
+  isLikelyBinanceCloseFill,
   isBotStatusMulti,
   isCoinbaseKeysStatus,
   isFiniteNumber,
@@ -702,6 +703,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     "neutral_guard",
     "risk_parity_blend",
     "consensus_boost",
+    "anchor_blend",
+    "tension_gate",
     "edge_blend",
     "edge_pick",
     "geo_blend",
@@ -1821,6 +1824,8 @@ export function App() {
       "neutral_guard",
       "risk_parity_blend",
       "consensus_boost",
+      "anchor_blend",
+      "tension_gate",
       "edge_blend",
       "edge_pick",
       "geo_blend",
@@ -4343,12 +4348,15 @@ export function App() {
     if (trades.length === 0) return trades;
     const withIps = trades.map((trade) => {
       const ipMeta = binanceTradesIpMap.get(binanceTradeKey(trade));
+      const ownOriginIp = typeof trade.originIp === "string" && trade.originIp.trim() ? trade.originIp.trim() : null;
+      const tradeTime = Number.isFinite(trade.time) ? trade.time : null;
+      const likelyClose = isLikelyBinanceCloseFill(trade);
       return {
         ...trade,
-        entryIp: ipMeta?.entryIp ?? null,
-        exitIp: ipMeta?.exitIp ?? null,
-        entryTime: ipMeta?.entryTime ?? null,
-        exitTime: ipMeta?.exitTime ?? null,
+        entryIp: ipMeta?.entryIp ?? ownOriginIp,
+        exitIp: ipMeta?.exitIp ?? (likelyClose ? ownOriginIp : null),
+        entryTime: ipMeta?.entryTime ?? tradeTime,
+        exitTime: ipMeta?.exitTime ?? (likelyClose ? tradeTime : null),
       };
     });
     let filtered = withIps;
@@ -7619,6 +7627,14 @@ export function App() {
       case "consensus_boost":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "consensus_boost";
+        break;
+      case "anchor_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "anchor_blend";
+        break;
+      case "tension_gate":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "tension_gate";
         break;
       case "edge_blend":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);

@@ -743,6 +743,138 @@ consensusBoostPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
              in consensusBoostPredFromPreds fallbackWeight prev kalPred lstmPred
      in V.generate (max 0 stepCount) pick
 
+anchorBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        neutralPred =
+            if bad prev || isInfinite prev
+                then blend
+                else prev
+        edge x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let v = abs (x / prev - 1)
+                     in if bad v then Nothing else Just v
+        dir x
+            | bad x || bad prev = Nothing
+            | x > prev = Just (1 :: Int)
+            | x < prev = Just (-1 :: Int)
+            | otherwise = Just 0
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                case (edge kalPred, edge lstmPred, dir kalPred, dir lstmPred) of
+                    (Just eKal, Just eLstm, Just dKal, Just dLstm) ->
+                        let total = eKal + eLstm
+                            gap = abs (eKal - eLstm)
+                            conflictScore =
+                                if total <= 1e-12
+                                    then 0
+                                    else clamp01 (gap / total)
+                            anchorWeight =
+                                if dKal /= dLstm
+                                    then min 1 (0.6 + 0.4 * conflictScore)
+                                    else 0.2 * conflictScore
+                            pred = (1 - anchorWeight) * blend + anchorWeight * neutralPred
+                         in if bad pred then blend else pred
+                    _ -> blend
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> blend
+
+anchorBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+anchorBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in anchorBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
+tensionGatePredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+        blend = wFallback * kalPred + (1 - wFallback) * lstmPred
+        neutralPred =
+            if bad prev || isInfinite prev
+                then blend
+                else prev
+        edge x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let v = abs (x / prev - 1)
+                     in if bad v then Nothing else Just v
+        dir x
+            | bad x || bad prev = Nothing
+            | x > prev = Just (1 :: Int)
+            | x < prev = Just (-1 :: Int)
+            | otherwise = Just 0
+        chooseStrong eKal eLstm =
+            if eKal > eLstm
+                then kalPred
+                else
+                    if eLstm > eKal
+                        then lstmPred
+                        else if wFallback >= 0.5 then kalPred else lstmPred
+        chooseWeak eKal eLstm =
+            if eKal < eLstm
+                then kalPred
+                else
+                    if eLstm < eKal
+                        then lstmPred
+                        else if wFallback >= 0.5 then kalPred else lstmPred
+        shrink alpha pred = (1 - alpha) * neutralPred + alpha * pred
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                case (dir kalPred, dir lstmPred, edge kalPred, edge lstmPred) of
+                    (Just dKal, Just dLstm, Just eKal, Just eLstm)
+                        | dKal == dLstm && dKal /= 0 ->
+                            chooseStrong eKal eLstm
+                        | dKal /= dLstm ->
+                            let pred = shrink 0.25 (chooseWeak eKal eLstm)
+                             in if bad pred then neutralPred else pred
+                        | otherwise ->
+                            shrink 0.5 (if wFallback >= 0.5 then kalPred else lstmPred)
+                    _ -> if wFallback >= 0.5 then kalPred else lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> blend
+
+tensionGatePredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+tensionGatePredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in tensionGatePredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 edgeBlendWeightFromPreds ::
     Double ->
     Double ->
@@ -978,6 +1110,8 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodNeutralGuard -> 2
                 MethodRiskParityBlend -> 2
                 MethodConsensusBoost -> 2
+                MethodAnchorBlend -> 2
+                MethodTensionGate -> 2
                 MethodEdgeBlend -> 2
                 MethodEdgePick -> 2
                 MethodGeoBlend -> 2
@@ -1003,6 +1137,8 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
             , MethodNeutralGuard
             , MethodRiskParityBlend
             , MethodConsensusBoost
+            , MethodAnchorBlend
+            , MethodTensionGate
             , MethodEdgeBlend
             , MethodEdgePick
             , MethodGeoBlend
@@ -1153,6 +1289,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
         neutralGuardV0 = neutralGuardPredictionsV blendWeight pricesV kalV lstmV
         riskParityBlendV0 = riskParityBlendPredictionsV blendWeight pricesV kalV lstmV
         consensusBoostV0 = consensusBoostPredictionsV blendWeight pricesV kalV lstmV
+        anchorBlendV0 = anchorBlendPredictionsV blendWeight pricesV kalV lstmV
+        tensionGateV0 = tensionGatePredictionsV blendWeight pricesV kalV lstmV
         geoBlendV0 = geometricBlendPredictionsV blendWeight pricesV kalV lstmV
         kalZMinForBlend = max 0 (ecKalmanZMin baseCfg)
         kalZMaxForBlend = max kalZMinForBlend (ecKalmanZMax baseCfg)
@@ -1176,6 +1314,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodNeutralGuard -> (neutralGuardV0, neutralGuardV0)
                 MethodRiskParityBlend -> (riskParityBlendV0, riskParityBlendV0)
                 MethodConsensusBoost -> (consensusBoostV0, consensusBoostV0)
+                MethodAnchorBlend -> (anchorBlendV0, anchorBlendV0)
+                MethodTensionGate -> (tensionGateV0, tensionGateV0)
                 MethodEdgeBlend -> (edgeBlendV0, edgeBlendV0)
                 MethodEdgePick -> (edgePickV0, edgePickV0)
                 MethodGeoBlend -> (geoBlendV0, geoBlendV0)
@@ -1396,6 +1536,38 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodAnchorBlend
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodTensionGate
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodEdgeBlend
                     | V.length kalV < stepCount ->
                         Just
@@ -1494,6 +1666,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodNeutralGuard -> [neutralGuardV0]
                 MethodRiskParityBlend -> [riskParityBlendV0]
                 MethodConsensusBoost -> [consensusBoostV0]
+                MethodAnchorBlend -> [anchorBlendV0]
+                MethodTensionGate -> [tensionGateV0]
                 MethodEdgeBlend -> [edgeBlendV0]
                 MethodEdgePick -> [edgePickV0]
                 MethodGeoBlend -> [geoBlendV0]
