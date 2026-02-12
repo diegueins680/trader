@@ -39,6 +39,14 @@ SELECT CAST(EXTRACT(EPOCH FROM NOW())*1000 AS BIGINT) AS now_ms \gset
 
 DROP VIEW IF EXISTS performance_combo_deltas;
 DROP VIEW IF EXISTS performance_commit_deltas;
+DO \$\$
+BEGIN
+  BEGIN
+    EXECUTE 'DROP VIEW IF EXISTS performance_commit_summary';
+  EXCEPTION WHEN wrong_object_type THEN
+    NULL;
+  END;
+END \$\$;
 DROP TABLE IF EXISTS performance_commit_summary;
 DROP TABLE IF EXISTS performance_rollups;
 
