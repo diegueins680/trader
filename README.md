@@ -303,6 +303,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (weighted average), `router` (adaptive model selection)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
+    - `blend` applies Kalman confidence/risk gates to both entry and close directions.
     - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy and risk-adjusted return (mean/vol); Kalman confidence/risk gates apply only when Kalman is selected. Router scoring blends accuracy x coverage with a return-aware score (see `--router-score-pnl-weight`) and uses the effective open threshold (open-threshold plus any cost-aware min-edge floor).
     - `--blend-weight 0.5` Kalman weight for `blend` (`0..1`, default: `0.5`)
     - `--router-lookback 30` lookback bars for router scoring (`>= 2`)

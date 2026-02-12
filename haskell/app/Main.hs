@@ -5986,6 +5986,10 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                     if startPos0 == 0
                         then latest{lsChosenDir = Nothing}
                         else latest{lsChosenDir = Just (negate startPos0)}
+                x ->
+                    if x > 0
+                        then latest{lsChosenDir = Just 1}
+                        else latest{lsChosenDir = Just (-1)}
         entrySize = entryScaleForSignal args (beMarket env) latest
 
     mStartSize <-
@@ -7210,7 +7214,6 @@ autoOptimizerLoop baseArgs mStateSyncTarget mOps mJournal optimizerTmp topCombos
                                                                                                 )
                                                                                         Right _ -> do
                                                                                             persistTopCombosDbMaybe mOps topCombosStore
-                                                                                            now <- getTimestampMs
                                                                                             opsAppendMaybe
                                                                                                 mOps
                                                                                                 Nothing
@@ -8229,6 +8232,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                     if prevPos == 0
                         then latestFinal{lsChosenDir = Nothing}
                         else latestFinal{lsChosenDir = Just (negate prevPos)}
+                x ->
+                    if x > 0
+                        then latestFinal{lsChosenDir = Just 1}
+                        else latestFinal{lsChosenDir = Just (-1)}
         entrySize = entryScaleForSignal args (beMarket (botEnv st)) latestFinal
 
     (ops', orders', trades', openTrade', mOrder, posFinal, eqFinal, switchedApplied, orderErrors1, haltReason2, haltedAt2) <-
@@ -13692,7 +13699,7 @@ handleBinancePositions reqLimits mOps baseArgs req respond = do
                                                                 }
 
 handleBinancePositionsGet :: ApiRequestLimits -> Maybe OpsStore -> Args -> Wai.Request -> (Wai.Response -> IO Wai.ResponseReceived) -> IO Wai.ResponseReceived
-handleBinancePositionsGet reqLimits mOps baseArgs req respond = do
+handleBinancePositionsGet _reqLimits mOps baseArgs _req respond = do
     -- Reuse POST handler with defaults derived from base args.
     let params =
             ApiBinancePositionsRequest
@@ -15432,13 +15439,12 @@ computeThresholdFactorsFromHistory ::
     Double ->
     Double ->
     Double ->
-    Double ->
     Int ->
     Double ->
     V.Vector Double ->
     PredHistory ->
     (Double, Double)
-computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge minSignalToNoise lookback roundTripCost pricesV hist =
+computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge lookback roundTripCost pricesV hist =
     if not (argThresholdFactorEnabled args)
         then (1, 1)
         else
@@ -15563,7 +15569,6 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         fCloseBase = clampRange factorMin factorMax fClosePrev
                         minEdgeAdj = max factorFloor (minEdge * fOpenBase)
                         openThrAdj = max minEdgeAdj (max factorFloor (openThrBase * fOpenBase))
-                        closeThrAdj = max factorFloor (closeThrBase * fCloseBase)
                         prev = pricesUsed V.! t
                         kalNext = kalPred V.! t
                         lstmNext = lstmPred V.! t
@@ -17372,6 +17377,38 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 pure (fromRight Nothing r)
             _ -> pure Nothing
 
+    let runDualPredictorBacktest = do
+            let normState = fitNorm (argNormalization args) fitPrices
+                obsAll = forwardSeries normState prices
+                obsTrain = take predStart obsAll
+            (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
+            let fitPricesV = V.fromList fitPrices
+                predictors = trainPredictors (argPredictors args) lookback fitPricesV
+                hmmInitReturns = forwardReturns (take (predStart + 1) prices)
+                hmm0 = initHMMFilter predictors hmmInitReturns
+                kal0 =
+                    initKalman1
+                        0
+                        (max 1e-12 (argKalmanMeasurementVar args))
+                        (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
+                sv0 = emptySensorVar
+                (kalFinal, hmmFinal, svFinal, kalPredRev, lstmPredRev, metaRev) =
+                    foldl'
+                        (backtestStep args lookback normState obsAll pricesV lstmModel predictors predStart mMarketModel)
+                        (kal0, hmm0, sv0, [], [], [])
+                        [0 .. stepCount - 1]
+                kalPred = reverse kalPredRev
+                lstmPred = reverse lstmPredRev
+                meta = reverse metaRev
+            pure
+                ( Just (normState, obsAll, lstmModel)
+                , Just history
+                , kalPred
+                , lstmPred
+                , Just (predictors, kalFinal, hmmFinal, svFinal)
+                , Just meta
+                )
+
     (mLstmCtx, mHistory, kalPredAll, lstmPredAll, mKalmanCtx, mMetaAll) <-
         case methodForComputation of
             MethodKalmanOnly -> do
@@ -17406,68 +17443,9 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         | i <- [0 .. stepCount - 1]
                         ]
                 pure (Just (normState, obsAll, lstmModel), Just history, lstmPred, lstmPred, Nothing, Nothing)
-            MethodBoth -> do
-                let normState = fitNorm (argNormalization args) fitPrices
-                    obsAll = forwardSeries normState prices
-                    obsTrain = take predStart obsAll
-                (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
-                let fitPricesV = V.fromList fitPrices
-                    predictors = trainPredictors (argPredictors args) lookback fitPricesV
-                    hmmInitReturns = forwardReturns (take (predStart + 1) prices)
-                    hmm0 = initHMMFilter predictors hmmInitReturns
-                    kal0 =
-                        initKalman1
-                            0
-                            (max 1e-12 (argKalmanMeasurementVar args))
-                            (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
-                    sv0 = emptySensorVar
-                    (kalFinal, hmmFinal, svFinal, kalPredRev, lstmPredRev, metaRev) =
-                        foldl'
-                            (backtestStep args lookback normState obsAll pricesV lstmModel predictors predStart mMarketModel)
-                            (kal0, hmm0, sv0, [], [], [])
-                            [0 .. stepCount - 1]
-                    kalPred = reverse kalPredRev
-                    lstmPred = reverse lstmPredRev
-                    meta = reverse metaRev
-                pure
-                    ( Just (normState, obsAll, lstmModel)
-                    , Just history
-                    , kalPred
-                    , lstmPred
-                    , Just (predictors, kalFinal, hmmFinal, svFinal)
-                    , Just meta
-                    )
-            MethodBlend -> do
-                let normState = fitNorm (argNormalization args) fitPrices
-                    obsAll = forwardSeries normState prices
-                    obsTrain = take predStart obsAll
-                (lstmModel, history) <- trainLstmWithPersistence args lookback lstmCfg obsTrain
-                let fitPricesV = V.fromList fitPrices
-                    predictors = trainPredictors (argPredictors args) lookback fitPricesV
-                    hmmInitReturns = forwardReturns (take (predStart + 1) prices)
-                    hmm0 = initHMMFilter predictors hmmInitReturns
-                    kal0 =
-                        initKalman1
-                            0
-                            (max 1e-12 (argKalmanMeasurementVar args))
-                            (max 0 (argKalmanProcessVar args) * max 0 (argKalmanDt args))
-                    sv0 = emptySensorVar
-                    (kalFinal, hmmFinal, svFinal, kalPredRev, lstmPredRev, metaRev) =
-                        foldl'
-                            (backtestStep args lookback normState obsAll pricesV lstmModel predictors predStart mMarketModel)
-                            (kal0, hmm0, sv0, [], [], [])
-                            [0 .. stepCount - 1]
-                    kalPred = reverse kalPredRev
-                    lstmPred = reverse lstmPredRev
-                    meta = reverse metaRev
-                pure
-                    ( Just (normState, obsAll, lstmModel)
-                    , Just history
-                    , kalPred
-                    , lstmPred
-                    , Just (predictors, kalFinal, hmmFinal, svFinal)
-                    , Just meta
-                    )
+            MethodBoth -> runDualPredictorBacktest
+            MethodBlend -> runDualPredictorBacktest
+            MethodRouter -> runDualPredictorBacktest
 
     let feeUsed = max 0 (argFee args)
         slippageUsed = max 0 (argSlippage args)
@@ -18360,7 +18338,6 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                             openThrBase
                             closeThrBase
                             minEdge
-                            minSignalToNoiseBase
                             lookback
                             roundTripCost
                             pricesV
@@ -18976,7 +18953,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBoth -> agreeDir
                     MethodKalmanOnly -> kalDir
                     MethodLstmOnly -> lstmDir
-                    MethodBlend -> blendDir
+                    MethodBlend -> blendDirGated
                     MethodRouter -> routerDirGated
             (chosenDir1, mPostGateReason) =
                 case chosenDir0 of

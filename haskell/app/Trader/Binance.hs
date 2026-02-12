@@ -441,6 +441,7 @@ parseUserInfo raw =
             else case break (== ':') trimmed of
                 (u, ':' : p) -> Just (u, p)
                 (u, "") -> Just (u, "")
+                _ -> Nothing
 
 proxyAuthHeader :: (String, String) -> Maybe BS.ByteString
 proxyAuthHeader (user, pass) =
