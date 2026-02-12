@@ -730,6 +730,8 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeight01 :: !Double
     , oaMethodWeightBlend :: !Double
     , oaMethodWeightConfBlend :: !Double
+    , oaMethodWeightEdgeBlend :: !Double
+    , oaMethodWeightGeoBlend :: !Double
     , oaBlendWeightMin :: !Double
     , oaBlendWeightMax :: !Double
     , oaRouterScorePnlWeightMin :: !Double
@@ -1696,7 +1698,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend)
+    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWEdgeBlend, methodWGeoBlend)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -1730,7 +1732,15 @@ sampleParams
             (intervalChoice, rng2) = nextChoice intervalPool rng1
             interval = fromMaybe (fromMaybe "1h" (listToMaybe intervals)) intervalChoice
             (bars, rng3) = sampleBars rng2
-            methods = [("11", methodW11), ("10", methodW10), ("01", methodW01), ("blend", methodWBlend), ("conf_blend", methodWConfBlend)]
+            methods =
+                [ ("11", methodW11)
+                , ("10", methodW10)
+                , ("01", methodW01)
+                , ("blend", methodWBlend)
+                , ("conf_blend", methodWConfBlend)
+                , ("edge_blend", methodWEdgeBlend)
+                , ("geo_blend", methodWGeoBlend)
+                ]
             (method, rng4) = chooseWeighted methods rng3
             (blendWeight, rng5) =
                 let (bwLo, bwHi) = ordered blendWeightRange
@@ -2540,6 +2550,8 @@ runOptimizer args0 = do
                                                             , oaMethodWeight01 args
                                                             , oaMethodWeightBlend args
                                                             , oaMethodWeightConfBlend args
+                                                            , oaMethodWeightEdgeBlend args
+                                                            , oaMethodWeightGeoBlend args
                                                             )
                                                         blendWeightRange =
                                                             let lo = clamp (oaBlendWeightMin args) 0 1

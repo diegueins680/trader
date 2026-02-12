@@ -230,6 +230,8 @@ export const COMPLEX_TIPS = {
     "11 requires Kalman + LSTM agreement beyond the open threshold; fewer trades, higher confidence.",
     "blend averages predictions; blend weight sets the Kalman vs LSTM mix.",
     "conf_blend adjusts Kalman vs LSTM mix per bar using confidence (Kalman z vs LSTM edge confidence).",
+    "edge_blend adapts Kalman vs LSTM weights from each model's instantaneous edge magnitude.",
+    "geo_blend mixes Kalman/LSTM returns in log-space for a multiplicative geometric blend.",
     "router picks the best recent model using router lookback; min score gates to HOLD.",
   ],
   thresholds: [
@@ -241,7 +243,7 @@ export const COMPLEX_TIPS = {
     "Edge buffer adds extra margin above break-even when cost-aware edge is on.",
   ],
   snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
-  blend: ["0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend."],
+  blend: ["0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/edge_blend/geo_blend."],
   router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
   split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
   lstm: ["Normalization affects scaling for LSTM only; keep consistent with training.", "Epochs/hidden size trade off fit vs runtime and overfitting."],
@@ -1380,6 +1382,8 @@ export type OptimizerRunForm = {
   trailMax: string;
   methodWeightBlend: string;
   methodWeightConfBlend: string;
+  methodWeightEdgeBlend: string;
+  methodWeightGeoBlend: string;
   blendWeightMin: string;
   blendWeightMax: string;
   disableLstmPersistence: boolean;
@@ -1519,6 +1523,8 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     trailMax: "",
     methodWeightBlend: "",
     methodWeightConfBlend: "",
+    methodWeightEdgeBlend: "",
+    methodWeightGeoBlend: "",
     blendWeightMin: "",
     blendWeightMax: "",
     disableLstmPersistence: false,
@@ -1722,6 +1728,10 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (methodWeightBlend != null) req.methodWeightBlend = methodWeightBlend;
   const methodWeightConfBlend = parseOptionalNumber(form.methodWeightConfBlend);
   if (methodWeightConfBlend != null) req.methodWeightConfBlend = methodWeightConfBlend;
+  const methodWeightEdgeBlend = parseOptionalNumber(form.methodWeightEdgeBlend);
+  if (methodWeightEdgeBlend != null) req.methodWeightEdgeBlend = methodWeightEdgeBlend;
+  const methodWeightGeoBlend = parseOptionalNumber(form.methodWeightGeoBlend);
+  if (methodWeightGeoBlend != null) req.methodWeightGeoBlend = methodWeightGeoBlend;
   const blendWeightMin = parseOptionalNumber(form.blendWeightMin);
   if (blendWeightMin != null) req.blendWeightMin = blendWeightMin;
   const blendWeightMax = parseOptionalNumber(form.blendWeightMax);

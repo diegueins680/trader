@@ -1783,6 +1783,38 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               />
             </div>
             <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightEdgeBlend">
+                Edge blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightEdgeBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightEdgeBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightEdgeBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
+                Geo blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightGeoBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightGeoBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightGeoBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
               <label className="label" htmlFor="optimizerBlendWeightMin">
                 Blend weight range
               </label>

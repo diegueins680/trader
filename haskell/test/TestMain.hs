@@ -656,6 +656,8 @@ testMethodParsing = do
     assert "parse blend" (parseMethod "blend" == Right MethodBlend)
     assert "parse conf_blend" (parseMethod "conf_blend" == Right MethodConfBlend)
     assert "parse conf-blend" (parseMethod "conf-blend" == Right MethodConfBlend)
+    assert "parse edge_blend" (parseMethod "edge_blend" == Right MethodEdgeBlend)
+    assert "parse geo_blend" (parseMethod "geo_blend" == Right MethodGeoBlend)
     case parseMethod "00" of
         Left _ -> pure ()
         Right _ -> error "expected parse failure"
@@ -753,6 +755,8 @@ testMethodSelection = do
     assert "lstm-only duplicates lstm" (selectPredictions MethodLstmOnly w kal lstm == (lstm, lstm))
     assert "blend averages" (selectPredictions MethodBlend w kal lstm == (blend, blend))
     assert "conf_blend falls back to weighted average when confidence context is unavailable" (selectPredictions MethodConfBlend w kal lstm == (blend, blend))
+    assert "edge_blend falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgeBlend w kal lstm == (blend, blend))
+    assert "geo_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodGeoBlend w kal lstm == (blend, blend))
 
 testTrainBacktestSplit :: IO ()
 testTrainBacktestSplit = do

@@ -13,6 +13,8 @@ data Method
     | MethodLstmOnly
     | MethodBlend
     | MethodConfBlend
+    | MethodEdgeBlend
+    | MethodGeoBlend
     | MethodRouter
     deriving (Eq, Show)
 
@@ -24,6 +26,8 @@ methodCode m =
         MethodLstmOnly -> "01"
         MethodBlend -> "blend"
         MethodConfBlend -> "conf_blend"
+        MethodEdgeBlend -> "edge_blend"
+        MethodGeoBlend -> "geo_blend"
         MethodRouter -> "router"
 
 parseMethod :: String -> Either String Method
@@ -58,6 +62,18 @@ parseMethod raw =
         "adaptive_blend" -> Right MethodConfBlend
         "adaptive-blend" -> Right MethodConfBlend
         "adaptiveblend" -> Right MethodConfBlend
+        "edge_blend" -> Right MethodEdgeBlend
+        "edge-blend" -> Right MethodEdgeBlend
+        "edgeblend" -> Right MethodEdgeBlend
+        "edge_mix" -> Right MethodEdgeBlend
+        "edge-mix" -> Right MethodEdgeBlend
+        "edgemix" -> Right MethodEdgeBlend
+        "geo_blend" -> Right MethodGeoBlend
+        "geo-blend" -> Right MethodGeoBlend
+        "geoblend" -> Right MethodGeoBlend
+        "geometric_blend" -> Right MethodGeoBlend
+        "geometric-blend" -> Right MethodGeoBlend
+        "geometricblend" -> Right MethodGeoBlend
         "router" -> Right MethodRouter
         "route" -> Right MethodRouter
         "adaptive" -> Right MethodRouter
@@ -66,7 +82,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, edge_blend, geo_blend, router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -80,6 +96,14 @@ selectPredictions m blendWeight kalPred lstmPred =
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
         MethodConfBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodEdgeBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodGeoBlend ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)

@@ -317,6 +317,101 @@ confidenceBlendPredictionsV fallbackWeight zMin zMax openThr pricesV kalPredV ls
              in confidenceBlendPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred (kalZAt t)
      in V.generate (max 0 stepCount) pick
 
+edgeBlendWeightFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+edgeBlendWeightFromPreds fallbackWeight prev kalPred lstmPred =
+    let edge x =
+            if prev <= 0 || isNaN prev || isInfinite prev || isNaN x || isInfinite x
+                then Nothing
+                else
+                    let v = abs (x / prev - 1)
+                     in if isNaN v || isInfinite v then Nothing else Just v
+        wFallback = clamp01 fallbackWeight
+     in case (edge kalPred, edge lstmPred) of
+            (Just eKal, Just eLstm) ->
+                let denom = eKal + eLstm
+                 in if denom <= 1e-12
+                        then wFallback
+                        else clamp01 (eKal / denom)
+            (Just _, Nothing) -> 1
+            (Nothing, Just _) -> 0
+            (Nothing, Nothing) -> wFallback
+
+edgeBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+edgeBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                let w = edgeBlendWeightFromPreds fallbackWeight prev kalPred lstmPred
+                 in w * kalPred + (1 - w) * lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+
+edgeBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+edgeBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in edgeBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
+geometricBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+geometricBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        w = clamp01 fallbackWeight
+        arithmetic = w * kalPred + (1 - w) * lstmPred
+     in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
+            (False, False, False) ->
+                if kalPred > 0 && lstmPred > 0
+                    then
+                        let rKal = kalPred / prev
+                            rLstm = lstmPred / prev
+                            pred = prev * exp (w * log rKal + (1 - w) * log rLstm)
+                         in if isNaN pred || isInfinite pred then arithmetic else pred
+                    else arithmetic
+            (_, False, True) -> kalPred
+            (_, True, False) -> lstmPred
+            (_, False, False) -> arithmetic
+            _ -> arithmetic
+
+geometricBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+geometricBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in geometricBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 foldRanges :: Int -> Int -> [(Int, Int)]
 foldRanges stepCount foldsReq =
     let steps = max 0 stepCount
@@ -364,6 +459,8 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 MethodBoth -> 3 :: Int
                 MethodRouter -> 3
                 MethodConfBlend -> 2
+                MethodEdgeBlend -> 2
+                MethodGeoBlend -> 2
                 MethodBlend -> 2
                 MethodKalmanOnly -> 1
                 MethodLstmOnly -> 0
@@ -372,7 +469,16 @@ optimizeOperationsWithHLWith cfg baseCfg closes highs lows kalPred lstmPred mMet
                 Left e -> Left e
                 Right (openThr, closeThr, bt, stats) ->
                     Right (tsMeanScore stats, tsStdScore stats, m, openThr, closeThr, bt, stats)
-        candidates = [MethodBoth, MethodRouter, MethodConfBlend, MethodBlend, MethodKalmanOnly, MethodLstmOnly]
+        candidates =
+            [ MethodBoth
+            , MethodRouter
+            , MethodConfBlend
+            , MethodEdgeBlend
+            , MethodGeoBlend
+            , MethodBlend
+            , MethodKalmanOnly
+            , MethodLstmOnly
+            ]
         results = map eval candidates
         evaluated = Data.Either.rights results
         errors = Data.Either.lefts results
@@ -506,6 +612,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
 
         blendWeight = clamp01 (ecBlendWeight baseCfg)
         blendV = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalV lstmV
+        edgeBlendV0 = edgeBlendPredictionsV blendWeight pricesV kalV lstmV
+        geoBlendV0 = geometricBlendPredictionsV blendWeight pricesV kalV lstmV
         kalZMinForBlend = max 0 (ecKalmanZMin baseCfg)
         kalZMaxForBlend = max kalZMinForBlend (ecKalmanZMax baseCfg)
         confBlendOpenThr0 = max baseOpenThreshold minEdge
@@ -517,6 +625,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodRouter -> (kalV, lstmV)
                 MethodBlend -> (blendV, blendV)
                 MethodConfBlend -> (confBlendV0, confBlendV0)
+                MethodEdgeBlend -> (edgeBlendV0, edgeBlendV0)
+                MethodGeoBlend -> (geoBlendV0, geoBlendV0)
                 MethodKalmanOnly -> (kalV, kalV)
                 MethodLstmOnly -> (lstmV, lstmV)
 
@@ -589,6 +699,38 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                                 ++ show stepCount
                             )
                     | otherwise -> Nothing
+                MethodEdgeBlend
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
+                MethodGeoBlend
+                    | V.length kalV < stepCount ->
+                        Just
+                            ( "sweepThreshold: kalPred has length "
+                                ++ show (V.length kalV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | V.length lstmV < stepCount ->
+                        Just
+                            ( "sweepThreshold: lstmPred has length "
+                                ++ show (V.length lstmV)
+                                ++ " but needs at least "
+                                ++ show stepCount
+                            )
+                    | otherwise -> Nothing
                 MethodKalmanOnly
                     | V.length kalV < stepCount ->
                         Just
@@ -614,6 +756,8 @@ sweepThresholdWithHLWith cfg method baseCfg closes highs lows kalPred lstmPred m
                 MethodRouter -> [kalV, lstmV, blendV]
                 MethodBlend -> [blendV]
                 MethodConfBlend -> [confBlendV0]
+                MethodEdgeBlend -> [edgeBlendV0]
+                MethodGeoBlend -> [geoBlendV0]
                 MethodKalmanOnly -> [kalV]
                 MethodLstmOnly -> [lstmV]
         epsilonFor v =

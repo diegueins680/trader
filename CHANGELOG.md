@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
-- Trading/Optimizer/Web UI: add `--method conf_blend` (confidence-weighted Kalman/LSTM blend), expose it in API/UI method lists, and add optimizer sampling via `--method-weight-conf-blend`.
+- Trading/Optimizer/Web UI: expand blend methods with `--method conf_blend` (confidence-weighted), `--method edge_blend` (edge-weighted), and `--method geo_blend` (geometric), expose them in CLI/API/UI method lists, and add optimizer sampling via `--method-weight-conf-blend` / `--method-weight-edge-blend` / `--method-weight-geo-blend`.
 - Trading: fix `--method blend` so entry direction uses the same Kalman confidence/risk gating path as close direction.
 - Trading: weekly loss gating now uses UTC calendar weeks (Monday 00:00 boundaries) instead of epoch-aligned 7-day buckets.
 - Web UI: normalize bare `localhost/path` API base inputs to `http://localhost/path`, treat `0.0.0.0` as local, and avoid silently coercing ambiguous single-comma numeric inputs (for example `1,234`) by falling back to the previous value.
@@ -38,6 +38,7 @@ All notable changes to this project will be documented in this file.
 - API/UI: annotate Binance account trades with order origin IPs (trade.order + bot.order when ops persistence is enabled) and surface origin/close IP columns in the trade tables.
 - API/UI: persist `POST /binance/positions/close` orders as `trade.order` ops with `originIp` so Binance trade `Close IP` values survive refreshes.
 - Web UI: Binance account trade tables now include separate `Opened` and `Closed` timestamps in local browser time, with open times inferred from matched prior fills on close rows.
+- Web UI: paginate Binance account trade tables (main list plus top winners/losers) and add a configurable rows-per-page control.
 - Web UI: switch Binance account trade date filters to date pickers.
 - Web UI: add maximize/restore and expand/collapse controls to collapsible panel headers, including the optimizer combos dock.
 - Web UI: prefer the configured direct `apiFallbackUrl` for the Binance listenKey stream when `apiBaseUrl` is `/api` to avoid CDN stream disconnects.

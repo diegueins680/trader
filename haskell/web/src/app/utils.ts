@@ -414,6 +414,10 @@ export function methodLabel(method: Method): string {
       return "Blend (weighted average)";
     case "conf_blend":
       return "Conf blend (confidence-weighted)";
+    case "edge_blend":
+      return "Edge blend (edge-weighted)";
+    case "geo_blend":
+      return "Geo blend (geometric)";
     case "router":
       return "Router (adaptive)";
     default:

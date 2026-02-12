@@ -1,6 +1,6 @@
 export type Market = "spot" | "margin" | "futures";
 export type Platform = "binance" | "coinbase" | "kraken" | "poloniex";
-export type Method = "11" | "10" | "01" | "blend" | "conf_blend" | "router";
+export type Method = "11" | "10" | "01" | "blend" | "conf_blend" | "edge_blend" | "geo_blend" | "router";
 export type Normalization = "none" | "minmax" | "standard" | "log";
 export type Positioning = "long-flat" | "long-short";
 export type IntrabarFill = "stop-first" | "take-profit-first";
@@ -752,6 +752,8 @@ export type OptimizerRunRequest = {
   trailMax?: number;
   methodWeightBlend?: number;
   methodWeightConfBlend?: number;
+  methodWeightEdgeBlend?: number;
+  methodWeightGeoBlend?: number;
   blendWeightMin?: number;
   blendWeightMax?: number;
   disableLstmPersistence?: boolean;

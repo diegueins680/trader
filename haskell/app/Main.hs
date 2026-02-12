@@ -887,7 +887,7 @@ data ApiParams = ApiParams
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
     , apCloseThreshold :: Maybe Double
-    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "router"
+    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "edge_blend" | "geo_blend" | "router"
     , apPositioning :: Maybe String -- "long-flat" | "long-short"
     , apOptimizeOperations :: Maybe Bool
     , apSweepThreshold :: Maybe Bool
@@ -1246,6 +1246,8 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrKalmanMarketTopNMax :: !(Maybe Int)
     , arrMethodWeightBlend :: !(Maybe Double)
     , arrMethodWeightConfBlend :: !(Maybe Double)
+    , arrMethodWeightEdgeBlend :: !(Maybe Double)
+    , arrMethodWeightGeoBlend :: !(Maybe Double)
     , arrBlendWeightMin :: !(Maybe Double)
     , arrBlendWeightMax :: !(Maybe Double)
     , arrRouterScorePnlWeightMin :: !(Maybe Double)
@@ -3087,6 +3089,8 @@ seedStrategies conn = do
             , ("both", "Kalman+LSTM")
             , ("blend", "Blend")
             , ("conf_blend", "Confidence Blend")
+            , ("edge_blend", "Edge Blend")
+            , ("geo_blend", "Geo Blend")
             , ("router", "Router")
             , ("unknown", "Unknown")
             ]
@@ -5836,6 +5840,8 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 then MethodBoth
                 else case method of
                     MethodConfBlend -> MethodBoth
+                    MethodEdgeBlend -> MethodBoth
+                    MethodGeoBlend -> MethodBoth
                     MethodRouter -> MethodBoth
                     _ -> method
         nan = 0 / 0 :: Double
@@ -6431,6 +6437,8 @@ botApplyOptimizerUpdate st upd = do
                 MethodLstmOnly -> isJust mLstmCtx'
                 MethodBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodConfBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodEdgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodGeoBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
         hasLstmWindow = method /= MethodKalmanOnly && n >= lookback'
 
     if not ctxOk
@@ -11016,6 +11024,10 @@ prepareOptimizerArgs outputPath req = do
                     maybeDoubleArg "--method-weight-blend" (fmap (max 0) (arrMethodWeightBlend req))
                 methodWeightConfBlendArgs =
                     maybeDoubleArg "--method-weight-conf-blend" (fmap (max 0) (arrMethodWeightConfBlend req))
+                methodWeightEdgeBlendArgs =
+                    maybeDoubleArg "--method-weight-edge-blend" (fmap (max 0) (arrMethodWeightEdgeBlend req))
+                methodWeightGeoBlendArgs =
+                    maybeDoubleArg "--method-weight-geo-blend" (fmap (max 0) (arrMethodWeightGeoBlend req))
                 blendWeightArgs =
                     maybeDoubleArg "--blend-weight-min" (fmap clamp01 (arrBlendWeightMin req))
                         ++ maybeDoubleArg "--blend-weight-max" (fmap clamp01 (arrBlendWeightMax req))
@@ -11141,6 +11153,8 @@ prepareOptimizerArgs outputPath req = do
                         ++ protectionMinConfidenceArgs
                         ++ methodWeightBlendArgs
                         ++ methodWeightConfBlendArgs
+                        ++ methodWeightEdgeBlendArgs
+                        ++ methodWeightGeoBlendArgs
                         ++ blendWeightArgs
                         ++ routerScorePnlWeightArgs
                         ++ kalmanMarketTopNArgs
@@ -11564,6 +11578,10 @@ strategyCodeFromMethod mMethod =
             Just "blend" -> "blend"
             Just "conf_blend" -> "conf_blend"
             Just "conf-blend" -> "conf_blend"
+            Just "edge_blend" -> "edge_blend"
+            Just "edge-blend" -> "edge_blend"
+            Just "geo_blend" -> "geo_blend"
+            Just "geo-blend" -> "geo_blend"
             Just "router" -> "router"
             _ -> "unknown"
 
@@ -14594,6 +14612,8 @@ placeDexOrderForSignal args sig = do
                 MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
                 MethodBlend -> "No order: Blend neutral (within threshold)."
                 MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
+                MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
+                MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
                 MethodRouter -> "No order: Router neutral (score/threshold)."
         currentPrice = lsCurrentPrice sig
         entryScale = entryScaleForSignal args MarketSpot sig
@@ -15426,6 +15446,101 @@ confidenceBlendPredictionsV fallbackWeight zMin zMax openThr pricesV kalPredV ls
              in confidenceBlendPredFromPreds fallbackWeight zMin zMax openThr prev kalPred lstmPred (kalZAt t)
      in V.generate (max 0 stepCount) pick
 
+edgeBlendWeightFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+edgeBlendWeightFromPreds fallbackWeight prev kalPred lstmPred =
+    let edge x =
+            if prev <= 0 || isNaN prev || isInfinite prev || isNaN x || isInfinite x
+                then Nothing
+                else
+                    let v = abs (x / prev - 1)
+                     in if isNaN v || isInfinite v then Nothing else Just v
+        wFallback = clamp01 fallbackWeight
+     in case (edge kalPred, edge lstmPred) of
+            (Just eKal, Just eLstm) ->
+                let denom = eKal + eLstm
+                 in if denom <= 1e-12
+                        then wFallback
+                        else clamp01 (eKal / denom)
+            (Just _, Nothing) -> 1
+            (Nothing, Just _) -> 0
+            (Nothing, Nothing) -> wFallback
+
+edgeBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+edgeBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        wFallback = clamp01 fallbackWeight
+     in case (bad kalPred, bad lstmPred) of
+            (False, False) ->
+                let w = edgeBlendWeightFromPreds fallbackWeight prev kalPred lstmPred
+                 in w * kalPred + (1 - w) * lstmPred
+            (False, True) -> kalPred
+            (True, False) -> lstmPred
+            (True, True) -> wFallback * kalPred + (1 - wFallback) * lstmPred
+
+edgeBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+edgeBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in edgeBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
+geometricBlendPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Double
+geometricBlendPredFromPreds fallbackWeight prev kalPred lstmPred =
+    let bad x = isNaN x || isInfinite x
+        w = clamp01 fallbackWeight
+        arithmetic = w * kalPred + (1 - w) * lstmPred
+     in case (bad prev || prev <= 0, bad kalPred, bad lstmPred) of
+            (False, False, False) ->
+                if kalPred > 0 && lstmPred > 0
+                    then
+                        let rKal = kalPred / prev
+                            rLstm = lstmPred / prev
+                            pred = prev * exp (w * log rKal + (1 - w) * log rLstm)
+                         in if isNaN pred || isInfinite pred then arithmetic else pred
+                    else arithmetic
+            (_, False, True) -> kalPred
+            (_, True, False) -> lstmPred
+            (_, False, False) -> arithmetic
+            _ -> arithmetic
+
+geometricBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+geometricBlendPredictionsV fallbackWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in geometricBlendPredFromPreds fallbackWeight prev kalPred lstmPred
+     in V.generate (max 0 stepCount) pick
+
 clampRange :: Double -> Double -> Double -> Double
 clampRange lo hi x =
     let lo' = min lo hi
@@ -15574,6 +15689,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                 lstmPred0 = phLstm hist
                 blendWeight = clamp01 (argBlendWeight args)
                 blendPred0 = V.zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPred0 lstmPred0
+                edgeBlendPred0 = edgeBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
+                geoBlendPred0 = geometricBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 confBlendOpenThr = max openThrBase minEdge
                 confBlendPred0 =
                     confidenceBlendPredictionsV
@@ -15605,6 +15722,8 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                     case method of
                         MethodBlend -> (blendPred0, blendPred0)
                         MethodConfBlend -> (confBlendPred0, confBlendPred0)
+                        MethodEdgeBlend -> (edgeBlendPred0, edgeBlendPred0)
+                        MethodGeoBlend -> (geoBlendPred0, geoBlendPred0)
                         MethodKalmanOnly -> (kalPred0, kalPred0)
                         MethodLstmOnly -> (lstmPred0, lstmPred0)
                         MethodRouter -> (routerPred, routerPred)
@@ -15849,6 +15968,8 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
             MethodBlend -> "No order: Blend neutral (within threshold)."
             MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
+            MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
+            MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
 
     shortErr :: SomeException -> String
@@ -16625,6 +16746,8 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodLstmOnly -> "No order: LSTM neutral (within threshold)."
             MethodBlend -> "No order: Blend neutral (within threshold)."
             MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
+            MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
+            MethodGeoBlend -> "No order: Geo blend neutral (within threshold)."
             MethodRouter -> "No order: Router neutral (score/threshold)."
 
     lstmBlockMsg :: Maybe String
@@ -17072,6 +17195,8 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodLstmOnly -> "Backtest (LSTM only) complete."
                     MethodBlend -> "Backtest (Kalman + LSTM blend) complete."
                     MethodConfBlend -> "Backtest (confidence-weighted Kalman/LSTM blend) complete."
+                    MethodEdgeBlend -> "Backtest (edge-weighted Kalman/LSTM blend) complete."
+                    MethodGeoBlend -> "Backtest (geometric Kalman/LSTM blend) complete."
                     MethodRouter -> "Backtest (adaptive router: Kalman/LSTM/blend) complete."
 
             Data.Foldable.for_ (bsLstmHistory summary) printLstmSummary
@@ -17459,6 +17584,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                 else case methodRequested of
                     MethodBlend -> MethodBoth
                     MethodConfBlend -> MethodBoth
+                    MethodEdgeBlend -> MethodBoth
+                    MethodGeoBlend -> MethodBoth
                     MethodRouter -> MethodBoth
                     _ -> methodRequested
         pricesV = V.fromList prices
@@ -17554,6 +17681,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             MethodBoth -> runDualPredictorBacktest
             MethodBlend -> runDualPredictorBacktest
             MethodConfBlend -> runDualPredictorBacktest
+            MethodEdgeBlend -> runDualPredictorBacktest
+            MethodGeoBlend -> runDualPredictorBacktest
             MethodRouter -> runDualPredictorBacktest
 
     let feeUsed = max 0 (argFee args)
@@ -17746,6 +17875,16 @@ computeBacktestSummary args lookback series mBinanceEnv = do
         kalZMinForBlend = max 0 (argKalmanZMin args)
         kalZMaxForBlend = max kalZMinForBlend (argKalmanZMax args)
         blendPredBacktest = zipWith (\k l -> blendWeight * k + (1 - blendWeight) * l) kalPredBacktest lstmPredBacktest
+        edgeBlendPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (edgeBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
+        geoBlendPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (geometricBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         confBlendPredBacktest =
             let pricesBacktestV = V.fromList backtestPrices
                 kalBacktestV = V.fromList kalPredBacktest
@@ -17793,6 +17932,10 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         Nothing -> (kalPredBacktest, lstmPredBacktest, metaBacktest, Nothing)
                 MethodConfBlend ->
                     (confBlendPredBacktest, confBlendPredBacktest, metaBacktest, Nothing)
+                MethodEdgeBlend ->
+                    (edgeBlendPredBacktest, edgeBlendPredBacktest, metaBacktest, Nothing)
+                MethodGeoBlend ->
+                    (geoBlendPredBacktest, geoBlendPredBacktest, metaBacktest, Nothing)
                 _ ->
                     let (kalPredUsed, lstmPredUsed) =
                             selectPredictions methodUsed blendWeight0 kalPredBacktest lstmPredBacktest
@@ -18418,6 +18561,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method conf_blend requires both Kalman and LSTM contexts."
+            MethodEdgeBlend ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method edge_blend requires both Kalman and LSTM contexts."
+            MethodGeoBlend ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method geo_blend requires both Kalman and LSTM contexts."
             MethodRouter ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -18431,6 +18582,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             MethodBoth -> True
             MethodBlend -> True
             MethodConfBlend -> True
+            MethodEdgeBlend -> True
+            MethodGeoBlend -> True
             MethodRouter -> True
             _ -> False
     lstmWindowOk =
@@ -18913,6 +19066,28 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 mKalZ
                             )
                     _ -> Nothing
+            edgeBlendNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        Just
+                            ( edgeBlendPredFromPreds
+                                blendWeight
+                                currentPrice
+                                k
+                                l
+                            )
+                    _ -> Nothing
+            geoBlendNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        Just
+                            ( geometricBlendPredFromPreds
+                                blendWeight
+                                currentPrice
+                                k
+                                l
+                            )
+                    _ -> Nothing
             routerLookback = max 1 (argRouterLookback args)
             routerMinScore = max 0 (min 1 (argRouterMinScore args))
             (mRouterModel, mRouterReason) =
@@ -18983,6 +19158,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodLstmOnly -> mLstmNext
                     MethodBlend -> blendNext
                     MethodConfBlend -> confBlendNext
+                    MethodEdgeBlend -> edgeBlendNext
+                    MethodGeoBlend -> geoBlendNext
                     MethodRouter -> routerNext
             routerDirRaw = routerNext >>= directionPrice openThrAdj
             routerCloseDirRaw = routerNext >>= directionPrice closeThrAdj
@@ -18996,6 +19173,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             edgeLstm = mLstmNext >>= edgeFromPred
             edgeBlend = blendNext >>= edgeFromPred
             edgeConfBlend = confBlendNext >>= edgeFromPred
+            edgeEdgeBlend = edgeBlendNext >>= edgeFromPred
+            edgeGeoBlend = geoBlendNext >>= edgeFromPred
             edgeRouter = routerNext >>= edgeFromPred
             edgeForMethod =
                 case method of
@@ -19007,6 +19186,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodLstmOnly -> edgeLstm
                     MethodBlend -> edgeBlend
                     MethodConfBlend -> edgeConfBlend
+                    MethodEdgeBlend -> edgeEdgeBlend
+                    MethodGeoBlend -> edgeGeoBlend
                     MethodRouter -> edgeRouter
             snrRatio =
                 case (edgeForMethod, volPerBar) of
@@ -19037,6 +19218,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             blendCloseDir = blendNext >>= directionPrice closeThrAdj
             confBlendDir = confBlendNext >>= directionPrice openThrAdj
             confBlendCloseDir = confBlendNext >>= directionPrice closeThrAdj
+            edgeBlendDir = edgeBlendNext >>= directionPrice openThrAdj
+            edgeBlendCloseDir = edgeBlendNext >>= directionPrice closeThrAdj
+            geoBlendDir = geoBlendNext >>= directionPrice openThrAdj
+            geoBlendCloseDir = geoBlendNext >>= directionPrice closeThrAdj
             (blendDirGated, blendCloseDirGated, blendPosSize, blendGateReason) =
                 case (method, mKalZ, mConfidence) of
                     (MethodBlend, Just kalZ, Just confScore) ->
@@ -19067,6 +19252,44 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore confBlendDir
                             (closeDirUsed, _) =
                                 gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore confBlendCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
+            (edgeBlendDirGated, edgeBlendCloseDirGated, edgeBlendPosSize, edgeBlendGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodEdgeBlend, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing edgeBlendDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore edgeBlendDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore edgeBlendCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
+            (geoBlendDirGated, geoBlendCloseDirGated, geoBlendPosSize, geoBlendGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodGeoBlend, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing geoBlendDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore geoBlendDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore geoBlendCloseDir
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -19118,6 +19341,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodLstmOnly -> lstmCloseDir
                     MethodBlend -> blendCloseDirGated
                     MethodConfBlend -> confBlendCloseDirGated
+                    MethodEdgeBlend -> edgeBlendCloseDirGated
+                    MethodGeoBlend -> geoBlendCloseDirGated
                     MethodRouter -> routerCloseDirGated
 
             agreeDir =
@@ -19131,6 +19356,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodLstmOnly -> lstmDir
                     MethodBlend -> blendDirGated
                     MethodConfBlend -> confBlendDirGated
+                    MethodEdgeBlend -> edgeBlendDirGated
+                    MethodGeoBlend -> geoBlendDirGated
                     MethodRouter -> routerDirGated
             (chosenDir1, mPostGateReason) =
                 case chosenDir0 of
@@ -19247,6 +19474,22 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (conf_blend neutral)"
+                        MethodEdgeBlend ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (edge_blend neutral)"
+                        MethodGeoBlend ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (geo_blend neutral)"
                         MethodRouter ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -19260,12 +19503,16 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case method of
                     MethodBlend -> blendPosSize
                     MethodConfBlend -> confBlendPosSize
+                    MethodEdgeBlend -> edgeBlendPosSize
+                    MethodGeoBlend -> geoBlendPosSize
                     MethodRouter -> routerPosSize
                     _ -> mPosSize
             gateReasonForMethod =
                 case method of
                     MethodBlend -> blendGateReason
                     MethodConfBlend -> confBlendGateReason
+                    MethodEdgeBlend -> edgeBlendGateReason
+                    MethodGeoBlend -> geoBlendGateReason
                     MethodRouter -> mRouterReason <|> routerGateReason
                     _ -> mGateReason
          in LatestSignal
@@ -19931,6 +20178,8 @@ printMetrics method m = do
                 MethodLstmOnly -> "Signal rate (LSTM)"
                 MethodBlend -> "Signal rate (Blend)"
                 MethodConfBlend -> "Signal rate (Conf blend)"
+                MethodEdgeBlend -> "Signal rate (Edge blend)"
+                MethodGeoBlend -> "Signal rate (Geo blend)"
                 MethodRouter -> "Signal rate (Router)"
     putStrLn (printf "%s: %.1f%%" agreeLabel (bmAgreementRate m * 100))
     putStrLn (printf "Turnover (changes/period): %.4f" (bmTurnover m))
