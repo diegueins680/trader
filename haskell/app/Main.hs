@@ -3548,7 +3548,7 @@ attachBinanceTradeOriginIps store tenantKey trades = do
                 withMVar (osLock store) $ \_ ->
                     query
                         (osConn store)
-                        "SELECT order_id, result_json FROM ops WHERE tenant_key = ? AND kind = 'trade.order' AND order_id = ANY (?)"
+                        "SELECT order_id, result_json FROM ops WHERE tenant_key = ? AND kind IN ('trade.order', 'bot.order') AND order_id = ANY (?) ORDER BY kind = 'trade.order' ASC"
                         (tenantKey, PGArray orderIds)
             let ipMap =
                     HM.fromList
@@ -8301,6 +8301,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             , "partial" .= True
                             , "partialSize" .= partialSize
                             , "remainingSize" .= remainingSize
+                            , "originIp" .= botTradeOriginIp st
                             ]
                         )
                     )
@@ -8451,6 +8452,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                                     , "event" .= orderEv
                                     , "signal" .= latestFinal
                                     , "position" .= posNew
+                                    , "originIp" .= botTradeOriginIp st
                                     ]
                                 )
                             )

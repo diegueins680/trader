@@ -368,25 +368,39 @@ objectiveScore metrics objective penaltyMaxDd penaltyTurnover =
         sharpe = metricFloat (Just metrics) "sharpe" 0
         annRet = metricFloat (Just metrics) "annualizedReturn" 0
         turnover = metricFloat (Just metrics) "turnover" 0
+        exposure = metricFloat (Just metrics) "exposure" 0
+        roundTrips = metricInt (Just metrics) "roundTrips" 0
+        tradeCount = metricInt (Just metrics) "tradeCount" 0
+        activityCount = max roundTrips tradeCount
+        activityPenalty
+            | activityCount <= 0 = 0.25
+            | activityCount < 3 = fromIntegral (3 - activityCount) * 0.03
+            | otherwise = 0
+        exposurePenalty
+            | exposure <= 0 = 0.05
+            | exposure < 0.01 = 0.02
+            | otherwise = 0
         obj = map toLower (trim objective)
-     in if obj `elem` ["final-equity", "final_equity", "finalequity"]
-            then finalEq
-            else
-                if obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"]
-                    then annRet
-                    else
-                        if obj == "sharpe"
-                            then sharpe
-                            else
-                                if obj == "calmar"
-                                    then annRet / max 1e-12 maxDd
-                                    else
-                                        if obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"]
-                                            then finalEq - penaltyMaxDd * maxDd
-                                            else
-                                                if obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"]
-                                                    then finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
-                                                    else finalEq
+        baseScore =
+            if obj `elem` ["final-equity", "final_equity", "finalequity"]
+                then finalEq
+                else
+                    if obj `elem` ["annualized-equity", "annualized_equity", "annualizedequity", "annualized-return", "annualized_return", "annualizedreturn"]
+                        then annRet
+                        else
+                            if obj == "sharpe"
+                                then sharpe
+                                else
+                                    if obj == "calmar"
+                                        then annRet / max 1e-12 maxDd
+                                        else
+                                            if obj `elem` ["equity-dd", "equity_maxdd", "equity-dd-only"]
+                                                then finalEq - penaltyMaxDd * maxDd
+                                                else
+                                                    if obj `elem` ["equity-dd-turnover", "equity-dd-ops", "equity-dd-turn"]
+                                                        then finalEq - penaltyMaxDd * maxDd - penaltyTurnover * turnover
+                                                        else finalEq
+     in baseScore - activityPenalty - exposurePenalty
 
 extractOperations :: Maybe Value -> Maybe [Value]
 extractOperations raw = do
@@ -2767,9 +2781,11 @@ runOptimizer args0 = do
                                                                                 (eligible, filterReason, score) =
                                                                                     case (trOk tr0, trFinalEquity tr0, trMetrics tr0) of
                                                                                         (True, Just _, Just metrics) ->
-                                                                                            let rts = metricInt (trMetrics tr0) "roundTrips" 0
-                                                                                             in if minRoundTrips > 0 && rts < minRoundTrips
-                                                                                                    then (False, Just ("roundTrips<" ++ show minRoundTrips), Nothing)
+                                                                                            let roundTrips = metricInt (trMetrics tr0) "roundTrips" 0
+                                                                                                tradeCount = metricInt (trMetrics tr0) "tradeCount" 0
+                                                                                                activityCount = max roundTrips tradeCount
+                                                                                             in if minRoundTrips > 0 && activityCount < minRoundTrips
+                                                                                                    then (False, Just ("activityCount<" ++ show minRoundTrips), Nothing)
                                                                                                     else
                                                                                                         let winRate = metricFloat (trMetrics tr0) "winRate" 0
                                                                                                          in if minWinRate > 0 && winRate < minWinRate

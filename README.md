@@ -568,6 +568,9 @@ Optimizer script tips:
 - Optimizer timeouts now return even if a child backtest process doesn't exit after SIGTERM, and stdout/stderr capture won't block progress if pipes never close.
 - `haskell/scripts/run_optimize_equity_top5.sh` runs optimize-equity against the current top-5 combos (supports futures, trials, and optional baseline comparisons), continues when a symbol run fails, and writes a `run.log` with exit/signal status in the output directory.
 - `optimize-equity --quality` enables a deeper search (more trials, wider ranges, min round trips, smaller splits).
+- `optimize-equity` now defaults to `--min-round-trips 3` and `--min-exposure 0.02` to suppress no-trade/near-flat candidates (set either to `0` to disable).
+- Objective scoring now applies sparse-activity/no-exposure penalties, so zero-trade and ultra-low-exposure trials rank below active candidates even when hard filters are relaxed.
+- Default method sampling now heavily favors Kalman (`--method-weight-10 4.0`) while keeping smaller exploration weights on LSTM/agreement (`--method-weight-01 0.1`, `--method-weight-11 0.25`) to reduce timeout-heavy search paths.
 - `--auto-high-low` auto-detects CSV high/low columns to enable intrabar stops/TP/trailing.
 - CSV runs derive `params.binanceSymbol` from `--symbol-label` (or fall back to the CSV filename) and normalize it to a valid exchange symbol, trimming dataset suffixes (e.g., `BNBUSDT-5M-2020-06_TRAIN50` -> `BNBUSDT`) before combos are persisted.
 - `--platform`/`--platforms` sample exchange platforms when using `--binance-symbol`/`--symbol` (default: binance; supports coinbase/kraken/poloniex).
@@ -877,7 +880,7 @@ The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available; open-position charts also show inferred position open times when available ("opened before" means the position predates the fetched trade window).
 Charts surface range and change badges in the chart headers and group the main backtest view with compact side charts for prediction and telemetry analysis.
 The Backtest summary includes a trade P&L analysis with win/loss breakdown and top winners/losers.
-Binance account trade tables now include origin/close IP columns when available.
+Binance account trade tables now include origin/close IP columns when ops persistence is enabled (trades placed via this API or live bots).
 Charts scale to use most of the viewport height for easier inspection.
 Chart panels lift height caps so the full chart area is visible without panel scrollbars.
 Charts lazy-load to reduce the initial bundle size; placeholders appear while chart chunks load.
