@@ -172,6 +172,16 @@ baseEnsembleConfig =
         , ecMaxTradesPerDay = Nothing
         , ecExpectancyLookback = 0
         , ecMinExpectancy = Nothing
+        , ecPerfLookback = 0
+        , ecPerfMinWinRate = Nothing
+        , ecPerfMinProfitFactor = Nothing
+        , ecAdaptiveFilters = False
+        , ecAdaptiveEdgeBufferMax = 0
+        , ecAdaptiveMinSignalToNoiseMax = 0
+        , ecAdaptiveKalmanZMinMax = 0
+        , ecAdaptiveTrendLookbackMax = 0
+        , ecLossStreakMax = 0
+        , ecLossStreakCooldownBars = 0
         , ecNoTradeWindows = []
         , ecIntervalSeconds = Nothing
         , ecOpenTimes = Nothing
@@ -670,6 +680,8 @@ testMethodParsing = do
     assert "parse coherence_gate" (parseMethod "coherence_gate" == Right MethodCoherenceGate)
     assert "parse fractal_blend" (parseMethod "fractal_blend" == Right MethodFractalBlend)
     assert "parse phase_cancel" (parseMethod "phase_cancel" == Right MethodPhaseCancel)
+    assert "parse softmax_blend" (parseMethod "softmax_blend" == Right MethodSoftmaxBlend)
+    assert "parse net_softmax_blend" (parseMethod "net_softmax_blend" == Right MethodNetSoftmaxBlend)
     assert "parse edge_blend" (parseMethod "edge_blend" == Right MethodEdgeBlend)
     assert "parse edge_pick" (parseMethod "edge_pick" == Right MethodEdgePick)
     assert "parse geo_blend" (parseMethod "geo_blend" == Right MethodGeoBlend)
@@ -786,6 +798,8 @@ testMethodSelection = do
     assert "coherence_gate falls back to weighted average when context is unavailable" (selectPredictions MethodCoherenceGate w kal lstm == (blend, blend))
     assert "fractal_blend falls back to weighted average when context is unavailable" (selectPredictions MethodFractalBlend w kal lstm == (blend, blend))
     assert "phase_cancel falls back to weighted average when context is unavailable" (selectPredictions MethodPhaseCancel w kal lstm == (blend, blend))
+    assert "softmax_blend falls back to weighted average when context is unavailable" (selectPredictions MethodSoftmaxBlend w kal lstm == (blend, blend))
+    assert "net_softmax_blend falls back to weighted average when context is unavailable" (selectPredictions MethodNetSoftmaxBlend w kal lstm == (blend, blend))
     assert "edge_blend falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgeBlend w kal lstm == (blend, blend))
     assert "edge_pick falls back to weighted average when edge context is unavailable" (selectPredictions MethodEdgePick w kal lstm == (blend, blend))
     assert "geo_blend falls back to weighted average when price context is unavailable" (selectPredictions MethodGeoBlend w kal lstm == (blend, blend))

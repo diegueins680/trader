@@ -744,6 +744,8 @@ data OptimizerArgs = OptimizerArgs
     , oaMethodWeightCoherenceGate :: !Double
     , oaMethodWeightFractalBlend :: !Double
     , oaMethodWeightPhaseCancel :: !Double
+    , oaMethodWeightSoftmaxBlend :: !Double
+    , oaMethodWeightNetSoftmaxBlend :: !Double
     , oaMethodWeightEdgeBlend :: !Double
     , oaMethodWeightEdgePick :: !Double
     , oaMethodWeightGeoBlend :: !Double
@@ -1715,7 +1717,7 @@ sampleParams
     stopVolMultRange
     takeVolMultRange
     trailVolMultRange
-    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWFractalBlend, methodWPhaseCancel, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
+    (methodW11, methodW10, methodW01, methodWBlend, methodWConfBlend, methodWConfPick, methodWCostPick, methodWHarmonicBlend, methodWDisagreementGuard, methodWMedianBlend, methodWNeutralGuard, methodWRiskParityBlend, methodWConsensusBoost, methodWAnchorBlend, methodWTensionGate, methodWEntropyBlend, methodWCoherenceGate, methodWFractalBlend, methodWPhaseCancel, methodWSoftmaxBlend, methodWNetSoftmaxBlend, methodWEdgeBlend, methodWEdgePick, methodWGeoBlend, methodWRegimeSwitch, methodWBanditRouter)
     normalizationChoices
     blendWeightRange
     routerScorePnlWeightRange
@@ -1769,6 +1771,8 @@ sampleParams
                 , ("coherence_gate", methodWCoherenceGate)
                 , ("fractal_blend", methodWFractalBlend)
                 , ("phase_cancel", methodWPhaseCancel)
+                , ("softmax_blend", methodWSoftmaxBlend)
+                , ("net_softmax_blend", methodWNetSoftmaxBlend)
                 , ("edge_blend", methodWEdgeBlend)
                 , ("edge_pick", methodWEdgePick)
                 , ("geo_blend", methodWGeoBlend)
@@ -2598,6 +2602,8 @@ runOptimizer args0 = do
                                                             , oaMethodWeightCoherenceGate args
                                                             , oaMethodWeightFractalBlend args
                                                             , oaMethodWeightPhaseCancel args
+                                                            , oaMethodWeightSoftmaxBlend args
+                                                            , oaMethodWeightNetSoftmaxBlend args
                                                             , oaMethodWeightEdgeBlend args
                                                             , oaMethodWeightEdgePick args
                                                             , oaMethodWeightGeoBlend args

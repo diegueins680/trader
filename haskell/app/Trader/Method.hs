@@ -27,6 +27,8 @@ data Method
     | MethodCoherenceGate
     | MethodFractalBlend
     | MethodPhaseCancel
+    | MethodSoftmaxBlend
+    | MethodNetSoftmaxBlend
     | MethodEdgeBlend
     | MethodEdgePick
     | MethodGeoBlend
@@ -57,6 +59,8 @@ methodCode m =
         MethodCoherenceGate -> "coherence_gate"
         MethodFractalBlend -> "fractal_blend"
         MethodPhaseCancel -> "phase_cancel"
+        MethodSoftmaxBlend -> "softmax_blend"
+        MethodNetSoftmaxBlend -> "net_softmax_blend"
         MethodEdgeBlend -> "edge_blend"
         MethodEdgePick -> "edge_pick"
         MethodGeoBlend -> "geo_blend"
@@ -180,6 +184,18 @@ parseMethod raw =
         "wave_cancel" -> Right MethodPhaseCancel
         "wave-cancel" -> Right MethodPhaseCancel
         "wavecancel" -> Right MethodPhaseCancel
+        "softmax_blend" -> Right MethodSoftmaxBlend
+        "softmax-blend" -> Right MethodSoftmaxBlend
+        "softmaxblend" -> Right MethodSoftmaxBlend
+        "exp_blend" -> Right MethodSoftmaxBlend
+        "exp-blend" -> Right MethodSoftmaxBlend
+        "expblend" -> Right MethodSoftmaxBlend
+        "net_softmax_blend" -> Right MethodNetSoftmaxBlend
+        "net-softmax-blend" -> Right MethodNetSoftmaxBlend
+        "netsoftmaxblend" -> Right MethodNetSoftmaxBlend
+        "cost_softmax_blend" -> Right MethodNetSoftmaxBlend
+        "cost-softmax-blend" -> Right MethodNetSoftmaxBlend
+        "costsoftmaxblend" -> Right MethodNetSoftmaxBlend
         "edge_blend" -> Right MethodEdgeBlend
         "edge-blend" -> Right MethodEdgeBlend
         "edgeblend" -> Right MethodEdgeBlend
@@ -218,7 +234,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, fractal_blend, phase_cancel, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, fractal_blend, phase_cancel, softmax_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -288,6 +304,14 @@ selectPredictions m blendWeight kalPred lstmPred =
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
         MethodPhaseCancel ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodSoftmaxBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodNetSoftmaxBlend ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)

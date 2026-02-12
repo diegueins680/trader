@@ -20,6 +20,8 @@ export type Method =
   | "coherence_gate"
   | "fractal_blend"
   | "phase_cancel"
+  | "softmax_blend"
+  | "net_softmax_blend"
   | "edge_blend"
   | "edge_pick"
   | "geo_blend"
@@ -791,6 +793,8 @@ export type OptimizerRunRequest = {
   methodWeightCoherenceGate?: number;
   methodWeightFractalBlend?: number;
   methodWeightPhaseCancel?: number;
+  methodWeightSoftmaxBlend?: number;
+  methodWeightNetSoftmaxBlend?: number;
   methodWeightEdgeBlend?: number;
   methodWeightEdgePick?: number;
   methodWeightGeoBlend?: number;

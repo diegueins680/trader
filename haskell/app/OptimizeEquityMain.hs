@@ -290,6 +290,8 @@ optimizerArgsParser =
         <*> option auto (long "method-weight-coherence-gate" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-fractal-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-phase-cancel" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-softmax-blend" <> value 0.0 <> metavar "FLOAT")
+        <*> option auto (long "method-weight-net-softmax-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-edge-blend" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-edge-pick" <> value 0.0 <> metavar "FLOAT")
         <*> option auto (long "method-weight-geo-blend" <> value 0.0 <> metavar "FLOAT")

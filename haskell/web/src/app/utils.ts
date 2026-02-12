@@ -442,6 +442,10 @@ export function methodLabel(method: Method): string {
       return "Fractal blend (signed-root nonlinear fusion)";
     case "phase_cancel":
       return "Phase cancel (anti-phase conflict neutralization)";
+    case "softmax_blend":
+      return "Softmax blend (softmax edge weights)";
+    case "net_softmax_blend":
+      return "Net softmax blend (post-cost softmax edge weights)";
     case "edge_blend":
       return "Edge blend (edge-weighted)";
     case "edge_pick":

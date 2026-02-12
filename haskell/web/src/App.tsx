@@ -709,6 +709,8 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
     "coherence_gate",
     "fractal_blend",
     "phase_cancel",
+    "softmax_blend",
+    "net_softmax_blend",
     "edge_blend",
     "edge_pick",
     "geo_blend",
@@ -1834,6 +1836,8 @@ export function App() {
       "coherence_gate",
       "fractal_blend",
       "phase_cancel",
+      "softmax_blend",
+      "net_softmax_blend",
       "edge_blend",
       "edge_pick",
       "geo_blend",
@@ -7659,6 +7663,14 @@ export function App() {
       case "phase_cancel":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "phase_cancel";
+        break;
+      case "softmax_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "softmax_blend";
+        break;
+      case "net_softmax_blend":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "net_softmax_blend";
         break;
       case "edge_blend":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);

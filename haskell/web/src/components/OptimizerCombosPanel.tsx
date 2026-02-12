@@ -2035,6 +2035,36 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
           </div>
           <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightSoftmaxBlend">
+                Softmax blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightSoftmaxBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightSoftmaxBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightSoftmaxBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightNetSoftmaxBlend">
+                Net softmax blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightNetSoftmaxBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightNetSoftmaxBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightNetSoftmaxBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightGeoBlend">
                 Geo blend method weight
               </label>

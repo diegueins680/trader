@@ -1316,6 +1316,8 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <option value="coherence_gate">coherence_gate — Coherence gate</option>
               <option value="fractal_blend">fractal_blend — Fractal blend</option>
               <option value="phase_cancel">phase_cancel — Phase cancel</option>
+              <option value="softmax_blend">softmax_blend — Softmax blend</option>
+              <option value="net_softmax_blend">net_softmax_blend — Net softmax blend</option>
               <option value="edge_blend">edge_blend — Edge-weighted blend</option>
               <option value="edge_pick">edge_pick — Edge pick</option>
               <option value="geo_blend">geo_blend — Geometric blend</option>
@@ -1326,7 +1328,7 @@ export const ConfigDock = (props: ConfigDockProps) => {
               <option value="01">01 — LSTM only</option>
             </select>
             <div className="hint">
-              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “cost_pick” picks the higher post-cost edge, “harmonic_blend” uses a harmonic mean in return space, “disagreement_guard” picks lower-edge predictions when models conflict, “median_blend” uses a median-robust return blend, “neutral_guard” goes flat on model conflict, “risk_parity_blend” inversely weights each model by edge magnitude, “consensus_boost” boosts the stronger edge when models agree and goes flat when they conflict, “anchor_blend” tethers conflict bars back toward spot, “tension_gate” keeps agreement conviction but partially neutralizes conflicts, “entropy_blend” shrinks toward spot when model-edge uncertainty is high, “coherence_gate” amplifies coherent agreement and dampens incoherent conflicts, “fractal_blend” fuses signed-root returns to suppress outlier dominance, “phase_cancel” neutralizes anti-phase conflicts between models, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, “regime_switch” toggles by volatility/z-score context, and “router”/“bandit_router” pick the best recent model.
+              “11” only trades when both models agree on direction (up/down) outside the open threshold. “blend” uses a fixed average, “conf_blend” uses confidence-weighted mixing, “conf_pick” picks the higher-confidence model per bar, “cost_pick” picks the higher post-cost edge, “harmonic_blend” uses a harmonic mean in return space, “disagreement_guard” picks lower-edge predictions when models conflict, “median_blend” uses a median-robust return blend, “neutral_guard” goes flat on model conflict, “risk_parity_blend” inversely weights each model by edge magnitude, “consensus_boost” boosts the stronger edge when models agree and goes flat when they conflict, “anchor_blend” tethers conflict bars back toward spot, “tension_gate” keeps agreement conviction but partially neutralizes conflicts, “entropy_blend” shrinks toward spot when model-edge uncertainty is high, “coherence_gate” amplifies coherent agreement and dampens incoherent conflicts, “fractal_blend” fuses signed-root returns to suppress outlier dominance, “phase_cancel” neutralizes anti-phase conflicts between models, “softmax_blend” blends with a softmax-style edge weighting, “net_softmax_blend” uses post-cost edge in that softmax weighting, “edge_blend” weights by instantaneous edge, “edge_pick” picks the higher-edge model per bar, “geo_blend” blends in log-return space, “regime_switch” toggles by volatility/z-score context, and “router”/“bandit_router” pick the best recent model.
             </div>
             {methodOverride ? (
               <div className="pillRow" style={{ marginTop: 6 }}>
@@ -1611,13 +1613,17 @@ export const ConfigDock = (props: ConfigDockProps) => {
                 form.method !== "coherence_gate" &&
                 form.method !== "fractal_blend" &&
                 form.method !== "phase_cancel" &&
+                form.method !== "softmax_blend" &&
+                form.method !== "net_softmax_blend" &&
                 form.method !== "edge_blend" &&
                 form.method !== "edge_pick" &&
                 form.method !== "geo_blend" &&
                 form.method !== "regime_switch"
               }
             />
-            <div className="hint">0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/fractal_blend/phase_cancel/edge_blend/edge_pick/geo_blend/regime_switch.</div>
+            <div className="hint">
+              0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/fractal_blend/phase_cancel/softmax_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch.
+            </div>
           </div>
         </div>
 

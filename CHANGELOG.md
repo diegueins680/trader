@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Trading/Optimizer/Web UI: add `--method anchor_blend` (conflict-aware spot anchoring) and `--method tension_gate` (agreement-conviction with conflict neutralization); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-anchor-blend` / `--method-weight-tension-gate`.
 - Trading/Optimizer/Web UI: add `--method entropy_blend` (uncertainty-aware entropy shrink blend) and `--method coherence_gate` (coherence-aware conflict gate); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-entropy-blend` / `--method-weight-coherence-gate`.
 - Trading/Optimizer/Web UI: add `--method fractal_blend` (signed-root nonlinear blend) and `--method phase_cancel` (anti-phase conflict neutralization); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-fractal-blend` / `--method-weight-phase-cancel`.
+- Trading/Optimizer/Web UI: add `--method softmax_blend` (softmax edge-weighted blend) and `--method net_softmax_blend` (post-cost softmax edge-weighted blend); wire them through CLI/API/backtests/latest-signal/web method pickers and add optimizer sampling via `--method-weight-softmax-blend` / `--method-weight-net-softmax-blend`.
 - Trading: fix `--method blend` so entry direction uses the same Kalman confidence/risk gating path as close direction.
 - Trading: weekly loss gating now uses UTC calendar weeks (Monday 00:00 boundaries) instead of epoch-aligned 7-day buckets.
 - Web UI: normalize bare `localhost/path` API base inputs to `http://localhost/path`, treat `0.0.0.0` as local, and avoid silently coercing ambiguous single-comma numeric inputs (for example `1,234`) by falling back to the previous value.
@@ -66,6 +67,8 @@ All notable changes to this project will be documented in this file.
 - State sync: support authenticated sync targets via `TRADER_STATE_SYNC_API_TOKEN`/`TRADER_STATE_SYNC_API_KEY`.
 - Kalman: sensor variance now uses EWMA residuals so measurement weighting adapts faster to regime shifts.
 - Router: model scoring now uses risk-adjusted net returns (mean/vol) to avoid noisy switches.
+- Router: `router`/`bandit_router` now condition scoring on the current HMM high-vol regime (high vs low) when available, falling back to full-window scoring when there isn't enough same-regime history.
+- Trading: backtests now apply performance gates/adaptive filters (`--perf-*`, `--adaptive-filters`, `--loss-streak-*`) so results match live-bot behavior.
 - Optimizer: allow `optimize-equity` to pass `--futures` through for Binance futures data.
 - Dev: add `haskell/scripts/run_optimize_equity_top5.sh` to run optimize-equity on top combos with optional baseline comparisons.
 - Trading: use close-threshold direction to hold/exit positions when open signals are neutral (backtest + live).
