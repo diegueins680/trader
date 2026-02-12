@@ -295,7 +295,7 @@ export function buildRequestIssueDetails(input: RequestIssueDetailsInput): Reque
 }
 
 export function isLocalHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
 }
 
 export function fmtTimeMs(ms: number): string {

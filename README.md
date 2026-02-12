@@ -109,7 +109,7 @@ cabal run trader-hs -- \
 
 Sending exchange orders (optional)
 ----------------------------------
-Binance: live orders are the default. Use `--no-binance-live` to send test orders (`/api/v3/order/test` or `/fapi/v1/order/test`). Futures use `--futures` (uses `/fapi` endpoints). Margin uses `--margin` (requires live orders).
+Binance: test orders are the default. Use `--binance-live` to send live orders (`/api/v3/order` or `/fapi/v1/order`). Futures use `--futures` (uses `/fapi` endpoints). Margin uses `--margin` (requires live orders).
 Coinbase: spot-only and live-only (no test endpoint). Use `--platform coinbase`.
 Placing CEX orders requires exchange data via `--symbol`/`--binance-symbol`. DEX orders can use CSV data plus `--dex-*` fields.
 Binance order placement (and `/binance/keys` trade tests) requires exchangeInfo filters to validate precision/step sizes. If exchangeInfo is unreachable (proxy or REST URL issues), the backend skips orders to avoid precision errors. Key-check trade test skips now include the exchangeInfo error summary to help diagnose why the filters were unavailable.
@@ -227,7 +227,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--binance-api-key KEY` (default: none) or env `BINANCE_API_KEY`
   - `--binance-api-secret SECRET` (default: none) or env `BINANCE_API_SECRET`
   - `--binance-trade` (default: off) place a market order for the latest signal (CEX requires `--symbol`/`--binance-symbol`; DEX requires `--dex-base-token/--dex-quote-token`)
-  - `--binance-live` (default: on) send LIVE orders
+  - `--binance-live` (default: off) send LIVE orders
   - `--no-binance-live` send TEST orders (Binance only; Coinbase has no test endpoint)
   - `--order-quote AMOUNT` (default: none) quote amount to spend on BUY (`quoteOrderQty`)
   - `--order-quantity QTY` (default: none) base quantity to trade (`quantity`)
@@ -495,7 +495,7 @@ Endpoints:
 - `POST /signal` → returns the latest signal (no orders)
 - `POST /signal/async` → starts an async signal job
 - `GET /signal/async/:jobId` → polls an async signal job (also accepts `POST` for proxy compatibility)
-- `POST /trade` → returns the latest signal + attempts an order (Binance live orders by default; use `binanceLive=false` for test orders; Coinbase is live-only; DEX orders use 1inch + `dex*` fields)
+- `POST /trade` → returns the latest signal + attempts an order (Binance test orders by default; set `binanceLive=true` for live orders; Coinbase is live-only; DEX orders use 1inch + `dex*` fields)
 - `POST /trade/async` → starts an async trade job
 - `GET /trade/async/:jobId` → polls an async trade job (also accepts `POST` for proxy compatibility)
 - Signal endpoints validate request parameters the same way as the CLI; invalid ranges return 400.

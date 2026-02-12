@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 - Deploy: enable `TRADER_MULTI_USER` by default in `deploy-aws-quick.sh` for AWS deployments.
 - Trading/API: add DEX execution via 1inch for Uniswap/Curve/Sushi/Balancer/Pancake/1inch platforms, plus `dex*` params and `txHash` in trade responses.
 - Trading/CLI: require `--symbol`/`--binance-symbol` for `--binance-trade` and allow JSON trade output to place Coinbase orders instead of erroring.
+- Trading/CLI/API: default Binance order mode to test (`binanceLive=false` / `--no-binance-live`) and require explicit `binanceLive=true` / `--binance-live` for live Binance orders.
+- Trading/CLI: allow DEX `--binance-trade` runs with `--dex-base-token/--dex-quote-token` without requiring `--symbol`.
 - Trading/CLI: enforce lookback+1 price-row minimum even when CSV uses `--bars auto/0` to avoid short-series failures.
 - Trading/API: surface latest-signal context/price errors as user-facing failures instead of crashing the process (bot updates and signal computation).
 - Predictors: return empty models on invalid datasets/parameters instead of throwing errors.
@@ -27,6 +29,7 @@ All notable changes to this project will be documented in this file.
 - Optimizer: default `optimize-equity` runs now require minimum activity/exposure (`--min-round-trips 3`, `--min-exposure 0.02`), apply sparse/no-trade score penalties, and bias method sampling toward Kalman (`method=10`) to reduce timeout-heavy searches and flat-equity selections.
 - Dev: `run_optimize_equity_top5.sh` continues after per-symbol failures, logs exit/signal status to `run.log`, and still runs later symbols.
 - Web UI: normalize bot status latestSignal to avoid crashes when payloads omit it (including older API versions).
+- Web UI: treat bracketed IPv6 loopback (`[::1]`) as local for startup/help messaging.
 - API/UI: annotate Binance account trades with order origin IPs (trade.order + bot.order when ops persistence is enabled) and surface origin/close IP columns in the trade tables.
 - Web UI: switch Binance account trade date filters to date pickers.
 - Web UI: add maximize/restore and expand/collapse controls to collapsible panel headers, including the optimizer combos dock.

@@ -88,6 +88,8 @@ main = do
             , run "binance kline json parsing" testBinanceKlineParsing
             , run "method parsing" testMethodParsing
             , run "platform parsing" testPlatformParsing
+            , run "non-binance args ignore live by default" testNonBinanceArgsLiveDefault
+            , run "dex trade args accept token pair without symbol" testDexTradeArgsRequireTokensNotSymbol
             , run "platform intervals" testPlatformIntervals
             , run "platform interval mapping" testPlatformIntervalMapping
             , run "method selects predictions" testMethodSelection
@@ -125,16 +127,19 @@ requireRight label res =
 
 parseArgs :: [String] -> IO Args
 parseArgs argv = do
+    case parseArgsResult argv of
+        Left err -> error err
+        Right ok -> pure ok
+
+parseArgsResult :: [String] -> Either String Args
+parseArgsResult argv =
     let parser = info (opts <**> helper) fullDesc
-    case execParserPure defaultPrefs parser argv of
-        Success args ->
-            case validateArgs args of
-                Left err -> error err
-                Right ok -> pure ok
-        Failure failure ->
-            let (msg, _) = renderFailure failure "trader-tests"
-             in error msg
-        CompletionInvoked _ -> error "Unexpected completion"
+     in case execParserPure defaultPrefs parser argv of
+            Success args -> validateArgs args
+            Failure failure ->
+                let (msg, _) = renderFailure failure "trader-tests"
+                 in Left msg
+            CompletionInvoked _ -> Left "Unexpected completion"
 
 baseEnsembleConfig :: EnsembleConfig
 baseEnsembleConfig =
@@ -630,6 +635,62 @@ testPlatformParsing = do
     case parsePlatform "nope" of
         Left _ -> pure ()
         Right _ -> error "expected parsePlatform to reject unknown platforms"
+
+testNonBinanceArgsLiveDefault :: IO ()
+testNonBinanceArgsLiveDefault = do
+    let krakenBaseArgs =
+            [ "--platform"
+            , "kraken"
+            , "--data"
+            , "sample.csv"
+            , "--price-column"
+            , "close"
+            , "--interval"
+            , "1h"
+            , "--bars"
+            , "100"
+            , "--lookback-bars"
+            , "10"
+            ]
+    case parseArgsResult krakenBaseArgs of
+        Left err -> error ("unexpected validation failure for kraken defaults: " ++ err)
+        Right _ -> pure ()
+    case parseArgsResult (krakenBaseArgs ++ ["--binance-live"]) of
+        Left err -> assert "explicit --binance-live rejected on kraken" ("--binance-live is only supported on Binance/Coinbase" `isInfixOf` err)
+        Right _ -> error "expected explicit --binance-live to be rejected on kraken"
+
+testDexTradeArgsRequireTokensNotSymbol :: IO ()
+testDexTradeArgsRequireTokensNotSymbol = do
+    let dexBaseArgs =
+            [ "--platform"
+            , "uniswap"
+            , "--data"
+            , "sample.csv"
+            , "--price-column"
+            , "close"
+            , "--interval"
+            , "1h"
+            , "--bars"
+            , "100"
+            , "--lookback-bars"
+            , "10"
+            , "--trade-only"
+            , "--binance-trade"
+            , "--no-binance-live"
+            ]
+        dexWithTokens =
+            dexBaseArgs
+                ++ [ "--dex-base-token"
+                   , "ETH"
+                   , "--dex-quote-token"
+                   , "USDC"
+                   ]
+    case parseArgsResult dexWithTokens of
+        Left err -> error ("unexpected validation failure for dex token trade: " ++ err)
+        Right _ -> pure ()
+    case parseArgsResult (dexBaseArgs ++ ["--dex-base-token", "ETH"]) of
+        Left err -> assert "missing quote token rejected" ("--binance-trade requires --symbol/--binance-symbol" `isInfixOf` err)
+        Right _ -> error "expected missing dex quote token to be rejected"
 
 testPlatformIntervals :: IO ()
 testPlatformIntervals = do

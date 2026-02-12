@@ -347,7 +347,7 @@ opts = do
     argCoinbaseApiPassphrase <- optional (strOption (long "coinbase-api-passphrase" <> help "Coinbase API passphrase (or env COINBASE_API_PASSPHRASE; Coinbase only)"))
     argBinanceTrade <- switch (long "binance-trade" <> help "If set, place a market order for the latest signal (Binance/Coinbase/DEX)")
     argBinanceLive <-
-        defaultOnSwitch
+        defaultOffSwitch
             "binance-live"
             "no-binance-live"
             "Send LIVE orders (Binance/Coinbase; Coinbase has no test endpoint)."
@@ -1036,7 +1036,6 @@ validateArgs args0 = do
         Just q | q > 0 -> ensure "--max-order-quote requires --order-quote-fraction" fracOn
         _ -> pure ()
 
-    ensure "--binance-trade requires --binance-symbol" (not (argBinanceTrade args && isNothing (argBinanceSymbol args)))
     let market = argBinanceMarket args
     ensure "--positioning long-short requires --futures when trading" (not (argBinanceTrade args && argPositioning args == LongShort && market /= MarketFutures))
     ensure
