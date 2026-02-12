@@ -439,6 +439,8 @@ export type BinancePnlRow = {
   tradeId: number;
   orderId: number | null;
   time: number;
+  entryTime: number | null;
+  exitTime: number | null;
   symbol: string;
   side: string;
   price: number;
@@ -493,11 +495,19 @@ export function binanceTradeSideLabel(trade: BinanceTrade): "BUY" | "SELL" | "�
 export type BinanceTradeIpMeta = {
   entryIp: string | null;
   exitIp: string | null;
+  entryTime: number | null;
+  exitTime: number | null;
 };
 
 type TradeLot = {
   qty: number;
   ip: string | null;
+  openedAtMs: number | null;
+};
+
+type ConsumedTradeLot = {
+  ip: string | null;
+  openedAtMs: number | null;
 };
 
 const BINANCE_TRADE_IP_EPS = 1e-12;
@@ -512,20 +522,24 @@ function normalizeTradeIp(raw?: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
-function pushLot(store: Map<string, TradeLot[]>, key: string, qty: number, ip: string | null): void {
+function normalizeTradeTime(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function pushLot(store: Map<string, TradeLot[]>, key: string, qty: number, ip: string | null, openedAtMs: number | null): void {
   if (!Number.isFinite(qty) || qty <= BINANCE_TRADE_IP_EPS) return;
   const lots = store.get(key) ?? [];
-  lots.push({ qty, ip });
+  lots.push({ qty, ip, openedAtMs });
   store.set(key, lots);
 }
 
-function consumeLots(store: Map<string, TradeLot[]>, key: string, qty: number): string[] {
+function consumeLots(store: Map<string, TradeLot[]>, key: string, qty: number): ConsumedTradeLot[] {
   if (!Number.isFinite(qty) || qty <= BINANCE_TRADE_IP_EPS) return [];
   const lots = store.get(key);
   if (!lots || lots.length === 0) return [];
   let remaining = qty;
   const nextLots: TradeLot[] = [];
-  const ips = new Set<string>();
+  const consumed: ConsumedTradeLot[] = [];
   for (const lot of lots) {
     if (remaining <= BINANCE_TRADE_IP_EPS) {
       nextLots.push(lot);
@@ -533,10 +547,10 @@ function consumeLots(store: Map<string, TradeLot[]>, key: string, qty: number): 
     }
     const take = Math.min(lot.qty, remaining);
     remaining -= take;
-    if (lot.ip) ips.add(lot.ip);
+    consumed.push({ ip: lot.ip, openedAtMs: lot.openedAtMs });
     const leftover = lot.qty - take;
     if (leftover > BINANCE_TRADE_IP_EPS) {
-      nextLots.push({ qty: leftover, ip: lot.ip });
+      nextLots.push({ qty: leftover, ip: lot.ip, openedAtMs: lot.openedAtMs });
     }
   }
   if (nextLots.length > 0) {
@@ -544,12 +558,26 @@ function consumeLots(store: Map<string, TradeLot[]>, key: string, qty: number): 
   } else {
     store.delete(key);
   }
-  return Array.from(ips.values());
+  return consumed;
 }
 
 function joinIps(ips: string[]): string | null {
   if (ips.length === 0) return null;
   return ips.join(" • ");
+}
+
+function consumedIps(consumed: ConsumedTradeLot[]): string[] {
+  return Array.from(new Set(consumed.map((item) => item.ip).filter((ip): ip is string => Boolean(ip))));
+}
+
+function consumedOpenTime(consumed: ConsumedTradeLot[]): number | null {
+  let out: number | null = null;
+  for (const item of consumed) {
+    const t = item.openedAtMs;
+    if (typeof t !== "number" || !Number.isFinite(t)) continue;
+    out = out === null ? t : Math.min(out, t);
+  }
+  return out;
 }
 
 export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, BinanceTradeIpMeta> {
@@ -564,8 +592,9 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
     const key = binanceTradeKey(trade);
     const side = binanceTradeSideLabel(trade);
     const qty = trade.qty;
+    const tradeTime = normalizeTradeTime(trade.time);
     if (side === "—" || !Number.isFinite(qty) || qty <= BINANCE_TRADE_IP_EPS) {
-      meta.set(key, { entryIp: null, exitIp: null });
+      meta.set(key, { entryIp: null, exitIp: null, entryTime: null, exitTime: null });
       continue;
     }
 
@@ -574,26 +603,34 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
     const orderIp = normalizeTradeIp(trade.originIp);
     let entryIp: string | null = null;
     let exitIp: string | null = null;
+    let entryTime: number | null = null;
+    let exitTime: number | null = null;
 
     if (posSide === "LONG") {
       const lotKey = `${symbolKey}::LONG`;
       if (side === "BUY") {
-        pushLot(longLots, lotKey, qty, orderIp);
+        pushLot(longLots, lotKey, qty, orderIp, tradeTime);
         entryIp = orderIp;
+        entryTime = tradeTime;
       } else if (side === "SELL") {
         const consumed = consumeLots(longLots, lotKey, qty);
-        entryIp = joinIps(consumed);
+        entryIp = joinIps(consumedIps(consumed));
         exitIp = orderIp;
+        entryTime = consumedOpenTime(consumed);
+        exitTime = tradeTime;
       }
     } else if (posSide === "SHORT") {
       const lotKey = `${symbolKey}::SHORT`;
       if (side === "SELL") {
-        pushLot(shortLots, lotKey, qty, orderIp);
+        pushLot(shortLots, lotKey, qty, orderIp, tradeTime);
         entryIp = orderIp;
+        entryTime = tradeTime;
       } else if (side === "BUY") {
         const consumed = consumeLots(shortLots, lotKey, qty);
-        entryIp = joinIps(consumed);
+        entryIp = joinIps(consumedIps(consumed));
         exitIp = orderIp;
+        entryTime = consumedOpenTime(consumed);
+        exitTime = tradeTime;
       }
     } else {
       const netKey = `${symbolKey}::BOTH`;
@@ -603,44 +640,56 @@ export function buildBinanceTradeIpMap(trades: BinanceTrade[]): Map<string, Bina
 
       if (side === "BUY") {
         if (net >= 0) {
-          pushLot(longLots, longKey, qty, orderIp);
+          pushLot(longLots, longKey, qty, orderIp, tradeTime);
           entryIp = orderIp;
+          entryTime = tradeTime;
         } else {
           const closeQty = Math.min(qty, Math.abs(net));
           if (closeQty > BINANCE_TRADE_IP_EPS) {
             const consumed = consumeLots(shortLots, shortKey, closeQty);
-            entryIp = joinIps(consumed);
+            entryIp = joinIps(consumedIps(consumed));
             exitIp = orderIp;
+            entryTime = consumedOpenTime(consumed);
+            exitTime = tradeTime;
           }
           const openQty = qty - closeQty;
           if (openQty > BINANCE_TRADE_IP_EPS) {
-            pushLot(longLots, longKey, openQty, orderIp);
-            if (!entryIp) entryIp = orderIp;
+            pushLot(longLots, longKey, openQty, orderIp, tradeTime);
+            if (!entryIp && entryTime == null) {
+              entryIp = orderIp;
+              entryTime = tradeTime;
+            }
           }
         }
         netPos.set(netKey, net + qty);
       } else {
         if (net <= 0) {
-          pushLot(shortLots, shortKey, qty, orderIp);
+          pushLot(shortLots, shortKey, qty, orderIp, tradeTime);
           entryIp = orderIp;
+          entryTime = tradeTime;
         } else {
           const closeQty = Math.min(qty, net);
           if (closeQty > BINANCE_TRADE_IP_EPS) {
             const consumed = consumeLots(longLots, longKey, closeQty);
-            entryIp = joinIps(consumed);
+            entryIp = joinIps(consumedIps(consumed));
             exitIp = orderIp;
+            entryTime = consumedOpenTime(consumed);
+            exitTime = tradeTime;
           }
           const openQty = qty - closeQty;
           if (openQty > BINANCE_TRADE_IP_EPS) {
-            pushLot(shortLots, shortKey, openQty, orderIp);
-            if (!entryIp) entryIp = orderIp;
+            pushLot(shortLots, shortKey, openQty, orderIp, tradeTime);
+            if (!entryIp && entryTime == null) {
+              entryIp = orderIp;
+              entryTime = tradeTime;
+            }
           }
         }
         netPos.set(netKey, net - qty);
       }
     }
 
-    meta.set(key, { entryIp, exitIp });
+    meta.set(key, { entryIp, exitIp, entryTime, exitTime });
   }
 
   return meta;
@@ -851,6 +900,8 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
     const side = binanceTradeSideLabel(trade);
     const commission = trade.commission;
     const commissionAsset = trade.commissionAsset ?? null;
+    const entryTime = typeof trade.entryTime === "number" && Number.isFinite(trade.entryTime) ? trade.entryTime : null;
+    const exitTime = typeof trade.exitTime === "number" && Number.isFinite(trade.exitTime) ? trade.exitTime : null;
     if (typeof commission === "number" && Number.isFinite(commission)) {
       const assetKey = commissionAsset ?? "unknown";
       const existing = commissionByAsset.get(assetKey);
@@ -866,6 +917,8 @@ export function buildBinanceTradePnlAnalysis(trades: BinanceTrade[]): BinancePnl
       tradeId: trade.tradeId,
       orderId: trade.orderId ?? null,
       time: trade.time,
+      entryTime,
+      exitTime,
       symbol: trade.symbol,
       side,
       price: trade.price,

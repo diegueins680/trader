@@ -238,6 +238,8 @@ export type BinanceTrade = {
   originIp?: string | null;
   entryIp?: string | null;
   exitIp?: string | null;
+  entryTime?: number | null;
+  exitTime?: number | null;
 };
 
 export type BinancePosition = {

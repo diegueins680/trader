@@ -102,6 +102,10 @@ export function BinanceTradesPanel({
     const header = [
       "timeMs",
       "timeIso",
+      "entryTimeMs",
+      "entryTimeIso",
+      "exitTimeMs",
+      "exitTimeIso",
       "symbol",
       "side",
       "price",
@@ -119,10 +123,18 @@ export function BinanceTradesPanel({
     const rows = binanceTradesFiltered.map((trade) => {
       const timeMs = trade.time ?? null;
       const timeIso = Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : "";
+      const entryTimeMs = trade.entryTime ?? null;
+      const entryTimeIso = Number.isFinite(entryTimeMs) ? new Date(entryTimeMs).toISOString() : "";
+      const exitTimeMs = trade.exitTime ?? null;
+      const exitTimeIso = Number.isFinite(exitTimeMs) ? new Date(exitTimeMs).toISOString() : "";
       const side = binanceTradeSideLabel(trade);
       return [
         timeMs ?? "",
         timeIso,
+        entryTimeMs ?? "",
+        entryTimeIso,
+        exitTimeMs ?? "",
+        exitTimeIso,
         trade.symbol ?? "",
         side,
         trade.price ?? "",
@@ -375,6 +387,9 @@ export function BinanceTradesPanel({
         Filter dates use the date picker (YYYY-MM-DD).
       </div>
     )}
+    <div className="hint" style={{ marginTop: 6 }}>
+      Opened/closed timestamps use your browser's local timezone.
+    </div>
     <div className="pillRow" style={{ marginTop: 8 }}>
       {binanceTradesFilterActive ? (
         <span className="badge">
@@ -511,7 +526,8 @@ export function BinanceTradesPanel({
                         <table className="table">
                           <thead>
                             <tr>
-                              <th>Time</th>
+                              <th>Opened</th>
+                              <th>Closed</th>
                               <th>Symbol</th>
                               <th>Side</th>
                               <th>Price</th>
@@ -538,11 +554,16 @@ export function BinanceTradesPanel({
                                 row.commission != null && Number.isFinite(row.commission)
                                   ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
                                   : "—";
+                              const openedTimeTxt =
+                                row.entryTime != null && Number.isFinite(row.entryTime) ? fmtTimeMsWithMs(row.entryTime) : "—";
+                              const closedTimeTxt =
+                                row.exitTime != null && Number.isFinite(row.exitTime) ? fmtTimeMsWithMs(row.exitTime) : "—";
                               const entryIpTxt = row.entryIp ?? "—";
                               const exitIpTxt = row.exitIp ?? "—";
                               return (
                                 <tr key={`binance-win-${row.tradeId}`}>
-                                  <td className="tdMono">{fmtTimeMsWithMs(row.time)}</td>
+                                  <td className="tdMono">{openedTimeTxt}</td>
+                                  <td className="tdMono">{closedTimeTxt}</td>
                                   <td className="tdMono">{row.symbol}</td>
                                   <td>
                                     <span className={sideClass}>{row.side}</span>
@@ -574,7 +595,8 @@ export function BinanceTradesPanel({
                         <table className="table">
                           <thead>
                             <tr>
-                              <th>Time</th>
+                              <th>Opened</th>
+                              <th>Closed</th>
                               <th>Symbol</th>
                               <th>Side</th>
                               <th>Price</th>
@@ -601,11 +623,16 @@ export function BinanceTradesPanel({
                                 row.commission != null && Number.isFinite(row.commission)
                                   ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
                                   : "—";
+                              const openedTimeTxt =
+                                row.entryTime != null && Number.isFinite(row.entryTime) ? fmtTimeMsWithMs(row.entryTime) : "—";
+                              const closedTimeTxt =
+                                row.exitTime != null && Number.isFinite(row.exitTime) ? fmtTimeMsWithMs(row.exitTime) : "—";
                               const entryIpTxt = row.entryIp ?? "—";
                               const exitIpTxt = row.exitIp ?? "—";
                               return (
                                 <tr key={`binance-loss-${row.tradeId}`}>
-                                  <td className="tdMono">{fmtTimeMsWithMs(row.time)}</td>
+                                  <td className="tdMono">{openedTimeTxt}</td>
+                                  <td className="tdMono">{closedTimeTxt}</td>
                                   <td className="tdMono">{row.symbol}</td>
                                   <td>
                                     <span className={sideClass}>{row.side}</span>
@@ -653,7 +680,8 @@ export function BinanceTradesPanel({
         <table className="table">
           <thead>
             <tr>
-              <th>Time</th>
+              <th>Opened</th>
+              <th>Closed</th>
               <th>Symbol</th>
               <th>Side</th>
               <th>Price</th>
@@ -678,11 +706,21 @@ export function BinanceTradesPanel({
                   : "—";
               const pnlTxt =
                 trade.realizedPnl != null && Number.isFinite(trade.realizedPnl) ? fmtMoney(trade.realizedPnl, 4) : "—";
+              const openedAt =
+                trade.entryTime != null && Number.isFinite(trade.entryTime)
+                  ? trade.entryTime
+                  : Number.isFinite(trade.time)
+                    ? trade.time
+                    : null;
+              const closedAt = trade.exitTime != null && Number.isFinite(trade.exitTime) ? trade.exitTime : null;
+              const openedTimeTxt = openedAt != null ? fmtTimeMsWithMs(openedAt) : "—";
+              const closedTimeTxt = closedAt != null ? fmtTimeMsWithMs(closedAt) : "—";
               const entryIpTxt = trade.entryIp ?? "—";
               const exitIpTxt = trade.exitIp ?? "—";
               return (
                 <tr key={`${trade.symbol}-${trade.tradeId}`}>
-                  <td className="tdMono">{fmtTimeMsWithMs(trade.time)}</td>
+                  <td className="tdMono">{openedTimeTxt}</td>
+                  <td className="tdMono">{closedTimeTxt}</td>
                   <td className="tdMono">{trade.symbol}</td>
                   <td>
                     <span className={side === "BUY" ? "badge badgeStrong badgeLong" : side === "SELL" ? "badge badgeStrong badgeFlat" : "badge"}>

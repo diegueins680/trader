@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 
 ## Unreleased
+- Trading: weekly loss gating now uses UTC calendar weeks (Monday 00:00 boundaries) instead of epoch-aligned 7-day buckets.
+- Web UI: normalize bare `localhost/path` API base inputs to `http://localhost/path`, treat `0.0.0.0` as local, and avoid silently coercing ambiguous single-comma numeric inputs (for example `1,234`) by falling back to the previous value.
+- CLI/docs: clarify `--bars auto` exchange defaults (Coinbase uses 300; Binance/Kraken/Poloniex use 500).
 - Trading: add portfolio exposure caps (gross/net/per-base) and expanded risk metrics (Sortino, Calmar, VaR/CVaR).
 - Trading: add a richer transaction-cost model with fixed/min fees and volatility/size-based slippage/spread.
 - Dev/CI: auto-deploy to AWS from GitHub Actions after successful pushes to `main`/`master`.
@@ -31,6 +34,8 @@ All notable changes to this project will be documented in this file.
 - Web UI: normalize bot status latestSignal to avoid crashes when payloads omit it (including older API versions).
 - Web UI: treat bracketed IPv6 loopback (`[::1]`) as local for startup/help messaging.
 - API/UI: annotate Binance account trades with order origin IPs (trade.order + bot.order when ops persistence is enabled) and surface origin/close IP columns in the trade tables.
+- API/UI: persist `POST /binance/positions/close` orders as `trade.order` ops with `originIp` so Binance trade `Close IP` values survive refreshes.
+- Web UI: Binance account trade tables now include separate `Opened` and `Closed` timestamps in local browser time, with open times inferred from matched prior fills on close rows.
 - Web UI: switch Binance account trade date filters to date pickers.
 - Web UI: add maximize/restore and expand/collapse controls to collapsible panel headers, including the optimizer combos dock.
 - Web UI: prefer the configured direct `apiFallbackUrl` for the Binance listenKey stream when `apiBaseUrl` is `/api` to avoid CDN stream disconnects.

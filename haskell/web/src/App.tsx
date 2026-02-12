@@ -4232,6 +4232,8 @@ export function App() {
         ...trade,
         entryIp: ipMeta?.entryIp ?? null,
         exitIp: ipMeta?.exitIp ?? null,
+        entryTime: ipMeta?.entryTime ?? null,
+        exitTime: ipMeta?.exitTime ?? null,
       };
     });
     let filtered = withIps;
@@ -4304,9 +4306,18 @@ export function App() {
     return trades
       .map((trade) => {
         const side = binanceTradeSideLabel(trade);
+        const openedAt =
+          typeof trade.entryTime === "number" && Number.isFinite(trade.entryTime)
+            ? trade.entryTime
+            : Number.isFinite(trade.time)
+              ? trade.time
+              : null;
+        const closedAt = typeof trade.exitTime === "number" && Number.isFinite(trade.exitTime) ? trade.exitTime : null;
+        const openedTxt = openedAt != null ? fmtTimeMsWithMs(openedAt) : "—";
+        const closedTxt = closedAt != null ? fmtTimeMsWithMs(closedAt) : "—";
         const qty = typeof trade.qty === "number" && Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
         const quote = typeof trade.quoteQty === "number" && Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
-        return `${fmtTimeMsWithMs(trade.time)} | ${trade.symbol} | ${side} | ${fmtMoney(trade.price, 4)} | ${qty} | ${quote}`;
+        return `${openedTxt} -> ${closedTxt} | ${trade.symbol} | ${side} | ${fmtMoney(trade.price, 4)} | ${qty} | ${quote}`;
       })
       .join("\n");
   }, [binanceTradesFiltered, binanceTradesUi.response]);

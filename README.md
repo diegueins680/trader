@@ -214,7 +214,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
 
 - Bars & lookback (defaults: `--interval 1h`, `--lookback-window 7d` → 168 bars, `--bars auto`)
 - `--interval 1h` (alias `--binance-interval`) bar interval / exchange kline interval
-- `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or 500 for exchanges; CSV also supports `0` = all; Binance 2..1000)
+- `--bars auto` (alias `--binance-limit`) number of bars/klines to use (`auto` = all CSV, or platform default for exchanges: Binance/Kraken/Poloniex=500, Coinbase=300; CSV also supports `0` = all; Binance 2..1000)
   - `--lookback-window 7d` lookback window duration (converted to bars)
   - `--lookback-bars N` (alias `--lookback`) override the computed lookback bars
   - Lookback must be less than the total number of bars; CLI/API requests error when fewer than `lookback + 1` prices are available (including CSV `--bars auto/0`).
@@ -408,7 +408,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - Conformal/quantile confirmations apply the open threshold for entries and in-position agreement checks; `closeDirection` still uses `closeThreshold` for diagnostics.
   - `--max-drawdown F` optional live-bot kill switch: halt if peak-to-trough drawdown exceeds `F`
   - `--max-daily-loss F` optional live-bot kill switch: halt if daily loss exceeds `F` (UTC day; requires bar timestamps)
-  - `--max-weekly-loss F` optional live-bot kill switch: halt if weekly loss exceeds `F` (UTC week; requires bar timestamps)
+  - `--max-weekly-loss F` optional live-bot kill switch: halt if weekly loss exceeds `F` (UTC calendar week, Monday 00:00 boundary; requires bar timestamps)
   - `--min-expectancy F` halt trading when the average return of the last `--expectancy-lookback` trades falls below `F`
   - `--expectancy-lookback N` trade lookback for the expectancy gate (`0` disables; default: `20`)
     - Live-bot drawdown/daily loss uses the sized position (confidence/vol scaling) rather than assuming full size.
@@ -871,6 +871,7 @@ The Binance account trades panel stays scrollable when maximized so long histori
 The Binance account trades panel supports symbol/side/date filters and shows total P&L plus commission for the filtered trades.
 The Binance account trades panel includes a trade P&L breakdown (realizedPnl, win/loss totals, top winners/losers) when Binance returns realized P&L (futures only).
 The Binance account trades panel shows timestamps with millisecond precision to distinguish fills within the same second.
+Binance account trade tables now show separate `Opened` and `Closed` timestamps (browser-local timezone): opens use fill time, closes include the matched open time inferred from prior fills.
 The Binance trade P&L breakdown also reports total filled quantity and quote volume for the analyzed fills.
 The UI includes an “Open positions” panel that charts every open Binance futures position via `/binance/positions` (auto-loads after Binance keys are present/verified; refreshes on interval/market changes and Binance key/auth updates including API token changes). It also shows the Binance account UID when available so you can confirm which account is queried, plus inferred position open times based on recent Binance trades (cache duration is configurable in the UI). Open positions and orphaned operations include a “Close position” button that sends a reduce-only futures market order; in hedge mode the request includes `positionSide` (enable Live orders to use it).
 The Binance listenKey stream auto-reconnects with backoff after transient disconnects.
@@ -880,7 +881,7 @@ The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available; open-position charts also show inferred position open times when available ("opened before" means the position predates the fetched trade window).
 Charts surface range and change badges in the chart headers and group the main backtest view with compact side charts for prediction and telemetry analysis.
 The Backtest summary includes a trade P&L analysis with win/loss breakdown and top winners/losers.
-Binance account trade tables now include origin/close IP columns when ops persistence is enabled (trades placed via this API or live bots).
+Binance account trade tables now include origin/close IP columns when ops persistence is enabled (including trades closed via `POST /binance/positions/close`).
 Charts scale to use most of the viewport height for easier inspection.
 Chart panels lift height caps so the full chart area is visible without panel scrollbars.
 Charts lazy-load to reduce the initial bundle size; placeholders appear while chart chunks load.
