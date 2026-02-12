@@ -13,6 +13,79 @@ type BinanceTradesFilteredTotals = {
   commissionTotals: CommissionTotal[];
 };
 
+const MIN_ROWS_PER_PAGE = 1;
+const MAX_ROWS_PER_PAGE = 1000;
+const DEFAULT_ROWS_PER_PAGE = 50;
+
+type PaginatedRows<T> = {
+  pageRows: T[];
+  pageCount: number;
+  safePage: number;
+  from: number;
+  to: number;
+  totalCount: number;
+};
+
+function clampRowsPerPage(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_ROWS_PER_PAGE;
+  return Math.min(MAX_ROWS_PER_PAGE, Math.max(MIN_ROWS_PER_PAGE, Math.trunc(value)));
+}
+
+function paginateRows<T>(rows: T[], page: number, rowsPerPage: number): PaginatedRows<T> {
+  const safeRowsPerPage = clampRowsPerPage(rowsPerPage);
+  const totalCount = rows.length;
+  const pageCount = Math.max(1, Math.ceil(totalCount / safeRowsPerPage));
+  const safePage = Math.min(pageCount, Math.max(1, Math.trunc(page)));
+  const offset = (safePage - 1) * safeRowsPerPage;
+  const pageRows = rows.slice(offset, offset + safeRowsPerPage);
+  return {
+    pageRows,
+    pageCount,
+    safePage,
+    from: totalCount === 0 ? 0 : offset + 1,
+    to: totalCount === 0 ? 0 : offset + pageRows.length,
+    totalCount,
+  };
+}
+
+type TablePagerProps = {
+  itemLabel: string;
+  pagination: PaginatedRows<unknown>;
+  onPageChange: (page: number) => void;
+};
+
+function TablePager({ itemLabel, pagination, onPageChange }: TablePagerProps) {
+  if (pagination.totalCount === 0) return null;
+  return (
+    <div className="pillRow" style={{ marginTop: 8, marginBottom: 8 }}>
+      <span className="badge">
+        Showing {pagination.from}-{pagination.to} of {pagination.totalCount} {itemLabel}
+      </span>
+      {pagination.pageCount > 1 ? <span className="badge">Page {pagination.safePage} / {pagination.pageCount}</span> : null}
+      {pagination.pageCount > 1 ? (
+        <>
+          <button
+            className="btnSmall"
+            type="button"
+            disabled={pagination.safePage <= 1}
+            onClick={() => onPageChange(Math.max(1, pagination.safePage - 1))}
+          >
+            Prev
+          </button>
+          <button
+            className="btnSmall"
+            type="button"
+            disabled={pagination.safePage >= pagination.pageCount}
+            onClick={() => onPageChange(Math.min(pagination.pageCount, pagination.safePage + 1))}
+          >
+            Next
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export type BinanceTradesPanelProps = {
   binanceTradesSymbolsInput: string;
   setBinanceTradesSymbolsInput: (value: string) => void;
@@ -89,6 +162,21 @@ export function BinanceTradesPanel({
   binanceTradesAnalysis,
 }: BinanceTradesPanelProps) {
   const [clearedCache, setClearedCache] = useState<BinanceTradesUiState | null>(null);
+  const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE);
+  const [tradesPage, setTradesPage] = useState(1);
+  const [winsPage, setWinsPage] = useState(1);
+  const [lossesPage, setLossesPage] = useState(1);
+  const topWins = binanceTradesAnalysis?.topWins ?? [];
+  const topLosses = binanceTradesAnalysis?.topLosses ?? [];
+  const tradesPagination = useMemo(
+    () => paginateRows(binanceTradesFiltered, tradesPage, rowsPerPage),
+    [binanceTradesFiltered, tradesPage, rowsPerPage],
+  );
+  const winsPagination = useMemo(() => paginateRows(topWins, winsPage, rowsPerPage), [topWins, winsPage, rowsPerPage]);
+  const lossesPagination = useMemo(
+    () => paginateRows(topLosses, lossesPage, rowsPerPage),
+    [topLosses, lossesPage, rowsPerPage],
+  );
 
   useEffect(() => {
     if (!clearedCache) return;
@@ -96,6 +184,33 @@ export function BinanceTradesPanel({
       setClearedCache(null);
     }
   }, [binanceTradesUi.error, binanceTradesUi.loading, binanceTradesUi.response, clearedCache]);
+
+  useEffect(() => {
+    if (tradesPage === tradesPagination.safePage) return;
+    setTradesPage(tradesPagination.safePage);
+  }, [tradesPage, tradesPagination.safePage]);
+
+  useEffect(() => {
+    if (winsPage === winsPagination.safePage) return;
+    setWinsPage(winsPagination.safePage);
+  }, [winsPage, winsPagination.safePage]);
+
+  useEffect(() => {
+    if (lossesPage === lossesPagination.safePage) return;
+    setLossesPage(lossesPagination.safePage);
+  }, [lossesPage, lossesPagination.safePage]);
+
+  useEffect(() => {
+    setTradesPage(1);
+    setWinsPage(1);
+    setLossesPage(1);
+  }, [
+    binanceTradesUi.response?.fetchedAtMs,
+    binanceTradesFilterSymbolsInput,
+    binanceTradesFilterSide,
+    binanceTradesFilterStartInput,
+    binanceTradesFilterEndInput,
+  ]);
 
   const tradesCsv = useMemo(() => {
     if (binanceTradesFiltered.length === 0) return "";
@@ -387,14 +502,36 @@ export function BinanceTradesPanel({
         Filter dates use the date picker (YYYY-MM-DD).
       </div>
     )}
-    <div className="hint" style={{ marginTop: 6 }}>
-      Opened/closed timestamps use your browser's local timezone.
-    </div>
-    <div className="pillRow" style={{ marginTop: 8 }}>
-      {binanceTradesFilterActive ? (
-        <span className="badge">
-          showing {binanceTradesFilteredCount} of {binanceTradesTotalCount}
-        </span>
+	    <div className="hint" style={{ marginTop: 6 }}>
+	      Opened/closed timestamps use your browser's local timezone.
+	    </div>
+	    <div className="row rowSingle" style={{ marginTop: 8 }}>
+	      <div className="field" style={{ maxWidth: 170 }}>
+	        <label className="label" htmlFor="binanceTradesRowsPerPage">
+	          Rows per page
+	        </label>
+	        <input
+	          id="binanceTradesRowsPerPage"
+	          className="input"
+	          type="number"
+	          min={MIN_ROWS_PER_PAGE}
+	          max={MAX_ROWS_PER_PAGE}
+	          value={rowsPerPage}
+	          onChange={(e) => {
+	            const next = clampRowsPerPage(numFromInput(e.target.value, rowsPerPage));
+	            setRowsPerPage(next);
+	            setTradesPage(1);
+	            setWinsPage(1);
+	            setLossesPage(1);
+	          }}
+	        />
+	      </div>
+	    </div>
+	    <div className="pillRow" style={{ marginTop: 8 }}>
+	      {binanceTradesFilterActive ? (
+	        <span className="badge">
+	          showing {binanceTradesFilteredCount} of {binanceTradesTotalCount}
+	        </span>
       ) : null}
       <span
         className={pnlBadgeClass(
@@ -519,144 +656,158 @@ export function BinanceTradesPanel({
                       </div>
                     </div>
                   </div>
-                  <div className="chartBlock" style={{ marginTop: 12 }}>
-                    <div className="hint">Top winners</div>
-                    {stats.topWins.length > 0 ? (
-                      <div className="tableWrap" role="region" aria-label="Top winning account trades">
-                        <table className="table">
-                          <thead>
-                            <tr>
-                              <th>Opened</th>
-                              <th>Closed</th>
-                              <th>Symbol</th>
-                              <th>Side</th>
-                              <th>Price</th>
-                              <th>Qty</th>
-                              <th>Pos</th>
-                              <th>Origin IP</th>
-                              <th>Close IP</th>
-                              <th>PNL</th>
-                              <th>Commission</th>
-                              <th>Order</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {stats.topWins.map((row) => {
-                              const sideClass =
-                                row.side === "BUY"
-                                  ? "badge badgeStrong badgeLong"
-                                  : row.side === "SELL"
-                                    ? "badge badgeStrong badgeFlat"
-                                    : "badge";
-                              const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
-                              const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
-                              const commissionTxt =
-                                row.commission != null && Number.isFinite(row.commission)
-                                  ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
-                                  : "—";
-                              const openedTimeTxt =
-                                row.entryTime != null && Number.isFinite(row.entryTime) ? fmtTimeMsWithMs(row.entryTime) : "—";
-                              const closedTimeTxt =
-                                row.exitTime != null && Number.isFinite(row.exitTime) ? fmtTimeMsWithMs(row.exitTime) : "—";
-                              const entryIpTxt = row.entryIp ?? "—";
-                              const exitIpTxt = row.exitIp ?? "—";
-                              return (
-                                <tr key={`binance-win-${row.tradeId}`}>
-                                  <td className="tdMono">{openedTimeTxt}</td>
-                                  <td className="tdMono">{closedTimeTxt}</td>
-                                  <td className="tdMono">{row.symbol}</td>
-                                  <td>
-                                    <span className={sideClass}>{row.side}</span>
-                                  </td>
-                                  <td className="tdMono">{fmtMoney(row.price, 4)}</td>
-                                  <td className="tdMono">{qtyTxt}</td>
-                                  <td className="tdMono">{row.positionSide ?? "—"}</td>
-                                  <td className="tdMono">{entryIpTxt}</td>
-                                  <td className="tdMono">{exitIpTxt}</td>
-                                  <td>
-                                    <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
-                                  </td>
-                                  <td className="tdMono">{commissionTxt}</td>
-                                  <td className="tdMono">{row.orderId ?? "—"}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="hint">No winning trades in this sample.</div>
-                    )}
-                  </div>
-                  <div className="chartBlock" style={{ marginTop: 12 }}>
-                    <div className="hint">Top losers</div>
-                    {stats.topLosses.length > 0 ? (
-                      <div className="tableWrap" role="region" aria-label="Top losing account trades">
-                        <table className="table">
-                          <thead>
-                            <tr>
-                              <th>Opened</th>
-                              <th>Closed</th>
-                              <th>Symbol</th>
-                              <th>Side</th>
-                              <th>Price</th>
-                              <th>Qty</th>
-                              <th>Pos</th>
-                              <th>Origin IP</th>
-                              <th>Close IP</th>
-                              <th>PNL</th>
-                              <th>Commission</th>
-                              <th>Order</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {stats.topLosses.map((row) => {
-                              const sideClass =
-                                row.side === "BUY"
-                                  ? "badge badgeStrong badgeLong"
-                                  : row.side === "SELL"
-                                    ? "badge badgeStrong badgeFlat"
-                                    : "badge";
-                              const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
-                              const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
-                              const commissionTxt =
-                                row.commission != null && Number.isFinite(row.commission)
-                                  ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
-                                  : "—";
-                              const openedTimeTxt =
-                                row.entryTime != null && Number.isFinite(row.entryTime) ? fmtTimeMsWithMs(row.entryTime) : "—";
-                              const closedTimeTxt =
-                                row.exitTime != null && Number.isFinite(row.exitTime) ? fmtTimeMsWithMs(row.exitTime) : "—";
-                              const entryIpTxt = row.entryIp ?? "—";
-                              const exitIpTxt = row.exitIp ?? "—";
-                              return (
-                                <tr key={`binance-loss-${row.tradeId}`}>
-                                  <td className="tdMono">{openedTimeTxt}</td>
-                                  <td className="tdMono">{closedTimeTxt}</td>
-                                  <td className="tdMono">{row.symbol}</td>
-                                  <td>
-                                    <span className={sideClass}>{row.side}</span>
-                                  </td>
-                                  <td className="tdMono">{fmtMoney(row.price, 4)}</td>
-                                  <td className="tdMono">{qtyTxt}</td>
-                                  <td className="tdMono">{row.positionSide ?? "—"}</td>
-                                  <td className="tdMono">{entryIpTxt}</td>
-                                  <td className="tdMono">{exitIpTxt}</td>
-                                  <td>
-                                    <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
-                                  </td>
-                                  <td className="tdMono">{commissionTxt}</td>
-                                  <td className="tdMono">{row.orderId ?? "—"}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="hint">No losing trades in this sample.</div>
-                    )}
-                  </div>
+	                  <div className="chartBlock" style={{ marginTop: 12 }}>
+	                    <div className="hint">Top winners</div>
+	                    {stats.topWins.length > 0 ? (
+	                      <>
+	                        <TablePager
+	                          itemLabel="winning trades"
+	                          pagination={winsPagination}
+	                          onPageChange={(page) => setWinsPage(page)}
+	                        />
+	                        <div className="tableWrap" role="region" aria-label="Top winning account trades">
+	                          <table className="table">
+	                            <thead>
+	                              <tr>
+	                                <th>Opened</th>
+	                                <th>Closed</th>
+	                                <th>Symbol</th>
+	                                <th>Side</th>
+	                                <th>Price</th>
+	                                <th>Qty</th>
+	                                <th>Pos</th>
+	                                <th>Origin IP</th>
+	                                <th>Close IP</th>
+	                                <th>PNL</th>
+	                                <th>Commission</th>
+	                                <th>Order</th>
+	                              </tr>
+	                            </thead>
+	                            <tbody>
+	                              {winsPagination.pageRows.map((row) => {
+	                                const sideClass =
+	                                  row.side === "BUY"
+	                                    ? "badge badgeStrong badgeLong"
+	                                    : row.side === "SELL"
+	                                      ? "badge badgeStrong badgeFlat"
+	                                      : "badge";
+	                                const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
+	                                const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
+	                                const commissionTxt =
+	                                  row.commission != null && Number.isFinite(row.commission)
+	                                    ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
+	                                    : "—";
+	                                const openedTimeTxt =
+	                                  row.entryTime != null && Number.isFinite(row.entryTime) ? fmtTimeMsWithMs(row.entryTime) : "—";
+	                                const closedTimeTxt =
+	                                  row.exitTime != null && Number.isFinite(row.exitTime) ? fmtTimeMsWithMs(row.exitTime) : "—";
+	                                const entryIpTxt = row.entryIp ?? "—";
+	                                const exitIpTxt = row.exitIp ?? "—";
+	                                return (
+	                                  <tr key={`binance-win-${row.tradeId}`}>
+	                                    <td className="tdMono">{openedTimeTxt}</td>
+	                                    <td className="tdMono">{closedTimeTxt}</td>
+	                                    <td className="tdMono">{row.symbol}</td>
+	                                    <td>
+	                                      <span className={sideClass}>{row.side}</span>
+	                                    </td>
+	                                    <td className="tdMono">{fmtMoney(row.price, 4)}</td>
+	                                    <td className="tdMono">{qtyTxt}</td>
+	                                    <td className="tdMono">{row.positionSide ?? "—"}</td>
+	                                    <td className="tdMono">{entryIpTxt}</td>
+	                                    <td className="tdMono">{exitIpTxt}</td>
+	                                    <td>
+	                                      <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
+	                                    </td>
+	                                    <td className="tdMono">{commissionTxt}</td>
+	                                    <td className="tdMono">{row.orderId ?? "—"}</td>
+	                                  </tr>
+	                                );
+	                              })}
+	                            </tbody>
+	                          </table>
+	                        </div>
+	                      </>
+	                    ) : (
+	                      <div className="hint">No winning trades in this sample.</div>
+	                    )}
+	                  </div>
+	                  <div className="chartBlock" style={{ marginTop: 12 }}>
+	                    <div className="hint">Top losers</div>
+	                    {stats.topLosses.length > 0 ? (
+	                      <>
+	                        <TablePager
+	                          itemLabel="losing trades"
+	                          pagination={lossesPagination}
+	                          onPageChange={(page) => setLossesPage(page)}
+	                        />
+	                        <div className="tableWrap" role="region" aria-label="Top losing account trades">
+	                          <table className="table">
+	                            <thead>
+	                              <tr>
+	                                <th>Opened</th>
+	                                <th>Closed</th>
+	                                <th>Symbol</th>
+	                                <th>Side</th>
+	                                <th>Price</th>
+	                                <th>Qty</th>
+	                                <th>Pos</th>
+	                                <th>Origin IP</th>
+	                                <th>Close IP</th>
+	                                <th>PNL</th>
+	                                <th>Commission</th>
+	                                <th>Order</th>
+	                              </tr>
+	                            </thead>
+	                            <tbody>
+	                              {lossesPagination.pageRows.map((row) => {
+	                                const sideClass =
+	                                  row.side === "BUY"
+	                                    ? "badge badgeStrong badgeLong"
+	                                    : row.side === "SELL"
+	                                      ? "badge badgeStrong badgeFlat"
+	                                      : "badge";
+	                                const qtyTxt = Number.isFinite(row.qty) ? fmtNum(row.qty, 8) : "—";
+	                                const pnlTxt = Number.isFinite(row.realizedPnl) ? fmtMoney(row.realizedPnl, 4) : "—";
+	                                const commissionTxt =
+	                                  row.commission != null && Number.isFinite(row.commission)
+	                                    ? `${fmtNum(row.commission, 8)}${row.commissionAsset ? ` ${row.commissionAsset}` : ""}`
+	                                    : "—";
+	                                const openedTimeTxt =
+	                                  row.entryTime != null && Number.isFinite(row.entryTime) ? fmtTimeMsWithMs(row.entryTime) : "—";
+	                                const closedTimeTxt =
+	                                  row.exitTime != null && Number.isFinite(row.exitTime) ? fmtTimeMsWithMs(row.exitTime) : "—";
+	                                const entryIpTxt = row.entryIp ?? "—";
+	                                const exitIpTxt = row.exitIp ?? "—";
+	                                return (
+	                                  <tr key={`binance-loss-${row.tradeId}`}>
+	                                    <td className="tdMono">{openedTimeTxt}</td>
+	                                    <td className="tdMono">{closedTimeTxt}</td>
+	                                    <td className="tdMono">{row.symbol}</td>
+	                                    <td>
+	                                      <span className={sideClass}>{row.side}</span>
+	                                    </td>
+	                                    <td className="tdMono">{fmtMoney(row.price, 4)}</td>
+	                                    <td className="tdMono">{qtyTxt}</td>
+	                                    <td className="tdMono">{row.positionSide ?? "—"}</td>
+	                                    <td className="tdMono">{entryIpTxt}</td>
+	                                    <td className="tdMono">{exitIpTxt}</td>
+	                                    <td>
+	                                      <span className={pnlBadgeClass(row.realizedPnl)}>{pnlTxt}</span>
+	                                    </td>
+	                                    <td className="tdMono">{commissionTxt}</td>
+	                                    <td className="tdMono">{row.orderId ?? "—"}</td>
+	                                  </tr>
+	                                );
+	                              })}
+	                            </tbody>
+	                          </table>
+	                        </div>
+	                      </>
+	                    ) : (
+	                      <div className="hint">No losing trades in this sample.</div>
+	                    )}
+	                  </div>
                   <div className="hint" style={{ marginTop: 8 }}>
                     P&amp;L uses Binance realizedPnl per fill. Spot/margin trades typically omit realizedPnl.
                   </div>
@@ -671,78 +822,85 @@ export function BinanceTradesPanel({
         </div>
       )
     ) : null}
-    {binanceTradesFilteredCount === 0 ? (
-      <div className="hint">
-        {binanceTradesTotalCount > 0 ? "No trades match the filters." : "No trades returned."}
-      </div>
-    ) : (
-      <div className="tableWrap" role="region" aria-label="Binance account trades">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Opened</th>
-              <th>Closed</th>
-              <th>Symbol</th>
-              <th>Side</th>
-              <th>Price</th>
-              <th>Qty</th>
-              <th>Quote</th>
-              <th>Pos</th>
-              <th>Origin IP</th>
-              <th>Close IP</th>
-              <th>Commission</th>
-              <th>PNL</th>
-              <th>Order</th>
-            </tr>
-          </thead>
-          <tbody>
-            {binanceTradesFiltered.map((trade) => {
-              const side = binanceTradeSideLabel(trade);
-              const qtyTxt = Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
-              const quoteTxt = Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
-              const commissionTxt =
-                trade.commission != null && Number.isFinite(trade.commission)
-                  ? `${fmtNum(trade.commission, 8)}${trade.commissionAsset ? ` ${trade.commissionAsset}` : ""}`
-                  : "—";
-              const pnlTxt =
-                trade.realizedPnl != null && Number.isFinite(trade.realizedPnl) ? fmtMoney(trade.realizedPnl, 4) : "—";
-              const openedAt =
-                trade.entryTime != null && Number.isFinite(trade.entryTime)
-                  ? trade.entryTime
-                  : Number.isFinite(trade.time)
-                    ? trade.time
-                    : null;
-              const closedAt = trade.exitTime != null && Number.isFinite(trade.exitTime) ? trade.exitTime : null;
-              const openedTimeTxt = openedAt != null ? fmtTimeMsWithMs(openedAt) : "—";
-              const closedTimeTxt = closedAt != null ? fmtTimeMsWithMs(closedAt) : "—";
-              const entryIpTxt = trade.entryIp ?? "—";
-              const exitIpTxt = trade.exitIp ?? "—";
-              return (
-                <tr key={`${trade.symbol}-${trade.tradeId}`}>
-                  <td className="tdMono">{openedTimeTxt}</td>
-                  <td className="tdMono">{closedTimeTxt}</td>
-                  <td className="tdMono">{trade.symbol}</td>
-                  <td>
-                    <span className={side === "BUY" ? "badge badgeStrong badgeLong" : side === "SELL" ? "badge badgeStrong badgeFlat" : "badge"}>
-                      {side}
-                    </span>
-                  </td>
-                  <td className="tdMono">{fmtMoney(trade.price, 4)}</td>
-                  <td className="tdMono">{qtyTxt}</td>
-                  <td className="tdMono">{quoteTxt}</td>
-                  <td className="tdMono">{trade.positionSide ?? "—"}</td>
-                  <td className="tdMono">{entryIpTxt}</td>
-                  <td className="tdMono">{exitIpTxt}</td>
-                  <td className="tdMono">{commissionTxt}</td>
-                  <td className="tdMono">{pnlTxt}</td>
-                  <td className="tdMono">{trade.orderId ?? "—"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    )}
+	    {binanceTradesFilteredCount === 0 ? (
+	      <div className="hint">
+	        {binanceTradesTotalCount > 0 ? "No trades match the filters." : "No trades returned."}
+	      </div>
+	    ) : (
+	      <>
+	        <TablePager
+	          itemLabel="trades"
+	          pagination={tradesPagination}
+	          onPageChange={(page) => setTradesPage(page)}
+	        />
+	        <div className="tableWrap" role="region" aria-label="Binance account trades">
+	          <table className="table">
+	            <thead>
+	              <tr>
+	                <th>Opened</th>
+	                <th>Closed</th>
+	                <th>Symbol</th>
+	                <th>Side</th>
+	                <th>Price</th>
+	                <th>Qty</th>
+	                <th>Quote</th>
+	                <th>Pos</th>
+	                <th>Origin IP</th>
+	                <th>Close IP</th>
+	                <th>Commission</th>
+	                <th>PNL</th>
+	                <th>Order</th>
+	              </tr>
+	            </thead>
+	            <tbody>
+	              {tradesPagination.pageRows.map((trade) => {
+	                const side = binanceTradeSideLabel(trade);
+	                const qtyTxt = Number.isFinite(trade.qty) ? fmtNum(trade.qty, 8) : "—";
+	                const quoteTxt = Number.isFinite(trade.quoteQty) ? fmtMoney(trade.quoteQty, 2) : "—";
+	                const commissionTxt =
+	                  trade.commission != null && Number.isFinite(trade.commission)
+	                    ? `${fmtNum(trade.commission, 8)}${trade.commissionAsset ? ` ${trade.commissionAsset}` : ""}`
+	                    : "—";
+	                const pnlTxt =
+	                  trade.realizedPnl != null && Number.isFinite(trade.realizedPnl) ? fmtMoney(trade.realizedPnl, 4) : "—";
+	                const openedAt =
+	                  trade.entryTime != null && Number.isFinite(trade.entryTime)
+	                    ? trade.entryTime
+	                    : Number.isFinite(trade.time)
+	                      ? trade.time
+	                      : null;
+	                const closedAt = trade.exitTime != null && Number.isFinite(trade.exitTime) ? trade.exitTime : null;
+	                const openedTimeTxt = openedAt != null ? fmtTimeMsWithMs(openedAt) : "—";
+	                const closedTimeTxt = closedAt != null ? fmtTimeMsWithMs(closedAt) : "—";
+	                const entryIpTxt = trade.entryIp ?? "—";
+	                const exitIpTxt = trade.exitIp ?? "—";
+	                return (
+	                  <tr key={`${trade.symbol}-${trade.tradeId}`}>
+	                    <td className="tdMono">{openedTimeTxt}</td>
+	                    <td className="tdMono">{closedTimeTxt}</td>
+	                    <td className="tdMono">{trade.symbol}</td>
+	                    <td>
+	                      <span className={side === "BUY" ? "badge badgeStrong badgeLong" : side === "SELL" ? "badge badgeStrong badgeFlat" : "badge"}>
+	                        {side}
+	                      </span>
+	                    </td>
+	                    <td className="tdMono">{fmtMoney(trade.price, 4)}</td>
+	                    <td className="tdMono">{qtyTxt}</td>
+	                    <td className="tdMono">{quoteTxt}</td>
+	                    <td className="tdMono">{trade.positionSide ?? "—"}</td>
+	                    <td className="tdMono">{entryIpTxt}</td>
+	                    <td className="tdMono">{exitIpTxt}</td>
+	                    <td className="tdMono">{commissionTxt}</td>
+	                    <td className="tdMono">{pnlTxt}</td>
+	                    <td className="tdMono">{trade.orderId ?? "—"}</td>
+	                  </tr>
+	                );
+	              })}
+	            </tbody>
+	          </table>
+	        </div>
+	      </>
+	    )}
     <div className="hint" style={{ marginTop: 8 }}>
       Binance returns up to 1000 trades per request. Use start/end time or fromId to page deeper history.
     </div>

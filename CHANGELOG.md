@@ -39,6 +39,7 @@ All notable changes to this project will be documented in this file.
 - API/UI: persist `POST /binance/positions/close` orders as `trade.order` ops with `originIp` so Binance trade `Close IP` values survive refreshes.
 - Web UI: Binance account trade tables now include separate `Opened` and `Closed` timestamps in local browser time, with open times inferred from matched prior fills on close rows.
 - Web UI: paginate Binance account trade tables (main list plus top winners/losers) and add a configurable rows-per-page control.
+- Web UI: paginate backtest trade P&L top winners/losers tables and add a configurable rows-per-page control.
 - Web UI: switch Binance account trade date filters to date pickers.
 - Web UI: add maximize/restore and expand/collapse controls to collapsible panel headers, including the optimizer combos dock.
 - Web UI: prefer the configured direct `apiFallbackUrl` for the Binance listenKey stream when `apiBaseUrl` is `/api` to avoid CDN stream disconnects.

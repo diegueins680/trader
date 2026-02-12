@@ -3,7 +3,7 @@ Haskell Trading Bot (Kalman + LSTM + Binance/Coinbase/Kraken/Poloniex)
 
 This repository contains a small Haskell trading demo that:
 - Predicts the next price using a small **LSTM**, and a **multi-sensor Kalman fusion** layer that combines multiple model outputs into a single latent expected return signal.
-- By default, only trades when Kalman and LSTM **agree on direction** (both predict up, or both predict down) — configurable via `--method` (including `conf_blend`, `edge_blend`, `geo_blend`, and `router`).
+- By default, only trades when Kalman and LSTM **agree on direction** (both predict up, or both predict down) — configurable via `--method` (including `conf_blend`, `conf_pick`, `edge_blend`, `edge_pick`, `geo_blend`, and `router`).
 - Can backtest on CSV data or pull klines from **Binance**, **Coinbase**, **Kraken**, or **Poloniex** (trading supports Binance + Coinbase spot).
 
 Features
@@ -300,20 +300,22 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--threshold-factor` enable dynamic threshold multipliers for open/close thresholds and min-edge/min-signal-to-noise (default off; disable with `--no-threshold-factor`)
     - `--threshold-factor-alpha 0.2` EMA update rate; `--threshold-factor-min/max 0.5/2.0` bounds; `--threshold-factor-floor 0` floor on adjusted thresholds
     - Weights: `--threshold-factor-edge-kal-weight`, `--threshold-factor-edge-lstm-weight`, `--threshold-factor-kalman-z-weight`, `--threshold-factor-high-vol-weight`, `--threshold-factor-conformal-weight`, `--threshold-factor-quantile-weight`, `--threshold-factor-lstm-conf-weight`, `--threshold-factor-lstm-health-weight`
-  - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (fixed weighted average), `conf_blend` (confidence-weighted blend), `edge_blend` (edge-weighted blend), `geo_blend` (geometric blend), or `router` (adaptive model selection)
+  - `--method 11` choose `11`/`both` (Kalman+LSTM direction-agreement), `10`/`kalman` (Kalman only), `01`/`lstm` (LSTM only), `blend` (fixed weighted average), `conf_blend` (confidence-weighted blend), `conf_pick` (confidence winner-take-all), `edge_blend` (edge-weighted blend), `edge_pick` (edge winner-take-all), `geo_blend` (geometric blend), or `router` (adaptive model selection)
     - When using `--method 10`, the LSTM is disabled (not trained).
     - When using `--method 01`, the Kalman/predictors are disabled (not trained).
     - `blend` applies Kalman confidence/risk gates to both entry and close directions using a fixed `--blend-weight`.
     - `conf_blend` computes a per-bar Kalman/LSTM mix from confidence (Kalman z-score vs LSTM edge confidence), with `--blend-weight` as fallback when confidence is unavailable.
+    - `conf_pick` selects Kalman or LSTM per bar from confidence (Kalman z-score vs LSTM edge confidence), with `--blend-weight` as tie/fallback.
     - `edge_blend` computes a per-bar Kalman/LSTM mix from each model's instantaneous absolute edge (`|pred/current - 1|`), with `--blend-weight` as fallback when both edges are unavailable.
+    - `edge_pick` selects Kalman or LSTM per bar by larger instantaneous absolute edge (`|pred/current - 1|`), with `--blend-weight` as tie/fallback.
     - `geo_blend` blends Kalman/LSTM next-price forecasts in log-return space (geometric mean of return ratios) using `--blend-weight`.
     - When using `--method router`, the bot picks Kalman/LSTM/blend per bar based on recent directional accuracy and risk-adjusted return (mean/vol); Kalman confidence/risk gates apply only when Kalman is selected. Router scoring blends accuracy x coverage with a return-aware score (see `--router-score-pnl-weight`) and uses the effective open threshold (open-threshold plus any cost-aware min-edge floor).
-    - `--blend-weight 0.5` Kalman weight for `blend`/`conf_blend`/`edge_blend`/`geo_blend` (`0..1`, default: `0.5`)
+    - `--blend-weight 0.5` Kalman weight for `blend`/`conf_blend`/`conf_pick`/`edge_blend`/`edge_pick`/`geo_blend` (`0..1`, default: `0.5`)
     - `--router-lookback 30` lookback bars for router scoring (`>= 2`)
     - `--router-min-score 0.25` minimum router score (blend of accuracy x coverage and return) to accept a model (`0..1`)
     - `--router-score-pnl-weight 0.5` weight for return-aware router scoring (`0` = accuracy x coverage only, `1` = return only)
 - `--positioning long-flat` (default, alias `long-only`/`long`) or `--positioning long-short` (allows short positions; trading/live bot requires `--futures`)
-  - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal; includes `conf_blend`, `edge_blend`, `geo_blend`, and `router`)
+  - `--optimize-operations` optimize `--method`, `--open-threshold`, and `--close-threshold` on the tune split (uses best combo for the latest signal; includes `conf_blend`, `conf_pick`, `edge_blend`, `edge_pick`, `geo_blend`, and `router`)
   - `--sweep-threshold` sweep open/close thresholds on the tune split and pick the best by final equity
   - Sweeps/optimization validate prediction lengths and return errors if inputs are too short.
   - Threshold sweeps sample slightly below observed edges to avoid equality edge cases.
@@ -593,7 +595,7 @@ Optimizer script tips:
 - `--max-position-size-min/max`, `--snr-size-weight-min/max`, `--vol-target-*`, `--vol-lookback-*`/`--vol-ewma-alpha-*`, `--vol-floor-*`, `--vol-scale-max-*`, `--max-volatility-*`, and `--periods-per-year-*` tune sizing (use `--p-disable-vol-target`/`--p-disable-max-volatility` to mix disabled samples).
 - `--p-disable-vol-ewma-alpha` mixes EWMA vs rolling vol when using `--vol-ewma-alpha-*`.
 - `--funding-rate-min/max`, `--p-funding-by-side`, `--p-funding-on-open`, `--rebalance-bars-min/max`, `--rebalance-threshold-min/max`, `--rebalance-cost-mult-min/max`, `--p-rebalance-global`, and `--p-rebalance-reset-on-signal` sample funding and rebalance behavior.
-- `--blend-weight-min/max` plus `--method-weight-blend` / `--method-weight-conf-blend` / `--method-weight-edge-blend` / `--method-weight-geo-blend` sample fixed and adaptive blend method mixes.
+- `--blend-weight-min/max` plus `--method-weight-blend` / `--method-weight-conf-blend` / `--method-weight-conf-pick` / `--method-weight-edge-blend` / `--method-weight-edge-pick` / `--method-weight-geo-blend` sample fixed and adaptive blend/pick method mixes.
 - `--router-score-pnl-weight-min/max` tunes the return weight in router scoring (0=accuracy/coverage, 1=return).
 - `--kalman-market-top-n-min/max` tunes the Kalman market-context sample size (Binance only).
 - `--kalman-z-min-min/max`, `--kalman-z-max-min/max`, `--max-high-vol-prob-min/max`, `--max-conformal-width-min/max`, `--max-quantile-width-min/max`, `--p-confirm-conformal`, `--p-confirm-quantiles`, `--p-confidence-sizing`, `--lstm-confidence-soft-min/max`, `--lstm-confidence-hard-min/max`, `--protection-min-confidence-min/max`, and `--min-position-size-min/max` tune confidence gating/sizing (use `--p-disable-max-*` to mix disabled samples).
@@ -807,7 +809,7 @@ curl -s -X POST http://127.0.0.1:8080/bot/stop
 
 Assumptions:
 - Requests must include a data source: `data` (CSV path) or `binanceSymbol`.
-- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), `"blend"` (fixed weighted average), `"conf_blend"` (confidence-weighted blend), `"edge_blend"` (edge-weighted blend), `"geo_blend"` (geometric blend), or `"router"` (adaptive selection; Kalman confidence/risk gates apply only on Kalman-selected bars; see `--router-lookback` / `--router-min-score` / `--router-score-pnl-weight`).
+- `method` is `"11"`/`"both"` (direction-agreement gated), `"10"`/`"kalman"` (Kalman only), `"01"`/`"lstm"` (LSTM only), `"blend"` (fixed weighted average), `"conf_blend"` (confidence-weighted blend), `"conf_pick"` (confidence winner-take-all), `"edge_blend"` (edge-weighted blend), `"edge_pick"` (edge winner-take-all), `"geo_blend"` (geometric blend), or `"router"` (adaptive selection; Kalman confidence/risk gates apply only on Kalman-selected bars; see `--router-lookback` / `--router-min-score` / `--router-score-pnl-weight`).
 - `positioning` is `"long-flat"` (default, alias `"long-only"`/`"long"`) or `"long-short"` (shorts require futures when placing orders or running the live bot).
 - Hedge-mode long+short futures positions for the same symbol must be flattened to one side before bot start/adoption or futures trade requests.
 
@@ -886,6 +888,7 @@ The bot state timeline shows the hovered timestamp.
 Chart tooltips show the hovered bar timestamp when available; open-position charts also show inferred position open times when available ("opened before" means the position predates the fetched trade window).
 Charts surface range and change badges in the chart headers and group the main backtest view with compact side charts for prediction and telemetry analysis.
 The Backtest summary includes a trade P&L analysis with win/loss breakdown and top winners/losers.
+Backtest trade P&L top winners/losers tables are paginated with a configurable rows-per-page input.
 Binance account trade tables now include origin/close IP columns when ops persistence is enabled (including trades closed via `POST /binance/positions/close`).
 Charts scale to use most of the viewport height for easier inspection.
 Chart panels lift height caps so the full chart area is visible without panel scrollbars.

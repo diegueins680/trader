@@ -346,6 +346,9 @@ const CHART_HEIGHT_TIMELINE = "var(--chart-height-timeline)";
 const BOT_PANEL_DRAG_PADDING = 12;
 const STATE_SYNC_CHUNK_DEFAULT_BYTES = 900_000;
 const STATE_SYNC_CHUNK_MAX_BYTES = 50_000_000;
+const MIN_BACKTEST_PNL_ROWS_PER_PAGE = 1;
+const MAX_BACKTEST_PNL_ROWS_PER_PAGE = 1000;
+const DEFAULT_BACKTEST_PNL_ROWS_PER_PAGE = 50;
 const textEncoder = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
 const textByteLength = (raw: string): number => {
   if (textEncoder) return textEncoder.encode(raw).length;
@@ -363,6 +366,75 @@ type BotChartOverlay = {
   operations: BotOperation[];
   positions: number[];
 };
+
+type TablePagination<T> = {
+  pageRows: T[];
+  pageCount: number;
+  safePage: number;
+  from: number;
+  to: number;
+  totalCount: number;
+};
+
+function clampBacktestPnlRowsPerPage(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_BACKTEST_PNL_ROWS_PER_PAGE;
+  return Math.min(MAX_BACKTEST_PNL_ROWS_PER_PAGE, Math.max(MIN_BACKTEST_PNL_ROWS_PER_PAGE, Math.trunc(value)));
+}
+
+function paginateTableRows<T>(rows: T[], page: number, rowsPerPage: number): TablePagination<T> {
+  const safeRowsPerPage = clampBacktestPnlRowsPerPage(rowsPerPage);
+  const totalCount = rows.length;
+  const pageCount = Math.max(1, Math.ceil(totalCount / safeRowsPerPage));
+  const safePage = Math.min(pageCount, Math.max(1, Math.trunc(page)));
+  const offset = (safePage - 1) * safeRowsPerPage;
+  const pageRows = rows.slice(offset, offset + safeRowsPerPage);
+  return {
+    pageRows,
+    pageCount,
+    safePage,
+    from: totalCount === 0 ? 0 : offset + 1,
+    to: totalCount === 0 ? 0 : offset + pageRows.length,
+    totalCount,
+  };
+}
+
+type BacktestTablePagerProps = {
+  itemLabel: string;
+  pagination: TablePagination<unknown>;
+  onPageChange: (page: number) => void;
+};
+
+function BacktestTablePager({ itemLabel, pagination, onPageChange }: BacktestTablePagerProps) {
+  if (pagination.totalCount === 0) return null;
+  return (
+    <div className="pillRow" style={{ marginTop: 8, marginBottom: 8 }}>
+      <span className="badge">
+        Showing {pagination.from}-{pagination.to} of {pagination.totalCount} {itemLabel}
+      </span>
+      {pagination.pageCount > 1 ? <span className="badge">Page {pagination.safePage} / {pagination.pageCount}</span> : null}
+      {pagination.pageCount > 1 ? (
+        <>
+          <button
+            className="btnSmall"
+            type="button"
+            disabled={pagination.safePage <= 1}
+            onClick={() => onPageChange(Math.max(1, pagination.safePage - 1))}
+          >
+            Prev
+          </button>
+          <button
+            className="btnSmall"
+            type="button"
+            disabled={pagination.safePage >= pagination.pageCount}
+            onClick={() => onPageChange(Math.min(pagination.pageCount, pagination.safePage + 1))}
+          >
+            Next
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+}
 
 function buildFallbackLatestSignal(status: BotStatusRunning): LatestSignal {
   const lastPrice = status.prices[status.prices.length - 1];
@@ -616,7 +688,7 @@ const sanitizeTopCombosPayload = (payload: unknown): SanitizedTopCombosPayload |
   const generatedAtMsRaw = payloadRec.generatedAtMs;
   const generatedAtMs =
     typeof generatedAtMsRaw === "number" && Number.isFinite(generatedAtMsRaw) ? Math.trunc(generatedAtMsRaw) : null;
-  const methods: Method[] = ["11", "10", "01", "blend", "conf_blend", "edge_blend", "geo_blend", "router"];
+  const methods: Method[] = ["11", "10", "01", "blend", "conf_blend", "conf_pick", "edge_blend", "edge_pick", "geo_blend", "router"];
   const normalizations: Normalization[] = ["none", "minmax", "standard", "log"];
   const positionings: Positioning[] = ["long-flat", "long-short"];
   const intrabarFills: IntrabarFill[] = ["stop-first", "take-profit-first"];
@@ -1496,6 +1568,9 @@ export function App() {
   const [binanceTradesFilterSide, setBinanceTradesFilterSide] = useState<OrderSideFilter>("ALL");
   const [binanceTradesFilterStartInput, setBinanceTradesFilterStartInput] = useState("");
   const [binanceTradesFilterEndInput, setBinanceTradesFilterEndInput] = useState("");
+  const [backtestPnlRowsPerPage, setBacktestPnlRowsPerPage] = useState(DEFAULT_BACKTEST_PNL_ROWS_PER_PAGE);
+  const [backtestTopWinsPage, setBacktestTopWinsPage] = useState(1);
+  const [backtestTopLossesPage, setBacktestTopLossesPage] = useState(1);
 
   const [binancePositionsUi, setBinancePositionsUi] = useState<BinancePositionsUiState>({
     loading: false,
@@ -1712,7 +1787,7 @@ export function App() {
     }
     const intervalList = Array.from(intervals).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     const symbolList = Array.from(symbols).sort((a, b) => a.localeCompare(b));
-    const methodOrder: Method[] = ["11", "10", "01", "blend", "conf_blend", "edge_blend", "geo_blend", "router"];
+    const methodOrder: Method[] = ["11", "10", "01", "blend", "conf_blend", "conf_pick", "edge_blend", "edge_pick", "geo_blend", "router"];
     const methodList = methodOrder.filter((method) => methods.has(method));
     const marketOrder: ComboMarketValue[] = [...PLATFORMS, "csv", "unknown"];
     const marketList = marketOrder.filter((market) => markets.has(market));
@@ -7473,9 +7548,17 @@ export function App() {
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "conf_blend";
         break;
+      case "conf_pick":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "conf_pick";
+        break;
       case "edge_blend":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
         edgeSource = "edge_blend";
+        break;
+      case "edge_pick":
+        edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
+        edgeSource = "edge_pick";
         break;
       case "geo_blend":
         edgeForMethod = edgeFromPred(sig.sizingNext ?? null);
@@ -7885,6 +7968,32 @@ export function App() {
     () => (state.backtest ? buildBacktestTradePnlAnalysis(state.backtest) : null),
     [state.backtest],
   );
+  const backtestTopWins = backtestTradeAnalysis?.topWins ?? [];
+  const backtestTopLosses = backtestTradeAnalysis?.topLosses ?? [];
+  const backtestTopWinsPagination = useMemo(
+    () => paginateTableRows(backtestTopWins, backtestTopWinsPage, backtestPnlRowsPerPage),
+    [backtestTopWins, backtestTopWinsPage, backtestPnlRowsPerPage],
+  );
+  const backtestTopLossesPagination = useMemo(
+    () => paginateTableRows(backtestTopLosses, backtestTopLossesPage, backtestPnlRowsPerPage),
+    [backtestTopLosses, backtestTopLossesPage, backtestPnlRowsPerPage],
+  );
+
+  useEffect(() => {
+    if (backtestTopWinsPage === backtestTopWinsPagination.safePage) return;
+    setBacktestTopWinsPage(backtestTopWinsPagination.safePage);
+  }, [backtestTopWinsPage, backtestTopWinsPagination.safePage]);
+
+  useEffect(() => {
+    if (backtestTopLossesPage === backtestTopLossesPagination.safePage) return;
+    setBacktestTopLossesPage(backtestTopLossesPagination.safePage);
+  }, [backtestTopLossesPage, backtestTopLossesPagination.safePage]);
+
+  useEffect(() => {
+    setBacktestTopWinsPage(1);
+    setBacktestTopLossesPage(1);
+  }, [backtestTradeAnalysis]);
+
   const backtestSummary = state.backtest
     ? {
         equity: fmtRatio(state.backtest.metrics.finalEquity, 4),
@@ -10364,60 +10473,90 @@ export function App() {
                                   </div>
                                 </div>
                               </div>
+                              <div className="row rowSingle" style={{ marginTop: 12 }}>
+                                <div className="field" style={{ maxWidth: 170 }}>
+                                  <label className="label" htmlFor="backtestTradePnlRowsPerPage">
+                                    Rows per page
+                                  </label>
+                                  <input
+                                    id="backtestTradePnlRowsPerPage"
+                                    className="input"
+                                    type="number"
+                                    min={MIN_BACKTEST_PNL_ROWS_PER_PAGE}
+                                    max={MAX_BACKTEST_PNL_ROWS_PER_PAGE}
+                                    value={backtestPnlRowsPerPage}
+                                    onChange={(e) => {
+                                      const next = clampBacktestPnlRowsPerPage(
+                                        numFromInput(e.target.value, backtestPnlRowsPerPage),
+                                      );
+                                      setBacktestPnlRowsPerPage(next);
+                                      setBacktestTopWinsPage(1);
+                                      setBacktestTopLossesPage(1);
+                                    }}
+                                  />
+                                </div>
+                              </div>
                               <div className="chartBlock" style={{ marginTop: 12 }}>
                                 <div className="hint">Top winners</div>
                                 {stats.topWins.length > 0 ? (
-                                  <div className="tableWrap" role="region" aria-label="Top winning trades">
-                                    <table className="table">
-                                      <thead>
-                                        <tr>
-                                          <th>#</th>
-                                          <th>Phase</th>
-                                          <th>Entry</th>
-                                          <th>Exit</th>
-                                          <th>Hold</th>
-                                          <th>Return</th>
-                                          <th>P&amp;L</th>
-                                          <th>Exit reason</th>
-                                          <th>Open IP</th>
-                                          <th>Close IP</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {stats.topWins.map((row) => {
-                                          const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
-                                          const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
-                                          const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
-                                          const entryIp = row.entryIp ?? "—";
-                                          const exitIp = row.exitIp ?? "—";
-                                          return (
-                                            <tr key={`bt-win-${row.idx}`}>
-                                              <td className="tdMono">{row.idx}</td>
-                                              <td>
-                                                <span className="badge">{row.phase}</span>
-                                              </td>
-                                              <td className="tdMono" title={entryTitle}>
-                                                {row.entryIndex}
-                                              </td>
-                                              <td className="tdMono" title={exitTitle}>
-                                                {row.exitIndex}
-                                              </td>
-                                              <td className="tdMono">{row.holdingPeriods}</td>
-                                              <td>
-                                                <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
-                                              </td>
-                                              <td>
-                                                <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
-                                              </td>
-                                              <td>{row.exitReason ?? "—"}</td>
-                                              <td className="tdMono">{entryIp}</td>
-                                              <td className="tdMono">{exitIp}</td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
+                                  <>
+                                    <BacktestTablePager
+                                      itemLabel="winning trades"
+                                      pagination={backtestTopWinsPagination}
+                                      onPageChange={(page) => setBacktestTopWinsPage(page)}
+                                    />
+                                    <div className="tableWrap" role="region" aria-label="Top winning trades">
+                                      <table className="table">
+                                        <thead>
+                                          <tr>
+                                            <th>#</th>
+                                            <th>Phase</th>
+                                            <th>Entry</th>
+                                            <th>Exit</th>
+                                            <th>Hold</th>
+                                            <th>Return</th>
+                                            <th>P&amp;L</th>
+                                            <th>Exit reason</th>
+                                            <th>Open IP</th>
+                                            <th>Close IP</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {backtestTopWinsPagination.pageRows.map((row) => {
+                                            const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
+                                            const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
+                                            const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
+                                            const entryIp = row.entryIp ?? "—";
+                                            const exitIp = row.exitIp ?? "—";
+                                            return (
+                                              <tr key={`bt-win-${row.idx}`}>
+                                                <td className="tdMono">{row.idx}</td>
+                                                <td>
+                                                  <span className="badge">{row.phase}</span>
+                                                </td>
+                                                <td className="tdMono" title={entryTitle}>
+                                                  {row.entryIndex}
+                                                </td>
+                                                <td className="tdMono" title={exitTitle}>
+                                                  {row.exitIndex}
+                                                </td>
+                                                <td className="tdMono">{row.holdingPeriods}</td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
+                                                </td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
+                                                </td>
+                                                <td>{row.exitReason ?? "—"}</td>
+                                                <td className="tdMono">{entryIp}</td>
+                                                <td className="tdMono">{exitIp}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </>
                                 ) : (
                                   <div className="hint">No winning trades.</div>
                                 )}
@@ -10425,57 +10564,64 @@ export function App() {
                               <div className="chartBlock" style={{ marginTop: 12 }}>
                                 <div className="hint">Top losers</div>
                                 {stats.topLosses.length > 0 ? (
-                                  <div className="tableWrap" role="region" aria-label="Top losing trades">
-                                    <table className="table">
-                                      <thead>
-                                        <tr>
-                                          <th>#</th>
-                                          <th>Phase</th>
-                                          <th>Entry</th>
-                                          <th>Exit</th>
-                                          <th>Hold</th>
-                                          <th>Return</th>
-                                          <th>P&amp;L</th>
-                                          <th>Exit reason</th>
-                                          <th>Open IP</th>
-                                          <th>Close IP</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {stats.topLosses.map((row) => {
-                                          const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
-                                          const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
-                                          const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
-                                          const entryIp = row.entryIp ?? "—";
-                                          const exitIp = row.exitIp ?? "—";
-                                          return (
-                                            <tr key={`bt-loss-${row.idx}`}>
-                                              <td className="tdMono">{row.idx}</td>
-                                              <td>
-                                                <span className="badge">{row.phase}</span>
-                                              </td>
-                                              <td className="tdMono" title={entryTitle}>
-                                                {row.entryIndex}
-                                              </td>
-                                              <td className="tdMono" title={exitTitle}>
-                                                {row.exitIndex}
-                                              </td>
-                                              <td className="tdMono">{row.holdingPeriods}</td>
-                                              <td>
-                                                <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
-                                              </td>
-                                              <td>
-                                                <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
-                                              </td>
-                                              <td>{row.exitReason ?? "—"}</td>
-                                              <td className="tdMono">{entryIp}</td>
-                                              <td className="tdMono">{exitIp}</td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                  </div>
+                                  <>
+                                    <BacktestTablePager
+                                      itemLabel="losing trades"
+                                      pagination={backtestTopLossesPagination}
+                                      onPageChange={(page) => setBacktestTopLossesPage(page)}
+                                    />
+                                    <div className="tableWrap" role="region" aria-label="Top losing trades">
+                                      <table className="table">
+                                        <thead>
+                                          <tr>
+                                            <th>#</th>
+                                            <th>Phase</th>
+                                            <th>Entry</th>
+                                            <th>Exit</th>
+                                            <th>Hold</th>
+                                            <th>Return</th>
+                                            <th>P&amp;L</th>
+                                            <th>Exit reason</th>
+                                            <th>Open IP</th>
+                                            <th>Close IP</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {backtestTopLossesPagination.pageRows.map((row) => {
+                                            const entryTitle = row.entryTime != null ? fmtTimeMs(row.entryTime) : undefined;
+                                            const exitTitle = row.exitTime != null ? fmtTimeMs(row.exitTime) : undefined;
+                                            const pnlTxt = Number.isFinite(row.pnl) ? fmtNum(row.pnl, 4) : "—";
+                                            const entryIp = row.entryIp ?? "—";
+                                            const exitIp = row.exitIp ?? "—";
+                                            return (
+                                              <tr key={`bt-loss-${row.idx}`}>
+                                                <td className="tdMono">{row.idx}</td>
+                                                <td>
+                                                  <span className="badge">{row.phase}</span>
+                                                </td>
+                                                <td className="tdMono" title={entryTitle}>
+                                                  {row.entryIndex}
+                                                </td>
+                                                <td className="tdMono" title={exitTitle}>
+                                                  {row.exitIndex}
+                                                </td>
+                                                <td className="tdMono">{row.holdingPeriods}</td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.return)}>{fmtPct(row.return, 2)}</span>
+                                                </td>
+                                                <td>
+                                                  <span className={pnlBadgeClass(row.pnl)}>{pnlTxt}</span>
+                                                </td>
+                                                <td>{row.exitReason ?? "—"}</td>
+                                                <td className="tdMono">{entryIp}</td>
+                                                <td className="tdMono">{exitIp}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </>
                                 ) : (
                                   <div className="hint">No losing trades.</div>
                                 )}
