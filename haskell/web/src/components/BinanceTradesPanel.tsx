@@ -124,9 +124,9 @@ export function BinanceTradesPanel({
       const timeMs = trade.time ?? null;
       const timeIso = Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : "";
       const entryTimeMs = trade.entryTime ?? null;
-      const entryTimeIso = Number.isFinite(entryTimeMs) ? new Date(entryTimeMs).toISOString() : "";
+      const entryTimeIso = typeof entryTimeMs === "number" && Number.isFinite(entryTimeMs) ? new Date(entryTimeMs).toISOString() : "";
       const exitTimeMs = trade.exitTime ?? null;
-      const exitTimeIso = Number.isFinite(exitTimeMs) ? new Date(exitTimeMs).toISOString() : "";
+      const exitTimeIso = typeof exitTimeMs === "number" && Number.isFinite(exitTimeMs) ? new Date(exitTimeMs).toISOString() : "";
       const side = binanceTradeSideLabel(trade);
       return [
         timeMs ?? "",

@@ -154,6 +154,7 @@ export type LatestSignal = {
   positionSize?: number | null;
   kalmanDirection: DirectionLabel;
   lstmNext: number | null;
+  sizingNext?: number | null;
   lstmDirection: DirectionLabel;
   chosenDirection: DirectionLabel;
   closeDirection?: DirectionLabel;
