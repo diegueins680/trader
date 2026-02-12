@@ -232,7 +232,7 @@ export function numFromInput(raw: string, fallback: number): number {
   const normalized = (() => {
     if (!trimmed.includes(",")) return trimmed;
     if (trimmed.includes(".")) return trimmed.replace(/,/g, "");
-    // Treat clear thousands grouping only when there are at least two comma groups.
+    // Treat clear thousands grouping when comma placement is unambiguous.
     if (/^[-+]?\d{1,3}(,\d{3}){2,}$/.test(trimmed)) return trimmed.replace(/,/g, "");
     const parts = trimmed.split(",");
     if (parts.length === 2) {
@@ -241,9 +241,7 @@ export function numFromInput(raw: string, fallback: number): number {
       const leftDigits = left.replace(/\D/g, "");
       const rightDigits = right.replace(/\D/g, "");
       if (leftDigits === "0") return `${left}.${right}`;
-      // Single-comma values like "1,234" are ambiguous across locales.
-      // Keep raw input so Number(...) fails and the caller's fallback is used.
-      if (rightDigits.length === 3 && leftDigits.length > 0) return trimmed;
+      if (/^[-+]?\d{1,3}$/.test(left) && /^\d{3}$/.test(right)) return `${left}${right}`;
       return `${left}.${right}`;
     }
     return trimmed.replace(/,/g, "");
