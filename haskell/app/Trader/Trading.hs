@@ -1569,7 +1569,7 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     let slack = 0.05
                                                         start = min 1 (v + slack)
                                                         denom = max 1e-12 (start - v)
-                                                        raw = (start - perfWinRateAll) / denom
+                                                        raw = (start - perfWinRateGate) / denom
                                                      in clamp01 raw
                                                 _ -> 0
                                         pfScore =
@@ -1578,14 +1578,14 @@ simulateEnsembleLongFlatVWithHLChecked cfg lookback pricesV highsV lowsV kalPred
                                                     let start = v * 1.10
                                                         denom = max 1e-12 (start - v)
                                                         pfVal =
-                                                            case perfProfitFactorAll of
+                                                            case perfProfitFactorGate of
                                                                 Nothing -> start
                                                                 Just pf -> pf
                                                         raw = (start - pfVal) / denom
                                                      in clamp01 raw
                                                 _ -> 0
                                         strictness =
-                                            if adaptiveFilters && perfReadyAll
+                                            if adaptiveFilters && perfReadyGate
                                                 then max winScore pfScore
                                                 else 0
                                         edgeAdd = strictness * adaptiveEdgeBufferMax

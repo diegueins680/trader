@@ -8886,8 +8886,10 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
             case mNewTrade of
                 Nothing -> (botPerfStats st, botAdjustments st, botLossStreak st, False)
                 Just tr ->
-                    let perfStatsNew = computeBotPerfStats (argPerfLookback args) trades'
-                        adjustmentsNew = computeAdaptiveAdjustments args perfStatsNew
+                    let perfStatsNewAll = computeBotPerfStats (argPerfLookback args) trades'
+                        (perfStatsNewForAdaptive, _mode) =
+                            selectPerfStatsForPerfGate args latest perfStatsNewAll trades'
+                        adjustmentsNew = computeAdaptiveAdjustments args perfStatsNewForAdaptive
                         r = trReturn tr
                         lossStreakNew =
                             if isNaN r || isInfinite r || r <= 0
@@ -8897,7 +8899,7 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             case argLossStreakMax args of
                                 v | v > 0 -> lossStreakNew >= v
                                 _ -> False
-                     in (perfStatsNew, adjustmentsNew, lossStreakNew, triggered)
+                     in (perfStatsNewAll, adjustmentsNew, lossStreakNew, triggered)
         cooldownDec =
             if prevPos == 0
                 then max 0 (cooldownLeft0 - 1)

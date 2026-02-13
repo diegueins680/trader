@@ -291,7 +291,7 @@ You must provide exactly one data source: `--data` (CSV) or `--symbol`/`--binanc
   - `--perf-min-win-rate F` minimum rolling win rate for entry gating (`0` disables)
   - `--perf-min-profit-factor F` minimum rolling profit factor for entry gating (`0` disables)
     - When a performance gate blocks a direction flip (long->short or short->long), the strategy exits to flat instead of holding the prior side.
-    - When HMM regimes are available, performance gates prefer a same-regime lookback (high-vol vs not) when there are enough recent trades tagged with entry high-vol probability; otherwise they fall back to the global lookback.
+    - When HMM regimes are available, performance gates and adaptive tightening prefer a same-regime lookback (high-vol vs not) when there are enough recent trades tagged with entry high-vol probability; otherwise they fall back to the global lookback.
   - `--loss-streak-max N` trigger a cooldown after `N` consecutive losing trades (`0` disables)
   - `--loss-streak-cooldown-bars N` cooldown bars applied after the loss streak threshold (`0` disables)
   - `--adaptive-filters` tighten entry filters when rolling performance slips (default off; disable with `--no-adaptive-filters`)

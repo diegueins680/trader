@@ -15,7 +15,7 @@ All notable changes to this project will be documented in this file.
 - Trading: fix `--method blend` so entry direction uses the same Kalman confidence/risk gating path as close direction.
 - Trading: weekly loss gating now uses UTC calendar weeks (Monday 00:00 boundaries) instead of epoch-aligned 7-day buckets.
 - Trading: adaptive filter tightening now ramps in slightly above the hard performance thresholds; perf-gated direction flips exit to flat instead of holding the prior side.
-- Trading: performance gates now prefer a same-regime (high-vol vs not) rolling lookback when HMM regimes are available (fallback to global), and trades include `entryHighVolProb` in JSON outputs for analysis.
+- Trading: performance gates and adaptive filters now prefer a same-regime (high-vol vs not) rolling lookback when HMM regimes are available (fallback to global), and trades include `entryHighVolProb` in JSON outputs for analysis.
 - Web UI: normalize bare `localhost/path` API base inputs to `http://localhost/path`, treat `0.0.0.0` as local, and avoid silently coercing ambiguous single-comma numeric inputs (for example `1,234`) by falling back to the previous value.
 - Web UI: default Binance trade toggles (`binanceLive`, `tradeArmed`) to false and normalize them by platform/market (avoid implicitly enabling live mode).
 - CLI/docs: clarify `--bars auto` exchange defaults (Coinbase uses 300; Binance/Kraken/Poloniex use 500).
@@ -218,7 +218,6 @@ All notable changes to this project will be documented in this file.
 - API: `/binance/keys` signed futures probe no longer requires `binanceSymbol` (trade test skips when missing).
 - CSV: sort rows by parsed timestamps only; unparseable timestamps preserve file order.
 - CSV/LSTM: surface CSV column/time parse failures and insufficient LSTM bars as user errors instead of generic crashes.
-- Trading: default `binanceLive` to on for CLI/API, add `--no-binance-live` to force test orders.
 - Trading: `--max-daily-loss` validation now errors when provided timestamps do not match the closes length.
 - Trading: `--no-trade-window`/UTC day-week limits now require bar timestamps (interval-only fallback removed) to avoid misaligned boundaries.
 - Metrics: clamp invalid/negative equity values when computing returns and keep stress scoring anchored to the starting equity.
@@ -232,7 +231,6 @@ All notable changes to this project will be documented in this file.
 - Docs: document `--walk-forward-embargo-bars` and `--rebalance-cost-mult` options.
 - Trading: allow partial take-profit scaling for live bots via `--take-profit-partial`.
 - Live bot: emit `bot.adjust` events after each completed trade with rolling performance and effective filter adjustments.
-- Web UI: default Live orders + Trading armed toggles to on.
 - Web UI: listenKey user-data stream now subscribes to the backend relay instead of opening a browser WebSocket.
 - Web UI: auto-check API keys on load and auto-start the Binance listenKey stream when keys are available.
 - Web UI: pause top-combo auto-start and Binance positions auto-refresh until Binance keys are present/verified, with clearer key-required errors for Binance account endpoints.
