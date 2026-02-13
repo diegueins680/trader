@@ -65,6 +65,7 @@ All notable changes to this project will be documented in this file.
 - API/UI: include exchangeInfo error details when Binance key-check trade tests are skipped.
 - Binance: skip key-check trade tests and order placement when exchangeInfo filters are unavailable to avoid precision errors.
 - Ops/API: add tenant-scoped ops persistence and rollups; `TRADER_MULTI_USER` enforces tenantKey for `/ops` + `/ops/performance`.
+- Ops/API: persist position origins (side + combo UUID) in ops DB so adopted bots can reuse the combo that opened the position when possible.
 - Deploy: `deploy-aws-quick.sh` runs ops schema updates + performance rollups when `TRADER_DB_URL` is set (requires `psql`; disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`).
 - Deploy: `deploy-aws-quick.sh` snapshots `/state/sync` before App Runner updates (when a tenant key is available) and restores it after to preserve optimizer combos across deploys.
 - Optimizer: ensure at least the top 100 combos are restored from DB/S3 after deploys (configurable via `TRADER_TOP_COMBOS_MIN_PERSIST`).

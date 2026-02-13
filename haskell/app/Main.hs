@@ -3011,6 +3011,22 @@ ensureOpsDbSchema conn = do
     _ <-
         execute_
             conn
+            ( "CREATE TABLE IF NOT EXISTS position_origins ("
+                <> "tenant_key TEXT NOT NULL,"
+                <> "platform_id INTEGER NOT NULL REFERENCES platforms(id) ON DELETE CASCADE,"
+                <> "symbol TEXT NOT NULL,"
+                <> "market TEXT NOT NULL,"
+                <> "side TEXT NOT NULL,"
+                <> "combo_uuid UUID,"
+                <> "opened_at_ms BIGINT,"
+                <> "order_id TEXT,"
+                <> "updated_at_ms BIGINT,"
+                <> "PRIMARY KEY (tenant_key, platform_id, symbol, market)"
+                <> ")"
+            )
+    _ <-
+        execute_
+            conn
             ( "CREATE TABLE IF NOT EXISTS strategies ("
                 <> "id SERIAL PRIMARY KEY,"
                 <> "code TEXT UNIQUE NOT NULL,"
@@ -3095,6 +3111,9 @@ ensureOpsDbSchema conn = do
     _ <- execute_ conn "CREATE UNIQUE INDEX IF NOT EXISTS positions_bot_id_uniq ON positions(bot_id) WHERE bot_id IS NOT NULL"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS positions_platform_symbol_idx ON positions(platform_id, symbol)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS positions_market_idx ON positions(market)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS position_origins_combo_uuid_idx ON position_origins(combo_uuid)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS position_origins_symbol_idx ON position_origins(symbol)"
+    _ <- execute_ conn "CREATE INDEX IF NOT EXISTS position_origins_updated_at_ms_idx ON position_origins(updated_at_ms)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_symbol_idx ON combos(symbol)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_interval_idx ON combos(interval)"
     _ <- execute_ conn "CREATE INDEX IF NOT EXISTS combos_strategy_idx ON combos(strategy_id)"
@@ -4000,6 +4019,172 @@ persistBinancePositions store market positions =
                             , now
                             )
                     pure ()
+
+
+data ComboParamsRow = ComboParamsRow
+    { cprFinalEquity :: !(Maybe Double)
+    , cprObjective :: !(Maybe Text)
+    , cprScore :: !(Maybe Double)
+    , cprOpenThreshold :: !(Maybe Double)
+    , cprCloseThreshold :: !(Maybe Double)
+    , cprParams :: !(Maybe Text)
+    , cprMetrics :: !(Maybe Text)
+    }
+    deriving (Eq, Show)
+
+instance FromRow ComboParamsRow where
+    fromRow =
+        ComboParamsRow
+            <$> field
+            <*> field
+            <*> field
+            <*> field
+            <*> field
+            <*> field
+            <*> field
+
+comboParamsRowToTopCombo :: UUID.UUID -> ComboParamsRow -> Maybe TopCombo
+comboParamsRowToTopCombo uuid row = do
+    paramsVal <- decodeJsonTextMaybe (cprParams row)
+    paramsObj <- case paramsVal of
+        Aeson.Object o -> Just o
+        _ -> Nothing
+    let metricsObj =
+            case decodeJsonTextMaybe (cprMetrics row) of
+                Just (Aeson.Object o) -> Just o
+                _ -> Nothing
+    pure
+        TopCombo
+            { tcRank = Nothing
+            , tcFinalEquity = cprFinalEquity row
+            , tcObjectiveLabel = T.unpack <$> cprObjective row
+            , tcScore = cprScore row
+            , tcOpenThreshold = cprOpenThreshold row
+            , tcCloseThreshold = cprCloseThreshold row
+            , tcUuid = Just (uuidToText uuid)
+            , tcParams = paramsObj
+            , tcMetrics = metricsObj
+            }
+
+readTopComboByUuidFromDb :: OpsStore -> UUID.UUID -> IO (Maybe TopCombo)
+readTopComboByUuidFromDb store comboUuid =
+    withMVar (osLock store) $ \_ -> do
+        rows <-
+            query
+                (osConn store)
+                "SELECT final_equity, objective, score, open_threshold, close_threshold, params_json::text, metrics_json::text FROM combos WHERE combo_uuid = ?"
+                (Only comboUuid) ::
+                IO [ComboParamsRow]
+        pure (listToMaybe (mapMaybe (comboParamsRowToTopCombo comboUuid) rows))
+
+data PositionOrigin = PositionOrigin
+    { poriSide :: !Text
+    , poriComboUuid :: !(Maybe UUID.UUID)
+    , poriOpenedAtMs :: !(Maybe Int64)
+    , poriOrderId :: !(Maybe Text)
+    }
+    deriving (Eq, Show)
+
+instance FromRow PositionOrigin where
+    fromRow =
+        PositionOrigin
+            <$> field
+            <*> field
+            <*> field
+            <*> field
+
+positionOriginSideFromSign :: Int -> Maybe Text
+positionOriginSideFromSign pos
+    | pos > 0 = Just "long"
+    | pos < 0 = Just "short"
+    | otherwise = Nothing
+
+readPositionOrigin :: OpsStore -> TenantKey -> Args -> String -> IO (Maybe PositionOrigin)
+readPositionOrigin store tenantKey args sym = do
+    let platformCodeText = normalizePlatformText (T.pack (platformCode (argPlatform args)))
+        marketText = normalizeMarketText (T.pack (marketCode (argBinanceMarket args)))
+        symbolRaw = T.pack sym
+        symbolText = fromMaybe symbolRaw (sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw)
+    withMVar (osLock store) $ \_ -> do
+        let conn = osConn store
+        mPlatformId <- resolvePlatformId store conn platformCodeText
+        case mPlatformId of
+            Nothing -> pure Nothing
+            Just platformId -> do
+                rows <-
+                    query
+                        conn
+                        "SELECT side, combo_uuid, opened_at_ms, order_id FROM position_origins WHERE tenant_key = ? AND platform_id = ? AND symbol = ? AND market = ?"
+                        (tenantKey, platformId, symbolText, marketText) ::
+                        IO [PositionOrigin]
+                pure (listToMaybe rows)
+
+deletePositionOrigin :: OpsStore -> TenantKey -> Args -> String -> IO ()
+deletePositionOrigin store tenantKey args sym = do
+    let platformCodeText = normalizePlatformText (T.pack (platformCode (argPlatform args)))
+        marketText = normalizeMarketText (T.pack (marketCode (argBinanceMarket args)))
+        symbolRaw = T.pack sym
+        symbolText = fromMaybe symbolRaw (sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw)
+    withMVar (osLock store) $ \_ -> do
+        let conn = osConn store
+        mPlatformId <- resolvePlatformId store conn platformCodeText
+        case mPlatformId of
+            Nothing -> pure ()
+            Just platformId -> do
+                void $
+                    execute
+                        conn
+                        "DELETE FROM position_origins WHERE tenant_key = ? AND platform_id = ? AND symbol = ? AND market = ?"
+                        (tenantKey, platformId, symbolText, marketText)
+
+persistPositionOriginMaybe ::
+    Maybe OpsStore ->
+    TenantKey ->
+    Args ->
+    String ->
+    Int ->
+    Maybe Text ->
+    Maybe Text ->
+    Int64 ->
+    IO ()
+persistPositionOriginMaybe mOps tenantKey args sym posSign mComboUuid mOrderId atMs =
+    case mOps of
+        Nothing -> pure ()
+        Just store -> do
+            let platformCodeText = normalizePlatformText (T.pack (platformCode (argPlatform args)))
+                marketText = normalizeMarketText (T.pack (marketCode (argBinanceMarket args)))
+                symbolRaw = T.pack sym
+                symbolText = fromMaybe symbolRaw (sanitizeSymbolForPlatformText (Just platformCodeText) symbolRaw)
+                mSide = positionOriginSideFromSign posSign
+                mComboUuid' = mComboUuid >>= uuidFromText
+                mOrderId' = normalizeMaybeText mOrderId
+            withMVar (osLock store) $ \_ -> do
+                let conn = osConn store
+                mPlatformId <- resolvePlatformId store conn platformCodeText
+                case mPlatformId of
+                    Nothing -> pure ()
+                    Just platformId ->
+                        case mSide of
+                            Nothing -> do
+                                void $
+                                    execute
+                                        conn
+                                        "DELETE FROM position_origins WHERE tenant_key = ? AND platform_id = ? AND symbol = ? AND market = ?"
+                                        (tenantKey, platformId, symbolText, marketText)
+                            Just side -> do
+                                void $
+                                    execute
+                                        conn
+                                        ( "INSERT INTO position_origins (tenant_key, platform_id, symbol, market, side, combo_uuid, opened_at_ms, order_id, updated_at_ms) "
+                                            <> "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                                            <> "ON CONFLICT (tenant_key, platform_id, symbol, market) DO UPDATE "
+                                            <> "SET side = EXCLUDED.side, "
+                                            <> "combo_uuid = EXCLUDED.combo_uuid, "
+                                            <> "opened_at_ms = EXCLUDED.opened_at_ms, "
+                                            <> "order_id = EXCLUDED.order_id, "
+                                            <> "updated_at_ms = EXCLUDED.updated_at_ms"
+                                        )
+                                        (tenantKey, platformId, symbolText, marketText, side, mComboUuid', atMs, mOrderId', atMs)
 
 -- Live bot (stateful; continuous loop)
 
@@ -5488,6 +5673,71 @@ applyLatestTopCombo mOps topCombosStore limits sym args req = do
             case selectCompatibleTopComboArgs limits sym baseArgs req export of
                 Nothing -> pure (baseArgs, Nothing)
                 Just (args', mUuid) -> pure (args', mUuid)
+
+applyOriginComboForAdoptionMaybe ::
+    Maybe OpsStore ->
+    TopCombosStore ->
+    ApiComputeLimits ->
+    TenantKey ->
+    Args ->
+    AdoptRequirement ->
+    String ->
+    IO (Args, Maybe Text)
+applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey args req sym = do
+    let baseArgs = applyAdoptRequirementArgs args req
+    case mOps of
+        Nothing -> pure (baseArgs, Nothing)
+        Just store -> do
+            origin <- readPositionOrigin store tenantKey baseArgs sym
+            case origin of
+                Nothing -> pure (baseArgs, Nothing)
+                Just o ->
+                    case poriComboUuid o of
+                        Nothing -> pure (baseArgs, Nothing)
+                        Just comboUuid -> do
+                            posOrErr <-
+                                ( try $ do
+                                    env <- makeBinanceEnv mOps baseArgs
+                                    ensureBinanceKeysPresent env
+                                    fetchAdoptableAccountPos baseArgs env sym
+                                ) ::
+                                IO (Either SomeException Int)
+                            case posOrErr of
+                                Left _ -> pure (baseArgs, Nothing)
+                                Right posSign -> do
+                                    let sideOk =
+                                            (posSign > 0 && poriSide o == "long")
+                                                || (posSign < 0 && poriSide o == "short")
+                                    if posSign == 0
+                                        then pure (baseArgs, Nothing)
+                                        else
+                                            if not sideOk
+                                                then do
+                                                    deletePositionOrigin store tenantKey baseArgs sym
+                                                    pure (baseArgs, Nothing)
+                                                else do
+                                                    mComboDb <- readTopComboByUuidFromDb store comboUuid
+                                                    mCombo <-
+                                                        case mComboDb of
+                                                            Just c -> pure (Just c)
+                                                            Nothing -> do
+                                                                combosOrErr <- readTopCombosExportWithDbFallback mOps topCombosStore
+                                                                pure $
+                                                                    case combosOrErr of
+                                                                        Left _ -> Nothing
+                                                                        Right export ->
+                                                                            find
+                                                                                (\c -> uuidFromText (topComboUuid c) == Just comboUuid)
+                                                                                (tceCombos export)
+                                                    case mCombo of
+                                                        Nothing -> pure (baseArgs, Nothing)
+                                                        Just combo ->
+                                                            case applyTopComboForStartWithUuid baseArgs combo of
+                                                                Left _ -> pure (baseArgs, Nothing)
+                                                                Right (argsApplied0, mUuid) ->
+                                                                    case validateApiComputeLimits limits argsApplied0 of
+                                                                        Left _ -> pure (baseArgs, Nothing)
+                                                                        Right argsApplied -> pure (argsApplied, mUuid)
 
 topComboSymbol :: TopCombo -> Maybe String
 topComboSymbol combo =
@@ -8823,6 +9073,16 @@ botApplyKline mOps metrics mJournal mWebhook topCombosCtx ctrl st k = do
                             (botComboUuid st)
                             (Just (T.pack (botSymbol st)))
                             (orderIdFromOrderResult o)
+                        when switchedApplied1 $
+                            persistPositionOriginMaybe
+                                mOps
+                                (botTenantKey st)
+                                args
+                                (botSymbol st)
+                                posNew
+                                (botComboUuid st)
+                                (orderIdFromOrderResult o)
+                                now
                         webhookNotifyMaybe mWebhook (webhookEventBotOrder args (botSymbol st) opSide priceNew o)
 
                         pure (opsNew, ordersNew, tradesNew, openTradeNew, Just o, posNew, eqAfterFee, switchedApplied1, errors1, haltReason3, haltedAt3)
@@ -14486,7 +14746,7 @@ handleBotStart reqLimits mOps limits topCombosCtx metrics mJournal mWebhook mBot
                                                         Right adoptReq -> do
                                                             (argsCombo, mComboUuid) <-
                                                                 if arActive adoptReq
-                                                                    then pure (argsSym, Nothing)
+                                                                    then applyOriginComboForAdoptionMaybe mOps topCombosStore limits tenantKey argsSym adoptReq sym
                                                                     else applyLatestTopCombo mOps topCombosStore limits sym argsSym adoptReq
                                                             case validateApiComputeLimits limits argsCombo of
                                                                 Left err -> pure (sym, Left err)
