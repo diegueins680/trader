@@ -416,6 +416,8 @@ export function methodLabel(method: Method): string {
       return "Conf blend (confidence-weighted)";
     case "conf_pick":
       return "Conf pick (confidence winner)";
+    case "conformal_clip":
+      return "Conformal clip (clips blended return to conformal/quantile band)";
     case "cost_pick":
       return "Cost pick (net-edge winner)";
     case "harmonic_blend":
@@ -448,6 +450,8 @@ export function methodLabel(method: Method): string {
       return "Softmax blend (softmax edge weights)";
     case "smooth_softmax_blend":
       return "Smooth softmax blend (EMA-smooth softmax weights)";
+    case "hedge_blend":
+      return "Hedge blend (online exp-weights mix)";
     case "net_softmax_blend":
       return "Net softmax blend (post-cost softmax edge weights)";
     case "edge_blend":

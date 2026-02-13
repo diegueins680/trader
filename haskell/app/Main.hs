@@ -888,7 +888,7 @@ data ApiParams = ApiParams
     , apThreshold :: Maybe Double
     , apOpenThreshold :: Maybe Double
     , apCloseThreshold :: Maybe Double
-    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "cost_pick" | "harmonic_blend" | "disagreement_guard" | "median_blend" | "neutral_guard" | "risk_parity_blend" | "consensus_boost" | "anchor_blend" | "tension_gate" | "entropy_blend" | "coherence_gate" | "fractal_blend" | "phase_cancel" | "softmax_blend" | "net_softmax_blend" | "edge_blend" | "edge_pick" | "geo_blend" | "regime_switch" | "router" | "bandit_router"
+    , apMethod :: Maybe String -- "11" | "10" | "01" | "blend" | "conf_blend" | "conf_pick" | "conformal_clip" | "cost_pick" | "harmonic_blend" | "disagreement_guard" | "median_blend" | "neutral_guard" | "risk_parity_blend" | "consensus_boost" | "anchor_blend" | "tension_gate" | "entropy_blend" | "coherence_gate" | "divergence_gate" | "fractal_blend" | "phase_cancel" | "softmax_blend" | "smooth_softmax_blend" | "hedge_blend" | "net_softmax_blend" | "edge_blend" | "edge_pick" | "geo_blend" | "regime_switch" | "router" | "bandit_router"
     , apPositioning :: Maybe String -- "long-flat" | "long-short"
     , apOptimizeOperations :: Maybe Bool
     , apSweepThreshold :: Maybe Bool
@@ -1248,6 +1248,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrMethodWeightBlend :: !(Maybe Double)
     , arrMethodWeightConfBlend :: !(Maybe Double)
     , arrMethodWeightConfPick :: !(Maybe Double)
+    , arrMethodWeightConformalClip :: !(Maybe Double)
     , arrMethodWeightCostPick :: !(Maybe Double)
     , arrMethodWeightHarmonicBlend :: !(Maybe Double)
     , arrMethodWeightDisagreementGuard :: !(Maybe Double)
@@ -1264,6 +1265,7 @@ data ApiOptimizerRunRequest = ApiOptimizerRunRequest
     , arrMethodWeightPhaseCancel :: !(Maybe Double)
     , arrMethodWeightSoftmaxBlend :: !(Maybe Double)
     , arrMethodWeightSmoothSoftmaxBlend :: !(Maybe Double)
+    , arrMethodWeightHedgeBlend :: !(Maybe Double)
     , arrMethodWeightNetSoftmaxBlend :: !(Maybe Double)
     , arrMethodWeightEdgeBlend :: !(Maybe Double)
     , arrMethodWeightEdgePick :: !(Maybe Double)
@@ -3112,6 +3114,7 @@ seedStrategies conn = do
             , ("blend", "Blend")
             , ("conf_blend", "Confidence Blend")
             , ("conf_pick", "Confidence Pick")
+            , ("conformal_clip", "Conformal Clip")
             , ("cost_pick", "Cost Pick")
             , ("harmonic_blend", "Harmonic Blend")
             , ("disagreement_guard", "Disagreement Guard")
@@ -3127,6 +3130,7 @@ seedStrategies conn = do
             , ("phase_cancel", "Phase Cancel")
             , ("softmax_blend", "Softmax Blend")
             , ("smooth_softmax_blend", "Smooth Softmax Blend")
+            , ("hedge_blend", "Hedge Blend")
             , ("net_softmax_blend", "Net Softmax Blend")
             , ("edge_blend", "Edge Blend")
             , ("edge_pick", "Edge Pick")
@@ -6095,6 +6099,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                 else case method of
                     MethodConfBlend -> MethodBoth
                     MethodConfPick -> MethodBoth
+                    MethodConformalClip -> MethodBoth
                     MethodCostPick -> MethodBoth
                     MethodHarmonicBlend -> MethodBoth
                     MethodDisagreementGuard -> MethodBoth
@@ -6111,6 +6116,7 @@ initBotState mOps tenantKey args settings mComboUuid originIp sym = do
                     MethodPhaseCancel -> MethodBoth
                     MethodSoftmaxBlend -> MethodBoth
                     MethodSmoothSoftmaxBlend -> MethodBoth
+                    MethodHedgeBlend -> MethodBoth
                     MethodNetSoftmaxBlend -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
@@ -6749,6 +6755,7 @@ botApplyOptimizerUpdate st upd = do
                 MethodBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodConfBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodConfPick -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodConformalClip -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodCostPick -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodHarmonicBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodDisagreementGuard -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -6765,6 +6772,7 @@ botApplyOptimizerUpdate st upd = do
                 MethodPhaseCancel -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodSoftmaxBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodSmoothSoftmaxBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
+                MethodHedgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodNetSoftmaxBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgeBlend -> isJust mLstmCtx' && isJust mKalmanCtx'
                 MethodEdgePick -> isJust mLstmCtx' && isJust mKalmanCtx'
@@ -11372,6 +11380,8 @@ prepareOptimizerArgs outputPath req = do
                     maybeDoubleArg "--method-weight-conf-blend" (fmap (max 0) (arrMethodWeightConfBlend req))
                 methodWeightConfPickArgs =
                     maybeDoubleArg "--method-weight-conf-pick" (fmap (max 0) (arrMethodWeightConfPick req))
+                methodWeightConformalClipArgs =
+                    maybeDoubleArg "--method-weight-conformal-clip" (fmap (max 0) (arrMethodWeightConformalClip req))
                 methodWeightCostPickArgs =
                     maybeDoubleArg "--method-weight-cost-pick" (fmap (max 0) (arrMethodWeightCostPick req))
                 methodWeightHarmonicBlendArgs =
@@ -11404,6 +11414,8 @@ prepareOptimizerArgs outputPath req = do
                     maybeDoubleArg "--method-weight-softmax-blend" (fmap (max 0) (arrMethodWeightSoftmaxBlend req))
                 methodWeightSmoothSoftmaxBlendArgs =
                     maybeDoubleArg "--method-weight-smooth-softmax-blend" (fmap (max 0) (arrMethodWeightSmoothSoftmaxBlend req))
+                methodWeightHedgeBlendArgs =
+                    maybeDoubleArg "--method-weight-hedge-blend" (fmap (max 0) (arrMethodWeightHedgeBlend req))
                 methodWeightNetSoftmaxBlendArgs =
                     maybeDoubleArg "--method-weight-net-softmax-blend" (fmap (max 0) (arrMethodWeightNetSoftmaxBlend req))
                 methodWeightEdgeBlendArgs =
@@ -11542,6 +11554,7 @@ prepareOptimizerArgs outputPath req = do
                         ++ methodWeightBlendArgs
                         ++ methodWeightConfBlendArgs
                         ++ methodWeightConfPickArgs
+                        ++ methodWeightConformalClipArgs
                         ++ methodWeightCostPickArgs
                         ++ methodWeightHarmonicBlendArgs
                         ++ methodWeightDisagreementGuardArgs
@@ -11558,6 +11571,7 @@ prepareOptimizerArgs outputPath req = do
                         ++ methodWeightPhaseCancelArgs
                         ++ methodWeightSoftmaxBlendArgs
                         ++ methodWeightSmoothSoftmaxBlendArgs
+                        ++ methodWeightHedgeBlendArgs
                         ++ methodWeightNetSoftmaxBlendArgs
                         ++ methodWeightEdgeBlendArgs
                         ++ methodWeightEdgePickArgs
@@ -15060,6 +15074,7 @@ placeDexOrderForSignal args sig = do
                 MethodBlend -> "No order: Blend neutral (within threshold)."
                 MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
                 MethodConfPick -> "No order: Conf pick neutral (within threshold)."
+                MethodConformalClip -> "No order: Conformal clip neutral (within threshold)."
                 MethodCostPick -> "No order: Cost pick neutral (within threshold)."
                 MethodHarmonicBlend -> "No order: Harmonic blend neutral (within threshold)."
                 MethodDisagreementGuard -> "No order: Disagreement guard neutral (within threshold)."
@@ -15076,6 +15091,7 @@ placeDexOrderForSignal args sig = do
                 MethodPhaseCancel -> "No order: Phase cancel neutral (within threshold)."
                 MethodSoftmaxBlend -> "No order: Softmax blend neutral (within threshold)."
                 MethodSmoothSoftmaxBlend -> "No order: Smooth softmax blend neutral (within threshold)."
+                MethodHedgeBlend -> "No order: Hedge blend neutral (within threshold)."
                 MethodNetSoftmaxBlend -> "No order: Net softmax blend neutral (within threshold)."
                 MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
                 MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
@@ -17140,6 +17156,134 @@ regimeSwitchPredictionsV fallbackWeight highVolCutoff kalZCutoff kalPredV lstmPr
              in regimeSwitchPredFromPreds fallbackWeight highVolCutoff kalZCutoff kalPred lstmPred (metaAt t)
      in V.generate (max 0 stepCount) pick
 
+conformalClipBoundsFromMeta :: StepMeta -> Maybe (Double, Double)
+conformalClipBoundsFromMeta m =
+    let bad x = isNaN x || isInfinite x
+     in case (smConformalLo m, smConformalHi m) of
+            (Just lo, Just hi) | not (bad lo || bad hi) -> Just (lo, hi)
+            _ ->
+                case (smQuantile10 m, smQuantile90 m) of
+                    (Just lo, Just hi) | not (bad lo || bad hi) -> Just (lo, hi)
+                    _ -> Nothing
+
+conformalClipPredFromPreds ::
+    Double ->
+    Double ->
+    Double ->
+    Double ->
+    Maybe (Double, Double) ->
+    Double
+conformalClipPredFromPreds fallbackWeight prev kalPred lstmPred mBounds =
+    let bad x = isNaN x || isInfinite x
+        w = clamp01 fallbackWeight
+        cand0 =
+            case (bad kalPred, bad lstmPred) of
+                (False, False) ->
+                    let v = w * kalPred + (1 - w) * lstmPred
+                     in if bad v then kalPred else v
+                (False, True) -> kalPred
+                (True, False) -> lstmPred
+                (True, True) -> prev
+        cand = if bad cand0 then prev else cand0
+     in if prev <= 0 || bad prev || bad cand
+            then cand
+            else
+                let rCand = cand / prev - 1
+                 in case mBounds of
+                        Just (lo0, hi0) ->
+                            let rClipped = clampRange lo0 hi0 rCand
+                                rSafe = max (-0.999999) rClipped
+                                pred = prev * (1 + rSafe)
+                             in if bad pred then cand else pred
+                        Nothing -> cand
+
+conformalClipPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    Maybe (V.Vector StepMeta) ->
+    V.Vector Double
+conformalClipPredictionsV fallbackWeight pricesV kalPredV lstmPredV mMetaV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        boundsAt t =
+            case mMetaV of
+                Just metaV
+                    | t >= 0 && t < V.length metaV ->
+                        conformalClipBoundsFromMeta (metaV V.! t)
+                _ -> Nothing
+        pick t =
+            let prev = pricesV V.! t
+                kalPred = kalPredV V.! t
+                lstmPred = lstmPredV V.! t
+             in conformalClipPredFromPreds fallbackWeight prev kalPred lstmPred (boundsAt t)
+     in V.generate (max 0 stepCount) pick
+
+hedgeBlendPredictionsV ::
+    Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double ->
+    V.Vector Double
+hedgeBlendPredictionsV initWeight pricesV kalPredV lstmPredV =
+    let stepCount = minimum [V.length pricesV - 1, V.length kalPredV, V.length lstmPredV]
+        bad x = isNaN x || isInfinite x
+        w0Raw = clamp01 initWeight
+        epsW = 1e-6
+        w0 = max epsW (min (1 - epsW) (if bad w0Raw then 0.5 else w0Raw))
+        logit p = log (p / (1 - p))
+        sigmoid z
+            | z >= 30 = 1
+            | z <= (-30) = 0
+            | otherwise = 1 / (1 + exp (negate z))
+        eta = 6.0
+        maxErr = 0.1
+        safePred w prev kalPred lstmPred =
+            case (bad kalPred, bad lstmPred) of
+                (False, False) ->
+                    let v = w * kalPred + (1 - w) * lstmPred
+                        fallback = w0 * kalPred + (1 - w0) * lstmPred
+                     in if bad v then fallback else v
+                (False, True) -> kalPred
+                (True, False) -> lstmPred
+                (True, True) ->
+                    if bad prev || prev <= 0
+                        then w0 * kalPred + (1 - w0) * lstmPred
+                        else prev
+        ret prev x =
+            if prev <= 0 || bad prev || bad x
+                then Nothing
+                else
+                    let r = x / prev - 1
+                     in if bad r then Nothing else Just r
+        lossFromR rPred rReal =
+            let e = abs (rPred - rReal)
+                e' = min maxErr (max 0 e)
+             in if bad e' then maxErr else e'
+        updateZ z prev actual kalPred lstmPred =
+            case ret prev actual of
+                Nothing -> z
+                Just rReal ->
+                    let mRKal = ret prev kalPred
+                        mRLstm = ret prev lstmPred
+                        lKal = maybe maxErr (\rK -> lossFromR rK rReal) mRKal
+                        lLstm = maybe maxErr (\rL -> lossFromR rL rReal) mRLstm
+                        z' = z - eta * (lKal - lLstm)
+                     in if bad z' then z else z'
+        step (t, z) =
+            if t >= stepCount
+                then Nothing
+                else
+                    let prev = pricesV V.! t
+                        actual = pricesV V.! (t + 1)
+                        kalPred = kalPredV V.! t
+                        lstmPred = lstmPredV V.! t
+                        w = sigmoid z
+                        pred = safePred w prev kalPred lstmPred
+                        z' = updateZ z prev actual kalPred lstmPred
+                     in Just (pred, (t + 1, z'))
+     in V.unfoldrN (max 0 stepCount) step (0, logit w0)
+
 clampRange :: Double -> Double -> Double -> Double
 clampRange lo hi x =
     let lo' = min lo hi
@@ -17329,6 +17473,13 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         kalPred0
                         lstmPred0
                         (phMeta hist)
+                conformalClipPred0 =
+                    conformalClipPredictionsV
+                        blendWeight
+                        pricesV
+                        kalPred0
+                        lstmPred0
+                        (phMeta hist)
                 regimeSwitchPred0 =
                     regimeSwitchPredictionsV
                         blendWeight
@@ -17337,6 +17488,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         kalPred0
                         lstmPred0
                         (phMeta hist)
+                hedgeBlendPred0 = hedgeBlendPredictionsV blendWeight pricesV kalPred0 lstmPred0
                 routerPred =
                     if method == MethodRouter || method == MethodBanditRouter
                         then
@@ -17363,6 +17515,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodBlend -> (blendPred0, blendPred0)
                         MethodConfBlend -> (confBlendPred0, confBlendPred0)
                         MethodConfPick -> (confPickPred0, confPickPred0)
+                        MethodConformalClip -> (conformalClipPred0, conformalClipPred0)
                         MethodCostPick -> (costPickPred0, costPickPred0)
                         MethodHarmonicBlend -> (harmonicBlendPred0, harmonicBlendPred0)
                         MethodDisagreementGuard -> (disagreementGuardPred0, disagreementGuardPred0)
@@ -17379,6 +17532,7 @@ computeThresholdFactorsFromHistory args method openThrBase closeThrBase minEdge 
                         MethodPhaseCancel -> (phaseCancelPred0, phaseCancelPred0)
                         MethodSoftmaxBlend -> (softmaxBlendPred0, softmaxBlendPred0)
                         MethodSmoothSoftmaxBlend -> (smoothSoftmaxBlendPred0, smoothSoftmaxBlendPred0)
+                        MethodHedgeBlend -> (hedgeBlendPred0, hedgeBlendPred0)
                         MethodNetSoftmaxBlend -> (netSoftmaxBlendPred0, netSoftmaxBlendPred0)
                         MethodEdgeBlend -> (edgeBlendPred0, edgeBlendPred0)
                         MethodEdgePick -> (edgePickPred0, edgePickPred0)
@@ -17630,6 +17784,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodBlend -> "No order: Blend neutral (within threshold)."
             MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
             MethodConfPick -> "No order: Conf pick neutral (within threshold)."
+            MethodConformalClip -> "No order: Conformal clip neutral (within threshold)."
             MethodCostPick -> "No order: Cost pick neutral (within threshold)."
             MethodHarmonicBlend -> "No order: Harmonic blend neutral (within threshold)."
             MethodDisagreementGuard -> "No order: Disagreement guard neutral (within threshold)."
@@ -17646,6 +17801,7 @@ placeOrderForSignalEx args sym sig env mClientOrderIdOverride enableProtectionOr
             MethodPhaseCancel -> "No order: Phase cancel neutral (within threshold)."
             MethodSoftmaxBlend -> "No order: Softmax blend neutral (within threshold)."
             MethodSmoothSoftmaxBlend -> "No order: Smooth softmax blend neutral (within threshold)."
+            MethodHedgeBlend -> "No order: Hedge blend neutral (within threshold)."
             MethodNetSoftmaxBlend -> "No order: Net softmax blend neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
@@ -18429,6 +18585,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodBlend -> "No order: Blend neutral (within threshold)."
             MethodConfBlend -> "No order: Conf blend neutral (within threshold)."
             MethodConfPick -> "No order: Conf pick neutral (within threshold)."
+            MethodConformalClip -> "No order: Conformal clip neutral (within threshold)."
             MethodCostPick -> "No order: Cost pick neutral (within threshold)."
             MethodHarmonicBlend -> "No order: Harmonic blend neutral (within threshold)."
             MethodDisagreementGuard -> "No order: Disagreement guard neutral (within threshold)."
@@ -18445,6 +18602,7 @@ placeCoinbaseOrderForSignal args symRaw sig env = do
             MethodPhaseCancel -> "No order: Phase cancel neutral (within threshold)."
             MethodSoftmaxBlend -> "No order: Softmax blend neutral (within threshold)."
             MethodSmoothSoftmaxBlend -> "No order: Smooth softmax blend neutral (within threshold)."
+            MethodHedgeBlend -> "No order: Hedge blend neutral (within threshold)."
             MethodNetSoftmaxBlend -> "No order: Net softmax blend neutral (within threshold)."
             MethodEdgeBlend -> "No order: Edge blend neutral (within threshold)."
             MethodEdgePick -> "No order: Edge pick neutral (within threshold)."
@@ -18900,6 +19058,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodBlend -> "Backtest (Kalman + LSTM blend) complete."
                     MethodConfBlend -> "Backtest (confidence-weighted Kalman/LSTM blend) complete."
                     MethodConfPick -> "Backtest (confidence winner-take-all Kalman/LSTM pick) complete."
+                    MethodConformalClip -> "Backtest (conformal-clipped Kalman/LSTM blend) complete."
                     MethodCostPick -> "Backtest (cost-aware Kalman/LSTM pick) complete."
                     MethodHarmonicBlend -> "Backtest (harmonic-return Kalman/LSTM blend) complete."
                     MethodDisagreementGuard -> "Backtest (disagreement-aware Kalman/LSTM pick) complete."
@@ -18916,6 +19075,7 @@ runBacktestPipeline mWebhook args lookback series mBinanceEnv = do
                     MethodPhaseCancel -> "Backtest (phase-cancel Kalman/LSTM guard) complete."
                     MethodSoftmaxBlend -> "Backtest (softmax-edge Kalman/LSTM blend) complete."
                     MethodSmoothSoftmaxBlend -> "Backtest (EMA-smoothed softmax-edge Kalman/LSTM blend) complete."
+                    MethodHedgeBlend -> "Backtest (hedge-weighted Kalman/LSTM blend) complete."
                     MethodNetSoftmaxBlend -> "Backtest (post-cost softmax Kalman/LSTM blend) complete."
                     MethodEdgeBlend -> "Backtest (edge-weighted Kalman/LSTM blend) complete."
                     MethodEdgePick -> "Backtest (edge winner-take-all Kalman/LSTM pick) complete."
@@ -19310,6 +19470,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     MethodBlend -> MethodBoth
                     MethodConfBlend -> MethodBoth
                     MethodConfPick -> MethodBoth
+                    MethodConformalClip -> MethodBoth
                     MethodCostPick -> MethodBoth
                     MethodHarmonicBlend -> MethodBoth
                     MethodDisagreementGuard -> MethodBoth
@@ -19326,6 +19487,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     MethodPhaseCancel -> MethodBoth
                     MethodSoftmaxBlend -> MethodBoth
                     MethodSmoothSoftmaxBlend -> MethodBoth
+                    MethodHedgeBlend -> MethodBoth
                     MethodNetSoftmaxBlend -> MethodBoth
                     MethodEdgeBlend -> MethodBoth
                     MethodEdgePick -> MethodBoth
@@ -19428,6 +19590,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             MethodBlend -> runDualPredictorBacktest
             MethodConfBlend -> runDualPredictorBacktest
             MethodConfPick -> runDualPredictorBacktest
+            MethodConformalClip -> runDualPredictorBacktest
             MethodCostPick -> runDualPredictorBacktest
             MethodHarmonicBlend -> runDualPredictorBacktest
             MethodDisagreementGuard -> runDualPredictorBacktest
@@ -19444,6 +19607,7 @@ computeBacktestSummary args lookback series mBinanceEnv = do
             MethodPhaseCancel -> runDualPredictorBacktest
             MethodSoftmaxBlend -> runDualPredictorBacktest
             MethodSmoothSoftmaxBlend -> runDualPredictorBacktest
+            MethodHedgeBlend -> runDualPredictorBacktest
             MethodNetSoftmaxBlend -> runDualPredictorBacktest
             MethodEdgeBlend -> runDualPredictorBacktest
             MethodEdgePick -> runDualPredictorBacktest
@@ -19784,6 +19948,12 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         lstmBacktestV
                         metaBacktestV
                     )
+        conformalClipPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+                metaBacktestV = V.fromList <$> metaBacktest
+             in V.toList (conformalClipPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV metaBacktestV)
         regimeSwitchPredBacktest =
             let kalBacktestV = V.fromList kalPredBacktest
                 lstmBacktestV = V.fromList lstmPredBacktest
@@ -19797,6 +19967,11 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                         lstmBacktestV
                         metaBacktestV
                     )
+        hedgeBlendPredBacktest =
+            let pricesBacktestV = V.fromList backtestPrices
+                kalBacktestV = V.fromList kalPredBacktest
+                lstmBacktestV = V.fromList lstmPredBacktest
+             in V.toList (hedgeBlendPredictionsV blendWeight pricesBacktestV kalBacktestV lstmBacktestV)
         runRouterBacktest selectFn =
             let pricesV = V.fromList backtestPrices
                 kalV = V.fromList kalPredBacktest
@@ -19841,6 +20016,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     (confBlendPredBacktest, confBlendPredBacktest, metaBacktest, Nothing)
                 MethodConfPick ->
                     (confPickPredBacktest, confPickPredBacktest, metaBacktest, Nothing)
+                MethodConformalClip ->
+                    (conformalClipPredBacktest, conformalClipPredBacktest, metaBacktest, Nothing)
                 MethodCostPick ->
                     (costPickPredBacktest, costPickPredBacktest, metaBacktest, Nothing)
                 MethodHarmonicBlend ->
@@ -19871,6 +20048,8 @@ computeBacktestSummary args lookback series mBinanceEnv = do
                     (softmaxBlendPredBacktest, softmaxBlendPredBacktest, metaBacktest, Nothing)
                 MethodSmoothSoftmaxBlend ->
                     (smoothSoftmaxBlendPredBacktest, smoothSoftmaxBlendPredBacktest, metaBacktest, Nothing)
+                MethodHedgeBlend ->
+                    (hedgeBlendPredBacktest, hedgeBlendPredBacktest, metaBacktest, Nothing)
                 MethodNetSoftmaxBlend ->
                     (netSoftmaxBlendPredBacktest, netSoftmaxBlendPredBacktest, metaBacktest, Nothing)
                 MethodDivergenceGate ->
@@ -20661,6 +20840,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method conf_pick requires both Kalman and LSTM contexts."
+            MethodConformalClip ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method conformal_clip requires both Kalman and LSTM contexts."
             MethodCostPick ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -20725,6 +20908,10 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
                     _ -> Left "Method smooth_softmax_blend requires both Kalman and LSTM contexts."
+            MethodHedgeBlend ->
+                case (mKalmanCtx, mLstmCtxSafe) of
+                    (Just _, Just _) -> Right compute
+                    _ -> Left "Method hedge_blend requires both Kalman and LSTM contexts."
             MethodNetSoftmaxBlend ->
                 case (mKalmanCtx, mLstmCtxSafe) of
                     (Just _, Just _) -> Right compute
@@ -20763,6 +20950,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             MethodBlend -> True
             MethodConfBlend -> True
             MethodConfPick -> True
+            MethodConformalClip -> True
             MethodCostPick -> True
             MethodHarmonicBlend -> True
             MethodDisagreementGuard -> True
@@ -20779,6 +20967,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             MethodPhaseCancel -> True
             MethodSoftmaxBlend -> True
             MethodSmoothSoftmaxBlend -> True
+            MethodHedgeBlend -> True
             MethodNetSoftmaxBlend -> True
             MethodEdgeBlend -> True
             MethodEdgePick -> True
@@ -21282,6 +21471,18 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 mKalZ
                             )
                     _ -> Nothing
+            conformalClipNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        let bounds =
+                                case mConformal of
+                                    Just i -> Just (iLo i, iHi i)
+                                    Nothing ->
+                                        case mQuantiles of
+                                            Just q -> Just (q10 q, q90 q)
+                                            Nothing -> Nothing
+                         in Just (conformalClipPredFromPreds blendWeight currentPrice k l bounds)
+                    _ -> Nothing
             costPickNext =
                 case (mKalNext, mLstmNext) of
                     (Just k, Just l) ->
@@ -21327,6 +21528,65 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                             fallbackPred = w0 * k + (1 - w0) * l
                             pred = w * k + (1 - w) * l
                          in Just (if bad pred then fallbackPred else pred)
+                    _ -> Nothing
+            hedgeBlendNext =
+                case (mKalNext, mLstmNext) of
+                    (Just k, Just l) ->
+                        let epsW = 1e-6
+                            w0Raw = clamp01 blendWeight
+                            w0 = max epsW (min (1 - epsW) (if bad w0Raw then 0.5 else w0Raw))
+                            logit p = log (p / (1 - p))
+                            sigmoid z
+                                | z >= 30 = 1
+                                | z <= (-30) = 0
+                                | otherwise = 1 / (1 + exp (negate z))
+                            eta = 6.0
+                            maxErr = 0.1
+                            safePred w prev kalPred lstmPred =
+                                case (bad kalPred, bad lstmPred) of
+                                    (False, False) ->
+                                        let v = w * kalPred + (1 - w) * lstmPred
+                                            fallback = w0 * kalPred + (1 - w0) * lstmPred
+                                         in if bad v then fallback else v
+                                    (False, True) -> kalPred
+                                    (True, False) -> lstmPred
+                                    (True, True) -> prev
+                            ret prev x =
+                                if prev <= 0 || bad prev || bad x
+                                    then Nothing
+                                    else
+                                        let r = x / prev - 1
+                                         in if bad r then Nothing else Just r
+                            lossFromR rPred rReal =
+                                let e = abs (rPred - rReal)
+                                    e' = min maxErr (max 0 e)
+                                 in if bad e' then maxErr else e'
+                            updateZ z prev actual kalPred lstmPred =
+                                case ret prev actual of
+                                    Nothing -> z
+                                    Just rReal ->
+                                        let mRKal = ret prev kalPred
+                                            mRLstm = ret prev lstmPred
+                                            lKal = maybe maxErr (\rK -> lossFromR rK rReal) mRKal
+                                            lLstm = maybe maxErr (\rL -> lossFromR rL rReal) mRLstm
+                                            z' = z - eta * (lKal - lLstm)
+                                         in if bad z' then z else z'
+                            zPrev =
+                                case mPredHistory of
+                                    Just PredHistory{phKalman = kalHist, phLstm = lstmHist}
+                                        | t > 0 ->
+                                            let histLen = min t (min (V.length kalHist) (V.length lstmHist))
+                                                step z i =
+                                                    let prev = pricesV V.! i
+                                                        actual = pricesV V.! (i + 1)
+                                                        kp = kalHist V.! i
+                                                        lp = lstmHist V.! i
+                                                     in updateZ z prev actual kp lp
+                                             in foldl' step (logit w0) [0 .. histLen - 1]
+                                    _ -> logit w0
+                            wCur = sigmoid zPrev
+                            pred = safePred wCur currentPrice k l
+                         in Just pred
                     _ -> Nothing
             netSoftmaxBlendNext =
                 case (mKalNext, mLstmNext) of
@@ -21600,6 +21860,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> blendNext
                     MethodConfBlend -> confBlendNext
                     MethodConfPick -> confPickNext
+                    MethodConformalClip -> conformalClipNext
                     MethodCostPick -> costPickNext
                     MethodHarmonicBlend -> harmonicBlendNext
                     MethodDisagreementGuard -> disagreementGuardNext
@@ -21616,6 +21877,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodPhaseCancel -> phaseCancelNext
                     MethodSoftmaxBlend -> softmaxBlendNext
                     MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendNext
+                    MethodHedgeBlend -> hedgeBlendNext
                     MethodNetSoftmaxBlend -> netSoftmaxBlendNext
                     MethodEdgeBlend -> edgeBlendNext
                     MethodEdgePick -> edgePickNext
@@ -21636,6 +21898,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             edgeBlend = blendNext >>= edgeFromPred
             edgeConfBlend = confBlendNext >>= edgeFromPred
             edgeConfPick = confPickNext >>= edgeFromPred
+            edgeConformalClip = conformalClipNext >>= edgeFromPred
             edgeCostPick = costPickNext >>= edgeFromPred
             edgeHarmonicBlend = harmonicBlendNext >>= edgeFromPred
             edgeDisagreementGuard = disagreementGuardNext >>= edgeFromPred
@@ -21651,6 +21914,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             edgePhaseCancel = phaseCancelNext >>= edgeFromPred
             edgeSoftmaxBlend = softmaxBlendNext >>= edgeFromPred
             edgeSmoothSoftmaxBlend = smoothSoftmaxBlendNext >>= edgeFromPred
+            edgeHedgeBlend = hedgeBlendNext >>= edgeFromPred
             edgeNetSoftmaxBlend = netSoftmaxBlendNext >>= edgeFromPred
             edgeDivergenceGate = divergenceGateNext >>= edgeFromPred
             edgeEdgeBlend = edgeBlendNext >>= edgeFromPred
@@ -21669,6 +21933,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> edgeBlend
                     MethodConfBlend -> edgeConfBlend
                     MethodConfPick -> edgeConfPick
+                    MethodConformalClip -> edgeConformalClip
                     MethodCostPick -> edgeCostPick
                     MethodHarmonicBlend -> edgeHarmonicBlend
                     MethodDisagreementGuard -> edgeDisagreementGuard
@@ -21684,6 +21949,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodPhaseCancel -> edgePhaseCancel
                     MethodSoftmaxBlend -> edgeSoftmaxBlend
                     MethodSmoothSoftmaxBlend -> edgeSmoothSoftmaxBlend
+                    MethodHedgeBlend -> edgeHedgeBlend
                     MethodNetSoftmaxBlend -> edgeNetSoftmaxBlend
                     MethodDivergenceGate -> edgeDivergenceGate
                     MethodEdgeBlend -> edgeEdgeBlend
@@ -21723,6 +21989,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             confBlendCloseDir = confBlendNext >>= directionPrice closeThrAdj
             confPickDir = confPickNext >>= directionPrice openThrAdj
             confPickCloseDir = confPickNext >>= directionPrice closeThrAdj
+            conformalClipDir = conformalClipNext >>= directionPrice openThrAdj
+            conformalClipCloseDir = conformalClipNext >>= directionPrice closeThrAdj
             costPickDir = costPickNext >>= directionPrice openThrAdj
             costPickCloseDir = costPickNext >>= directionPrice closeThrAdj
             harmonicBlendDir = harmonicBlendNext >>= directionPrice openThrAdj
@@ -21753,6 +22021,8 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
             softmaxBlendCloseDir = softmaxBlendNext >>= directionPrice closeThrAdj
             smoothSoftmaxBlendDir = smoothSoftmaxBlendNext >>= directionPrice openThrAdj
             smoothSoftmaxBlendCloseDir = smoothSoftmaxBlendNext >>= directionPrice closeThrAdj
+            hedgeBlendDir = hedgeBlendNext >>= directionPrice openThrAdj
+            hedgeBlendCloseDir = hedgeBlendNext >>= directionPrice closeThrAdj
             netSoftmaxBlendDir = netSoftmaxBlendNext >>= directionPrice openThrAdj
             netSoftmaxBlendCloseDir = netSoftmaxBlendNext >>= directionPrice closeThrAdj
             divergenceGateDir = divergenceGateNext >>= directionPrice openThrAdj
@@ -21814,6 +22084,25 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                 gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore confPickDir
                             (closeDirUsed, _) =
                                 gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore confPickCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
+            (conformalClipDirGated, conformalClipCloseDirGated, conformalClipPosSize, conformalClipGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodConformalClip, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing conformalClipDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore conformalClipDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore conformalClipCloseDir
                             sizeUsed =
                                 case dirUsed of
                                     Nothing -> 0
@@ -22126,6 +22415,25 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                          in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
                          in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
                     _ -> (Nothing, Nothing, Nothing, Nothing)
+            (hedgeBlendDirGated, hedgeBlendCloseDirGated, hedgeBlendPosSize, hedgeBlendGateReason) =
+                case (method, mKalZ, mConfidence) of
+                    (MethodHedgeBlend, Just kalZ, Just confScore) ->
+                        let sizeRaw
+                                | argConfidenceSizing args = confScore
+                                | isNothing hedgeBlendDir = 0
+                                | otherwise = 1
+                            (dirUsed, mWhy) =
+                                gateKalmanDir args (argConfidenceSizing args) openThrAdj kalZ mRegimes mConformal mQuantiles confScore hedgeBlendDir
+                            (closeDirUsed, _) =
+                                gateKalmanDir args False closeThrAdj kalZ mRegimes mConformal mQuantiles confScore hedgeBlendCloseDir
+                            sizeUsed =
+                                case dirUsed of
+                                    Nothing -> 0
+                                    Just _ ->
+                                        let s0 = if argConfidenceSizing args then sizeRaw else 1
+                                         in if argConfidenceSizing args && s0 < argMinPositionSize args then 0 else s0
+                         in (dirUsed, closeDirUsed, Just sizeUsed, mWhy)
+                    _ -> (Nothing, Nothing, Nothing, Nothing)
             (netSoftmaxBlendDirGated, netSoftmaxBlendCloseDirGated, netSoftmaxBlendPosSize, netSoftmaxBlendGateReason) =
                 case (method, mKalZ, mConfidence) of
                     (MethodNetSoftmaxBlend, Just kalZ, Just confScore) ->
@@ -22265,6 +22573,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> blendCloseDirGated
                     MethodConfBlend -> confBlendCloseDirGated
                     MethodConfPick -> confPickCloseDirGated
+                    MethodConformalClip -> conformalClipCloseDirGated
                     MethodCostPick -> costPickCloseDirGated
                     MethodHarmonicBlend -> harmonicBlendCloseDirGated
                     MethodDisagreementGuard -> disagreementGuardCloseDirGated
@@ -22281,6 +22590,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodPhaseCancel -> phaseCancelCloseDirGated
                     MethodSoftmaxBlend -> softmaxBlendCloseDirGated
                     MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendCloseDirGated
+                    MethodHedgeBlend -> hedgeBlendCloseDirGated
                     MethodNetSoftmaxBlend -> netSoftmaxBlendCloseDirGated
                     MethodEdgeBlend -> edgeBlendCloseDirGated
                     MethodEdgePick -> edgePickCloseDirGated
@@ -22301,6 +22611,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> blendDirGated
                     MethodConfBlend -> confBlendDirGated
                     MethodConfPick -> confPickDirGated
+                    MethodConformalClip -> conformalClipDirGated
                     MethodCostPick -> costPickDirGated
                     MethodHarmonicBlend -> harmonicBlendDirGated
                     MethodDisagreementGuard -> disagreementGuardDirGated
@@ -22317,6 +22628,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodPhaseCancel -> phaseCancelDirGated
                     MethodSoftmaxBlend -> softmaxBlendDirGated
                     MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendDirGated
+                    MethodHedgeBlend -> hedgeBlendDirGated
                     MethodNetSoftmaxBlend -> netSoftmaxBlendDirGated
                     MethodEdgeBlend -> edgeBlendDirGated
                     MethodEdgePick -> edgePickDirGated
@@ -22447,6 +22759,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (conf_pick neutral)"
+                        MethodConformalClip ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (conformal_clip neutral)"
                         MethodCostPick ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -22575,6 +22895,14 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                                     case gateReasonFinal of
                                         Just why -> "HOLD (" ++ why ++ ")"
                                         Nothing -> "HOLD (smooth_softmax_blend neutral)"
+                        MethodHedgeBlend ->
+                            case chosenDir of
+                                Just 1 -> "LONG"
+                                Just (-1) -> downAction
+                                _ ->
+                                    case gateReasonFinal of
+                                        Just why -> "HOLD (" ++ why ++ ")"
+                                        Nothing -> "HOLD (hedge_blend neutral)"
                         MethodNetSoftmaxBlend ->
                             case chosenDir of
                                 Just 1 -> "LONG"
@@ -22637,6 +22965,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> blendPosSize
                     MethodConfBlend -> confBlendPosSize
                     MethodConfPick -> confPickPosSize
+                    MethodConformalClip -> conformalClipPosSize
                     MethodCostPick -> costPickPosSize
                     MethodHarmonicBlend -> harmonicBlendPosSize
                     MethodDisagreementGuard -> disagreementGuardPosSize
@@ -22653,6 +22982,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodPhaseCancel -> phaseCancelPosSize
                     MethodSoftmaxBlend -> softmaxBlendPosSize
                     MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendPosSize
+                    MethodHedgeBlend -> hedgeBlendPosSize
                     MethodNetSoftmaxBlend -> netSoftmaxBlendPosSize
                     MethodEdgeBlend -> edgeBlendPosSize
                     MethodEdgePick -> edgePickPosSize
@@ -22666,6 +22996,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodBlend -> blendGateReason
                     MethodConfBlend -> confBlendGateReason
                     MethodConfPick -> confPickGateReason
+                    MethodConformalClip -> conformalClipGateReason
                     MethodCostPick -> costPickGateReason
                     MethodHarmonicBlend -> harmonicBlendGateReason
                     MethodDisagreementGuard -> disagreementGuardGateReason
@@ -22682,6 +23013,7 @@ computeLatestSignal args lookback pricesV mHighsV mLowsV mLstmCtx mKalmanCtx mMa
                     MethodPhaseCancel -> phaseCancelGateReason
                     MethodSoftmaxBlend -> softmaxBlendGateReason
                     MethodSmoothSoftmaxBlend -> smoothSoftmaxBlendGateReason
+                    MethodHedgeBlend -> hedgeBlendGateReason
                     MethodNetSoftmaxBlend -> netSoftmaxBlendGateReason
                     MethodEdgeBlend -> edgeBlendGateReason
                     MethodEdgePick -> edgePickGateReason
@@ -23355,6 +23687,7 @@ printMetrics method m = do
                 MethodBlend -> "Signal rate (Blend)"
                 MethodConfBlend -> "Signal rate (Conf blend)"
                 MethodConfPick -> "Signal rate (Conf pick)"
+                MethodConformalClip -> "Signal rate (Conformal clip)"
                 MethodCostPick -> "Signal rate (Cost pick)"
                 MethodHarmonicBlend -> "Signal rate (Harmonic blend)"
                 MethodDisagreementGuard -> "Signal rate (Disagreement guard)"
@@ -23371,6 +23704,7 @@ printMetrics method m = do
                 MethodPhaseCancel -> "Signal rate (Phase cancel)"
                 MethodSoftmaxBlend -> "Signal rate (Softmax blend)"
                 MethodSmoothSoftmaxBlend -> "Signal rate (Smooth softmax blend)"
+                MethodHedgeBlend -> "Signal rate (Hedge blend)"
                 MethodNetSoftmaxBlend -> "Signal rate (Net softmax blend)"
                 MethodEdgeBlend -> "Signal rate (Edge blend)"
                 MethodEdgePick -> "Signal rate (Edge pick)"

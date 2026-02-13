@@ -195,4 +195,6 @@ test("normalizeFormState forces margin to disable testnet", () => {
 test("methodLabel includes newly added backend methods", () => {
   assert.equal(methodLabel("divergence_gate"), "Divergence gate (shrinks blended return on disagreement)");
   assert.equal(methodLabel("smooth_softmax_blend"), "Smooth softmax blend (EMA-smooth softmax weights)");
+  assert.equal(methodLabel("conformal_clip"), "Conformal clip (clips blended return to conformal/quantile band)");
+  assert.equal(methodLabel("hedge_blend"), "Hedge blend (online exp-weights mix)");
 });

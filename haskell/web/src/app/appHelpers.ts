@@ -231,6 +231,7 @@ export const COMPLEX_TIPS = {
     "blend averages predictions; blend weight sets the Kalman vs LSTM mix.",
     "conf_blend adjusts Kalman vs LSTM mix per bar using confidence (Kalman z vs LSTM edge confidence).",
     "conf_pick selects Kalman or LSTM per bar using the stronger confidence score.",
+    "conformal_clip clips the blended return into the conformal interval (or quantile band) when available.",
     "cost_pick selects Kalman or LSTM per bar using post-cost edge (net of round-trip costs).",
     "harmonic_blend mixes Kalman/LSTM predictions using a harmonic mean in return space (more conservative on outliers).",
     "disagreement_guard picks higher-edge model when Kalman/LSTM agree, but lower-edge model when they disagree.",
@@ -247,6 +248,7 @@ export const COMPLEX_TIPS = {
     "phase_cancel detects anti-phase Kalman/LSTM returns and compresses conflicting edges toward neutral.",
     "softmax_blend uses a softmax-style edge weighting so the higher-edge model gets more weight (blend weight is a bias/fallback).",
     "smooth_softmax_blend smooths the softmax edge weights over time (EMA) to reduce twitchy per-bar switching.",
+    "hedge_blend adapts the Kalman/LSTM mix online (exp-weights) based on realized prediction error.",
     "net_softmax_blend is like softmax_blend but uses post-cost edge (net of round-trip costs) in the softmax weighting.",
     "edge_blend adapts Kalman vs LSTM weights from each model's instantaneous edge magnitude.",
     "edge_pick selects Kalman or LSTM per bar using the larger absolute edge.",
@@ -265,7 +267,7 @@ export const COMPLEX_TIPS = {
   ],
   snr: ["Signal/vol (SNR) filters trades when predicted edge is small versus recent volatility."],
   blend: [
-    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch.",
+    "0 = LSTM only, 1 = Kalman only. Used with method=blend/conf_blend/conf_pick/conformal_clip/cost_pick/harmonic_blend/disagreement_guard/median_blend/neutral_guard/risk_parity_blend/consensus_boost/anchor_blend/tension_gate/entropy_blend/coherence_gate/divergence_gate/fractal_blend/phase_cancel/softmax_blend/smooth_softmax_blend/hedge_blend/net_softmax_blend/edge_blend/edge_pick/geo_blend/regime_switch.",
   ],
   router: ["Lookback controls how much recent history the router uses; longer is smoother but slower to adapt.", "Min score gates low-confidence periods to HOLD."],
   split: ["Backtest ratio is the held-out tail; tune ratio is only used for optimization/sweeps.", "Backtest + tune must be < 1 to leave training data."],
@@ -1458,6 +1460,7 @@ export type OptimizerRunForm = {
   methodWeightBlend: string;
   methodWeightConfBlend: string;
   methodWeightConfPick: string;
+  methodWeightConformalClip: string;
   methodWeightCostPick: string;
   methodWeightHarmonicBlend: string;
   methodWeightDisagreementGuard: string;
@@ -1474,6 +1477,7 @@ export type OptimizerRunForm = {
   methodWeightPhaseCancel: string;
   methodWeightSoftmaxBlend: string;
   methodWeightSmoothSoftmaxBlend: string;
+  methodWeightHedgeBlend: string;
   methodWeightNetSoftmaxBlend: string;
   methodWeightEdgeBlend: string;
   methodWeightEdgePick: string;
@@ -1620,6 +1624,7 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     methodWeightBlend: "",
     methodWeightConfBlend: "",
     methodWeightConfPick: "",
+    methodWeightConformalClip: "",
     methodWeightCostPick: "",
     methodWeightHarmonicBlend: "",
     methodWeightDisagreementGuard: "",
@@ -1636,6 +1641,7 @@ export function buildDefaultOptimizerRunForm(symbol: string, platform: Platform)
     methodWeightPhaseCancel: "",
     methodWeightSoftmaxBlend: "",
     methodWeightSmoothSoftmaxBlend: "",
+    methodWeightHedgeBlend: "",
     methodWeightNetSoftmaxBlend: "",
     methodWeightEdgeBlend: "",
     methodWeightEdgePick: "",
@@ -1847,6 +1853,8 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (methodWeightConfBlend != null) req.methodWeightConfBlend = methodWeightConfBlend;
   const methodWeightConfPick = parseOptionalNumber(form.methodWeightConfPick);
   if (methodWeightConfPick != null) req.methodWeightConfPick = methodWeightConfPick;
+  const methodWeightConformalClip = parseOptionalNumber(form.methodWeightConformalClip);
+  if (methodWeightConformalClip != null) req.methodWeightConformalClip = methodWeightConformalClip;
   const methodWeightCostPick = parseOptionalNumber(form.methodWeightCostPick);
   if (methodWeightCostPick != null) req.methodWeightCostPick = methodWeightCostPick;
   const methodWeightHarmonicBlend = parseOptionalNumber(form.methodWeightHarmonicBlend);
@@ -1879,6 +1887,8 @@ export function buildOptimizerRunRequest(form: OptimizerRunForm, extras: Record<
   if (methodWeightSoftmaxBlend != null) req.methodWeightSoftmaxBlend = methodWeightSoftmaxBlend;
   const methodWeightSmoothSoftmaxBlend = parseOptionalNumber(form.methodWeightSmoothSoftmaxBlend);
   if (methodWeightSmoothSoftmaxBlend != null) req.methodWeightSmoothSoftmaxBlend = methodWeightSmoothSoftmaxBlend;
+  const methodWeightHedgeBlend = parseOptionalNumber(form.methodWeightHedgeBlend);
+  if (methodWeightHedgeBlend != null) req.methodWeightHedgeBlend = methodWeightHedgeBlend;
   const methodWeightNetSoftmaxBlend = parseOptionalNumber(form.methodWeightNetSoftmaxBlend);
   if (methodWeightNetSoftmaxBlend != null) req.methodWeightNetSoftmaxBlend = methodWeightNetSoftmaxBlend;
   const methodWeightEdgeBlend = parseOptionalNumber(form.methodWeightEdgeBlend);

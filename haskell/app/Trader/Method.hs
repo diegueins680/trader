@@ -14,6 +14,7 @@ data Method
     | MethodBlend
     | MethodConfBlend
     | MethodConfPick
+    | MethodConformalClip
     | MethodCostPick
     | MethodHarmonicBlend
     | MethodDisagreementGuard
@@ -30,6 +31,7 @@ data Method
     | MethodPhaseCancel
     | MethodSoftmaxBlend
     | MethodSmoothSoftmaxBlend
+    | MethodHedgeBlend
     | MethodNetSoftmaxBlend
     | MethodEdgeBlend
     | MethodEdgePick
@@ -48,6 +50,7 @@ methodCode m =
         MethodBlend -> "blend"
         MethodConfBlend -> "conf_blend"
         MethodConfPick -> "conf_pick"
+        MethodConformalClip -> "conformal_clip"
         MethodCostPick -> "cost_pick"
         MethodHarmonicBlend -> "harmonic_blend"
         MethodDisagreementGuard -> "disagreement_guard"
@@ -64,6 +67,7 @@ methodCode m =
         MethodPhaseCancel -> "phase_cancel"
         MethodSoftmaxBlend -> "softmax_blend"
         MethodSmoothSoftmaxBlend -> "smooth_softmax_blend"
+        MethodHedgeBlend -> "hedge_blend"
         MethodNetSoftmaxBlend -> "net_softmax_blend"
         MethodEdgeBlend -> "edge_blend"
         MethodEdgePick -> "edge_pick"
@@ -110,6 +114,15 @@ parseMethod raw =
         "confidence_pick" -> Right MethodConfPick
         "confidence-pick" -> Right MethodConfPick
         "confidencepick" -> Right MethodConfPick
+        "conformal_clip" -> Right MethodConformalClip
+        "conformal-clip" -> Right MethodConformalClip
+        "conformalclip" -> Right MethodConformalClip
+        "interval_clip" -> Right MethodConformalClip
+        "interval-clip" -> Right MethodConformalClip
+        "intervalclip" -> Right MethodConformalClip
+        "uncertainty_clip" -> Right MethodConformalClip
+        "uncertainty-clip" -> Right MethodConformalClip
+        "uncertaintyclip" -> Right MethodConformalClip
         "cost_pick" -> Right MethodCostPick
         "cost-pick" -> Right MethodCostPick
         "costpick" -> Right MethodCostPick
@@ -206,6 +219,15 @@ parseMethod raw =
         "ema_softmax_blend" -> Right MethodSmoothSoftmaxBlend
         "ema-softmax-blend" -> Right MethodSmoothSoftmaxBlend
         "emasoftmaxblend" -> Right MethodSmoothSoftmaxBlend
+        "hedge_blend" -> Right MethodHedgeBlend
+        "hedge-blend" -> Right MethodHedgeBlend
+        "hedgeblend" -> Right MethodHedgeBlend
+        "exp_weights_blend" -> Right MethodHedgeBlend
+        "exp-weights-blend" -> Right MethodHedgeBlend
+        "expweightsblend" -> Right MethodHedgeBlend
+        "online_blend" -> Right MethodHedgeBlend
+        "online-blend" -> Right MethodHedgeBlend
+        "onlineblend" -> Right MethodHedgeBlend
         "net_softmax_blend" -> Right MethodNetSoftmaxBlend
         "net-softmax-blend" -> Right MethodNetSoftmaxBlend
         "netsoftmaxblend" -> Right MethodNetSoftmaxBlend
@@ -250,7 +272,7 @@ parseMethod raw =
             Left
                 ( "Invalid --method: "
                     ++ show other
-                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
+                    ++ " (expected 11|both, 10|kalman, 01|lstm, blend, conf_blend, conf_pick, conformal_clip, cost_pick, harmonic_blend, disagreement_guard, median_blend, neutral_guard, risk_parity_blend, consensus_boost, anchor_blend, tension_gate, entropy_blend, coherence_gate, divergence_gate, fractal_blend, phase_cancel, softmax_blend, smooth_softmax_blend, hedge_blend, net_softmax_blend, edge_blend, edge_pick, geo_blend, regime_switch, router, bandit_router)"
                 )
 
 selectPredictions :: Method -> Double -> [Double] -> [Double] -> ([Double], [Double])
@@ -268,6 +290,10 @@ selectPredictions m blendWeight kalPred lstmPred =
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
         MethodConfPick ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodConformalClip ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
@@ -332,6 +358,10 @@ selectPredictions m blendWeight kalPred lstmPred =
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)
         MethodSmoothSoftmaxBlend ->
+            let w = clamp01 blendWeight
+                blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
+             in (blend, blend)
+        MethodHedgeBlend ->
             let w = clamp01 blendWeight
                 blend = zipWith (\k l -> w * k + (1 - w) * l) kalPred lstmPred
              in (blend, blend)

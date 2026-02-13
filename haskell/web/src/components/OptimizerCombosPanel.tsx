@@ -1845,6 +1845,38 @@ export function OptimizerCombosPanel(props: OptimizerCombosPanelProps) {
               />
             </div>
           </div>
+          <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr" }}>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightConformalClip">
+                Conformal clip method weight
+              </label>
+              <input
+                id="optimizerMethodWeightConformalClip"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightConformalClip}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightConformalClip: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="optimizerMethodWeightHedgeBlend">
+                Hedge blend method weight
+              </label>
+              <input
+                id="optimizerMethodWeightHedgeBlend"
+                className="input"
+                type="number"
+                step="0.1"
+                min={0}
+                value={optimizerRunForm.methodWeightHedgeBlend}
+                onChange={(e) => setOptimizerRunForm((prev) => ({ ...prev, methodWeightHedgeBlend: e.target.value }))}
+                placeholder="0.0"
+              />
+            </div>
+          </div>
           <div className="row" style={{ marginTop: 10, gridTemplateColumns: "1fr 1fr 1fr" }}>
             <div className="field">
               <label className="label" htmlFor="optimizerMethodWeightHarmonicBlend">
