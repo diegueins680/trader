@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 - Trading: add portfolio exposure caps (gross/net/per-base) and expanded risk metrics (Sortino, Calmar, VaR/CVaR).
 - Trading: add a richer transaction-cost model with fixed/min fees and volatility/size-based slippage/spread.
 - Dev/CI: auto-deploy to AWS from GitHub Actions after successful pushes to `main`/`master`.
+- Deploy: disable Docker build attestations (provenance/SBOM) by default in `deploy-aws-quick.sh` to avoid ECR push `403` errors; set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable.
 - Deploy: treat `BucketAlreadyOwnedByYou` as success when ensuring S3 buckets in `deploy-aws-quick.sh`.
 - Deploy: add App Runner fixed-egress helpers (`deploy/aws/setup-apprunner-egress-eip.sh`, `deploy/aws/teardown-apprunner-egress-eip.sh`) and `deploy-aws-quick.sh --setup-egress-eip`/`--teardown-egress-eip` flags (teardown prompts for confirmation).
 - Deploy: enable `TRADER_MULTI_USER` by default in `deploy-aws-quick.sh` for AWS deployments.

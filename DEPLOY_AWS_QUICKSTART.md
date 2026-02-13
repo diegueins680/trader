@@ -95,6 +95,8 @@ aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
 # Build
+# If ECR push fails with `403 Forbidden` on `HEAD .../manifests/sha256:...`, add `ecr:BatchGetImage`
+# to your deploy IAM policy or disable Docker attestations (example: `docker build --provenance=false --sbom=false ...`).
 docker build -t "${ECR_REPO}:latest" .
 
 # Tag

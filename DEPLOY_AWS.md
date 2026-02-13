@@ -417,6 +417,7 @@ aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
 - Verify ECR login: `aws ecr get-login-password ... | docker login ...`
 - Check AWS credentials: `aws sts get-caller-identity`
 - Ensure ECR repository exists
+- If you see `403 Forbidden` on a `HEAD .../manifests/sha256:...` request, your deploy IAM role likely needs `ecr:BatchGetImage` (Docker checks for existing manifests), or your build is producing attestations (provenance/SBOM); add `ecr:BatchGetImage` or disable attestations (example: `docker build --provenance=false --sbom=false ...`). `deploy-aws-quick.sh` disables attestations by default (set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable).
 
 ---
 

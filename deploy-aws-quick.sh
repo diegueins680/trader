@@ -211,6 +211,8 @@ Environment variables (equivalents):
   TRADER_UI_API_FALLBACK_URL
   TRADER_UI_API_MODE (direct|proxy)
   TRADER_UI_SERVICE_ARN
+  TRADER_DOCKER_PROVENANCE (true to enable provenance attestations during docker build)
+  TRADER_DOCKER_SBOM (true to enable SBOM attestations during docker build)
   TRADER_DEPLOY_ENV_FILE
   TRADER_APP_RUNNER_INSTANCE_ROLE_NAME
   TRADER_APP_RUNNER_STATE_POLICY_NAME
@@ -1537,7 +1539,36 @@ build_and_push() {
   local ecr_uri="$1"
   
   echo "Building Docker image..."
-  docker build -t "${ECR_REPO}:latest" .
+  local docker_build_args=()
+  local docker_build_env=()
+  local docker_build_help=""
+  docker_build_help="$(docker build --help 2>/dev/null || true)"
+  # Newer Docker/BuildKit versions can generate default attestations (provenance/SBOM), which can turn
+  # the build output into an OCI index (manifest list) and cause `docker push` to require extra ECR
+  # permissions (notably `ecr:BatchGetImage` for manifest HEAD checks). Default to disabling
+  # attestations for compatibility; set TRADER_DOCKER_PROVENANCE=true / TRADER_DOCKER_SBOM=true to
+  # re-enable.
+  if echo "$docker_build_help" | grep -q -- '--attest'; then
+    if ! is_true "${TRADER_DOCKER_PROVENANCE:-false}" && ! is_true "${TRADER_DOCKER_SBOM:-false}"; then
+      docker_build_env+=(BUILDX_NO_DEFAULT_ATTESTATIONS=1)
+    fi
+  fi
+  if echo "$docker_build_help" | grep -q -- '--provenance'; then
+    if is_true "${TRADER_DOCKER_PROVENANCE:-false}"; then
+      docker_build_args+=(--provenance=true)
+    else
+      docker_build_args+=(--provenance=false)
+    fi
+  fi
+  if echo "$docker_build_help" | grep -q -- '--sbom'; then
+    if is_true "${TRADER_DOCKER_SBOM:-false}"; then
+      docker_build_args+=(--sbom=true)
+    else
+      docker_build_args+=(--sbom=false)
+    fi
+  fi
+
+  env "${docker_build_env[@]}" docker build "${docker_build_args[@]}" -t "${ECR_REPO}:latest" .
   echo -e "${GREEN}✓ Image built${NC}"
   
   echo "Logging in to ECR..."

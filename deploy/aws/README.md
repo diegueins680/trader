@@ -68,6 +68,9 @@ aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
 # In zsh, prefer "${VAR}:latest" (not "$VAR:latest") to avoid zsh's ":<modifier>" expansion.
+# If ECR push fails with `403 Forbidden` on `HEAD .../manifests/sha256:...`, your IAM principal likely
+# needs `ecr:BatchGetImage` (Docker checks for existing manifests), or disable Docker attestations
+# (example: `docker build --provenance=false --sbom=false ...`).
 docker build -t "${ECR_REPO}:latest" .
 docker tag "${ECR_REPO}:latest" "${ECR_URI}:latest"
 docker push "${ECR_URI}:latest"
