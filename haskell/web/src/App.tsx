@@ -6663,17 +6663,20 @@ export function App() {
           : "API status unknown";
   const botPanel = (() => {
     const fallbackStatus: BotStatusSingle = { running: false };
+    const multiStatus: BotStatusMulti | null = isBotStatusMulti(bot.status) ? bot.status : null;
     const st =
-      botSelectedStatus ?? (isBotStatusMulti(bot.status) ? bot.status.bots[0] : (bot.status as BotStatusSingle)) ?? fallbackStatus;
+      botSelectedStatus ?? (multiStatus ? multiStatus.bots[0] : (bot.status as BotStatusSingle)) ?? fallbackStatus;
     const running = st.running;
     const starting = !running && st.starting === true;
     const halted = st.running ? st.halted : false;
-    const error = bot.error ?? st.error ?? null;
+    const multiError = multiStatus ? (multiStatus.errors?.[0]?.error ?? null) : null;
+    const error = bot.error ?? st.error ?? multiError ?? null;
 
     const dotClass = error || halted ? "dot dotBad" : running ? "dot dotOk" : starting ? "dot dotWarn" : "dot";
     const statusLabel = error ? "Status error" : running ? (halted ? "Halted" : "Running") : starting ? "Starting" : "Stopped";
 
     const badges: Array<{ key: string; label: string; className: string }> = [];
+    if (multiStatus) badges.push({ key: "multi", label: `multi (${multiStatus.bots.length})`, className: "badge" });
     let symbol = "";
     let interval = "";
     let market: Market | null = null;
@@ -8167,6 +8170,8 @@ export function App() {
     extraIssueCount,
     requestDisabled,
     requestDisabledReason,
+    backtestDisabled,
+    backtestDisabledReason,
     run,
     state,
     commonParams,
@@ -8733,7 +8738,13 @@ export function App() {
                     ) : (
                       <>
                         <span className="summaryEmpty">No backtest yet</span>
-                        <button className="btnSmall" type="button" disabled={requestDisabled} onClick={() => run("backtest")}>
+                        <button
+                          className="btnSmall"
+                          type="button"
+                          disabled={backtestDisabled}
+                          title={backtestDisabledReason ?? undefined}
+                          onClick={() => run("backtest")}
+                        >
                           Run backtest
                         </button>
                       </>
@@ -9968,7 +9979,13 @@ export function App() {
                 <button className="btnSmall" type="button" disabled={requestDisabled} onClick={() => run("signal")}>
                   Get signal
                 </button>
-                <button className="btnSmall" type="button" disabled={requestDisabled} onClick={() => run("backtest")}>
+                <button
+                  className="btnSmall"
+                  type="button"
+                  disabled={backtestDisabled}
+                  title={backtestDisabledReason ?? undefined}
+                  onClick={() => run("backtest")}
+                >
                   Run backtest
                 </button>
               </div>
@@ -10821,7 +10838,13 @@ export function App() {
                 <>
                   <div className="hint">No backtest yet.</div>
                   <div className="actions" style={{ marginTop: 10 }}>
-                    <button className="btnSmall" type="button" disabled={requestDisabled} onClick={() => run("backtest")}>
+                    <button
+                      className="btnSmall"
+                      type="button"
+                      disabled={backtestDisabled}
+                      title={backtestDisabledReason ?? undefined}
+                      onClick={() => run("backtest")}
+                    >
                       Run backtest
                     </button>
                   </div>

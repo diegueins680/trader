@@ -141,7 +141,7 @@ Getting Binance API keys:
 - Binance → Profile → **API Management** → **Create API**
 - Enable only what you need (Spot/Margin/Futures trading) and keep withdrawals disabled
 - Prefer IP restrictions (allowlist your server IP) when possible
-- If deploying on AWS App Runner, outbound IP is not stable by default; use `deploy/aws/setup-apprunner-egress-eip.sh` (or `deploy-aws-quick.sh --setup-egress-eip`) to get a fixed Elastic IP for allowlisting
+- If deploying on AWS App Runner, outbound IP is not stable by default; for IP allowlisting, route Binance traffic via a fixed-IP proxy (`TRADER_BINANCE_PROXY_URL`) or provision App Runner VPC egress with a fixed Elastic IP (`deploy/aws/setup-apprunner-egress-eip.sh`, or `deploy-aws-quick.sh --setup-egress-eip`).
 - Example: `bash deploy/aws/setup-apprunner-egress-eip.sh --service-name trader-api --region ap-northeast-1` (prints the Elastic IP to allowlist). Tear down with `bash deploy/aws/teardown-apprunner-egress-eip.sh --confirm --region ap-northeast-1` (or `deploy-aws-quick.sh --teardown-egress-eip`, which prompts) when no longer needed.
 - If using Binance testnet keys, run with `--binance-testnet` (keys are not interchangeable with mainnet)
 - Save the secret: Binance only shows it once
@@ -846,7 +846,7 @@ If an S3 bucket already exists and is owned by you, the quick deploy script trea
 CI/CD (GitHub Actions):
 - On push to `main`/`master`, `.github/workflows/ci.yml` deploys via `deploy-aws-quick.sh` after CI passes.
 - Required secrets: `AWS_ROLE_ARN` + `AWS_REGION` (or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`), plus `TRADER_API_TOKEN`, `TRADER_DB_URL`, `TRADER_STATE_S3_BUCKET`, `TRADER_STATE_S3_PREFIX`, `TRADER_STATE_S3_REGION`.
-- If deploy fails pushing to ECR with `403 Forbidden` on `HEAD .../manifests/sha256:...`, add `ecr:BatchGetImage` to the deploy IAM policy or disable Docker attestations (the deploy script disables provenance/SBOM by default; set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable).
+- If deploy fails pushing to ECR with `403 Forbidden` on `HEAD .../manifests/<tag|sha256:...>`, add `ecr:BatchGetImage` to the deploy IAM policy (Docker checks for existing manifests) or disable Docker attestations (the deploy script disables provenance/SBOM by default; set `TRADER_DOCKER_PROVENANCE=true` and/or `TRADER_DOCKER_SBOM=true` to re-enable).
 - Optional: `TRADER_AWS_ENSURE_RESOURCES` (auto-provision), `TRADER_UI_CLOUDFRONT_AUTO`, `TRADER_UI_BUCKET`, `TRADER_UI_CLOUDFRONT_DISTRIBUTION_ID`, `TRADER_UI_CLOUDFRONT_DOMAIN`, `TRADER_UI_API_MODE`, `TRADER_UI_API_URL`, `TRADER_UI_API_FALLBACK_URL`.
 - Deploys run ops schema updates + performance rollups when `TRADER_DB_URL` is set (requires `psql`); disable with `TRADER_OPS_ROLLUP_ON_DEPLOY=false`.
 
